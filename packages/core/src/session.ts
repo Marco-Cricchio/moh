@@ -1,6 +1,9 @@
 import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
+import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
+import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, type PermissionRule, type SessionMode } from "./permissions";
+import { PromptComposer } from "./prompt-composer";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -10,20 +13,50 @@ const DEFAULT_MAX_ITERATIONS = 50;
  */
 export class AgentSession {
   readonly #provider: Provider;
+  /** Registry snapshot frozen at creation; later registrations never reach it. */
+  readonly #registry: FrozenProviderRegistry | undefined;
   readonly #maxIterations: number;
   readonly #tools: Record<string, Tool>;
   readonly #cwd: string;
+  readonly #permissions: PermissionResolver;
+  readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
+  readonly #sink: SessionConfig["sink"] | undefined;
+  readonly #promptComposer: PromptComposer;
+  #promptVersion = "";
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   #controller: AbortController | null = null;
+  #turn: Promise<TurnResult> | null = null;
+  /** Pending sends: front runs as soon as the session is idle. */
+  readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
 
   constructor(config: SessionConfig) {
-    this.#provider = config.provider;
+    this.#registry = config.registry?.freeze();
+    this.#provider =
+      typeof config.provider === "string"
+        ? resolveProviderRef(config.provider, this.#registry ?? defaultRegistry.freeze(), [])
+        : config.provider;
     this.#maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
-    this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION });
+    const perms = config.permissions ?? {};
+    const mode: SessionMode = perms.bypassPermissions === true
+      ? "bypass"
+      : perms.mode === "auto-accept" ? "auto-accept" : "normal";
+    this.#permissions = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: perms.overrides,
+      runtimeRules: perms.runtimeRules,
+      mode,
+      cwd: this.#cwd,
+    });
+    this.#onPermissionRequest = config.onPermissionRequest;
+    this.#sink = config.sink;
+    this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
+    this.#assemblePrompt();
+    this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
+    this.#append({ type: "session_mode", mode });
   }
 
   /** Append-only event log, replayable in memory. */
@@ -57,9 +90,9 @@ export class AgentSession {
     };
   }
 
-  /** True while a turn is in flight. */
+  /** True while a turn is in flight (including one being steered away). */
   pending(): boolean {
-    return this.#controller !== null;
+    return this.#turn !== null;
   }
 
   /** Snapshot of the append-only event log. */
@@ -72,81 +105,143 @@ export class AgentSession {
     this.#controller?.abort();
   }
 
+  /** Registry snapshot this session was created with (frozen). */
+  get registry(): FrozenProviderRegistry | undefined {
+    return this.#registry;
+  }
+
   /** Tools registered on this session. */
   get tools(): Record<string, Tool> {
     return this.#tools;
   }
 
-  async send(text: string): Promise<TurnResult> {
-    if (this.pending()) throw new Error("a turn is already pending");
+  /**
+   * Sends a user message and runs the turn to completion.
+   * Steering: calling send() while a turn is active aborts the in-flight
+   * call (its promise resolves `{status: "cancelled"}`) and the steering
+   * message starts a fresh turn as soon as the session is idle. Each send
+   * resolves with the result of its own turn; there is no queued-only mode
+   * — a later send always preempts the running one.
+   */
+  send(text: string): Promise<TurnResult> {
+    return new Promise<TurnResult>((resolve) => {
+      this.#queue.push({ text, resolve });
+      this.#pump();
+    });
+  }
+
+  /**
+   * Starts the front-of-queue send when idle, or preempts the active
+   * turn when sends are waiting. The finishing turn re-pumps, so a
+   * steered session chains: cancelled -> steering user_message -> new turn.
+   */
+  #pump(): void {
+    if (this.#turn !== null) {
+      if (this.#queue.length > 0) this.#controller?.abort();
+      return;
+    }
+    const item = this.#queue.shift();
+    if (!item) return;
     const controller = new AbortController();
     this.#controller = controller;
-    try {
-      this.#append({ type: "user_message", text });
-      this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
-
-      let iterations = 0;
-      let assistantText = "";
-      let finishReason: FinishReason | null = null;
-      while (finishReason !== "stop") {
-        if (iterations >= this.#maxIterations) {
-          this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
-          return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
-        }
-        iterations += 1;
-        assistantText = "";
-        finishReason = null;
-        const toolCalls: ToolCall[] = [];
-        try {
-          for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
-            if (controller.signal.aborted) break;
-            if (event.type === "text_delta") {
-              assistantText += event.text;
-              this.#append({ type: "assistant_delta", text: event.text });
-            } else if (event.type === "tool_calls") {
-              toolCalls.push(...event.calls);
-            } else if (event.type === "finish") {
-              finishReason = event.reason;
-            }
-          }
-        } catch (err) {
-          if (controller.signal.aborted) break;
-          const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
-          const message = err instanceof Error ? err.message : String(err);
-          this.#append({ type: "error", reason, message });
-          return { status: "error", reason, message };
-        }
-        if (finishReason === null) {
-          // Stream ended without a finish event (e.g. aborted mid-stream).
-          break;
-        }
-        if (finishReason !== "stop") {
-          this.#messages.push({
-            role: "assistant",
-            parts: [
-              ...(assistantText ? [{ kind: "text" as const, text: assistantText }] : []),
-              ...toolCalls.map((c) => ({ kind: "tool_call" as const, ...c })),
-            ],
-          });
-          const outcome = await this.#runTools(toolCalls, controller.signal);
-          if (outcome === "aborted") break;
-        }
-      }
-
-      if (controller.signal.aborted) {
-        this.#append({ type: "cancelled" });
-        return { status: "cancelled" };
-      }
-      this.#pushAssistant(assistantText);
-      this.#append({ type: "done" });
-      return { status: "done" };
-    } finally {
+    const turn = this.#executeTurn(item.text, controller).finally(() => {
+      this.#turn = null;
       this.#controller = null;
+      this.#pump();
+    }) as Promise<TurnResult>;
+    // Defensive: an unexpected rejection must still settle the caller's
+    // promise instead of becoming an unhandled rejection.
+    const guarded = turn.catch(
+      (err): TurnResult => ({
+        status: "error",
+        reason: "internal",
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    ) as Promise<TurnResult>;
+    this.#turn = turn;
+    void guarded.then(item.resolve);
+  }
+
+  async #executeTurn(text: string, controller: AbortController): Promise<TurnResult> {
+    this.#append({ type: "user_message", text });
+    this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
+
+    let iterations = 0;
+    let assistantText = "";
+    let finishReason: FinishReason | null = null;
+    while (finishReason !== "stop") {
+      if (iterations >= this.#maxIterations) {
+        this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
+        return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
+      }
+      iterations += 1;
+      assistantText = "";
+      finishReason = null;
+      this.#assemblePrompt(); // reassembled every call
+      const toolCalls: ToolCall[] = [];
+      try {
+        for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
+          if (controller.signal.aborted) break;
+          if (event.type === "text_delta") {
+            assistantText += event.text;
+            this.#append({ type: "assistant_delta", text: event.text });
+          } else if (event.type === "tool_calls") {
+            toolCalls.push(...event.calls);
+          } else if (event.type === "finish") {
+            finishReason = event.reason;
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted) break;
+        const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
+        const message = err instanceof Error ? err.message : String(err);
+        this.#append({ type: "error", reason, message });
+        return { status: "error", reason, message };
+      }
+      if (finishReason === null) {
+        // Stream ended without a finish event (e.g. aborted mid-stream).
+        break;
+      }
+      if (finishReason !== "stop") {
+        this.#messages.push({
+          role: "assistant",
+          parts: [
+            ...(assistantText ? [{ kind: "text" as const, text: assistantText }] : []),
+            ...toolCalls.map((c) => ({ kind: "tool_call" as const, ...c })),
+          ],
+        });
+        const outcome = await this.#runTools(toolCalls, controller.signal);
+        if (outcome === "aborted") break;
+      }
     }
+
+    if (controller.signal.aborted) {
+      this.#append({ type: "cancelled" });
+      return { status: "cancelled" };
+    }
+    this.#pushAssistant(assistantText);
+    this.#append({ type: "done" });
+    return { status: "done" };
   }
 
   #pushAssistant(text: string): void {
     this.#messages.push({ role: "assistant", parts: [{ kind: "text", text }] });
+  }
+
+  /** Reassembles the system prompt for the next model call (#27). */
+  #assemblePrompt(): void {
+    const assembled = this.#promptComposer.compose({
+      cwd: this.#cwd,
+      platform: process.platform,
+      now: new Date(),
+      model: this.#provider.name,
+      tools: Object.values(this.#tools).map((t) => ({ name: t.name, description: t.description })),
+      skills: [],
+    });
+    this.#promptVersion = assembled.version;
+    const systemMessage: Message = { role: "system", parts: [{ kind: "text", text: assembled.system }] };
+    if (this.#messages[0]?.role === "system") this.#messages[0] = systemMessage;
+    else this.#messages.unshift(systemMessage);
   }
 
   /**
@@ -163,15 +258,24 @@ export class AgentSession {
     // Append each tool_result the moment its promise settles, so the log
     // reflects completion order; collect parts in that same order.
     const resultParts: Message["parts"] = [];
-    await Promise.allSettled(
-      calls.map(async (call) => {
-        const result = await this.#executeTool(call, signal);
-        this.#append({ type: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
-        resultParts.push({ kind: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
-      }),
-    );
+    const run = async (call: ToolCall) => {
+      const result = await this.#executeTool(call, signal);
+      this.#append({ type: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
+      resultParts.push({ kind: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
+    };
+    // Capability downgrade: endpoints without parallelToolCalls run calls sequentially.
+    if (this.#provider.capabilities?.parallelToolCalls === false) {
+      for (const call of calls) await run(call);
+    } else {
+      await Promise.allSettled(calls.map(run));
+    }
     this.#messages.push({ role: "user", parts: resultParts });
     return signal.aborted ? "aborted" : "ok";
+  }
+
+  /** Runtime permission rules active in this session (snapshot). */
+  get permissionRules(): PermissionRule[] {
+    return this.#permissions.rules;
   }
 
   async #executeTool(
@@ -193,6 +297,10 @@ export class AgentSession {
       }
       args = parsed.data;
     }
+    const gate = await this.#gatePermission(call.name, call.callId, args);
+    if (!gate.allowed) {
+      return { callId: call.callId, ok: false, output: gate.denial };
+    }
     const ctx: ToolContext = {
       signal,
       cwd: this.#cwd,
@@ -210,8 +318,60 @@ export class AgentSession {
     }
   }
 
+  /**
+   * Resolves and enforces the 3-tier permission gate for one tool call.
+   * Returns a structured denial string on "deny"/headless-"ask" so the
+   * model sees the refusal as a failed tool_result.
+   */
+  async #gatePermission(
+    tool: string,
+    callId: string,
+    args: unknown,
+  ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
+    const decision = this.#permissions.resolve(tool, args);
+    if (decision === "deny") {
+      this.#append({ type: "permission_denied", callId, tool, reason: "rule" });
+      return { allowed: false, denial: `permission denied: ${tool} denied by permission rule` };
+    }
+    if (decision === "allow") return { allowed: true };
+
+    // "ask" decisions.
+    const mode = this.#permissions.mode;
+    if (mode === "bypass") {
+      this.#append({ type: "permission_granted", callId, tool, reason: "bypass" });
+      return { allowed: true };
+    }
+    if (mode === "auto-accept") {
+      this.#append({ type: "permission_granted", callId, tool, reason: "auto_accept" });
+      return { allowed: true };
+    }
+    if (!this.#onPermissionRequest) {
+      this.#append({ type: "permission_denied", callId, tool, reason: "headless" });
+      return {
+        allowed: false,
+        denial: `permission denied: ${tool} requires user consent (headless mode)`,
+      };
+    }
+    this.#append({ type: "permission_requested", callId, tool });
+    const answer = await this.#onPermissionRequest(tool, args);
+    if (answer === "no") {
+      this.#append({ type: "permission_denied", callId, tool, reason: "user" });
+      return { allowed: false, denial: `permission denied: ${tool} requires user consent` };
+    }
+    this.#append({ type: "permission_granted", callId, tool, reason: "user" });
+    if (answer === "always" && this.#permissions.persistable(tool, args)) {
+      const rule = this.#permissions.runtimeRuleFor(tool, args);
+      if (rule) {
+        this.#permissions.addRuntimeRule(rule);
+        this.#append({ type: "permission_rule_added", rule: { ...rule, tier: "runtime" } });
+      }
+    }
+    return { allowed: true };
+  }
+
   #append(event: AgentEvent): void {
     this.#log.push(event);
+    this.#sink?.(event);
     for (const listener of this.#listeners) listener(event);
   }
 }
