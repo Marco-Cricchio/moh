@@ -1,4 +1,4 @@
-import type { AgentEvent, Message, Provider, TurnResult } from "./types";
+import type { AgentEvent, FinishReason, Message, Provider, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 
@@ -78,7 +78,7 @@ export class AgentSession {
 
       let iterations = 0;
       let assistantText = "";
-      let finishReason: string | null = null;
+      let finishReason: FinishReason | null = null;
       while (finishReason !== "stop") {
         if (iterations >= this.#maxIterations) {
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
@@ -89,6 +89,7 @@ export class AgentSession {
         finishReason = null;
         try {
           for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
+            if (controller.signal.aborted) break;
             if (event.type === "text_delta") {
               assistantText += event.text;
               this.#append({ type: "assistant_delta", text: event.text });
@@ -108,7 +109,7 @@ export class AgentSession {
           break;
         }
         if (finishReason !== "stop") {
-          this.#messages.push({ role: "assistant", parts: [{ kind: "text", text: assistantText }] });
+          this.#pushAssistant(assistantText);
         }
       }
 
@@ -116,12 +117,16 @@ export class AgentSession {
         this.#append({ type: "cancelled" });
         return { status: "cancelled" };
       }
-      this.#messages.push({ role: "assistant", parts: [{ kind: "text", text: assistantText }] });
+      this.#pushAssistant(assistantText);
       this.#append({ type: "done" });
       return { status: "done" };
     } finally {
       this.#controller = null;
     }
+  }
+
+  #pushAssistant(text: string): void {
+    this.#messages.push({ role: "assistant", parts: [{ kind: "text", text }] });
   }
 
   #append(event: AgentEvent): void {
