@@ -9,7 +9,8 @@
     ".": "./src/cli.ts"
   },
   "dependencies": {
-    "@moh/core": "workspace:*"
+    "@moh/core": "workspace:*",
+    "@moh/tui": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5"
