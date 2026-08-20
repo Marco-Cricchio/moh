@@ -1,0 +1,10 @@
+{
+  "dependencies": {},
+  "devDependencies": {
+    "ink": "^6",
+    "marked": "^18.0.10",
+    "marked-terminal": "^7.3.0",
+    "picocolors": "^1.1.1",
+    "react": "^19"
+  }
+}
