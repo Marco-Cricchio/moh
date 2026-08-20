@@ -3,8 +3,10 @@
  */
 export const SCHEMA_VERSION = 1;
 
+import { z } from "zod";
+
 export type TextPart = { kind: "text"; text: string };
-export type ToolCallPart = { kind: "tool_call"; callId: string; name: string; args: unknown };
+export type ToolCallPart = ToolCall & { kind: "tool_call" };
 export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string };
 export type MessagePart = TextPart | ToolCallPart | ToolResultPart;
 
@@ -59,7 +61,7 @@ export type AgentEvent =
   | { type: "session_start"; schemaVersion: number }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
-  | { type: "tool_call"; callId: string; name: string; args: unknown }
+  | ({ type: "tool_call" } & ToolCall)
   | { type: "tool_result"; callId: string; ok: boolean; output: string }
   | { type: "done" }
   | { type: "error"; reason: string; message: string }
@@ -80,8 +82,15 @@ export interface Tool<A = any> {
   name: string;
   description: string;
   /** Zod schema validating raw model args before execute(). */
-  inputSchema: unknown;
+  inputSchema: z.ZodType<A> | undefined;
   execute(args: A, ctx: ToolContext): Promise<string> | string;
+}
+
+/** A tool invocation requested by the model. */
+export interface ToolCall {
+  callId: string;
+  name: string;
+  args: unknown;
 }
 
 export interface TurnResult {

@@ -1,7 +1,7 @@
 import { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session";
 import { builtinTools } from "./builtin-tools";
-import type { AgentEvent, Message, Provider, StreamEvent, Tool, ToolContext, TurnResult } from "./types";
+import type { AgentEvent, Message, Provider, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 
 export interface SessionConfig {
   /**
@@ -30,6 +30,7 @@ export {
   type Provider,
   type StreamEvent,
   type Tool,
+  type ToolCall,
   type ToolContext,
   type TurnResult,
 };
