@@ -1,5 +1,9 @@
 # moh
 
+## Language
+
+All repo artifacts (issues, PRs, comments, docs, code, commit messages) are in **English**. All conversation with the owner across moh sessions is in **Italian**. Never ask about this again.
+
 ## Agent skills
 
 ### Issue tracker
