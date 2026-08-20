@@ -27,7 +27,8 @@ export type ProviderErrorKind =
   | "network"
   | "invalid_request"
   | "context_length"
-  | "content_filtered";
+  | "content_filtered"
+  | "aborted";
 
 export class ProviderError extends Error {
   constructor(
@@ -52,10 +53,19 @@ export type FinishReason = "stop" | "tool_calls";
  */
 export interface Provider {
   readonly name: string;
+  /** Feature flags of the underlying endpoint; drive capability downgrades. */
+  readonly capabilities?: EndpointCapabilities;
   stream(
     messages: Message[],
     signal: AbortSignal,
   ): AsyncIterable<StreamEvent>;
+}
+
+/** Per-endpoint feature flags (issue #28). */
+export interface EndpointCapabilities {
+  caching: boolean;
+  parallelToolCalls: boolean;
+  multimodal: boolean;
 }
 
 export type AgentEvent =
