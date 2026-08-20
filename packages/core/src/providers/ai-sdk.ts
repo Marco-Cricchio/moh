@@ -79,8 +79,8 @@ export function aiSdkStreamFor(
         const { system, messages: aiMessages } = toAiMessages(messages);
         const result = streamText({
           model,
-          system,
-          messages: aiMessages,
+          system: system ?? undefined,
+          messages: aiMessages ?? [],
           abortSignal: signal,
           onError: () => {}, // errors surface via fullStream error parts
         });
