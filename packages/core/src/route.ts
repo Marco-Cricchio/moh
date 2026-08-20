@@ -72,7 +72,7 @@ export interface RouteConfig {
    * handle; return undefined to use the default AI SDK factory. Tests
    * inject mocks for specific endpoints while keeping real ones live.
    */
-  createStream?: (target: RouteTarget) => ((messages: Message[], signal: AbortSignal) => AsyncIterable<StreamEvent>) | undefined;
+  createStream?: (target: RouteTarget) => StreamFn | undefined;
 }
 
 export interface Route extends Provider {
@@ -128,6 +128,8 @@ export function createRoute(config: RouteConfig): Route {
   return provider;
 }
 
-function defaultStreamFactory(): NonNullable<RouteConfig["createStream"]> {
+type StreamFn = (messages: Message[], signal: AbortSignal) => AsyncIterable<StreamEvent>;
+
+function defaultStreamFactory(): (target: RouteTarget) => StreamFn {
   return (target) => aiSdkStreamFor(target, target.endpoint.apiKey, target.endpoint.baseUrl);
 }
