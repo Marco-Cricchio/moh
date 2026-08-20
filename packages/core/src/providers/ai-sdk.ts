@@ -28,13 +28,13 @@ function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseU
   throw new Error(`endpoint "${name}": kind "${kind}" has no AI SDK model factory; provide createStream`);
 }
 
-/** Maps moh messages to AI SDK messages (internal, never exported publicly). */
-function toAiMessages(messages: Message[]) {
+/** Maps moh messages to AI SDK: system messages become the `system` option. */
+function toAiMessages(messages: Message[]): { system: string | undefined; messages: Parameters<typeof streamText>[0]["messages"] } {
   const out: Parameters<typeof streamText>[0]["messages"] = [];
+  const systemParts: string[] = [];
   for (const msg of messages) {
     if (msg.role === "system") {
-      const text = msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
-      out.push({ role: "system", content: text });
+      systemParts.push(msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join(""));
       continue;
     }
     const content: unknown[] = [];
@@ -59,7 +59,7 @@ function toAiMessages(messages: Message[]) {
     }
     out.push({ role: msg.role, content } as never);
   }
-  return out;
+  return { system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined, messages: out };
 }
 
 /**
@@ -76,9 +76,11 @@ export function aiSdkStreamFor(
   return (messages, signal) => {
     return {
       async *[Symbol.asyncIterator]() {
+        const { system, messages: aiMessages } = toAiMessages(messages);
         const result = streamText({
           model,
-          messages: toAiMessages(messages),
+          system,
+          messages: aiMessages,
           abortSignal: signal,
           onError: () => {}, // errors surface via fullStream error parts
         });
