@@ -18,8 +18,10 @@ function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseU
     return anthropic(target.modelId);
   }
   if (kind === "openai") {
+    // Chat Completions, not the Responses API: openai-compat endpoints
+    // (z.ai, Ollama, DeepSeek, ...) only expose /chat/completions.
     const openai = createOpenAI({ apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
-    return openai(target.modelId);
+    return openai.chat(target.modelId);
   }
   if (kind === "google") {
     const google = createGoogleGenerativeAI({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
