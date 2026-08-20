@@ -68,10 +68,11 @@ export interface RouteConfig {
   /** Backoff between retries, ms. Default 100. Tests use 0. */
   retryBackoffMs?: number;
   /**
-   * Stream factory per target. Defaults to the AI SDK adapter bundle
-   * (anthropic/openai/google); tests inject mock factories.
+   * Per-target stream factory override. Return a stream for targets you
+   * handle; return undefined to use the default AI SDK factory. Tests
+   * inject mocks for specific endpoints while keeping real ones live.
    */
-  createStream?: (target: RouteTarget) => (messages: Message[], signal: AbortSignal) => AsyncIterable<StreamEvent>;
+  createStream?: (target: RouteTarget) => ((messages: Message[], signal: AbortSignal) => AsyncIterable<StreamEvent>) | undefined;
 }
 
 export interface Route extends Provider {
@@ -91,7 +92,8 @@ export function createRoute(config: RouteConfig): Route {
   const chain = [config.target, ...(config.fallbacks ?? [])];
   const retries = config.retries ?? 1;
   const backoff = config.retryBackoffMs ?? 100;
-  const streamFactory = config.createStream ?? defaultStreamFactory();
+  const streamFactory = config.createStream ?? (() => undefined);
+  const defaultFactory = defaultStreamFactory();
   const provider: Route = {
     ref: `${config.target.endpoint.name}/${config.target.modelId}`,
     name: `${config.target.endpoint.name}/${config.target.modelId}`,
@@ -103,7 +105,8 @@ export function createRoute(config: RouteConfig): Route {
         let attempt = 0;
         while (true) {
           try {
-            for await (const event of streamFactory(target)(messages, signal)) {
+            const stream = streamFactory(target) ?? defaultFactory(target);
+            for await (const event of stream(messages, signal)) {
               yield event;
             }
             return;
