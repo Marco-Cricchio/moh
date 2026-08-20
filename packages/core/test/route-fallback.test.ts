@@ -264,3 +264,15 @@ describe("capability downgrades", () => {
     expect(order[1]).toBe("start:fast"); // overlapping
   });
 });
+
+describe("billing-error normalization (z.ai code 1113)", () => {
+  test("insufficient balance with HTTP 400 maps to quota_exhausted, not invalid_request", () => {
+    expect(
+      classifyStatus(400, '{"error":{"code":"1113","message":"Insufficient balance or no resource package. Please recharge."}}', ""),
+    ).toBe("quota_exhausted");
+  });
+  test("SDK retry wrapper without statusCode still sniffs the cause", () => {
+    const wrapped = new Error("Failed after 3 attempts. Last error: AI_APICallError: Insufficient balance or no resource package. Please recharge.");
+    expect(normalizeProviderError(wrapped).kind).toBe("quota_exhausted");
+  });
+});
