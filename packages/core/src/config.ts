@@ -33,6 +33,14 @@ const endpointProfileSchema = z.object({
   capabilities: capabilitiesSchema.optional(),
 });
 
+const permissionOverridesSchema = z.object({
+  tools: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),
+  bashAllow: z.array(z.array(z.string())).optional(),
+  bashDeny: z.array(z.array(z.string())).optional(),
+  pathAllow: z.array(z.string()).optional(),
+  pathDeny: z.array(z.string()).optional(),
+});
+
 export const mohConfigSchema = z.object({
   /**
    * Default provider reference: "mock", a custom registered id, or
@@ -40,6 +48,12 @@ export const mohConfigSchema = z.object({
    */
   provider: z.string().optional(),
   endpoints: z.array(endpointProfileSchema).optional(),
+  /** Tier-2 permission rules (#31): CLI `--allow`/`--deny` flags merge on top of these. */
+  permissions: z
+    .object({
+      overrides: permissionOverridesSchema.optional(),
+    })
+    .optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;
