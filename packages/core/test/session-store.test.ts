@@ -79,6 +79,16 @@ describe("session store", () => {
     expect(SessionStore.latest(join(tmpdir(), "nowhere"), home)).toBeNull();
   });
 
+  test("list() returns the project's session files, newest first", async () => {
+    const home = tempHome();
+    const cwd = process.cwd();
+    expect(SessionStore.list(cwd, home)).toEqual([]);
+    const a = SessionStore.create(cwd, home);
+    await Bun.sleep(5);
+    const b = SessionStore.create(cwd, home);
+    expect(SessionStore.list(cwd, home).map((s) => s.file)).toEqual([b.file, a.file]);
+  });
+
   test("fork() creates a new file inheriting the full history; the original is untouched", async () => {
     const home = tempHome();
     const cwd = process.cwd();

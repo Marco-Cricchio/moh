@@ -1,0 +1,20 @@
+{
+  "name": "@moh/tui",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@moh/core": "workspace:*",
+    "ink": "^6.4.0",
+    "marked": "^15",
+    "marked-terminal": "^7.3.0",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "ink-testing-library": "^4",
+    "typescript": "^5"
+  }
+}
