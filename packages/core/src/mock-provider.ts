@@ -3,6 +3,8 @@ import type { FinishReason, Message, Provider, StreamEvent } from "./types";
 export interface MockTurnScript {
   deltas: string[];
   finish: FinishReason;
+  /** Delay before each delta, to simulate streaming and enable abort tests. */
+  deltaDelayMs?: number;
 }
 
 export class MockProvider implements Provider {
@@ -29,6 +31,7 @@ export class MockProvider implements Provider {
     this.#call += 1;
     for (const text of turn.deltas) {
       if (signal.aborted) return;
+      if (turn.deltaDelayMs) await Bun.sleep(turn.deltaDelayMs);
       yield { type: "text_delta", text };
     }
     yield { type: "finish", reason: turn.finish };
