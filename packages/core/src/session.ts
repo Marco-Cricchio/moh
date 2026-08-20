@@ -1,14 +1,8 @@
-import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolContext, TurnResult } from "./types";
+import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 
 const DEFAULT_MAX_ITERATIONS = 50;
-
-interface PendingToolCall {
-  callId: string;
-  name: string;
-  args: unknown;
-}
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -102,7 +96,7 @@ export class AgentSession {
         iterations += 1;
         assistantText = "";
         finishReason = null;
-        const toolCalls: PendingToolCall[] = [];
+        const toolCalls: ToolCall[] = [];
         try {
           for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
             if (controller.signal.aborted) break;
@@ -161,7 +155,7 @@ export class AgentSession {
    * back as a user message the model sees for self-correction.
    * Returns "aborted" if the turn was cancelled mid-execution.
    */
-  async #runTools(calls: PendingToolCall[], signal: AbortSignal): Promise<"ok" | "aborted"> {
+  async #runTools(calls: ToolCall[], signal: AbortSignal): Promise<"ok" | "aborted"> {
     if (calls.length === 0) return "ok";
     for (const call of calls) {
       this.#append({ type: "tool_call", callId: call.callId, name: call.name, args: call.args });
@@ -181,12 +175,23 @@ export class AgentSession {
   }
 
   async #executeTool(
-    call: PendingToolCall,
+    call: ToolCall,
     signal: AbortSignal,
   ): Promise<{ callId: string; ok: boolean; output: string }> {
     const tool = this.#tools[call.name];
     if (!tool) {
       return { callId: call.callId, ok: false, output: `unknown tool: ${call.name}` };
+    }
+    let args: unknown = call.args;
+    if (tool.inputSchema) {
+      const parsed = tool.inputSchema.safeParse(call.args);
+      if (!parsed.success) {
+        const issues = parsed.error.issues
+          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+          .join("; ");
+        return { callId: call.callId, ok: false, output: `invalid arguments for ${call.name}: ${issues}` };
+      }
+      args = parsed.data;
     }
     const ctx: ToolContext = {
       signal,
@@ -194,7 +199,7 @@ export class AgentSession {
       onProgress: () => {},
     };
     try {
-      const output = await tool.execute(call.args, ctx);
+      const output = await tool.execute(args, ctx);
       return { callId: call.callId, ok: true, output: String(output) };
     } catch (err) {
       return {

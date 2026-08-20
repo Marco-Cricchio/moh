@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { createSession, MockProvider } from "../src/index";
 import type { Message, Provider, StreamEvent, Tool } from "../src/index";
 
@@ -103,6 +104,27 @@ describe("tool-calling loop", () => {
       .history()
       .filter((e: any) => e.type === "tool_result") as any[];
     expect(results.map((r) => r.output)).toEqual(["fast done", "slow done"]);
+  });
+
+  test("invalid tool arguments are rejected by the schema as an error tool_result", async () => {
+    const strict: Tool<{ text: string }> = {
+      name: "strict",
+      description: "",
+      inputSchema: z.object({ text: z.string().min(1) }),
+      execute: async (args) => `got ${args.text}`,
+    };
+    const provider = MockProvider.scripted([
+      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "strict", args: { text: 42 } }] },
+      { deltas: ["recovered"], finish: "stop" },
+    ]);
+    const session = createSession({ provider, tools: { strict } });
+
+    const result = await session.send("bad args");
+    expect(result.status).toBe("done");
+    const toolResult = session.history().find((e: any) => e.type === "tool_result")! as any;
+    expect(toolResult.ok).toBe(false);
+    expect(toolResult.output).toContain("invalid arguments");
+    expect(toolResult.output).toContain("text");
   });
 
   test("failing tool produces an error tool_result the model sees; turn continues", async () => {
