@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createSession, MockProvider } from "../src/index";
+import { createSession, MockProvider, PromptComposer, hashPrompt } from "../src/index";
+import type { Message, Provider } from "../src/index";
 
 describe("core agent loop", () => {
   test("send() on a scripted MockProvider streams text_delta events and ends with done", async () => {
@@ -104,6 +105,33 @@ describe("core agent loop", () => {
     expect(session.history()[0]!.type).toBe("session_start");
   });
 
+  test("session_start carries promptVersion and the system prompt leads every model call", async () => {
+    let seenMessages: Message[] = [];
+    const capture: Provider = {
+      name: "capture",
+      async *stream(messages: Message[]) {
+        seenMessages = messages.map((m) => ({ ...m }));
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const composer = new PromptComposer({ projectDir: "/nonexistent-project" });
+    const session = createSession({ provider: capture, promptComposer: composer });
+
+    const start = session.history()[0] as any;
+    expect(start.promptVersion).toMatch(/^[0-9a-f]{16}$/);
+
+    await session.send("hello");
+    expect(seenMessages[0]!.role).toBe("system");
+    const system = (seenMessages[0]!.parts[0] as any).text as string;
+    // Fixed section order in the assembled system prompt.
+    const idx = (name: string) => system.indexOf(name);
+    expect(idx("You are moh")).toBeLessThan(idx("## Environment"));
+    expect(idx("## Environment")).toBeLessThan(idx("## Tools"));
+    expect(system).toContain("## Environment");
+    // promptVersion in the log is the hash of the assembled system prompt.
+    expect(hashPrompt(system)).toBe(start.promptVersion);
+  });
+
   test("event log is append-only, replayable, and session_start carries schemaVersion", async () => {
     const session = createSession({
       provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
@@ -111,7 +139,9 @@ describe("core agent loop", () => {
     await session.send("replay me");
 
     const log = session.history();
-    expect(log[0]).toEqual({ type: "session_start", schemaVersion: 1 });
+    expect(log[0]!.type).toBe("session_start");
+    expect((log[0] as any).schemaVersion).toBe(1);
+    expect((log[0] as any).promptVersion).toMatch(/^[0-9a-f]{16}$/);
     expect(log.map((e) => e.type)).toEqual([
       "session_start",
       "session_mode",

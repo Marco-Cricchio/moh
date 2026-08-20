@@ -59,7 +59,7 @@ export interface Provider {
 }
 
 export type AgentEvent =
-  | { type: "session_start"; schemaVersion: number }
+  | { type: "session_start"; schemaVersion: number; promptVersion: string }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall)
