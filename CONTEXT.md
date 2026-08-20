@@ -27,3 +27,7 @@
 - **Compaction** — rebuilding the past **within** a session: an in-log `compaction` marker (summary + pointers) that replay uses instead of replaying everything. The log stays integral forever; nothing is ever deleted. Distinct from Memory — no fact is stored in both.
 - **Maintenance subagent** — the background agent that extracts memory updates and compacts context; invisible to the TUI, fail-silent.
 - **Workflow upstream** — the official Matt Pocock skill repository, polled (opt-out) at startup when workflow mode is on, as the live update channel for first-party skills.
+- **MCP server** — an external tool source declared in moh.json (project, consent required on first use) or `~/.moh/config` (user, trusted). Stdio or HTTP transport; started lazily on first use, stopped at session end.
+- **PromptComposer** — the Core component that assembles the system prompt for every model call from typed sections in fixed order (base, environment, tools, skills, memory, session-state). Clients never touch the prompt; extensions can read it via `beforeModelCall` and append to the trailing `extension_notes` section, never rewrite.
+- **Base prompt** — the shipped identity/behavior section (English, "reply in the user's language"), overridable in full by a `prompts/system.md` file (`~/.moh` < `.moh`, project wins).
+- **MCP tool** — a tool exposed by an MCP server, registered as `mcp__<server>__<tool>` under the same Tool contract and permission spine as built-ins, with a stricter default: ask on first invocation.
