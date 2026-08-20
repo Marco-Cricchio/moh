@@ -64,4 +64,73 @@ describe("tool-calling loop", () => {
     expect(recorder.calls.length).toBe(2);
     expect(JSON.stringify(recorder.calls[1])).toContain("echo:hi");
   });
+
+  test("parallel same-turn tool calls land tool_result events in completion order", async () => {
+    const slow = {
+      name: "slow",
+      description: "",
+      inputSchema: undefined,
+      execute: async () => {
+        await Bun.sleep(50);
+        return "slow done";
+      },
+    } as Tool;
+    const fast = {
+      name: "fast",
+      description: "",
+      inputSchema: undefined,
+      execute: async () => {
+        await Bun.sleep(5);
+        return "fast done";
+      },
+    } as Tool;
+    const provider = MockProvider.scripted([
+      {
+        deltas: [],
+        finish: "tool_calls",
+        toolCalls: [
+          { name: "slow", args: {} },
+          { name: "fast", args: {} },
+        ],
+      },
+      { deltas: ["ok"], finish: "stop" },
+    ]);
+    const session = createSession({ provider, tools: { slow, fast } });
+
+    const result = await session.send("run both");
+    expect(result.status).toBe("done");
+    const results = session
+      .history()
+      .filter((e: any) => e.type === "tool_result") as any[];
+    expect(results.map((r) => r.output)).toEqual(["fast done", "slow done"]);
+  });
+
+  test("failing tool produces an error tool_result the model sees; turn continues", async () => {
+    const seenByModel: any[] = [];
+    const boom: Tool = {
+      name: "boom",
+      description: "",
+      inputSchema: undefined,
+      execute: async () => {
+        throw new Error("kaboom");
+      },
+    };
+    const provider = MockProvider.scripted([
+      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "boom", args: {} }] },
+      { deltas: ["recovered"], finish: "stop" },
+    ]);
+    const recorder = recording(provider);
+    const session = createSession({ provider: recorder.wrapped, tools: { boom } });
+
+    const result = await session.send("fail once");
+    expect(result.status).toBe("done");
+
+    const errorResult = session.history().find((e: any) => e.type === "tool_result")! as any;
+    expect(errorResult.ok).toBe(false);
+    expect(errorResult.output).toContain("kaboom");
+
+    // The model saw the failure in the follow-up call and still finished.
+    expect(JSON.stringify(recorder.calls[1])).toContain("kaboom");
+    expect(session.history().at(-1)!.type).toBe("done");
+  });
 });
