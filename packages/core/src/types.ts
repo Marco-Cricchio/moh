@@ -3,14 +3,19 @@
  */
 export const SCHEMA_VERSION = 1;
 
+import { z } from "zod";
+
 export type TextPart = { kind: "text"; text: string };
+export type ToolCallPart = ToolCall & { kind: "tool_call" };
+export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string };
+export type MessagePart = TextPart | ToolCallPart | ToolResultPart;
 
 /**
  * One message in the conversation fed to providers.
  */
 export interface Message {
   role: "system" | "user" | "assistant";
-  parts: TextPart[];
+  parts: MessagePart[];
 }
 
 export type ProviderErrorKind =
@@ -35,6 +40,7 @@ export class ProviderError extends Error {
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
+  | { type: "tool_calls"; calls: { callId: string; name: string; args: unknown }[] }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "finish"; reason: FinishReason };
 
@@ -55,11 +61,37 @@ export type AgentEvent =
   | { type: "session_start"; schemaVersion: number }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
+  | ({ type: "tool_call" } & ToolCall)
+  | { type: "tool_result"; callId: string; ok: boolean; output: string }
   | { type: "done" }
   | { type: "error"; reason: string; message: string }
   | { type: "cancelled" };
 
 export type TurnStatus = "done" | "error" | "cancelled";
+
+/** Runtime context handed to every tool execution. */
+export interface ToolContext {
+  signal: AbortSignal;
+  cwd: string;
+  /** Progressive output channel (streamed partial output); may be a no-op. */
+  onProgress: (chunk: string) => void;
+}
+
+/** The tool contract every built-in and extension tool implements. */
+export interface Tool<A = any> {
+  name: string;
+  description: string;
+  /** Zod schema validating raw model args before execute(). */
+  inputSchema: z.ZodType<A> | undefined;
+  execute(args: A, ctx: ToolContext): Promise<string> | string;
+}
+
+/** A tool invocation requested by the model. */
+export interface ToolCall {
+  callId: string;
+  name: string;
+  args: unknown;
+}
 
 export interface TurnResult {
   status: TurnStatus;
