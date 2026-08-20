@@ -27,6 +27,8 @@ export type SectionName = (typeof SECTION_ORDER)[number];
 export interface SkillIndexEntry {
   name: string;
   description: string;
+  /** Location of the skill's SKILL.md, shown so the model can load it and resolve its relative refs. */
+  path?: string;
 }
 
 /** Everything a section may read. Pure data; deterministic for equal inputs. */
@@ -212,8 +214,16 @@ export class PromptComposer {
 
   #renderSkills(ctx: PromptContext): string {
     if (ctx.skills.length === 0) return "";
-    const lines = ["## Skills", "", "Load a skill's full instructions with the read tool when needed.", ""];
-    for (const skill of ctx.skills) lines.push(`- ${skill.name} — ${skill.description}`);
+    const lines = [
+      "## Skills",
+      "",
+      "Load a skill's full instructions with the read tool when needed.",
+      "Relative references inside a SKILL.md resolve against its directory.",
+      "",
+    ];
+    for (const skill of ctx.skills) {
+      lines.push(skill.path ? `- ${skill.name} — ${skill.description} (SKILL.md at ${skill.path})` : `- ${skill.name} — ${skill.description}`);
+    }
     return lines.join("\n");
   }
 }

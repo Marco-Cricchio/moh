@@ -15,6 +15,7 @@ import {
   type SectionRenderer,
   type SkillIndexEntry,
 } from "./prompt-composer";
+import { discoverSkills, parseSkillFrontmatter, type DiscoveredSkill, type DiscoverSkillsOptions } from "./skills";
 import {
   MIN_SUPPORTED_SCHEMA_VERSION,
   SessionStore,
@@ -106,6 +107,10 @@ export interface SessionConfig {
   sink?: (event: AgentEvent) => void;
   /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
   promptComposer?: PromptComposer;
+  /** User-level moh dir for skill discovery. Default: `~/.moh`. */
+  mohHome?: string;
+  /** Skill index entries (#30). Default: discovered from ~/.moh/skills + .moh/skills. */
+  skills?: SkillIndexEntry[];
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -143,6 +148,8 @@ export {
   DEFAULT_INSTRUCTIONS_BUDGET,
   hashPrompt,
   DEFAULT_TOOL_PERMISSIONS,
+  discoverSkills,
+  parseSkillFrontmatter,
   PermissionResolver,
   runtimeRulesFromEvents,
   splitCommandSegments,
@@ -157,6 +164,8 @@ export {
   type SectionName,
   type SectionRenderer,
   type SkillIndexEntry,
+  type DiscoveredSkill,
+  type DiscoverSkillsOptions,
   type PermissionOverrides,
   type PermissionRule,
   type PermissionTier,
