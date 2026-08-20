@@ -3,7 +3,8 @@ import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, type PermissionRule, type SessionMode } from "./permissions";
-import { PromptComposer } from "./prompt-composer";
+import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
+import { discoverSkills } from "./skills";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -22,6 +23,8 @@ export class AgentSession {
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #sink: SessionConfig["sink"] | undefined;
   readonly #promptComposer: PromptComposer;
+  readonly #skills: SkillIndexEntry[];
+  readonly #skillDirs: string[];
   #promptVersion = "";
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
@@ -54,6 +57,11 @@ export class AgentSession {
     this.#onPermissionRequest = config.onPermissionRequest;
     this.#sink = config.sink;
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
+    // Skills (#30): discovered from ~/.moh/skills + .moh/skills at creation;
+    // an explicit config wins (tests, clients). No auto-triggering.
+    const discovered = discoverSkills({ mohHome: config.mohHome, projectDir: this.#cwd });
+    this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
+    this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode });
@@ -236,7 +244,7 @@ export class AgentSession {
       now: new Date(),
       model: this.#provider.name,
       tools: Object.values(this.#tools).map((t) => ({ name: t.name, description: t.description })),
-      skills: [],
+      skills: this.#skills,
     });
     this.#promptVersion = assembled.version;
     const systemMessage: Message = { role: "system", parts: [{ kind: "text", text: assembled.system }] };
@@ -305,6 +313,7 @@ export class AgentSession {
       signal,
       cwd: this.#cwd,
       onProgress: () => {},
+      skillDirs: this.#skillDirs,
     };
     try {
       const output = await tool.execute(args, ctx);

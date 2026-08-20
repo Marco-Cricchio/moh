@@ -100,6 +100,8 @@ export interface ToolContext {
   cwd: string;
   /** Progressive output channel (streamed partial output); may be a no-op. */
   onProgress: (chunk: string) => void;
+  /** Skill directories (#30): read-only roots outside cwd the read tool may access. */
+  skillDirs?: readonly string[];
 }
 
 /** The tool contract every built-in and extension tool implements. */
