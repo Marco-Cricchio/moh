@@ -111,6 +111,12 @@ export interface SessionConfig {
   mohHome?: string;
   /** Skill index entries (#30). Default: discovered from ~/.moh/skills + .moh/skills. */
   skills?: SkillIndexEntry[];
+  /**
+   * Resume (#31): continue a persisted session (default: same file).
+   * The events seed the in-memory log and conversation; runtime permission
+   * rules from the history are restored. Only new events are appended/sunk.
+   */
+  resume?: { events: ReadonlyArray<AgentEvent> };
 }
 
 export function createSession(config: SessionConfig): AgentSession {
