@@ -246,13 +246,17 @@ export class AgentSession {
     // Append each tool_result the moment its promise settles, so the log
     // reflects completion order; collect parts in that same order.
     const resultParts: Message["parts"] = [];
-    await Promise.allSettled(
-      calls.map(async (call) => {
-        const result = await this.#executeTool(call, signal);
-        this.#append({ type: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
-        resultParts.push({ kind: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
-      }),
-    );
+    const run = async (call: ToolCall) => {
+      const result = await this.#executeTool(call, signal);
+      this.#append({ type: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
+      resultParts.push({ kind: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
+    };
+    // Capability downgrade: endpoints without parallelToolCalls run calls sequentially.
+    if (this.#provider.capabilities?.parallelToolCalls === false) {
+      for (const call of calls) await run(call);
+    } else {
+      await Promise.allSettled(calls.map(run));
+    }
     this.#messages.push({ role: "user", parts: resultParts });
     return signal.aborted ? "aborted" : "ok";
   }

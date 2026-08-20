@@ -34,7 +34,10 @@ import {
   type PermissionTier,
   type SessionMode,
 } from "./permissions";
-import type { AgentEvent, Message, PermissionGrantReason, Provider, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
+import type { AgentEvent, EndpointCapabilities, Message, PermissionGrantReason, Provider, ProviderErrorKind, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
+import { ProviderError } from "./types";
+import { normalizeProviderError, disambiguate429, classifyStatus } from "./provider-errors";
+import { Endpoint, envApiKey, createRoute, type EndpointConfig, type ProviderKind, type Route, type RouteConfig, type RouteTarget } from "./route";
 
 /** Permission configuration for a session. */
 export interface PermissionsConfig {
@@ -81,6 +84,13 @@ export {
   AgentSession,
   MockProvider,
   builtinTools,
+  Endpoint,
+  createRoute,
+  envApiKey,
+  ProviderError,
+  normalizeProviderError,
+  disambiguate429,
+  classifyStatus,
   PromptComposer,
   SECTION_ORDER,
   BASE_PROMPT,
@@ -104,6 +114,13 @@ export {
   type PermissionOverrides,
   type PermissionRule,
   type PermissionTier,
+  type EndpointCapabilities,
+  type EndpointConfig,
+  type ProviderErrorKind,
+  type ProviderKind,
+  type Route,
+  type RouteConfig,
+  type RouteTarget,
   type Provider,
   type SessionMode,
   type StreamEvent,
