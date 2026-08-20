@@ -93,10 +93,14 @@ describe("core agent loop", () => {
       message: "iteration cap of 3 reached",
     });
 
-    // The session survives: a subsequent send works normally.
-    const ok = MockProvider.scripted([{ deltas: ["fine"], finish: "stop" }]);
-    const session2 = createSession({ provider: ok, maxIterations: 3 });
-    expect((await session2.send("again")).status).toBe("done");
+    // The session survives: a subsequent send on the SAME session completes
+    // a fresh turn and the log keeps growing.
+    const result2 = await session.send("again");
+    expect(result2.reason).toBe("max_iterations");
+    expect(session.pending()).toBe(false);
+    const errors = session.history().filter((e) => e.type === "error");
+    expect(errors.length).toBe(2);
+    expect(session.history()[0]!.type).toBe("session_start");
   });
 
   test("event log is append-only, replayable, and session_start carries schemaVersion", async () => {
