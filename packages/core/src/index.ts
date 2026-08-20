@@ -38,6 +38,34 @@ import type { AgentEvent, EndpointCapabilities, Message, PermissionGrantReason, 
 import { ProviderError } from "./types";
 import { normalizeProviderError, disambiguate429, classifyStatus } from "./provider-errors";
 import { Endpoint, envApiKey, createRoute, type EndpointConfig, type ProviderKind, type Route, type RouteConfig, type RouteTarget } from "./route";
+import {
+  ProviderRegistry,
+  FrozenProviderRegistry,
+  defaultRegistry,
+  resolveProvider,
+  resolveProviderRef,
+  type ProviderFactory,
+  type ProviderFactoryOptions,
+} from "./provider-registry";
+import {
+  loadMohConfig,
+  writeMohConfig,
+  upsertEndpoint,
+  mohConfigSchema,
+  type EndpointProfile,
+  type MohConfig,
+} from "./config";
+import {
+  runProviderAdd,
+  addProviderToFile,
+  minimalConnectionTest,
+  OnboardingAborted,
+  BUILTIN_PROVIDER_TYPES,
+  type BuiltinProviderType,
+  type ConnectionTestResult,
+  type ConnectionTester,
+  type OnboardingIo,
+} from "./provider-onboarding";
 
 /** Permission configuration for a session. */
 export interface PermissionsConfig {
@@ -53,10 +81,14 @@ export interface PermissionsConfig {
 
 export interface SessionConfig {
   /**
-   * A Provider instance (e.g. `MockProvider.scripted([...])`).
+   * A Provider instance (e.g. `MockProvider.scripted([...])`), or a
+   * reference string: "mock", a registered custom provider id, or
+   * "endpoint/model-id" resolved against moh.json profiles + registry.
    * Each session owns its loop state; instances are never shared globally.
    */
-  provider: Provider;
+  provider: Provider | string;
+  /** Registry used to resolve string provider refs; frozen at creation. */
+  registry?: ProviderRegistry;
   /** Per-turn iteration cap. Default 50. */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */
@@ -84,6 +116,20 @@ export {
   AgentSession,
   MockProvider,
   builtinTools,
+  ProviderRegistry,
+  FrozenProviderRegistry,
+  defaultRegistry,
+  resolveProvider,
+  resolveProviderRef,
+  loadMohConfig,
+  writeMohConfig,
+  upsertEndpoint,
+  mohConfigSchema,
+  runProviderAdd,
+  addProviderToFile,
+  minimalConnectionTest,
+  OnboardingAborted,
+  BUILTIN_PROVIDER_TYPES,
   Endpoint,
   createRoute,
   envApiKey,
@@ -116,6 +162,14 @@ export {
   type PermissionTier,
   type EndpointCapabilities,
   type EndpointConfig,
+  type EndpointProfile,
+  type MohConfig,
+  type ProviderFactory,
+  type ProviderFactoryOptions,
+  type BuiltinProviderType,
+  type ConnectionTestResult,
+  type ConnectionTester,
+  type OnboardingIo,
   type ProviderErrorKind,
   type ProviderKind,
   type Route,

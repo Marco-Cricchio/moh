@@ -1,6 +1,7 @@
 import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
+import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, type PermissionRule, type SessionMode } from "./permissions";
 import { PromptComposer } from "./prompt-composer";
 
@@ -12,6 +13,8 @@ const DEFAULT_MAX_ITERATIONS = 50;
  */
 export class AgentSession {
   readonly #provider: Provider;
+  /** Registry snapshot frozen at creation; later registrations never reach it. */
+  readonly #registry: FrozenProviderRegistry | undefined;
   readonly #maxIterations: number;
   readonly #tools: Record<string, Tool>;
   readonly #cwd: string;
@@ -29,7 +32,11 @@ export class AgentSession {
   readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
 
   constructor(config: SessionConfig) {
-    this.#provider = config.provider;
+    this.#registry = config.registry?.freeze();
+    this.#provider =
+      typeof config.provider === "string"
+        ? resolveProviderRef(config.provider, this.#registry ?? defaultRegistry.freeze(), [])
+        : config.provider;
     this.#maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
@@ -96,6 +103,11 @@ export class AgentSession {
   /** Cancels the active turn; appends a `cancelled` event. No-op if idle. */
   abort(): void {
     this.#controller?.abort();
+  }
+
+  /** Registry snapshot this session was created with (frozen). */
+  get registry(): FrozenProviderRegistry | undefined {
+    return this.#registry;
   }
 
   /** Tools registered on this session. */
