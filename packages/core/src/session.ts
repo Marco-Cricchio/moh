@@ -1,8 +1,14 @@
-import type { AgentEvent, FinishReason, Message, Provider, TurnResult } from "./types";
+import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 
 const DEFAULT_MAX_ITERATIONS = 50;
+
+interface PendingToolCall {
+  callId: string;
+  name: string;
+  args: unknown;
+}
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -11,6 +17,8 @@ const DEFAULT_MAX_ITERATIONS = 50;
 export class AgentSession {
   readonly #provider: Provider;
   readonly #maxIterations: number;
+  readonly #tools: Record<string, Tool>;
+  readonly #cwd: string;
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
@@ -19,6 +27,8 @@ export class AgentSession {
   constructor(config: SessionConfig) {
     this.#provider = config.provider;
     this.#maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    this.#tools = config.tools ?? {};
+    this.#cwd = config.cwd ?? process.cwd();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION });
   }
 
@@ -68,6 +78,11 @@ export class AgentSession {
     this.#controller?.abort();
   }
 
+  /** Tools registered on this session. */
+  get tools(): Record<string, Tool> {
+    return this.#tools;
+  }
+
   async send(text: string): Promise<TurnResult> {
     if (this.pending()) throw new Error("a turn is already pending");
     const controller = new AbortController();
@@ -87,12 +102,15 @@ export class AgentSession {
         iterations += 1;
         assistantText = "";
         finishReason = null;
+        const toolCalls: PendingToolCall[] = [];
         try {
           for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
             if (controller.signal.aborted) break;
             if (event.type === "text_delta") {
               assistantText += event.text;
               this.#append({ type: "assistant_delta", text: event.text });
+            } else if (event.type === "tool_calls") {
+              toolCalls.push(...event.calls);
             } else if (event.type === "finish") {
               finishReason = event.reason;
             }
@@ -109,7 +127,15 @@ export class AgentSession {
           break;
         }
         if (finishReason !== "stop") {
-          this.#pushAssistant(assistantText);
+          this.#messages.push({
+            role: "assistant",
+            parts: [
+              ...(assistantText ? [{ kind: "text" as const, text: assistantText }] : []),
+              ...toolCalls.map((c) => ({ kind: "tool_call" as const, ...c })),
+            ],
+          });
+          const outcome = await this.#runTools(toolCalls, controller.signal);
+          if (outcome === "aborted") break;
         }
       }
 
@@ -127,6 +153,56 @@ export class AgentSession {
 
   #pushAssistant(text: string): void {
     this.#messages.push({ role: "assistant", parts: [{ kind: "text", text }] });
+  }
+
+  /**
+   * Runs same-turn tool calls in parallel (Promise.allSettled), appends
+   * tool_call/tool_result events in completion order, and feeds results
+   * back as a user message the model sees for self-correction.
+   * Returns "aborted" if the turn was cancelled mid-execution.
+   */
+  async #runTools(calls: PendingToolCall[], signal: AbortSignal): Promise<"ok" | "aborted"> {
+    if (calls.length === 0) return "ok";
+    for (const call of calls) {
+      this.#append({ type: "tool_call", callId: call.callId, name: call.name, args: call.args });
+    }
+    // Append each tool_result the moment its promise settles, so the log
+    // reflects completion order; collect parts in that same order.
+    const resultParts: Message["parts"] = [];
+    await Promise.allSettled(
+      calls.map(async (call) => {
+        const result = await this.#executeTool(call, signal);
+        this.#append({ type: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
+        resultParts.push({ kind: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
+      }),
+    );
+    this.#messages.push({ role: "user", parts: resultParts });
+    return signal.aborted ? "aborted" : "ok";
+  }
+
+  async #executeTool(
+    call: PendingToolCall,
+    signal: AbortSignal,
+  ): Promise<{ callId: string; ok: boolean; output: string }> {
+    const tool = this.#tools[call.name];
+    if (!tool) {
+      return { callId: call.callId, ok: false, output: `unknown tool: ${call.name}` };
+    }
+    const ctx: ToolContext = {
+      signal,
+      cwd: this.#cwd,
+      onProgress: () => {},
+    };
+    try {
+      const output = await tool.execute(call.args, ctx);
+      return { callId: call.callId, ok: true, output: String(output) };
+    } catch (err) {
+      return {
+        callId: call.callId,
+        ok: false,
+        output: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   #append(event: AgentEvent): void {

@@ -1,16 +1,25 @@
 import type { FinishReason, Message, Provider, StreamEvent } from "./types";
 
+export interface MockToolCall {
+  callId?: string;
+  name: string;
+  args: unknown;
+}
+
 export interface MockTurnScript {
   deltas: string[];
   finish: FinishReason;
   /** Delay before each delta, to simulate streaming and enable abort tests. */
   deltaDelayMs?: number;
+  /** Tool calls emitted before finish when finish is "tool_calls". */
+  toolCalls?: MockToolCall[];
 }
 
 export class MockProvider implements Provider {
   readonly name = "mock";
   #turns: MockTurnScript[];
   #call = 0;
+  #nextCallId = 0;
 
   private constructor(turns: MockTurnScript[]) {
     this.#turns = turns;
@@ -33,6 +42,16 @@ export class MockProvider implements Provider {
       if (signal.aborted) return;
       if (turn.deltaDelayMs) await Bun.sleep(turn.deltaDelayMs);
       yield { type: "text_delta", text };
+    }
+    if (turn.finish === "tool_calls") {
+      yield {
+        type: "tool_calls",
+        calls: (turn.toolCalls ?? []).map((c) => ({
+          callId: c.callId ?? `mock-${this.#nextCallId++}`,
+          name: c.name,
+          args: c.args,
+        })),
+      };
     }
     yield { type: "finish", reason: turn.finish };
   }
