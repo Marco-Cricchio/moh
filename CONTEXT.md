@@ -19,3 +19,6 @@
 - **Permission tiers** — most-specific-wins merge: built-in per-tool defaults < moh.json overrides < in-session runtime rules.
 - **Permission veto** — an extension refusing a tool call via `onToolCall`; it overrides user rules and produces the same denied `tool_result`.
 - **Out-of-root write** — a write outside the project root: authorizable per-occurrence only, asked again every time, never persists as a rule.
+- **Workflow mode** — the per-user on/off state (persisted in `~/.moh/config`, toggled with `/workflow on|off`) that enables the first-party workflow: bundled skills, workflow commands, and the wayfinder frontier panel. When off, nothing about the agent's base behavior changes.
+- **First-party skills** — the Matt Pocock workflow skills bundled in the moh package and copied to `~/.moh/skills/` at install/upgrade. User-owned: upgraded only when unmodified (hash check); modified ones are left alone with a diff offered.
+- **Workflow upstream** — the official Matt Pocock skill repository, polled (opt-out) at startup when workflow mode is on, as the live update channel for first-party skills.
