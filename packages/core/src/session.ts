@@ -16,6 +16,7 @@ export class AgentSession {
   readonly #cwd: string;
   readonly #permissions: PermissionResolver;
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
+  readonly #sink: SessionConfig["sink"] | undefined;
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
@@ -38,6 +39,7 @@ export class AgentSession {
       cwd: this.#cwd,
     });
     this.#onPermissionRequest = config.onPermissionRequest;
+    this.#sink = config.sink;
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION });
     this.#append({ type: "session_mode", mode });
   }
@@ -288,6 +290,7 @@ export class AgentSession {
 
   #append(event: AgentEvent): void {
     this.#log.push(event);
+    this.#sink?.(event);
     for (const listener of this.#listeners) listener(event);
   }
 }

@@ -2,6 +2,14 @@ import { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session";
 import { builtinTools } from "./builtin-tools";
 import {
+  MIN_SUPPORTED_SCHEMA_VERSION,
+  SessionStore,
+  newSessionId,
+  projectSessionsDir,
+  projectSlug,
+  replayMessages,
+} from "./session-store";
+import {
   DEFAULT_TOOL_PERMISSIONS,
   PermissionResolver,
   runtimeRulesFromEvents,
@@ -45,6 +53,8 @@ export interface SessionConfig {
     tool: string,
     args: unknown,
   ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
+  sink?: (event: AgentEvent) => void;
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -73,4 +83,10 @@ export {
   type ToolCall,
   type ToolContext,
   type TurnResult,
+  MIN_SUPPORTED_SCHEMA_VERSION,
+  SessionStore,
+  newSessionId,
+  projectSessionsDir,
+  projectSlug,
+  replayMessages,
 };

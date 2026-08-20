@@ -71,7 +71,13 @@ export type AgentEvent =
   | { type: "permission_granted"; callId: string; tool: string; reason: PermissionGrantReason }
   | { type: "permission_denied"; callId: string; tool: string; reason: string }
   | { type: "permission_rule_added"; rule: PermissionRule }
-  | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" };
+  | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" }
+  /**
+   * Compaction marker (schema only, no implementation yet): replay uses
+   * `summary` in place of the events before index `upTo` (exclusive); the
+   * log itself is never truncated.
+   */
+  | { type: "compaction"; summary: string; upTo: number };
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
 export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
