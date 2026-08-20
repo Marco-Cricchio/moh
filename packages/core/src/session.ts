@@ -2,6 +2,7 @@ import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolC
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, type PermissionRule, type SessionMode } from "./permissions";
+import { PromptComposer } from "./prompt-composer";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -17,6 +18,8 @@ export class AgentSession {
   readonly #permissions: PermissionResolver;
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #sink: SessionConfig["sink"] | undefined;
+  readonly #promptComposer: PromptComposer;
+  #promptVersion = "";
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
@@ -43,7 +46,9 @@ export class AgentSession {
     });
     this.#onPermissionRequest = config.onPermissionRequest;
     this.#sink = config.sink;
-    this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION });
+    this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
+    this.#assemblePrompt();
+    this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode });
   }
 
@@ -160,6 +165,7 @@ export class AgentSession {
       iterations += 1;
       assistantText = "";
       finishReason = null;
+      this.#assemblePrompt(); // reassembled every call
       const toolCalls: ToolCall[] = [];
       try {
         for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
@@ -208,6 +214,22 @@ export class AgentSession {
 
   #pushAssistant(text: string): void {
     this.#messages.push({ role: "assistant", parts: [{ kind: "text", text }] });
+  }
+
+  /** Reassembles the system prompt for the next model call (#27). */
+  #assemblePrompt(): void {
+    const assembled = this.#promptComposer.compose({
+      cwd: this.#cwd,
+      platform: process.platform,
+      now: new Date(),
+      model: this.#provider.name,
+      tools: Object.values(this.#tools).map((t) => ({ name: t.name, description: t.description })),
+      skills: [],
+    });
+    this.#promptVersion = assembled.version;
+    const systemMessage: Message = { role: "system", parts: [{ kind: "text", text: assembled.system }] };
+    if (this.#messages[0]?.role === "system") this.#messages[0] = systemMessage;
+    else this.#messages.unshift(systemMessage);
   }
 
   /**

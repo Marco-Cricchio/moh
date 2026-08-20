@@ -112,7 +112,7 @@ describe("session store", () => {
     const store = SessionStore.create(cwd, home);
     // Hand-craft a log that contains a runtime rule grant.
     const events: AgentEvent[] = [
-      { type: "session_start", schemaVersion: 1 },
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
       { type: "session_mode", mode: "normal" },
       { type: "permission_rule_added", rule: { tier: "runtime", tool: "bash", effect: "allow", tokens: ["git", "status"] } },
       { type: "done" },
@@ -148,25 +148,25 @@ describe("session store", () => {
     const dir = join(home, ".moh", "projects", "x");
     mkdirSync(dir, { recursive: true });
     const old = join(dir, "20260101T000000000Z-old.jsonl");
-    writeFileSync(old, JSON.stringify({ type: "session_start", schemaVersion: 0 }) + "\n");
+    writeFileSync(old, JSON.stringify({ type: "session_start", schemaVersion: 0, promptVersion: "x" }) + "\n");
     expect(() => SessionStore.open(old).load()).toThrow(/too old/i);
 
     const future = join(dir, "20260101T000000001Z-new.jsonl");
-    writeFileSync(future, JSON.stringify({ type: "session_start", schemaVersion: 99 }) + "\n");
+    writeFileSync(future, JSON.stringify({ type: "session_start", schemaVersion: 99, promptVersion: "x" }) + "\n");
     expect(() => SessionStore.open(future).load()).toThrow(/newer/i);
   });
 
   test("load() tolerates a trailing empty line", () => {
     const home = tempHome();
     const store = SessionStore.create(process.cwd(), home);
-    store.append({ type: "session_start", schemaVersion: 1 });
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" });
     appendFileSync(store.file, "\n");
-    expect(store.load()).toEqual([{ type: "session_start", schemaVersion: 1 }]);
+    expect(store.load()).toEqual([{ type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" }]);
   });
 
   test("replayMessages() rebuilds the provider-facing conversation from the log", () => {
     const events: AgentEvent[] = [
-      { type: "session_start", schemaVersion: 1 },
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
       { type: "session_mode", mode: "normal" },
       { type: "user_message", text: "hi" },
       { type: "assistant_delta", text: "Hello" },
