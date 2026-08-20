@@ -2,6 +2,20 @@ import { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session";
 import { builtinTools } from "./builtin-tools";
 import {
+  PromptComposer,
+  SECTION_ORDER,
+  BASE_PROMPT,
+  DEFAULT_INSTRUCTIONS_BUDGET,
+  hashPrompt,
+  type AssembledPrompt,
+  type BeforeModelCallContext,
+  type BeforeModelCallHook,
+  type PromptContext,
+  type SectionName,
+  type SectionRenderer,
+  type SkillIndexEntry,
+} from "./prompt-composer";
+import {
   MIN_SUPPORTED_SCHEMA_VERSION,
   SessionStore,
   newSessionId,
@@ -55,6 +69,8 @@ export interface SessionConfig {
   ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
+  /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
+  promptComposer?: PromptComposer;
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -65,6 +81,11 @@ export {
   AgentSession,
   MockProvider,
   builtinTools,
+  PromptComposer,
+  SECTION_ORDER,
+  BASE_PROMPT,
+  DEFAULT_INSTRUCTIONS_BUDGET,
+  hashPrompt,
   DEFAULT_TOOL_PERMISSIONS,
   PermissionResolver,
   runtimeRulesFromEvents,
@@ -73,6 +94,13 @@ export {
   type Message,
   type PermissionDecision,
   type PermissionGrantReason,
+  type AssembledPrompt,
+  type BeforeModelCallContext,
+  type BeforeModelCallHook,
+  type PromptContext,
+  type SectionName,
+  type SectionRenderer,
+  type SkillIndexEntry,
   type PermissionOverrides,
   type PermissionRule,
   type PermissionTier,
