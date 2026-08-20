@@ -16,12 +16,17 @@ function truncate(text: string): string {
 
 /** Resolves a user-supplied path inside the session cwd; throws on escapes. */
 function inRoot(path: string, cwd: string): string {
-  const abs = isAbsolute(path) ? path : resolve(cwd, path);
-  const rel = relative(cwd, abs);
-  if (rel.startsWith("..") || isAbsolute(rel)) {
-    throw new Error(`path outside project root: ${path}`);
+  return inAnyRoot(path, [cwd]);
+}
+
+/** Like inRoot, but the path may fall inside any of the given roots. */
+function inAnyRoot(path: string, roots: readonly string[]): string {
+  const abs = isAbsolute(path) ? path : resolve(roots[0]!, path);
+  for (const root of roots) {
+    const rel = relative(root, abs);
+    if (!rel.startsWith("..") && !isAbsolute(rel)) return abs;
   }
-  return abs;
+  throw new Error(`path outside project root: ${path}`);
 }
 
 const bashSchema = z.object({
@@ -62,10 +67,10 @@ const readSchema = z.object({
 });
 const read: Tool<z.infer<typeof readSchema>> = {
   name: "read",
-  description: "Read a text file (optionally a line range) inside the project root.",
+  description: "Read a text file (optionally a line range) inside the project root or a skill directory.",
   inputSchema: readSchema,
   async execute(args, ctx) {
-    const file = Bun.file(inRoot(args.path, ctx.cwd));
+    const file = Bun.file(inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])]));
     if (!(await file.exists())) throw new Error(`file not found: ${args.path}`);
     const text = await file.text();
     const lines = text.split("\n");
