@@ -1,6 +1,7 @@
 import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
+import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, type PermissionRule, type SessionMode } from "./permissions";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -13,6 +14,8 @@ export class AgentSession {
   readonly #maxIterations: number;
   readonly #tools: Record<string, Tool>;
   readonly #cwd: string;
+  readonly #permissions: PermissionResolver;
+  readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
@@ -23,7 +26,20 @@ export class AgentSession {
     this.#maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
+    const perms = config.permissions ?? {};
+    const mode: SessionMode = perms.bypassPermissions === true
+      ? "bypass"
+      : perms.mode === "auto-accept" ? "auto-accept" : "normal";
+    this.#permissions = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: perms.overrides,
+      runtimeRules: perms.runtimeRules,
+      mode,
+      cwd: this.#cwd,
+    });
+    this.#onPermissionRequest = config.onPermissionRequest;
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION });
+    this.#append({ type: "session_mode", mode });
   }
 
   /** Append-only event log, replayable in memory. */
@@ -174,6 +190,11 @@ export class AgentSession {
     return signal.aborted ? "aborted" : "ok";
   }
 
+  /** Runtime permission rules active in this session (snapshot). */
+  get permissionRules(): PermissionRule[] {
+    return this.#permissions.rules;
+  }
+
   async #executeTool(
     call: ToolCall,
     signal: AbortSignal,
@@ -193,6 +214,10 @@ export class AgentSession {
       }
       args = parsed.data;
     }
+    const gate = await this.#gatePermission(call.name, call.callId, args);
+    if (!gate.allowed) {
+      return { callId: call.callId, ok: false, output: gate.denial };
+    }
     const ctx: ToolContext = {
       signal,
       cwd: this.#cwd,
@@ -208,6 +233,57 @@ export class AgentSession {
         output: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  /**
+   * Resolves and enforces the 3-tier permission gate for one tool call.
+   * Returns a structured denial string on "deny"/headless-"ask" so the
+   * model sees the refusal as a failed tool_result.
+   */
+  async #gatePermission(
+    tool: string,
+    callId: string,
+    args: unknown,
+  ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
+    const decision = this.#permissions.resolve(tool, args);
+    if (decision === "deny") {
+      this.#append({ type: "permission_denied", callId, tool, reason: "rule" });
+      return { allowed: false, denial: `permission denied: ${tool} denied by permission rule` };
+    }
+    if (decision === "allow") return { allowed: true };
+
+    // "ask" decisions.
+    const mode = this.#permissions.mode;
+    if (mode === "bypass") {
+      this.#append({ type: "permission_granted", callId, tool, reason: "bypass" });
+      return { allowed: true };
+    }
+    if (mode === "auto-accept") {
+      this.#append({ type: "permission_granted", callId, tool, reason: "auto_accept" });
+      return { allowed: true };
+    }
+    if (!this.#onPermissionRequest) {
+      this.#append({ type: "permission_denied", callId, tool, reason: "headless" });
+      return {
+        allowed: false,
+        denial: `permission denied: ${tool} requires user consent (headless mode)`,
+      };
+    }
+    this.#append({ type: "permission_requested", callId, tool });
+    const answer = await this.#onPermissionRequest(tool, args);
+    if (answer === "no") {
+      this.#append({ type: "permission_denied", callId, tool, reason: "user" });
+      return { allowed: false, denial: `permission denied: ${tool} requires user consent` };
+    }
+    this.#append({ type: "permission_granted", callId, tool, reason: "user" });
+    if (answer === "always" && this.#permissions.persistable(tool, args)) {
+      const rule = this.#permissions.runtimeRuleFor(tool, args);
+      if (rule) {
+        this.#permissions.addRuntimeRule(rule);
+        this.#append({ type: "permission_rule_added", rule: { ...rule, tier: "runtime" } });
+      }
+    }
+    return { allowed: true };
   }
 
   #append(event: AgentEvent): void {
