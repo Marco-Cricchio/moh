@@ -4,6 +4,7 @@
 export const SCHEMA_VERSION = 1;
 
 import { z } from "zod";
+import type { PermissionRule } from "./permissions";
 
 export type TextPart = { kind: "text"; text: string };
 export type ToolCallPart = ToolCall & { kind: "tool_call" };
@@ -65,7 +66,15 @@ export type AgentEvent =
   | { type: "tool_result"; callId: string; ok: boolean; output: string }
   | { type: "done" }
   | { type: "error"; reason: string; message: string }
-  | { type: "cancelled" };
+  | { type: "cancelled" }
+  | { type: "permission_requested"; callId: string; tool: string }
+  | { type: "permission_granted"; callId: string; tool: string; reason: PermissionGrantReason }
+  | { type: "permission_denied"; callId: string; tool: string; reason: string }
+  | { type: "permission_rule_added"; rule: PermissionRule }
+  | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" };
+
+/** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
+export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
 
 export type TurnStatus = "done" | "error" | "cancelled";
 
