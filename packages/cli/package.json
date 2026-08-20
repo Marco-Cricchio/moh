@@ -1,0 +1,17 @@
+{
+  "name": "@moh/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "moh": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@moh/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
