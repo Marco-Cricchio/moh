@@ -2,9 +2,10 @@ import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolC
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
-import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, type PermissionRule, type SessionMode } from "./permissions";
+import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "./permissions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
+import { replayMessages } from "./session-store";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -62,6 +63,21 @@ export class AgentSession {
     const discovered = discoverSkills({ mohHome: config.mohHome, projectDir: this.#cwd });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
+    if (config.resume?.events.length) {
+      // Resume (#31): the log continues in a new AgentSession over the same
+      // persisted history. Seeded events are never re-appended (the file
+      // already has them); only new events reach the sink.
+      for (const event of config.resume.events) this.#log.push(event);
+      this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
+      for (const rule of runtimeRulesFromEvents(config.resume.events)) {
+        this.#permissions.addRuntimeRule(rule);
+      }
+      this.#assemblePrompt();
+      // A mode change across resume is auditable like any startup flag.
+      const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
+      if (!lastMode || lastMode.mode !== mode) this.#append({ type: "session_mode", mode });
+      return;
+    }
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode });
