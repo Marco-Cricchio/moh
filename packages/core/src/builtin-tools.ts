@@ -139,14 +139,14 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
     const re = new RegExp(args.pattern);
     const out: string[] = [];
     const globber = new Bun.Glob("**/*");
-    for await (const rel of globber.scan({ cwd: root, onlyFiles: true })) {
+    outer: for await (const rel of globber.scan({ cwd: root, onlyFiles: true })) {
       const file = Bun.file(joinSafe(root, rel));
       if (!(await file.exists())) continue;
       const text = await file.text();
       const lines = text.split("\n");
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i]!)) out.push(`${rel}:${i + 1}:${lines[i]}`);
-        if (out.length > 500) break;
+        if (out.length >= 500) break outer;
       }
     }
     return truncate(out.join("\n"));
