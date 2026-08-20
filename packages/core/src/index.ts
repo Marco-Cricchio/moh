@@ -1,5 +1,6 @@
 import { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session";
+import { builtinTools } from "./builtin-tools";
 import type { AgentEvent, Message, Provider, StreamEvent, Tool, ToolContext, TurnResult } from "./types";
 
 export interface SessionConfig {
@@ -23,6 +24,7 @@ export function createSession(config: SessionConfig): AgentSession {
 export {
   AgentSession,
   MockProvider,
+  builtinTools,
   type AgentEvent,
   type Message,
   type Provider,
