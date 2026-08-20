@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createSession, MockProvider, PromptComposer, hashPrompt } from "../src/index";
+import { builtinTools, createSession, MockProvider, PromptComposer, hashPrompt } from "../src/index";
 import type { Message, Provider } from "../src/index";
 
 describe("core agent loop", () => {
@@ -280,5 +280,86 @@ describe("steering (mid-stream cancellation + re-send)", () => {
     // The aborted tool_call may lack a tool_result; replay must not choke.
     const messages = replayMessages(session.history());
     expect(messages.every((m) => m.parts.length >= 1)).toBe(true);
+  });
+});
+
+describe("resume (#31)", () => {
+  test("a session resumed from history continues the log and conversation without re-appending session_start", async () => {
+    const first = createSession({
+      provider: MockProvider.scripted([{ deltas: ["first answer"], finish: "stop" }]),
+    });
+    await first.send("first question");
+    const history = first.history();
+
+    const seen: string[][] = [];
+    const second = createSession({
+      provider: MockProvider.scripted([{ deltas: ["second answer"], finish: "stop" }]),
+      resume: { events: history },
+      sink: (event) => seen.push([event.type]),
+    });
+    const result = await second.send("second question");
+
+    expect(result.status).toBe("done");
+    const log = second.history();
+    expect(log[0].type).toBe("session_start"); // the seeded original, not a new one
+    expect(log.slice(0, history.length)).toEqual(history);
+    const newTexts = log.filter((e: any) => e.type === "user_message").map((e: any) => e.text);
+    expect(newTexts).toEqual(["first question", "second question"]);
+    // Only the new events reached the sink (the file already has the history).
+    expect(seen.map(([t]) => t)).toEqual(["user_message", "assistant_delta", "done"]);
+  });
+
+  test("runtime permission rules are restored from the resumed history", async () => {
+    const provider = MockProvider.scripted([
+      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo hi" } }] },
+      { deltas: ["done"], finish: "stop" },
+    ]);
+    const first = createSession({
+      provider,
+      tools: builtinTools(),
+      permissions: { mode: "normal" },
+      onPermissionRequest: () => "always",
+    });
+    await first.send("run it");
+    const history = first.history();
+    expect(history.some((e: any) => e.type === "permission_rule_added")).toBe(true);
+
+    const second = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo hi" } }] },
+        { deltas: ["ok"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      resume: { events: history },
+    });
+    await second.send("run it again");
+    const log = second.history();
+    // No new permission events: the restored runtime rule allowed the call silently.
+    const newPermissionEvents = log.slice(history.length).filter((e: any) => e.type.startsWith("permission_"));
+    expect(newPermissionEvents).toEqual([]);
+    const result = log.find((e: any) => e.type === "tool_result")!;
+    expect((result as any).ok).toBe(true);
+  });
+});
+
+describe("resume mode change (#31)", () => {
+  test("a mode change across resume is logged as a new session_mode event", async () => {
+    const first = createSession({
+      provider: MockProvider.scripted([{ deltas: ["a"], finish: "stop" }]),
+    });
+    await first.send("q");
+    const history = first.history();
+
+    const sink: string[] = [];
+    const second = createSession({
+      provider: MockProvider.scripted([{ deltas: ["b"], finish: "stop" }]),
+      resume: { events: history },
+      permissions: { mode: "auto-accept" },
+      sink: (event) => sink.push(event.type),
+    });
+    await second.send("q2");
+    const modes = second.history().filter((e: any) => e.type === "session_mode") as any[];
+    expect(modes.map((m) => m.mode)).toEqual(["normal", "auto-accept"]);
+    expect(sink).toContain("session_mode");
   });
 });
