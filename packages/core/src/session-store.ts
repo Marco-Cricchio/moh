@@ -73,6 +73,19 @@ export class SessionStore {
     return new SessionStore(file);
   }
 
+/**
+   * The project's session files, newest first (empty array when none).
+   */
+  static list(cwd: string, home = homedir()): SessionStore[] {
+    const dir = projectSessionsDir(cwd, home);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter(isSessionFile)
+      .sort()
+      .reverse()
+      .map((name) => new SessionStore(join(dir, name)));
+  }
+
   /**
    * The project's latest session file (bare resume), or null when the
    * project has none yet.
