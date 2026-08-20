@@ -23,6 +23,7 @@ describe("end-to-end tool usage", () => {
       tools: builtinTools(),
       cwd,
       maxIterations: 10,
+      permissions: { mode: "auto-accept" },
     });
 
     const result = await session.send("write and read a note");

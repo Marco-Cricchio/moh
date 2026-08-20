@@ -4,6 +4,7 @@
 export const SCHEMA_VERSION = 1;
 
 import { z } from "zod";
+import type { PermissionRule } from "./permissions";
 
 export type TextPart = { kind: "text"; text: string };
 export type ToolCallPart = ToolCall & { kind: "tool_call" };
@@ -26,7 +27,8 @@ export type ProviderErrorKind =
   | "network"
   | "invalid_request"
   | "context_length"
-  | "content_filtered";
+  | "content_filtered"
+  | "aborted";
 
 export class ProviderError extends Error {
   constructor(
@@ -51,21 +53,44 @@ export type FinishReason = "stop" | "tool_calls";
  */
 export interface Provider {
   readonly name: string;
+  /** Feature flags of the underlying endpoint; drive capability downgrades. */
+  readonly capabilities?: EndpointCapabilities;
   stream(
     messages: Message[],
     signal: AbortSignal,
   ): AsyncIterable<StreamEvent>;
 }
 
+/** Per-endpoint feature flags (issue #28). */
+export interface EndpointCapabilities {
+  caching: boolean;
+  parallelToolCalls: boolean;
+  multimodal: boolean;
+}
+
 export type AgentEvent =
-  | { type: "session_start"; schemaVersion: number }
+  | { type: "session_start"; schemaVersion: number; promptVersion: string }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall)
   | { type: "tool_result"; callId: string; ok: boolean; output: string }
   | { type: "done" }
   | { type: "error"; reason: string; message: string }
-  | { type: "cancelled" };
+  | { type: "cancelled" }
+  | { type: "permission_requested"; callId: string; tool: string }
+  | { type: "permission_granted"; callId: string; tool: string; reason: PermissionGrantReason }
+  | { type: "permission_denied"; callId: string; tool: string; reason: string }
+  | { type: "permission_rule_added"; rule: PermissionRule }
+  | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" }
+  /**
+   * Compaction marker (schema only, no implementation yet): replay uses
+   * `summary` in place of the events before index `upTo` (exclusive); the
+   * log itself is never truncated.
+   */
+  | { type: "compaction"; summary: string; upTo: number };
+
+/** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
+export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
 
 export type TurnStatus = "done" | "error" | "cancelled";
 
