@@ -52,6 +52,19 @@ export class MockProvider implements Provider {
     return MockProvider.scripted(JSON.parse(readFileSync(file, "utf8")) as MockTurnScript[]);
   }
 
+  /** Zero-credential demo provider: `provider: "mock"` in moh.json or createSession. */
+  static demo(): MockProvider {
+    return MockProvider.scripted([
+      {
+        deltas: [
+          "Hello from moh's mock provider. No credentials are configured, so this is a canned reply. ",
+          "Run `moh provider add` to connect a real endpoint.",
+        ],
+        finish: "stop",
+      },
+    ]);
+  }
+
   async *stream(_messages: Message[], signal: AbortSignal): AsyncIterable<StreamEvent> {
     const turn = this.#turns[Math.min(this.#call, this.#turns.length - 1)];
     this.#call += 1;

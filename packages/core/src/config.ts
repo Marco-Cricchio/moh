@@ -1,0 +1,86 @@
+/**
+ * moh.json: the project-level configuration file. This module owns its
+ * schema, loading and writing. Endpoint profiles declared here are
+ * config-only Providers (issue #29): `openai-compat` covers any
+ * OpenAI-compatible endpoint (Ollama, LM Studio, DeepSeek, Kimi, GLM,
+ * Qwen, Grok, OpenRouter) without writing code.
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import { z } from "zod";
+
+const capabilitiesSchema = z
+  .object({
+    caching: z.boolean(),
+    parallelToolCalls: z.boolean(),
+    multimodal: z.boolean(),
+  })
+  .partial();
+
+const endpointProfileSchema = z.object({
+  /** Endpoint name, unique in the file. Drives MOH_ENDPOINT_<NAME>_API_KEY. */
+  name: z.string().min(1),
+  /**
+   * Implementation: built-in "anthropic" | "openai" | "google" |
+   * "openai-compat", or a custom id registered via registerProvider.
+   */
+  type: z.string().min(1),
+  /** Inline credential (keep moh.json gitignored). Falls back to the env var. */
+  apiKey: z.string().optional(),
+  /** Required for openai-compat; optional override for the built-ins. */
+  baseUrl: z.string().optional(),
+  /** Model used when a route references the endpoint without one. */
+  defaultModel: z.string().optional(),
+  capabilities: capabilitiesSchema.optional(),
+});
+
+export const mohConfigSchema = z.object({
+  /**
+   * Default provider reference: "mock", a custom registered id, or
+   * "endpoint/model-id" (or bare "endpoint" using its defaultModel).
+   */
+  provider: z.string().optional(),
+  endpoints: z.array(endpointProfileSchema).optional(),
+});
+
+export type EndpointProfile = z.infer<typeof endpointProfileSchema>;
+export type MohConfig = z.infer<typeof mohConfigSchema>;
+
+/**
+ * Reads moh.json. A missing or empty file is the empty config (moh works
+ * zero-config with the mock provider); an invalid one is a hard error.
+ */
+export function loadMohConfig(
+  file: string = "moh.json",
+  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
+): MohConfig {
+  let raw: string;
+  try {
+    raw = read(file);
+  } catch {
+    return {};
+  }
+  if (!raw.trim()) return {};
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`invalid ${file}: not valid JSON (${err instanceof Error ? err.message : String(err)})`);
+  }
+  const parsed = mohConfigSchema.safeParse(json);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+    throw new Error(`invalid ${file}: ${issues}`);
+  }
+  return parsed.data;
+}
+
+/** Pretty-prints and writes the full config back to moh.json. */
+export function writeMohConfig(file: string, config: MohConfig): void {
+  writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+/** Adds or replaces an endpoint profile by name (guided onboarding target). */
+export function upsertEndpoint(config: MohConfig, profile: EndpointProfile): MohConfig {
+  const endpoints = (config.endpoints ?? []).filter((e) => e.name !== profile.name);
+  return { ...config, endpoints: [...endpoints, profile] };
+}
