@@ -19,6 +19,7 @@ describe("core agent loop", () => {
     expect(result.status).toBe("done");
     expect(streamed.map((e: any) => e.type)).toEqual([
       "session_start",
+      "session_mode",
       "user_message",
       "assistant_delta",
       "assistant_delta",
@@ -113,6 +114,7 @@ describe("core agent loop", () => {
     expect(log[0]).toEqual({ type: "session_start", schemaVersion: 1 });
     expect(log.map((e) => e.type)).toEqual([
       "session_start",
+      "session_mode",
       "user_message",
       "assistant_delta",
       "done",
