@@ -21,4 +21,9 @@
 - **Out-of-root write** — a write outside the project root: authorizable per-occurrence only, asked again every time, never persists as a rule.
 - **Workflow mode** — the per-user on/off state (persisted in `~/.moh/config`, toggled with `/workflow on|off`) that enables the first-party workflow: bundled skills, workflow commands, and the wayfinder frontier panel. When off, nothing about the agent's base behavior changes.
 - **First-party skills** — the Matt Pocock workflow skills bundled in the moh package and copied to `~/.moh/skills/` at install/upgrade. User-owned: upgraded only when unmodified (hash check); modified ones are left alone with a diff offered.
+- **Session file** — the persisted session: one append-only JSONL event log per session at `~/.moh/projects/<project-slug>/<id>.jsonl` (id = sortable timestamp + short uuid). Sessions are user data; they never live in the project's `.moh/`.
+- **Resume / Fork** — the two ways a session continues: **resume** appends to the same file (default), **fork** starts a new file inheriting the history.
+- **Memory** — durable facts kept **across** sessions, per project, at `~/.moh/projects/<slug>/memory/` (index + append-only topic files, dated and session-signed). Written automatically post-turn; never merged by the core — only appended atomically and consolidated by the maintenance subagent.
+- **Compaction** — rebuilding the past **within** a session: an in-log `compaction` marker (summary + pointers) that replay uses instead of replaying everything. The log stays integral forever; nothing is ever deleted. Distinct from Memory — no fact is stored in both.
+- **Maintenance subagent** — the background agent that extracts memory updates and compacts context; invisible to the TUI, fail-silent.
 - **Workflow upstream** — the official Matt Pocock skill repository, polled (opt-out) at startup when workflow mode is on, as the live update channel for first-party skills.
