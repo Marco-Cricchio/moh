@@ -21,6 +21,9 @@ export class AgentSession {
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   #controller: AbortController | null = null;
+  #turn: Promise<TurnResult> | null = null;
+  /** Pending sends: front runs as soon as the session is idle. */
+  readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
 
   constructor(config: SessionConfig) {
     this.#provider = config.provider;
@@ -75,9 +78,9 @@ export class AgentSession {
     };
   }
 
-  /** True while a turn is in flight. */
+  /** True while a turn is in flight (including one being steered away). */
   pending(): boolean {
-    return this.#controller !== null;
+    return this.#turn !== null;
   }
 
   /** Snapshot of the append-only event log. */
@@ -95,72 +98,112 @@ export class AgentSession {
     return this.#tools;
   }
 
-  async send(text: string): Promise<TurnResult> {
-    if (this.pending()) throw new Error("a turn is already pending");
+  /**
+   * Sends a user message and runs the turn to completion.
+   * Steering: calling send() while a turn is active aborts the in-flight
+   * call (its promise resolves `{status: "cancelled"}`) and the steering
+   * message starts a fresh turn as soon as the session is idle. Each send
+   * resolves with the result of its own turn; there is no queued-only mode
+   * — a later send always preempts the running one.
+   */
+  send(text: string): Promise<TurnResult> {
+    return new Promise<TurnResult>((resolve) => {
+      this.#queue.push({ text, resolve });
+      this.#pump();
+    });
+  }
+
+  /**
+   * Starts the front-of-queue send when idle, or preempts the active
+   * turn when sends are waiting. The finishing turn re-pumps, so a
+   * steered session chains: cancelled -> steering user_message -> new turn.
+   */
+  #pump(): void {
+    if (this.#turn !== null) {
+      if (this.#queue.length > 0) this.#controller?.abort();
+      return;
+    }
+    const item = this.#queue.shift();
+    if (!item) return;
     const controller = new AbortController();
     this.#controller = controller;
-    try {
-      this.#append({ type: "user_message", text });
-      this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
-
-      let iterations = 0;
-      let assistantText = "";
-      let finishReason: FinishReason | null = null;
-      while (finishReason !== "stop") {
-        if (iterations >= this.#maxIterations) {
-          this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
-          return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
-        }
-        iterations += 1;
-        assistantText = "";
-        finishReason = null;
-        const toolCalls: ToolCall[] = [];
-        try {
-          for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
-            if (controller.signal.aborted) break;
-            if (event.type === "text_delta") {
-              assistantText += event.text;
-              this.#append({ type: "assistant_delta", text: event.text });
-            } else if (event.type === "tool_calls") {
-              toolCalls.push(...event.calls);
-            } else if (event.type === "finish") {
-              finishReason = event.reason;
-            }
-          }
-        } catch (err) {
-          if (controller.signal.aborted) break;
-          const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
-          const message = err instanceof Error ? err.message : String(err);
-          this.#append({ type: "error", reason, message });
-          return { status: "error", reason, message };
-        }
-        if (finishReason === null) {
-          // Stream ended without a finish event (e.g. aborted mid-stream).
-          break;
-        }
-        if (finishReason !== "stop") {
-          this.#messages.push({
-            role: "assistant",
-            parts: [
-              ...(assistantText ? [{ kind: "text" as const, text: assistantText }] : []),
-              ...toolCalls.map((c) => ({ kind: "tool_call" as const, ...c })),
-            ],
-          });
-          const outcome = await this.#runTools(toolCalls, controller.signal);
-          if (outcome === "aborted") break;
-        }
-      }
-
-      if (controller.signal.aborted) {
-        this.#append({ type: "cancelled" });
-        return { status: "cancelled" };
-      }
-      this.#pushAssistant(assistantText);
-      this.#append({ type: "done" });
-      return { status: "done" };
-    } finally {
+    const turn = this.#executeTurn(item.text, controller).finally(() => {
+      this.#turn = null;
       this.#controller = null;
+      this.#pump();
+    }) as Promise<TurnResult>;
+    // Defensive: an unexpected rejection must still settle the caller's
+    // promise instead of becoming an unhandled rejection.
+    const guarded = turn.catch(
+      (err): TurnResult => ({
+        status: "error",
+        reason: "internal",
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    ) as Promise<TurnResult>;
+    this.#turn = turn;
+    void guarded.then(item.resolve);
+  }
+
+  async #executeTurn(text: string, controller: AbortController): Promise<TurnResult> {
+    this.#append({ type: "user_message", text });
+    this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
+
+    let iterations = 0;
+    let assistantText = "";
+    let finishReason: FinishReason | null = null;
+    while (finishReason !== "stop") {
+      if (iterations >= this.#maxIterations) {
+        this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
+        return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
+      }
+      iterations += 1;
+      assistantText = "";
+      finishReason = null;
+      const toolCalls: ToolCall[] = [];
+      try {
+        for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
+          if (controller.signal.aborted) break;
+          if (event.type === "text_delta") {
+            assistantText += event.text;
+            this.#append({ type: "assistant_delta", text: event.text });
+          } else if (event.type === "tool_calls") {
+            toolCalls.push(...event.calls);
+          } else if (event.type === "finish") {
+            finishReason = event.reason;
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted) break;
+        const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
+        const message = err instanceof Error ? err.message : String(err);
+        this.#append({ type: "error", reason, message });
+        return { status: "error", reason, message };
+      }
+      if (finishReason === null) {
+        // Stream ended without a finish event (e.g. aborted mid-stream).
+        break;
+      }
+      if (finishReason !== "stop") {
+        this.#messages.push({
+          role: "assistant",
+          parts: [
+            ...(assistantText ? [{ kind: "text" as const, text: assistantText }] : []),
+            ...toolCalls.map((c) => ({ kind: "tool_call" as const, ...c })),
+          ],
+        });
+        const outcome = await this.#runTools(toolCalls, controller.signal);
+        if (outcome === "aborted") break;
+      }
     }
+
+    if (controller.signal.aborted) {
+      this.#append({ type: "cancelled" });
+      return { status: "cancelled" };
+    }
+    this.#pushAssistant(assistantText);
+    this.#append({ type: "done" });
+    return { status: "done" };
   }
 
   #pushAssistant(text: string): void {
