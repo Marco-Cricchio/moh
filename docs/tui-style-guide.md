@@ -94,6 +94,8 @@ Phases: `idle → typing (char-by-char) → thinking → tool? → subs? → per
 | Q11 | Telemetry opt-in | Settings panel only, never actively asked. |
 | Q12 | Narrow terminals | Below ~60 cols: compact mode — minimal footer (essential keys only), inline labels, full-width dialogs. |
 | Q13 | Keybinding discovery | Context-sensitive footer + `?` opens all-commands panel. No first-run cheatsheet. |
+| Q16 | In-chat keybindings (implementation, #32) | Bare letters/digits collide with typing (chat input, home search), so in-session switches use non-text keys: **ctrl+m** mode, **ctrl+t** cycles theme (footer shows the label). The style guide's earlier bare `v` / `1–9` keys were prototype-only. |
+| Q17 | Bare `moh` start screen (implementation, #32) | v1 AC #3 said "resumes the project's latest session"; the home screen's filter-first resume list supersedes it — bare `moh` opens home, one enter resumes the latest session. |
 | Q14 | Subagent permission attribution | Title tag "Quick check — for research-tui" + border color: warn = parent ask, purple = subagent ask. |
 | Q15 | Settings panel v1 | Mode, theme, icons, file preview, answer language (auto/en/it), telemetry, $EDITOR override, default permission mode + **provider management (switch/add/remove)** in-panel. |
 
@@ -101,5 +103,6 @@ Phases: `idle → typing (char-by-char) → thinking → tool? → subs? → per
 
 - `prototype/tui-mockup.tsx` — interactive: tab screens, v mode, 1-9 themes, p/f/w/s overlays, d detail, i icons, MOCK_SCREEN/MOCK_MODE env shortcuts.
 - `prototype/tui-demo.tsx` — live loop, verified under pty, zero warnings.
+- Superseded by `packages/tui` (#32): Ink chat core (streaming, steering, home, themes). Known follow-ups from its review: virtual scrollback navigation (ctrl+u/pgup over the 200-turn render window), mode/theme persistence in config, icon capability detection + `i` toggle wiring.
 - Deps installed (dev): ink@6, react@19, marked, marked-terminal, picocolors (unused yet), in package.json.
 - Not yet committed (prototype lives on throwaway branch per wayfinder rules at ticket resolution).
