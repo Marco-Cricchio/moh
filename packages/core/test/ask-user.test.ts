@@ -93,8 +93,9 @@ describe("ask_user tool", () => {
     const result = await session.send("decide");
     expect(result.status).toBe("done");
     const log = session.history();
-    const call = log.find((e: any) => e.type === "tool_call")!;
-    const res = log.find((e: any) => e.type === "tool_result")!;
+    const call = log.find((e) => e.type === "tool_call")!;
+    const res = log.find((e) => e.type === "tool_result")!;
+    if (call.type !== "tool_call" || res.type !== "tool_result") throw new Error("missing events");
     expect(res.callId).toBe(call.callId);
     expect(res.ok).toBe(true);
     expect(res.output).toBe("b");
