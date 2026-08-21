@@ -18,10 +18,12 @@ const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i +
  * The markdown renderer captures theme colors at construction, so it must be
  * regenerated per theme (docs/tui-style-guide.md §5, implementation lessons).
  */
-export function createMarkdownRenderer(theme: Theme): Marked {
+export function createMarkdownRenderer(theme: Theme, width: number): Marked {
   return new Marked(
     markedTerminal({
       code: (code: string) => `\x1b[38;2;${hexToRgb(theme.accent)}m${code}\x1b[0m`,
+      width,
+      reflowText: true,
     }) as never,
   );
 }

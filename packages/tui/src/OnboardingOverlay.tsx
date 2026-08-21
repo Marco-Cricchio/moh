@@ -12,6 +12,7 @@ import {
 import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, type EnvCandidate } from "./onboarding";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { useViewport, windowing } from "./viewport";
 
 /**
  * Hybrid onboarding overlay (issue #33): detected env credentials are
@@ -45,12 +46,18 @@ const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint
 
 export function Onboarding({ cwd, env, tester = minimalConnectionTest, forceWizard, onDone }: OnboardingProps) {
   const theme = useTheme();
+  const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
   const candidates = useMemo(() => detectEnvProviders(env ?? process.env), [env]);
   const [phase, setPhase] = useState<Phase>(
     forceWizard || candidates.length === 0 ? { kind: "wizard-type", cursor: 0 } : { kind: "detect", cursor: 0 },
   );
   const [wizard, setWizard] = useState<Partial<EndpointProfile>>({ name: "", type: "anthropic" });
+
+  // Height-aware lists (#64): intro, skip row, footer and borders ≈ 10 rows.
+  const budget = Math.max(3, viewport.rows - 10);
+  const detectWin = windowing(candidates.length + 1, phase.kind === "detect" ? phase.cursor : 0, budget);
+  const typeWin = windowing(BUILTIN_PROVIDER_TYPES.length, phase.kind === "wizard-type" ? phase.cursor : 0, budget);
 
   // Kick off the connection test as soon as a profile is ready.
   useEffect(() => {
@@ -131,14 +138,21 @@ export function Onboarding({ cwd, env, tester = minimalConnectionTest, forceWiza
         <>
           <Text>Found credentials in your environment:</Text>
           <Text> </Text>
-          {candidates.map((c, i) => (
-            <Text key={c.envVar} color={i === phase.cursor ? theme.bg : undefined} backgroundColor={i === phase.cursor ? theme.accent : undefined}>
-              {` ${i === phase.cursor ? "›" : " "} ${c.type} — via ${c.envVar} (model ${c.defaultModel})${i === phase.cursor ? " " : ""}`}
+          {detectWin.above > 0 && <Dim>{` ↑ ${detectWin.above} more`}</Dim>}
+          {candidates.slice(detectWin.start, detectWin.start + detectWin.count - (detectWin.start + detectWin.count > candidates.length ? 1 : 0)).map((c, i) => {
+            const index = detectWin.start + i;
+            return (
+            <Text key={c.envVar} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+              {` ${index === phase.cursor ? "›" : " "} ${c.type} via ${c.envVar} · ${c.defaultModel}${index === phase.cursor ? " " : ""}`}
             </Text>
-          ))}
-          <Text color={phase.cursor === candidates.length ? theme.bg : undefined} backgroundColor={phase.cursor === candidates.length ? theme.dim : undefined}>
-            {` ${phase.cursor === candidates.length ? "›" : " "} skip — use the built-in mock demo`}
-          </Text>
+            );
+          })}
+          {detectWin.start + detectWin.count > candidates.length && (
+            <Text color={phase.cursor === candidates.length ? theme.bg : undefined} backgroundColor={phase.cursor === candidates.length ? theme.dim : undefined}>
+              {` ${phase.cursor === candidates.length ? "›" : " "} skip — use the built-in mock demo`}
+            </Text>
+          )}
+          {detectWin.below > 0 && <Dim>{` ↓ ${detectWin.below} more`}</Dim>}
           <Text> </Text>
           <Dim>enter confirm (connection test runs) · w wizard · s skip</Dim>
         </>
@@ -147,11 +161,16 @@ export function Onboarding({ cwd, env, tester = minimalConnectionTest, forceWiza
         <>
           <Text>Pick a provider type:</Text>
           <Text> </Text>
-          {BUILTIN_PROVIDER_TYPES.map((t, i) => (
-            <Text key={t} color={i === phase.cursor ? theme.bg : undefined} backgroundColor={i === phase.cursor ? theme.accent : undefined}>
-              {` ${i === phase.cursor ? "›" : " "} ${t}${i === phase.cursor ? " " : ""}`}
+          {typeWin.above > 0 && <Dim>{` ↑ ${typeWin.above} more`}</Dim>}
+          {BUILTIN_PROVIDER_TYPES.slice(typeWin.start, typeWin.start + typeWin.count).map((t, i) => {
+            const index = typeWin.start + i;
+            return (
+            <Text key={t} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined}>
+              {` ${index === phase.cursor ? "›" : " "} ${t}${index === phase.cursor ? " " : ""}`}
             </Text>
-          ))}
+            );
+          })}
+          {typeWin.below > 0 && <Dim>{` ↓ ${typeWin.below} more`}</Dim>}
           <Text> </Text>
           <Dim>enter select · s skip</Dim>
         </>

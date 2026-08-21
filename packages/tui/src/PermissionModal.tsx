@@ -16,12 +16,10 @@ import type { PermissionGate } from "./permission-gate";
 export function PermissionModal({
   gate,
   mode,
-  compact,
   editor,
 }: {
   gate: PermissionGate;
   mode: Mode;
-  compact: boolean;
   /** $EDITOR override (settings); falls back to env/$EDITOR/vi. */
   editor?: string;
 }) {
@@ -40,11 +38,7 @@ export function PermissionModal({
   if (!view) return null;
 
   return (
-    <Dialog
-      title=" permission "
-      color={theme.warn}
-      width={compact ? "100%" : "62%"}
-    >
+    <Dialog title=" permission " color={theme.warn}>
       <Text>{mode === "vibe" ? "Quick check — may I do this?" : "A tool call needs your approval:"}</Text>
       <Text> </Text>
       {view.detail.map((line, i) => (
