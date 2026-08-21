@@ -98,6 +98,8 @@ export function aiSdkStreamFor(
   target: RouteTarget,
   apiKey: string | undefined,
   baseUrl: string | undefined,
+  /** Test seam: internal module (not exported from @moh/core), so the SDK
+   * type stays invisible to clients (ADR-0002). Production callers omit it. */
   modelOverride?: LanguageModel,
 ): (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent> {
   const model = modelOverride ?? languageModelFor(target, apiKey, baseUrl);
