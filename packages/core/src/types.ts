@@ -48,10 +48,12 @@ export type StreamEvent =
 
 export type FinishReason = "stop" | "tool_calls";
 
-/** Tool identity as advertised to providers (name + description). */
+/** Tool identity as advertised to providers (name, description, JSON schema). */
 export interface ToolSpec {
   name: string;
   description: string;
+  /** JSON Schema (object) of the tool args, from the Zod inputSchema; optional for schema-less tools. */
+  parameters?: Record<string, unknown>;
 }
 
 /**

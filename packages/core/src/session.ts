@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
+import { z } from "zod";
+import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, ToolSpec, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
@@ -385,7 +386,11 @@ export class AgentSession {
       }
       const toolCalls: ToolCall[] = [];
       try {
-        const toolSpecs = Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description }));
+        const toolSpecs: ToolSpec[] = Object.values(this.#allTools()).map((t) => ({
+          name: t.name,
+          description: t.description,
+          ...(t.inputSchema ? { parameters: z.toJSONSchema(t.inputSchema) as Record<string, unknown> } : {}),
+        }));
         for await (const event of this.#provider.stream(this.#messages, controller.signal, toolSpecs)) {
           if (controller.signal.aborted) break;
           if (event.type === "text_delta") {
