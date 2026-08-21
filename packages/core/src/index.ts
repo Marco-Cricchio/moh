@@ -16,7 +16,7 @@ import {
   type SectionRenderer,
   type SkillIndexEntry,
 } from "./prompt-composer";
-import { discoverSkills, parseSkillFrontmatter, type DiscoveredSkill, type DiscoverSkillsOptions } from "./skills";
+import { discoverSkills, parseSkillFrontmatter, firstPartySkillNames, FIRST_PARTY_MANIFEST, type DiscoveredSkill, type DiscoverSkillsOptions } from "./skills";
 import {
   MIN_SUPPORTED_SCHEMA_VERSION,
   SessionStore,
@@ -87,6 +87,39 @@ import {
   type ConnectionTester,
   type OnboardingIo,
 } from "./provider-onboarding";
+import {
+  MOH_VERSION,
+  DEFAULT_UPSTREAM_URL,
+  defaultBundleDir,
+  firstPartySkillSources,
+  hashSkillFiles,
+  diffSkillFiles,
+  installFirstPartySkills,
+  checkUpstreamUpdates,
+  applyUpstreamUpdates,
+  loadFirstPartyManifest,
+  versionSatisfied,
+  type FirstPartySkillSource,
+  type SkillInstallReport,
+  type UpstreamUpdate,
+  type UpstreamIndex,
+  type ApplyUpstreamReport,
+} from "./workflow";
+import {
+  TRACKER_DIR,
+  ghTracker,
+  gitlabTracker,
+  localMarkdownTracker,
+  resolveTracker,
+  resolveTrackerSync,
+  trackerTools,
+  projectFrontier,
+  defaultRunner,
+  type TrackerIssue,
+  type TrackerBackend,
+  type ShellRunner,
+  type Frontier,
+} from "./tracker";
 
 /** Permission configuration for a session. */
 export interface PermissionsConfig {
@@ -129,6 +162,12 @@ export interface SessionConfig {
   promptComposer?: PromptComposer;
   /** User-level moh dir for skill discovery. Default: `~/.moh`. */
   mohHome?: string;
+  /**
+   * First-party skills (#36): "include" (default) or "exclude" — with
+   * workflow mode off, moh-owned skills stay out of the index so base
+   * behavior is untouched even if they are installed.
+   */
+  firstParty?: "include" | "exclude";
   /** Skill index entries (#30). Default: discovered from ~/.moh/skills + .moh/skills. */
   skills?: SkillIndexEntry[];
   /**
@@ -201,6 +240,28 @@ export {
   DEFAULT_TOOL_PERMISSIONS,
   discoverSkills,
   parseSkillFrontmatter,
+  firstPartySkillNames,
+  FIRST_PARTY_MANIFEST,
+  MOH_VERSION,
+  DEFAULT_UPSTREAM_URL,
+  defaultBundleDir,
+  firstPartySkillSources,
+  hashSkillFiles,
+  diffSkillFiles,
+  installFirstPartySkills,
+  checkUpstreamUpdates,
+  applyUpstreamUpdates,
+  loadFirstPartyManifest,
+  versionSatisfied,
+  TRACKER_DIR,
+  ghTracker,
+  gitlabTracker,
+  localMarkdownTracker,
+  resolveTracker,
+  resolveTrackerSync,
+  trackerTools,
+  projectFrontier,
+  defaultRunner,
   PermissionResolver,
   runtimeRulesFromEvents,
   splitCommandSegments,
@@ -238,6 +299,15 @@ export {
   type ConnectionTestResult,
   type ConnectionTester,
   type OnboardingIo,
+  type FirstPartySkillSource,
+  type SkillInstallReport,
+  type UpstreamUpdate,
+  type UpstreamIndex,
+  type ApplyUpstreamReport,
+  type TrackerIssue,
+  type TrackerBackend,
+  type ShellRunner,
+  type Frontier,
   type ProviderErrorKind,
   type ProviderKind,
   type Route,
