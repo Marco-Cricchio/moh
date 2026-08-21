@@ -213,7 +213,7 @@ export function App({
   return (
     <ThemeProvider value={THEMES[themeName]}>
       <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
-          <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%">
+          <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           <Chat
             session={session}
