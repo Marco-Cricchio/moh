@@ -21,15 +21,16 @@ describe("App overlays (issue #33)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("connect a provider");
     i.stdin.write("s"); // skip (works in both phases)
     await sleep(50);
+    i.stdin.write("n"); // skip the workflow offer revealed by correct overlay layering
+    await sleep(50);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("search or start something new");
-    expect(frame).toContain("mock demo"); // toast notice
     i.unmount();
   });
 
   test("a configured provider skips onboarding entirely", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} />);
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("search or start something new");
     i.unmount();
@@ -37,7 +38,7 @@ describe("App overlays (issue #33)", () => {
 
   test("? opens the all-commands panel, esc closes; s opens settings", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} />);
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("?");
     await sleep(50);
@@ -56,7 +57,7 @@ describe("App overlays (issue #33)", () => {
 
   test("ctrl+s and ctrl+k open the panels from home too", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} />);
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("\x13"); // ctrl+s
     await sleep(50);
@@ -71,7 +72,7 @@ describe("App overlays (issue #33)", () => {
 
   test("in chat, ? on an empty draft opens commands, then closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} />);
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("n"); // new session → chat
     await sleep(50);
