@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { Accent, Dim, Footer, Logo } from "./ui";
+import { Accent, Dim, Footer, Logo, useCompact } from "./ui";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
 import type { Mode } from "./Chat";
 
@@ -13,6 +13,8 @@ export interface HomeProps {
   /** Opens a session: resume when a summary is given, fresh when null. */
   onOpen: (resume: SessionSummary | null, initialPrompt?: string) => void;
   onExit: () => void;
+  onOpenSettings?: () => void;
+  onOpenCommands?: () => void;
 }
 
 /**
@@ -20,8 +22,9 @@ export interface HomeProps {
  * sessions list filters live; enter resumes the selection (or starts the
  * typed prompt as a new session); `n` starts fresh.
  */
-export function Home({ cwd, home, mode, onOpen, onExit }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands }: HomeProps) {
   const theme = useTheme();
+  const compact = useCompact();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
@@ -41,6 +44,8 @@ export function Home({ cwd, home, mode, onOpen, onExit }: HomeProps) {
       return;
     }
     if (input === "n" && query === "") return onOpen(null);
+    if (input === "s" && query === "" && onOpenSettings) return onOpenSettings();
+    if (input === "?" && query === "" && onOpenCommands) return onOpenCommands();
     if (key.backspace || key.delete) return setQuery((q) => q.slice(0, -1));
     if (key.escape) return setQuery("");
     if (input && !key.ctrl && !key.meta) {
@@ -75,10 +80,16 @@ export function Home({ cwd, home, mode, onOpen, onExit }: HomeProps) {
         })}
         {!newOption && hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         <Text> </Text>
-        <Dim>{query ? "enter open · esc clear · ↑↓ select" : "type to filter or start new · n new session"}</Dim>
+        <Dim>{query ? "enter open · esc clear · ↑↓ select" : "type to filter or start new · n new session · s settings · ? keys"}</Dim>
       </Box>
       <Text> </Text>
-      <Footer keys={`${theme.label} · ctrl+t theme · ctrl+m mode · q quit`} />
+      <Footer
+        keys={
+          compact
+            ? `${theme.label} · ctrl+t theme · ctrl+m mode · q quit`
+            : `${theme.label} · ctrl+t theme · ctrl+m mode · s settings · ? keys · q quit`
+        }
+      />
     </Box>
   );
 }
