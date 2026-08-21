@@ -100,9 +100,9 @@ export function makeSession(options: OpenSessionOptions): { session: AgentSessio
     sink: (event) => store.append(event),
     // Subagents (#13): presets from moh.json `agents` merge over the built-ins.
     ...(config?.agents ? { subagents: { presets: config.agents } } : {}),
-    // Memory (#38): moh.json `memory`; the section injects and the maintenance
-    // subagent extracts post-turn, invisibly to the chat (discreet indicator).
-    ...(config?.memory ? { memory: config.memory } : {}),
+    // Memory (#38): on by default (spec); the section injects and the
+    // maintenance subagent extracts post-turn, invisibly to the chat.
+    ...(config?.memory ? { memory: config.memory } : { memory: {} }),
     ...(options.resumeEvents ? { resume: { events: options.resumeEvents } } : {}),
   });
   return { session, store };

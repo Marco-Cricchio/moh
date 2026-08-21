@@ -289,6 +289,43 @@ describe("session integration", () => {
     expect(session.history().some((e) => e.type === "memory_updated")).toBe(true);
   });
 
+  test("consolidation runs with the maintenance pass: duplicates dedup newest-wins", async () => {
+    const dir = tmpDir("session-consolidate");
+    const first = newSession(dir, { extractor: async () => [{ topic: "prefs", fact: "Same Fact." }] });
+    await first.send("one"); // append 1
+    await first.dispose();
+    const second = newSession(dir, { extractor: async () => [{ topic: "prefs", fact: "Same Fact." }] });
+    await second.send("two"); // append 2 (duplicate) + consolidate
+    await second.dispose();
+    const raw = readFileSync(join(dir, "memory", "prefs.md"), "utf8");
+    expect(raw).toContain("<!-- consolidated");
+    expect(raw.match(/- Same Fact\./g)).toHaveLength(1);
+  });
+
+  test("fail-silent but not lossy: failed runs keep turns eligible", async () => {
+    const dir = tmpDir("session-notlossy");
+    let fail = true;
+    const session = new AgentSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" as const }]),
+      cwd: dir,
+      memory: {
+        dir: join(dir, "memory"),
+        intervalTurns: 1,
+        extractor: async (input) => {
+          if (fail) throw new Error("boom");
+          return [{ topic: "t", fact: input.transcript.includes("keep me") ? "kept" : "other" }];
+        },
+      },
+    });
+    await session.send("keep me"); // trigger 1: both attempts fail, idx restored
+    await Bun.sleep(10); // let the background run settle
+    fail = false;
+    await session.send("next"); // trigger 2: transcript covers both turns
+    await session.dispose();
+    // The first turn's text was still in scope for the successful run.
+    expect(readFileSync(join(dir, "memory", "t.md"), "utf8")).toContain("kept");
+  });
+
   test("empty extraction: no event, no section", async () => {
     const dir = tmpDir("session-empty");
     const session = newSession(dir, { extractor: async () => [] });
