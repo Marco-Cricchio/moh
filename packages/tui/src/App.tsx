@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useApp, useInput, useStdout } from "ink";
+import { useApp, useInput } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type Provider, type TrackerBackend } from "@moh/core";
 import { SessionStore } from "@moh/core";
-import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
+import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, useTheme, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
 import { Chat, type Mode } from "./Chat";
@@ -13,7 +13,7 @@ import { makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
-import { useCompact } from "./ui";
+import { useViewport } from "./viewport";
 import { PermissionModal } from "./PermissionModal";
 import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
@@ -54,8 +54,7 @@ export function App({
   skipOnboarding,
 }: AppProps) {
   const { exit } = useApp();
-  const { stdout } = useStdout();
-  const compact = useCompact();
+  const viewport = useViewport();
 
   const cfgFile = useMemo(() => userConfigFile(home), [home]);
   const [config, setConfig] = useState<UserConfig>(() => loadUserConfig(cfgFile));
@@ -213,7 +212,7 @@ export function App({
 
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" height="100%" position="relative" key={themeTick}>
+      <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
           <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%">
         {showChat ? (
           <Chat
@@ -249,7 +248,7 @@ export function App({
           />
         )}
         </Box>
-        {overlayOpen && <Box width="100%" height="100%" alignItems="center" justifyContent="flex-start">
+        {overlayOpen && <Scrim>
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -288,7 +287,7 @@ export function App({
             onClose={() => setOverlay(null)}
           />
         )}
-        {overlay === "commands" && <CommandsPanel compact={compact} onClose={() => setOverlay(null)} />}
+        {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
         {overlay === "workflow-offer" && (
           <WorkflowOffer
             onDone={(enable) => {
@@ -314,11 +313,22 @@ export function App({
             }
           />
         )}
-        {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
-        </Box>}
+        {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
+        </Scrim>}
         <Toasts toasts={toasts} />
       </Box>
     </ThemeProvider>
+  );
+}
+
+/** Solid full-viewport backdrop behind an open overlay: centers the dialog layer and covers the screen beneath (#64/#65). */
+function Scrim({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  const viewport = useViewport();
+  return (
+    <Box width={viewport.columns} height={viewport.rows} backgroundColor={theme.bg} flexDirection="column">
+      {children}
+    </Box>
   );
 }
 
