@@ -213,8 +213,9 @@ export function App({
 
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" height="100%" key={themeTick}>
-          {showChat ? (
+      <Box flexDirection="column" height="100%" position="relative" key={themeTick}>
+          <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%">
+        {showChat ? (
           <Chat
             session={session}
             mode={mode}
@@ -247,13 +248,8 @@ export function App({
             blocked={overlayOpen}
           />
         )}
-        <Box
-          {...({ position: "absolute", top: 0, left: 0 } as Record<string, unknown>)}
-          width="100%"
-          height="100%"
-          alignItems="center"
-          justifyContent="flex-start"
-        >
+        </Box>
+        {overlayOpen && <Box width="100%" height="100%" alignItems="center" justifyContent="flex-start">
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -319,7 +315,7 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
-        </Box>
+        </Box>}
         <Toasts toasts={toasts} />
       </Box>
     </ThemeProvider>
