@@ -346,6 +346,34 @@ describe("subagents (#13)", () => {
     expect(parsed.error).toContain("unknown subagent preset");
   });
 
+  test("preset context is shared explicitly with the child as part of its first message", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "summarize" } }] },
+        { deltas: ["ok"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: {
+        home,
+        presets: {
+          research: {
+            ...BUILTIN_AGENT_PRESETS["research"]!,
+            context: "repo: moh, a headless agent core",
+          },
+        },
+        provider: MockProvider.scripted([{ deltas: ["r"], finish: "stop" }]),
+      },
+    });
+    const tapped = tap(parent);
+    await parent.send("go");
+    const spawned = tapped.find((e) => e.type === "subagent_spawn") as any;
+    const childLog = readFileSync(spawned.log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as AgentEvent);
+    const first = childLog.find((e) => e.type === "user_message") as any;
+    expect(first.text).toBe("# Context\n\nrepo: moh, a headless agent core\n\n# Task\n\nsummarize");
+  });
+
   test("child permission asks surface through the parent's consent seam", async () => {
     const asked: string[] = [];
     const home = tmpHome();
