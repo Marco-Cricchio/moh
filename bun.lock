@@ -32,11 +32,16 @@
         "@ai-sdk/anthropic": "^4.0.40",
         "@ai-sdk/google": "^4.0.48",
         "@ai-sdk/openai": "^4.0.45",
+        "@moh/extension": "workspace:*",
         "ai": "^7.0.71",
       },
       "devDependencies": {
         "typescript": "^5",
       },
+    },
+    "packages/extension": {
+      "name": "@moh/extension",
+      "version": "0.1.0",
     },
     "packages/tui": {
       "name": "@moh/tui",
@@ -75,6 +80,8 @@
     "@moh/cli": ["@moh/cli@workspace:packages/cli"],
 
     "@moh/core": ["@moh/core@workspace:packages/core"],
+
+    "@moh/extension": ["@moh/extension@workspace:packages/extension"],
 
     "@moh/tui": ["@moh/tui@workspace:packages/tui"],
 

@@ -54,6 +54,8 @@ export const mohConfigSchema = z.object({
       overrides: permissionOverridesSchema.optional(),
     })
     .optional(),
+  /** Extension sources (#34): file paths (or module ids) loaded at session start. */
+  extensions: z.array(z.string().min(1)).optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;
