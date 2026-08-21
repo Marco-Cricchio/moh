@@ -121,6 +121,14 @@ export function App({
     if (initialPrompt) void made.session.send(initialPrompt);
   };
 
+  // MCP servers and other session-scoped resources shut down at session
+  // end: when the active session is replaced or the app unmounts (#15).
+  useEffect(() => {
+    return () => {
+      void session?.dispose();
+    };
+  }, [session]);
+
   useInput((input, key) => {
     if (key.ctrl && input === "m") {
       const next: Mode = mode === "vibe" ? "dev" : "vibe";
