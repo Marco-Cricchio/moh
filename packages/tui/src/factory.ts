@@ -16,6 +16,8 @@ import {
   trackerTools,
   type AgentEvent,
   type AgentSession,
+  type AskUserQuestion,
+  type AskUserResult,
   type DeclaredMcpServer,
   type MohConfig,
   type Provider,
@@ -36,6 +38,8 @@ export interface OpenSessionOptions {
   home?: string;
   /** Consent seam for the TUI permission modal (#33). */
   onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  /** Interactive question channel for the ask_user tool (#70). */
+  onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
   /** Default permission mode for new sessions (user config; bypass stays CLI-only). */
   permissionMode?: "normal" | "auto-accept";
   /** Tool registry override (tests). Default: built-ins (+ tracker tools in workflow mode). */
@@ -96,6 +100,7 @@ export function makeSession(options: OpenSessionOptions): { session: AgentSessio
         }
       : {}),
     ...(options.onPermissionRequest ? { onPermissionRequest: options.onPermissionRequest } : {}),
+    ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
     ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
     sink: (event) => store.append(event),
     // Subagents (#13): presets from moh.json `agents` merge over the built-ins.

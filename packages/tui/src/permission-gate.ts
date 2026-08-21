@@ -49,6 +49,9 @@ export function toolArgSummary(args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
   if (typeof a.command === "string") return a.command;
   if (typeof a.path === "string") return a.path;
+  // ask_user (#70): the question is the summary; the answer lands in the
+  // tool_result output, so replay shows both.
+  if (typeof a.question === "string") return a.question;
   return "";
 }
 
