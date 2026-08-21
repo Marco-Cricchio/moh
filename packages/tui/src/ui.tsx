@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 
-import { dialogWidth, useViewport, widthClass } from "./viewport";
+import { dialogWidth, useViewport } from "./viewport";
 
 /** pi-style labelled message box: single round border, label row inside. */
 export function MsgBox({ label, color, children }: { label: string; color: string; children: React.ReactNode }) {
@@ -32,15 +32,6 @@ export function Footer({ keys }: { keys: string }) {
       <Text color={theme.dim} wrap="truncate-end">{` ${keys} `}</Text>
     </Box>
   );
-}
-
-/**
- * Compact-mode check (style guide §1 Q12): below ~60 cols. Prefer
- * `widthClass(useViewport())` — this wrapper survives until every caller
- * migrates to the viewport seam.
- */
-export function useCompact(): boolean {
-  return widthClass(useViewport()) === "compact";
 }
 
 /** Elide a string to `n` visible chars with an ellipsis. */

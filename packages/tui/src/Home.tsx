@@ -2,7 +2,8 @@ import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { Accent, Dim, Footer, Logo, useCompact } from "./ui";
+import { Accent, Dim, Footer, Logo, truncate } from "./ui";
+import { useViewport, widthClass } from "./viewport";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
 import type { Mode } from "./Chat";
 
@@ -26,7 +27,10 @@ export interface HomeProps {
  */
 export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands, blocked = false }: HomeProps) {
   const theme = useTheme();
-  const compact = useCompact();
+  const viewport = useViewport();
+  const compact = widthClass(viewport) === "compact";
+  // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
+  const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
@@ -62,22 +66,22 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
       <Logo />
       <Text> </Text>
       <Text> </Text>
-      <Box borderStyle="round" borderColor={theme.border} width={50} paddingX={1}>
+      <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
         <Text>{query || <Dim>search or start something new…</Dim>}</Text>
         <Text color={theme.dim}>▊</Text>
       </Box>
       <Text> </Text>
-      <Box flexDirection="column" width={50}>
+      <Box flexDirection="column" width={boxW}>
         {newOption && (
           <Text color={cursor === 0 ? theme.bg : theme.accent} backgroundColor={cursor === 0 ? theme.accent : undefined}>
-            {` ${cursor === 0 ? ic("›", ">") : " "} start “${query.trim()}”` + (cursor === 0 ? " " : "")}
+            {` ${cursor === 0 ? ic("›", ">") : " "} start “${truncate(query.trim(), boxW - 14)}”` + (cursor === 0 ? " " : "")}
           </Text>
         )}
         {hits.map((s, i) => {
           const selected = i === hitIndex;
           return (
             <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
-              {` ${selected ? ic("›", ">") : " "} ${s.title}`}
+              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 4)}`}
             </Text>
           );
         })}
