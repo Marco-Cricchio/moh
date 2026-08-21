@@ -7,7 +7,7 @@
  */
 import { loadMohConfig, upsertEndpoint, writeMohConfig, type EndpointProfile, type MohConfig } from "./config";
 import { defaultRegistry, resolveProvider, type ProviderRegistry } from "./provider-registry";
-import { envApiKey } from "./route";
+import { envApiKey, endpointEnvVarName } from "./route";
 
 /** Provider types usable with no custom code. */
 export const BUILTIN_PROVIDER_TYPES = ["anthropic", "openai", "google", "openai-compat"] as const;
@@ -117,13 +117,15 @@ export async function minimalConnectionTest(
   const modelId = profile.defaultModel;
   if (!modelId) return { ok: false, error: "no default model configured" };
   if (profile.type === "mock") return { ok: true, modelId };
-  // Inline key first; otherwise the endpoint's env var — same lookup an
-  // instantiated Endpoint performs at stream time (route.ts envApiKey).
-  const apiKey = profile.apiKey ?? envApiKey(profile.name, env);
+  // Inline key first (an empty/whitespace string counts as absent — the
+  // wizard may persist "" when the field is left blank); otherwise the
+  // endpoint's env var — same lookup an instantiated Endpoint performs at
+  // stream time (route.ts envApiKey).
+  const apiKey = profile.apiKey?.trim() ? profile.apiKey : envApiKey(profile.name, env);
   if (!apiKey && profile.type !== "openai-compat") {
     // Fail fast rather than send an unauthenticated request (local
     // openai-compat endpoints legitimately need no key).
-    return { ok: false, error: `no api key configured: set an inline key or MOH_ENDPOINT_${profile.name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY` };
+    return { ok: false, error: `no api key configured: set an inline key or ${endpointEnvVarName(profile.name)}` };
   }
   try {
     const auth: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
@@ -131,7 +133,7 @@ export async function minimalConnectionTest(
       const res = await fetchImpl(`${profile.baseUrl ?? "https://api.anthropic.com"}/v1/messages`, {
         method: "POST",
         signal,
-        headers: { "content-type": "application/json", "x-api-key": apiKey!, "anthropic-version": "2023-06-01" },
+        headers: { "content-type": "application/json", "x-api-key": apiKey ?? "", "anthropic-version": "2023-06-01" },
         body: JSON.stringify({ model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
       });
       return verdict(res, modelId);
@@ -141,7 +143,7 @@ export async function minimalConnectionTest(
       const res = await fetchImpl(`${base}/models/${modelId}:generateContent`, {
         method: "POST",
         signal,
-        headers: { "content-type": "application/json", "x-goog-api-key": apiKey! },
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey ?? "" },
         body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 1 } }),
       });
       return verdict(res, modelId);

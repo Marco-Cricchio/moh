@@ -161,6 +161,22 @@ describe("minimalConnectionTest", () => {
     expect(authHeader).toBe("Bearer env-key-123");
   });
 
+  test("blank-string inline key (\"\") still falls back to the env key (#62)", async () => {
+    let authHeader = "";
+    const fetchSpy = (async (_url: unknown, init?: RequestInit) => {
+      authHeader = String((init?.headers as Record<string, string>).authorization ?? "");
+      return new Response("{}", { status: 200 });
+    }) as never as typeof fetch;
+    const result = await minimalConnectionTest(
+      { name: "zai", type: "openai-compat", baseUrl: "http://localhost:9/v1", defaultModel: "glm-4.6", apiKey: "" },
+      fetchSpy,
+      AbortSignal.timeout(500),
+      { MOH_ENDPOINT_ZAI_API_KEY: "env-key-123" },
+    );
+    expect(result).toEqual({ ok: true, modelId: "glm-4.6" });
+    expect(authHeader).toBe("Bearer env-key-123");
+  });
+
   test("no inline key and no env key: cloud providers fail fast with a clear error (#62)", async () => {
     const anthropic = await minimalConnectionTest(
       { name: "myanthropic", type: "anthropic", defaultModel: "claude-sonnet-4-5" },
