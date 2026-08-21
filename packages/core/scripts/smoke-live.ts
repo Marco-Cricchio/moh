@@ -7,6 +7,8 @@
  *   MOH_ENDPOINT_OPENAI_API_KEY     (default model gpt-4o-mini)
  *   MOH_ENDPOINT_GOOGLE_API_KEY     (default model gemini-2.5-flash)
  *   MOH_ENDPOINT_ZAI_API_KEY        (openai-compat, default model glm-4.6)
+ *   MOH_ENDPOINT_OLLAMA_API_KEY     (openai-compat -> local Ollama, default model qwen3:4b;
+ *                                    set to any non-empty value, e.g. "local" — no key needed)
  * Optional per-provider model overrides: MOH_SMOKE_<NAME>_MODEL.
  * Throwaway keys only; never commit them.
  *
@@ -27,6 +29,7 @@ const CASES: Case[] = [
   { name: "openai", kind: "openai", defaultModel: "gpt-4o-mini" },
   { name: "google", kind: "google", defaultModel: "gemini-2.5-flash" },
   { name: "zai", kind: "openai", baseUrl: "https://api.z.ai/api/paas/v4", defaultModel: "glm-4.6" },
+  { name: "ollama", kind: "openai", baseUrl: "http://localhost:11434/v1", defaultModel: "qwen3:4b" },
 ];
 
 function modelOf(c: Case): string {
