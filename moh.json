@@ -1,0 +1,12 @@
+{
+  "provider": "openai-compat/auto",
+  "endpoints": [
+    {
+      "name": "openai-compat",
+      "type": "openai-compat",
+      "apiKey": "sk-251063f867c8762e-17804b-13724ce2",
+      "baseUrl": "http://localhost:20128",
+      "defaultModel": "auto"
+    }
+  ]
+}

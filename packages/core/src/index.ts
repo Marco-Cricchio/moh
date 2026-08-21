@@ -47,7 +47,7 @@ import {
   type SubagentResult,
   type SubagentSpec,
 } from "./subagents";
-import type { AgentEvent, EndpointCapabilities, Message, PermissionGrantReason, Provider, ProviderErrorKind, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
+import type { AgentEvent, AskUserQuestion, AskUserResult, EndpointCapabilities, Message, PermissionGrantReason, Provider, ProviderErrorKind, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { createMaintenanceExtractor } from "./session";
 import {
   CHARS_PER_TOKEN,
@@ -184,6 +184,8 @@ export interface SessionConfig {
     tool: string,
     args: unknown,
   ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  /** Interactive question channel for the ask_user tool. Without it (headless) the tool fails fast. */
+  onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
   /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
