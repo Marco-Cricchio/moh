@@ -88,7 +88,7 @@ export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierPr
   });
 
   return (
-    <Dialog title=" frontier " color={theme.accent} width="62%">
+    <Dialog title=" frontier " color={theme.accent}>
       {load.kind === "loading" && <Dim>loading tracker…</Dim>}
       {load.kind === "error" && (
         <Text color={theme.warn}>{`⚠ tracker unavailable: ${load.message}`}</Text>

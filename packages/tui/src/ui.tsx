@@ -1,6 +1,8 @@
 import React from "react";
-import { Box, Text, useStdout } from "ink";
+import { Box, Text } from "ink";
 import { useTheme } from "./themes";
+
+import { dialogWidth, useViewport, widthClass } from "./viewport";
 
 /** pi-style labelled message box: single round border, label row inside. */
 export function MsgBox({ label, color, children }: { label: string; color: string; children: React.ReactNode }) {
@@ -24,17 +26,21 @@ export function Accent({ children }: { children: React.ReactNode }) {
 
 /** context-sensitive footer: one dim line of keys valid right now */
 export function Footer({ keys }: { keys: string }) {
+  const theme = useTheme();
   return (
     <Box justifyContent="center">
-      <Dim>{` ${keys} `}</Dim>
+      <Text color={theme.dim} wrap="truncate-end">{` ${keys} `}</Text>
     </Box>
   );
 }
 
-/** Compact-mode threshold (style guide §1 Q12): below ~60 cols. */
+/**
+ * Compact-mode check (style guide §1 Q12): below ~60 cols. Prefer
+ * `widthClass(useViewport())` — this wrapper survives until every caller
+ * migrates to the viewport seam.
+ */
 export function useCompact(): boolean {
-  const { stdout } = useStdout();
-  return (stdout.columns ?? 80) < 60;
+  return widthClass(useViewport()) === "compact";
 }
 
 /** Elide a string to `n` visible chars with an ellipsis. */
@@ -53,9 +59,11 @@ export function Logo() {
 }
 
 /**
- * Shared modal overlay shape (style guide §8): centered, round border in
- * the overlay's semantic color, solid background for contrast over the
- * transcript, ~62% width (full width in compact mode).
+ * Shared modal overlay shape (style guide §8): centered against the full
+ * viewport on both axes, round border in the overlay's semantic color,
+ * solid background for contrast over the transcript, and a
+ * viewport-derived width (`dialogWidth`: ~62% clamped to the readable
+ * measure; full terminal width in compact mode).
  */
 export function Dialog({
   title,
@@ -71,15 +79,17 @@ export function Dialog({
   children: React.ReactNode;
 }) {
   const theme = useTheme();
+  const viewport = useViewport();
   return (
     <Box width="100%" height={center ? "100%" : undefined} alignItems="center" justifyContent={center ? "center" : "flex-start"} flexDirection="column">
       <Box
         borderStyle="round"
         borderColor={color}
         backgroundColor={theme.bg}
-        width={width ?? "62%"}
+        width={width ?? dialogWidth(viewport)}
         paddingX={2}
         flexDirection="column"
+        flexShrink={0}
       >
         <Text color={color} bold>
           {title}
