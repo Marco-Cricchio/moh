@@ -44,11 +44,19 @@ export interface SlashCommand {
 
 /** The workflow skill aliases: prompts routed through the first-party skills. */
 const ALIASES: { name: string; skill: string }[] = [
-  { name: "plan", skill: "plan" },
   { name: "implement", skill: "implement" },
-  { name: "review", skill: "review" },
-  { name: "diagnose", skill: "diagnose" },
-  { name: "dream", skill: "dream" },
+  { name: "tdd", skill: "tdd" },
+  { name: "code-review", skill: "code-review" },
+  { name: "diagnosing-bugs", skill: "diagnosing-bugs" },
+  { name: "grilling", skill: "grilling" },
+  { name: "domain-modeling", skill: "domain-modeling" },
+  { name: "wayfinder", skill: "wayfinder" },
+  { name: "to-spec", skill: "to-spec" },
+  { name: "to-tickets", skill: "to-tickets" },
+  { name: "triage", skill: "triage" },
+  { name: "codebase-design", skill: "codebase-design" },
+  { name: "wizard", skill: "wizard" },
+  { name: "writing-for-agents", skill: "writing-for-agents" },
 ];
 
 const workflowCommand: SlashCommand = {

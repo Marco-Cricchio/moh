@@ -12,7 +12,7 @@
  * The upstream channel (opt-out via the user config) is polled in the
  * background; failures are silent — it never blocks startup.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST, firstPartySkillNames } from "./skills";
@@ -122,6 +122,8 @@ export interface SkillInstallReport {
   skippedModified: string[];
   /** Requires a newer moh than MOH_VERSION — not installed. */
   skippedMinVersion: string[];
+  /** Stale moh-owned skills no longer bundled, unmodified — removed (#74). */
+  pruned: string[];
 }
 
 export interface InstallFirstPartySkillsOptions {
@@ -145,7 +147,23 @@ export function installFirstPartySkills(options: InstallFirstPartySkillsOptions)
     unchanged: [],
     skippedModified: [],
     skippedMinVersion: [],
+    pruned: [],
   };
+  // Prune stale moh-owned skills (#74): bundle entries no longer shipped.
+  // Unmodified copies are deleted; user-modified ones stay on disk but lose
+  // moh ownership (they become plain user skills).
+  for (const name of Object.keys(manifest.skills)) {
+    if (sources.some((s) => s.name === name)) continue;
+    const recorded = manifest.skills[name]!.hash;
+    const current = installedHash(options.mohHome, name);
+    if (current !== null && current === recorded) {
+      rmSync(join(options.mohHome, "skills", name), { recursive: true, force: true });
+      report.pruned.push(name);
+    } else if (current !== null) {
+      report.skippedModified.push(name);
+    }
+    delete manifest.skills[name];
+  }
   for (const source of sources) {
     if (source.minMohVersion && !versionSatisfied(source.minMohVersion, MOH_VERSION)) {
       report.skippedMinVersion.push(source.name);
