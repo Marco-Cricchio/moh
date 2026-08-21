@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, createSession } from "@moh/core";
@@ -35,9 +35,10 @@ describe("workflow slash command", () => {
     expect(ctx.config.workflow.enabled).toBe(true);
     // persisted
     expect(loadUserConfig(ctx.cfgFile).workflow.enabled).toBe(true);
-    // first-party skills installed under ~/.moh/skills
-    const skill = readFileSync(join(ctx.mohHome, "skills", "plan", "SKILL.md"), "utf8");
-    expect(skill).toContain("name: plan");
+    // first-party skills installed under ~/.moh/skills (#74: original vocabulary)
+    const skill = readFileSync(join(ctx.mohHome, "skills", "tdd", "SKILL.md"), "utf8");
+    expect(skill).toContain("name: tdd");
+    expect(existsSync(join(ctx.mohHome, "skills", "plan"))).toBe(false);
     expect(ctx.notices()[0]).toContain("workflow on");
   });
 
@@ -75,20 +76,20 @@ describe("workflow skill aliases", () => {
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow"]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
-    for (const n of ["plan", "implement", "review", "diagnose", "dream", "frontier", "skills"]) {
+    for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "wayfinder", "frontier", "skills"]) {
       expect(names).toContain(n);
     }
   });
 
-  test("/plan routes the prompt through the skill", async () => {
+  test("/tdd routes the prompt through the skill", async () => {
     const sent: string[] = [];
     const ctx = makeCtx({
       session: { send: (t: string) => (sent.push(t), Promise.resolve(null)) },
     } as any) as any;
     runSlashCommand("/workflow on", ctx);
-    expect(runSlashCommand("/plan build a thing", ctx)).toBe(true);
+    expect(runSlashCommand("/tdd build a thing", ctx)).toBe(true);
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain('"plan" skill');
+    expect(sent[0]).toContain('"tdd" skill');
     expect(sent[0]).toContain("build a thing");
   });
 

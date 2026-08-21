@@ -10,6 +10,7 @@ import {
   firstPartySkillSources,
   hashSkillFiles,
   installFirstPartySkills,
+  loadFirstPartyManifest,
   versionSatisfied,
   type FirstPartySkillSource,
 } from "../src/workflow";
@@ -75,17 +76,13 @@ describe("first-party skill install", () => {
   test("bundled assets ship the workflow skills", () => {
     const sources = firstPartySkillSources();
     expect(sources.map((s) => s.name).sort()).toEqual([
+      // #74: reduced set removed; original-vocabulary ports only (NOTICE.md)
       "code-review",
       "codebase-design",
-      // #72: design-core ports
-      "diagnose",
       "diagnosing-bugs",
       "domain-modeling",
-      "dream",
       "grilling",
       "implement",
-      "plan",
-      "review",
       "tdd",
       "to-spec",
       "to-tickets",
@@ -94,6 +91,28 @@ describe("first-party skill install", () => {
       "wizard",
       "writing-for-agents",
     ]);
+  });
+
+  test("install prunes stale moh-owned skills no longer bundled (#74)", () => {
+    const home = freshHome();
+    // an old install shipped "plan"; the new bundle does not
+    install({ mohHome: home, sources: [skill("plan"), skill("implement")] });
+    const report = install({ mohHome: home, sources: [skill("implement")] });
+    expect(report.pruned).toEqual(["plan"]);
+    expect(existsSync(join(home, "skills", "plan"))).toBe(false);
+    expect(existsSync(join(home, "skills", "implement", "SKILL.md"))).toBe(true);
+    expect(Object.keys(loadFirstPartyManifest(home).skills)).toEqual(["implement"]);
+  });
+
+  test("prune leaves user-modified stale copies on disk but drops ownership", () => {
+    const home = freshHome();
+    install({ mohHome: home, sources: [skill("plan")] });
+    writeFileSync(join(home, "skills", "plan", "SKILL.md"), "user edited");
+    const report = install({ mohHome: home, sources: [] });
+    expect(report.pruned).toEqual([]);
+    expect(report.skippedModified).toEqual(["plan"]);
+    expect(existsSync(join(home, "skills", "plan", "SKILL.md"))).toBe(true);
+    expect(Object.keys(loadFirstPartyManifest(home).skills)).toEqual([]);
   });
 
   test("design-core ports keep their companion files", () => {
