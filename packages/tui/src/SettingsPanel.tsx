@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from "react";
-import { Text, useInput, useStdout } from "ink";
+import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { loadMohConfig, writeMohConfig, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
-import { Dialog, Dim } from "./ui";
+import { Dialog, Dim, truncate } from "./ui";
+import { dialogWidth, useViewport, windowing } from "./viewport";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
@@ -36,7 +37,7 @@ interface Row {
 
 export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onToast, onClose }: SettingsPanelProps) {
   const theme = useTheme();
-  const { stdout } = useStdout();
+  const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
   const [moh, setMoh] = useState<MohConfig>(() => {
     try {
@@ -74,10 +75,13 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
   const endpointRefs = (moh.endpoints ?? []).map((e) => (e.defaultModel ? `${e.name}/${e.defaultModel}` : e.name));
 
   // Keep the dialog inside the terminal: title, spacing, footer and borders
-  // consume roughly eight rows, leaving the settings list a small viewport.
-  const viewportSize = Math.max(3, (stdout.rows ?? 24) - 8);
-  const viewportStart = Math.min(Math.max(0, cursor - viewportSize + 1), Math.max(0, rows.length - viewportSize));
-  const visibleRows = rows.slice(viewportStart, viewportStart + viewportSize);
+  // consume roughly eight rows, leaving the settings list a scroll window
+  // that follows the cursor (#64).
+  const win = windowing(rows.length, cursor, Math.max(3, viewport.rows - 8));
+  const visibleRows = rows.slice(win.start, win.start + win.count);
+  // Rows never overflow the dialog interior (border 2 + paddingX 4).
+  const innerWidth = dialogWidth(viewport) - 6;
+  const subWin = windowing(sub?.options.length ?? 0, sub?.cursor ?? 0, 5);
 
   const activate = (row: Row) => {
     if (sub) return;
@@ -152,25 +156,32 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
 
   return (
     <Dialog title=" settings " color={theme.ok}>
-      {viewportStart > 0 && <Dim>{` ↑ ${viewportStart} more`}</Dim>}
+      {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
       {visibleRows.map((row, i) => {
-        const index = viewportStart + i;
+        const index = win.start + i;
         const selected = index === cursor;
+        const line = ` ${selected ? "›" : " "} ${row.label.padEnd(26)}${row.value}${selected ? " " : ""}`;
         return (
           <Text key={row.key} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
-            {` ${selected ? "›" : " "} ${row.label.padEnd(26)}${row.value}${selected ? " " : ""}`}
+            {truncate(line, innerWidth)}
           </Text>
         );
       })}
-      {viewportStart + visibleRows.length < rows.length && <Dim>{` ↓ ${rows.length - viewportStart - visibleRows.length} more`}</Dim>}
+      {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
       {sub ? (
         <>
-          {sub.options.map((option, i) => (
-            <Text key={option} color={i === sub.cursor ? theme.bg : undefined} backgroundColor={i === sub.cursor ? theme.accent : undefined}>
-              {` ${i === sub.cursor ? "›" : " "} ${option}${i === sub.cursor ? " " : ""}`}
-            </Text>
-          ))}
+          {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
+          {sub.options.slice(subWin.start, subWin.start + subWin.count).map((option, i) => {
+            const index = subWin.start + i;
+            const selected = index === sub.cursor;
+            return (
+              <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                {truncate(` ${selected ? "›" : " "} ${option}${selected ? " " : ""}`, innerWidth)}
+              </Text>
+            );
+          })}
+          {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
           <Text> </Text>
           <Dim>{`↑↓ select · enter confirm · esc back — ${sub.kind === "switch" ? "switch provider" : "remove endpoint"}`}</Dim>
         </>
