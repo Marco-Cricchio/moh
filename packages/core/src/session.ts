@@ -12,6 +12,19 @@ import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
 import { SubagentHost, type SubagentOptions } from "./subagents";
 import { replayMessages } from "./session-store";
+import { projectSlug } from "./session-store";
+import {
+  CHARS_PER_TOKEN,
+  DEFAULT_MEMORY_BUDGET_TOKENS,
+  DEFAULT_MEMORY_INTERVAL_TURNS,
+  MAINTENANCE_PROMPT,
+  MemoryStore,
+  parseMemoryEntries,
+  memoryTranscript,
+  type MemoryExtractor,
+  type MemoryOptions,
+} from "./memory";
+import { randomUUID } from "node:crypto";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -53,6 +66,16 @@ export class AgentSession {
   #turn: Promise<TurnResult> | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
   readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
+  /** Memory (#38): store, trigger state, and the fail-silent background run. */
+  readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
+  readonly #memoryStore: MemoryStore | null;
+  readonly #memoryInterval: number;
+  readonly #memoryBudgetChars: number;
+  readonly #memoryExtractor: MemoryExtractor;
+  #memoryTurns = 0;
+  #lastMemoryIdx = 0;
+  #memoryBusy = false;
+  #memoryPending: Promise<void> | null = null;
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
@@ -105,6 +128,16 @@ export class AgentSession {
     const discovered = discoverSkills({ mohHome: this.#mohHome, projectDir: this.#cwd, firstParty: this.#firstParty });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
+    // Memory (#38): enabled by default when `memory` options are given;
+    // `memory.enabled: false` means no store, no section, no subagent runs.
+    const mem = config.memory;
+    this.#memoryStore =
+      mem && (mem.enabled ?? true)
+        ? new MemoryStore(mem.dir ?? join(this.#mohHome, "projects", projectSlug(this.#cwd), "memory"))
+        : null;
+    this.#memoryInterval = mem?.intervalTurns ?? DEFAULT_MEMORY_INTERVAL_TURNS;
+    this.#memoryBudgetChars = (mem?.budgetTokens ?? DEFAULT_MEMORY_BUDGET_TOKENS) * CHARS_PER_TOKEN;
+    this.#memoryExtractor = mem?.extractor ?? createMaintenanceExtractor(this.#provider, this.#cwd);
     if (config.mcp) {
       // Startup validation: duplicate server names are a hard config error.
       McpRuntime.validate(config.mcp.servers);
@@ -316,6 +349,8 @@ export class AgentSession {
     if (this.#extensions) {
       for (const e of await this.#extensions.dispatchAfterTurn(result)) this.#append(e);
     }
+    // Memory (#38): fire-and-forget after the reply — never blocks the turn.
+    this.#maybeExtractMemory(result);
     return result;
   }
 
@@ -402,6 +437,49 @@ export class AgentSession {
     this.#messages.push({ role: "assistant", parts: [{ kind: "text", text }] });
   }
 
+  /**
+   * Post-turn memory trigger (#38): every N completed turns, extract
+   * durable facts via the maintenance subagent (invisible to the chat:
+   * one discreet `memory_updated` event on success, silence otherwise).
+   * One retry, then fail-silent. Skipped while a run is in flight.
+   */
+  #maybeExtractMemory(result: TurnResult): void {
+    if (!this.#memoryStore || result.status !== "done" || this.#memoryBusy || this.#disposed) return;
+    this.#memoryTurns += 1;
+    if (this.#memoryTurns % this.#memoryInterval !== 0) return;
+    const transcript = memoryTranscript(this.#log, this.#lastMemoryIdx);
+    this.#lastMemoryIdx = this.#log.length;
+    if (!transcript.trim()) return;
+    const store = this.#memoryStore;
+    const extractor = this.#memoryExtractor;
+    this.#memoryBusy = true;
+    const run = (async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const entries = await extractor({
+            transcript,
+            topics: store.topics(),
+            memory: store.read(this.#memoryBudgetChars),
+          });
+          if (entries.length === 0) return;
+          await store.append(entries, this.#sessionId);
+          this.#append({
+            type: "memory_updated",
+            entries: entries.length,
+            topics: [...new Set(entries.map((e) => e.topic))],
+          });
+          this.#assemblePrompt(); // next model call sees the new memory
+          return;
+        } catch {
+          if (attempt === 1) return; // fail-silent after one retry
+        }
+      }
+    })();
+    this.#memoryPending = run.finally(() => {
+      this.#memoryBusy = false;
+    });
+  }
+
   /** Reassembles the system prompt for the next model call (#27). */
   #assemblePrompt(): void {
     const assembled = this.#promptComposer.compose({
@@ -411,6 +489,7 @@ export class AgentSession {
       model: this.#provider.name,
       tools: Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description })),
       skills: this.#skills,
+      memory: this.#memoryStore ? this.#memoryStore.read(this.#memoryBudgetChars) || undefined : undefined,
       extensionNotes: this.#extensions?.notes(),
     });
     this.#promptVersion = assembled.version;
@@ -598,12 +677,60 @@ export class AgentSession {
       });
   }
 
-  /** Ends the session: shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent. */
+  /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent. */
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    await this.#memoryPending?.catch(() => {});
     await this.#mcp?.shutdown();
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
   }
+}
+
+/**
+ * The default memory extractor (#38): the privileged maintenance
+ * subagent — an in-process child session invisible to the chat, never
+ * reachable through the `spawn` tool, with no tools and no memory of
+ * its own (no recursion). Fail-silent upstream: any error propagates
+ * to the caller, which retries once and then gives up quietly.
+ */
+export function createMaintenanceExtractor(provider: Provider, cwd: string): MemoryExtractor {
+  return async (input) => {
+    const child = new AgentSession({
+      provider,
+      tools: {},
+      cwd,
+      promptComposer: new PromptComposer({ projectDir: cwd, basePrompt: MAINTENANCE_PROMPT }),
+    });
+    try {
+      const user = [
+        "# Existing memory",
+        input.memory || "(empty)",
+        "",
+        "# Existing topics",
+        input.topics.length ? input.topics.join(", ") : "(none)",
+        "",
+        "# Transcript (recent turns)",
+        input.transcript,
+        "",
+        "Extract durable cross-session facts per your rules. Respond with only the JSON array.",
+      ].join("\n");
+      const turn = await child.send(user);
+      if (turn.status !== "done") throw new Error(`maintenance subagent ended ${turn.status}`);
+      return parseMemoryEntries(lastAssistantText(child.history()));
+    } finally {
+      await child.dispose().catch(() => {});
+    }
+  };
+}
+
+/** The child's final assistant text: deltas after the last user_message. */
+function lastAssistantText(events: AgentEvent[]): string {
+  let text = "";
+  for (const event of events) {
+    if (event.type === "user_message") text = "";
+    else if (event.type === "assistant_delta") text += event.text;
+  }
+  return text;
 }
