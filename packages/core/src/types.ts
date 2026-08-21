@@ -96,6 +96,11 @@ export type AgentEvent =
   | { type: "mcp_server_stopped"; server: string }
   /** Sampling/roots/elicitation request from an MCP server, refused (tools only). */
   | { type: "mcp_refused"; server: string; capability: "sampling" | "roots" | "elicitation" }
+  /**
+   * Memory (#38): the maintenance subagent appended facts after a turn.
+   * Discreet by design — clients may show an indicator, never chat noise.
+   */
+  | { type: "memory_updated"; entries: number; topics: string[] }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */

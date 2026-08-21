@@ -24,6 +24,7 @@ import {
   projectSessionsDir,
   projectSlug,
   replayMessages,
+  lastAssistantText,
 } from "./session-store";
 import {
   DEFAULT_TOOL_PERMISSIONS,
@@ -46,6 +47,23 @@ import {
   type SubagentSpec,
 } from "./subagents";
 import type { AgentEvent, EndpointCapabilities, Message, PermissionGrantReason, Provider, ProviderErrorKind, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
+import { createMaintenanceExtractor } from "./session";
+import {
+  CHARS_PER_TOKEN,
+  DEFAULT_MEMORY_BUDGET_TOKENS,
+  DEFAULT_MEMORY_INTERVAL_TURNS,
+  MAINTENANCE_PROMPT,
+  MAX_ENTRIES_PER_TOPIC,
+  MemoryStore,
+  memoryConfigSchema,
+  memoryTranscript,
+  parseMemoryEntries,
+  topicFileName,
+  type MemoryEntry,
+  type MemoryExtractor,
+  type MemoryExtractorInput,
+  type MemoryOptions,
+} from "./memory";
 import { ProviderError } from "./types";
 import { normalizeProviderError, disambiguate429, classifyStatus } from "./provider-errors";
 import { Endpoint, envApiKey, createRoute, type EndpointConfig, type ProviderKind, type Route, type RouteConfig, type RouteTarget } from "./route";
@@ -204,6 +222,12 @@ export interface SessionConfig {
    * session's non-MCP tools, and depth 1 (they cannot spawn).
    */
   subagents?: SubagentOptions;
+  /**
+   * Cross-session memory (#38): post-turn extraction via the maintenance
+   * subagent, injected as a system-prompt section. `enabled: false`
+   * disables everything (no writes, no section, no subagent runs).
+   */
+  memory?: MemoryOptions;
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -212,6 +236,18 @@ export function createSession(config: SessionConfig): AgentSession {
 
 export {
   AgentSession,
+  createMaintenanceExtractor,
+  MemoryStore,
+  lastAssistantText,
+  memoryConfigSchema,
+  memoryTranscript,
+  parseMemoryEntries,
+  topicFileName,
+  MAINTENANCE_PROMPT,
+  CHARS_PER_TOKEN,
+  DEFAULT_MEMORY_BUDGET_TOKENS,
+  DEFAULT_MEMORY_INTERVAL_TURNS,
+  MAX_ENTRIES_PER_TOPIC,
   ExtensionRuntime,
   MockProvider,
   builtinTools,
@@ -285,6 +321,10 @@ export {
   type SubagentOptions,
   type SubagentResult,
   type SubagentSpec,
+  type MemoryEntry,
+  type MemoryExtractor,
+  type MemoryExtractorInput,
+  type MemoryOptions,
   runtimeRulesFromEvents,
   splitCommandSegments,
   type AgentEvent,

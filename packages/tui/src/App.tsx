@@ -113,6 +113,29 @@ export function App({
   const { toasts, push } = useToasts();
   const blocked = pending !== null || overlay !== null;
 
+  // Memory (#38): discreet indicator only — a brief toast, never chat noise.
+  useEffect(() => {
+    if (!session) return;
+    let stopped = false;
+    const consume = async () => {
+      try {
+        for await (const event of session.events) {
+          if (stopped) return;
+          if (event.type === "memory_updated") {
+            push(`memory updated · ${event.topics.join(", ")}`);
+          }
+        }
+      } catch {
+        // closed iterator: nothing to do
+      }
+    };
+    void consume();
+    return () => {
+      stopped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
   // Workflow mode (#36): the frontier tracker and the background
   // upstream check exist only while enabled (and opted in).
   const workflowOn = config.workflow.enabled;

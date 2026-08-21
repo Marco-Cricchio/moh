@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./index";
 import { AgentSession } from "./session";
-import { SessionStore } from "./session-store";
+import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { resolveProviderRef, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
 
@@ -309,12 +309,3 @@ function resultJson(result: SubagentResult): string {
   return JSON.stringify(result);
 }
 
-/** The child's final assistant text: deltas after the last user_message. */
-function lastAssistantText(events: AgentEvent[]): string {
-  let text = "";
-  for (const event of events) {
-    if (event.type === "user_message") text = "";
-    else if (event.type === "assistant_delta") text += event.text;
-  }
-  return text;
-}
