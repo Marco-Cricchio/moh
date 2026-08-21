@@ -11,8 +11,7 @@ import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./pr
 import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
 import { SubagentHost, type SubagentOptions } from "./subagents";
-import { replayMessages } from "./session-store";
-import { projectSlug } from "./session-store";
+import { replayMessages, lastAssistantText } from "./session-store";
 import {
   CHARS_PER_TOKEN,
   DEFAULT_MEMORY_BUDGET_TOKENS,
@@ -133,7 +132,7 @@ export class AgentSession {
     const mem = config.memory;
     this.#memoryStore =
       mem && (mem.enabled ?? true)
-        ? new MemoryStore(mem.dir ?? join(this.#mohHome, "projects", projectSlug(this.#cwd), "memory"))
+        ? new MemoryStore(mem.dir ?? MemoryStore.forProject(this.#cwd, this.#mohHome).dir)
         : null;
     this.#memoryInterval = mem?.intervalTurns ?? DEFAULT_MEMORY_INTERVAL_TURNS;
     this.#memoryBudgetChars = (mem?.budgetTokens ?? DEFAULT_MEMORY_BUDGET_TOKENS) * CHARS_PER_TOKEN;
@@ -447,7 +446,8 @@ export class AgentSession {
     if (!this.#memoryStore || result.status !== "done" || this.#memoryBusy || this.#disposed) return;
     this.#memoryTurns += 1;
     if (this.#memoryTurns % this.#memoryInterval !== 0) return;
-    const transcript = memoryTranscript(this.#log, this.#lastMemoryIdx);
+    const startIdx = this.#lastMemoryIdx;
+    const transcript = memoryTranscript(this.#log, startIdx);
     this.#lastMemoryIdx = this.#log.length;
     if (!transcript.trim()) return;
     const store = this.#memoryStore;
@@ -469,9 +469,22 @@ export class AgentSession {
             topics: [...new Set(entries.map((e) => e.topic))],
           });
           this.#assemblePrompt(); // next model call sees the new memory
+          // Consolidation is the same maintenance run's privilege: newest-wins
+          // dedup with a dated note; unchanged topics are not rewritten. Its
+          // failure never hides the appended facts (dedup catches up next run).
+          try {
+            await store.consolidate(this.#sessionId);
+          } catch {
+            // fail-silent
+          }
           return;
         } catch {
-          if (attempt === 1) return; // fail-silent after one retry
+          if (attempt === 1) {
+            // Fail-silent, but not lossy: the unprocessed turns stay eligible
+            // for the next trigger instead of being skipped forever.
+            this.#lastMemoryIdx = startIdx;
+            return;
+          }
         }
       }
     })();
@@ -723,14 +736,4 @@ export function createMaintenanceExtractor(provider: Provider, cwd: string): Mem
       await child.dispose().catch(() => {});
     }
   };
-}
-
-/** The child's final assistant text: deltas after the last user_message. */
-function lastAssistantText(events: AgentEvent[]): string {
-  let text = "";
-  for (const event of events) {
-    if (event.type === "user_message") text = "";
-    else if (event.type === "assistant_delta") text += event.text;
-  }
-  return text;
 }

@@ -24,6 +24,7 @@ import {
   projectSessionsDir,
   projectSlug,
   replayMessages,
+  lastAssistantText,
 } from "./session-store";
 import {
   DEFAULT_TOOL_PERMISSIONS,
@@ -237,6 +238,7 @@ export {
   AgentSession,
   createMaintenanceExtractor,
   MemoryStore,
+  lastAssistantText,
   memoryConfigSchema,
   memoryTranscript,
   parseMemoryEntries,

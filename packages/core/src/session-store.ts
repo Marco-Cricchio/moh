@@ -217,3 +217,13 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   flushAssistant();
   return messages;
 }
+
+/** The final assistant text of the last turn: deltas after the last user_message. */
+export function lastAssistantText(events: ReadonlyArray<AgentEvent>): string {
+  let text = "";
+  for (const event of events) {
+    if (event.type === "user_message") text = "";
+    else if (event.type === "assistant_delta") text += event.text;
+  }
+  return text;
+}
