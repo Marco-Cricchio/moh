@@ -385,7 +385,8 @@ export class AgentSession {
       }
       const toolCalls: ToolCall[] = [];
       try {
-        for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
+        const toolSpecs = Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description }));
+        for await (const event of this.#provider.stream(this.#messages, controller.signal, toolSpecs)) {
           if (controller.signal.aborted) break;
           if (event.type === "text_delta") {
             assistantText += event.text;

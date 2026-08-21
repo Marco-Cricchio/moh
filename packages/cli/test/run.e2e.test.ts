@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "../src/run";
+import { createHash } from "node:crypto";
+
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /**
  * e2e via Bun.spawnSync against the real CLI path with an isolated HOME and
@@ -138,6 +141,35 @@ describe("moh run (e2e)", () => {
     const after = readEvents(readFileSync(file, "utf8"));
     expect(after.length).toBe(before.length + events.length);
     expect(after[0]).toEqual(before[0]); // same session_start, appended in place
+  });
+
+  test("echo provider e2e: catches a context-engineering regression without API calls (#39)", () => {
+    const { cwd, spawn } = harness();
+    const run = () => {
+      const res = spawn(["run", "--provider", "echo", "ctx-probe"]);
+      expect(res.code).toBe(0);
+      const events = readEvents(res.stdout);
+      const reply = events
+        .filter((e) => e.type === "assistant_delta")
+        .map((e) => e.text)
+        .join("");
+      return JSON.parse(reply) as {
+        systemSha256: string;
+        tools: string[];
+        messages: { role: string; sha256: string }[];
+      };
+    };
+    const base = run();
+    // The provider saw the user message and the full tool registry.
+    expect(base.messages.at(-1)).toEqual({ role: "user", sha256: sha256("ctx-probe") });
+    expect(base.tools).toContain("bash");
+    expect(base.tools).toContain("read");
+    // Injecting AGENTS.md must change the system prompt the provider receives.
+    // If the digest stays the same, instructions injection has regressed.
+    writeFileSync(join(cwd, "AGENTS.md"), "MARKER-e2e-7c31 never guess file contents");
+    const withFile = run();
+    expect(withFile.systemSha256).not.toBe(base.systemSha256);
+    expect(withFile.messages.at(-1)).toEqual({ role: "user", sha256: sha256("ctx-probe") });
   });
 
   test("usage errors: no prompt, unknown flag", () => {
