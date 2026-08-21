@@ -1,4 +1,4 @@
-import type { Message, Provider, StreamEvent } from "./types";
+import type { Message, Provider, StreamEvent, ToolSpec } from "./types";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
 import { aiSdkStreamFor } from "./providers/ai-sdk";
 import type { EndpointCapabilities } from "./types";
@@ -99,14 +99,14 @@ export function createRoute(config: RouteConfig): Route {
     name: `${config.target.endpoint.name}/${config.target.modelId}`,
     capabilities: config.target.endpoint.capabilities,
     chain: chain.map((t) => `${t.endpoint.name}/${t.modelId}`),
-    async *stream(messages: Message[], signal: AbortSignal): AsyncIterable<StreamEvent> {
+    async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]): AsyncIterable<StreamEvent> {
       for (let i = 0; i < chain.length; i++) {
         const target = chain[i]!;
         let attempt = 0;
         while (true) {
           try {
             const stream = streamFactory(target) ?? defaultFactory(target);
-            for await (const event of stream(messages, signal)) {
+            for await (const event of stream(messages, signal, tools)) {
               yield event;
             }
             return;
@@ -128,7 +128,7 @@ export function createRoute(config: RouteConfig): Route {
   return provider;
 }
 
-type StreamFn = (messages: Message[], signal: AbortSignal) => AsyncIterable<StreamEvent>;
+type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent>;
 
 function defaultStreamFactory(): (target: RouteTarget) => StreamFn {
   return (target) => aiSdkStreamFor(target, target.endpoint.apiKey, target.endpoint.baseUrl);
