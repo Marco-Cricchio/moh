@@ -24,7 +24,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { projectSessionsDir } from "./session-store";
+import { projectSlug } from "./session-store";
 import type { AgentEvent } from "./types";
 
 /** One durable fact, filed under a short topic label. */
@@ -127,9 +127,9 @@ export class MemoryStore {
     this.dir = dir;
   }
 
-  /** <home>/.moh/projects/<slug>/memory — sibling of the session logs. */
-  static forProject(cwd: string, home = homedir()): MemoryStore {
-    return new MemoryStore(join(projectSessionsDir(cwd, home), "memory"));
+  /** <mohHome>/projects/<slug>/memory — sibling of the session logs. */
+  static forProject(cwd: string, mohHome = join(homedir(), ".moh")): MemoryStore {
+    return new MemoryStore(join(mohHome, "projects", projectSlug(cwd), "memory"));
   }
 
   get indexFile(): string {
@@ -179,10 +179,9 @@ export class MemoryStore {
       }
       for (const [topic, lines] of byTopic) {
         appendFileSync(this.topicFile(topic), lines.join("\n") + "\n");
-        const file = this.topicFile(topic);
         const existing = index.topics[topic];
         index.topics[topic] = {
-          file,
+          file: topicFileName(topic),
           entries: (existing?.entries ?? 0) + lines.length,
           updated: now.toISOString(),
         };
@@ -210,7 +209,7 @@ export class MemoryStore {
     for (const [topic, meta] of topics) {
       let raw: string;
       try {
-        raw = readFileSync(meta.file, "utf8");
+        raw = readFileSync(this.topicFile(topic), "utf8");
       } catch {
         continue; // topic file vanished: skip, never throw
       }
@@ -253,17 +252,18 @@ export class MemoryStore {
   async consolidate(sessionId: string, now = new Date()): Promise<number> {
     return this.#withLock(() => {
       const index = this.readIndex();
-      let dropped = 0;
+      let totalDropped = 0;
       for (const [topic, meta] of Object.entries(index.topics)) {
         let raw: string;
         try {
-          raw = readFileSync(meta.file, "utf8");
+          raw = readFileSync(this.topicFile(topic), "utf8");
         } catch {
           continue;
         }
         const lines = topicLines(raw);
         const seen = new Set<string>();
         const kept: string[] = [];
+        let dropped = 0;
         for (const line of [...lines].reverse()) {
           const fact = line.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
           if (seen.has(fact)) {
@@ -277,13 +277,14 @@ export class MemoryStore {
         const overflow = Math.max(0, kept.length - MAX_ENTRIES_PER_TOPIC);
         const finalLines = overflow > 0 ? kept.slice(overflow) : kept;
         dropped += overflow;
-        if (dropped === 0 && overflow === 0) continue;
+        totalDropped += dropped;
+        if (dropped === 0) continue;
         const note = `<!-- consolidated ${now.toISOString()} by ${sessionId}: duplicates dropped -->`;
-        writeFileSync(meta.file, `${note}\n${finalLines.join("\n")}\n`);
+        writeFileSync(this.topicFile(topic), `${note}\n${finalLines.join("\n")}\n`);
         index.topics[topic] = { ...meta, entries: finalLines.length, updated: now.toISOString() };
       }
       this.#writeIndex(index);
-      return dropped;
+      return totalDropped;
     });
   }
 
