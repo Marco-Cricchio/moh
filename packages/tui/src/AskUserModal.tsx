@@ -11,8 +11,10 @@ import type { AskUserGate } from "./ask-user-gate";
  * loop is suspended in the core while this overlay is up.
  *
  * Keys: ↑/↓ move, 1–4 pick an option, enter confirms (option in option
- * mode, text in text mode), any printable character switches to free
- * text, tab toggles modes, esc answers with the suggested option.
+ * mode, text in text mode), any printable character except the digits
+ * 1–4 (option shortcuts) switches to free text — press tab first to type
+ * an answer that starts with a digit. Tab toggles modes, esc answers
+ * with the suggested option.
  */
 export function AskUserModal({ gate, compact }: { gate: AskUserGate; compact: boolean }) {
   const theme = useTheme();
@@ -84,8 +86,8 @@ export function AskUserModal({ gate, compact }: { gate: AskUserGate; compact: bo
         const isSuggested = option.label === question.suggested;
         const isSelected = i === selected;
         const line = `${isSelected ? ">" : " "} ${i + 1}  ${option.label}${
-          isSuggested ? "  ← suggested" : `  ${option.description}`
-        }`;
+          isSuggested ? "  ← suggested" : ""
+        } — ${option.description}`;
         return (
           <Text key={option.label} color={isSelected ? theme.accent : undefined} bold={isSuggested && !isSelected}>
             {line}
@@ -107,7 +109,7 @@ export function AskUserModal({ gate, compact }: { gate: AskUserGate; compact: bo
       <Dim>
         {textMode
           ? " enter send · tab back to options · esc discard text"
-          : " ↑↓/1-4 choose · enter confirm · esc suggested · tab free text"}
+          : " ↑↓/1-4 choose · enter confirm · esc suggested · tab free text (digits: tab first)"}
       </Dim>
     </Dialog>
   );
