@@ -10,6 +10,7 @@ import { McpRuntime, type McpRuntimeOptions } from "./mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
+import { SubagentHost, type SubagentOptions } from "./subagents";
 import { replayMessages } from "./session-store";
 
 const DEFAULT_MAX_ITERATIONS = 50;
@@ -47,6 +48,8 @@ export class AgentSession {
   readonly #messages: Message[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   #controller: AbortController | null = null;
+  /** Cumulative usage tokens reported by the provider, where exposed (#13). */
+  #usage = { inputTokens: 0, outputTokens: 0 };
   #turn: Promise<TurnResult> | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
   readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
@@ -72,6 +75,24 @@ export class AgentSession {
       cwd: this.#cwd,
     });
     this.#onPermissionRequest = config.onPermissionRequest;
+    // Subagents (#13): the spawn tool creates in-process child sessions.
+    // Depth 1 by construction — children are created without this option.
+    if (config.subagents) {
+      const host = new SubagentHost({
+        cwd: this.#cwd,
+        parentTools: () => this.#allTools(),
+        onEvent: (event) => this.#append(event),
+        permissions: config.permissions,
+        runtimeRules: () => this.#permissions.rules,
+        onPermissionRequest: config.onPermissionRequest,
+        registry: config.registry,
+        defaultProvider: config.subagents.provider ?? this.#provider,
+        presets: config.subagents.presets,
+        maxConcurrency: config.subagents.maxConcurrency,
+        home: config.subagents.home,
+      });
+      this.#tools = { ...this.#tools, spawn: host.spawnTool() };
+    }
     this.#sink = config.sink;
     this.#extensions = config.extensions;
     // Extension load results (including hot-reload outcomes) land in the log.
@@ -214,6 +235,11 @@ export class AgentSession {
     return [...this.#log];
   }
 
+  /** Cumulative usage tokens reported by the provider, where exposed. */
+  get usage(): { inputTokens: number; outputTokens: number } {
+    return { ...this.#usage };
+  }
+
   /** Cancels the active turn; appends a `cancelled` event. No-op if idle. */
   abort(): void {
     this.#controller?.abort();
@@ -332,6 +358,9 @@ export class AgentSession {
             this.#append({ type: "assistant_delta", text: event.text });
           } else if (event.type === "tool_calls") {
             toolCalls.push(...event.calls);
+          } else if (event.type === "usage") {
+            this.#usage.inputTokens += event.inputTokens;
+            this.#usage.outputTokens += event.outputTokens;
           } else if (event.type === "finish") {
             finishReason = event.reason;
           }
