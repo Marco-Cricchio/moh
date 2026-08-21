@@ -87,7 +87,9 @@ export type AgentEvent =
    * `summary` in place of the events before index `upTo` (exclusive); the
    * log itself is never truncated.
    */
-  | { type: "compaction"; summary: string; upTo: number };
+  | { type: "compaction"; summary: string; upTo: number }
+  | { type: "extension_loaded"; name: string; version: string }
+  | { type: "extension_failed"; name: string; reason: string; message: string };
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
 export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
