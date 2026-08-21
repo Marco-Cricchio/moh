@@ -14,6 +14,15 @@ export type FilePreview = "always" | "on-demand" | "none";
 export type AnswerLanguage = "auto" | "en" | "it";
 export type DefaultPermissionMode = "normal" | "auto-accept";
 
+/** Workflow mode settings (#36): off by default — base behavior untouched. */
+export interface WorkflowSettings {
+  enabled: boolean;
+  /** Opt-out of the background first-party skill update check. */
+  upstreamCheck: boolean;
+}
+
+export const DEFAULT_WORKFLOW: WorkflowSettings = { enabled: false, upstreamCheck: true };
+
 export interface UserConfig {
   /** First-run onboarding completed (skip or connect both count). */
   onboarded: boolean;
@@ -29,6 +38,9 @@ export interface UserConfig {
   permissionMode: DefaultPermissionMode;
   /** $EDITOR override for ctrl+e and permission "edit". */
   editor?: string;
+  workflow: WorkflowSettings;
+  /** The first-run workflow offer was already shown (skip on later runs). */
+  workflowOffered: boolean;
 }
 
 export const DEFAULT_USER_CONFIG: UserConfig = {
@@ -40,6 +52,8 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   answerLanguage: "auto",
   telemetry: false,
   permissionMode: "normal",
+  workflow: { ...DEFAULT_WORKFLOW },
+  workflowOffered: false,
 };
 
 /** `~/.moh/config` (or `<home>/.moh/config` when home is injected). */
@@ -66,6 +80,14 @@ function coerce(raw: unknown): Partial<UserConfig> {
     out.permissionMode = src.permissionMode;
   }
   if (typeof src.editor === "string" && src.editor.trim() !== "") out.editor = src.editor.trim();
+  if (typeof src.workflowOffered === "boolean") out.workflowOffered = src.workflowOffered;
+  if (typeof src.workflow === "object" && src.workflow !== null) {
+    const w = src.workflow as Record<string, unknown>;
+    out.workflow = {
+      enabled: w.enabled === true,
+      upstreamCheck: w.upstreamCheck === undefined ? true : w.upstreamCheck !== false,
+    };
+  }
   return out;
 }
 
