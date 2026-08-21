@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 import { subagentSpecSchema } from "./subagents";
+import { memoryConfigSchema } from "./memory";
 
 const capabilitiesSchema = z
   .object({
@@ -62,6 +63,8 @@ export const mohConfigSchema = z.object({
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
   /** Subagent presets (#13), keyed by name; user presets override the built-ins. */
   agents: z.record(z.string(), subagentSpecSchema).optional(),
+  /** Cross-session memory (#38); `enabled: false` disables everything. */
+  memory: memoryConfigSchema.optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;
