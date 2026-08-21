@@ -4,6 +4,7 @@
  * other subcommands land with their own tickets).
  */
 import { runCommand, RUN_USAGE } from "./run";
+import { mcpCommand, MCP_USAGE } from "./mcp";
 
 const HELP = `moh — headless coding agent
 
@@ -15,6 +16,7 @@ screen; the mock provider works without credentials).
 commands:
   tui    interactive session (same as bare moh)
   run    non-interactive session (see: moh run --help)
+  mcp    manage MCP tool servers (see: moh mcp --help)
 `;
 
 /** Bare `moh` / `moh tui`: open the interactive TUI (#32). */
@@ -45,6 +47,13 @@ async function main(): Promise<number> {
       return 0;
     }
     return runCommand({ argv: rest });
+  }
+  if (command === "mcp") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(MCP_USAGE + "\n");
+      return 0;
+    }
+    return mcpCommand({ argv: rest });
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;
