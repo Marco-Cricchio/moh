@@ -219,7 +219,7 @@ export function App({
 
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" height="100%" key={themeTick}>
+      <Box flexDirection="column" key={themeTick}>
         {showChat ? (
           <Chat
             session={session}

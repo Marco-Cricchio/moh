@@ -75,7 +75,7 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
   return (
-    <Box flexDirection="column" height="100%">
+    <Box flexDirection="column">
       <Box justifyContent="space-between" paddingX={2}>
         <Logo />
         {mode === "dev" && (
