@@ -83,6 +83,7 @@ describe("first-party skill install", () => {
       "domain-modeling",
       "grilling",
       "implement",
+      "session-memory",
       "tdd",
       "to-spec",
       "to-tickets",
