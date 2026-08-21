@@ -23,7 +23,7 @@ export class AgentSession {
   /** Registry snapshot frozen at creation; later registrations never reach it. */
   readonly #registry: FrozenProviderRegistry | undefined;
   readonly #maxIterations: number;
-  readonly #tools: Record<string, Tool>;
+  #tools: Record<string, Tool>;
   readonly #cwd: string;
   readonly #permissions: PermissionResolver;
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
@@ -156,6 +156,16 @@ export class AgentSession {
     this.#skills = discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
     this.#assemblePrompt();
+  }
+
+  /**
+   * Registers extra tools mid-session (workflow-mode toggle, #36). The
+   * tools run under the same permission spine as the built-ins: their
+   * tier-1 defaults come from DEFAULT_TOOL_PERMISSIONS and moh.json
+   * overrides apply as usual.
+   */
+  addTools(tools: Record<string, Tool>): void {
+    this.#tools = { ...this.#tools, ...tools };
   }
 
   /** Drains buffered extension load events (failed loads = warnings) into the log. */

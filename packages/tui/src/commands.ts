@@ -10,6 +10,8 @@ import {
   diffSkillFiles,
   installFirstPartySkills,
   loadFirstPartyManifest,
+  resolveTrackerSync,
+  trackerTools,
   type AgentSession,
   type UpstreamUpdate,
 } from "@moh/core";
@@ -29,6 +31,8 @@ export interface SlashContext {
   /** Toast / inline notice channel. */
   notify: (message: string) => void;
   onOpenFrontier?: () => void;
+  /** Notified on a workflow toggle (App re-reads the tracker, #36). */
+  onWorkflowToggle?: (enabled: boolean) => void;
 }
 
 export interface SlashCommand {
@@ -67,6 +71,13 @@ const workflowCommand: SlashCommand = {
         ctx.notify("workflow off · first-party skills hidden, base behavior unchanged");
       }
       ctx.session?.refreshSkills?.({ firstParty: enabled ? "include" : "exclude" });
+      if (enabled && ctx.session) {
+        // The tracker tools join the live session under the standard
+        // permission spine (tracker_list allow / tracker_claim ask).
+        const tracker = resolveTrackerSync({ cwd: ctx.cwd });
+        if (tracker) ctx.session.addTools?.(trackerTools(tracker));
+      }
+      ctx.onWorkflowToggle?.(enabled);
       return;
     }
     if (arg === "frontier") {
@@ -101,21 +112,24 @@ const skillsCommand: SlashCommand = {
       .then((updates) => {
         if (updates.length === 0) return ctx.notify("skills up to date");
         if (confirm !== "apply") {
+          // Show every diff in full first; consent is the separate
+          // `/skills update apply` invocation (hashes re-verified there).
+          pendingUpdates = updates;
           for (const u of updates) {
             const diff = diffSkillFiles(readInstalled(ctx.mohHome, u.name), u.files);
-            ctx.notify(`update available: ${u.name}\n${diff.split("\n").slice(0, 10).join("\n")}\n… /skills update apply to install`);
+            ctx.notify(`update available: ${u.name}\n${diff}\n\n/skills update apply to install`);
           }
           return;
         }
+        const plan = pendingUpdates ?? updates;
         return applyUpstreamUpdates({
           mohHome: ctx.mohHome,
-          updates,
-          // Consent: the explicit `apply` argument after a shown diff.
-          consent: (u: UpstreamUpdate, diff) => {
-            ctx.notify(`updating ${u.name}:\n${diff.split("\n").slice(0, 6).join("\n")}`);
-            return true;
-          },
+          updates: plan,
+          // Consent: the explicit `apply` after the full diff was shown;
+          // modified copies are skipped by the hash checks regardless.
+          consent: (u: UpstreamUpdate) => plan.some((p) => p.name === u.name),
         }).then((report) => {
+          pendingUpdates = null;
           ctx.notify(`skills updated: ${report.applied.join(", ") || "none"}${report.skippedModified.length ? ` · modified, skipped: ${report.skippedModified.join(", ")}` : ""}`);
           ctx.session?.refreshSkills();
         });
@@ -123,6 +137,9 @@ const skillsCommand: SlashCommand = {
       .catch(() => ctx.notify("skills update check failed"));
   },
 };
+
+/** The last shown update plan — `apply` consents to exactly these. */
+let pendingUpdates: UpstreamUpdate[] | null = null;
 
 function readInstalled(mohHome: string, name: string): Record<string, string> {
   const dir = join(mohHome, "skills", name);
