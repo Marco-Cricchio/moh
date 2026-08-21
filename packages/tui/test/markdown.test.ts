@@ -22,7 +22,13 @@ describe("createMarkdownRenderer", () => {
   test("reflows wrapped text to the content measure, not the terminal width", () => {
     const md = createMarkdownRenderer(THEMES["tokyo-night"], 40);
     const out = String(md.parse("one two three four five six seven eight nine ten eleven twelve"));
-    const longest = out.split("\n").reduce((a, b) => (b.length > a.length ? b : a), "");
-    expect(longest.length).toBeLessThanOrEqual(40);
+    // Measure visible width: ANSI escape codes (e.g. a theme reset, 4 raw
+    // chars) are zero-width for the renderer's reflow, but would otherwise
+    // count toward the raw string length and break the assertion.
+    const visible = (line: string) => line.replace(/\u001b\[[0-9;]*m/g, "");
+    const longest = out
+      .split("\n")
+      .reduce((a, b) => (visible(b).length > visible(a).length ? b : a), "");
+    expect(visible(longest).length).toBeLessThanOrEqual(40);
   });
 });
