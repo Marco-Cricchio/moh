@@ -89,7 +89,13 @@ export type AgentEvent =
    */
   | { type: "compaction"; summary: string; upTo: number }
   | { type: "extension_loaded"; name: string; version: string }
-  | { type: "extension_failed"; name: string; reason: string; message: string };
+  | { type: "extension_failed"; name: string; reason: string; message: string }
+  /** MCP lifecycle (#15): lazy start, per-server failures, session-end stop. */
+  | { type: "mcp_server_started"; server: string; tools: string[] }
+  | { type: "mcp_server_failed"; server: string; reason: string; message: string }
+  | { type: "mcp_server_stopped"; server: string }
+  /** Sampling/roots/elicitation request from an MCP server, refused (tools only). */
+  | { type: "mcp_refused"; server: string; capability: "sampling" | "roots" | "elicitation" };
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
 export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
