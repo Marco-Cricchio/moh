@@ -1,12 +1,15 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { useViewport } from "./viewport";
 
 /**
  * The all-commands panel (issue #33 / style guide §10 Q13): `?` (or
  * ctrl+k in chat) opens the full keybinding list. Context-sensitive
  * footers stay the primary discovery; this is the exhaustive reference.
+ * Height-aware (#64): on short terminals the flattened list scrolls
+ * (↑↓) inside a cursor-free window with more-indicators.
  */
 const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, string]> }> = [
   {
@@ -46,28 +49,47 @@ const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, strin
   },
 ];
 
+type Line = { kind: "group"; area: string } | { kind: "key"; name: string; desc: string };
+
+const LINES: ReadonlyArray<Line> = COMMANDS.flatMap((group) => [
+  { kind: "group", area: group.area },
+  ...group.keys.map(([name, desc]) => ({ kind: "key" as const, name, desc })),
+]);
+
 export function CommandsPanel({ onClose }: { onClose: () => void }) {
   const theme = useTheme();
+  const viewport = useViewport();
+  const [offset, setOffset] = useState(0);
+
+  // Dialog chrome (title, spacing, footer, borders) ≈ 6 rows.
+  const budget = Math.max(4, viewport.rows - 6);
+  const maxOffset = Math.max(0, LINES.length - budget);
+  const start = Math.min(offset, maxOffset);
+  const visible = LINES.slice(start, start + budget);
+  const below = LINES.length - start - visible.length;
+
   useInput((input, key) => {
     if (key.escape || input === "?" || key.return) onClose();
+    if (key.upArrow) setOffset((o) => Math.max(0, Math.min(o, maxOffset) - 1));
+    if (key.downArrow) setOffset((o) => Math.min(maxOffset, Math.min(o, maxOffset) + 1));
   });
 
   return (
     <Dialog title=" all commands " color={theme.purple} center={false}>
-      {COMMANDS.map((group) => (
-        <React.Fragment key={group.area}>
-          <Text bold color={theme.accent}>
-            {group.area}
+      {start > 0 && <Dim>{` ↑ ${start} more`}</Dim>}
+      {visible.map((line, i) =>
+        line.kind === "group" ? (
+          <Text key={`g-${line.area}-${i}`} bold color={theme.accent}>
+            {line.area}
           </Text>
-          {group.keys.map(([k, d]) => (
-            <Text key={k}>
-              <Text color={theme.accent}>{`  ${k.padEnd(24)}`}</Text>
-              <Dim>{d}</Dim>
-            </Text>
-          ))}
-          <Text> </Text>
-        </React.Fragment>
-      ))}
+        ) : (
+          <Text key={`${line.name}-${i}`} wrap="truncate-end">
+            <Text color={theme.accent}>{`  ${line.name.padEnd(24)}`}</Text>
+            <Dim>{line.desc}</Dim>
+          </Text>
+        ),
+      )}
+      {below > 0 && <Dim>{` ↓ ${below} more (↑↓ scroll)`}</Dim>}
       <Dim>esc close</Dim>
     </Dialog>
   );
