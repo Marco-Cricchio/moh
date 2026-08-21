@@ -2,6 +2,7 @@
 name: dream
 description: "Consolidate session learnings into durable memory. Use periodically after major work, or when asked to consolidate."
 minMohVersion: 0.1.0
+minMohVersion: 0.1.0
 ---
 
 # dream
