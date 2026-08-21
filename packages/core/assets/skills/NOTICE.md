@@ -47,3 +47,9 @@ stay verbatim except for:
   skill root (the installer bundles top-level files only); SKILL.md
   references updated to match.
 - Upstream's `agents/openai.yaml` sidecar files are not bundled.
+- `session-memory` is a moh-native skill (not an upstream port; #79):
+English rewrite of the local custom skill, paths under
+`~/.moh/projects/<slug>/`, reconciled with moh's memory topics (durable
+facts live in memory, current-effort state in session notes).
+- `pr-review` was considered and dropped (#79): upstream `code-review`
+  covers inbound PR review; no upstream pr-review text exists to port.
