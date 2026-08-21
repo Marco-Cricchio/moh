@@ -127,7 +127,7 @@ describe("home smoke", () => {
 
   test("App: enter on the new-session row opens a chat and sends the prompt", async () => {
     const provider = MockProvider.scripted([{ deltas: ["hello there"], finish: "stop" }]);
-    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} />);
+    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} skipOnboarding />);
     i.stdin.write("greet me");
     await sleep(20);
     await sleep(50);

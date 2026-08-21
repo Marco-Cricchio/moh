@@ -40,7 +40,7 @@ function Harness({ session, gate }: { session: ReturnType<typeof makeSession>["s
   return (
     <Box flexDirection="column">
       <Chat session={session} mode="dev" modelLabel="mock" />
-      <PermissionModal gate={gate} mode="dev" compact={false} />
+      <PermissionModal gate={gate} mode="dev" />
     </Box>
   );
 }
