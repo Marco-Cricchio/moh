@@ -151,7 +151,7 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
   });
 
   return (
-    <Dialog title=" settings " color={theme.ok} width="62%">
+    <Dialog title=" settings " color={theme.ok}>
       {viewportStart > 0 && <Dim>{` ↑ ${viewportStart} more`}</Dim>}
       {visibleRows.map((row, i) => {
         const index = viewportStart + i;

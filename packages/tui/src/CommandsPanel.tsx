@@ -46,14 +46,14 @@ const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, strin
   },
 ];
 
-export function CommandsPanel({ compact, onClose }: { compact: boolean; onClose: () => void }) {
+export function CommandsPanel({ onClose }: { onClose: () => void }) {
   const theme = useTheme();
   useInput((input, key) => {
     if (key.escape || input === "?" || key.return) onClose();
   });
 
   return (
-    <Dialog title=" all commands " color={theme.purple} width={compact ? "100%" : "62%"} center={false}>
+    <Dialog title=" all commands " color={theme.purple} center={false}>
       {COMMANDS.map((group) => (
         <React.Fragment key={group.area}>
           <Text bold color={theme.accent}>
