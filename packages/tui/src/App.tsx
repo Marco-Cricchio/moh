@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type Provider, type TrackerBackend } from "@moh/core";
 import { SessionStore } from "@moh/core";
-import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, useTheme, type ThemeName } from "./themes";
+import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
 import { Chat, type Mode } from "./Chat";
@@ -321,12 +321,14 @@ export function App({
   );
 }
 
-/** Solid full-viewport backdrop behind an open overlay: centers the dialog layer and covers the screen beneath (#64/#65). */
+/** Transparent full-viewport backdrop behind an open overlay: centers the
+ * dialog layer over the visible content (pi-style floating dialog). Height
+ * is rows - 1 so Ink never enters its fullscreen repaint path (which would
+ * clear the screen and replay the whole transcript behind the dialog). */
 function Scrim({ children }: { children: React.ReactNode }) {
-  const theme = useTheme();
   const viewport = useViewport();
   return (
-    <Box width={viewport.columns} height={viewport.rows} backgroundColor={theme.bg} flexDirection="column">
+    <Box width={viewport.columns} height={Math.max(1, viewport.rows - 1)} flexDirection="column">
       {children}
     </Box>
   );
