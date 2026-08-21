@@ -332,6 +332,8 @@ export {
   runtimeRulesFromEvents,
   splitCommandSegments,
   type AgentEvent,
+  type AskUserQuestion,
+  type AskUserResult,
   type Message,
   type PermissionDecision,
   type PermissionGrantReason,
