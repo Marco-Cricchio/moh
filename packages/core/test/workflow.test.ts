@@ -72,9 +72,27 @@ describe("first-party skill install", () => {
     expect(existsSync(join(home, "skills", "future"))).toBe(false);
   });
 
-  test("bundled assets ship the five workflow skills", () => {
+  test("bundled assets ship the workflow skills", () => {
     const sources = firstPartySkillSources();
-    expect(sources.map((s) => s.name).sort()).toEqual(["diagnose", "dream", "implement", "plan", "review"]);
+    expect(sources.map((s) => s.name).sort()).toEqual([
+      "diagnose",
+      // #72: design-core ports (verbatim from upstream, see NOTICE.md)
+      "domain-modeling",
+      "dream",
+      "grilling",
+      "implement",
+      "plan",
+      "review",
+      // reduced set still shipped until #74 renames it
+      "wayfinder",
+    ]);
+  });
+
+  test("design-core ports keep their companion files", () => {
+    const sources = firstPartySkillSources();
+    const domainModeling = sources.find((s) => s.name === "domain-modeling");
+    expect(domainModeling?.files["CONTEXT-FORMAT.md"]).toBeTruthy();
+    expect(domainModeling?.files["ADR-FORMAT.md"]).toBeTruthy();
   });
 });
 
