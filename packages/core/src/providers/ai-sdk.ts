@@ -3,13 +3,13 @@
  * detail (ADR-0002). No AI SDK type is exported from @moh/core; everything
  * in this module maps between moh types and SDK types.
  */
-import { streamText, type LanguageModel } from "ai";
+import { jsonSchema, streamText, stepCountIs, type LanguageModel, type ToolSet } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { normalizeProviderError } from "../provider-errors";
 import type { RouteTarget } from "../route";
-import type { Message, StreamEvent, ToolResultPart } from "../types";
+import type { Message, StreamEvent, ToolSpec } from "../types";
 
 function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseUrl: string | undefined): LanguageModel {
   const { kind, name } = target.endpoint;
@@ -32,6 +32,14 @@ function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseU
 
 /** Maps moh messages to AI SDK: system messages become the `system` option. */
 function toAiMessages(messages: Message[]): { system: string | undefined; messages: Parameters<typeof streamText>[0]["messages"] } {
+  // Tool results carry only a callId; resolve the tool name (#46) from the
+  // pending tool_call parts in the same conversation, falling back to callId.
+  const toolNames = new Map<string, string>();
+  for (const msg of messages) {
+    for (const part of msg.parts) {
+      if (part.kind === "tool_call") toolNames.set(part.callId, part.name);
+    }
+  }
   const out: Parameters<typeof streamText>[0]["messages"] = [];
   const systemParts: string[] = [];
   for (const msg of messages) {
@@ -48,42 +56,62 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
           type: "tool-call",
           toolCallId: part.callId,
           toolName: part.name,
-          args: part.args ?? {},
+          input: part.args ?? {},
         });
       } else if (part.kind === "tool_result") {
         content.push({
           type: "tool-result",
           toolCallId: part.callId,
-          toolName: (part as ToolResultPart & { name?: string }).name ?? part.callId,
-          result: part.output,
+          toolName: toolNames.get(part.callId) ?? part.callId,
+          output: { type: "text", value: part.output },
         });
       }
     }
-    out.push({ role: msg.role, content } as never);
+    // The SDK requires tool results in a `tool` role message (v5+); moh
+    // stores them in a user message (#46).
+    const isToolMessage = msg.role === "user" && msg.parts.some((p) => p.kind === "tool_result");
+    out.push({ role: isToolMessage ? "tool" : msg.role, content } as never);
   }
   return { system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined, messages: out };
 }
 
+/** moh ToolSpec -> SDK tool definition. No `execute`: moh owns the loop. */
+function toAiTools(specs: readonly ToolSpec[] | undefined): ToolSet | undefined {
+  if (!specs || specs.length === 0) return undefined;
+  const tools: ToolSet = {};
+  for (const spec of specs) {
+    tools[spec.name] = {
+      description: spec.description,
+      ...(spec.parameters ? { inputSchema: jsonSchema(spec.parameters as never) } : {}),
+    } as never;
+  }
+  return tools;
+}
+
 /**
- * Single-shot streaming call via the AI SDK. The SDK's internal multi-step
- * loop is disabled (`stopWhen: []`-equivalent by not using tools here yet:
- * moh owns the loop). Errors are normalized to the 9-kind taxonomy.
+ * Single-shot streaming call via the AI SDK. moh owns the loop: tools are
+ * sent as definitions only (no `execute`) and the SDK multi-step loop is
+ * pinned to one step (`stopWhen: stepCountIs(1)`). Errors are normalized
+ * to the 9-kind taxonomy.
  */
 export function aiSdkStreamFor(
   target: RouteTarget,
   apiKey: string | undefined,
   baseUrl: string | undefined,
-): (messages: Message[], signal: AbortSignal) => AsyncIterable<StreamEvent> {
-  const model = languageModelFor(target, apiKey, baseUrl);
-  return (messages, signal) => {
+  modelOverride?: LanguageModel,
+): (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent> {
+  const model = modelOverride ?? languageModelFor(target, apiKey, baseUrl);
+  return (messages, signal, tools) => {
     return {
       async *[Symbol.asyncIterator]() {
         const { system, messages: aiMessages } = toAiMessages(messages);
+        const aiTools = toAiTools(tools);
         const result = streamText({
           model,
           system: system ?? undefined,
           messages: aiMessages ?? [],
           abortSignal: signal,
+          ...(aiTools ? { tools: aiTools, toolChoice: "auto" as const, stopWhen: stepCountIs(1) } : {}),
           onError: () => {}, // errors surface via fullStream error parts
         });
         for await (const part of result.fullStream) {
