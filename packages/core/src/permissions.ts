@@ -44,6 +44,9 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   edit: "ask",
   bash: "ask",
   fetch: "ask",
+  // Tracker tools (#36): reads are free, claiming is a mutation.
+  tracker_list: "allow",
+  tracker_claim: "ask",
 };
 
 const TIER_RANK: Record<PermissionTier, number> = { builtin: 0, config: 1, runtime: 2 };
