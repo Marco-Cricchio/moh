@@ -2,6 +2,7 @@ import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { dialogWidth, useViewport } from "./viewport";
 import type { AskUserGate } from "./ask-user-gate";
 
 /**
@@ -16,8 +17,9 @@ import type { AskUserGate } from "./ask-user-gate";
  * an answer that starts with a digit. Tab toggles modes, esc answers
  * with the suggested option.
  */
-export function AskUserModal({ gate, compact }: { gate: AskUserGate; compact: boolean }) {
+export function AskUserModal({ gate }: { gate: AskUserGate }) {
   const theme = useTheme();
+  const viewport = useViewport();
   useSyncExternalStore(gate.subscribe, gate.getSnapshot);
   const question = gate.current;
   // Default selection = the suggested option; resets whenever a new
@@ -79,7 +81,7 @@ export function AskUserModal({ gate, compact }: { gate: AskUserGate; compact: bo
   if (!question) return null;
 
   return (
-    <Dialog title=" question " color={theme.purple} width={compact ? "100%" : "62%"}>
+    <Dialog title=" question " color={theme.purple} width={dialogWidth(viewport)}>
       <Text bold>{question.question}</Text>
       <Text> </Text>
       {question.options.map((option, i) => {

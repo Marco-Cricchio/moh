@@ -38,7 +38,7 @@ Rule: dev mode is a *view* over the same data (same event log, per #7), never a 
 5. **Streaming is quiet**: dim spinner + verb inside the moh box; "esc to steer" hint only while streaming.
 6. **Toast, don't block**: transient one-line dim toasts above footer (e.g. "memory updated").
 7. Input box is the only bordered element at rest; boxes use `borderStyle="round"`.
-8. **Full-width responsive boxes**: message boxes, transcript column and input span `width="100%"` of the terminal; modal dialogs use percentage widths (~60%). The UI reflows on terminal resize (Ink re-renders on SIGWINCH natively). Boxes never size to content horizontally — they grow vertically only.
+8. **Responsive viewport model (#65)**: every geometric decision derives from one seam, `packages/tui/src/viewport.ts` (live stdout columns × rows) — components never read terminal dimensions directly. Width classes: **compact** (< 60 cols), **regular** (60–100), **wide** (> 100). The chat column, input, footer and settled turns share one **content measure** of 100 cols — full width on regular/compact terminals, centered on wide ones (Static output is hoisted at column 0 by Ink, so its items pad the gutter manually). Dialogs use `dialogWidth` (~62% clamped to [40, 100], full width when compact) and center on **both** axes against the full viewport, floating **over** the visible content (transparent backdrop, pi-style — never a fullscreen takeover; the overlay layer stays rows−1 tall so Ink's fullscreen repaint path is never entered). Boxes never size to content horizontally — they grow vertically only. Markdown reflows to the content measure.
 
 ## 4. Chat transcript anatomy (pi-style labelled boxes)
 
@@ -76,7 +76,7 @@ chalk (or picocolors) · cli-highlight (inline code) · shiki lazy (preview/diff
 
 ## 8. Overlays (modals)
 
-Shared `Dialog` shape: centered, `round` border in the overlay's semantic color, width class ~50–62, padding 2, `backgroundColor: theme.bg` for contrast over the transcript. Plain-language title first; **highlighted affirmative, dim alternatives**. Closed by esc. Known overlays: permission (warn), file preview (accent), wayfinder (purple, "The road ahead" in vibe), settings (ok), ask_user question (purple, #70).
+Shared `Dialog` shape: centered against the full viewport (both axes), floating over the visible content (transparent backdrop; the dialog's own background provides contrast), `round` border in the overlay's semantic color, viewport-derived width (`dialogWidth`), padding 2, `backgroundColor: theme.bg`. Plain-language title first; **highlighted affirmative, dim alternatives**. Closed by esc. Height-aware (#64): menus and lists window themselves around the cursor (`windowing` from the viewport seam) with `↑/↓ N more` indicators, so every row stays reachable on short terminals. Known overlays: permission (warn), file preview (accent), wayfinder (purple, "The road ahead" in vibe), settings (ok), all-commands (scrollable list), onboarding wizard, ask_user question (purple, #70).
 
 - Permission (dev) shows exact command + matcher + tier + `y/a/e/n`; (vibe) plain ask + `yes/always/no`. If triggered by a **subagent**, label **who** is asking (planned: "for research-tui" tag).
 - Wayfinder panel: next frontier ticket (friendly name in vibe), blocked count, esc close, dev: open on GitHub.
@@ -92,7 +92,7 @@ Phases: `idle → typing (char-by-char) → thinking → tool? → subs? → per
 | Q9 | Steering mid-stream | esc ×1 = steer (typed text joins current turn), esc ×2 = stop turn entirely ("esc again to stop" hint). Claude Code pattern. |
 | Q10 | Provider onboarding | Hybrid: auto-detect existing env vars (ANTHROPIC_API_KEY etc.) → one-confirm "use it?"; full wizard (pick provider → masked key → connection test → default model) only if nothing detected. |
 | Q11 | Telemetry opt-in | Settings panel only, never actively asked. |
-| Q12 | Narrow terminals | Below ~60 cols: compact mode — minimal footer (essential keys only), inline labels, full-width dialogs. |
+| Q12 | Narrow terminals | Compact mode below 60 cols (`widthClass` from the viewport seam): minimal footer (essential keys only, truncated — never wrapped), inline labels, full-width dialogs. |
 | Q13 | Keybinding discovery | Context-sensitive footer + `?` opens all-commands panel. No first-run cheatsheet. |
 | Q16 | In-chat keybindings (implementation, #32) | Bare letters/digits collide with typing (chat input, home search), so in-session switches use non-text keys: **ctrl+m** mode, **ctrl+t** cycles theme (footer shows the label). The style guide's earlier bare `v` / `1–9` keys were prototype-only. |
 | Q17 | Bare `moh` start screen (implementation, #32) | v1 AC #3 said "resumes the project's latest session"; the home screen's filter-first resume list supersedes it — bare `moh` opens home, one enter resumes the latest session. |

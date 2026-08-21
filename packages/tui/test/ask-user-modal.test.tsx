@@ -61,7 +61,7 @@ describe("ask_user overlay (issue #70)", () => {
   test("renders question, options, suggested marker, and the free-text affordance", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
-    const i = render(<AskUserModal gate={gate} compact={false} />);
+    const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("Which database should I use?");
@@ -80,7 +80,7 @@ describe("ask_user overlay (issue #70)", () => {
   test("enter picks the highlighted option; esc falls back to the suggested one", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
-    const i = render(<AskUserModal gate={gate} compact={false} />);
+    const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     i.stdin.write("\r"); // enter → suggested (default highlight)
     await sleep(20);
@@ -90,7 +90,7 @@ describe("ask_user overlay (issue #70)", () => {
 
     const gate2 = new AskUserGate();
     const pending2 = gate2.ask(QUESTION);
-    const i2 = render(<AskUserModal gate={gate2} compact={false} />);
+    const i2 = render(<AskUserModal gate={gate2} />);
     await sleep(30);
     i2.stdin.write("\x1b"); // esc → suggested
     await sleep(20);
@@ -101,7 +101,7 @@ describe("ask_user overlay (issue #70)", () => {
   test("arrow and number navigation select any option", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
-    const i = render(<AskUserModal gate={gate} compact={false} />);
+    const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     i.stdin.write("\x1b[A"); // up from suggested → SQLite
     await sleep(20);
@@ -120,7 +120,7 @@ describe("ask_user overlay (issue #70)", () => {
   test("typing switches to free text; enter submits the text, not an option", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
-    const i = render(<AskUserModal gate={gate} compact={false} />);
+    const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     i.stdin.write("Mon");
     await sleep(20);
@@ -143,7 +143,7 @@ describe("ask_user overlay (issue #70)", () => {
   test("empty free text keeps the overlay up (no accidental empty answer)", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
-    const i = render(<AskUserModal gate={gate} compact={false} />);
+    const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     i.stdin.write("x");
     await sleep(20);
@@ -169,7 +169,7 @@ describe("ask_user overlay (issue #70)", () => {
       tools: askUserTool(seen),
       onAskUser: gate.ask,
     });
-    const i = render(<AskUserModal gate={gate} compact={false} />);
+    const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     void session.send("pick one");
     await sleep(200);

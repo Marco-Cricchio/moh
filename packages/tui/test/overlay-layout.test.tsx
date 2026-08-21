@@ -72,7 +72,7 @@ describe("overlay layout integrity over Chat", () => {
     const i = render(
       <Box flexDirection="column">
         <Chat session={session} mode="dev" modelLabel="mock" />
-        <AskUserModal gate={gate} compact={false} />
+        <AskUserModal gate={gate} />
       </Box>,
     );
     await sleep(30);
@@ -106,7 +106,7 @@ describe("overlay layout integrity over Chat", () => {
     const i = render(
       <Box flexDirection="column">
         <Chat session={session} mode="dev" modelLabel="mock" />
-        <PermissionModal gate={gate} mode="dev" compact={false} />
+        <PermissionModal gate={gate} mode="dev" />
       </Box>,
     );
     await sleep(30);
