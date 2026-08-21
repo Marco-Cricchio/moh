@@ -106,6 +106,10 @@ export function aiSdkStreamFor(
   return (messages, signal, tools) => {
     return {
       async *[Symbol.asyncIterator]() {
+        // Announce the RouteTarget serving this call (#83) — `endpoint/model`
+        // as moh resolved it. Providers (not routes) announce: one
+        // announcement per actual stream, including fallback restarts.
+        yield { type: "model_call_start", model: `${target.endpoint.name}/${target.modelId}` };
         const { system, messages: aiMessages } = toAiMessages(messages);
         const aiTools = toAiTools(tools);
         const result = streamText({

@@ -109,10 +109,6 @@ export function createRoute(config: RouteConfig): Route {
         while (true) {
           try {
             const stream = streamFactory(target) ?? defaultFactory(target);
-            // Announce which model this call goes to (#83): the ref the
-            // log records per call — for routing gateways this is the
-            // concrete `endpoint/model` moh resolved, before the wire.
-            yield { type: "model_call", model: `${target.endpoint.name}/${target.modelId}` };
             for await (const event of stream(messages, signal, tools)) {
               yield event;
             }
