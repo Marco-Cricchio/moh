@@ -84,6 +84,26 @@ export class AgentSession {
         this.#permissions.addRuntimeRule(rule);
       }
       this.#flushExtensionEvents();
+      // Extensions missing on resume: a previously enabled extension that
+      // the current runtime did not load produces a warning, nothing more.
+      if (this.#extensions) {
+        const enabled = new Set(
+          config.resume.events
+            .filter((e) => e.type === "extension_loaded")
+            .map((e) => (e as { name: string }).name),
+        );
+        const present = new Set(this.#extensions.instances.map((i) => i.def.name));
+        for (const name of enabled) {
+          if (!present.has(name)) {
+            this.#append({
+              type: "extension_failed",
+              name,
+              reason: "missing_on_resume",
+              message: "extension enabled in the resumed session was not loaded; continuing without it",
+            });
+          }
+        }
+      }
       this.#assemblePrompt();
       // A mode change across resume is auditable like any startup flag.
       const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
@@ -457,8 +477,12 @@ export class AgentSession {
     // onEvent hooks: dispatched serially, asynchronously; hook errors become
     // extension_failed events (logged, but not re-dispatched while draining).
     if (this.#extensions) {
-      this.#eventQueue.push(event);
-      this.#drainEventQueue();
+      // extension_failed events (hook errors) are terminal: dispatching them
+      // back to onEvent hooks would let a throwing hook loop forever.
+      if (event.type !== "extension_failed") {
+        this.#eventQueue.push(event);
+        this.#drainEventQueue();
+      }
     }
   }
 
