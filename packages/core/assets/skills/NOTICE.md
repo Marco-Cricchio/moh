@@ -28,6 +28,12 @@ SOFTWARE.
 
 ## Intentional deviations from upstream
 
+The original moh-reduced skills (`plan`, `review`, `diagnose`, `dream`) were
+removed in #74 when the original-vocabulary ports landed; `implement` was
+replaced by its upstream version. Stale moh-owned copies of the reduced set
+are pruned on the next `workflow on` (user-modified copies stay on disk as
+plain user skills).
+
 Per the license check in `docs/research/pocock-skills-license.md` the ports
 stay verbatim except for:
 
