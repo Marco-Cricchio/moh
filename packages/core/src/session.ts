@@ -41,6 +41,7 @@ export class AgentSession {
   readonly #cwd: string;
   readonly #permissions: PermissionResolver;
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
+  readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
   readonly #sink: SessionConfig["sink"] | undefined;
   readonly #extensions: ExtensionRuntime | undefined;
   #lastPrompt: AssembledPrompt | null = null;
@@ -98,6 +99,7 @@ export class AgentSession {
       cwd: this.#cwd,
     });
     this.#onPermissionRequest = config.onPermissionRequest;
+    this.#onAskUser = config.onAskUser;
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created without this option.
     if (config.subagents) {
@@ -580,6 +582,7 @@ export class AgentSession {
       cwd: this.#cwd,
       onProgress: () => {},
       skillDirs: this.#skillDirs,
+      ...(this.#onAskUser ? { askUser: this.#onAskUser } : {}),
     };
     try {
       const output = await tool.execute(args, ctx);

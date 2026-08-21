@@ -37,6 +37,7 @@ export interface PermissionOverrides {
 /** Tier 1: built-in defaults. Read-only tools are allowed; mutating ones ask. */
 export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   read: "allow",
+  ask_user: "allow",
   glob: "allow",
   grep: "allow",
   todo: "allow",
