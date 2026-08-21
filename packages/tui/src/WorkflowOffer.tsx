@@ -16,7 +16,7 @@ export function WorkflowOffer({ onDone }: { onDone: (enable: boolean) => void })
     if (input === "n" || key.escape) return onDone(false);
   });
   return (
-    <Dialog title=" workflow mode " color={theme.purple} width="62%">
+    <Dialog title=" workflow mode " color={theme.purple}>
       <Text>
         Enable <Text color={theme.accent}>workflow mode</Text>? Adds the first-party skills (plan, implement, review,
         diagnose, dream), their slash aliases, and the tracker frontier panel. You can toggle it any time with{" "}
