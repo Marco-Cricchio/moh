@@ -8,6 +8,10 @@ All repo artifacts (issues, PRs, comments, docs, code, commit messages) are in *
 
 The integration branch is **`develop`**. Always create PRs targeting `develop` (base branch: `develop`), never `main`. `main` is only updated by promoting from `develop` (explicitly requested by the owner). Never merge a PR into `main`.
 
+## Principles
+
+Consult `docs/principles.md` before any change. The seven principles govern the architecture; a change that violates one needs an explicit ADR saying why.
+
 ## Agent skills
 
 ### Issue tracker
