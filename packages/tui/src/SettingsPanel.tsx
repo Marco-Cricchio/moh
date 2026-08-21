@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Text, useInput } from "ink";
+import { Text, useInput, useStdout } from "ink";
 import { join } from "node:path";
 import { loadMohConfig, writeMohConfig, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
@@ -36,6 +36,7 @@ interface Row {
 
 export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onToast, onClose }: SettingsPanelProps) {
   const theme = useTheme();
+  const { stdout } = useStdout();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
   const [moh, setMoh] = useState<MohConfig>(() => {
     try {
@@ -71,6 +72,12 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
   };
 
   const endpointRefs = (moh.endpoints ?? []).map((e) => (e.defaultModel ? `${e.name}/${e.defaultModel}` : e.name));
+
+  // Keep the dialog inside the terminal: title, spacing, footer and borders
+  // consume roughly eight rows, leaving the settings list a small viewport.
+  const viewportSize = Math.max(3, (stdout.rows ?? 24) - 8);
+  const viewportStart = Math.min(Math.max(0, cursor - viewportSize + 1), Math.max(0, rows.length - viewportSize));
+  const visibleRows = rows.slice(viewportStart, viewportStart + viewportSize);
 
   const activate = (row: Row) => {
     if (sub) return;
@@ -145,14 +152,17 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
 
   return (
     <Dialog title=" settings " color={theme.ok} width="62%">
-      {rows.map((row, i) => {
-        const selected = i === cursor;
+      {viewportStart > 0 && <Dim>{` ↑ ${viewportStart} more`}</Dim>}
+      {visibleRows.map((row, i) => {
+        const index = viewportStart + i;
+        const selected = index === cursor;
         return (
           <Text key={row.key} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
             {` ${selected ? "›" : " "} ${row.label.padEnd(26)}${row.value}${selected ? " " : ""}`}
           </Text>
         );
       })}
+      {viewportStart + visibleRows.length < rows.length && <Dim>{` ↓ ${rows.length - viewportStart - visibleRows.length} more`}</Dim>}
       <Text> </Text>
       {sub ? (
         <>
