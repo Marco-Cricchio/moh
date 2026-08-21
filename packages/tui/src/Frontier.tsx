@@ -3,6 +3,7 @@ import { Text, useInput } from "ink";
 import { projectFrontier, type TrackerBackend, type TrackerIssue } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { useViewport, windowing } from "./viewport";
 
 /**
  * The wayfinder frontier panel (#36): a read-only projection of the
@@ -26,6 +27,7 @@ type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "
 
 export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierProps) {
   const theme = useTheme();
+  const viewport = useViewport();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [cursor, setCursor] = useState(0);
   const [claiming, setClaiming] = useState(false);
@@ -62,6 +64,9 @@ export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierPr
 
   const current = rows[cursor]?.issue;
 
+  // Height-aware list (#64): the issue list scrolls inside the dialog.
+  const win = windowing(rows.length, cursor, Math.max(3, viewport.rows - 8));
+
   useInput((input, key) => {
     if (key.escape || input === "q") return onClose();
     if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
@@ -94,16 +99,21 @@ export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierPr
         <Text color={theme.warn}>{`⚠ tracker unavailable: ${load.message}`}</Text>
       )}
       {load.kind === "ready" && rows.length === 0 && <Dim>no open issues — the frontier is clear</Dim>}
+      {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
       {load.kind === "ready" &&
-        rows.map(({ issue, group }, i) => (
-          <Text key={issue.id} inverse={i === cursor}>
-            <Text color={i === cursor ? theme.accent : undefined}>{` ${issue.id.padStart(4)} `}</Text>
+        rows.slice(win.start, win.start + win.count).map(({ issue, group }, i) => {
+          const index = win.start + i;
+          return (
+          <Text key={issue.id} inverse={index === cursor} wrap="truncate-end">
+            <Text color={index === cursor ? theme.accent : undefined}>{` ${issue.id.padStart(4)} `}</Text>
             {group ? <Dim>{`[${group}] `}</Dim> : null}
             {issue.assignees.length > 0 ? <Text color={theme.warn}>◉ </Text> : <Text color={theme.ok}>○ </Text>}
             {issue.title}
             {issue.blockedBy.length > 0 ? <Dim>{` (blocked by ${issue.blockedBy.map((b) => `#${b}`).join(",")})`}</Dim> : null}
           </Text>
-        ))}
+          );
+        })}
+      {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
       <Dim>↑↓ move · c claim · esc close{frontier && !frontier.deps ? " · no dependency data: flat list" : ""}</Dim>
     </Dialog>
