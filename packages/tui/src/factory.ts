@@ -12,12 +12,15 @@ import {
   declaredUserMcpServers,
   loadMohConfig,
   resolveProvider,
+  resolveTrackerSync,
+  trackerTools,
   type AgentEvent,
   type AgentSession,
   type DeclaredMcpServer,
   type MohConfig,
   type Provider,
   type Tool,
+  type TrackerBackend,
 } from "@moh/core";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -35,8 +38,12 @@ export interface OpenSessionOptions {
   onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
   /** Default permission mode for new sessions (user config; bypass stays CLI-only). */
   permissionMode?: "normal" | "auto-accept";
-  /** Tool registry override (tests). Default: built-ins. */
+  /** Tool registry override (tests). Default: built-ins (+ tracker tools in workflow mode). */
   tools?: Record<string, Tool>;
+  /** Workflow mode (#36): includes first-party skills and tracker tools. */
+  workflow?: boolean;
+  /** Pre-resolved tracker backend (tests); default: resolveTracker. */
+  tracker?: TrackerBackend | null;
 }
 
 /** moh.json for the project; null when absent/unreadable (zero-config mock). */
@@ -59,10 +66,22 @@ export function declaredServersFor(cwd: string, home?: string): DeclaredMcpServe
 export function makeSession(options: OpenSessionOptions): { session: AgentSession; store: SessionStore } {
   const store = options.store ?? SessionStore.create(options.cwd, options.home);
   const mcpServers = declaredServersFor(options.cwd, options.home);
+  const mohHome = join(options.home ?? homedir(), ".moh");
+  const tracker =
+    options.tracker !== undefined ? options.tracker : options.workflow ? resolveTrackerSync({ cwd: options.cwd }) : null;
+  const tools = options.tools ?? {
+    ...builtinTools(),
+    ...(tracker ? trackerTools(tracker) : {}),
+  };
   const session = createSession({
     provider: options.provider ?? resolveDefaultProvider(options.cwd),
     cwd: options.cwd,
-    tools: options.tools ?? builtinTools(),
+    tools,
+    // Workflow mode (#36): first-party skills join the index; off filters
+    // them out so base behavior stays untouched. Tracker tools join the
+    // registry under the same permission spine as any built-in.
+    mohHome,
+    firstParty: options.workflow ? "include" : "exclude",
     ...(mcpServers.length
       ? {
           mcp: {
