@@ -95,7 +95,18 @@ export type AgentEvent =
   | { type: "mcp_server_failed"; server: string; reason: string; message: string }
   | { type: "mcp_server_stopped"; server: string }
   /** Sampling/roots/elicitation request from an MCP server, refused (tools only). */
-  | { type: "mcp_refused"; server: string; capability: "sampling" | "roots" | "elicitation" };
+  | { type: "mcp_refused"; server: string; capability: "sampling" | "roots" | "elicitation" }
+  /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
+  | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
+  /** Subagent finished; usage tokens accumulated by the child, where exposed. */
+  | {
+      type: "subagent_result";
+      callId: string;
+      name: string;
+      status: "done" | "error" | "cancelled";
+      usage: { inputTokens: number; outputTokens: number };
+      log: string;
+    };
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
 export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
