@@ -76,7 +76,7 @@ chalk (or picocolors) · cli-highlight (inline code) · shiki lazy (preview/diff
 
 ## 8. Overlays (modals)
 
-Shared `Dialog` shape: centered, `round` border in the overlay's semantic color, width class ~50–62, padding 2, `backgroundColor: theme.bg` for contrast over the transcript. Plain-language title first; **highlighted affirmative, dim alternatives**. Closed by esc. Known overlays: permission (warn), file preview (accent), wayfinder (purple, "The road ahead" in vibe), settings (ok).
+Shared `Dialog` shape: centered, `round` border in the overlay's semantic color, width class ~50–62, padding 2, `backgroundColor: theme.bg` for contrast over the transcript. Plain-language title first; **highlighted affirmative, dim alternatives**. Closed by esc. Known overlays: permission (warn), file preview (accent), wayfinder (purple, "The road ahead" in vibe), settings (ok), ask_user question (purple, #70).
 
 - Permission (dev) shows exact command + matcher + tier + `y/a/e/n`; (vibe) plain ask + `yes/always/no`. If triggered by a **subagent**, label **who** is asking (planned: "for research-tui" tag).
 - Wayfinder panel: next frontier ticket (friendly name in vibe), blocked count, esc close, dev: open on GitHub.

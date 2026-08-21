@@ -13,8 +13,10 @@ import { makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
+import { AskUserGate } from "./ask-user-gate";
 import { useCompact } from "./ui";
 import { PermissionModal } from "./PermissionModal";
+import { AskUserModal } from "./AskUserModal";
 import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
@@ -110,8 +112,14 @@ export function App({
   useSyncExternalStore(gate.subscribe, gate.getSnapshot);
   const pending = gate.current;
 
+  const askGateRef = useRef<AskUserGate | null>(null);
+  if (askGateRef.current === null) askGateRef.current = new AskUserGate();
+  const askGate = askGateRef.current;
+  useSyncExternalStore(askGate.subscribe, askGate.getSnapshot);
+  const asking = askGate.current;
+
   const { toasts, push } = useToasts();
-  const blocked = pending !== null || overlay !== null;
+  const blocked = pending !== null || asking !== null || overlay !== null;
 
   // Memory (#38): discreet indicator only — a brief toast, never chat noise.
   useEffect(() => {
@@ -163,6 +171,7 @@ export function App({
       provider,
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
+      onAskUser: askGate.ask,
       permissionMode: config.permissionMode,
     };
     let made: ReturnType<typeof makeSession>;
@@ -308,6 +317,9 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
+        {asking && (
+          <AskUserModal key={`${asking.question}|${asking.options.map((o) => o.label).join(",")}`} gate={askGate} compact={compact} />
+        )}
         <Toasts toasts={toasts} />
       </Box>
     </ThemeProvider>
