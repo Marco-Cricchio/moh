@@ -8,6 +8,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
+import { subagentSpecSchema } from "./subagents";
 
 const capabilitiesSchema = z
   .object({
@@ -59,6 +60,8 @@ export const mohConfigSchema = z.object({
   extensions: z.array(z.string().min(1)).optional(),
   /** MCP servers (#15), keyed by server name; tools become `mcp__<name>__<tool>`. */
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
+  /** Subagent presets (#13), keyed by name; user presets override the built-ins. */
+  agents: z.record(z.string(), subagentSpecSchema).optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;
