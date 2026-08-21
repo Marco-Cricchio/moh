@@ -6,7 +6,7 @@
 - **Client** — a consumer of the Core in-process: the TUI or the CLI. Never talks to providers directly.
 - **AgentSession** — one conversation instance inside the Core. Multi-instance by design; subagents are child sessions.
 - **Event log** — the append-only sequence of AgentEvents that *is* the session: source of streaming, persistence, and replay.
-- **AgentEvent** — a single entry in the event log (`session_start`, `user_message`, `assistant_delta`, `tool_call`, `tool_result`, `error`, `done`, `cancelled`).
+- **AgentEvent** — a single entry in the event log (`session_start`, `user_message`, `assistant_delta`, `tool_call`, `tool_result`, `model_call`, `done`, `error`, `cancelled`, plus chrome like `permission_*`/`mcp_*`/`memory_updated`). `model_call` (#83) records which model served one provider call and its token usage; `done` carries the turn's usage totals and `models` rollup.
 - **Turn** — one send→stream→tools→reply cycle of the agent loop. Loop protection and errors are scoped per turn, not per session.
 - **Tool call / tool result** — a paired tool invocation and its outcome, correlated by `callId`.
 - **Steering** — user input injected during an active stream: interrupts and re-sends.

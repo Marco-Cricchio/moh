@@ -71,7 +71,7 @@ export class MockProvider implements Provider {
     const turn = this.#turns[Math.min(this.#call, this.#turns.length - 1)];
     this.#call += 1;
     // Announce the (notional) model serving this call (#83).
-    yield { type: "model_call", model: "mock" };
+    yield { type: "model_call_start", model: "mock" };
     let emitted = 0;
     const failAt = turn.error?.afterDeltas ?? 0;
     for (const text of turn.deltas) {
