@@ -130,6 +130,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
     ...(mcpServers.length ? { mcp: { servers: mcpServers } } : {}),
     // Subagents (#13): presets from moh.json `agents`; built-ins always available.
     ...(config.agents ? { subagents: { presets: config.agents } } : {}),
+    // Memory (#38): on by default (spec); moh.json `memory` tunes/disables it.
+    ...(config.memory ? { memory: config.memory } : { memory: {} }),
     resume: resumeEvents?.length ? { events: resumeEvents } : undefined,
     permissions: {
       overrides,
