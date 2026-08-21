@@ -248,7 +248,7 @@ export function App({
           />
         )}
         </Box>
-        {overlayOpen && <Scrim>
+        {overlayOpen && <OverlayLayer>
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -314,18 +314,19 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
-        </Scrim>}
+        </OverlayLayer>}
         <Toasts toasts={toasts} />
       </Box>
     </ThemeProvider>
   );
 }
 
-/** Transparent full-viewport backdrop behind an open overlay: centers the
- * dialog layer over the visible content (pi-style floating dialog). Height
- * is rows - 1 so Ink never enters its fullscreen repaint path (which would
- * clear the screen and replay the whole transcript behind the dialog). */
-function Scrim({ children }: { children: React.ReactNode }) {
+/** Transparent full-viewport backdrop behind an open overlay (not a
+ * scrim: nothing is dimmed): centers the dialog layer over the visible
+ * content (pi-style floating dialog). Height is rows - 1 so Ink never
+ * enters its fullscreen repaint path (which would clear the screen and
+ * replay the whole transcript behind the dialog). */
+function OverlayLayer({ children }: { children: React.ReactNode }) {
   const viewport = useViewport();
   return (
     <Box width={viewport.columns} height={Math.max(1, viewport.rows - 1)} flexDirection="column">
