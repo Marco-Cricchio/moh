@@ -3,8 +3,9 @@ import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "./permissions";
-import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
+import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
+import { ExtensionRuntime } from "./extensions";
 import { replayMessages } from "./session-store";
 
 const DEFAULT_MAX_ITERATIONS = 50;
@@ -23,6 +24,13 @@ export class AgentSession {
   readonly #permissions: PermissionResolver;
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #sink: SessionConfig["sink"] | undefined;
+  readonly #extensions: ExtensionRuntime | undefined;
+  #lastPrompt: AssembledPrompt | null = null;
+  /** Reentrancy guard: events appended while hooks dispatch are not re-dispatched. */
+  #dispatching = false;
+  /** Serial queue of events pending onEvent dispatch (never dropped). */
+  readonly #eventQueue: AgentEvent[] = [];
+  #disposed = false;
   readonly #promptComposer: PromptComposer;
   readonly #skills: SkillIndexEntry[];
   readonly #skillDirs: string[];
@@ -57,6 +65,9 @@ export class AgentSession {
     });
     this.#onPermissionRequest = config.onPermissionRequest;
     this.#sink = config.sink;
+    this.#extensions = config.extensions;
+    // Extension load results (including hot-reload outcomes) land in the log.
+    this.#extensions?.onLoadEvent((event) => this.#append(event));
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
     // Skills (#30): discovered from ~/.moh/skills + .moh/skills at creation;
     // an explicit config wins (tests, clients). No auto-triggering.
@@ -72,6 +83,27 @@ export class AgentSession {
       for (const rule of runtimeRulesFromEvents(config.resume.events)) {
         this.#permissions.addRuntimeRule(rule);
       }
+      this.#flushExtensionEvents();
+      // Extensions missing on resume: a previously enabled extension that
+      // the current runtime did not load produces a warning, nothing more.
+      if (this.#extensions) {
+        const enabled = new Set(
+          config.resume.events
+            .filter((e) => e.type === "extension_loaded")
+            .map((e) => (e as { name: string }).name),
+        );
+        const present = new Set(this.#extensions.instances.map((i) => i.def.name));
+        for (const name of enabled) {
+          if (!present.has(name)) {
+            this.#append({
+              type: "extension_failed",
+              name,
+              reason: "missing_on_resume",
+              message: "extension enabled in the resumed session was not loaded; continuing without it",
+            });
+          }
+        }
+      }
       this.#assemblePrompt();
       // A mode change across resume is auditable like any startup flag.
       const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
@@ -81,6 +113,16 @@ export class AgentSession {
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode });
+    this.#flushExtensionEvents();
+    // Fire-and-forget: construction is sync, the session is not yet running.
+    void this.#extensions?.dispatchSessionStart().then((errors) => {
+      for (const e of errors) this.#append(e);
+    });
+  }
+
+  /** Drains buffered extension load events (failed loads = warnings) into the log. */
+  #flushExtensionEvents(): void {
+    for (const event of this.#extensions?.consumeLoadEvents() ?? []) this.#append(event);
   }
 
   /** Append-only event log, replayable in memory. */
@@ -187,6 +229,14 @@ export class AgentSession {
   }
 
   async #executeTurn(text: string, controller: AbortController): Promise<TurnResult> {
+    const result = await this.#executeTurnInner(text, controller);
+    if (this.#extensions) {
+      for (const e of await this.#extensions.dispatchAfterTurn(result)) this.#append(e);
+    }
+    return result;
+  }
+
+  async #executeTurnInner(text: string, controller: AbortController): Promise<TurnResult> {
     this.#append({ type: "user_message", text });
     this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
 
@@ -202,6 +252,17 @@ export class AgentSession {
       assistantText = "";
       finishReason = null;
       this.#assemblePrompt(); // reassembled every call
+      if (this.#extensions && this.#lastPrompt) {
+        const errors = await this.#extensions.dispatchBeforeModelCall({
+          prompt: {
+            sections: this.#lastPrompt.sections,
+            system: this.#lastPrompt.system,
+            version: this.#lastPrompt.version,
+          },
+          messages: this.#messages,
+        });
+        for (const e of errors) this.#append(e);
+      }
       const toolCalls: ToolCall[] = [];
       try {
         for await (const event of this.#provider.stream(this.#messages, controller.signal)) {
@@ -261,8 +322,10 @@ export class AgentSession {
       model: this.#provider.name,
       tools: Object.values(this.#tools).map((t) => ({ name: t.name, description: t.description })),
       skills: this.#skills,
+      extensionNotes: this.#extensions?.notes(),
     });
     this.#promptVersion = assembled.version;
+    this.#lastPrompt = assembled;
     const systemMessage: Message = { role: "system", parts: [{ kind: "text", text: assembled.system }] };
     if (this.#messages[0]?.role === "system") this.#messages[0] = systemMessage;
     else this.#messages.unshift(systemMessage);
@@ -353,6 +416,19 @@ export class AgentSession {
     callId: string,
     args: unknown,
   ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
+    // Extension veto first (#34): veto > user rules > defaults, and it applies
+    // even in bypass mode — extensions can only restrict, never grant.
+    if (this.#extensions) {
+      const veto = await this.#extensions.checkToolVeto({ callId, name: tool, args });
+      for (const e of veto.errors) this.#append(e);
+      if (veto.veto) {
+        this.#append({ type: "permission_denied", callId, tool, reason: "extension" });
+        return {
+          allowed: false,
+          denial: `permission denied: ${tool} vetoed by extension${veto.by ? ` ${veto.by}` : ""}${veto.reason ? ` (${veto.reason})` : ""}`,
+        };
+      }
+    }
     const decision = this.#permissions.resolve(tool, args);
     if (decision === "deny") {
       this.#append({ type: "permission_denied", callId, tool, reason: "rule" });
@@ -398,5 +474,38 @@ export class AgentSession {
     this.#log.push(event);
     this.#sink?.(event);
     for (const listener of this.#listeners) listener(event);
+    // onEvent hooks: dispatched serially, asynchronously; hook errors become
+    // extension_failed events (logged, but not re-dispatched while draining).
+    if (this.#extensions) {
+      // extension_failed events (hook errors) are terminal: dispatching them
+      // back to onEvent hooks would let a throwing hook loop forever.
+      if (event.type !== "extension_failed") {
+        this.#eventQueue.push(event);
+        this.#drainEventQueue();
+      }
+    }
+  }
+
+  #drainEventQueue(): void {
+    if (this.#dispatching || this.#eventQueue.length === 0 || !this.#extensions) return;
+    this.#dispatching = true;
+    const event = this.#eventQueue.shift()!;
+    void this.#extensions
+      .dispatchEvent(event)
+      .then((errors) => {
+        for (const e of errors) this.#append(e);
+      })
+      .finally(() => {
+        this.#dispatching = false;
+        this.#drainEventQueue();
+      });
+  }
+
+  /** Ends the session: dispatches onSessionEnd hooks. Idempotent. */
+  async dispose(): Promise<void> {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    if (!this.#extensions) return;
+    for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
   }
 }
