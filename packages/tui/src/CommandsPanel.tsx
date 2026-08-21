@@ -22,6 +22,8 @@ const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, strin
       ["ctrl+t", "cycle theme"],
       ["ctrl+s", "settings panel"],
       ["ctrl+k / ?", "this command list"],
+      ["/workflow on|off", "toggle workflow mode (skills + frontier)"],
+      ["ctrl+f", "frontier panel (workflow mode on)"],
       ["q", "quit (home)"],
     ],
   },

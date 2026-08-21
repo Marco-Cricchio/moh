@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useApp, useInput } from "ink";
 import { Box } from "ink";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig, type AgentSession, type Provider } from "@moh/core";
+import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type Provider, type TrackerBackend } from "@moh/core";
 import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
@@ -17,6 +18,9 @@ import { PermissionModal } from "./PermissionModal";
 import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
+import { Frontier } from "./Frontier";
+import { WorkflowOffer } from "./WorkflowOffer";
+import { runSlashCommand } from "./commands";
 import { Toasts, useToasts } from "./Toasts";
 
 export interface AppProps {
@@ -32,7 +36,7 @@ export interface AppProps {
   skipOnboarding?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding";
+type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier";
 
 /**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,
@@ -91,6 +95,13 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : null);
+  // First-run workflow offer (#36): right after onboarding, once ever.
+  const [offerWorkflow] = useState(
+    () => !skipOnboarding && !needsOnboarding && !loadUserConfig(cfgFile).workflowOffered,
+  );
+  useEffect(() => {
+    if (offerWorkflow) setOverlay("workflow-offer");
+  }, [offerWorkflow]);
   const [wizardFromSettings, setWizardFromSettings] = useState(false);
 
   const gateRef = useRef<PermissionGate | null>(null);
@@ -102,11 +113,32 @@ export function App({
   const { toasts, push } = useToasts();
   const blocked = pending !== null || overlay !== null;
 
+  // Workflow mode (#36): the frontier tracker and the background
+  // upstream check exist only while enabled (and opted in).
+  const workflowOn = config.workflow.enabled;
+  const [tracker, setTracker] = useState<TrackerBackend | null>(() =>
+    workflowOn ? resolveTrackerSync({ cwd }) : null,
+  );
+  useEffect(() => {
+    if (!workflowOn || !config.workflow.upstreamCheck) return;
+    let live = true;
+    void checkUpstreamUpdates({ mohHome: join(home ?? homedir(), ".moh") }).then((updates) => {
+      if (live && updates.length > 0) {
+        push(`${updates.length} skill update${updates.length > 1 ? "s" : ""} available (/skills update)`);
+      }
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowOn]);
+
   const open = (resume: SessionSummary | null, initialPrompt?: string) => {
     const base = {
       cwd,
       home,
       provider,
+      workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       permissionMode: config.permissionMode,
     };
@@ -147,6 +179,7 @@ export function App({
     }
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
+    if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
     if (overlay !== null && overlay !== "onboarding" && key.escape) return setOverlay(null);
   });
 
@@ -163,6 +196,18 @@ export function App({
             blocked={blocked}
             filePreview={config.filePreview}
             onOpenCommands={() => setOverlay("commands")}
+            onCommand={(text) =>
+              runSlashCommand(text, {
+                cwd,
+                mohHome: join(home ?? homedir(), ".moh"),
+                config,
+                updateConfig,
+                session,
+                notify: push,
+                onOpenFrontier: () => setOverlay("frontier"),
+                onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+              })
+            }
           />
         ) : (
           <Home
@@ -189,6 +234,9 @@ export function App({
               if (wizardFromSettings) {
                 setWizardFromSettings(false);
                 setOverlay("settings");
+              } else if (!configRef.current.workflowOffered) {
+                // First-run workflow offer (#36): right after onboarding.
+                setOverlay("workflow-offer");
               } else {
                 setOverlay(null);
               }
@@ -211,6 +259,31 @@ export function App({
           />
         )}
         {overlay === "commands" && <CommandsPanel compact={compact} onClose={() => setOverlay(null)} />}
+        {overlay === "workflow-offer" && (
+          <WorkflowOffer
+            onDone={(enable) => {
+              updateConfig({ workflowOffered: true });
+              if (enable) {
+                updateConfig({ workflow: { ...configRef.current.workflow, enabled: true } });
+                const report = installFirstPartySkills({ mohHome: join(home ?? homedir(), ".moh") });
+                push(`workflow on · ${report.installed.length} first-party skills installed`);
+              } else {
+                push("workflow off · /workflow on to enable");
+              }
+              setOverlay(null);
+            }}
+          />
+        )}
+        {overlay === "frontier" && workflowOn && (
+          <Frontier
+            backend={tracker}
+            onToast={push}
+            onClose={() => setOverlay(null)}
+            requestClaim={(issue) =>
+              gate.ask("tracker_claim", { id: issue.id }).then((answer) => answer !== "no")
+            }
+          />
+        )}
         {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
         <Toasts toasts={toasts} />
       </Box>

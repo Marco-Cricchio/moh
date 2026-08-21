@@ -5,6 +5,7 @@
  */
 import { runCommand, RUN_USAGE } from "./run";
 import { mcpCommand, MCP_USAGE } from "./mcp";
+import { initCommand } from "./init";
 
 const HELP = `moh — headless coding agent
 
@@ -17,6 +18,7 @@ commands:
   tui    interactive session (same as bare moh)
   run    non-interactive session (see: moh run --help)
   mcp    manage MCP tool servers (see: moh mcp --help)
+  init   scaffold agent docs (docs/agents/* + AGENTS.md)
 `;
 
 /** Bare `moh` / `moh tui`: open the interactive TUI (#32). */
@@ -54,6 +56,14 @@ async function main(): Promise<number> {
       return 0;
     }
     return mcpCommand({ argv: rest });
+  }
+  if (command === "init") {
+    if (rest.length) {
+      process.stderr.write(`moh init takes no arguments\n`);
+      return 2;
+    }
+    initCommand({ cwd: process.cwd() });
+    return 0;
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;
