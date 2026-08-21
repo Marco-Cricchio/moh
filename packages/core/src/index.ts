@@ -1,4 +1,5 @@
 import { MockProvider } from "./mock-provider";
+import { EchoProvider } from "./echo-provider";
 import { AgentSession } from "./session";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime, type ExtensionRuntimeOptions, type RuntimeExtension } from "./extensions";
@@ -249,6 +250,7 @@ export {
   DEFAULT_MEMORY_INTERVAL_TURNS,
   MAX_ENTRIES_PER_TOPIC,
   ExtensionRuntime,
+  EchoProvider,
   MockProvider,
   builtinTools,
   ProviderRegistry,
