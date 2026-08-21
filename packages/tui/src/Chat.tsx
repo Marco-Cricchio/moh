@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Static, Text, useInput, useStdout } from "ink";
+import { Box, Static, Text, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import type { TurnView, ToolView } from "./turns";
@@ -7,7 +7,7 @@ import { useTheme } from "./themes";
 import { ic, SPINNER_FRAMES } from "./icons";
 import { createMarkdownRenderer, Markdown } from "./markdown";
 import { Accent, Dim, Footer, Logo, MsgBox, truncate } from "./ui";
-import { contentWidth, useViewport, widthClass } from "./viewport";
+import { contentWidth, useStdoutResize, useViewport, widthClass } from "./viewport";
 import { toolArgSummary } from "./permission-gate";
 import { MultilineInput } from "./Input";
 
@@ -55,28 +55,19 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   // while a modal owns the keyboard — the reprint happens on the next
   // width change; remounting under an open overlay is unsafe because a
   // taller-than-viewport frame could trip Ink's fullscreen replay path.
-  const { stdout } = useStdout();
-  const lastCols = useRef(stdout?.columns ?? 80);
+  const lastCols = useRef(viewport.columns);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [staticKey, setStaticKey] = useState(0);
-  useEffect(() => {
-    if (!stdout) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onResize = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        const cols = stdout.columns ?? 80;
-        if (cols === lastCols.current || blocked) return;
-        lastCols.current = cols;
-        stdout.write("\x1b[2J\x1b[H");
-        setStaticKey((k) => k + 1);
-      }, 150);
-    };
-    stdout.on("resize", onResize);
-    return () => {
-      stdout.off("resize", onResize);
-      clearTimeout(timer);
-    };
-  }, [stdout, blocked]);
+  useStdoutResize((stdout) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      const cols = stdout.columns ?? 80;
+      if (cols === lastCols.current || blocked) return;
+      lastCols.current = cols;
+      stdout.write("\x1b[2J\x1b[H");
+      setStaticKey((k) => k + 1);
+    }, 150);
+  });
 
   // Settled turns go to <Static> (outside the render loop); only the live
   // turn + chrome re-render while streaming. Render window: the most recent
