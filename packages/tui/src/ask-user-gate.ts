@@ -45,9 +45,11 @@ export class AskUserGate {
   /** The callback handed to `createSession` as `onAskUser`. */
   ask = (question: AskUserQuestion): Promise<AskUserResult> => {
     if (this.#pending) {
-      // Overlapping asks must not happen (sequential gate); answer with the
-      // suggested option defensively.
-      return Promise.resolve({ choice: question.suggested });
+      // Overlapping asks must not happen (sequential gate). Reject rather
+      // than silently answer with the suggested option — #68 forbids
+      // silent suggested fallbacks; the tool call fails, the agent sees
+      // the error and self-corrects.
+      return Promise.reject(new Error("ask_user: a question is already pending"));
     }
     return new Promise<AskUserResult>((resolve) => {
       this.#pending = { question, resolve };
