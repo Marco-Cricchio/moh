@@ -15,6 +15,8 @@ export interface HomeProps {
   onExit: () => void;
   onOpenSettings?: () => void;
   onOpenCommands?: () => void;
+  /** Modal overlays own input while open. */
+  blocked?: boolean;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface HomeProps {
  * sessions list filters live; enter resumes the selection (or starts the
  * typed prompt as a new session); `n` starts fresh.
  */
-export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands, blocked = false }: HomeProps) {
   const theme = useTheme();
   const compact = useCompact();
   const [query, setQuery] = useState("");
@@ -34,6 +36,7 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
   const hitIndex = cursor - (newOption ? 1 : 0); // -1 = the "start new" row
 
   useInput((input, key) => {
+    if (blocked) return;
     if (input === "q" && query === "") return onExit(); // else "q" is just a search char
     if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
     if (key.downArrow) return setCursor((c) => Math.min(rows - 1, c + 1));

@@ -208,9 +208,12 @@ export function App({
 
   const showChat = session !== null;
 
+  const overlayOpen = overlay !== null || pending !== null;
+
   return (
     <ThemeProvider value={THEMES[themeName]}>
       <Box flexDirection="column" height="100%" key={themeTick}>
+        <Box flexDirection="column" height={overlayOpen ? 1 : "100%"} overflow="hidden">
         {showChat ? (
           <Chat
             session={session}
@@ -241,8 +244,10 @@ export function App({
             onExit={exit}
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}
+            blocked={overlayOpen}
           />
         )}
+        </Box>
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
