@@ -48,6 +48,12 @@ export type StreamEvent =
 
 export type FinishReason = "stop" | "tool_calls";
 
+/** Tool identity as advertised to providers (name + description). */
+export interface ToolSpec {
+  name: string;
+  description: string;
+}
+
 /**
  * A provider talks to a model. Single-shot: it never loops.
  */
@@ -58,6 +64,8 @@ export interface Provider {
   stream(
     messages: Message[],
     signal: AbortSignal,
+    /** Tools the loop offers the model this call (echo/e2e; providers may ignore). */
+    tools?: readonly ToolSpec[],
   ): AsyncIterable<StreamEvent>;
 }
 
