@@ -72,8 +72,6 @@ describe("ai-sdk adapter tool plumbing (#46)", () => {
     await h.run([{ role: "user", parts: [{ kind: "text", text: "hi" }] }]);
     const c = h.calls[0]!;
     expect(c.tools ?? []).toHaveLength(0);
-    // toolChoice defaults to auto at the model level; no tools sent.
-    expect(c.tools ?? []).toHaveLength(0);
   });
 
   it("resolves the tool name of a tool_result from the pending tool_call (role: tool)", async () => {
