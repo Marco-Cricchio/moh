@@ -149,7 +149,7 @@ describe("session store", () => {
     await session.send("continue");
     const full = latest.load();
     // The resumed session re-appends session_start/session_mode plus the turn events.
-    expect(full.length).toBe(events.length + 5); // session_start, session_mode, user_message, assistant_delta, done
+    expect(full.length).toBe(events.length + 6); // session_start, session_mode, user_message, assistant_delta, model_call, done
     expect(full.slice(0, events.length)).toEqual(events);
   });
 
