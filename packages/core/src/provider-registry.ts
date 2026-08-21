@@ -5,6 +5,7 @@
  * (issue #29).
  */
 import { MockProvider } from "./mock-provider";
+import { EchoProvider } from "./echo-provider";
 import { Endpoint, createRoute, envApiKey, type RouteTarget } from "./route";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider } from "./types";
@@ -80,10 +81,9 @@ export class ProviderRegistry {
  * The default registry. "mock" is always available: zero credentials,
  * for demos and first run.
  */
-export const defaultRegistry = new ProviderRegistry().registerProvider(
-  "mock",
-  () => MockProvider.demo(),
-);
+export const defaultRegistry = new ProviderRegistry()
+  .registerProvider("mock", () => MockProvider.demo())
+  .registerProvider("echo", () => new EchoProvider());
 
 /** Splits "endpoint/model-id" on the first "/". Model part may be empty. */
 function splitRef(ref: string): { name: string; modelId: string | undefined } {
