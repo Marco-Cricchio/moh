@@ -128,6 +128,23 @@ export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
 
 export type TurnStatus = "done" | "error" | "cancelled";
 
+/** One selectable answer of an ask_user question: short label plus a description shown to the user. */
+export interface AskUserOption {
+  label: string;
+  description: string;
+}
+
+/** An ask_user question as rendered to the user. */
+export interface AskUserQuestion {
+  question: string;
+  options: AskUserOption[];
+  /** The option label flagged as the suggested answer (the ➡️ of the grilling format). */
+  suggested: string;
+}
+
+/** A user's answer: exactly one of the choice label (an offered option) or free text. */
+export type AskUserResult = { choice?: string; text?: string };
+
 /** Runtime context handed to every tool execution. */
 export interface ToolContext {
   signal: AbortSignal;
@@ -136,6 +153,8 @@ export interface ToolContext {
   onProgress: (chunk: string) => void;
   /** Skill directories (#30): read-only roots outside cwd the read tool may access. */
   skillDirs?: readonly string[];
+  /** Interactive question channel (ask_user). Absent (headless) → the tool fails fast. */
+  askUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
 }
 
 /** The tool contract every built-in and extension tool implements. */
