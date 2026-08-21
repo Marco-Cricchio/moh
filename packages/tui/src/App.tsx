@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useApp, useInput } from "ink";
+import { useApp, useInput, useStdout } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +54,7 @@ export function App({
   skipOnboarding,
 }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const compact = useCompact();
 
   const cfgFile = useMemo(() => userConfigFile(home), [home]);
@@ -213,8 +214,7 @@ export function App({
   return (
     <ThemeProvider value={THEMES[themeName]}>
       <Box flexDirection="column" height="100%" key={themeTick}>
-        <Box flexDirection="column" height={overlayOpen ? 1 : "100%"} overflow="hidden">
-        {showChat ? (
+          {showChat ? (
           <Chat
             session={session}
             mode={mode}
@@ -247,7 +247,13 @@ export function App({
             blocked={overlayOpen}
           />
         )}
-        </Box>
+        <Box
+          {...({ position: "absolute", top: 0, left: 0 } as Record<string, unknown>)}
+          width="100%"
+          height="100%"
+          alignItems="center"
+          justifyContent="flex-start"
+        >
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -313,6 +319,7 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
+        </Box>
         <Toasts toasts={toasts} />
       </Box>
     </ThemeProvider>
