@@ -75,24 +75,41 @@ describe("first-party skill install", () => {
   test("bundled assets ship the workflow skills", () => {
     const sources = firstPartySkillSources();
     expect(sources.map((s) => s.name).sort()).toEqual([
+      "code-review",
+      "codebase-design",
+      // #72: design-core ports
       "diagnose",
-      // #72: design-core ports (verbatim from upstream, see NOTICE.md)
+      "diagnosing-bugs",
       "domain-modeling",
       "dream",
       "grilling",
       "implement",
       "plan",
       "review",
-      // reduced set still shipped until #74 renames it
+      "tdd",
+      "to-spec",
+      "to-tickets",
+      "triage",
       "wayfinder",
+      "wizard",
+      "writing-for-agents",
     ]);
   });
 
   test("design-core ports keep their companion files", () => {
     const sources = firstPartySkillSources();
-    const domainModeling = sources.find((s) => s.name === "domain-modeling");
-    expect(domainModeling?.files["CONTEXT-FORMAT.md"]).toBeTruthy();
-    expect(domainModeling?.files["ADR-FORMAT.md"]).toBeTruthy();
+    const byName = new Map(sources.map((s) => [s.name, s]));
+    expect(byName.get("domain-modeling")?.files["CONTEXT-FORMAT.md"]).toBeTruthy();
+    expect(byName.get("domain-modeling")?.files["ADR-FORMAT.md"]).toBeTruthy();
+    expect(byName.get("triage")?.files["AGENT-BRIEF.md"]).toBeTruthy();
+    expect(byName.get("triage")?.files["OUT-OF-SCOPE.md"]).toBeTruthy();
+    expect(byName.get("tdd")?.files["tests.md"]).toBeTruthy();
+    expect(byName.get("tdd")?.files["mocking.md"]).toBeTruthy();
+    expect(byName.get("codebase-design")?.files["DEEPENING.md"]).toBeTruthy();
+    expect(byName.get("codebase-design")?.files["DESIGN-IT-TWICE.md"]).toBeTruthy();
+    expect(byName.get("wizard")?.files["template.sh"]).toBeTruthy();
+    // #73: flattened from scripts/ (see NOTICE.md)
+    expect(byName.get("diagnosing-bugs")?.files["hitl-loop.template.sh"]).toBeTruthy();
   });
 });
 
