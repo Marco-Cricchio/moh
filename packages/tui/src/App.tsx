@@ -13,7 +13,7 @@ import { makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
-import { useCompact } from "./ui";
+import { useViewport } from "./viewport";
 import { PermissionModal } from "./PermissionModal";
 import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
@@ -54,7 +54,7 @@ export function App({
   skipOnboarding,
 }: AppProps) {
   const { exit } = useApp();
-  const compact = useCompact();
+  const viewport = useViewport();
 
   const cfgFile = useMemo(() => userConfigFile(home), [home]);
   const [config, setConfig] = useState<UserConfig>(() => loadUserConfig(cfgFile));
@@ -208,9 +208,12 @@ export function App({
 
   const showChat = session !== null;
 
+  const overlayOpen = overlay !== null || pending !== null;
+
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" height="100%" key={themeTick}>
+      <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
+          <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           <Chat
             session={session}
@@ -241,8 +244,11 @@ export function App({
             onExit={exit}
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}
+            blocked={overlayOpen}
           />
         )}
+        </Box>
+        {overlayOpen && <OverlayLayer>
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -281,7 +287,7 @@ export function App({
             onClose={() => setOverlay(null)}
           />
         )}
-        {overlay === "commands" && <CommandsPanel compact={compact} onClose={() => setOverlay(null)} />}
+        {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
         {overlay === "workflow-offer" && (
           <WorkflowOffer
             onDone={(enable) => {
@@ -307,10 +313,25 @@ export function App({
             }
           />
         )}
-        {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
+        {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
+        </OverlayLayer>}
         <Toasts toasts={toasts} />
       </Box>
     </ThemeProvider>
+  );
+}
+
+/** Transparent full-viewport backdrop behind an open overlay (not a
+ * scrim: nothing is dimmed): centers the dialog layer over the visible
+ * content (pi-style floating dialog). Height is rows - 1 so Ink never
+ * enters its fullscreen repaint path (which would clear the screen and
+ * replay the whole transcript behind the dialog). */
+function OverlayLayer({ children }: { children: React.ReactNode }) {
+  const viewport = useViewport();
+  return (
+    <Box width={viewport.columns} height={Math.max(1, viewport.rows - 1)} flexDirection="column">
+      {children}
+    </Box>
   );
 }
 

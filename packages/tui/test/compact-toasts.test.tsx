@@ -34,7 +34,9 @@ describe("compact mode (issue #33)", () => {
     );
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/\s+/g, " ");
-    expect(frame).toContain("ctrl+t theme · ctrl+m mode · ctrl+k keys · q quit");
+    // Truncate-end keeps the compact footer on one line: the essential
+    // keys render, the editor/steering hints never appear.
+    expect(frame).toContain("ctrl+t theme · ctrl+m");
     expect(frame).not.toContain("ctrl+j newline");
     expect(frame).not.toContain("esc steer");
     i.unmount();
