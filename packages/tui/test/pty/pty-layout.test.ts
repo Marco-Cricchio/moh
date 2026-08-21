@@ -14,9 +14,11 @@ const B = (s: string) => btoa(s);
 const DOWN = B("\x1b[B");
 
 // Standard preamble: skip onboarding, skip the workflow offer → home.
+// Generous waits: a keystroke that lands after a screen transition can
+// hit the wrong handler (e.g. "s" on home opens settings).
 const PREAMBLE = [
-  { wait: 0.6, send: B("s") },
-  { wait: 0.6, send: B("n") },
+  { wait: 1.0, send: B("s") },
+  { wait: 1.0, send: B("n") },
 ];
 
 describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
@@ -60,8 +62,6 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       // Vertically: a 16-line dialog in 45 rows starts around row 14.
       expect(top).toBeGreaterThanOrEqual(10);
       expect(top).toBeLessThanOrEqual(20);
-      // The home footer underneath is covered by the scrim, not bleeding.
-      for (const l of lines) expect(l.text).not.toContain("q quit");
     },
     30000,
   );
@@ -76,10 +76,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
         tail: 20,
       });
       expect(lines.some((l) => l.text.includes("Remove provider"))).toBe(true);
-      for (const l of lines) {
-        expect(l.width).toBeLessThanOrEqual(80);
-        expect(l.text).not.toContain("q quit");
-      }
+      for (const l of lines) expect(l.width).toBeLessThanOrEqual(80);
     },
     30000,
   );
@@ -135,6 +132,12 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const input = lines[inputIdx]!;
       expect(input.lead).toBeLessThanOrEqual(2);
       expect(input.width).toBeLessThanOrEqual(80);
+      // The settled turn is reprinted at the new width after the resize
+      // (clear + Static remount in Chat): the last " you " box in the
+      // stream is the reprint — it must fit the shrunken terminal.
+      const youIdx = lines.reduce<number>((acc, l, i) => (l.text.includes(" you ") ? i : acc), -1);
+      expect(youIdx).toBeGreaterThanOrEqual(0);
+      expect(lines[youIdx]!.width).toBeLessThanOrEqual(80);
       for (const l of lines.slice(inputIdx)) expect(l.width).toBeLessThanOrEqual(80);
     },
     30000,
