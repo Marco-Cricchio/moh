@@ -2,6 +2,7 @@
 name: review
 description: "Review a diff or branch against the repo standards and the originating spec. Use when the user asks for a review."
 minMohVersion: 0.1.0
+minMohVersion: 0.1.0
 ---
 
 # review
