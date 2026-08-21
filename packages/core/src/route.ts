@@ -46,9 +46,12 @@ export class Endpoint {
 }
 
 /** MOH_ENDPOINT_<NAME>_API_KEY, name uppercased with non-alphanumerics as `_`. */
+export function endpointEnvVarName(endpointName: string): string {
+  return `MOH_ENDPOINT_${endpointName.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
+}
+
 export function envApiKey(endpointName: string, env: Record<string, string | undefined> = process.env): string | undefined {
-  const key = `MOH_ENDPOINT_${endpointName.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
-  return env[key];
+  return env[endpointEnvVarName(endpointName)];
 }
 
 /** One stop of a fallback chain: endpoint + model id. */
