@@ -36,6 +36,15 @@ import {
   type PermissionTier,
   type SessionMode,
 } from "./permissions";
+import {
+  SubagentHost,
+  BUILTIN_AGENT_PRESETS,
+  DEFAULT_SUBAGENT_CONCURRENCY,
+  subagentSpecSchema,
+  type SubagentOptions,
+  type SubagentResult,
+  type SubagentSpec,
+} from "./subagents";
 import type { AgentEvent, EndpointCapabilities, Message, PermissionGrantReason, Provider, ProviderErrorKind, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { ProviderError } from "./types";
 import { normalizeProviderError, disambiguate429, classifyStatus } from "./provider-errors";
@@ -189,6 +198,12 @@ export interface SessionConfig {
    * Lifecycle events are appended to the session log automatically.
    */
   mcp?: Omit<McpRuntimeOptions, "onEvent" | "cwd" | "onTrustedTools">;
+  /**
+   * Subagents (#13): registers the `spawn` tool. Children are in-process
+   * AgentSessions with their own JSONL logs, a strict subset of this
+   * session's non-MCP tools, and depth 1 (they cannot spawn).
+   */
+  subagents?: SubagentOptions;
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -263,6 +278,13 @@ export {
   projectFrontier,
   defaultRunner,
   PermissionResolver,
+  SubagentHost,
+  BUILTIN_AGENT_PRESETS,
+  DEFAULT_SUBAGENT_CONCURRENCY,
+  subagentSpecSchema,
+  type SubagentOptions,
+  type SubagentResult,
+  type SubagentSpec,
   runtimeRulesFromEvents,
   splitCommandSegments,
   type AgentEvent,

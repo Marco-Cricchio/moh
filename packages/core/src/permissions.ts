@@ -44,6 +44,8 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   edit: "ask",
   bash: "ask",
   fetch: "ask",
+  // Subagents (#13): spawning a child is delegation — ask by default.
+  spawn: "ask",
   // Tracker tools (#36): reads are free, claiming is a mutation.
   tracker_list: "allow",
   tracker_claim: "ask",

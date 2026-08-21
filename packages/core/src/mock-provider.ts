@@ -25,6 +25,8 @@ export interface MockTurnScript {
   toolCalls?: MockToolCall[];
   /** Fail the turn with a typed ProviderError (fallback-chain tests). */
   error?: MockError;
+  /** Usage tokens emitted before finish (subagent result events, #13). */
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 export class MockProvider implements Provider {
@@ -91,6 +93,9 @@ export class MockProvider implements Provider {
           args: c.args,
         })),
       };
+    }
+    if (turn.usage) {
+      yield { type: "usage", inputTokens: turn.usage.inputTokens, outputTokens: turn.usage.outputTokens };
     }
     yield { type: "finish", reason: turn.finish };
   }
