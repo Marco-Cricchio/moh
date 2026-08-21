@@ -44,9 +44,17 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_calls"; calls: { callId: string; name: string; args: unknown }[] }
   | { type: "usage"; inputTokens: number; outputTokens: number }
-  | { type: "finish"; reason: FinishReason };
+  | { type: "finish"; reason: FinishReason }
+  /** #83: providers announce the model serving this call at stream start. */
+  | { type: "model_call_start"; model: string };
 
 export type FinishReason = "stop" | "tool_calls";
+
+/** Token counts as reported by providers (#83). */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
 
 /** Tool identity as advertised to providers (name, description, JSON schema). */
 export interface ToolSpec {
@@ -84,7 +92,10 @@ export type AgentEvent =
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall)
   | { type: "tool_result"; callId: string; ok: boolean; output: string }
-  | { type: "done" }
+  /** #83: one record per model call — which model served it and what it cost. */
+  | { type: "model_call"; model: string; usage: TokenUsage }
+  /** Turn rollup (#83): this turn's usage totals and the models that served it. */
+  | { type: "done"; usage?: TokenUsage; models?: string[] }
   | { type: "error"; reason: string; message: string }
   | { type: "cancelled" }
   | { type: "permission_requested"; callId: string; tool: string }

@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, ToolSpec, TurnResult } from "./types";
+import type { AgentEvent, FinishReason, Message, Provider, TokenUsage, Tool, ToolCall, ToolContext, ToolSpec, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
@@ -64,6 +64,11 @@ export class AgentSession {
   #controller: AbortController | null = null;
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
   #usage = { inputTokens: 0, outputTokens: 0 };
+  /** #83: the model call currently streaming (announced by `model_call_start`). */
+  #pendingCall: { model: string; usage: TokenUsage } | null = null;
+  /** #83: turn rollup inputs — usage at turn start and models that served it. */
+  #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+  #turnModels: string[] = [];
   #turn: Promise<TurnResult> | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
   readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
@@ -358,6 +363,9 @@ export class AgentSession {
 
   async #executeTurnInner(text: string, controller: AbortController): Promise<TurnResult> {
     this.#append({ type: "user_message", text });
+    // #83: turn rollup baselines.
+    this.#turnStartUsage = { ...this.#usage };
+    this.#turnModels = [];
     this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
     // MCP (#15): lazy start on first use — the first turn connects the
     // declared servers (consent-gated) so the prompt lists their tools.
@@ -400,9 +408,19 @@ export class AgentSession {
             this.#append({ type: "assistant_delta", text: event.text });
           } else if (event.type === "tool_calls") {
             toolCalls.push(...event.calls);
+          } else if (event.type === "model_call_start") {
+            // A new call starts: record the previous one, then open a buffer
+            // for this one (#83). Mid-stream fallbacks announce a second
+            // call inside the same provider.stream — both get recorded.
+            this.#flushModelCall();
+            this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 } };
           } else if (event.type === "usage") {
             this.#usage.inputTokens += event.inputTokens;
             this.#usage.outputTokens += event.outputTokens;
+            if (this.#pendingCall) {
+              this.#pendingCall.usage.inputTokens += event.inputTokens;
+              this.#pendingCall.usage.outputTokens += event.outputTokens;
+            }
           } else if (event.type === "finish") {
             finishReason = event.reason;
           }
@@ -414,6 +432,9 @@ export class AgentSession {
         this.#append({ type: "error", reason, message });
         return { status: "error", reason, message };
       }
+      // The provider stream ended: this model call is complete — record
+      // it (usage is reported at finish, so the event can only close now).
+      this.#flushModelCall();
       if (finishReason === null) {
         // Stream ended without a finish event (e.g. aborted mid-stream).
         break;
@@ -436,8 +457,26 @@ export class AgentSession {
       return { status: "cancelled" };
     }
     this.#pushAssistant(assistantText);
-    this.#append({ type: "done" });
+    // Turn rollup (#83): this turn's usage totals and the models that
+    // served it. Session totals = sum of model_call events across the log.
+    this.#append({
+      type: "done",
+      usage: {
+        inputTokens: this.#usage.inputTokens - this.#turnStartUsage.inputTokens,
+        outputTokens: this.#usage.outputTokens - this.#turnStartUsage.outputTokens,
+      },
+      models: [...new Set(this.#turnModels)],
+    });
     return { status: "done" };
+  }
+
+  /** Append the completed model call to the log, if one is open (#83). */
+  #flushModelCall(): void {
+    const call = this.#pendingCall;
+    if (!call) return;
+    this.#pendingCall = null;
+    this.#turnModels.push(call.model);
+    this.#append({ type: "model_call", model: call.model, usage: { ...call.usage } });
   }
 
   #pushAssistant(text: string): void {
