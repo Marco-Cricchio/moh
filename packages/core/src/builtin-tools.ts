@@ -198,11 +198,59 @@ const todo: Tool<z.infer<typeof todoSchema>> = {
   },
 };
 
+const askUserSchema = z
+  .object({
+    question: z.string().min(1),
+    options: z
+      .array(z.object({ label: z.string().min(1), description: z.string() }))
+      .min(1)
+      .max(4),
+    suggested: z.string().min(1),
+  })
+  .superRefine((args, ctx) => {
+    const labels = new Set(args.options.map((o) => o.label));
+    if (labels.size !== args.options.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "option labels must be unique" });
+    }
+    if (!labels.has(args.suggested)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "suggested must be one of the option labels" });
+    }
+  });
+
+const askUser: Tool<z.infer<typeof askUserSchema>> = {
+  name: "ask_user",
+  description:
+    "Ask the user one question with up to 4 options (label + short description); " +
+    "exactly one option is the suggested answer. The user may also answer with free text. " +
+    "Prefer this over asking in plain chat when a decision with clear alternatives is needed.",
+  inputSchema: askUserSchema,
+  async execute(args, ctx) {
+    if (!ctx.askUser) {
+      throw new Error(
+        "ask_user: no interactive user is attached (headless mode). " +
+          "Proceed without asking — rephrase or make the decision yourself.",
+      );
+    }
+    const answer = await ctx.askUser({ question: args.question, options: args.options, suggested: args.suggested });
+    if (answer.choice !== undefined && answer.text !== undefined) {
+      throw new Error("ask_user: answer must be either a choice or free text, not both");
+    }
+    if (answer.choice !== undefined) {
+      if (!args.options.some((o) => o.label === answer.choice)) {
+        throw new Error(`ask_user: "${answer.choice}" is not one of the offered options`);
+      }
+      return answer.choice;
+    }
+    if (answer.text !== undefined) return answer.text;
+    throw new Error("ask_user: answer carries neither a choice nor free text");
+  },
+};
+
 function joinSafe(root: string, rel: string): string {
   return `${root}/${rel.split("\\").join("/")}`;
 }
 
 export function builtinTools(): Record<string, Tool> {
-  const all = [bash, read, write, edit, glob, grep, fetchTool, todo];
+  const all = [bash, read, write, edit, glob, grep, fetchTool, todo, askUser];
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));
 }
