@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, Text, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
@@ -6,7 +6,8 @@ import type { TurnView, ToolView } from "./turns";
 import { useTheme } from "./themes";
 import { ic, SPINNER_FRAMES } from "./icons";
 import { createMarkdownRenderer, Markdown } from "./markdown";
-import { Accent, Dim, Footer, Logo, MsgBox, truncate, useCompact } from "./ui";
+import { Accent, Dim, Footer, Logo, MsgBox, truncate } from "./ui";
+import { contentWidth, useStdoutResize, useViewport, widthClass } from "./viewport";
 import { toolArgSummary } from "./permission-gate";
 import { MultilineInput } from "./Input";
 
@@ -34,17 +35,39 @@ export interface ChatProps {
 export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand }: ChatProps) {
   const theme = useTheme();
   const state = useSessionState(session);
-  const md = useMemo(() => createMarkdownRenderer(theme), [theme]);
+  const viewport = useViewport();
+  const md = useMemo(() => createMarkdownRenderer(theme, contentWidth(viewport) - 4), [theme, viewport]);
+  const compact = widthClass(viewport) === "compact";
   const [tick, setTick] = useState(0);
   const [lastEsc, setLastEsc] = useState(0);
   const [armed, setArmed] = useState(false);
   const [detail, setDetail] = useState(filePreview === "always");
-  const compact = useCompact();
 
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 90);
     return () => clearInterval(t);
   }, []);
+
+  // Terminal resize (#65): Ink prints <Static> output exactly once at the
+  // width of first render, so a resize leaves stale frames on screen
+  // (worst on shrink: overlapping boxes). Debounced clear + remount of the
+  // Static column reprints the settled turns at the new width. Skipped
+  // while a modal owns the keyboard — the reprint happens on the next
+  // width change; remounting under an open overlay is unsafe because a
+  // taller-than-viewport frame could trip Ink's fullscreen replay path.
+  const lastCols = useRef(viewport.columns);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [staticKey, setStaticKey] = useState(0);
+  useStdoutResize((stdout) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      const cols = stdout.columns ?? 80;
+      if (cols === lastCols.current || blocked) return;
+      lastCols.current = cols;
+      stdout.write("\x1b[2J\x1b[H");
+      setStaticKey((k) => k + 1);
+    }, 150);
+  });
 
   // Settled turns go to <Static> (outside the render loop); only the live
   // turn + chrome re-render while streaming. Render window: the most recent
@@ -75,7 +98,7 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height="100%" width={contentWidth(viewport)}>
       <Box justifyContent="space-between" paddingX={2}>
         <Logo />
         {mode === "dev" && (
@@ -88,12 +111,18 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
       <Text> </Text>
 
       <Box flexDirection="column" width="100%">
-        <Static items={windowed}>
-          {(turn) => (
-            <Box key={turn.id} flexDirection="column">
-              <TurnBoxes turn={turn} md={md} mode={mode} detail={detail} />
-            </Box>
-          )}
+        <Static key={staticKey} items={windowed}>
+          {(turn) => {
+            // Static output is hoisted above the frame at column 0 (Ink
+            // extracts it into its own Output), so the gutter is padded
+            // manually to keep settled turns aligned with the live column.
+            const gutter = Math.max(0, (viewport.columns - contentWidth(viewport)) >> 1);
+            return (
+              <Box key={turn.id} flexDirection="column" width={contentWidth(viewport)} marginLeft={gutter}>
+                <TurnBoxes turn={turn} md={md} mode={mode} detail={detail} />
+              </Box>
+            );
+          }}
         </Static>
         {live.map((turn) => (
           <Box key={turn.id} flexDirection="column">
