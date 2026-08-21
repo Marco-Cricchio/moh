@@ -114,6 +114,10 @@ export function gitlabTracker(repo: string, run: ShellRunner = defaultRunner): T
  */
 export const TRACKER_DIR = ".moh/tracker";
 
+function splitList(v?: string): string[] {
+  return v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+}
+
 export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend {
   const readIssues = (): TrackerIssue[] => {
     if (!existsSync(dir)) return [];
@@ -130,7 +134,6 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
         }
       }
       const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "").trim();
-      const splitList = (v?: string) => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []);
       issues.push({
         id: fields.get("id") ?? basename(entry.name, ".md"),
         title: fields.get("title") ?? body.split("\n")[0]?.slice(0, 80) ?? entry.name,
@@ -177,9 +180,6 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
   };
 }
 
-function splitList(v?: string): string[] {
-  return v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
-}
 
 export interface ResolveTrackerOptions {
   /** Working dir. Default process.cwd(). */

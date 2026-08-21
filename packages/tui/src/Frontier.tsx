@@ -14,11 +14,17 @@ export interface FrontierProps {
   backend: TrackerBackend | null;
   onToast: (message: string) => void;
   onClose: () => void;
+  /**
+   * Permission seam for the claim action (#36): the panel claims only
+   * when it resolves true. The App routes it through the same
+n   * PermissionGate modal used for `tracker_claim` tool calls.
+   */
+  requestClaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
 }
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; issues: TrackerIssue[] };
 
-export function Frontier({ backend, onToast, onClose }: FrontierProps) {
+export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierProps) {
   const theme = useTheme();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [cursor, setCursor] = useState(0);
@@ -63,14 +69,21 @@ export function Frontier({ backend, onToast, onClose }: FrontierProps) {
     if ((input === "c" || input === "return") && current && !claiming) {
       if (current.assignees.length > 0) return onToast(`#${current.id} already claimed by ${current.assignees.join(", ")}`);
       setClaiming(true);
-      void backend
-        ?.claim(current.id)
-        .then(() => {
+      void (async () => {
+        try {
+          if (requestClaim && !(await requestClaim(current))) {
+            onToast(`claim of #${current.id} denied`);
+            return;
+          }
+          await backend?.claim(current.id);
           onToast(`claimed #${current.id}`);
           reload();
-        })
-        .catch((err: unknown) => onToast(`claim failed: ${err instanceof Error ? err.message : String(err)}`))
-        .finally(() => setClaiming(false));
+        } catch (err: unknown) {
+          onToast(`claim failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          setClaiming(false);
+        }
+      })();
     }
   });
 

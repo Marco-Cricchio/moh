@@ -116,7 +116,9 @@ export function App({
   // Workflow mode (#36): the frontier tracker and the background
   // upstream check exist only while enabled (and opted in).
   const workflowOn = config.workflow.enabled;
-  const [tracker] = useState<TrackerBackend | null>(() => (workflowOn ? resolveTrackerSync({ cwd }) : null));
+  const [tracker, setTracker] = useState<TrackerBackend | null>(() =>
+    workflowOn ? resolveTrackerSync({ cwd }) : null,
+  );
   useEffect(() => {
     if (!workflowOn || !config.workflow.upstreamCheck) return;
     let live = true;
@@ -203,6 +205,7 @@ export function App({
                 session,
                 notify: push,
                 onOpenFrontier: () => setOverlay("frontier"),
+                onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
               })
             }
           />
@@ -272,7 +275,14 @@ export function App({
           />
         )}
         {overlay === "frontier" && workflowOn && (
-          <Frontier backend={tracker} onToast={push} onClose={() => setOverlay(null)} />
+          <Frontier
+            backend={tracker}
+            onToast={push}
+            onClose={() => setOverlay(null)}
+            requestClaim={(issue) =>
+              gate.ask("tracker_claim", { id: issue.id }).then((answer) => answer !== "no")
+            }
+          />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} compact={compact} editor={config.editor} />}
         <Toasts toasts={toasts} />

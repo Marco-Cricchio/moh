@@ -92,6 +92,30 @@ describe("Frontier panel", () => {
     i.unmount();
   });
 
+  test("the claim action goes through the permission seam", async () => {
+    const backend = backendOf([issue("1")]);
+    const asked: string[] = [];
+    const i = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <Frontier
+          backend={backend}
+          onToast={() => {}}
+          onClose={() => {}}
+          requestClaim={(iss) => {
+            asked.push(iss.id);
+            return false; // denied
+          }}
+        />
+      </ThemeProvider>,
+    );
+    await sleep(50);
+    i.stdin.write("c");
+    await sleep(30);
+    expect(asked).toEqual(["1"]);
+    expect(backend.claimed).toEqual([]); // denied: no mutation
+    i.unmount();
+  });
+
   test("a failing tracker shows an error, not a crash", async () => {
     const i = mount({
       kind: "gh",
