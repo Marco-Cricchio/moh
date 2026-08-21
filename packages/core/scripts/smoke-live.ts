@@ -15,7 +15,14 @@
  * Usage: bun packages/core/scripts/smoke-live.ts
  */
 import { z } from "zod";
-import { Endpoint, createRoute, createSession, type AgentEvent, type Tool } from "../src/index";
+import {
+  Endpoint,
+  createRoute,
+  createSession,
+  type AgentEvent,
+  type Provider,
+  type Tool,
+} from "../src/index";
 
 interface Case {
   name: string;
@@ -40,6 +47,10 @@ function eventTypes(session: { history(): AgentEvent[] }): string[] {
   return session.history().map((e) => e.type);
 }
 
+function assistantText(session: { history(): AgentEvent[] }): string {
+  return session.history().map((e) => (e.type === "assistant_delta" ? e.text : "")).join("");
+}
+
 function echoTool(): Tool<{ text: string }> {
   return {
     name: "echo",
@@ -50,7 +61,7 @@ function echoTool(): Tool<{ text: string }> {
 }
 
 /** Scenario 1: text streams as multiple deltas and completes with `done`. */
-async function smokeText(label: string, provider: ReturnType<typeof createRoute>) {
+async function smokeText(label: string, provider: Provider) {
   const session = createSession({ provider });
   const result = await session.send("Reply with exactly one word: hello");
   const deltas = session.history().filter((e) => e.type === "assistant_delta").length;
@@ -58,12 +69,12 @@ async function smokeText(label: string, provider: ReturnType<typeof createRoute>
   if (result.status !== "done") throw new Error(`${label}/text: turn ended ${JSON.stringify(result)}`);
   if (deltas < 1) throw new Error(`${label}/text: no assistant deltas`);
   if (!types.includes("done")) throw new Error(`${label}/text: missing done event`);
-  const text = session.history().map((e) => (e.type === "assistant_delta" ? e.text : "")).join("");
+  const text = assistantText(session);
   console.log(`  text: ok (${deltas} deltas) ${JSON.stringify(text.slice(0, 60))}`);
 }
 
 /** Scenario 2: model calls the tool, core executes it, result returns, done. */
-async function smokeTool(label: string, provider: ReturnType<typeof createRoute>) {
+async function smokeTool(label: string, provider: Provider) {
   const session = createSession({ provider, tools: { echo: echoTool() }, permissions: { bypassPermissions: true } });
   const result = await session.send("Call the echo tool with text 'ping'. Then say 'tool ok'.");
   const types = eventTypes(session);
@@ -75,14 +86,24 @@ async function smokeTool(label: string, provider: ReturnType<typeof createRoute>
 }
 
 /** Scenario 3: abort mid-stream resolves cancelled without hanging. */
-async function smokeAbort(label: string, provider: ReturnType<typeof createRoute>) {
+async function smokeAbort(label: string, provider: Provider) {
   const session = createSession({ provider });
   const turn = session.send("Count slowly from 1 to 100, one number per line.");
-  await new Promise((r) => setTimeout(r, 2500)); // let a few deltas arrive
+  // Abort only once the stream is provably mid-flight: at least one delta
+  // has arrived (a fast model could otherwise finish the whole turn first).
+  // history() is a snapshot; re-poll it.
+  const deadline = Date.now() + 120_000;
+  let deltasBeforeAbort = 0;
+  while (Date.now() < deadline) {
+    deltasBeforeAbort = session.history().filter((e) => e.type === "assistant_delta").length;
+    if (deltasBeforeAbort > 0) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
   session.abort();
   const result = await turn;
+  if (deltasBeforeAbort < 1) throw new Error(`${label}/abort: no deltas arrived before abort; cannot verify mid-stream abort`);
   if (result.status !== "cancelled") throw new Error(`${label}/abort: expected cancelled, got ${JSON.stringify(result)}`);
-  console.log(`  abort: ok (turn resolved cancelled)`);
+  console.log(`  abort: ok (aborted after ${deltasBeforeAbort} deltas, turn resolved cancelled)`);
 }
 
 async function main() {
@@ -94,7 +115,7 @@ async function main() {
       continue;
     }
     const endpoint = new Endpoint({ name: c.name, kind: c.kind, ...(c.baseUrl ? { baseUrl: c.baseUrl } : {}) });
-    const provider = createRoute({ target: { endpoint, modelId: modelOf(c) } });
+    const provider: Provider = createRoute({ target: { endpoint, modelId: modelOf(c) } });
     console.log(`[${c.name}] model ${modelOf(c)} (kind ${c.kind}${c.baseUrl ? ", compat" : ""})`);
     for (const scenario of [smokeText, smokeTool, smokeAbort]) {
       try {
