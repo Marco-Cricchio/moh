@@ -71,8 +71,8 @@ export interface RuntimeExtension {
 }
 
 interface ExtensionStore {
-  /** name -> approved version (one-time enable consent). */
-  consents: Record<string, string>;
+  /** name -> true (one-time enable consent, remembered forever). */
+  consents: Record<string, true>;
   /** name -> approved dependency list. */
   dependencies: Record<string, ExtensionDependencies>;
 }
@@ -90,6 +90,17 @@ function sameDeps(a: string[], b: string[]): boolean {
   const sa = [...a].sort();
   const sb = [...b].sort();
   return sa.length === sb.length && sa.every((d, i) => d === sb[i]);
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Cache-busted import returning the module's candidate definition. */
+async function importDefinition(file: string): Promise<unknown> {
+  // Bun busts the ESM cache on the query string (plain path form).
+  const mod = (await import(`${file}?t=${Date.now()}-${Math.random()}`)) as { default?: unknown };
+  return mod?.default ?? mod;
 }
 
 export class ExtensionRuntime {
@@ -138,15 +149,13 @@ export class ExtensionRuntime {
    */
   async registerFile(file: string): Promise<boolean> {
     const abs = isAbsolute(file) ? file : resolve(process.cwd(), file);
-    let mod: unknown;
+    let def: unknown;
     try {
-      // Bun busts the ESM cache on the query string (plain path form).
-      mod = await import(`${abs}?t=${Date.now()}-${Math.random()}`);
+      def = await importDefinition(abs);
     } catch (err) {
-      this.#emitFailed(basename(abs), "load_failed", err instanceof Error ? err.message : String(err));
+      this.#emitFailed(basename(abs), "load_failed", errMessage(err));
       return false;
     }
-    const def = (mod as { default?: unknown })?.default ?? mod;
     return this.#load(def, abs);
   }
 
@@ -183,14 +192,13 @@ export class ExtensionRuntime {
     const index = this.#instances.findIndex((i) => i.file === file);
     if (index === -1) return;
     const previous = this.#instances[index]!;
-    let mod: unknown;
+    let def: unknown;
     try {
-      mod = await import(`${file}?t=${Date.now()}-${Math.random()}`);
+      def = await importDefinition(file);
     } catch (err) {
-      this.#options.onWarning?.(`extension ${previous.def.name}: reload failed (${String(err)}); previous instance kept`);
+      this.#options.onWarning?.(`extension ${previous.def.name}: reload failed (${errMessage(err)}); previous instance kept`);
       return;
     }
-    const def = (mod as { default?: unknown })?.default ?? mod;
     // Seed the fresh instance with the previous state so setup() sees it.
     const fresh = await this.#instantiate(def, file, previous.state);
     if (!fresh.ok) {
@@ -244,8 +252,8 @@ export class ExtensionRuntime {
       };
     }
     const store = this.#readStore();
-    // One-time enable consent.
-    if (store.consents[name] !== d.version) {
+    // One-time enable consent: asked once per extension name, ever.
+    if (!store.consents[name]) {
       if (!this.#options.consent) {
         return { ok: false, name, reason: "consent", message: "extension not previously enabled and no consent flow is available" };
       }
@@ -253,10 +261,10 @@ export class ExtensionRuntime {
       try {
         granted = await this.#options.consent(name, d.version);
       } catch (err) {
-        return { ok: false, name, reason: "consent", message: err instanceof Error ? err.message : String(err) };
+        return { ok: false, name, reason: "consent", message: errMessage(err) };
       }
       if (!granted) return { ok: false, name, reason: "consent", message: "user declined to enable the extension" };
-      store.consents[name] = d.version;
+      store.consents[name] = true;
       this.#writeStore(store);
     }
     // Per-change dependency authorization (approved list remembered per extension).
@@ -271,7 +279,7 @@ export class ExtensionRuntime {
         try {
           granted = await this.#options.authorizeDependencies!(name, deps);
         } catch (err) {
-          return { ok: false, name, reason: "deps_unauthorized", message: err instanceof Error ? err.message : String(err) };
+          return { ok: false, name, reason: "deps_unauthorized", message: errMessage(err) };
         }
         if (!granted) {
           return { ok: false, name, reason: "deps_unauthorized", message: `user declined dependencies: ${deps.join(", ")}` };
@@ -294,7 +302,7 @@ export class ExtensionRuntime {
     try {
       await instance.def.setup(ctx);
     } catch (err) {
-      return { ok: false, name, reason: "setup_failed", message: err instanceof Error ? err.message : String(err) };
+      return { ok: false, name, reason: "setup_failed", message: errMessage(err) };
     }
     return { ok: true, instance };
   }
@@ -304,8 +312,13 @@ export class ExtensionRuntime {
   }
 
   #emit(event: AgentEvent): void {
-    this.#pending.push(event);
-    for (const listener of this.#listeners) listener(event);
+    // Delivered live when a session listens; buffered otherwise (pre-session
+    // loads, tests) so exactly one channel ever delivers each event.
+    if (this.#listeners.size > 0) {
+      for (const listener of this.#listeners) listener(event);
+    } else {
+      this.#pending.push(event);
+    }
   }
 
   #storeFile(): string {
@@ -376,7 +389,7 @@ export class ExtensionRuntime {
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
-            message: err instanceof Error ? err.message : String(err),
+            message: errMessage(err),
           });
           continue;
         }
@@ -398,7 +411,7 @@ export class ExtensionRuntime {
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
-            message: err instanceof Error ? err.message : String(err),
+            message: errMessage(err),
           });
         }
       }

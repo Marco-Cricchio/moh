@@ -318,4 +318,52 @@ describe("hot-reload", () => {
     const events = rt.consumeLoadEvents();
     expect(events.find((e) => e.type === "extension_failed")).toMatchObject({ reason: "load_failed" });
   });
+
+  test("missing extension on resume: warning in log, session continues", async () => {
+    const rt1 = new ExtensionRuntime({ mohHome: tempDir(), consent: () => true });
+    await rt1.register(defineExtension({ name: "gone", version: "1.0.0", apiVersion: "1.0", setup: () => {} }));
+    const first = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      extensions: rt1,
+    });
+    await first.send("hi");
+    // Resume with a runtime that did NOT load "gone".
+    const rt2 = new ExtensionRuntime({ mohHome: tempDir(), consent: () => true });
+    await rt2.register(defineExtension({ name: "other", version: "1.0.0", apiVersion: "1.0", setup: () => {} }));
+    const resumed = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      extensions: rt2,
+      resume: { events: first.history() },
+    });
+    const warning = resumed.history().find(
+      (e) => e.type === "extension_failed" && (e as any).reason === "missing_on_resume",
+    );
+    expect(warning).toMatchObject({ name: "gone" });
+    expect((await resumed.send("again")).status).toBe("done");
+  });
+
+  test("a hook that always throws does not loop and becomes a warning event", async () => {
+    let events = 0;
+    const { session } = await setup(
+      defineExtension({
+        name: "thrower",
+        version: "1.0.0",
+        apiVersion: "1.0",
+        setup: (ctx) => {
+          ctx.onEvent(() => {
+            events += 1;
+            throw new Error("hook boom");
+          });
+        },
+      }),
+    );
+    const result = await session.send("hi");
+    expect(result.status).toBe("done");
+    await Bun.sleep(20);
+    const failures = session.history().filter((e) => e.type === "extension_failed");
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures.every((f: any) => f.reason === "hook")).toBe(true);
+    // The extension_failed events themselves were not re-dispatched.
+    expect(events).toBeLessThan(20);
+  });
 });
