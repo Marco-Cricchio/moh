@@ -24,6 +24,7 @@ describe("core agent loop", () => {
       "user_message",
       "assistant_delta",
       "assistant_delta",
+      "model_call", // recorded when the call completes (#83), usage known at finish
       "done",
     ]);
     const text = streamed
@@ -147,6 +148,7 @@ describe("core agent loop", () => {
       "session_mode",
       "user_message",
       "assistant_delta",
+      "model_call",
       "done",
     ]);
 
@@ -306,7 +308,7 @@ describe("resume (#31)", () => {
     const newTexts = log.filter((e: any) => e.type === "user_message").map((e: any) => e.text);
     expect(newTexts).toEqual(["first question", "second question"]);
     // Only the new events reached the sink (the file already has the history).
-    expect(seen.map(([t]) => t)).toEqual(["user_message", "assistant_delta", "done"]);
+    expect(seen.map(([t]) => t)).toEqual(["user_message", "assistant_delta", "model_call", "done"]);
   });
 
   test("runtime permission rules are restored from the resumed history", async () => {

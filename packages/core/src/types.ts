@@ -44,7 +44,9 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_calls"; calls: { callId: string; name: string; args: unknown }[] }
   | { type: "usage"; inputTokens: number; outputTokens: number }
-  | { type: "finish"; reason: FinishReason };
+  | { type: "finish"; reason: FinishReason }
+  /** #83: announced by the provider before the first event of each model call. */
+  | { type: "model_call"; model: string };
 
 export type FinishReason = "stop" | "tool_calls";
 
@@ -84,7 +86,10 @@ export type AgentEvent =
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall)
   | { type: "tool_result"; callId: string; ok: boolean; output: string }
-  | { type: "done" }
+  /** #83: one record per model call — which model served it and what it cost. */
+  | { type: "model_call"; model: string; usage: { inputTokens: number; outputTokens: number } }
+  /** Turn rollup (#83): cumulative session usage at turn end. */
+  | { type: "done"; usage?: { inputTokens: number; outputTokens: number } }
   | { type: "error"; reason: string; message: string }
   | { type: "cancelled" }
   | { type: "permission_requested"; callId: string; tool: string }

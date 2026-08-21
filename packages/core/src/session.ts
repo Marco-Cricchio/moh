@@ -64,6 +64,8 @@ export class AgentSession {
   #controller: AbortController | null = null;
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
   #usage = { inputTokens: 0, outputTokens: 0 };
+  /** #83: the model call currently streaming (announced by `model_call`). */
+  #pendingCall: { model: string; inputTokens: number; outputTokens: number } | null = null;
   #turn: Promise<TurnResult> | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
   readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
@@ -400,9 +402,19 @@ export class AgentSession {
             this.#append({ type: "assistant_delta", text: event.text });
           } else if (event.type === "tool_calls") {
             toolCalls.push(...event.calls);
+          } else if (event.type === "model_call") {
+            // A new call starts: record the previous one, then open a buffer
+            // for this one (#83). Mid-stream fallbacks announce a second
+            // call inside the same provider.stream — both get recorded.
+            this.#flushModelCall();
+            this.#pendingCall = { model: event.model, inputTokens: 0, outputTokens: 0 };
           } else if (event.type === "usage") {
             this.#usage.inputTokens += event.inputTokens;
             this.#usage.outputTokens += event.outputTokens;
+            if (this.#pendingCall) {
+              this.#pendingCall.inputTokens += event.inputTokens;
+              this.#pendingCall.outputTokens += event.outputTokens;
+            }
           } else if (event.type === "finish") {
             finishReason = event.reason;
           }
@@ -414,6 +426,9 @@ export class AgentSession {
         this.#append({ type: "error", reason, message });
         return { status: "error", reason, message };
       }
+      // The provider stream ended: this model call is complete — record
+      // it (usage is reported at finish, so the event can only close now).
+      this.#flushModelCall();
       if (finishReason === null) {
         // Stream ended without a finish event (e.g. aborted mid-stream).
         break;
@@ -436,8 +451,16 @@ export class AgentSession {
       return { status: "cancelled" };
     }
     this.#pushAssistant(assistantText);
-    this.#append({ type: "done" });
+    this.#append({ type: "done", usage: { ...this.#usage } });
     return { status: "done" };
+  }
+
+  /** Append the completed model call to the log, if one is open (#83). */
+  #flushModelCall(): void {
+    const call = this.#pendingCall;
+    if (!call) return;
+    this.#pendingCall = null;
+    this.#append({ type: "model_call", model: call.model, usage: { inputTokens: call.inputTokens, outputTokens: call.outputTokens } });
   }
 
   #pushAssistant(text: string): void {
