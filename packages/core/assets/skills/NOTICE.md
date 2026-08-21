@@ -37,4 +37,7 @@ stay verbatim except for:
   (skills are loaded by reading their SKILL.md from the skills index).
 - `grilling`: a "Routing questions through ask_user" section added
   (moh's ask_user tool, #68).
+- `diagnosing-bugs`: `scripts/hitl-loop.template.sh` flattened to the
+  skill root (the installer bundles top-level files only); SKILL.md
+  references updated to match.
 - Upstream's `agents/openai.yaml` sidecar files are not bundled.
