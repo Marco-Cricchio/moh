@@ -15,6 +15,7 @@ import {
   type AgentSession,
   type MohConfig,
   type Provider,
+  type Tool,
 } from "@moh/core";
 
 export interface OpenSessionOptions {
@@ -26,6 +27,12 @@ export interface OpenSessionOptions {
   /** Persisted events to resume from (the store must be that file). */
   resumeEvents?: ReadonlyArray<AgentEvent>;
   home?: string;
+  /** Consent seam for the TUI permission modal (#33). */
+  onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  /** Default permission mode for new sessions (user config; bypass stays CLI-only). */
+  permissionMode?: "normal" | "auto-accept";
+  /** Tool registry override (tests). Default: built-ins. */
+  tools?: Record<string, Tool>;
 }
 
 /** moh.json for the project; null when absent/unreadable (zero-config mock). */
@@ -42,7 +49,9 @@ export function makeSession(options: OpenSessionOptions): { session: AgentSessio
   const session = createSession({
     provider: options.provider ?? resolveDefaultProvider(options.cwd),
     cwd: options.cwd,
-    tools: builtinTools(),
+    tools: options.tools ?? builtinTools(),
+    ...(options.onPermissionRequest ? { onPermissionRequest: options.onPermissionRequest } : {}),
+    ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
     sink: (event) => store.append(event),
     ...(options.resumeEvents ? { resume: { events: options.resumeEvents } } : {}),
   });

@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, Static, Text, useInput, useStdout } from "ink";
+import { Box, Static, Text, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import type { TurnView, ToolView } from "./turns";
 import { useTheme } from "./themes";
 import { ic, SPINNER_FRAMES } from "./icons";
 import { createMarkdownRenderer, Markdown } from "./markdown";
-import { Accent, Dim, Footer, Logo, MsgBox } from "./ui";
+import { Accent, Dim, Footer, Logo, MsgBox, truncate, useCompact } from "./ui";
+import { toolArgSummary } from "./permission-gate";
 import { MultilineInput } from "./Input";
 
 export type Mode = "vibe" | "dev";
@@ -18,17 +19,22 @@ export interface ChatProps {
   session: AgentSession;
   mode: Mode;
   modelLabel: string;
+  /** A modal owns the keyboard (permission/settings/commands): chat input and steering pause. */
+  blocked?: boolean;
+  /** Contextual tool-call viewer: "always" starts expanded, "none" disables the toggle (#33). */
+  filePreview?: "always" | "on-demand" | "none";
+  onOpenCommands?: () => void;
 }
 
-export function Chat({ session, mode, modelLabel }: ChatProps) {
+export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands }: ChatProps) {
   const theme = useTheme();
   const state = useSessionState(session);
   const md = useMemo(() => createMarkdownRenderer(theme), [theme]);
   const [tick, setTick] = useState(0);
   const [lastEsc, setLastEsc] = useState(0);
   const [armed, setArmed] = useState(false);
-  const { stdout } = useStdout();
-  const compact = (stdout.columns ?? 80) < 60;
+  const [detail, setDetail] = useState(filePreview === "always");
+  const compact = useCompact();
 
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 90);
@@ -43,6 +49,8 @@ export function Chat({ session, mode, modelLabel }: ChatProps) {
   const live = state.turns.filter((t) => t.phase === "streaming");
 
   useInput((input, key) => {
+    if (blocked) return;
+    if (key.ctrl && input === "d" && filePreview !== "none") return setDetail((d) => !d);
     if (key.escape) {
       const now = Date.now();
       if (now - lastEsc < ESC_WINDOW_MS && session.pending()) {
@@ -78,13 +86,13 @@ export function Chat({ session, mode, modelLabel }: ChatProps) {
         <Static items={windowed}>
           {(turn) => (
             <Box key={turn.id} flexDirection="column">
-              <TurnBoxes turn={turn} md={md} mode={mode} />
+              <TurnBoxes turn={turn} md={md} mode={mode} detail={detail} />
             </Box>
           )}
         </Static>
         {live.map((turn) => (
           <Box key={turn.id} flexDirection="column">
-            <TurnBoxes turn={turn} md={md} mode={mode} skipReply />
+            <TurnBoxes turn={turn} md={md} mode={mode} detail={detail} skipReply />
             <MsgBox label=" moh " color={theme.purple}>
               <Markdown text={turn.reply} md={md} />
               <Text>
@@ -99,16 +107,16 @@ export function Chat({ session, mode, modelLabel }: ChatProps) {
       <Text> </Text>
       <MultilineInput
         placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+e editor)"}
+        disabled={blocked}
+        onAskCommands={onOpenCommands}
         onSubmit={(text) => void session.send(text)}
       />
       <Text> </Text>
       <Footer
         keys={
           compact
-            ? `${theme.label} · ctrl+t theme · ctrl+m mode · q quit`
-            : streaming
-              ? `${theme.label} · ctrl+t theme · ctrl+m ${mode === "vibe" ? "dev" : "vibe"} mode · esc steer / esc esc stop · q quit`
-              : `${theme.label} · ctrl+t theme · ctrl+m ${mode === "vibe" ? "dev" : "vibe"} mode · q quit`
+            ? `${theme.label} · ctrl+t theme · ctrl+m mode · ctrl+k keys · q quit`
+            : `${theme.label} · ctrl+t theme · ctrl+m ${mode === "vibe" ? "dev" : "vibe"}${filePreview === "none" ? "" : " · ctrl+d detail"} · ctrl+s settings · ctrl+k keys${streaming ? " · esc steer / esc esc stop" : ""} · q quit`
         }
       />
     </Box>
@@ -116,7 +124,7 @@ export function Chat({ session, mode, modelLabel }: ChatProps) {
 }
 
 /** Renders a turn as labelled boxes: you → tools → moh. */
-export function TurnBoxes({ turn, md, mode, skipReply }: { turn: TurnView; md: ReturnType<typeof createMarkdownRenderer>; mode: Mode; skipReply?: boolean }) {
+export function TurnBoxes({ turn, md, mode, detail, skipReply }: { turn: TurnView; md: ReturnType<typeof createMarkdownRenderer>; mode: Mode; detail?: boolean; skipReply?: boolean }) {
   const theme = useTheme();
   const items: React.ReactNode[] = [];
   items.push(
@@ -128,7 +136,7 @@ export function TurnBoxes({ turn, md, mode, skipReply }: { turn: TurnView; md: R
     items.push(
       <MsgBox key="tools" label={mode === "vibe" ? " what I did " : ` tool · ${turn.toolCalls.length} call${turn.toolCalls.length > 1 ? "s" : ""} `} color={theme.border}>
         {turn.toolCalls.map((call) => (
-          <ToolLine key={call.callId} call={call} mode={mode} />
+          <ToolLine key={call.callId} call={call} mode={mode} detail={detail} />
         ))}
       </MsgBox>,
     );
@@ -149,16 +157,30 @@ export function TurnBoxes({ turn, md, mode, skipReply }: { turn: TurnView; md: R
   return <>{items}</>;
 }
 
-function ToolLine({ call, mode }: { call: ToolView; mode: Mode }) {
+function ToolLine({ call, mode, detail }: { call: ToolView; mode: Mode; detail?: boolean }) {
   const theme = useTheme();
-  const detail = call.output ? (call.output.length > 80 ? call.output.slice(0, 77) + "…" : call.output) : "";
+  const detailText = call.output ? truncate(call.output, 80) : "";
   const mark = call.ok === null ? "…" : call.ok ? ic("✓", "ok") : "✗";
+  const argsLine = toolArgSummary(call.args);
   return (
-    <Text>
-      <Dim>
-        {` ${ic("🔧", "run")} ${call.name} ${call.ok === null ? "running…" : mark}`}
-        {mode === "dev" && detail ? ` ${detail}` : ""}
-      </Dim>
-    </Text>
+    <Box flexDirection="column">
+      <Text>
+        <Dim>
+          {` ${ic("🔧", "run")} ${call.name} ${call.ok === null ? "running…" : mark}`}
+          {argsLine ? ` ${argsLine}` : ""}
+          {mode === "dev" && !detail && detailText ? ` ${detailText}` : ""}
+        </Dim>
+      </Text>
+      {detail && call.output ? (
+        <Box flexDirection="column" paddingLeft={3}>
+          {call.output
+            .split("\n")
+            .slice(0, 20)
+            .map((line, i) => (
+              <Dim key={i}>{truncate(line, 200)}</Dim>
+            ))}
+        </Box>
+      ) : null}
+    </Box>
   );
 }
