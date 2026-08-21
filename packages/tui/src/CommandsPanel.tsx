@@ -53,7 +53,7 @@ export function CommandsPanel({ compact, onClose }: { compact: boolean; onClose:
   });
 
   return (
-    <Dialog title=" all commands " color={theme.purple} width={compact ? "100%" : "62%"}>
+    <Dialog title=" all commands " color={theme.purple} width={compact ? "100%" : "62%"} center={false}>
       {COMMANDS.map((group) => (
         <React.Fragment key={group.area}>
           <Text bold color={theme.accent}>

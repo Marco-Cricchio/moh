@@ -61,16 +61,18 @@ export function Dialog({
   title,
   color,
   width,
+  center = true,
   children,
 }: {
   title: string;
   color: string;
   width?: number | string;
+  center?: boolean;
   children: React.ReactNode;
 }) {
   const theme = useTheme();
   return (
-    <Box width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
+    <Box width="100%" height={center ? "100%" : undefined} alignItems="center" justifyContent={center ? "center" : "flex-start"} flexDirection="column">
       <Box
         borderStyle="round"
         borderColor={color}
