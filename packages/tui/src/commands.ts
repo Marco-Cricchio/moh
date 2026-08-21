@@ -57,6 +57,7 @@ const ALIASES: { name: string; skill: string }[] = [
   { name: "codebase-design", skill: "codebase-design" },
   { name: "wizard", skill: "wizard" },
   { name: "writing-for-agents", skill: "writing-for-agents" },
+  { name: "session-memory", skill: "session-memory" },
 ];
 
 const workflowCommand: SlashCommand = {
