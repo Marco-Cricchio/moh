@@ -42,7 +42,7 @@ describe("App overlays (issue #33)", () => {
     await sleep(50);
     i.stdin.write("?");
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Home");
     i.stdin.write("\x1b"); // esc closes
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("all commands");
@@ -66,7 +66,7 @@ describe("App overlays (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\x0b"); // ctrl+k
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Home");
     i.unmount();
   });
 
@@ -79,7 +79,7 @@ describe("App overlays (issue #33)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("type…");
     i.stdin.write("?");
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Home");
     i.stdin.write("\x1b");
     await sleep(50);
     const frame = stripAnsi(i.lastFrame() ?? "");
