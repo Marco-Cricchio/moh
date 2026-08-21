@@ -50,10 +50,12 @@ describe("tool-calling loop", () => {
       "session_start",
       "session_mode",
       "user_message",
+      "model_call", // first call (closed before the tool runs)
       "tool_call",
       "permission_granted",
       "tool_result",
       "assistant_delta",
+      "model_call", // second call, after the tool result
       "done",
     ]);
     const toolCall = log.find((e: any) => e.type === "tool_call")!;
