@@ -53,10 +53,29 @@ import {
   loadMohConfig,
   writeMohConfig,
   upsertEndpoint,
+  declaredMcpServers,
+  upsertMcpServer,
+  persistToolAllow,
+  persistMcpTrust,
   mohConfigSchema,
   type EndpointProfile,
   type MohConfig,
 } from "./config";
+import {
+  McpError,
+  McpRuntime,
+  MCP_HANDSHAKE_TIMEOUT_MS,
+  mcpServerEntrySchema,
+  mcpToolName,
+  loadUserMcpServers,
+  declaredUserMcpServers,
+  type DeclaredMcpServer,
+  type McpConsentAnswer,
+  type McpErrorKind,
+  type McpRuntimeOptions,
+  type McpServerEntry,
+  type McpServerState,
+} from "./mcp";
 import {
   runProviderAdd,
   addProviderToFile,
@@ -124,6 +143,13 @@ export interface SessionConfig {
    * outrank user permission rules. Failed loads are warnings only.
    */
   extensions?: ExtensionRuntime;
+  /**
+   * MCP tool sources (#15): merged project + user server declarations.
+   * Servers start lazily on the first turn and shut down at dispose;
+   * duplicate server names throw at creation (startup validation).
+   * Lifecycle events are appended to the session log automatically.
+   */
+  mcp?: Omit<McpRuntimeOptions, "onEvent" | "cwd" | "onTrustedTools">;
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -143,7 +169,18 @@ export {
   loadMohConfig,
   writeMohConfig,
   upsertEndpoint,
+  declaredMcpServers,
+  upsertMcpServer,
+  persistToolAllow,
+  persistMcpTrust,
   mohConfigSchema,
+  McpError,
+  McpRuntime,
+  MCP_HANDSHAKE_TIMEOUT_MS,
+  mcpServerEntrySchema,
+  mcpToolName,
+  loadUserMcpServers,
+  declaredUserMcpServers,
   runProviderAdd,
   addProviderToFile,
   minimalConnectionTest,
@@ -187,6 +224,12 @@ export {
   type EndpointConfig,
   type EndpointProfile,
   type MohConfig,
+  type DeclaredMcpServer,
+  type McpConsentAnswer,
+  type McpErrorKind,
+  type McpRuntimeOptions,
+  type McpServerEntry,
+  type McpServerState,
   type ProviderFactory,
   type ProviderFactoryOptions,
   type BuiltinProviderType,

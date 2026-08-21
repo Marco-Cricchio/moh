@@ -3,20 +3,24 @@
  * (explicit provider > moh.json provider/endpoint > mock demo) and wires
  * persistence to a SessionStore.
  */
-import { join } from "node:path";
 import {
   MockProvider,
   SessionStore,
   builtinTools,
   createSession,
+  declaredMcpServers,
+  declaredUserMcpServers,
   loadMohConfig,
   resolveProvider,
   type AgentEvent,
   type AgentSession,
+  type DeclaredMcpServer,
   type MohConfig,
   type Provider,
   type Tool,
 } from "@moh/core";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -44,12 +48,33 @@ function readMohConfigFor(cwd: string): MohConfig | null {
   }
 }
 
+/** Declared MCP servers: project (moh.json) first, then user (~/.moh/config). */
+export function declaredServersFor(cwd: string, home?: string): DeclaredMcpServer[] {
+  const config = readMohConfigFor(cwd);
+  const project = config ? declaredMcpServers(config) : [];
+  const user = declaredUserMcpServers(join(home ?? homedir(), ".moh", "config"));
+  return [...project, ...user];
+}
+
 export function makeSession(options: OpenSessionOptions): { session: AgentSession; store: SessionStore } {
   const store = options.store ?? SessionStore.create(options.cwd, options.home);
+  const mcpServers = declaredServersFor(options.cwd, options.home);
   const session = createSession({
     provider: options.provider ?? resolveDefaultProvider(options.cwd),
     cwd: options.cwd,
     tools: options.tools ?? builtinTools(),
+    ...(mcpServers.length
+      ? {
+          mcp: {
+            servers: mcpServers,
+            // Project servers ask consent on first use; the TUI reuses the
+            // same permission modal seam used for tool calls.
+            ...(options.onPermissionRequest
+              ? { onConsent: (server: string) => options.onPermissionRequest!(`mcp__${server}`, {}) }
+              : {}),
+          },
+        }
+      : {}),
     ...(options.onPermissionRequest ? { onPermissionRequest: options.onPermissionRequest } : {}),
     ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
     sink: (event) => store.append(event),
