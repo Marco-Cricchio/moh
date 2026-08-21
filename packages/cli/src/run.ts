@@ -11,6 +11,8 @@ import {
   SessionStore,
   builtinTools,
   createSession,
+  declaredMcpServers,
+  declaredUserMcpServers,
   loadMohConfig,
   resolveProvider,
   resolveProviderRef,
@@ -116,10 +118,16 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return 2;
   }
 
+  // MCP (#15): project (moh.json) + user (~/.moh/config, trusted) servers,
+  // started lazily on the first turn. Headless runs never prompt: project
+  // servers are consent-denied and logged; user servers start without asking.
+  const mcpServers = [...declaredMcpServers(config), ...declaredUserMcpServers()];
+
   const session = createSession({
     provider,
     tools: builtinTools(),
     cwd,
+    ...(mcpServers.length ? { mcp: { servers: mcpServers } } : {}),
     resume: resumeEvents?.length ? { events: resumeEvents } : undefined,
     permissions: {
       overrides,
@@ -141,6 +149,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     result = await session.send(prompt);
   } finally {
     process.off("SIGINT", onSignal);
+    await session.dispose();
   }
   if (result.status === "error") {
     err.write(`moh run: turn failed (${result.reason}): ${result.message}\n`);

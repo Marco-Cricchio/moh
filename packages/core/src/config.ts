@@ -7,6 +7,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
+import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 
 const capabilitiesSchema = z
   .object({
@@ -56,6 +57,8 @@ export const mohConfigSchema = z.object({
     .optional(),
   /** Extension sources (#34): file paths (or module ids) loaded at session start. */
   extensions: z.array(z.string().min(1)).optional(),
+  /** MCP servers (#15), keyed by server name; tools become `mcp__<name>__<tool>`. */
+  mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;
@@ -99,4 +102,33 @@ export function writeMohConfig(file: string, config: MohConfig): void {
 export function upsertEndpoint(config: MohConfig, profile: EndpointProfile): MohConfig {
   const endpoints = (config.endpoints ?? []).filter((e) => e.name !== profile.name);
   return { ...config, endpoints: [...endpoints, profile] };
+}
+
+/** Declared MCP servers of a config as scoped declarations (scope: "project"). */
+export function declaredMcpServers(config: MohConfig): { name: string; scope: "project"; transport: McpServerEntry }[] {
+  return Object.entries(config.mcpServers ?? {}).map(([name, transport]) => ({ name, scope: "project" as const, transport }));
+}
+
+/** Adds, replaces or removes an MCP server entry by name (target: moh.json). */
+export function upsertMcpServer(config: MohConfig, name: string, entry: McpServerEntry | null): MohConfig {
+  const mcpServers = { ...(config.mcpServers ?? {}) };
+  if (entry) mcpServers[name] = entry;
+  else delete mcpServers[name];
+  return { ...config, mcpServers };
+}
+
+/** Persists a tool-level "always" answer for an MCP tool as a config override. */
+export function persistToolAllow(file: string, tool: string): void {
+  const config = loadMohConfig(file);
+  const overrides = { ...(config.permissions?.overrides ?? {}) };
+  overrides.tools = { ...(overrides.tools ?? {}), [tool]: "allow" as const };
+  writeMohConfig(file, { ...config, permissions: { ...config.permissions, overrides } });
+}
+
+/** Persists server-level trust ("always" consent) for a project MCP server. */
+export function persistMcpTrust(file: string, server: string): void {
+  const config = loadMohConfig(file);
+  const entry = config.mcpServers?.[server];
+  if (!entry) return; // only project-declared servers can be persisted
+  writeMohConfig(file, upsertMcpServer(config, server, { ...entry, trusted: true }));
 }

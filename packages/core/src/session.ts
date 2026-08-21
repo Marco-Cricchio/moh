@@ -1,8 +1,11 @@
+import { join } from "node:path";
 import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "./permissions";
+import { persistMcpTrust, persistToolAllow } from "./config";
+import { McpRuntime, type McpRuntimeOptions } from "./mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
@@ -34,6 +37,8 @@ export class AgentSession {
   readonly #promptComposer: PromptComposer;
   readonly #skills: SkillIndexEntry[];
   readonly #skillDirs: string[];
+  /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
+  readonly #mcp: McpRuntime | undefined;
   #promptVersion = "";
   readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
@@ -74,6 +79,20 @@ export class AgentSession {
     const discovered = discoverSkills({ mohHome: config.mohHome, projectDir: this.#cwd });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
+    if (config.mcp) {
+      // Startup validation: duplicate server names are a hard config error.
+      McpRuntime.validate(config.mcp.servers);
+      this.#mcp = new McpRuntime({
+        ...config.mcp,
+        cwd: this.#cwd,
+        onEvent: (event) => this.#append(event),
+        onTrust: config.mcp.onTrust ?? ((server) => persistMcpTrust(join(this.#cwd, "moh.json"), server)),
+        // Trusted servers (user scope or persisted "always") never ask again.
+        onTrustedTools: (toolNames) => {
+          for (const tool of toolNames) this.#permissions.addRuntimeRule({ tool, effect: "allow" });
+        },
+      });
+    }
     if (config.resume?.events.length) {
       // Resume (#31): the log continues in a new AgentSession over the same
       // persisted history. Seeded events are never re-appended (the file
@@ -176,9 +195,18 @@ export class AgentSession {
     return this.#registry;
   }
 
-  /** Tools registered on this session. */
+  /** Tools registered on this session, including connected MCP tools. */
   get tools(): Record<string, Tool> {
-    return this.#tools;
+    return this.#allTools();
+  }
+
+  /** MCP runtime owning external tool sources, when configured. */
+  get mcp(): McpRuntime | undefined {
+    return this.#mcp;
+  }
+
+  #allTools(): Record<string, Tool> {
+    return this.#mcp ? { ...this.#tools, ...this.#mcp.tools } : this.#tools;
   }
 
   /**
@@ -239,6 +267,9 @@ export class AgentSession {
   async #executeTurnInner(text: string, controller: AbortController): Promise<TurnResult> {
     this.#append({ type: "user_message", text });
     this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
+    // MCP (#15): lazy start on first use — the first turn connects the
+    // declared servers (consent-gated) so the prompt lists their tools.
+    if (this.#mcp) await this.#mcp.ensureStarted();
 
     let iterations = 0;
     let assistantText = "";
@@ -320,7 +351,7 @@ export class AgentSession {
       platform: process.platform,
       now: new Date(),
       model: this.#provider.name,
-      tools: Object.values(this.#tools).map((t) => ({ name: t.name, description: t.description })),
+      tools: Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description })),
       skills: this.#skills,
       extensionNotes: this.#extensions?.notes(),
     });
@@ -369,7 +400,7 @@ export class AgentSession {
     call: ToolCall,
     signal: AbortSignal,
   ): Promise<{ callId: string; ok: boolean; output: string }> {
-    const tool = this.#tools[call.name];
+    const tool = this.#allTools()[call.name];
     if (!tool) {
       return { callId: call.callId, ok: false, output: `unknown tool: ${call.name}` };
     }
@@ -466,6 +497,14 @@ export class AgentSession {
         this.#permissions.addRuntimeRule(rule);
         this.#append({ type: "permission_rule_added", rule: { ...rule, tier: "runtime" } });
       }
+      // MCP tools: "always" also persists to moh.json for future sessions (#15).
+      if (tool.startsWith("mcp__")) {
+        try {
+          persistToolAllow(join(this.#cwd, "moh.json"), tool);
+        } catch {
+          // no writable moh.json: the runtime rule still covers this session
+        }
+      }
     }
     return { allowed: true };
   }
@@ -501,10 +540,11 @@ export class AgentSession {
       });
   }
 
-  /** Ends the session: dispatches onSessionEnd hooks. Idempotent. */
+  /** Ends the session: shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent. */
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    await this.#mcp?.shutdown();
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
   }
