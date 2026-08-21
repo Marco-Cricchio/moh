@@ -50,6 +50,14 @@ const script = () => [
 ];
 
 describe("ask_user overlay (issue #70)", () => {
+  test("overlapping ask rejects instead of silently answering with the suggested option (#68)", async () => {
+    const gate = new AskUserGate();
+    const first = gate.ask(QUESTION);
+    await expect(gate.ask(QUESTION)).rejects.toThrow("ask_user: a question is already pending");
+    gate.resolve({ choice: "Postgres" });
+    expect(await first).toEqual({ choice: "Postgres" });
+  });
+
   test("renders question, options, suggested marker, and the free-text affordance", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);

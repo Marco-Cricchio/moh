@@ -84,9 +84,9 @@ describe("overlay layout integrity over Chat", () => {
     // Every overlay row must be intact: question, all three options, the
     // suggested marker, and the free-text affordance.
     expect(frame).toContain("Which database should I use?");
-    expect(frame).toContain("1  SQLite  zero-config, file-based");
-    expect(frame).toContain("2  Postgres  ← suggested");
-    expect(frame).toContain("3  Redis  in-memory store");
+    expect(frame).toContain("1  SQLite — zero-config, file-based");
+    expect(frame).toContain("2  Postgres  ← suggested — production-grade server");
+    expect(frame).toContain("3  Redis — in-memory store");
     expect(frame).toContain("or type your answer");
     gate.resolve({ choice: "Postgres" });
     await sleep(50);
