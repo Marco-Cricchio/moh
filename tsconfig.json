@@ -1,4 +1,4 @@
 {
   "files": [],
-  "references": [{ "path": "./packages/core" }, { "path": "./packages/cli" }, { "path": "./packages/tui" }]
+  "references": [{ "path": "./packages/extension" }, { "path": "./packages/core" }, { "path": "./packages/cli" }, { "path": "./packages/tui" }]
 }

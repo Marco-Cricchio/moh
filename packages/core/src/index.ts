@@ -1,6 +1,7 @@
 import { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session";
 import { builtinTools } from "./builtin-tools";
+import { ExtensionRuntime, type ExtensionRuntimeOptions, type RuntimeExtension } from "./extensions";
 import {
   PromptComposer,
   SECTION_ORDER,
@@ -117,6 +118,12 @@ export interface SessionConfig {
    * rules from the history are restored. Only new events are appended/sunk.
    */
   resume?: { events: ReadonlyArray<AgentEvent> };
+  /**
+   * Extensions (#34): the runtime owning loaded extension instances.
+   * Load results land in the event log; hooks observe the loop; vetoes
+   * outrank user permission rules. Failed loads are warnings only.
+   */
+  extensions?: ExtensionRuntime;
 }
 
 export function createSession(config: SessionConfig): AgentSession {
@@ -125,6 +132,7 @@ export function createSession(config: SessionConfig): AgentSession {
 
 export {
   AgentSession,
+  ExtensionRuntime,
   MockProvider,
   builtinTools,
   ProviderRegistry,
@@ -182,6 +190,8 @@ export {
   type ProviderFactory,
   type ProviderFactoryOptions,
   type BuiltinProviderType,
+  type ExtensionRuntimeOptions,
+  type RuntimeExtension,
   type ConnectionTestResult,
   type ConnectionTester,
   type OnboardingIo,
