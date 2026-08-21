@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentEvent, FinishReason, Message, Provider, Tool, ToolCall, ToolContext, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
@@ -35,8 +36,10 @@ export class AgentSession {
   readonly #eventQueue: AgentEvent[] = [];
   #disposed = false;
   readonly #promptComposer: PromptComposer;
-  readonly #skills: SkillIndexEntry[];
-  readonly #skillDirs: string[];
+  #skills: SkillIndexEntry[];
+  #skillDirs: string[];
+  readonly #mohHome: string;
+  readonly #firstParty: "include" | "exclude";
   /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
   readonly #mcp: McpRuntime | undefined;
   #promptVersion = "";
@@ -76,7 +79,9 @@ export class AgentSession {
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
     // Skills (#30): discovered from ~/.moh/skills + .moh/skills at creation;
     // an explicit config wins (tests, clients). No auto-triggering.
-    const discovered = discoverSkills({ mohHome: config.mohHome, projectDir: this.#cwd });
+    this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
+    this.#firstParty = config.firstParty ?? "include";
+    const discovered = discoverSkills({ mohHome: this.#mohHome, projectDir: this.#cwd, firstParty: this.#firstParty });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
     if (config.mcp) {
@@ -137,6 +142,20 @@ export class AgentSession {
     void this.#extensions?.dispatchSessionStart().then((errors) => {
       for (const e of errors) this.#append(e);
     });
+  }
+
+  /**
+   * Re-runs skill discovery (workflow mode toggled mid-session, #36):
+   * the next model call picks up the new index. Explicit config-level
+   * skill lists are replaced by fresh discovery — mid-session toggles
+   * are a TUI concern, not a headless one.
+   */
+  refreshSkills(options: { firstParty?: "include" | "exclude" } = {}): void {
+    const firstParty = options.firstParty ?? this.#firstParty;
+    const discovered = discoverSkills({ mohHome: this.#mohHome, projectDir: this.#cwd, firstParty });
+    this.#skills = discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
+    this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
+    this.#assemblePrompt();
   }
 
   /** Drains buffered extension load events (failed loads = warnings) into the log. */

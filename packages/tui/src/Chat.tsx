@@ -24,9 +24,14 @@ export interface ChatProps {
   /** Contextual tool-call viewer: "always" starts expanded, "none" disables the toggle (#33). */
   filePreview?: "always" | "on-demand" | "none";
   onOpenCommands?: () => void;
+  /**
+   * Slash-command intercept (#36): returns true when the text was a
+   * command and must not reach the model.
+   */
+  onCommand?: (text: string) => boolean;
 }
 
-export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands }: ChatProps) {
+export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand }: ChatProps) {
   const theme = useTheme();
   const state = useSessionState(session);
   const md = useMemo(() => createMarkdownRenderer(theme), [theme]);
@@ -109,7 +114,10 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
         placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+e editor)"}
         disabled={blocked}
         onAskCommands={onOpenCommands}
-        onSubmit={(text) => void session.send(text)}
+        onSubmit={(text) => {
+          if (onCommand?.(text)) return;
+          void session.send(text);
+        }}
       />
       <Text> </Text>
       <Footer
