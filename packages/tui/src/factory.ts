@@ -69,6 +69,7 @@ export function makeSession(options: OpenSessionOptions): { session: AgentSessio
   const mohHome = join(options.home ?? homedir(), ".moh");
   const tracker =
     options.tracker !== undefined ? options.tracker : options.workflow ? resolveTrackerSync({ cwd: options.cwd }) : null;
+  const config = readMohConfigFor(options.cwd);
   const tools = options.tools ?? {
     ...builtinTools(),
     ...(tracker ? trackerTools(tracker) : {}),
@@ -97,6 +98,8 @@ export function makeSession(options: OpenSessionOptions): { session: AgentSessio
     ...(options.onPermissionRequest ? { onPermissionRequest: options.onPermissionRequest } : {}),
     ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
     sink: (event) => store.append(event),
+    // Subagents (#13): presets from moh.json `agents` merge over the built-ins.
+    ...(config?.agents ? { subagents: { presets: config.agents } } : {}),
     ...(options.resumeEvents ? { resume: { events: options.resumeEvents } } : {}),
   });
   return { session, store };

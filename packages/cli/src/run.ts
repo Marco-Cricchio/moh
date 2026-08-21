@@ -128,6 +128,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
     tools: builtinTools(),
     cwd,
     ...(mcpServers.length ? { mcp: { servers: mcpServers } } : {}),
+    // Subagents (#13): presets from moh.json `agents`; built-ins always available.
+    ...(config.agents ? { subagents: { presets: config.agents } } : {}),
     resume: resumeEvents?.length ? { events: resumeEvents } : undefined,
     permissions: {
       overrides,
