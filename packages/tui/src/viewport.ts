@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStdout } from "ink";
 
 /**
@@ -76,4 +76,21 @@ export function windowing(total: number, cursor: number, budget: number): Window
   const count = Math.max(1, Math.min(budget, total));
   const start = Math.min(Math.max(0, cursor - count + 1), Math.max(0, total - count));
   return { start, count, above: start, below: Math.max(0, total - start - count) };
+}
+
+/** The seam for resize *side effects* that need the live stdout stream
+ * itself (e.g. repainting the screen): components never touch
+ * `stdout.on("resize")` directly — they register here (rule 8). */
+export function useStdoutResize(onResize: (stdout: NodeJS.WriteStream & { columns?: number; rows?: number }) => void): void {
+  const { stdout } = useStdout();
+  const ref = useRef(onResize);
+  ref.current = onResize;
+  useEffect(() => {
+    if (!stdout) return;
+    const handler = () => ref.current(stdout);
+    stdout.on("resize", handler);
+    return () => {
+      stdout.off("resize", handler);
+    };
+  }, [stdout]);
 }

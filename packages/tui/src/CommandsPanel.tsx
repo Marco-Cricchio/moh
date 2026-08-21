@@ -56,40 +56,38 @@ const LINES: ReadonlyArray<Line> = COMMANDS.flatMap((group) => [
   ...group.keys.map(([name, desc]) => ({ kind: "key" as const, name, desc })),
 ]);
 
+import { windowing } from "./viewport";
+
 export function CommandsPanel({ onClose }: { onClose: () => void }) {
   const theme = useTheme();
   const viewport = useViewport();
-  const [offset, setOffset] = useState(0);
+  const [cursor, setCursor] = useState(0);
 
   // Dialog chrome (title, spacing, footer, borders) ≈ 6 rows.
-  const budget = Math.max(4, viewport.rows - 6);
-  const maxOffset = Math.max(0, LINES.length - budget);
-  const start = Math.min(offset, maxOffset);
-  const visible = LINES.slice(start, start + budget);
-  const below = LINES.length - start - visible.length;
+  const win = windowing(LINES.length, cursor, Math.max(4, viewport.rows - 6));
 
   useInput((input, key) => {
     if (key.escape || input === "?" || key.return) onClose();
-    if (key.upArrow) setOffset((o) => Math.max(0, Math.min(o, maxOffset) - 1));
-    if (key.downArrow) setOffset((o) => Math.min(maxOffset, Math.min(o, maxOffset) + 1));
+    if (key.upArrow) setCursor((c) => Math.max(0, c - 1));
+    if (key.downArrow) setCursor((c) => Math.min(LINES.length - 1, c + 1));
   });
 
   return (
     <Dialog title=" all commands " color={theme.purple} center={false}>
-      {start > 0 && <Dim>{` ↑ ${start} more`}</Dim>}
-      {visible.map((line, i) =>
+      {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
+      {LINES.slice(win.start, win.start + win.count).map((line, i) =>
         line.kind === "group" ? (
-          <Text key={`g-${line.area}-${i}`} bold color={theme.accent}>
+          <Text key={`g-${line.area}-${win.start + i}`} bold color={theme.accent}>
             {line.area}
           </Text>
         ) : (
-          <Text key={`${line.name}-${i}`} wrap="truncate-end">
+          <Text key={`${line.name}-${win.start + i}`} wrap="truncate-end">
             <Text color={theme.accent}>{`  ${line.name.padEnd(24)}`}</Text>
             <Dim>{line.desc}</Dim>
           </Text>
         ),
       )}
-      {below > 0 && <Dim>{` ↓ ${below} more (↑↓ scroll)`}</Dim>}
+      {win.below > 0 && <Dim>{` ↓ ${win.below} more (↑↓ scroll)`}</Dim>}
       <Dim>esc close</Dim>
     </Dialog>
   );

@@ -81,7 +81,13 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
   const visibleRows = rows.slice(win.start, win.start + win.count);
   // Rows never overflow the dialog interior (border 2 + paddingX 4).
   const innerWidth = dialogWidth(viewport) - 6;
-  const subWin = windowing(sub?.options.length ?? 0, sub?.cursor ?? 0, 5);
+  const subWin = windowing(
+    sub?.options.length ?? 0,
+    sub?.cursor ?? 0,
+    // The sub-menu renders below the main list inside the same dialog:
+    // its budget is whatever height the main window left (#65).
+    Math.max(3, viewport.rows - 8 - win.count),
+  );
 
   const activate = (row: Row) => {
     if (sub) return;
