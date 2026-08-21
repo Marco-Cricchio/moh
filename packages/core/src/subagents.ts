@@ -31,6 +31,8 @@ export interface SubagentSpec {
   provider?: string;
   /** Per-turn iteration cap for the child. Default: the session default (50). */
   maxIterations?: number;
+  /** Explicit shared context (e.g. project background) prepended to the task. */
+  context?: string;
 }
 
 export const subagentSpecSchema = z.object({
@@ -41,6 +43,7 @@ export const subagentSpecSchema = z.object({
   model: z.string().optional(),
   provider: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
+  context: z.string().optional(),
 });
 
 export interface SubagentResult {
@@ -83,18 +86,12 @@ export interface SubagentOptions {
   home?: string;
 }
 
-const spawnInputSchema = z.object({
+const spawnInputSchema = subagentSpecSchema.extend({
+  name: z.string().min(1).optional(),
   /** Preset name (built-in or moh.json); inline fields override it. */
   preset: z.string().min(1).optional(),
-  /** The task/context handed to the child as its first user message. */
+  /** The task handed to the child as its first user message. */
   task: z.string().min(1),
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  systemPrompt: z.string().optional(),
-  allowedTools: z.array(z.string().min(1)).optional(),
-  model: z.string().optional(),
-  provider: z.string().optional(),
-  maxIterations: z.number().int().positive().optional(),
 });
 
 export interface SubagentHostOptions {
@@ -122,7 +119,7 @@ export interface SubagentHostOptions {
 /** Simple counting semaphore: caps parallel children (default 3). */
 class Semaphore {
   #active = 0;
-  readonly #waiting: (() => void)[] = [];
+  readonly #waiting: { resolve: () => void; aborted: boolean }[] = [];
   constructor(readonly limit: number) {}
   async acquire(signal: AbortSignal): Promise<boolean> {
     if (signal.aborted) return false;
@@ -130,17 +127,27 @@ class Semaphore {
       this.#active += 1;
       return true;
     }
+    const entry = { resolve: () => {}, aborted: false };
+    this.#waiting.push(entry);
+    const onAbort = () => {
+      entry.aborted = true;
+      // Remove itself so a later release() never wakes a dead waiter.
+      const i = this.#waiting.indexOf(entry);
+      if (i !== -1) this.#waiting.splice(i, 1);
+      entry.resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
     await new Promise<void>((resolve) => {
-      this.#waiting.push(resolve);
-      signal.addEventListener("abort", () => resolve(), { once: true });
+      entry.resolve = resolve;
     });
-    if (signal.aborted && this.#active >= this.limit) return false;
+    signal.removeEventListener("abort", onAbort);
+    if (entry.aborted) return false;
     this.#active += 1;
     return true;
   }
   release(): void {
     this.#active = Math.max(0, this.#active - 1);
-    this.#waiting.shift()?.();
+    this.#waiting.shift()?.resolve();
   }
 }
 
@@ -220,15 +227,17 @@ export class SubagentHost {
     if (!acquired) {
       return resultJson({ status: "cancelled", output: "", error: "spawn aborted while waiting for a slot" });
     }
+    // Only explicit context is shared: the task (plus the preset's optional
+    // context) is the child's entire first user message.
+    const firstMessage = spec.context ? `# Context\n\n${spec.context}\n\n# Task\n\n${task}` : task;
     let child: AgentSession | null = null;
     try {
       const store = SessionStore.create(this.#options.cwd, this.#options.home ?? homedir());
       const perms = this.#options.permissions ?? {};
+      const childProvider = this.#resolveChildProvider(spec);
       child = new AgentSession({
-        provider: this.#resolveChildProvider(spec),
-        ...(typeof this.#resolveChildProvider(spec) === "string" && this.#options.registry
-          ? { registry: this.#options.registry }
-          : {}),
+        provider: childProvider,
+        ...(typeof childProvider === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
         tools: this.#childTools(spec),
         cwd: this.#options.cwd,
         maxIterations: spec.maxIterations,
@@ -254,7 +263,7 @@ export class SubagentHost {
       ctx.signal.addEventListener("abort", abortChild, { once: true });
       let turn: Awaited<ReturnType<AgentSession["send"]>>;
       try {
-        turn = await child.send(task);
+        turn = await child.send(firstMessage);
       } finally {
         ctx.signal.removeEventListener("abort", abortChild);
       }
