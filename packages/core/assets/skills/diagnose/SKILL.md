@@ -2,6 +2,7 @@
 name: diagnose
 description: "Diagnose a bug or regression with a evidence-first loop. Use when the user reports something broken, failing, or slow."
 minMohVersion: 0.1.0
+minMohVersion: 0.1.0
 ---
 
 # diagnose

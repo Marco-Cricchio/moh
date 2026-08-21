@@ -2,6 +2,7 @@
 name: plan
 description: "Draft a written plan before any code changes. Use when the user describes a feature, a change, or asks what to do before implementing."
 minMohVersion: 0.1.0
+minMohVersion: 0.1.0
 ---
 
 # plan
