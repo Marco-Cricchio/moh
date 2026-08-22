@@ -5,13 +5,13 @@ describe("describePermissionRequest", () => {
   test("bash shows the full command and the runtime rule it would write", () => {
     const view = describePermissionRequest("bash", { command: "git status --short && echo done" });
     expect(view.detail).toEqual(["command: git status --short && echo done"]);
-    expect(view.rulePreview).toBe("bash: git status --short ; echo done → allow");
+    expect(view.rulePreview).toBe("bash:git status --short echo done");
   });
 
   test("path tools show the path and a rule preview", () => {
     const view = describePermissionRequest("write", { path: "src/app.ts", content: "x" });
     expect(view.detail).toEqual(["path: src/app.ts"]);
-    expect(view.rulePreview).toBe("write on src/app.ts → allow this session");
+    expect(view.rulePreview).toBe("write:src/app.ts");
   });
 
   test("other tools render truncated JSON args", () => {
