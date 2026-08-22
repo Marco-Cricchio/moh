@@ -22,6 +22,9 @@ export interface PermissionRequestView {
 export function describePermissionRequest(tool: string, args: unknown): PermissionRequestView {
   const a = (args ?? {}) as Record<string, unknown>;
   if (tool === "bash" && typeof a.command === "string") {
+    // Mirrors the core's runtimeRuleFor("always"): one flat token prefix
+    // over the whole (compound) command — the preview is exactly the rule
+    // "always" writes, in the canonical grammar.
     const tokens = splitCommandSegments(a.command).flat();
     const rule = tokens.length > 0 ? formatRule({ tier: "runtime", tool: "bash", effect: "allow", tokens }) : null;
     return { tool, args, detail: [`command: ${a.command}`], rulePreview: rule };
