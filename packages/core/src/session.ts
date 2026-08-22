@@ -89,7 +89,15 @@ export class AgentSession {
       mode,
       cwd: this.#cwd,
     });
-    this.#extensions = config.extensions;
+    this.#onAskUser = config.onAskUser;
+    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    this.#gate = new PermissionGate({
+      permissions: this.#permissions,
+      extensions: config.extensions,
+      onPermissionRequest: config.onPermissionRequest,
+      cwd: this.#cwd,
+      append: (event) => this.#append(event),
+    });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created without this option.
     if (config.subagents) {
@@ -108,15 +116,6 @@ export class AgentSession {
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
-    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
-    this.#gate = new PermissionGate({
-      permissions: this.#permissions,
-      extensions: config.extensions,
-      onPermissionRequest: config.onPermissionRequest,
-      cwd: this.#cwd,
-      append: (event) => this.#append(event),
-    });
-    this.#onAskUser = config.onAskUser;
     this.#extensions = config.extensions;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
