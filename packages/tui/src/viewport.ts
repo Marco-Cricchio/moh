@@ -21,6 +21,34 @@ export const MEASURE = 100;
 /** Below this many columns the UI switches to compact styling (style guide §10 Q12). */
 export const COMPACT_COLS = 60;
 
+// ── Home session-list geometry (#112) ─────────────────────────────────────
+
+/** Rows of the home recent-sessions list shown at once by default. */
+export const HOME_LIST_DEFAULT = 5;
+/** Upper bound for the configurable list height (user setting `homeListMax`). */
+export const HOME_LIST_MAX = 10;
+/** Small-screen floor: the home list never shrinks below this. */
+export const HOME_LIST_MIN_VISIBLE = 3;
+/** Rough row budget consumed by the home chrome (logo, search box, footer). */
+const HOME_CHROME_ROWS = 14;
+
+/** Coerces a raw config value into a valid home-list height (3…10, default 5). */
+export function clampHomeListMax(raw: unknown): number {
+  const n = typeof raw === "string" ? Number.parseInt(raw, 10) : typeof raw === "number" ? raw : NaN;
+  if (!Number.isFinite(n)) return HOME_LIST_DEFAULT;
+  return Math.min(HOME_LIST_MAX, Math.max(HOME_LIST_MIN_VISIBLE, Math.trunc(n)));
+}
+
+/** The cycling order the settings panel walks `homeListMax` through. */
+export function homeListCycleValues(): number[] {
+  return Array.from({ length: HOME_LIST_MAX - HOME_LIST_MIN_VISIBLE + 1 }, (_, i) => HOME_LIST_MIN_VISIBLE + i);
+}
+
+/** Effective home-list height: configured cap, shrunk by the terminal, floored at 3. */
+export function visibleListHeight(configured: number, rows: number): number {
+  return Math.max(HOME_LIST_MIN_VISIBLE, Math.min(configured, rows - HOME_CHROME_ROWS));
+}
+
 export type WidthClass = "compact" | "regular" | "wide";
 
 /** Live terminal geometry; 80×24 fallback for non-tty hosts (tests, pipes). */

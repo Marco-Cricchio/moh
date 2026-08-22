@@ -7,7 +7,7 @@ import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
-import { dialogWidth, useViewport, windowing } from "./viewport";
+import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
@@ -63,6 +63,7 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
       { key: "provider", label: "Provider", value: modelLabel },
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
+      { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
     ],
     [config, modelLabel, moh],
   );
@@ -115,6 +116,11 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
         return onChange({
           permissionMode: cycle<DefaultPermissionMode>(["normal", "auto-accept"], config.permissionMode),
         });
+      case "homeListMax": {
+        const next = cycle(homeListCycleValues(), config.homeListMax);
+        onChange({ homeListMax: next });
+        return onToast(`home list rows: ${next}`);
+      }
       case "provider":
         return setSub({ kind: "switch", options: ["mock", ...endpointRefs], cursor: 0 });
       case "provider-add":
