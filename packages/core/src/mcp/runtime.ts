@@ -4,6 +4,7 @@ import { McpError } from "./errors";
 import type { Connection, ServerHandlers } from "./json-rpc";
 import { StdioConnection } from "./transport-stdio";
 import { HttpConnection } from "./transport-http";
+import { MOH_VERSION } from "../workflow";
 
 export interface McpRuntimeOptions {
   /** Merged project + user declarations; duplicate names are a startup error. */
@@ -161,7 +162,7 @@ export class McpRuntime {
         {
           protocolVersion: PROTOCOL_VERSION,
           capabilities: {},
-          clientInfo: { name: "moh", version: "0.1.0" },
+          clientInfo: { name: "moh", version: MOH_VERSION },
         },
         this.#timeoutMs,
       )) as { protocolVersion?: string };
