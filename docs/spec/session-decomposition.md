@@ -1,6 +1,6 @@
 # Spec: Decompose AgentSession into a session/ directory
 
-Status: agreed · Origin: codebase-health survey (opportunity #1) · Related: `docs/principles.md` (1, 2), ADR-0003 (to be written alongside ticket 1)
+Status: implemented (tickets #88–#92 merged) · Origin: codebase-health survey (opportunity #1) · Related: `docs/principles.md` (1, 2), ADR-0003 (written with ticket 1)
 
 ## Problem
 

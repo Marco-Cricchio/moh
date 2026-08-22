@@ -1,6 +1,6 @@
 import { MockProvider } from "./mock-provider";
 import { EchoProvider } from "./echo-provider";
-import { AgentSession } from "./session";
+import { AgentSession } from "./session/session";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime, type ExtensionRuntimeOptions, type RuntimeExtension } from "./extensions";
 import {
