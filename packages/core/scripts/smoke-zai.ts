@@ -7,7 +7,8 @@
  *   export MOH_ENDPOINT_ZAI_API_KEY=<your-temporary-key>
  *   bun packages/core/scripts/smoke-zai.ts [model-id]
  */
-import { Endpoint, createRoute, createSession, MockProvider } from "../src/index";
+import { createSession, MockProvider } from "../src/index";
+import { Endpoint, createRoute } from "../src/route";
 
 const MODEL = process.argv[2] ?? "glm-4.6";
 const key = process.env.MOH_ENDPOINT_ZAI_API_KEY;

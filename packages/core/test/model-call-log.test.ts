@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createRoute, createSession, Endpoint, MockProvider, replayMessages, ProviderError } from "../src/index";
-import type { AgentEvent, Message, Provider, RouteTarget, StreamEvent } from "../src/index";
+import { createSession, MockProvider } from "../src/index";
+import { createRoute, Endpoint, type RouteTarget } from "../src/route";
+import { replayMessages } from "../src/session-store";
+import { ProviderError, type Message, type StreamEvent } from "../src/types";
+import type { AgentEvent, Provider } from "../src/index";
 
 /**
  * #83 (option 3): every model call is recorded in the event log — a
