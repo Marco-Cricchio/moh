@@ -9,12 +9,13 @@
 import { resolve as pathResolve } from "node:path";
 import {
   MockProvider,
+  RuleError,
   SessionStore,
+  overridesFromFlags,
   sessionFromConfig,
   type AgentEvent,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { RuleError, overridesFromFlags } from "./permission-flags";
 
 export const RUN_USAGE = `usage: moh run [options] [prompt...]
 

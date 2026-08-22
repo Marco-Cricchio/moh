@@ -5,6 +5,10 @@ import { join } from "node:path";
 import {
   PermissionResolver,
   DEFAULT_TOOL_PERMISSIONS,
+  RuleError,
+  formatRule,
+  overridesFromFlags,
+  parseRule,
   runtimeRulesFromEvents,
   type PermissionRule,
 } from "../src/permissions";
@@ -381,5 +385,68 @@ describe("AgentSession permission integration", () => {
     expect(tr.output).toBe("permission denied: bash denied by permission rule");
     expect(log.some((e) => e.type === "permission_requested")).toBe(false);
     expect((log.find((e) => e.type === "permission_denied") as any).reason).toBe("rule");
+  });
+});
+
+describe("canonical rule grammar: parseRule / formatRule (ADR-0007)", () => {
+  test("plain tool rules become tool-level rules", () => {
+    expect(parseRule("bash", "allow")).toEqual({ tier: "config", tool: "bash", effect: "allow" });
+    expect(parseRule("fetch", "deny")).toEqual({ tier: "config", tool: "fetch", effect: "deny" });
+  });
+
+  test("bash rules become token prefixes", () => {
+    expect(parseRule("bash:git status", "allow")).toEqual({
+      tier: "config", tool: "bash", effect: "allow", tokens: ["git", "status"],
+    });
+    expect(parseRule('bash:echo "a && b"', "deny")).toEqual({
+      tier: "config", tool: "bash", effect: "deny", tokens: ["echo", "a && b"],
+    });
+  });
+
+  test("path rules become path-glob rules scoped to the tool", () => {
+    expect(parseRule("write:src/**", "allow")).toEqual({ tier: "config", tool: "write", effect: "allow", path: "src/**" });
+    expect(parseRule("edit:docs/*.md", "deny")).toEqual({ tier: "config", tool: "edit", effect: "deny", path: "docs/*.md" });
+  });
+
+  test("invalid rules are rejected", () => {
+    expect(() => parseRule("", "allow")).toThrow(RuleError);
+    expect(() => parseRule("bash:git status && rm -rf /", "allow")).toThrow(/single command prefix/);
+    expect(() => parseRule("write:", "allow")).toThrow(RuleError);
+    expect(() => parseRule("fetch:", "allow")).toThrow(RuleError);
+  });
+
+  test("formatRule renders the canonical terse form", () => {
+    expect(formatRule({ tier: "runtime", tool: "bash", effect: "allow" })).toBe("bash");
+    expect(formatRule({ tier: "runtime", tool: "bash", effect: "allow", tokens: ["git", "status"] })).toBe("bash:git status");
+    expect(formatRule({ tier: "config", tool: "*", effect: "deny", path: "secrets/**" })).toBe("*:secrets/**");
+  });
+
+  test("round-trip: parseRule(formatRule(rule)) deep-equals the original", () => {
+    const corpus: PermissionRule[] = [
+      { tier: "builtin", tool: "read", effect: "allow" },
+      { tier: "config", tool: "bash", effect: "deny" },
+      { tier: "runtime", tool: "bash", effect: "allow", tokens: ["git"] },
+      { tier: "runtime", tool: "bash", effect: "allow", tokens: ["git", "status"] },
+      { tier: "runtime", tool: "bash", effect: "allow", tokens: ["git", "status", "--short"] },
+      { tier: "config", tool: "bash", effect: "deny", tokens: ["rm"] },
+      { tier: "runtime", tool: "bash", effect: "allow", tokens: ["echo", "a && b"] },
+      { tier: "config", tool: "*", effect: "allow", path: "src/**" },
+      { tier: "config", tool: "*", effect: "deny", path: "docs/*.md" },
+      { tier: "runtime", tool: "*", effect: "allow", path: "package.json" },
+      { tier: "runtime", tool: "write", effect: "allow", path: "src/x.ts" },
+      { tier: "config", tool: "fetch", effect: "deny" },
+    ];
+    for (const rule of corpus) {
+      expect(parseRule(formatRule(rule), rule.effect, rule.tier)).toEqual(rule);
+    }
+  });
+});
+
+describe("overridesFromFlags (CLI seam over the core grammar)", () => {
+  test("multiple flags accumulate", () => {
+    const overrides = overridesFromFlags(["bash", "bash:git status"], ["write:secrets/**"]);
+    expect(overrides.tools).toEqual({ bash: "allow" });
+    expect(overrides.bashAllow).toEqual([["git", "status"]]);
+    expect(overrides.pathDeny).toEqual(["secrets/**"]);
   });
 });

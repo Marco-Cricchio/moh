@@ -71,7 +71,7 @@ describe("permission modal (issue #33)", () => {
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("permission");
     expect(frame).toContain("command: echo hi");
-    expect(frame).toContain("writes the session rule: bash: echo hi");
+    expect(frame).toContain("writes the session rule: bash:echo hi");
     expect(calls).toEqual([]); // still blocked
 
     i.stdin.write("y");
