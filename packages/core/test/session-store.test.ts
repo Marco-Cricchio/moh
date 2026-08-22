@@ -2,14 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import {
-  createSession,
-  MockProvider,
-  replayMessages,
-  runtimeRulesFromEvents,
-  MIN_SUPPORTED_SCHEMA_VERSION,
-  SessionStore,
-} from "../src/index";
+import { createSession, MockProvider, SessionStore } from "../src/index";
+import { MIN_SUPPORTED_SCHEMA_VERSION, replayMessages } from "../src/session-store";
+import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
 function tempHome(): string {

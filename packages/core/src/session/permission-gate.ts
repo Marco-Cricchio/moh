@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { persistToolAllow } from "../config";
 import type { PermissionResolver } from "../permissions";
 import type { AgentEvent } from "../types";
-import type { SessionConfig } from "../index";
+import type { SessionConfig } from "./config";
 
 /** The veto surface PermissionGate needs from the extension runtime. */
 export interface ToolVetoChecker {

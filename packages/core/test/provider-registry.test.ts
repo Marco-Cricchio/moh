@@ -1,18 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import {
-  createSession,
-  defaultRegistry,
-  loadMohConfig,
-  MockProvider,
-  ProviderRegistry,
-  resolveProvider,
-  resolveProviderRef,
-  type EndpointProfile,
-  type MohConfig,
-  type Message,
-  type Provider,
-  type StreamEvent,
-} from "../src/index";
+import { createSession, defaultRegistry, loadMohConfig, MockProvider, resolveProvider, resolveProviderRef, type EndpointProfile, type MohConfig, type Provider } from "../src/index";
+import { ProviderRegistry } from "../src/provider-registry";
+import type { Message, StreamEvent } from "../src/types";
 
 function scriptedProvider(): Provider {
   return MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
@@ -71,7 +60,7 @@ describe("resolveProvider (moh.json config)", () => {
       provider: "ollama/qwen3",
       endpoints: [{ name: "ollama", type: "openai-compat", baseUrl: "http://localhost:11434/v1", defaultModel: "qwen3" }],
     };
-    const route = resolveProvider(config) as import("../src/index").Route;
+    const route = resolveProvider(config) as import("../src/route").Route;
     expect(route.ref).toBe("ollama/qwen3");
     expect(route.chain).toEqual(["ollama/qwen3"]);
   });

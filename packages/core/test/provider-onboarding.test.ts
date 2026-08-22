@@ -1,14 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { minimalConnectionTest, type ConnectionTester, type EndpointProfile } from "../src/index";
 import {
   addProviderToFile,
-  minimalConnectionTest,
   OnboardingAborted,
   runProviderAdd,
-  type ConnectionTester,
-  type EndpointProfile,
   type OnboardingIo,
-} from "../src/index";
+} from "../src/provider-onboarding";
 
 /** IO double: pre-scripted answers, recorded info lines. */
 function ioWith(answers: string[]): OnboardingIo & { said: string[] } {
