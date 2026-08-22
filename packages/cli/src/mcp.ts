@@ -5,7 +5,8 @@
  * `restart` performs a manual restart check: it handshakes the server,
  * lists its tools and shuts it down again (no auto-restart exists).
  */
-import { resolve as pathResolve, join } from "node:path";import {
+import { resolve as pathResolve, join } from "node:path";
+import {
   McpRuntime,
   readUserConfigFile,
   updateUserConfigFile,
@@ -48,21 +49,24 @@ export interface McpOptions {
 }
 
 /** Valid `mcpServers` entries from ~/.moh/config, via the config guardian. */
-function readUserMcpServers(file: string): Record<string, McpServerEntry> {
-  const servers = readUserConfigFile(file).mcpServers;
+function parseMcpServers(raw: unknown): Record<string, McpServerEntry> {
   const entry: Record<string, McpServerEntry> = {};
-  if (typeof servers !== "object" || servers === null) return entry;
-  for (const [name, value] of Object.entries(servers)) {
+  if (typeof raw !== "object" || raw === null) return entry;
+  for (const [name, value] of Object.entries(raw)) {
     const ok = mcpServerEntrySchema.safeParse(value);
     if (ok.success) entry[name] = ok.data;
   }
   return entry;
 }
 
+function readUserMcpServers(file: string): Record<string, McpServerEntry> {
+  return parseMcpServers(readUserConfigFile(file).mcpServers);
+}
+
 /** Read-modify-write of `mcpServers` through the guardian (preserves the rest). */
 function writeUserMcpServers(file: string, mutate: (servers: Record<string, McpServerEntry>) => void): void {
   updateUserConfigFile(file, (data) => {
-    const servers = readUserMcpServers(file);
+    const servers = parseMcpServers(data.mcpServers);
     mutate(servers);
     data.mcpServers = servers;
   });
