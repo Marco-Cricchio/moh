@@ -35,8 +35,9 @@ inside the extractor function.
 
 ## Consequences
 
-- Each collaborator can be read and tested in isolation; session.ts shrinks to
-  composition plus the turn loop (until ticket 5 extracts that too).
+- Each collaborator can be read and tested in isolation; `session/session.ts`
+  is a thin director — constructor wiring plus the unchanged public surface.
+  The `session/` directory layout is canonical (this shipped with ticket 5).
 - No new public exports: collaborators are internal to `@moh/core`.
 - `CONTEXT.md` glossary gains each collaborator name as its ticket lands.
 - The maintenance extractor's child session still bypasses the spawn tool, has

@@ -1,40 +1,39 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
-import type { AgentEvent, FinishReason, Message, Provider, TokenUsage, Tool, ToolCall, ToolSpec, TurnResult } from "./types";
-import { SCHEMA_VERSION } from "./types";
-import type { SessionConfig } from "./index";
-import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
-import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "./permissions";
-import { persistMcpTrust } from "./config";
-import { McpRuntime, type McpRuntimeOptions } from "./mcp";
-import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
-import { discoverSkills } from "./skills";
-import { ExtensionRuntime } from "./extensions";
-import { EventLog } from "./session/event-log";
-import { PermissionGate } from "./session/permission-gate";
-import { ToolRunner } from "./session/tool-runner";
-import { SubagentHost, type SubagentOptions } from "./subagents";
-import { replayMessages, lastAssistantText } from "./session-store";
-import {
-  MemoryRunner,
-  MemoryStore,
-  createMaintenanceExtractor,
-  type MemoryOptions,
-} from "./memory";
 import { randomUUID } from "node:crypto";
+import type { AgentEvent, Message, Provider, Tool, TurnResult } from "../types";
+import { SCHEMA_VERSION } from "../types";
+import type { SessionConfig } from "../index";
+import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "../provider-registry";
+import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
+import { persistMcpTrust } from "../config";
+import { McpRuntime } from "../mcp";
+import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
+import { discoverSkills } from "../skills";
+import { ExtensionRuntime } from "../extensions";
+import { EventLog } from "./event-log";
+import { PermissionGate } from "./permission-gate";
+import { ToolRunner } from "./tool-runner";
+import { TurnQueue } from "./turn-queue";
+import { AgentLoop } from "./agent-loop";
+import { SubagentHost } from "../subagents";
+import { replayMessages } from "../session-store";
+import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
 /**
  * One conversation instance. The append-only event log *is* the session:
  * streaming, history and (later) persistence are projections of it.
+ *
+ * Thin director (#92): all turn machinery lives in the internal
+ * collaborators — TurnQueue (send/preempt pump), AgentLoop (one turn),
+ * ToolRunner, PermissionGate, EventLog, MemoryRunner — wired here.
  */
 export class AgentSession {
   readonly #provider: Provider;
   /** Registry snapshot frozen at creation; later registrations never reach it. */
   readonly #registry: FrozenProviderRegistry | undefined;
-  readonly #maxIterations: number;
   #tools: Record<string, Tool>;
   readonly #cwd: string;
   readonly #permissions: PermissionResolver;
@@ -46,6 +45,10 @@ export class AgentSession {
   readonly #extensions: ExtensionRuntime | undefined;
   /** The append-only event log (#89): storage, sink, listeners, dispatch. */
   readonly #eventLog: EventLog;
+  /** The send queue + steering pump (#92): preempt semantics unchanged. */
+  readonly #queue: TurnQueue;
+  /** One agent turn (#92): model calls, streaming, usage rollup (#83). */
+  readonly #loop: AgentLoop;
   #lastPrompt: AssembledPrompt | null = null;
   #disposed = false;
   readonly #promptComposer: PromptComposer;
@@ -56,18 +59,7 @@ export class AgentSession {
   /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
   readonly #mcp: McpRuntime | undefined;
   #promptVersion = "";
-  readonly #messages: Message[] = [];
-  #controller: AbortController | null = null;
-  /** Cumulative usage tokens reported by the provider, where exposed (#13). */
-  #usage = { inputTokens: 0, outputTokens: 0 };
-  /** #83: the model call currently streaming (announced by `model_call_start`). */
-  #pendingCall: { model: string; usage: TokenUsage } | null = null;
-  /** #83: turn rollup inputs — usage at turn start and models that served it. */
-  #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  #turnModels: string[] = [];
-  #turn: Promise<TurnResult> | null = null;
-  /** Pending sends: front runs as soon as the session is idle. */
-  readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
+  readonly #messages: Message[];
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
   readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
   #memory: MemoryRunner | null = null;
@@ -78,7 +70,7 @@ export class AgentSession {
       typeof config.provider === "string"
         ? resolveProviderRef(config.provider, this.#registry ?? defaultRegistry.freeze(), [])
         : config.provider;
-    this.#maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
     const perms = config.permissions ?? {};
@@ -139,6 +131,7 @@ export class AgentSession {
     const discovered = discoverSkills({ mohHome: this.#mohHome, projectDir: this.#cwd, firstParty: this.#firstParty });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
+    this.#messages = [];
     // Memory (#38): enabled by default when `memory` options are given;
     // `memory.enabled: false` means no store, no section, no subagent runs.
     const mem = config.memory;
@@ -167,6 +160,20 @@ export class AgentSession {
         },
       });
     }
+    this.#loop = new AgentLoop({
+      provider: this.#provider,
+      maxIterations,
+      tools: () => this.#allTools(),
+      toolRunner: this.#toolRunner,
+      ...(this.#extensions ? { extensions: this.#extensions } : {}),
+      ...(this.#mcp ? { mcp: this.#mcp } : {}),
+      messages: this.#messages,
+      assemblePrompt: () => this.#assemblePrompt(),
+      lastPrompt: () => this.#lastPrompt,
+      append: (event) => this.#append(event),
+      ...(this.#memory ? { onTurnSettled: (result) => this.#maybeExtractMemory(result) } : {}),
+    });
+    this.#queue = new TurnQueue({ execute: (text, controller) => this.#loop.run(text, controller) });
     if (config.resume?.events.length) {
       // Resume (#31): the log continues in a new AgentSession over the same
       // persisted history. Seeded events are never re-appended (the file
@@ -249,7 +256,7 @@ export class AgentSession {
 
   /** True while a turn is in flight (including one being steered away). */
   pending(): boolean {
-    return this.#turn !== null;
+    return this.#queue.pending();
   }
 
   /** Snapshot of the append-only event log. */
@@ -259,12 +266,12 @@ export class AgentSession {
 
   /** Cumulative usage tokens reported by the provider, where exposed. */
   get usage(): { inputTokens: number; outputTokens: number } {
-    return { ...this.#usage };
+    return this.#loop.usage;
   }
 
-  /** Cancels the active turn; appends a `cancelled` event. No-op if idle. */
+  /** Cancels the active turn (the loop appends the `cancelled` event). No-op if idle. */
   abort(): void {
-    this.#controller?.abort();
+    this.#queue.abort();
   }
 
   /** Registry snapshot this session was created with (frozen). */
@@ -295,185 +302,7 @@ export class AgentSession {
    * — a later send always preempts the running one.
    */
   send(text: string): Promise<TurnResult> {
-    return new Promise<TurnResult>((resolve) => {
-      this.#queue.push({ text, resolve });
-      this.#pump();
-    });
-  }
-
-  /**
-   * Starts the front-of-queue send when idle, or preempts the active
-   * turn when sends are waiting. The finishing turn re-pumps, so a
-   * steered session chains: cancelled -> steering user_message -> new turn.
-   */
-  #pump(): void {
-    if (this.#turn !== null) {
-      if (this.#queue.length > 0) this.#controller?.abort();
-      return;
-    }
-    const item = this.#queue.shift();
-    if (!item) return;
-    const controller = new AbortController();
-    this.#controller = controller;
-    const turn = this.#executeTurn(item.text, controller).finally(() => {
-      this.#turn = null;
-      this.#controller = null;
-      this.#pump();
-    }) as Promise<TurnResult>;
-    // Defensive: an unexpected rejection must still settle the caller's
-    // promise instead of becoming an unhandled rejection.
-    const guarded = turn.catch(
-      (err): TurnResult => ({
-        status: "error",
-        reason: "internal",
-        message: err instanceof Error ? err.message : String(err),
-      }),
-    ) as Promise<TurnResult>;
-    this.#turn = turn;
-    void guarded.then(item.resolve);
-  }
-
-  async #executeTurn(text: string, controller: AbortController): Promise<TurnResult> {
-    const result = await this.#executeTurnInner(text, controller);
-    if (this.#extensions) {
-      for (const e of await this.#extensions.dispatchAfterTurn(result)) this.#append(e);
-    }
-    // Memory (#38): fire-and-forget after the reply — never blocks the turn.
-    this.#maybeExtractMemory(result);
-    return result;
-  }
-
-  async #executeTurnInner(text: string, controller: AbortController): Promise<TurnResult> {
-    this.#append({ type: "user_message", text });
-    // #83: turn rollup baselines.
-    this.#turnStartUsage = { ...this.#usage };
-    this.#turnModels = [];
-    this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
-    // MCP (#15): lazy start on first use — the first turn connects the
-    // declared servers (consent-gated) so the prompt lists their tools.
-    if (this.#mcp) await this.#mcp.ensureStarted();
-
-    let iterations = 0;
-    let assistantText = "";
-    let finishReason: FinishReason | null = null;
-    while (finishReason !== "stop") {
-      if (iterations >= this.#maxIterations) {
-        this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
-        return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
-      }
-      iterations += 1;
-      assistantText = "";
-      finishReason = null;
-      this.#assemblePrompt(); // reassembled every call
-      if (this.#extensions && this.#lastPrompt) {
-        const errors = await this.#extensions.dispatchBeforeModelCall({
-          prompt: {
-            sections: this.#lastPrompt.sections,
-            system: this.#lastPrompt.system,
-            version: this.#lastPrompt.version,
-          },
-          messages: this.#messages,
-        });
-        for (const e of errors) this.#append(e);
-      }
-      const toolCalls: ToolCall[] = [];
-      try {
-        const toolSpecs: ToolSpec[] = Object.values(this.#allTools()).map((t) => ({
-          name: t.name,
-          description: t.description,
-          ...(t.inputSchema ? { parameters: z.toJSONSchema(t.inputSchema) as Record<string, unknown> } : {}),
-        }));
-        for await (const event of this.#provider.stream(this.#messages, controller.signal, toolSpecs)) {
-          if (controller.signal.aborted) break;
-          if (event.type === "text_delta") {
-            assistantText += event.text;
-            this.#append({ type: "assistant_delta", text: event.text });
-          } else if (event.type === "tool_calls") {
-            toolCalls.push(...event.calls);
-          } else if (event.type === "model_call_start") {
-            // A new call starts: record the previous one, then open a buffer
-            // for this one (#83). Mid-stream fallbacks announce a second
-            // call inside the same provider.stream — both get recorded.
-            this.#flushModelCall();
-            this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 } };
-          } else if (event.type === "usage") {
-            this.#usage.inputTokens += event.inputTokens;
-            this.#usage.outputTokens += event.outputTokens;
-            if (this.#pendingCall) {
-              this.#pendingCall.usage.inputTokens += event.inputTokens;
-              this.#pendingCall.usage.outputTokens += event.outputTokens;
-            }
-          } else if (event.type === "finish") {
-            finishReason = event.reason;
-          }
-        }
-      } catch (err) {
-        if (controller.signal.aborted) break;
-        const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
-        const message = err instanceof Error ? err.message : String(err);
-        this.#append({ type: "error", reason, message });
-        return { status: "error", reason, message };
-      }
-      // The provider stream ended: this model call is complete — record
-      // it (usage is reported at finish, so the event can only close now).
-      this.#flushModelCall();
-      if (finishReason === null) {
-        // Stream ended without a finish event (e.g. aborted mid-stream).
-        break;
-      }
-      if (finishReason !== "stop") {
-        this.#messages.push({
-          role: "assistant",
-          parts: [
-            ...(assistantText ? [{ kind: "text" as const, text: assistantText }] : []),
-            ...toolCalls.map((c) => ({ kind: "tool_call" as const, ...c })),
-          ],
-        });
-        const outcome = await this.#runTools(toolCalls, controller.signal);
-        if (outcome === "aborted") break;
-      }
-    }
-
-    if (controller.signal.aborted) {
-      this.#append({ type: "cancelled" });
-      return { status: "cancelled" };
-    }
-    this.#pushAssistant(assistantText);
-    // Turn rollup (#83): this turn's usage totals and the models that
-    // served it. Session totals = sum of model_call events across the log.
-    this.#append({
-      type: "done",
-      usage: {
-        inputTokens: this.#usage.inputTokens - this.#turnStartUsage.inputTokens,
-        outputTokens: this.#usage.outputTokens - this.#turnStartUsage.outputTokens,
-      },
-      models: [...new Set(this.#turnModels)],
-    });
-    return { status: "done" };
-  }
-
-  /**
-   * Runs same-turn tool calls via the ToolRunner (#91) and feeds the
-   * results back as a user message the model sees for self-correction.
-   * Returns "aborted" if the turn was cancelled mid-execution.
-   */
-  async #runTools(calls: ToolCall[], signal: AbortSignal): Promise<"ok" | "aborted"> {
-    const { outcome, parts } = await this.#toolRunner.run(calls, signal);
-    this.#messages.push({ role: "user", parts });
-    return outcome;
-  }
-
-  /** Append the completed model call to the log, if one is open (#83). */
-  #flushModelCall(): void {
-    const call = this.#pendingCall;
-    if (!call) return;
-    this.#pendingCall = null;
-    this.#turnModels.push(call.model);
-    this.#append({ type: "model_call", model: call.model, usage: { ...call.usage } });
-  }
-
-  #pushAssistant(text: string): void {
-    this.#messages.push({ role: "assistant", parts: [{ kind: "text", text }] });
+    return this.#queue.send(text);
   }
 
   /**
