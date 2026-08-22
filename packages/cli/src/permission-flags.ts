@@ -42,18 +42,6 @@ export function parseRule(rule: string, effect: "allow" | "deny"): Partial<Permi
   return effect === "allow" ? { pathAllow: [rest] } : { pathDeny: [rest] };
 }
 
-/** Merges CLI rules on top of moh.json overrides. CLI wins for tool decisions; lists are unioned (CLI first). */
-export function mergeOverrides(base: PermissionOverrides | undefined, cli: PermissionOverrides): PermissionOverrides {
-  const merged: PermissionOverrides = {
-    tools: { ...base?.tools, ...cli.tools },
-    bashAllow: [...(cli.bashAllow ?? []), ...(base?.bashAllow ?? [])],
-    bashDeny: [...(cli.bashDeny ?? []), ...(base?.bashDeny ?? [])],
-    pathAllow: [...(cli.pathAllow ?? []), ...(base?.pathAllow ?? [])],
-    pathDeny: [...(cli.pathDeny ?? []), ...(base?.pathDeny ?? [])],
-  };
-  return merged;
-}
-
 /** Builds the full CLI overrides from repeatable `--allow`/`--deny` flag values. */
 export function overridesFromFlags(allow: string[], deny: string[]): PermissionOverrides {
   const merged: PermissionOverrides = {};

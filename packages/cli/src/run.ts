@@ -3,25 +3,18 @@
  * permission decisions come from `--allow`/`--deny` flags over moh.json
  * defaults, and unpermitted tool calls fail fast as structured denials.
  * Every event streams to stdout as one JSON line and lands in the
- * session JSONL log. Works zero-config with the mock provider.
+ * session JSONL log. Assembly goes through the core's single path
+ * (`sessionFromConfig`, ADR-0005): this is a thin headless caller.
  */
 import { resolve as pathResolve } from "node:path";
 import {
   MockProvider,
   SessionStore,
-  builtinTools,
-  createSession,
-  declaredMcpServers,
-  declaredUserMcpServers,
-  loadMohConfig,
-  resolveProvider,
-  resolveProviderRef,
-  defaultRegistry,
+  sessionFromConfig,
   type AgentEvent,
-  type PermissionOverrides,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { RuleError, mergeOverrides, overridesFromFlags } from "./permission-flags";
+import { RuleError, overridesFromFlags } from "./permission-flags";
 
 export const RUN_USAGE = `usage: moh run [options] [prompt...]
 
@@ -81,68 +74,59 @@ export async function runCommand(options: RunOptions): Promise<number> {
   }
   const cwd = pathResolve(parsed.strings["cwd"] ?? options.cwd ?? process.cwd());
 
-  let config, cliOverrides: PermissionOverrides;
+  let cliOverrides;
   try {
-    config = loadMohConfig(pathResolve(cwd, "moh.json"));
     cliOverrides = overridesFromFlags(parsed.lists["allow"] ?? [], parsed.lists["deny"] ?? []);
   } catch (e) {
     err.write(`moh run: ${e instanceof RuleError || e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
-  const overrides = mergeOverrides(config.permissions?.overrides, cliOverrides);
 
-  let provider;
+  let cassetteProvider;
   try {
-    if (parsed.strings["cassette"]) provider = MockProvider.cassette(pathResolve(cwd, parsed.strings["cassette"]));
-    else if (parsed.strings["provider"]) {
-      provider = resolveProviderRef(parsed.strings["provider"], defaultRegistry.freeze(), config.endpoints ?? []);
-    } else provider = resolveProvider(config);
+    if (parsed.strings["cassette"])
+      cassetteProvider = MockProvider.cassette(pathResolve(cwd, parsed.strings["cassette"]));
   } catch (e) {
     err.write(`moh run: ${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
 
-  let store: SessionStore;
-  let resumeEvents: AgentEvent[] | undefined;
+  let resumeStore: SessionStore | undefined;
   try {
     if (parsed.strings["session"]) {
       let existing = SessionStore.open(pathResolve(cwd, parsed.strings["session"]));
       if (parsed.booleans["fork"]) existing = existing.fork();
-      resumeEvents = existing.load();
-      store = existing;
-    } else {
-      store = SessionStore.create(cwd);
+      resumeStore = existing;
     }
   } catch (e) {
     err.write(`moh run: ${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
 
-  // MCP (#15): project (moh.json) + user (~/.moh/config, trusted) servers,
-  // started lazily on the first turn. Headless runs never prompt: project
-  // servers are consent-denied and logged; user servers start without asking.
-  const mcpServers = [...declaredMcpServers(config), ...declaredUserMcpServers()];
-
-  const session = createSession({
-    provider,
-    tools: builtinTools(),
+  // Single assembly path (#100): the builder owns moh.json reading, the
+  // MCP merge, provider resolution and session wiring. Headless: no
+  // consent seams — project MCP servers and "ask" calls fail fast.
+  const assembled = sessionFromConfig({
     cwd,
-    ...(mcpServers.length ? { mcp: { servers: mcpServers } } : {}),
-    // Subagents (#13): presets from moh.json `agents`; built-ins always available.
-    ...(config.agents ? { subagents: { presets: config.agents } } : {}),
-    // Memory (#38): on by default (spec); moh.json `memory` tunes/disables it.
-    ...(config.memory ? { memory: config.memory } : { memory: {} }),
-    resume: resumeEvents?.length ? { events: resumeEvents } : undefined,
-    permissions: {
-      overrides,
-      mode: parsed.booleans["auto-accept"] ? "auto-accept" : "normal",
-      bypassPermissions: parsed.booleans["dangerously-bypass-permissions"] || undefined,
-    },
-    sink: (event) => {
-      store.append(event);
-      out.write(JSON.stringify(event) + "\n");
+    ...(cassetteProvider ? { provider: cassetteProvider } : {}),
+    ...(parsed.strings["provider"] ? { providerRef: parsed.strings["provider"] } : {}),
+    overrides: {
+      permissionFlags: cliOverrides,
+      permissions: {
+        mode: parsed.booleans["auto-accept"] ? "auto-accept" : "normal",
+        bypassPermissions: parsed.booleans["dangerously-bypass-permissions"] || undefined,
+      },
+      sink: (event: AgentEvent) => out.write(JSON.stringify(event) + "\n"),
+      // A fresh store is created by the builder (after config/provider
+      // validation, so a broken config leaves no orphan session file).
+      ...(resumeStore ? { store: resumeStore } : {}),
     },
   });
+  if ("error" in assembled) {
+    err.write(`moh run: ${assembled.error.message}\n`);
+    return 2;
+  }
+  const session = assembled.session;
 
   const onSignal = () => {
     session.abort();
