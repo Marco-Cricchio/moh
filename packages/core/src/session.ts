@@ -481,7 +481,7 @@ export class AgentSession {
    * `memory_updated` event on success, silence otherwise.
    */
   #maybeExtractMemory(result: TurnResult): void {
-    this.#memory?.maybeExtract(result.status, this.#log, this.#disposed);
+    this.#memory?.maybeExtract(result, this.#log, this.#disposed);
   }
 
   /** Reassembles the system prompt for the next model call (#27). */

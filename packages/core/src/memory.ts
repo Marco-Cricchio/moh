@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { projectSlug } from "./session-store";
-import type { AgentEvent, Provider } from "./types";
+import type { AgentEvent, Provider, TurnResult } from "./types";
 import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
 
@@ -502,9 +502,11 @@ export class MemoryRunner {
     return this.#store.read(this.#budgetChars) || undefined;
   }
 
-  /** Fire-and-forget after each completed turn — never blocks the turn. */
-  maybeExtract(status: TurnResultStatus, events: ReadonlyArray<AgentEvent>, disposed: boolean): void {
-    if (status !== "done" || this.#busy || disposed) return;
+  /** Fire-and-forget after each completed turn — never blocks the turn.
+   * `events` must be the host's live log (the same array instance across
+   * calls) so `#lastIdx` windowing stays valid. */
+  maybeExtract(result: TurnResult, events: ReadonlyArray<AgentEvent>, disposed: boolean): void {
+    if (result.status !== "done" || this.#busy || disposed) return;
     this.#turns += 1;
     if (this.#turns % this.#interval !== 0) return;
     const startIdx = this.#lastIdx;
@@ -554,5 +556,3 @@ export class MemoryRunner {
     });
   }
 }
-
-type TurnResultStatus = "done" | "error" | "cancelled";
