@@ -51,7 +51,9 @@ export interface SessionConsent {
 export interface SessionOverrides {
   /** Full tool registry (TUI: built-ins + tracker tools in workflow mode). Default: built-ins. */
   tools?: Record<string, Tool>;
-  /** Patch over the config-derived permission config (mode, bypass). */
+  /** Patch over the config-derived permission config (mode, bypass). Its
+   * `overrides`, when given, replaces the merged set entirely (it wins over
+   * `permissionFlags`) — pass one or the other, never both. */
   permissions?: Partial<PermissionsConfig>;
   /** Extra tier-2 rules (e.g. CLI --allow/--deny) merged on top of moh.json overrides; caller wins. */
   permissionFlags?: PermissionOverrides;
@@ -131,6 +133,12 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   const o = options.overrides ?? {};
   const home = options.home ?? homedir();
   const mohHome = join(home, ".moh");
+
+  // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
+  // Computed before the store exists so a throwing read leaves no orphan
+  // session file behind.
+  const servers = [...declaredMcpServers(config), ...declaredUserMcpServers(join(mohHome, "config"))];
+
   const store = o.store ?? SessionStore.create(options.cwd, home);
   let resumeEvents = o.resumeEvents;
   if (o.store && resumeEvents === undefined) {
@@ -149,9 +157,6 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       resumeEvents = undefined;
     }
   }
-
-  // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
-  const servers = [...declaredMcpServers(config), ...declaredUserMcpServers(join(mohHome, "config"))];
 
   const permissions: PermissionsConfig = { ...o.permissions };
   const flagMerged = o.permissionFlags

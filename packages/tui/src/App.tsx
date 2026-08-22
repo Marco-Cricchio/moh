@@ -3,7 +3,7 @@ import { useApp, useInput } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type Provider, type TrackerBackend } from "@moh/core";
+import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type AssemblyError, type Provider, type TrackerBackend } from "@moh/core";
 import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
@@ -362,7 +362,7 @@ function OverlayLayer({ children }: { children: React.ReactNode }) {
 }
 
 /** Visible assembly failure (ADR-0005): what the user sees instead of a silent demo swap. */
-function assemblyErrorToast(error: { kind: string; message: string }): string {
+function assemblyErrorToast(error: AssemblyError): string {
   const hint =
     error.kind === "provider"
       ? " · re-run onboarding (ctrl+k → onboarding) or fix the provider in moh.json"
