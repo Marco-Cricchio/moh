@@ -1,5 +1,9 @@
 # Authoring skills
 
+**Who this is for:** end users and either persona from the [intro](index.md)
+— skills are the lightest way to teach moh (and pi) new behavior, with no
+code at all.
+
 Skills in moh are **pi-compatible**: a skill is a directory containing a `SKILL.md` with YAML-ish frontmatter.
 
 ## Format
