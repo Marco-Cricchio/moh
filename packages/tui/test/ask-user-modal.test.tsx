@@ -10,7 +10,7 @@ import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { projectTurns } from "../src/turns";
 import { toolArgSummary } from "../src/permission-gate";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, unwrap } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -162,13 +162,13 @@ describe("ask_user overlay (issue #70)", () => {
     const home = mkdtempSync(join(tmpdir(), "moh-ask-h-"));
     const seen: string[] = [];
     const gate = new AskUserGate();
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd,
       home,
       provider: MockProvider.scripted(script()),
       tools: askUserTool(seen),
       onAskUser: gate.ask,
-    });
+    }));
     const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     void session.send("pick one");
@@ -188,14 +188,14 @@ describe("ask_user overlay (issue #70)", () => {
     const seen: string[] = [];
     const store = SessionStore.create(cwd, home);
     const gate = new AskUserGate();
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd,
       home,
       store,
       provider: MockProvider.scripted(script()),
       tools: askUserTool(seen),
       onAskUser: gate.ask,
-    });
+    }));
     void session.send("pick one");
     await sleep(200);
     gate.resolve({ choice: "Postgres" });
