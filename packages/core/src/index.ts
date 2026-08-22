@@ -16,7 +16,7 @@ import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import { SessionStore } from "./session-store";
 import { splitCommandSegments, type PermissionOverrides, type PermissionRule } from "./permissions";
-import { type ProviderRegistry } from "./provider-registry";
+import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { type SubagentOptions } from "./subagents";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
@@ -52,7 +52,6 @@ import {
   type TrackerIssue,
   type TrackerBackend,
 } from "./tracker";
-import { defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);

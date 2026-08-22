@@ -32,7 +32,7 @@ Accompanying moves:
   No internal module imports from the barrel anymore.
 - `EchoProvider` leaves the public surface (tests import it directly).
   `MockProvider` stays: the TUI factory uses it as the demo/fallback
-  provider.
+  provider, and the CLI uses it for `--cassette` runs.
 - One curated entry; no subpath exports (e.g. `@moh/core/testing`) — those
   can be added deliberately later if a real external need appears.
 
@@ -67,7 +67,7 @@ internals, workflow/tracker plumbing — is internal.
 
 ## Consequences
 
-- `index.ts` drops from 397 lines / ~90 re-exports to ~100 lines / ~55.
+- `index.ts` drops from 397 lines / ~90 re-exports to ~110 lines / ~55.
 - Tests import from defining modules, so they now also exercise the real
   internal layout (closer to ADR-0003's collaborator structure).
 - When the package is eventually published, the published surface is the
