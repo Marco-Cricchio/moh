@@ -48,7 +48,7 @@ import {
   type SubagentSpec,
 } from "./subagents";
 import type { AgentEvent, AskUserQuestion, AskUserResult, EndpointCapabilities, Message, PermissionGrantReason, Provider, ProviderErrorKind, StreamEvent, Tool, ToolCall, ToolContext, TurnResult } from "./types";
-import { createMaintenanceExtractor } from "./session";
+import { createMaintenanceExtractor } from "./memory";
 import {
   CHARS_PER_TOKEN,
   DEFAULT_MEMORY_BUDGET_TOKENS,
