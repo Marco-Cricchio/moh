@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./index";
-import { AgentSession } from "./session";
+import { AgentSession } from "./session/session";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { resolveProviderRef, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";

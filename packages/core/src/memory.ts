@@ -417,7 +417,7 @@ export function createMaintenanceExtractor(provider: Provider, cwd: string): Mem
   return async (input) => {
     // Lazy: importing AgentSession statically would make memory.ts and
     // session.ts a cycle (config.ts reads memoryConfigSchema at load).
-    const { AgentSession } = await import("./session");
+    const { AgentSession } = await import("./session/session");
     const child = new AgentSession({
       provider,
       tools: {},
