@@ -2,11 +2,12 @@
  * Per-user TUI settings, persisted as JSON at `~/.moh/config` (issue #33).
  * Sessions are project data and never live here; this file is user chrome:
  * mode, theme, icons, preview, language, telemetry, default permission
- * mode, and the onboarding-completed flag.
+ * mode, and the onboarding-completed flag. The file itself is owned by the
+ * core guardian (ADR-0006): every read/write goes through it, so unknown
+ * sections (`mcpServers`, future ones) survive TUI writes.
  */
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { readUserConfigFile, updateUserConfigFile, userConfigFile as coreUserConfigFile } from "@moh/core";
 import { DEFAULT_THEME, type ThemeName } from "./themes";
 
 export type VibeMode = "vibe" | "dev";
@@ -56,10 +57,8 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   workflowOffered: false,
 };
 
-/** `~/.moh/config` (or `<home>/.moh/config` when home is injected). */
-export function userConfigFile(home?: string): string {
-  return join(home ?? homedir(), ".moh", "config");
-}
+/** `~/.moh/config` — the core guardian's path constant (re-exported). */
+export const userConfigFile = coreUserConfigFile;
 
 function coerce(raw: unknown): Partial<UserConfig> {
   if (typeof raw !== "object" || raw === null) return {};
@@ -99,28 +98,25 @@ export function loadUserConfig(
   file: string = userConfigFile(),
   read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): UserConfig {
-  let raw: string;
-  try {
-    raw = read(file);
-  } catch {
-    return { ...DEFAULT_USER_CONFIG };
-  }
-  if (!raw.trim()) return { ...DEFAULT_USER_CONFIG };
-  try {
-    return { ...DEFAULT_USER_CONFIG, ...coerce(JSON.parse(raw)) };
-  } catch {
-    return { ...DEFAULT_USER_CONFIG };
-  }
+  return { ...DEFAULT_USER_CONFIG, ...coerce(readUserConfigFile(file, read)) };
 }
 
-/** Pretty-prints and writes the config back. */
+/**
+ * Writes the chrome fields back through the guardian (read-modify-write):
+ * unrelated keys and unknown sections in the file are preserved.
+ */
 export function saveUserConfig(
   config: UserConfig,
   file: string = userConfigFile(),
   write: (file: string, data: string) => void = (f, d) => writeFileSync(f, d),
 ): void {
-  mkdirSync(dirname(file), { recursive: true });
-  write(file, `${JSON.stringify(config, null, 2)}\n`);
+  updateUserConfigFile(
+    file,
+    (data) => {
+      for (const key of Object.keys(config) as (keyof UserConfig)[]) data[key] = config[key];
+    },
+    { write },
+  );
 }
 
 /** Immutable field update helper. */
