@@ -3,6 +3,7 @@
 ## Glossary
 
 - **Core** — the headless library (`@moh/core`) that runs the agent loop. No UI, no global state.
+- **Extending personas** — the two readers `docs/extending/` is split by, never sharing a chapter: the **extension writer** (builds modules against the `@moh/extension` contract: phase hooks, restrict-only veto, lifecycle) and the **library user** (embeds the core: `sessionFromConfig`, the `events` async iterable, headless permission seams). Light alignment rule: a PR that changes a public door (an `@moh/core` export, a hook, a documented grammar) updates the affected `docs/extending/` chapter in the same PR.
 - **Client** — a consumer of the Core in-process: the TUI or the CLI. Never talks to providers directly.
 - **AgentSession** — one conversation instance inside the Core. Multi-instance by design; subagents are child sessions.
 - **Public-surface criterion (ADR-0004)** — `@moh/core`'s index exports only what a client (TUI/CLI/@moh/extension) or a user-facing config surface touches; everything else is internal, imported directly from its defining module (`session/config.ts` now owns `SessionConfig`/`PermissionsConfig`). Re-opening a closed export is an explicit ADR decision. First re-opening: `sessionFromConfig` + its result/error types (ADR-0005).
