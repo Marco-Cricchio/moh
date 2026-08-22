@@ -72,6 +72,7 @@ export function parseRule(str: string, effect: RuleEffect, tier: PermissionTier 
     return { tier, tool: str, effect };
   }
   const tool = str.slice(0, colon);
+  if (!tool) throw new RuleError(`invalid rule "${str}": missing tool`);
   const rest = str.slice(colon + 1).trim();
   if (tool === "bash") {
     const segments = splitCommandSegments(rest);

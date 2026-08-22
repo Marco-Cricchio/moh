@@ -413,6 +413,8 @@ describe("canonical rule grammar: parseRule / formatRule (ADR-0007)", () => {
     expect(() => parseRule("bash:git status && rm -rf /", "allow")).toThrow(/single command prefix/);
     expect(() => parseRule("write:", "allow")).toThrow(RuleError);
     expect(() => parseRule("fetch:", "allow")).toThrow(RuleError);
+    expect(() => parseRule(":src/**", "allow")).toThrow(/missing tool/);
+    expect(() => parseRule("bash:", "allow")).toThrow(RuleError); // empty prefix: no tokens
   });
 
   test("formatRule renders the canonical terse form", () => {
@@ -430,6 +432,7 @@ describe("canonical rule grammar: parseRule / formatRule (ADR-0007)", () => {
       { tier: "runtime", tool: "bash", effect: "allow", tokens: ["git", "status", "--short"] },
       { tier: "config", tool: "bash", effect: "deny", tokens: ["rm"] },
       { tier: "runtime", tool: "bash", effect: "allow", tokens: ["echo", "a && b"] },
+      { tier: "runtime", tool: "bash", effect: "allow", tokens: ["echo", "it's"] },
       { tier: "config", tool: "*", effect: "allow", path: "src/**" },
       { tier: "config", tool: "*", effect: "deny", path: "docs/*.md" },
       { tier: "runtime", tool: "*", effect: "allow", path: "package.json" },
