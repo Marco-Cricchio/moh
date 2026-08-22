@@ -118,8 +118,9 @@ the loop can react to it.
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
-- A major mismatch refuses to load (warning only, the session continues).
-  A mismatch detected at hot-reload keeps the previous instance running.
+- A major mismatch refuses the load: the session continues with an
+  `extension_failed` event (a warning, never a session abort). A mismatch
+  detected at hot-reload keeps the previous instance running.
 - Minor gaps are fine: the host ignores capabilities newer than itself.
 
 ## Loading, lifecycle, failure
@@ -128,8 +129,8 @@ the loop can react to it.
   cache-busted import) or `register(def)` (in-memory). The runtime owns
   one-time **enable consent** (per name+version, persisted in
   `<mohHome>/extensions.json`) and **per-change npm dependency
-  authorization** — say where those answers come from; with no consent
-  seam and nothing stored, the load is refused.
+  authorization** — both are host-supplied seams; with no consent seam and
+  nothing stored, the load is refused.
 - Hot-reload: registered files are watched; on change the module is
   re-imported and `setup()` re-runs with the previous `ctx.state` seeded
   in. A failed reload keeps the previous instance running (warning only).
