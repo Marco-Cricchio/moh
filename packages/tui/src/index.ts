@@ -7,7 +7,7 @@ export { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, useTheme, type Theme
 export { projectTurns, type TurnView, type ToolView, type TurnPhase } from "./turns";
 export { closeOpenFences, createMarkdownRenderer, Markdown } from "./markdown";
 export { listSessionSummaries, type SessionSummary } from "./sessions";
-export { makeSession, resolveDefaultProvider, providerLabel } from "./factory";
+export { makeSession, providerLabel, type MakeSessionResult, type OpenSessionOptions } from "./factory";
 export { useSessionState } from "./session-bridge";
 export {
   DEFAULT_USER_CONFIG,

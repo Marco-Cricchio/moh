@@ -10,6 +10,15 @@
  */
 import { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session/session";
+import {
+  sessionFromConfig,
+  type AssemblyError,
+  type AssemblyErrorKind,
+  type SessionConsent,
+  type SessionFromConfigOptions,
+  type SessionFromConfigResult,
+  type SessionOverrides,
+} from "./session/from-config";
 import { type PermissionsConfig, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
@@ -86,7 +95,14 @@ export {
   defaultRegistry,
   resolveProvider,
   resolveProviderRef,
+  sessionFromConfig,
   type SessionConfig,
+  type AssemblyError,
+  type AssemblyErrorKind,
+  type SessionConsent,
+  type SessionFromConfigOptions,
+  type SessionFromConfigResult,
+  type SessionOverrides,
   type PermissionsConfig,
   type SkillIndexEntry,
   type DeclaredMcpServer,

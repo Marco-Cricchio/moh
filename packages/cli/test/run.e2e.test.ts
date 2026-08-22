@@ -177,4 +177,21 @@ describe("moh run (e2e)", () => {
     expect(spawn(["run"]).code).toBe(2);
     expect(spawn(["run", "--nope", "x"]).code).toBe(2);
   });
+
+  test("broken provider reference is a visible error (no silent demo fallback, #100)", () => {
+    const { cwd, spawn } = harness();
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "no-such-endpoint/model" }));
+    const res = spawn(["run", "hello"]);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain("unknown provider");
+    expect(res.stdout.trim()).toBe(""); // nothing ran, no session events
+  });
+
+  test("invalid moh.json is a visible config error", () => {
+    const { cwd, spawn } = harness();
+    writeFileSync(join(cwd, "moh.json"), "{ not json");
+    const res = spawn(["run", "hello"]);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toBeTruthy();
+  });
 });

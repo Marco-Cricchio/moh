@@ -9,17 +9,17 @@ import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { Toasts, useToasts } from "../src/Toasts";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, unwrap } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("compact mode (issue #33)", () => {
   test("below 60 cols the footer keeps only essential keys and the placeholder shrinks", async () => {
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd: process.cwd(),
       home: mkdtempSync(join(tmpdir(), "moh-cmp-")),
       provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
-    });
+    }));
     const i = render(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
         <Chat session={session} mode="vibe" modelLabel="mock" />
@@ -43,11 +43,11 @@ describe("compact mode (issue #33)", () => {
   });
 
   test("at 80 cols the full footer and editor hint render", async () => {
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd: process.cwd(),
       home: mkdtempSync(join(tmpdir(), "moh-cmp-")),
       provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
-    });
+    }));
     const i = render(<Chat session={session} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
