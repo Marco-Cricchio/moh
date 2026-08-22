@@ -17,10 +17,9 @@ export class HttpConnection extends JsonRpcConnection {
     this.#headers = opts.headers ?? {};
   }
 
-  /** Captures the session id assigned by the server at initialize time. */
-
   protected async send(text: string): Promise<void> {
     // Streamable HTTP: each message is a POST; responses may be JSON or SSE.
+    // The session id assigned by the server at initialize time is captured below.
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
