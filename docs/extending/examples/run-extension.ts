@@ -35,7 +35,11 @@ const session = createSession({
   provider,
   cwd: process.cwd(),
   tools: builtinTools(),
-  permissions: { mode: "auto-accept" },
+  permissions: {
+    mode: "auto-accept",
+    // note: auto-accept only skips the user ask — an extension veto still
+    // applies (extensions can only restrict, never widen).
+  },
   extensions,
   sink: (event: AgentEvent) => console.log(JSON.stringify(event)),
 });
