@@ -6,11 +6,13 @@ import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "./permissions";
-import { persistMcpTrust, persistToolAllow } from "./config";
+import { persistMcpTrust } from "./config";
 import { McpRuntime, type McpRuntimeOptions } from "./mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
+import { EventLog } from "./session/event-log";
+import { PermissionGate } from "./session/permission-gate";
 import { SubagentHost, type SubagentOptions } from "./subagents";
 import { replayMessages, lastAssistantText } from "./session-store";
 import {
@@ -35,15 +37,13 @@ export class AgentSession {
   #tools: Record<string, Tool>;
   readonly #cwd: string;
   readonly #permissions: PermissionResolver;
-  readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
-  readonly #sink: SessionConfig["sink"] | undefined;
+  /** The permission gate (#90): 3-tier check + "always" persistence. */
+  readonly #gate: PermissionGate;
   readonly #extensions: ExtensionRuntime | undefined;
+  /** The append-only event log (#89): storage, sink, listeners, dispatch. */
+  readonly #eventLog: EventLog;
   #lastPrompt: AssembledPrompt | null = null;
-  /** Reentrancy guard: events appended while hooks dispatch are not re-dispatched. */
-  #dispatching = false;
-  /** Serial queue of events pending onEvent dispatch (never dropped). */
-  readonly #eventQueue: AgentEvent[] = [];
   #disposed = false;
   readonly #promptComposer: PromptComposer;
   #skills: SkillIndexEntry[];
@@ -53,9 +53,7 @@ export class AgentSession {
   /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
   readonly #mcp: McpRuntime | undefined;
   #promptVersion = "";
-  readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
-  readonly #listeners = new Set<(event: AgentEvent) => void>();
   #controller: AbortController | null = null;
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
   #usage = { inputTokens: 0, outputTokens: 0 };
@@ -91,8 +89,15 @@ export class AgentSession {
       mode,
       cwd: this.#cwd,
     });
-    this.#onPermissionRequest = config.onPermissionRequest;
     this.#onAskUser = config.onAskUser;
+    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    this.#gate = new PermissionGate({
+      permissions: this.#permissions,
+      extensions: config.extensions,
+      onPermissionRequest: config.onPermissionRequest,
+      cwd: this.#cwd,
+      append: (event) => this.#append(event),
+    });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created without this option.
     if (config.subagents) {
@@ -111,7 +116,6 @@ export class AgentSession {
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
-    this.#sink = config.sink;
     this.#extensions = config.extensions;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
@@ -155,7 +159,7 @@ export class AgentSession {
       // Resume (#31): the log continues in a new AgentSession over the same
       // persisted history. Seeded events are never re-appended (the file
       // already has them); only new events reach the sink.
-      for (const event of config.resume.events) this.#log.push(event);
+      this.#eventLog.seed(config.resume.events);
       this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
       for (const rule of runtimeRulesFromEvents(config.resume.events)) {
         this.#permissions.addRuntimeRule(rule);
@@ -226,35 +230,9 @@ export class AgentSession {
     for (const event of this.#extensions?.consumeLoadEvents() ?? []) this.#append(event);
   }
 
-  /** Append-only event log, replayable in memory. */
+  /** Replays the append-only log, then streams new events. */
   get events(): AsyncIterable<AgentEvent> {
-    let cursor = 0;
-    let notify: (() => void) | null = null;
-    const listener = () => notify?.();
-    this.#listeners.add(listener);
-    let done = false;
-    const self = this;
-    return {
-      [Symbol.asyncIterator]() {
-        return {
-          async next(): Promise<IteratorResult<AgentEvent>> {
-            if (cursor < self.#log.length) return { value: self.#log[cursor++]!, done: false };
-            if (done) return { value: undefined as never, done: true };
-            await new Promise<void>((resolve) => {
-              notify = resolve;
-            });
-            notify = null;
-            if (cursor < self.#log.length) return { value: self.#log[cursor++]!, done: false };
-            return { value: undefined as never, done: true };
-          },
-          async return() {
-            self.#listeners.delete(listener);
-            done = true;
-            return { value: undefined as never, done: true };
-          },
-        };
-      },
-    };
+    return this.#eventLog.events;
   }
 
   /** True while a turn is in flight (including one being steered away). */
@@ -264,7 +242,7 @@ export class AgentSession {
 
   /** Snapshot of the append-only event log. */
   history(): AgentEvent[] {
-    return [...this.#log];
+    return this.#eventLog.history();
   }
 
   /** Cumulative usage tokens reported by the provider, where exposed. */
@@ -481,7 +459,7 @@ export class AgentSession {
    * `memory_updated` event on success, silence otherwise.
    */
   #maybeExtractMemory(result: TurnResult): void {
-    this.#memory?.maybeExtract(result, this.#log, this.#disposed);
+    this.#memory?.maybeExtract(result, this.#eventLog.live(), this.#disposed);
   }
 
   /** Reassembles the system prompt for the next model call (#27). */
@@ -556,7 +534,7 @@ export class AgentSession {
       }
       args = parsed.data;
     }
-    const gate = await this.#gatePermission(call.name, call.callId, args);
+    const gate = await this.#gate.check(call.name, call.callId, args);
     if (!gate.allowed) {
       return { callId: call.callId, ok: false, output: gate.denial };
     }
@@ -579,107 +557,8 @@ export class AgentSession {
     }
   }
 
-  /**
-   * Resolves and enforces the 3-tier permission gate for one tool call.
-   * Returns a structured denial string on "deny"/headless-"ask" so the
-   * model sees the refusal as a failed tool_result.
-   */
-  async #gatePermission(
-    tool: string,
-    callId: string,
-    args: unknown,
-  ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
-    // Extension veto first (#34): veto > user rules > defaults, and it applies
-    // even in bypass mode — extensions can only restrict, never grant.
-    if (this.#extensions) {
-      const veto = await this.#extensions.checkToolVeto({ callId, name: tool, args });
-      for (const e of veto.errors) this.#append(e);
-      if (veto.veto) {
-        this.#append({ type: "permission_denied", callId, tool, reason: "extension" });
-        return {
-          allowed: false,
-          denial: `permission denied: ${tool} vetoed by extension${veto.by ? ` ${veto.by}` : ""}${veto.reason ? ` (${veto.reason})` : ""}`,
-        };
-      }
-    }
-    const decision = this.#permissions.resolve(tool, args);
-    if (decision === "deny") {
-      this.#append({ type: "permission_denied", callId, tool, reason: "rule" });
-      return { allowed: false, denial: `permission denied: ${tool} denied by permission rule` };
-    }
-    if (decision === "allow") return { allowed: true };
-
-    // "ask" decisions.
-    const mode = this.#permissions.mode;
-    if (mode === "bypass") {
-      this.#append({ type: "permission_granted", callId, tool, reason: "bypass" });
-      return { allowed: true };
-    }
-    if (mode === "auto-accept") {
-      this.#append({ type: "permission_granted", callId, tool, reason: "auto_accept" });
-      return { allowed: true };
-    }
-    if (!this.#onPermissionRequest) {
-      this.#append({ type: "permission_denied", callId, tool, reason: "headless" });
-      return {
-        allowed: false,
-        denial: `permission denied: ${tool} requires user consent (headless mode)`,
-      };
-    }
-    this.#append({ type: "permission_requested", callId, tool });
-    const answer = await this.#onPermissionRequest(tool, args);
-    if (answer === "no") {
-      this.#append({ type: "permission_denied", callId, tool, reason: "user" });
-      return { allowed: false, denial: `permission denied: ${tool} requires user consent` };
-    }
-    this.#append({ type: "permission_granted", callId, tool, reason: "user" });
-    if (answer === "always" && this.#permissions.persistable(tool, args)) {
-      const rule = this.#permissions.runtimeRuleFor(tool, args);
-      if (rule) {
-        this.#permissions.addRuntimeRule(rule);
-        this.#append({ type: "permission_rule_added", rule: { ...rule, tier: "runtime" } });
-      }
-      // MCP tools: "always" also persists to moh.json for future sessions (#15).
-      if (tool.startsWith("mcp__")) {
-        try {
-          persistToolAllow(join(this.#cwd, "moh.json"), tool);
-        } catch {
-          // no writable moh.json: the runtime rule still covers this session
-        }
-      }
-    }
-    return { allowed: true };
-  }
-
   #append(event: AgentEvent): void {
-    this.#log.push(event);
-    this.#sink?.(event);
-    for (const listener of this.#listeners) listener(event);
-    // onEvent hooks: dispatched serially, asynchronously; hook errors become
-    // extension_failed events (logged, but not re-dispatched while draining).
-    if (this.#extensions) {
-      // extension_failed events (hook errors) are terminal: dispatching them
-      // back to onEvent hooks would let a throwing hook loop forever.
-      if (event.type !== "extension_failed") {
-        this.#eventQueue.push(event);
-        this.#drainEventQueue();
-      }
-    }
-  }
-
-  #drainEventQueue(): void {
-    if (this.#dispatching || this.#eventQueue.length === 0 || !this.#extensions) return;
-    this.#dispatching = true;
-    const event = this.#eventQueue.shift()!;
-    void this.#extensions
-      .dispatchEvent(event)
-      .then((errors) => {
-        for (const e of errors) this.#append(e);
-      })
-      .finally(() => {
-        this.#dispatching = false;
-        this.#drainEventQueue();
-      });
+    this.#eventLog.append(event);
   }
 
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent. */
@@ -690,5 +569,8 @@ export class AgentSession {
     await this.#mcp?.shutdown();
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
+    // The end-of-session events were just queued: let the dispatch drain
+    // settle before the session is considered disposed.
+    await this.#eventLog.idle();
   }
 }

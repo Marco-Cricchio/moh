@@ -36,4 +36,5 @@
 ### Internal collaborators (ADR-0003)
 
 - **MemoryRunner** (`memory.ts`, #88) — the post-turn memory trigger inside `AgentSession`: counts completed turns, windows the transcript, runs the extractor with one retry, fail-silent but not lossy (a failed run keeps its turns eligible for the next trigger). Emits a single `memory_updated` event on success; `createMaintenanceExtractor` (the default extractor's maintenance subagent) lives beside it in `memory.ts`.
-- EventLog / TurnQueue / AgentLoop / ToolRunner / PermissionGate — planned collaborators of the session decomposition (#89–#92); names land in this glossary as each ticket merges.
+- **EventLog** (`session/event-log.ts`, #89) — the append-only session log inside `AgentSession`: in-memory storage, sink fan-out, the `events` async-iterator projection, and the serial extension dispatch queue (reentrancy guard; `extension_failed` is terminal and never re-dispatched). Resume seeding stores persisted events without re-appending them.
+- TurnQueue / AgentLoop / ToolRunner / PermissionGate — remaining planned collaborators of the session decomposition (#90–#92); names land in this glossary as each ticket merges.
