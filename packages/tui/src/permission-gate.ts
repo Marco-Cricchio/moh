@@ -4,7 +4,7 @@
  * `ask()`; the modal resolves the pending request with the user's answer.
  * "always" is handled inside the core (runtime rule + auditable event).
  */
-import { splitCommandSegments } from "@moh/core";
+import { formatRule, splitCommandSegments } from "@moh/core";
 import { truncate } from "./ui";
 
 export type PermissionAnswer = "yes" | "always" | "no";
@@ -22,8 +22,11 @@ export interface PermissionRequestView {
 export function describePermissionRequest(tool: string, args: unknown): PermissionRequestView {
   const a = (args ?? {}) as Record<string, unknown>;
   if (tool === "bash" && typeof a.command === "string") {
-    const segments = splitCommandSegments(a.command);
-    const rule = segments.length > 0 ? `bash: ${segments.map((s) => s.join(" ")).join(" ; ")} → allow` : null;
+    // Mirrors the core's runtimeRuleFor("always"): one flat token prefix
+    // over the whole (compound) command — the preview is exactly the rule
+    // "always" writes, in the canonical grammar.
+    const tokens = splitCommandSegments(a.command).flat();
+    const rule = tokens.length > 0 ? formatRule({ tier: "runtime", tool: "bash", effect: "allow", tokens }) : null;
     return { tool, args, detail: [`command: ${a.command}`], rulePreview: rule };
   }
   if (typeof a.path === "string") {
@@ -31,7 +34,7 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
       tool,
       args,
       detail: [`path: ${a.path}`],
-      rulePreview: `${tool} on ${a.path} → allow this session`,
+      rulePreview: formatRule({ tier: "runtime", tool, effect: "allow", path: a.path }),
     };
   }
   let rendered: string;
@@ -41,7 +44,7 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
     rendered = String(args);
   }
   rendered = truncate(rendered, 200);
-  return { tool, args, detail: rendered ? [rendered] : ["(no arguments)"], rulePreview: `${tool} → allow` };
+  return { tool, args, detail: rendered ? [rendered] : ["(no arguments)"], rulePreview: formatRule({ tier: "runtime", tool, effect: "allow" }) };
 }
 
 /** One-line argument summary for tool lines (shared with the TUI chat). */
