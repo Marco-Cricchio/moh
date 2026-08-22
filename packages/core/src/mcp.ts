@@ -14,9 +14,7 @@
  *   the session log as an `mcp_refused` event.
  */
 import { z } from "zod";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readUserConfigFile, userConfigFile } from "./user-config";
 import type { AgentEvent, Tool, ToolContext } from "./types";
 
 /** Handshake budget. A server that does not answer `initialize` in time fails. */
@@ -106,15 +104,10 @@ export function mcpToolName(server: string, tool: string): string {
 /**
  * Reads user-scope MCP servers from `~/.moh/config` (trusted, never ask).
  * Invalid entries are skipped: user chrome never hard-fails a session.
+ * Reads go through the config guardian (ADR-0006).
  */
-export function loadUserMcpServers(file = join(homedir(), ".moh", "config")): Record<string, McpServerEntry> {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    return {};
-  }
-  const servers = (raw as { mcpServers?: Record<string, unknown> })?.mcpServers;
+export function loadUserMcpServers(file = userConfigFile()): Record<string, McpServerEntry> {
+  const servers = readUserConfigFile(file).mcpServers;
   if (typeof servers !== "object" || servers === null) return {};
   const out: Record<string, McpServerEntry> = {};
   for (const [name, value] of Object.entries(servers)) {

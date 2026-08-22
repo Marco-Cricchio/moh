@@ -5,11 +5,11 @@
  * `restart` performs a manual restart check: it handshakes the server,
  * lists its tools and shuts it down again (no auto-restart exists).
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve as pathResolve } from "node:path";
-import {
+import { resolve as pathResolve, join } from "node:path";import {
   McpRuntime,
+  readUserConfigFile,
+  updateUserConfigFile,
+  userConfigFile,
   declaredMcpServers,
   declaredUserMcpServers,
   loadMohConfig,
@@ -47,30 +47,25 @@ export interface McpOptions {
   stderr?: NodeJS.WritableStream;
 }
 
-function userConfigFile(home?: string): string {
-  return join(home ?? homedir(), ".moh", "config");
-}
-
-/** Reads `mcpServers` from ~/.moh/config, preserving unrelated keys. */
-function readUserMcpServers(file: string): { entry: Record<string, McpServerEntry>; raw: Record<string, unknown> } {
-  let raw: Record<string, unknown> = {};
-  try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
-    return { entry: {}, raw: {} };
-  }
-  const servers = (raw as { mcpServers?: Record<string, unknown> }).mcpServers ?? {};
+/** Valid `mcpServers` entries from ~/.moh/config, via the config guardian. */
+function readUserMcpServers(file: string): Record<string, McpServerEntry> {
+  const servers = readUserConfigFile(file).mcpServers;
   const entry: Record<string, McpServerEntry> = {};
+  if (typeof servers !== "object" || servers === null) return entry;
   for (const [name, value] of Object.entries(servers)) {
     const ok = mcpServerEntrySchema.safeParse(value);
     if (ok.success) entry[name] = ok.data;
   }
-  return { entry, raw };
+  return entry;
 }
 
-function writeUserMcpServers(file: string, raw: Record<string, unknown>, servers: Record<string, McpServerEntry>): void {
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify({ ...raw, mcpServers: servers }, null, 2)}\n`);
+/** Read-modify-write of `mcpServers` through the guardian (preserves the rest). */
+function writeUserMcpServers(file: string, mutate: (servers: Record<string, McpServerEntry>) => void): void {
+  updateUserConfigFile(file, (data) => {
+    const servers = readUserMcpServers(file);
+    mutate(servers);
+    data.mcpServers = servers;
+  });
 }
 
 export async function mcpCommand(options: McpOptions): Promise<number> {
@@ -137,9 +132,9 @@ function addServer(argv: string[], cwd: string, home: string | undefined, out: N
   }
   if (parsed.booleans["user"]) {
     const file = userConfigFile(home);
-    const { entry: servers, raw } = readUserMcpServers(file);
-    servers[name] = entry;
-    writeUserMcpServers(file, raw, servers);
+    writeUserMcpServers(file, (servers) => {
+      servers[name] = entry;
+    });
   } else {
     const file = join(cwd, "moh.json");
     writeMohConfig(file, upsertMcpServer(loadMohConfig(file), name, entry));
@@ -165,10 +160,10 @@ function removeServer(argv: string[], cwd: string, home: string | undefined, out
       return 0;
     }
   }
-  const { entry: servers, raw } = readUserMcpServers(userFile);
-  if (servers[name]) {
-    delete servers[name];
-    writeUserMcpServers(userFile, raw, servers);
+  if (readUserMcpServers(userFile)[name]) {
+    writeUserMcpServers(userFile, (servers) => {
+      delete servers[name];
+    });
     out.write(`removed MCP server "${name}" from ${userFile}\n`);
     return 0;
   }
