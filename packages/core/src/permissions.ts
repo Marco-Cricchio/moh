@@ -34,6 +34,82 @@ export interface PermissionOverrides {
   pathDeny?: string[];
 }
 
+export class RuleError extends Error {}
+
+/**
+ * Canonical permission-rule string grammar (ADR-0007):
+ * `tool` (bare), `bash:<command prefix>` (shell-word tokens), or
+ * `<tool>:<path glob>` for write/edit and any path-arg tool. This is the
+ * ONE writable-and-reparseable form: shared by CLI flags, moh.json docs
+ * and the TUI's rule previews.
+ */
+
+/** Quotes a token containing shell-significant characters for `formatRule`. */
+function quoteToken(token: string): string {
+  if (!/[\s"'&|;]/.test(token)) return token;
+  // Prefer double quotes unless the token itself contains one the segment
+  // splitter can't escape; the grammar has no escaping (documented limit).
+  if (token.includes('"')) return `'${token}'`;
+  return `"${token}"`;
+}
+
+/** Formats one rule in the canonical grammar (`bash:git status`, `write:src/**`, `bash`). */
+export function formatRule(rule: PermissionRule): string {
+  if (rule.tokens) return `${rule.tool}:${rule.tokens.map(quoteToken).join(" ")}`;
+  if (rule.path) return `${rule.tool}:${rule.path}`;
+  return rule.tool;
+}
+
+/**
+ * Parses one rule string from the canonical grammar. Bare tools become
+ * tool-level rules; `bash:` prefixes become token-prefix rules; any other
+ * `tool:rest` becomes a path-glob rule (matcher shared by all path tools).
+ */
+export function parseRule(str: string, effect: RuleEffect, tier: PermissionTier = "config"): PermissionRule {
+  if (str === "") throw new RuleError(`empty ${effect} rule`);
+  const colon = str.indexOf(":");
+  if (colon === -1) {
+    return { tier, tool: str, effect };
+  }
+  const tool = str.slice(0, colon);
+  if (!tool) throw new RuleError(`invalid rule "${str}": missing tool`);
+  const rest = str.slice(colon + 1).trim();
+  if (tool === "bash") {
+    const segments = splitCommandSegments(rest);
+    const tokens = segments[0];
+    if (!tokens || segments.length > 1) {
+      throw new RuleError(
+        `invalid bash rule "${str}": expected a single command prefix (compound commands need one --allow per segment)`,
+      );
+    }
+    return { tier, tool: "bash", effect, tokens };
+  }
+  if (tool !== "bash" && !rest) throw new RuleError(`invalid rule "${str}": missing argument matcher`);
+  // Path-glob rule scoped to `tool`; overridesFromFlags widens it to the
+  // shared pathAllow/pathDeny lists (the resolver's `*` semantics).
+  return { tier, tool, effect, path: rest };
+}
+
+/** Builds full overrides from repeatable `--allow`/`--deny` flag values (CLI seam over the core grammar). */
+export function overridesFromFlags(allow: string[], deny: string[]): PermissionOverrides {
+  const merged: PermissionOverrides = {};
+  const absorb = (str: string, effect: RuleEffect): void => {
+    const rule = parseRule(str, effect);
+    if (rule.tokens) {
+      const key = effect === "allow" ? "bashAllow" : "bashDeny";
+      (merged[key] ??= []).push(rule.tokens);
+    } else if (rule.path) {
+      const key = effect === "allow" ? "pathAllow" : "pathDeny";
+      (merged[key] ??= []).push(rule.path);
+    } else {
+      (merged.tools ??= {})[rule.tool] = effect;
+    }
+  };
+  for (const str of allow) absorb(str, "allow");
+  for (const str of deny) absorb(str, "deny");
+  return merged;
+}
+
 /** Tier 1: built-in defaults. Read-only tools are allowed; mutating ones ask. */
 export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   read: "allow",

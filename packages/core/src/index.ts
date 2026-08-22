@@ -24,7 +24,15 @@ import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import { SessionStore } from "./session-store";
-import { splitCommandSegments, type PermissionOverrides, type PermissionRule } from "./permissions";
+import {
+  formatRule,
+  overridesFromFlags,
+  parseRule,
+  RuleError,
+  splitCommandSegments,
+  type PermissionOverrides,
+  type PermissionRule,
+} from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { type SubagentOptions } from "./subagents";
@@ -75,6 +83,10 @@ export {
   PromptComposer,
   SessionStore,
   splitCommandSegments,
+  formatRule,
+  parseRule,
+  overridesFromFlags,
+  RuleError,
   McpRuntime,
   mcpServerEntrySchema,
   loadMohConfig,
