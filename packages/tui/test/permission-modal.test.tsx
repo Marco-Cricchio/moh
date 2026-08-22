@@ -5,12 +5,12 @@ import { Box } from "ink";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, SessionStore, type Tool } from "@moh/core";
+import { MockProvider, SessionStore, type AgentSession, type Tool } from "@moh/core";
 import { Chat } from "../src/Chat";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate } from "../src/permission-gate";
 import { makeSession } from "../src/factory";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, unwrap } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -36,7 +36,7 @@ const script = () => [
   { deltas: ["ok two"], finish: "stop" as const },
 ];
 
-function Harness({ session, gate }: { session: ReturnType<typeof makeSession>["session"]; gate: PermissionGate }) {
+function Harness({ session, gate }: { session: AgentSession; gate: PermissionGate }) {
   return (
     <Box flexDirection="column">
       <Chat session={session} mode="dev" modelLabel="mock" />
@@ -52,14 +52,14 @@ describe("permission modal (issue #33)", () => {
     const store = SessionStore.create(cwd, home);
     const gate = new PermissionGate();
     const calls: string[] = [];
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd,
       home,
       store,
       provider: MockProvider.scripted(script()),
       tools: recordingBashTool(calls),
       onPermissionRequest: gate.ask,
-    });
+    }));
     const i = render(<Harness session={session} gate={gate} />);
     await sleep(30);
     i.stdin.write("go");
@@ -87,14 +87,14 @@ describe("permission modal (issue #33)", () => {
     const store = SessionStore.create(cwd, home);
     const gate = new PermissionGate();
     const calls: string[] = [];
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd,
       home,
       store,
       provider: MockProvider.scripted(script()),
       tools: recordingBashTool(calls),
       onPermissionRequest: gate.ask,
-    });
+    }));
     const i = render(<Harness session={session} gate={gate} />);
     await sleep(30);
     i.stdin.write("first");
@@ -110,7 +110,7 @@ describe("permission modal (issue #33)", () => {
     // Replay: a resumed session restores the runtime rule from the log and
     // the same command runs without asking again.
     const gate2 = new PermissionGate();
-    const resumed = makeSession({
+    const resumed = unwrap(makeSession({
       cwd,
       home,
       store,
@@ -118,7 +118,7 @@ describe("permission modal (issue #33)", () => {
       tools: recordingBashTool(calls),
       onPermissionRequest: gate2.ask,
       resumeEvents: store.load(),
-    });
+    }));
     expect(
       resumed.session.permissionRules.some((r) => r.tool === "bash" && r.effect === "allow"),
     ).toBe(true);
@@ -140,13 +140,13 @@ describe("permission modal (issue #33)", () => {
     const home = mkdtempSync(join(tmpdir(), "moh-perm-h-"));
     const gate = new PermissionGate();
     const calls: string[] = [];
-    const { session, store } = makeSession({
+    const { session, store } = unwrap(makeSession({
       cwd,
       home,
       provider: MockProvider.scripted(script()),
       tools: recordingBashTool(calls),
       onPermissionRequest: gate.ask,
-    });
+    }));
     const i = render(<Harness session={session} gate={gate} />);
     await sleep(30);
     i.stdin.write("go");

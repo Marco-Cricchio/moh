@@ -9,7 +9,7 @@ import { Home } from "../src/Home";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { MockProvider, createSession, SessionStore } from "@moh/core";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, unwrap } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-smoke-"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -19,7 +19,7 @@ describe("chat smoke (mock provider)", () => {
     const provider = MockProvider.scripted([
       { deltas: ["I keep a **diary** of it.\n\n", "- saved automatically\n", "- private"], finish: "stop" },
     ]);
-    const { session } = makeSession({ cwd: process.cwd(), home: tempHome(), provider });
+    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
     const i = render(<Chat session={session} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("where do you keep our conversation?");
@@ -38,7 +38,7 @@ describe("chat smoke (mock provider)", () => {
     const provider = MockProvider.scripted([
       { deltas: Array.from({ length: 20 }, () => "word "), finish: "stop", deltaDelayMs: 40 },
     ]);
-    const { session } = makeSession({ cwd: process.cwd(), home: tempHome(), provider });
+    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
     const i = render(<Chat session={session} mode="dev" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("go");
@@ -63,7 +63,7 @@ describe("chat smoke (mock provider)", () => {
       { deltas: Array.from({ length: 10 }, () => "x "), finish: "stop", deltaDelayMs: 40 },
       { deltas: ["second answer"], finish: "stop" },
     ]);
-    const { session } = makeSession({ cwd: process.cwd(), home: tempHome(), provider });
+    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
     const i = render(<Chat session={session} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("first");
@@ -84,7 +84,7 @@ describe("chat smoke (mock provider)", () => {
 
   test("dev mode shows the status line; vibe mode does not", async () => {
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
-    const { session } = makeSession({ cwd: process.cwd(), home: tempHome(), provider });
+    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
     const i = render(<Chat session={session} mode="dev" modelLabel="mock" />);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("mock · turn");
     i.rerender(<Chat session={session} mode="vibe" modelLabel="mock" />);
