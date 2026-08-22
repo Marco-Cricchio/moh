@@ -1,5 +1,9 @@
 # Authoring skills
 
+**Who this is for:** end users and either persona from the [intro](index.md)
+— skills are the lightest way to teach moh (and pi) new behavior, with no
+code at all.
+
 Skills in moh are **pi-compatible**: a skill is a directory containing a `SKILL.md` with YAML-ish frontmatter.
 
 ## Format
@@ -32,7 +36,7 @@ First-party skills shipped with moh are ordinary files copied into `~/.moh/skill
 
 ## Progressive disclosure
 
-Only the `name`—`description` pair enters the system prompt (via `PromptComposer`'s `skills` section). The full `SKILL.md` is never injected automatically — the agent reads it with the `read` tool on demand, when the description matches the task. Keep descriptions as trigger conditions ("Use when…"), and keep hot instructions short.
+Only the `name`—`description` pair enters the system prompt (via `PromptComposer`'s `skills` section, which also shows each skill's `SKILL.md` location). The full `SKILL.md` is never injected automatically — the agent reads it with the `read` tool on demand, when the description matches the task. Keep descriptions as trigger conditions ("Use when…"), and keep hot instructions short.
 
 Notes:
 
