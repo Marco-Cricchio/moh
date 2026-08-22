@@ -61,6 +61,7 @@ import {
   type TrackerIssue,
   type TrackerBackend,
 } from "./tracker";
+import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -92,6 +93,9 @@ export {
   trackerTools,
   projectFrontier,
   resolveTrackerSync,
+  readUserConfigFile,
+  updateUserConfigFile,
+  userConfigFile,
   defaultRegistry,
   resolveProvider,
   resolveProviderRef,
@@ -119,6 +123,7 @@ export {
   type ConnectionTestResult,
   type ConnectionTester,
   type UpstreamUpdate,
+  type UserConfigData,
   type TrackerIssue,
   type TrackerBackend,
   type AgentEvent,
