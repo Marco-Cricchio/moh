@@ -633,5 +633,8 @@ export class AgentSession {
     await this.#mcp?.shutdown();
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
+    // The end-of-session events were just queued: let the dispatch drain
+    // settle before the session is considered disposed.
+    await this.#eventLog.idle();
   }
 }

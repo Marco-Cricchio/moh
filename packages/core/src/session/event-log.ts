@@ -108,8 +108,10 @@ export class EventLog {
     if (this.#dispatching || this.#queue.length === 0 || !this.#extensions) return;
     this.#dispatching = true;
     const event = this.#queue.shift()!;
-    this.#dispatchTail = this.#dispatchTail
-      .then(() => this.#extensions!.dispatchEvent(event))
+    // Dispatch starts immediately (no extra microtask); the tail records the
+    // in-flight chain so idle() can await the full drain.
+    this.#dispatchTail = this.#extensions
+      .dispatchEvent(event)
       .then((errors) => {
         for (const e of errors) this.append(e);
       })
