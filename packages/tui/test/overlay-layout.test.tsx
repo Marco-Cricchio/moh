@@ -12,7 +12,7 @@ import { PermissionGate } from "../src/permission-gate";
 import { AskUserModal } from "../src/AskUserModal";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, unwrap } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,13 +62,13 @@ describe("overlay layout integrity over Chat", () => {
   test("ask_user overlay renders intact above a live Chat", async () => {
     const { cwd, home } = tempDirs();
     const gate = new AskUserGate();
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd,
       home,
       provider: MockProvider.scripted(askScript()),
       tools: builtinTools(),
       onAskUser: gate.ask,
-    });
+    }));
     const i = render(
       <Box flexDirection="column">
         <Chat session={session} mode="dev" modelLabel="mock" />
@@ -96,13 +96,13 @@ describe("overlay layout integrity over Chat", () => {
   test("permission modal renders intact above a live Chat", async () => {
     const { cwd, home } = tempDirs();
     const gate = new PermissionGate();
-    const { session } = makeSession({
+    const { session } = unwrap(makeSession({
       cwd,
       home,
       provider: MockProvider.scripted(bashScript()),
       tools: builtinTools(),
       onPermissionRequest: gate.ask,
-    });
+    }));
     const i = render(
       <Box flexDirection="column">
         <Chat session={session} mode="dev" modelLabel="mock" />

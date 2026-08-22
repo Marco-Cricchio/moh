@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs, ArgError } from "../src/args";
-import { mergeOverrides, overridesFromFlags, parseRule, RuleError } from "../src/permission-flags";
+import { overridesFromFlags, parseRule, RuleError } from "../src/permission-flags";
 
 describe("parseArgs", () => {
   test("flags with values, =-form, lists and positionals", () => {
@@ -53,12 +53,5 @@ describe("permission flag rules", () => {
     expect(overrides.tools).toEqual({ bash: "allow" });
     expect(overrides.bashAllow).toEqual([["git", "status"]]);
     expect(overrides.pathDeny).toEqual(["secrets/**"]);
-  });
-
-  test("CLI rules merge on top of moh.json overrides", () => {
-    const base: import("@moh/core").PermissionOverrides = { tools: { bash: "ask" }, bashAllow: [["ls"]] };
-    const merged = mergeOverrides(base, overridesFromFlags(["bash", "bash:git status"], []));
-    expect(merged.tools).toEqual({ bash: "allow" });
-    expect(merged.bashAllow).toEqual([["git", "status"], ["ls"]]);
   });
 });

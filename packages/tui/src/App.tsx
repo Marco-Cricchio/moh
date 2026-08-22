@@ -3,7 +3,7 @@ import { useApp, useInput } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type Provider, type TrackerBackend } from "@moh/core";
+import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type AssemblyError, type Provider, type TrackerBackend } from "@moh/core";
 import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
@@ -77,8 +77,13 @@ export function App({
   const [themeTick, setThemeTick] = useState(0);
   const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
   const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd));
+  // startInChat assembles eagerly (tests, bare resume); a broken config is a
+  // visible error now — no silent demo fallback (ADR-0005).
+  const [initialSession] = useState(() =>
+    startInChat ? makeSession({ cwd, home, provider }) : null,
+  );
   const [session, setSession] = useState<AgentSession | null>(() =>
-    startInChat ? makeSession({ cwd, home, provider }).session : null,
+    initialSession && "session" in initialSession ? initialSession.session : null,
   );
 
   // First-run onboarding (#33): only when nothing is configured — an
@@ -119,6 +124,11 @@ export function App({
   const asking = askGate.current;
 
   const { toasts, push } = useToasts();
+  // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
+  useEffect(() => {
+    if (initialSession && "error" in initialSession) push(assemblyErrorToast(initialSession.error));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const blocked = pending !== null || asking !== null || overlay !== null;
 
   // Memory (#38): discreet indicator only — a brief toast, never chat noise.
@@ -180,6 +190,10 @@ export function App({
       made = makeSession({ ...base, store, resumeEvents: store.load() });
     } else {
       made = makeSession(base);
+    }
+    if ("error" in made) {
+      push(assemblyErrorToast(made.error));
+      return;
     }
     setSession(made.session);
     if (initialPrompt) void made.session.send(initialPrompt);
@@ -345,6 +359,15 @@ function OverlayLayer({ children }: { children: React.ReactNode }) {
       {children}
     </Box>
   );
+}
+
+/** Visible assembly failure (ADR-0005): what the user sees instead of a silent demo swap. */
+function assemblyErrorToast(error: AssemblyError): string {
+  const hint =
+    error.kind === "provider"
+      ? " · re-run onboarding (ctrl+k → onboarding) or fix the provider in moh.json"
+      : " · fix moh.json and retry";
+  return `session error (${error.kind}): ${error.message}${hint}`;
 }
 
 /** A `provider` reference in the project's moh.json (invalid = not configured). */
