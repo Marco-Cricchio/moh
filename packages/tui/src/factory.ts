@@ -10,6 +10,7 @@
 import {
   SessionStore,
   builtinTools,
+  loadMohConfig,
   resolveTrackerSync,
   trackerTools,
   sessionFromConfig,
@@ -24,7 +25,6 @@ import {
 } from "@moh/core";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig } from "@moh/core";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -87,7 +87,9 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
   });
 }
 
-/** moh.json for the project; null when absent/unreadable (zero-config). */
+/** moh.json for the project; null when absent/unreadable. Display-only
+ * (the status-line label): a broken config still surfaces loudly at session
+ * assembly (`sessionFromConfig`), this just keeps the chrome from crashing. */
 function readMohConfigFor(cwd: string) {
   try {
     return loadMohConfig(join(cwd, "moh.json"));

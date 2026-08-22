@@ -174,3 +174,22 @@ describe("home smoke", () => {
     i.unmount();
   });
 });
+import { writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+
+describe("visible assembly error (#100, ADR-0005)", () => {
+  test("a broken provider reference surfaces as an error toast, not a silent demo session", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-tui-broken-"));
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-broken-h-"));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "no-such-endpoint/model" }));
+    const i = render(<App cwd={cwd} home={home} startInChat skipOnboarding />);
+    await sleep(120);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("session error (provider)");
+    expect(frame).toContain("unknown provider");
+    // The user is pointed at the fix instead of landing in a swapped demo chat.
+    expect(frame).toContain("onboarding");
+    i.unmount();
+  });
+});
