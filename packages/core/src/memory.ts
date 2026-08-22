@@ -25,7 +25,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { projectSlug } from "./session-store";
-import type { AgentEvent } from "./types";
+import type { AgentEvent, Provider, TurnResult } from "./types";
+import { PromptComposer } from "./prompt-composer";
+import { lastAssistantText } from "./session-store";
 
 /** One durable fact, filed under a short topic label. */
 export interface MemoryEntry {
@@ -402,4 +404,155 @@ export function parseMemoryEntries(text: string): MemoryEntry[] {
 /** Convenience for tests and clients building a scripted extractor. */
 export function scriptedExtractor(entries: MemoryEntry[]): MemoryExtractor {
   return async () => [...entries];
+}
+
+/**
+ * The default memory extractor (#38): the privileged maintenance
+ * subagent — an in-process child session invisible to the chat, never
+ * reachable through the `spawn` tool, with no tools and no memory of
+ * its own (no recursion). Fail-silent upstream: any error propagates
+ * to the caller, which retries once and then gives up quietly.
+ */
+export function createMaintenanceExtractor(provider: Provider, cwd: string): MemoryExtractor {
+  return async (input) => {
+    // Lazy: importing AgentSession statically would make memory.ts and
+    // session.ts a cycle (config.ts reads memoryConfigSchema at load).
+    const { AgentSession } = await import("./session");
+    const child = new AgentSession({
+      provider,
+      tools: {},
+      cwd,
+      promptComposer: new PromptComposer({ projectDir: cwd, basePrompt: MAINTENANCE_PROMPT }),
+    });
+    try {
+      const user = [
+        "# Existing memory",
+        input.memory || "(empty)",
+        "",
+        "# Existing topics",
+        input.topics.length ? input.topics.join(", ") : "(none)",
+        "",
+        "# Transcript (recent turns)",
+        input.transcript,
+        "",
+        "Extract durable cross-session facts per your rules. Respond with only the JSON array.",
+      ].join("\n");
+      const turn = await child.send(user);
+      if (turn.status !== "done") throw new Error(`maintenance subagent ended ${turn.status}`);
+      return parseMemoryEntries(lastAssistantText(child.history()));
+    } finally {
+      await child.dispose().catch(() => {});
+    }
+  };
+}
+
+/** What the runner needs from its host session (internal collaborator). */
+export interface MemoryRunnerOptions {
+  store: MemoryStore;
+  sessionId: string;
+  /** Extraction every N completed turns. Default 5. */
+  intervalTurns?: number;
+  /** Hard budget for the injected section, in tokens (~4 chars each). Default 2000. */
+  budgetTokens?: number;
+  extractor: MemoryExtractor;
+  /** Appends the `memory_updated` event to the session log. */
+  append: (event: AgentEvent) => void;
+  /** Called after a successful append (the host reassembles its prompt). */
+  onUpdated: () => void;
+}
+
+/**
+ * The post-turn memory trigger (#38), extracted from AgentSession
+ * (session-decomposition tracer bullet 1, issue #88): every N
+ * completed turns, extract durable facts via the extractor
+ * (invisible to the chat: one discreet `memory_updated` event on
+ * success, silence otherwise). One retry, then fail-silent. Skipped
+ * while a run is in flight; `pending` lets `dispose()` flush it.
+ */
+export class MemoryRunner {
+  readonly #store: MemoryStore;
+  readonly #sessionId: string;
+  readonly #interval: number;
+  readonly #budgetChars: number;
+  readonly #extractor: MemoryExtractor;
+  readonly #append: (event: AgentEvent) => void;
+  readonly #onUpdated: () => void;
+  #turns = 0;
+  #lastIdx = 0;
+  #busy = false;
+  #pending: Promise<void> | null = null;
+
+  constructor(opts: MemoryRunnerOptions) {
+    this.#store = opts.store;
+    this.#sessionId = opts.sessionId;
+    this.#interval = opts.intervalTurns ?? DEFAULT_MEMORY_INTERVAL_TURNS;
+    this.#budgetChars = (opts.budgetTokens ?? DEFAULT_MEMORY_BUDGET_TOKENS) * CHARS_PER_TOKEN;
+    this.#extractor = opts.extractor;
+    this.#append = opts.append;
+    this.#onUpdated = opts.onUpdated;
+  }
+
+  /** A pending background run, if any (awaited by session dispose). */
+  get pending(): Promise<void> | null {
+    return this.#pending;
+  }
+
+  /** The memory excerpt for the system prompt, `undefined` when empty. */
+  excerpt(): string | undefined {
+    return this.#store.read(this.#budgetChars) || undefined;
+  }
+
+  /** Fire-and-forget after each completed turn — never blocks the turn.
+   * `events` must be the host's live log (the same array instance across
+   * calls) so `#lastIdx` windowing stays valid. */
+  maybeExtract(result: TurnResult, events: ReadonlyArray<AgentEvent>, disposed: boolean): void {
+    if (result.status !== "done" || this.#busy || disposed) return;
+    this.#turns += 1;
+    if (this.#turns % this.#interval !== 0) return;
+    const startIdx = this.#lastIdx;
+    const transcript = memoryTranscript(events, startIdx);
+    this.#lastIdx = events.length;
+    if (!transcript.trim()) return;
+    const store = this.#store;
+    const extractor = this.#extractor;
+    this.#busy = true;
+    const run = (async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const entries = await extractor({
+            transcript,
+            topics: store.topics(),
+            memory: store.read(this.#budgetChars),
+          });
+          if (entries.length === 0) return;
+          await store.append(entries, this.#sessionId);
+          this.#append({
+            type: "memory_updated",
+            entries: entries.length,
+            topics: [...new Set(entries.map((e) => e.topic))],
+          });
+          this.#onUpdated();
+          // Consolidation is the same maintenance run's privilege: newest-wins
+          // dedup with a dated note; unchanged topics are not rewritten. Its
+          // failure never hides the appended facts (dedup catches up next run).
+          try {
+            await store.consolidate(this.#sessionId);
+          } catch {
+            // fail-silent
+          }
+          return;
+        } catch {
+          if (attempt === 1) {
+            // Fail-silent, but not lossy: the unprocessed turns stay eligible
+            // for the next trigger instead of being skipped forever.
+            this.#lastIdx = startIdx;
+            return;
+          }
+        }
+      }
+    })();
+    this.#pending = run.finally(() => {
+      this.#busy = false;
+    });
+  }
 }

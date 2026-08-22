@@ -32,3 +32,8 @@
 - **Base prompt** — the shipped identity/behavior section (English, "reply in the user's language"), overridable in full by a `prompts/system.md` file (`~/.moh` < `.moh`, project wins).
 - **MCP tool** — a tool exposed by an MCP server, registered as `mcp__<server>__<tool>` under the same Tool contract and permission spine as built-ins, with a stricter default: ask on first invocation.
 - **Subagent** — an in-process child AgentSession spawned via the `spawn` tool from a `SubagentSpec` (inline or a preset: built-in `research`/`implement`, overridable in moh.json `agents`). Strict-subset tool inheritance (MCP tools never inherited), depth 1, own JSONL log, own per-turn loop cap, parallel spawns capped (default 3); child failure surfaces as an error result and never fails the parent's turn.
+
+### Internal collaborators (ADR-0003)
+
+- **MemoryRunner** (`memory.ts`, #88) — the post-turn memory trigger inside `AgentSession`: counts completed turns, windows the transcript, runs the extractor with one retry, fail-silent but not lossy (a failed run keeps its turns eligible for the next trigger). Emits a single `memory_updated` event on success; `createMaintenanceExtractor` (the default extractor's maintenance subagent) lives beside it in `memory.ts`.
+- EventLog / TurnQueue / AgentLoop / ToolRunner / PermissionGate — planned collaborators of the session decomposition (#89–#92); names land in this glossary as each ticket merges.
