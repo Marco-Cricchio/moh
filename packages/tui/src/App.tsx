@@ -268,6 +268,7 @@ export function App({
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}
             blocked={overlayOpen}
+            listMax={config.homeListMax}
           />
         )}
         </Box>

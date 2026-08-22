@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { COMPACT_COLS, MEASURE, contentWidth, dialogWidth, widthClass, windowing } from "../src/viewport";
+import { COMPACT_COLS, HOME_LIST_DEFAULT, MEASURE, clampHomeListMax, contentWidth, dialogWidth, homeListCycleValues, visibleListHeight, widthClass, windowing } from "../src/viewport";
 
 describe("viewport width classes (issue #65)", () => {
   test("compact below 60, regular through the measure, wide beyond it", () => {
@@ -52,5 +52,31 @@ describe("windowing (issue #64)", () => {
     expect(windowing(10, 9, 0)).toEqual({ start: 9, count: 1, above: 9, below: 0 });
     expect(windowing(10, 0, -3)).toEqual({ start: 0, count: 1, above: 0, below: 9 });
     expect(windowing(0, 0, 4)).toEqual({ start: 0, count: 0, above: 0, below: 0 });
+  });
+});
+
+describe("home session-list geometry (#112)", () => {
+  test("clampHomeListMax coerces into 3..10, default 5", () => {
+    expect(HOME_LIST_DEFAULT).toBe(5);
+    expect(clampHomeListMax(undefined)).toBe(5);
+    expect(clampHomeListMax(3)).toBe(3);
+    expect(clampHomeListMax(10)).toBe(10);
+    expect(clampHomeListMax(1)).toBe(3);
+    expect(clampHomeListMax(99)).toBe(10);
+    expect(clampHomeListMax("7" as unknown)).toBe(7);
+    expect(clampHomeListMax("nope" as unknown)).toBe(5);
+  });
+
+  test("visibleListHeight: configured cap on normal terminals, floor 3 on small ones", () => {
+    expect(visibleListHeight(5, 24)).toBe(5);
+    expect(visibleListHeight(10, 40)).toBe(10);
+    expect(visibleListHeight(5, 10)).toBe(3);
+    const shrunk = visibleListHeight(10, 20);
+    expect(shrunk).toBeLessThan(10);
+    expect(shrunk).toBeGreaterThanOrEqual(3);
+  });
+
+  test("homeListCycleValues covers exactly 3..10", () => {
+    expect(homeListCycleValues()).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });

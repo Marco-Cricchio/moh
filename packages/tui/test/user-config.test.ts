@@ -49,6 +49,17 @@ describe("user config", () => {
     expect(cfg.theme).toBe("gruvbox"); // valid field survives
   });
 
+  test("homeListMax coerces into 3..10, default 5", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "moh-uc-")), "config");
+    expect(DEFAULT_USER_CONFIG.homeListMax).toBe(5);
+    saveUserConfig(DEFAULT_USER_CONFIG, file, (f, d) => {
+      const json = JSON.parse(d);
+      json.homeListMax = 99;
+      require("node:fs").writeFileSync(f, JSON.stringify(json));
+    });
+    expect(loadUserConfig(file).homeListMax).toBe(10);
+  });
+
   test("userConfigFile defaults to ~/.moh/config", () => {
     expect(userConfigFile().endsWith(join(".moh", "config"))).toBe(true);
     expect(userConfigFile("/tmp/h").endsWith(join(".moh", "config"))).toBe(true);

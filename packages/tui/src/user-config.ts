@@ -7,6 +7,7 @@
  * sections (`mcpServers`, future ones) survive TUI writes.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { clampHomeListMax, HOME_LIST_DEFAULT } from "./viewport";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile as coreUserConfigFile } from "@moh/core";
 import { DEFAULT_THEME, type ThemeName } from "./themes";
 
@@ -39,6 +40,8 @@ export interface UserConfig {
   permissionMode: DefaultPermissionMode;
   /** $EDITOR override for ctrl+e and permission "edit". */
   editor?: string;
+  /** Rows of the home recent-sessions list shown at once (3…10). */
+  homeListMax: number;
   workflow: WorkflowSettings;
   /** The first-run workflow offer was already shown (skip on later runs). */
   workflowOffered: boolean;
@@ -53,6 +56,7 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   answerLanguage: "auto",
   telemetry: false,
   permissionMode: "normal",
+  homeListMax: HOME_LIST_DEFAULT,
   workflow: { ...DEFAULT_WORKFLOW },
   workflowOffered: false,
 };
@@ -79,6 +83,7 @@ function coerce(raw: unknown): Partial<UserConfig> {
     out.permissionMode = src.permissionMode;
   }
   if (typeof src.editor === "string" && src.editor.trim() !== "") out.editor = src.editor.trim();
+  out.homeListMax = clampHomeListMax(src.homeListMax);
   if (typeof src.workflowOffered === "boolean") out.workflowOffered = src.workflowOffered;
   if (typeof src.workflow === "object" && src.workflow !== null) {
     const w = src.workflow as Record<string, unknown>;

@@ -3,7 +3,13 @@ import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
 import { Accent, Dim, Footer, Logo, truncate } from "./ui";
-import { useViewport, widthClass } from "./viewport";
+import {
+  HOME_LIST_DEFAULT,
+  visibleListHeight,
+  windowing,
+  widthClass,
+  useViewport,
+} from "./viewport";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
 import type { Mode } from "./Chat";
 
@@ -18,14 +24,18 @@ export interface HomeProps {
   onOpenCommands?: () => void;
   /** Modal overlays own input while open. */
   blocked?: boolean;
+  /** Visible rows of the recent-sessions list (user setting `homeListMax`). */
+  listMax?: number;
 }
 
 /**
  * Filter-first home (#14 Q6): one search/new-session prompt; the recent
  * sessions list filters live; enter resumes the selection (or starts the
- * typed prompt as a new session); `n` starts fresh.
+ * typed prompt as a new session); `n` starts fresh. "New session" is
+ * always the first row; the session list is capped at `listMax` visible
+ * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands, blocked = false }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -35,17 +45,20 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
   const [cursor, setCursor] = useState(0);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
   const hits = sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
-  const newOption = query.trim().length > 0;
-  const rows = newOption ? hits.length + 1 : hits.length;
-  const hitIndex = cursor - (newOption ? 1 : 0); // -1 = the "start new" row
+  // Row 0 is always "New session" (or "start <query>"); rows 1..n are hits.
+  const totalRows = 1 + hits.length;
+  // A narrower filter can leave the cursor past the end: clamp in render.
+  const cursorRow = Math.min(cursor, totalRows - 1);
+  const hitIndex = cursorRow - 1; // -1 = the new-session row
+  const win = windowing(hits.length, Math.max(hitIndex, 0), visibleListHeight(listMax, viewport.rows));
 
   useInput((input, key) => {
     if (blocked) return;
     if (input === "q" && query === "") return onExit(); // else "q" is just a search char
-    if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
-    if (key.downArrow) return setCursor((c) => Math.min(rows - 1, c + 1));
+    if (key.upArrow) return setCursor((c) => Math.max(0, Math.min(c, totalRows - 1) - 1));
+    if (key.downArrow) return setCursor((c) => Math.min(totalRows - 1, Math.max(c, 0) + 1));
     if (key.return || input === "\n") {
-      if (newOption && cursor === 0) return onOpen(null, query.trim());
+      if (cursorRow === 0) return onOpen(null, query.trim() || undefined);
       const hit = hits[hitIndex];
       if (hit) return onOpen(hit);
       return;
@@ -72,20 +85,20 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
       </Box>
       <Text> </Text>
       <Box flexDirection="column" width={boxW}>
-        {newOption && (
-          <Text color={cursor === 0 ? theme.bg : theme.accent} backgroundColor={cursor === 0 ? theme.accent : undefined}>
-            {` ${cursor === 0 ? ic("›", ">") : " "} start “${truncate(query.trim(), boxW - 14)}”` + (cursor === 0 ? " " : "")}
-          </Text>
-        )}
-        {hits.map((s, i) => {
-          const selected = i === hitIndex;
+        <Text color={cursorRow === 0 ? theme.bg : theme.accent} backgroundColor={cursorRow === 0 ? theme.accent : undefined}>
+          {` ${cursorRow === 0 ? ic("›", ">") : " "} ${query.trim() ? `start “${truncate(query.trim(), boxW - 16)}”` : "New session"}` + (cursorRow === 0 ? " " : "")}
+        </Text>
+        {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
+        {hits.slice(win.start, win.start + win.count).map((s, i) => {
+          const selected = win.start + i === hitIndex;
           return (
             <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
               {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 4)}`}
             </Text>
           );
         })}
-        {!newOption && hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
+        {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
+        {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         <Text> </Text>
         <Dim>{query ? "enter open · esc clear · ↑↓ select" : "type to filter or start new · n new session · s settings · ? keys"}</Dim>
       </Box>
