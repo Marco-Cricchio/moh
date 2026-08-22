@@ -60,6 +60,8 @@ moh init
 
 ## Documentation
 
+- `docs/extending/` — extending moh: writing extensions, embedding the
+  core as a library, authoring skills
 - `docs/spec/v1.md` — the consolidated v1 specification
 - `docs/principles.md` — the seven principles governing every change
 - `CONTEXT.md` — glossary of the domain model
