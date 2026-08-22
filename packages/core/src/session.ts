@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { AgentEvent, FinishReason, Message, Provider, TokenUsage, Tool, ToolCall, ToolContext, ToolSpec, TurnResult } from "./types";
+import type { AgentEvent, FinishReason, Message, Provider, TokenUsage, Tool, ToolCall, ToolSpec, TurnResult } from "./types";
 import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
@@ -13,6 +13,7 @@ import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
 import { EventLog } from "./session/event-log";
 import { PermissionGate } from "./session/permission-gate";
+import { ToolRunner } from "./session/tool-runner";
 import { SubagentHost, type SubagentOptions } from "./subagents";
 import { replayMessages, lastAssistantText } from "./session-store";
 import {
@@ -40,6 +41,8 @@ export class AgentSession {
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
   /** The permission gate (#90): 3-tier check + "always" persistence. */
   readonly #gate: PermissionGate;
+  /** Same-turn tool execution (#91): parallel run + gated execution. */
+  readonly #toolRunner: ToolRunner;
   readonly #extensions: ExtensionRuntime | undefined;
   /** The append-only event log (#89): storage, sink, listeners, dispatch. */
   readonly #eventLog: EventLog;
@@ -96,6 +99,15 @@ export class AgentSession {
       extensions: config.extensions,
       onPermissionRequest: config.onPermissionRequest,
       cwd: this.#cwd,
+      append: (event) => this.#append(event),
+    });
+    this.#toolRunner = new ToolRunner({
+      tools: () => this.#allTools(),
+      gate: this.#gate,
+      parallel: () => this.#provider.capabilities?.parallelToolCalls !== false,
+      cwd: this.#cwd,
+      skillDirs: () => this.#skillDirs,
+      ...(this.#onAskUser ? { onAskUser: this.#onAskUser } : {}),
       append: (event) => this.#append(event),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
@@ -440,6 +452,17 @@ export class AgentSession {
     return { status: "done" };
   }
 
+  /**
+   * Runs same-turn tool calls via the ToolRunner (#91) and feeds the
+   * results back as a user message the model sees for self-correction.
+   * Returns "aborted" if the turn was cancelled mid-execution.
+   */
+  async #runTools(calls: ToolCall[], signal: AbortSignal): Promise<"ok" | "aborted"> {
+    const { outcome, parts } = await this.#toolRunner.run(calls, signal);
+    this.#messages.push({ role: "user", parts });
+    return outcome;
+  }
+
   /** Append the completed model call to the log, if one is open (#83). */
   #flushModelCall(): void {
     const call = this.#pendingCall;
@@ -481,80 +504,9 @@ export class AgentSession {
     else this.#messages.unshift(systemMessage);
   }
 
-  /**
-   * Runs same-turn tool calls in parallel (Promise.allSettled), appends
-   * tool_call/tool_result events in completion order, and feeds results
-   * back as a user message the model sees for self-correction.
-   * Returns "aborted" if the turn was cancelled mid-execution.
-   */
-  async #runTools(calls: ToolCall[], signal: AbortSignal): Promise<"ok" | "aborted"> {
-    if (calls.length === 0) return "ok";
-    for (const call of calls) {
-      this.#append({ type: "tool_call", callId: call.callId, name: call.name, args: call.args });
-    }
-    // Append each tool_result the moment its promise settles, so the log
-    // reflects completion order; collect parts in that same order.
-    const resultParts: Message["parts"] = [];
-    const run = async (call: ToolCall) => {
-      const result = await this.#executeTool(call, signal);
-      this.#append({ type: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
-      resultParts.push({ kind: "tool_result", callId: result.callId, ok: result.ok, output: result.output });
-    };
-    // Capability downgrade: endpoints without parallelToolCalls run calls sequentially.
-    if (this.#provider.capabilities?.parallelToolCalls === false) {
-      for (const call of calls) await run(call);
-    } else {
-      await Promise.allSettled(calls.map(run));
-    }
-    this.#messages.push({ role: "user", parts: resultParts });
-    return signal.aborted ? "aborted" : "ok";
-  }
-
   /** Runtime permission rules active in this session (snapshot). */
   get permissionRules(): PermissionRule[] {
     return this.#permissions.rules;
-  }
-
-  async #executeTool(
-    call: ToolCall,
-    signal: AbortSignal,
-  ): Promise<{ callId: string; ok: boolean; output: string }> {
-    const tool = this.#allTools()[call.name];
-    if (!tool) {
-      return { callId: call.callId, ok: false, output: `unknown tool: ${call.name}` };
-    }
-    let args: unknown = call.args;
-    if (tool.inputSchema) {
-      const parsed = tool.inputSchema.safeParse(call.args);
-      if (!parsed.success) {
-        const issues = parsed.error.issues
-          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-          .join("; ");
-        return { callId: call.callId, ok: false, output: `invalid arguments for ${call.name}: ${issues}` };
-      }
-      args = parsed.data;
-    }
-    const gate = await this.#gate.check(call.name, call.callId, args);
-    if (!gate.allowed) {
-      return { callId: call.callId, ok: false, output: gate.denial };
-    }
-    const ctx: ToolContext = {
-      signal,
-      cwd: this.#cwd,
-      onProgress: () => {},
-      skillDirs: this.#skillDirs,
-      ...(this.#onAskUser ? { askUser: this.#onAskUser } : {}),
-    };
-    try {
-      const output = await tool.execute(args, ctx);
-      return { callId: call.callId, ok: true, output: String(output) };
-    } catch (err) {
-      return {
-        callId: call.callId,
-        ok: false,
-        output: err instanceof Error ? err.message : String(err),
-      };
-    }
   }
 
   #append(event: AgentEvent): void {
