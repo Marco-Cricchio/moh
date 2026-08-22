@@ -32,13 +32,7 @@ lives in the headless core; every client is thin.**
   subagents with strict tool inheritance, cross-session per-project memory
   consolidated by a maintenance subagent, lazy MCP servers.
 
-## Getting started
-
-```sh
-bun install
-bun test          # 340 tests
-bun run typecheck
-```
+## Use moh
 
 Run the TUI client and complete guided provider onboarding:
 
@@ -57,6 +51,20 @@ Scaffold agent docs for your repo (AGENTS.md + `docs/agents/` tracker layout):
 ```sh
 moh init
 ```
+
+## Hack on moh
+
+The repo builds and tests with Bun:
+
+```sh
+bun install
+bun test          # 378 tests
+bun run typecheck
+```
+
+Before changing anything, read `docs/principles.md` — the seven principles
+govern every change, and a change that violates one needs an explicit ADR
+saying why. Decisions are recorded, not implied: see `docs/adr/`.
 
 ## Documentation
 
