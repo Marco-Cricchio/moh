@@ -1,25 +1,24 @@
 /**
- * Session factory for the TUI: resolves the provider like `moh run`
- * (explicit provider > moh.json provider/endpoint > mock demo) and wires
- * persistence to a SessionStore.
+ * Session factory for the TUI: a thin caller of the core's single
+ * assembly path (`sessionFromConfig`, ADR-0005). The TUI contributes
+ * only what is its own: the permission/ask-user modal seams, the MCP
+ * consent route through the same permission modal, tracker tools in
+ * workflow mode, and the first-party skill filter. There is no silent
+ * demo fallback anymore — a broken moh.json surfaces as a visible
+ * `{ error }` result the App reports to the user.
  */
 import {
-  MockProvider,
   SessionStore,
   builtinTools,
-  createSession,
-  declaredMcpServers,
-  declaredUserMcpServers,
   loadMohConfig,
-  resolveProvider,
   resolveTrackerSync,
   trackerTools,
+  sessionFromConfig,
   type AgentEvent,
   type AgentSession,
   type AskUserQuestion,
   type AskUserResult,
-  type DeclaredMcpServer,
-  type MohConfig,
+  type AssemblyError,
   type Provider,
   type Tool,
   type TrackerBackend,
@@ -50,80 +49,53 @@ export interface OpenSessionOptions {
   tracker?: TrackerBackend | null;
 }
 
-/** moh.json for the project; null when absent/unreadable (zero-config mock). */
-function readMohConfigFor(cwd: string): MohConfig | null {
+export type MakeSessionResult =
+  | { session: AgentSession; store: SessionStore }
+  | { error: AssemblyError };
+
+export function makeSession(options: OpenSessionOptions): MakeSessionResult {
+  const tracker =
+    options.tracker !== undefined ? options.tracker : options.workflow ? resolveTrackerSync({ cwd: options.cwd }) : null;
+  const tools = options.tools ?? {
+    ...builtinTools(),
+    ...(tracker ? trackerTools(tracker) : {}),
+  };
+  return sessionFromConfig({
+    cwd: options.cwd,
+    home: options.home,
+    provider: options.provider,
+    consent: {
+      // Project MCP servers ask consent on first use; the TUI reuses the
+      // same permission modal seam used for tool calls.
+      ...(options.onPermissionRequest
+        ? {
+            onPermissionRequest: options.onPermissionRequest,
+            onMcpTrust: (server: string) => options.onPermissionRequest!(`mcp__${server}`, {}),
+          }
+        : {}),
+      ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
+    },
+    overrides: {
+      tools,
+      // Workflow mode (#36): first-party skills join the index; off filters
+      // them out so base behavior stays untouched.
+      firstParty: options.workflow ? "include" : "exclude",
+      ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
+      ...(options.store ? { store: options.store } : {}),
+      ...(options.resumeEvents ? { resumeEvents: options.resumeEvents } : {}),
+    },
+  });
+}
+
+/** moh.json for the project; null when absent/unreadable. Display-only
+ * (the status-line label): a broken config still surfaces loudly at session
+ * assembly (`sessionFromConfig`), this just keeps the chrome from crashing. */
+function readMohConfigFor(cwd: string) {
   try {
     return loadMohConfig(join(cwd, "moh.json"));
   } catch {
     return null;
   }
-}
-
-/** Declared MCP servers: project (moh.json) first, then user (~/.moh/config). */
-export function declaredServersFor(cwd: string, home?: string): DeclaredMcpServer[] {
-  const config = readMohConfigFor(cwd);
-  const project = config ? declaredMcpServers(config) : [];
-  const user = declaredUserMcpServers(join(home ?? homedir(), ".moh", "config"));
-  return [...project, ...user];
-}
-
-export function makeSession(options: OpenSessionOptions): { session: AgentSession; store: SessionStore } {
-  const store = options.store ?? SessionStore.create(options.cwd, options.home);
-  const mcpServers = declaredServersFor(options.cwd, options.home);
-  const mohHome = join(options.home ?? homedir(), ".moh");
-  const tracker =
-    options.tracker !== undefined ? options.tracker : options.workflow ? resolveTrackerSync({ cwd: options.cwd }) : null;
-  const config = readMohConfigFor(options.cwd);
-  const tools = options.tools ?? {
-    ...builtinTools(),
-    ...(tracker ? trackerTools(tracker) : {}),
-  };
-  const session = createSession({
-    provider: options.provider ?? resolveDefaultProvider(options.cwd),
-    cwd: options.cwd,
-    tools,
-    // Workflow mode (#36): first-party skills join the index; off filters
-    // them out so base behavior stays untouched. Tracker tools join the
-    // registry under the same permission spine as any built-in.
-    mohHome,
-    firstParty: options.workflow ? "include" : "exclude",
-    ...(mcpServers.length
-      ? {
-          mcp: {
-            servers: mcpServers,
-            // Project servers ask consent on first use; the TUI reuses the
-            // same permission modal seam used for tool calls.
-            ...(options.onPermissionRequest
-              ? { onConsent: (server: string) => options.onPermissionRequest!(`mcp__${server}`, {}) }
-              : {}),
-          },
-        }
-      : {}),
-    ...(options.onPermissionRequest ? { onPermissionRequest: options.onPermissionRequest } : {}),
-    ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
-    ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
-    sink: (event) => store.append(event),
-    // Subagents (#13): presets from moh.json `agents` merge over the built-ins.
-    ...(config?.agents ? { subagents: { presets: config.agents } } : {}),
-    // Memory (#38): on by default (spec); the section injects and the
-    // maintenance subagent extracts post-turn, invisibly to the chat.
-    ...(config?.memory ? { memory: config.memory } : { memory: {} }),
-    ...(options.resumeEvents ? { resume: { events: options.resumeEvents } } : {}),
-  });
-  return { session, store };
-}
-
-/** moh.json `provider` reference, mock demo when nothing is configured. */
-export function resolveDefaultProvider(cwd: string): Provider {
-  const config = readMohConfigFor(cwd);
-  if (config) {
-    try {
-      return resolveProvider(config);
-    } catch {
-      // invalid provider reference: fall through to the mock demo
-    }
-  }
-  return MockProvider.demo();
 }
 
 /** Model label shown in the dev status line. */
