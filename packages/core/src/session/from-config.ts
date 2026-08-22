@@ -24,6 +24,7 @@ import { SessionStore } from "../session-store";
 import type { PermissionOverrides } from "../permissions";
 import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, Tool } from "../types";
 import { AgentSession } from "./session";
+import { userConfigFile } from "../user-config";
 import type { PermissionsConfig } from "./config";
 
 /** Why an assembly failed. `config`/`provider` are user-fixable; `session` is a startup validation error (e.g. duplicate MCP names). */
@@ -137,7 +138,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
   // Computed before the store exists so a throwing read leaves no orphan
   // session file behind.
-  const servers = [...declaredMcpServers(config), ...declaredUserMcpServers(join(mohHome, "config"))];
+  const servers = [...declaredMcpServers(config), ...declaredUserMcpServers(userConfigFile(home))];
 
   const store = o.store ?? SessionStore.create(options.cwd, home);
   let resumeEvents = o.resumeEvents;
