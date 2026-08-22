@@ -11,6 +11,7 @@ import { McpRuntime, type McpRuntimeOptions } from "./mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
+import { EventLog } from "./session/event-log";
 import { SubagentHost, type SubagentOptions } from "./subagents";
 import { replayMessages, lastAssistantText } from "./session-store";
 import {
@@ -37,13 +38,10 @@ export class AgentSession {
   readonly #permissions: PermissionResolver;
   readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
-  readonly #sink: SessionConfig["sink"] | undefined;
   readonly #extensions: ExtensionRuntime | undefined;
+  /** The append-only event log (#89): storage, sink, listeners, dispatch. */
+  readonly #eventLog: EventLog;
   #lastPrompt: AssembledPrompt | null = null;
-  /** Reentrancy guard: events appended while hooks dispatch are not re-dispatched. */
-  #dispatching = false;
-  /** Serial queue of events pending onEvent dispatch (never dropped). */
-  readonly #eventQueue: AgentEvent[] = [];
   #disposed = false;
   readonly #promptComposer: PromptComposer;
   #skills: SkillIndexEntry[];
@@ -53,9 +51,7 @@ export class AgentSession {
   /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
   readonly #mcp: McpRuntime | undefined;
   #promptVersion = "";
-  readonly #log: AgentEvent[] = [];
   readonly #messages: Message[] = [];
-  readonly #listeners = new Set<(event: AgentEvent) => void>();
   #controller: AbortController | null = null;
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
   #usage = { inputTokens: 0, outputTokens: 0 };
@@ -93,6 +89,7 @@ export class AgentSession {
     });
     this.#onPermissionRequest = config.onPermissionRequest;
     this.#onAskUser = config.onAskUser;
+    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created without this option.
     if (config.subagents) {
@@ -111,7 +108,6 @@ export class AgentSession {
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
-    this.#sink = config.sink;
     this.#extensions = config.extensions;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
@@ -155,7 +151,7 @@ export class AgentSession {
       // Resume (#31): the log continues in a new AgentSession over the same
       // persisted history. Seeded events are never re-appended (the file
       // already has them); only new events reach the sink.
-      for (const event of config.resume.events) this.#log.push(event);
+      this.#eventLog.seed(config.resume.events);
       this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
       for (const rule of runtimeRulesFromEvents(config.resume.events)) {
         this.#permissions.addRuntimeRule(rule);
@@ -226,35 +222,9 @@ export class AgentSession {
     for (const event of this.#extensions?.consumeLoadEvents() ?? []) this.#append(event);
   }
 
-  /** Append-only event log, replayable in memory. */
+  /** Replays the append-only log, then streams new events. */
   get events(): AsyncIterable<AgentEvent> {
-    let cursor = 0;
-    let notify: (() => void) | null = null;
-    const listener = () => notify?.();
-    this.#listeners.add(listener);
-    let done = false;
-    const self = this;
-    return {
-      [Symbol.asyncIterator]() {
-        return {
-          async next(): Promise<IteratorResult<AgentEvent>> {
-            if (cursor < self.#log.length) return { value: self.#log[cursor++]!, done: false };
-            if (done) return { value: undefined as never, done: true };
-            await new Promise<void>((resolve) => {
-              notify = resolve;
-            });
-            notify = null;
-            if (cursor < self.#log.length) return { value: self.#log[cursor++]!, done: false };
-            return { value: undefined as never, done: true };
-          },
-          async return() {
-            self.#listeners.delete(listener);
-            done = true;
-            return { value: undefined as never, done: true };
-          },
-        };
-      },
-    };
+    return this.#eventLog.events;
   }
 
   /** True while a turn is in flight (including one being steered away). */
@@ -264,7 +234,7 @@ export class AgentSession {
 
   /** Snapshot of the append-only event log. */
   history(): AgentEvent[] {
-    return [...this.#log];
+    return this.#eventLog.history();
   }
 
   /** Cumulative usage tokens reported by the provider, where exposed. */
@@ -481,7 +451,7 @@ export class AgentSession {
    * `memory_updated` event on success, silence otherwise.
    */
   #maybeExtractMemory(result: TurnResult): void {
-    this.#memory?.maybeExtract(result, this.#log, this.#disposed);
+    this.#memory?.maybeExtract(result, this.#eventLog.live(), this.#disposed);
   }
 
   /** Reassembles the system prompt for the next model call (#27). */
@@ -652,34 +622,7 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
-    this.#log.push(event);
-    this.#sink?.(event);
-    for (const listener of this.#listeners) listener(event);
-    // onEvent hooks: dispatched serially, asynchronously; hook errors become
-    // extension_failed events (logged, but not re-dispatched while draining).
-    if (this.#extensions) {
-      // extension_failed events (hook errors) are terminal: dispatching them
-      // back to onEvent hooks would let a throwing hook loop forever.
-      if (event.type !== "extension_failed") {
-        this.#eventQueue.push(event);
-        this.#drainEventQueue();
-      }
-    }
-  }
-
-  #drainEventQueue(): void {
-    if (this.#dispatching || this.#eventQueue.length === 0 || !this.#extensions) return;
-    this.#dispatching = true;
-    const event = this.#eventQueue.shift()!;
-    void this.#extensions
-      .dispatchEvent(event)
-      .then((errors) => {
-        for (const e of errors) this.#append(e);
-      })
-      .finally(() => {
-        this.#dispatching = false;
-        this.#drainEventQueue();
-      });
+    this.#eventLog.append(event);
   }
 
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent. */
