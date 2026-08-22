@@ -6,16 +6,8 @@ import { join } from "node:path";
 function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "moh-subagents-"));
 }
-import {
-  BUILTIN_AGENT_PRESETS,
-  DEFAULT_SUBAGENT_CONCURRENCY,
-  builtinTools,
-  createSession,
-  MockProvider,
-  type AgentEvent,
-  type SubagentResult,
-  type Tool,
-} from "../src/index";
+import { builtinTools, createSession, MockProvider, type AgentEvent, type Tool } from "../src/index";
+import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, type SubagentResult } from "../src/subagents";
 
 /** Collects parent events into an array for assertions. */
 function tap(session: { events: AsyncIterable<AgentEvent> }): AgentEvent[] {

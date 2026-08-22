@@ -5,6 +5,7 @@
 - **Core** — the headless library (`@moh/core`) that runs the agent loop. No UI, no global state.
 - **Client** — a consumer of the Core in-process: the TUI or the CLI. Never talks to providers directly.
 - **AgentSession** — one conversation instance inside the Core. Multi-instance by design; subagents are child sessions.
+- **Public-surface criterion (ADR-0004)** — `@moh/core`'s index exports only what a client (TUI/CLI/@moh/extension) or a user-facing config surface touches; everything else is internal, imported directly from its defining module (`session/config.ts` now owns `SessionConfig`/`PermissionsConfig`). Re-opening a closed export is an explicit ADR decision.
 - **Event log** — the append-only sequence of AgentEvents that *is* the session: source of streaming, persistence, and replay.
 - **AgentEvent** — a single entry in the event log (`session_start`, `user_message`, `assistant_delta`, `tool_call`, `tool_result`, `model_call`, `done`, `error`, `cancelled`, plus chrome like `permission_*`/`mcp_*`/`memory_updated`). `model_call` (#83) records which model served one provider call and its token usage; `done` carries the turn's usage totals and `models` rollup.
 - **Turn** — one send→stream→tools→reply cycle of the agent loop. Loop protection and errors are scoped per turn, not per session.

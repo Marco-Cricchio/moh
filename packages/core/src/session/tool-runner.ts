@@ -1,5 +1,5 @@
 import type { AgentEvent, Message, Tool, ToolContext, ToolCall } from "../types";
-import type { SessionConfig } from "../index";
+import type { SessionConfig } from "./config";
 
 /** The gate surface ToolRunner needs — satisfied by PermissionGate (#90). */
 export interface GateCheck {

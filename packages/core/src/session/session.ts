@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, Message, Provider, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
-import type { SessionConfig } from "../index";
+import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "../provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
 import { persistMcpTrust } from "../config";

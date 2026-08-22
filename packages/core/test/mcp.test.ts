@@ -2,14 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rmSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createSession,
-  McpError,
-  McpRuntime,
-  MockProvider,
-  type AgentEvent,
-  type DeclaredMcpServer,
-} from "../src/index";
+import { createSession, McpRuntime, MockProvider, type AgentEvent, type DeclaredMcpServer } from "../src/index";
+import { McpError } from "../src/mcp";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");
 

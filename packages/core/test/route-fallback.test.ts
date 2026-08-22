@@ -1,16 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import {
-  classifyStatus,
-  createRoute,
-  createSession,
-  disambiguate429,
-  Endpoint,
-  envApiKey,
-  MockProvider,
-  normalizeProviderError,
-  ProviderError,
-} from "../src/index";
-import type { Message, Provider, RouteTarget, StreamEvent } from "../src/index";
+import { createSession, MockProvider, type Provider } from "../src/index";
+import { createRoute, Endpoint, envApiKey } from "../src/route";
+import { classifyStatus, disambiguate429, normalizeProviderError } from "../src/provider-errors";
+import { ProviderError } from "../src/types";
+import type { Message, StreamEvent } from "../src/types";
+import type { RouteTarget } from "../src/route";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
