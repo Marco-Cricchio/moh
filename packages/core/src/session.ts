@@ -6,12 +6,13 @@ import { SCHEMA_VERSION } from "./types";
 import type { SessionConfig } from "./index";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "./provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "./permissions";
-import { persistMcpTrust, persistToolAllow } from "./config";
+import { persistMcpTrust } from "./config";
 import { McpRuntime, type McpRuntimeOptions } from "./mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "./prompt-composer";
 import { discoverSkills } from "./skills";
 import { ExtensionRuntime } from "./extensions";
 import { EventLog } from "./session/event-log";
+import { PermissionGate } from "./session/permission-gate";
 import { SubagentHost, type SubagentOptions } from "./subagents";
 import { replayMessages, lastAssistantText } from "./session-store";
 import {
@@ -36,8 +37,9 @@ export class AgentSession {
   #tools: Record<string, Tool>;
   readonly #cwd: string;
   readonly #permissions: PermissionResolver;
-  readonly #onPermissionRequest: SessionConfig["onPermissionRequest"];
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
+  /** The permission gate (#90): 3-tier check + "always" persistence. */
+  readonly #gate: PermissionGate;
   readonly #extensions: ExtensionRuntime | undefined;
   /** The append-only event log (#89): storage, sink, listeners, dispatch. */
   readonly #eventLog: EventLog;
@@ -87,9 +89,7 @@ export class AgentSession {
       mode,
       cwd: this.#cwd,
     });
-    this.#onPermissionRequest = config.onPermissionRequest;
-    this.#onAskUser = config.onAskUser;
-    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    this.#extensions = config.extensions;
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created without this option.
     if (config.subagents) {
@@ -108,6 +108,15 @@ export class AgentSession {
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
+    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    this.#gate = new PermissionGate({
+      permissions: this.#permissions,
+      extensions: config.extensions,
+      onPermissionRequest: config.onPermissionRequest,
+      cwd: this.#cwd,
+      append: (event) => this.#append(event),
+    });
+    this.#onAskUser = config.onAskUser;
     this.#extensions = config.extensions;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
@@ -526,7 +535,7 @@ export class AgentSession {
       }
       args = parsed.data;
     }
-    const gate = await this.#gatePermission(call.name, call.callId, args);
+    const gate = await this.#gate.check(call.name, call.callId, args);
     if (!gate.allowed) {
       return { callId: call.callId, ok: false, output: gate.denial };
     }
@@ -547,78 +556,6 @@ export class AgentSession {
         output: err instanceof Error ? err.message : String(err),
       };
     }
-  }
-
-  /**
-   * Resolves and enforces the 3-tier permission gate for one tool call.
-   * Returns a structured denial string on "deny"/headless-"ask" so the
-   * model sees the refusal as a failed tool_result.
-   */
-  async #gatePermission(
-    tool: string,
-    callId: string,
-    args: unknown,
-  ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
-    // Extension veto first (#34): veto > user rules > defaults, and it applies
-    // even in bypass mode — extensions can only restrict, never grant.
-    if (this.#extensions) {
-      const veto = await this.#extensions.checkToolVeto({ callId, name: tool, args });
-      for (const e of veto.errors) this.#append(e);
-      if (veto.veto) {
-        this.#append({ type: "permission_denied", callId, tool, reason: "extension" });
-        return {
-          allowed: false,
-          denial: `permission denied: ${tool} vetoed by extension${veto.by ? ` ${veto.by}` : ""}${veto.reason ? ` (${veto.reason})` : ""}`,
-        };
-      }
-    }
-    const decision = this.#permissions.resolve(tool, args);
-    if (decision === "deny") {
-      this.#append({ type: "permission_denied", callId, tool, reason: "rule" });
-      return { allowed: false, denial: `permission denied: ${tool} denied by permission rule` };
-    }
-    if (decision === "allow") return { allowed: true };
-
-    // "ask" decisions.
-    const mode = this.#permissions.mode;
-    if (mode === "bypass") {
-      this.#append({ type: "permission_granted", callId, tool, reason: "bypass" });
-      return { allowed: true };
-    }
-    if (mode === "auto-accept") {
-      this.#append({ type: "permission_granted", callId, tool, reason: "auto_accept" });
-      return { allowed: true };
-    }
-    if (!this.#onPermissionRequest) {
-      this.#append({ type: "permission_denied", callId, tool, reason: "headless" });
-      return {
-        allowed: false,
-        denial: `permission denied: ${tool} requires user consent (headless mode)`,
-      };
-    }
-    this.#append({ type: "permission_requested", callId, tool });
-    const answer = await this.#onPermissionRequest(tool, args);
-    if (answer === "no") {
-      this.#append({ type: "permission_denied", callId, tool, reason: "user" });
-      return { allowed: false, denial: `permission denied: ${tool} requires user consent` };
-    }
-    this.#append({ type: "permission_granted", callId, tool, reason: "user" });
-    if (answer === "always" && this.#permissions.persistable(tool, args)) {
-      const rule = this.#permissions.runtimeRuleFor(tool, args);
-      if (rule) {
-        this.#permissions.addRuntimeRule(rule);
-        this.#append({ type: "permission_rule_added", rule: { ...rule, tier: "runtime" } });
-      }
-      // MCP tools: "always" also persists to moh.json for future sessions (#15).
-      if (tool.startsWith("mcp__")) {
-        try {
-          persistToolAllow(join(this.#cwd, "moh.json"), tool);
-        } catch {
-          // no writable moh.json: the runtime rule still covers this session
-        }
-      }
-    }
-    return { allowed: true };
   }
 
   #append(event: AgentEvent): void {
