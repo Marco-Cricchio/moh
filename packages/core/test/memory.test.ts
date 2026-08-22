@@ -7,17 +7,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { AgentSession, MockProvider } from "../src/index";
 import {
-  AgentSession,
   MemoryStore,
-  MockProvider,
   createMaintenanceExtractor,
   memoryConfigSchema,
   memoryTranscript,
   parseMemoryEntries,
   type MemoryEntry,
   type MemoryExtractorInput,
-} from "../src";
+} from "../src/memory";
 import { SCHEMA_VERSION } from "../src/types";
 
 const TMP = join(import.meta.dir, "tmp-memory");

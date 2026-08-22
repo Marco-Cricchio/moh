@@ -16,13 +16,12 @@
  */
 import { z } from "zod";
 import {
-  Endpoint,
-  createRoute,
   createSession,
   type AgentEvent,
   type Provider,
   type Tool,
 } from "../src/index";
+import { Endpoint, createRoute } from "../src/route";
 
 interface Case {
   name: string;

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
 import { createSession, MockProvider } from "../src/index";
-import type { AskUserQuestion, AskUserResult, ToolContext } from "../src/index";
+import type { AskUserQuestion, AskUserResult } from "../src/index";
+import type { ToolContext } from "../src/types";
 
 const cwd = mkdtempSync(join(tmpdir(), "moh-askuser-"));
 const tools = builtinTools();

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createSession, MockProvider } from "../src/index";
-import type { Message, Provider, StreamEvent, Tool } from "../src/index";
+import { createSession, MockProvider, type Provider } from "../src/index";
+import type { Message, StreamEvent } from "../src/types";
+import type { Tool } from "../src/index";
 
 function echoTool(): Tool<{ text: string }> {
   return {

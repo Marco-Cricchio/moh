@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { builtinTools, createSession, MockProvider, PromptComposer, hashPrompt } from "../src/index";
-import type { Message, Provider } from "../src/index";
+import { builtinTools, createSession, MockProvider, PromptComposer } from "../src/index";
+import { hashPrompt } from "../src/prompt-composer";
+import type { Provider } from "../src/index";
+import type { Message } from "../src/types";
 
 describe("core agent loop", () => {
   test("send() on a scripted MockProvider streams text_delta events and ends with done", async () => {
