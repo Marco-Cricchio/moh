@@ -59,6 +59,8 @@ export const HEADER_ROWS = 2;
 export const GAP_ROWS = 1;
 /** Chip footer budget. */
 export const CHIP_ROWS = 1;
+/** Columns at which the sidebars switch from compact to full width. */
+export const SIDEBAR_FULL_COLS = DASHBOARD_COLS + 20;
 
 export type LayoutClass = "single" | "dashboard";
 
@@ -76,16 +78,19 @@ export interface SidebarWidths {
 
 /** Sidebar widths: compact near the threshold so the center column keeps room to breathe. */
 export function sidebarWidths(v: Viewport): SidebarWidths {
-  if (v.columns < DASHBOARD_COLS + 20) return { menu: 16, side: 24 };
+  if (v.columns < SIDEBAR_FULL_COLS) return { menu: 16, side: 24 };
   return { menu: 20, side: 30 };
 }
 
-/** Rows available to the panel row: the whole budget between header and chips. */
+/** Rows available to the panel row: the whole budget between header and chips.
+ * Floored at 1 so degenerate hosts (tiny rows) still render one panel row
+ * instead of a negative-height box. */
 export function bodyRows(v: Viewport): number {
   return Math.max(1, v.rows - HEADER_ROWS - GAP_ROWS - CHIP_ROWS);
 }
 
-/** Center-column width: the terminal minus both sidebars and the two gap columns. */
+/** Center-column width: the terminal minus both sidebars and one gap column
+ * on each side of the center (the horizontal counterpart of GAP_ROWS). */
 export function centerWidth(v: Viewport): number {
   if (layoutClass(v) === "single") return v.columns;
   const { menu, side } = sidebarWidths(v);
