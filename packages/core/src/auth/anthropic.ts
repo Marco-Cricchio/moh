@@ -124,18 +124,26 @@ function parseScopes(scope: string | undefined): string[] | undefined {
   return scopes && scopes.length > 0 ? scopes : undefined;
 }
 
+/** Whether the granted scopes are just user:inference (the long-lived
+ * inference-only variant) — recomputed from the response so the metadata
+ * stays truthful after a scope-expanding refresh. */
+function isInferenceOnlyGrant(scopes: string[] | undefined): boolean {
+  return scopes !== undefined && scopes.every((s) => s === ANTHROPIC_INFERENCE_SCOPE);
+}
+
 function toAuthToken(
   response: AnthropicTokenResponse,
   opts: { inferenceOnly: boolean; now: number },
 ): AuthToken {
   const account = response.account;
+  const scopes = parseScopes(response.scope);
   return {
     accessToken: response.access_token,
     ...(response.refresh_token ? { refreshToken: response.refresh_token } : {}),
     ...(response.expires_in !== undefined
       ? { expiresAt: opts.now + response.expires_in * 1000 }
       : {}),
-    ...(parseScopes(response.scope) ? { scopes: parseScopes(response.scope)! } : {}),
+    ...(scopes ? { scopes } : {}),
     ...(account && (account.uuid || account.email_address)
       ? {
           account: {
@@ -144,18 +152,21 @@ function toAuthToken(
           },
         }
       : {}),
-    grant: { inferenceOnly: opts.inferenceOnly },
+    grant: { inferenceOnly: opts.inferenceOnly && isInferenceOnlyGrant(scopes) },
     updatedAt: opts.now,
   };
 }
 
 /**
  * Authorization-code exchange. With `inferenceOnly`, requests the
- * long-lived token (`scope=user:inference` + `expires_in`); if the server
- * rejects that request, retries once with the default scope set and no
- * `expires_in` — the silent fallback (spec decision 9). A server-side cap
- * on `expires_in` (success with a shorter lifetime) is accepted as-is:
- * the token simply rides normal refresh.
+ * long-lived token via a client-requested `expires_in`; if the server
+ * rejects that, retries once without it — the silent fallback to
+ * default-lifetime tokens (spec decision 9), same authorized scopes.
+ * (The exchange body carries no `scope`, mirroring Claude Code: scopes
+ * are fixed by the authorize request, and the code was issued for the
+ * loopback or manual redirect as raced in loginAnthropic.) A server-side
+ * cap on `expires_in` (success with a shorter lifetime) is accepted
+ * as-is: the token simply rides normal refresh.
  */
 export async function exchangeAnthropicCode(
   config: AnthropicOAuthConfig,
@@ -179,25 +190,24 @@ export async function exchangeAnthropicCode(
     code_verifier: opts.codeVerifier,
     state: opts.state,
   };
-  const attempt = async (inferenceOnly: boolean): Promise<{ status: number; json: Record<string, unknown> }> =>
+  const attempt = async (longLived: boolean): Promise<{ status: number; json: Record<string, unknown> }> =>
     fetchImpl(config.tokenUrl, {
       ...base,
-      ...(inferenceOnly
-        ? { scope: ANTHROPIC_INFERENCE_SCOPE, expires_in: config.inferenceExpiresIn }
-        : { scope: ANTHROPIC_SUBSCRIPTION_SCOPES.join(" ") }),
+      ...(longLived ? { expires_in: config.inferenceExpiresIn } : {}),
     });
 
-  let inferenceOnly = opts.inferenceOnly;
-  let result = await attempt(inferenceOnly);
-  if (inferenceOnly && result.status !== 200) {
-    // Server rejected the long-lived request (scope/expiry): silent fallback.
-    inferenceOnly = false;
+  let longLived = opts.inferenceOnly;
+  let result = await attempt(longLived);
+  if (longLived && result.status !== 200) {
+    // Server rejected the long-lived request: silent fallback — same code,
+    // same authorized scopes, default lifetime (normal refresh covers it).
+    longLived = false;
     result = await attempt(false);
   }
   if (result.status !== 200) {
     throw new Error(`Anthropic token exchange failed (${result.status}): ${JSON.stringify(result.json)}`);
   }
-  return toAuthToken(result.json as unknown as AnthropicTokenResponse, { inferenceOnly, now });
+  return toAuthToken(result.json as unknown as AnthropicTokenResponse, { inferenceOnly: opts.inferenceOnly, now });
 }
 
 /**
