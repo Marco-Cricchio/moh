@@ -59,6 +59,10 @@ export const HEADER_ROWS = 2;
 export const GAP_ROWS = 1;
 /** Chip footer budget. */
 export const CHIP_ROWS = 1;
+/** Guard row: a frame exactly as tall as the terminal trips Ink's fullscreen
+ * replay path (clear + full repaint on every tick, and a mid-repaint kill
+ * leaves a partial frame) — the dashboard stays one row short. */
+export const FULLSCREEN_GUARD_ROWS = 1;
 /** Columns at which the sidebars switch from compact to full width. */
 export const SIDEBAR_FULL_COLS = DASHBOARD_COLS + 20;
 
@@ -82,11 +86,11 @@ export function sidebarWidths(v: Viewport): SidebarWidths {
   return { menu: 20, side: 30 };
 }
 
-/** Rows available to the panel row: the whole budget between header and chips.
- * Floored at 1 so degenerate hosts (tiny rows) still render one panel row
- * instead of a negative-height box. */
+/** Rows available to the panel row: the whole budget between header and
+ * chips, minus the fullscreen guard. Floored at 1 so degenerate hosts
+ * (tiny rows) still render one panel row instead of a negative-height box. */
 export function bodyRows(v: Viewport): number {
-  return Math.max(1, v.rows - HEADER_ROWS - GAP_ROWS - CHIP_ROWS);
+  return Math.max(1, v.rows - HEADER_ROWS - GAP_ROWS - CHIP_ROWS - FULLSCREEN_GUARD_ROWS);
 }
 
 /** Center-column width: the terminal minus both sidebars and one gap column
@@ -95,6 +99,33 @@ export function centerWidth(v: Viewport): number {
   if (layoutClass(v) === "single") return v.columns;
   const { menu, side } = sidebarWidths(v);
   return v.columns - menu - side - 2;
+}
+
+// ── Chat window geometry (T5, issue #117) ─────────────────────────────────
+
+/** Rows the Chat column spends on its own chrome: header row, three spacer
+ * rows, the bordered input box (3), the footer keybind line — plus one guard
+ * row: a frame exactly as tall as the terminal trips Ink's fullscreen replay
+ * path (clear + full repaint every tick), so the column stays one row short. */
+export const CHAT_CHROME_ROWS = 9;
+/** The transcript window never shrinks below this, however tiny the terminal. */
+export const CHAT_WINDOW_MIN_ROWS = 3;
+
+/** Fixed transcript-window height (spec D4): the column budget minus the
+ * chat chrome, shrunk by extra draft lines so a multiline input never makes
+ * the frame exceed the terminal (the terminal never scrolls in-session). */
+export function chatWindowRows(v: Viewport, inputLines = 1): number {
+  const total = layoutClass(v) === "dashboard" ? bodyRows(v) : v.rows;
+  const extra = Math.max(0, (Math.max(1, inputLines) - 1));
+  return Math.max(CHAT_WINDOW_MIN_ROWS, total - CHAT_CHROME_ROWS - extra);
+}
+
+/** Wrapping width for transcript lines (spec D4): the chat column minus its
+ * in-box chrome — the leading speaker-label column and the box padding
+ * (paddingX 1 each side). All line geometry derives from the seam, never
+ * from ad-hoc subtraction at call sites. */
+export function chatWrapWidth(width: number): number {
+  return Math.max(10, width - 4);
 }
 
 export type WidthClass = "compact" | "regular" | "wide";
