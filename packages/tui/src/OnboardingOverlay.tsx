@@ -367,7 +367,9 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       )}
       {phase.kind === "sub-login" && (
         <>
-          {phase.error ? (
+          {(() => {
+            const pendingPrompt = authIo.current?.pendingPrompt ?? null;
+            return phase.error ? (
             <>
               <Text color={theme.warn}>✗ Login failed: {phase.error}</Text>
               <Text> </Text>
@@ -376,12 +378,12 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           ) : (
             <>
               {(authIo.current?.log ?? []).slice(-Math.max(3, budget - 4)).map((line, idx) => (
-                <Text key={`${idx}-${line.slice(0, 12)}`} wrap="truncate-middle">{` ${line}`}</Text>
+                <Text key={idx} wrap="truncate-middle">{` ${line}`}</Text>
               ))}
               <Text> </Text>
-              {authIo.current?.pendingPrompt ? (
+              {pendingPrompt ? (
                 <>
-                  <Text>{authIo.current.pendingPrompt}</Text>
+                  <Text>{pendingPrompt}</Text>
                   <Text>
                     <Text color={theme.accent}>{`› ${askValue.replace(/./g, "*")}`}</Text>
                     <Text color={theme.dim}>▊</Text>
@@ -391,9 +393,9 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
                 <Dim>waiting for authorization… (pasted codes are masked)</Dim>
               )}
               <Text> </Text>
-              <Dim>{authIo.current?.pendingPrompt ? "enter submit · esc empty line" : "s skip"}</Dim>
+              <Dim>{pendingPrompt ? "enter submit · esc empty line" : "s skip"}</Dim>
             </>
-          )}
+          );})()}
         </>
       )}
       {phase.kind === "wizard-text" && (
@@ -477,10 +479,21 @@ function submitField(
   if (phase.field === "model") {
     if (!value) return; // a model is required
     setWizard({ ...wizard, defaultModel: value });
-    // Subscription never asks for a key (tokens are already stored);
+    // Subscription never asks for a key (tokens are already stored) nor a
+    // base URL (the grant fixes the endpoints) — model, then the test.
     // openai-compat keeps its byte-identical model → key → base URL path.
-    const next = authKind === "subscription" ? "baseUrl" : "apiKey";
-    return setPhase({ kind: "wizard-text", field: next, value: "" });
+    if (authKind === "subscription") {
+      return setPhase({
+        kind: "test",
+        profile: {
+          name: wizard.name || wizard.type || "endpoint",
+          type: (wizard.type ?? "anthropic") as string,
+          auth: { kind: "subscription" },
+          defaultModel: value,
+        },
+      });
+    }
+    return setPhase({ kind: "wizard-text", field: "apiKey", value: "" });
   }
   if (phase.field === "apiKey") {
     setWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });

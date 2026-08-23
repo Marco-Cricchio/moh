@@ -32,10 +32,6 @@ const scriptedLogin = async (io: AuthorizationIo, code = "CODE-123"): Promise<Au
   return TOKEN;
 };
 
-function enterSubFlow(i: ReturnType<typeof render>, props: { login: (io: AuthorizationIo) => Promise<AuthToken>; opened: string[] }) {
-  void props;
-  void i;
-}
 
 describe("onboarding wizard — subscription branch (#149)", () => {
   test("auth-method step appears for anthropic but never for openai-compat", async () => {
@@ -122,9 +118,8 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     await sleep(60);
     i.stdin.write("\r");
     await sleep(60);
-    // Base URL offered (empty = default), then the connection test runs.
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Base URL");
-    i.stdin.write("\r");
+    // Model enter goes straight to the connection test (no key, no base URL).
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Testing connection");
     await sleep(150);
 
     expect(done).toEqual(["anthropic/claude-sonnet-4-5"]);
@@ -269,4 +264,3 @@ describe("onboarding wizard — subscription branch (#149)", () => {
   });
 });
 
-void enterSubFlow;
