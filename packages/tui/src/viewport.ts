@@ -94,11 +94,12 @@ export function bodyRows(v: Viewport): number {
 }
 
 /** Center-column width: the terminal minus both sidebars and one gap column
- * on each side of the center (the horizontal counterpart of GAP_ROWS). */
-export function centerWidth(v: Viewport): number {
+ * on each side of the center (the horizontal counterpart of GAP_ROWS). With
+ * the right sidebar hidden (vibe mode, spec D6) the center absorbs its width. */
+export function centerWidth(v: Viewport, rightSidebar = true): number {
   if (layoutClass(v) === "single") return v.columns;
   const { menu, side } = sidebarWidths(v);
-  return v.columns - menu - side - 2;
+  return v.columns - menu - (rightSidebar ? side : 0) - 2;
 }
 
 // ── Chat window geometry (T5, issue #117) ─────────────────────────────────
