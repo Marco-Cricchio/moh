@@ -91,6 +91,21 @@ import {
   readStoredTokens,
   saveTokens,
 } from "./auth/store";
+import {
+  TOS_WARNING,
+  base64url,
+  buildAuthorizeUrl,
+  confirmToSWarning,
+  generatePkce,
+  generateState,
+  raceForCode,
+  startLoopbackCallback,
+  type AuthorizationIo,
+  type CallbackServer,
+  type LoopbackOptions,
+  type PkcePair,
+  type RaceOptions,
+} from "./auth/oauth";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
