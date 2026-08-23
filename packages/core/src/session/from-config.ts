@@ -18,6 +18,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
+import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
 import { declaredUserMcpServers, type McpConsentAnswer } from "../mcp";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";
@@ -113,9 +114,14 @@ function assemblyError(kind: AssemblyErrorKind, e: unknown): { error: AssemblyEr
  * fallbacks.
  */
 export function sessionFromConfig(options: SessionFromConfigOptions): SessionFromConfigResult {
+  const home = options.home ?? homedir();
   let config: MohConfig;
   try {
-    config = options.config ?? loadMohConfig(join(options.cwd, "moh.json"));
+    const project = options.config ?? loadMohConfig(join(options.cwd, "moh.json"));
+    // User-level provider layering (#129): strict when the sections are
+    // present — a broken user config fails loudly like a broken moh.json.
+    const user = readUserProviderConfig(userConfigFile(home));
+    config = mergeProviderConfigs(project, user);
   } catch (e) {
     return assemblyError("config", e);
   }
@@ -132,7 +138,6 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   }
 
   const o = options.overrides ?? {};
-  const home = options.home ?? homedir();
   const mohHome = join(home, ".moh");
 
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).

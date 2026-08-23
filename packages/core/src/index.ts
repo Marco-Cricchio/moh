@@ -70,6 +70,15 @@ import {
   type TrackerBackend,
 } from "./tracker";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
+import {
+  loadMergedConfig,
+  mergeProviderConfigs,
+  readUserProviderConfig,
+  upsertUserEndpoint,
+  saveUserProviderRef,
+  type MergedConfigOptions,
+  type UserProviderConfig,
+} from "./provider-config";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -108,6 +117,13 @@ export {
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,
+  loadMergedConfig,
+  mergeProviderConfigs,
+  readUserProviderConfig,
+  upsertUserEndpoint,
+  saveUserProviderRef,
+  type MergedConfigOptions,
+  type UserProviderConfig,
   defaultRegistry,
   resolveProvider,
   resolveProviderRef,

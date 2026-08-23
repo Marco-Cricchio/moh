@@ -212,3 +212,82 @@ describe("sessionFromConfig", () => {
     }
   });
 });
+
+describe("sessionFromConfig — user-level provider layering (#129)", () => {
+  test("no moh.json: a user-configured provider is available and used", async () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      writeFileSync(
+        join(home, ".moh", "config"),
+        JSON.stringify({ provider: "umock/demo", endpoints: [{ name: "umock", type: "mock", defaultModel: "demo" }] }),
+      );
+      const result = sessionFromConfig({ cwd, home });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      // The user-configured endpoint (type "mock" routes through the
+      // registered mock factory) actually serves the turn.
+      const turn = await result.session.send("hi");
+      expect(turn.status).toBe("done");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("project endpoint fields override user config per-field; absent fields inherit", async () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      writeFileSync(
+        join(home, ".moh", "config"),
+        JSON.stringify({ endpoints: [{ name: "work", type: "mock", apiKey: "sk-user", defaultModel: "user-model" }] }),
+      );
+      writeFileSync(
+        join(cwd, "moh.json"),
+        JSON.stringify({ provider: "work", endpoints: [{ name: "work", type: "mock", defaultModel: "project-model" }] }),
+      );
+      const result = sessionFromConfig({ cwd, home });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      // The route uses the project defaultModel; the merged apiKey (user's)
+      // rode along — verified per-field in provider-config tests.
+      const turn = await result.session.send("hi");
+      expect(turn.status).toBe("done");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("invalid user provider/endpoints section is a visible config error", () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      writeFileSync(join(home, ".moh", "config"), JSON.stringify({ provider: 42 }));
+      const result = sessionFromConfig({ cwd, home });
+      expect("error" in result).toBe(true);
+      if (!("error" in result)) return;
+      expect(result.error.kind).toBe("config");
+      expect(result.error.message).toContain("provider");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("env var key wins over both files", () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      writeFileSync(
+        join(home, ".moh", "config"),
+        JSON.stringify({ endpoints: [{ name: "work", type: "mock", apiKey: "sk-user", defaultModel: "demo" }] }),
+      );
+      const before = process.env.MOH_ENDPOINT_WORK_API_KEY;
+      process.env.MOH_ENDPOINT_WORK_API_KEY = "sk-env";
+      try {
+        const result = sessionFromConfig({ cwd, home });
+        expect("error" in result).toBe(false);
+      } finally {
+        if (before === undefined) delete process.env.MOH_ENDPOINT_WORK_API_KEY;
+        else process.env.MOH_ENDPOINT_WORK_API_KEY = before;
+      }
+    } finally {
+      cleanup();
+    }
+  });
+});

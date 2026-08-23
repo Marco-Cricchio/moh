@@ -19,7 +19,7 @@ const capabilitiesSchema = z
   })
   .partial();
 
-const endpointProfileSchema = z.object({
+export const endpointProfileSchema = z.object({
   /** Endpoint name, unique in the file. Drives MOH_ENDPOINT_<NAME>_API_KEY. */
   name: z.string().min(1),
   /**
