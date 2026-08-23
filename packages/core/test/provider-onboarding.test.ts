@@ -204,3 +204,120 @@ describe("minimalConnectionTest", () => {
     expect(authHeader).toBe("absent");
   });
 });
+
+// --- Subscription branch (issue #138, spec decision 3) ---
+
+const fakeToken = () => ({
+  accessToken: "acc-xyz",
+  refreshToken: "ref-xyz",
+  updatedAt: 1_700_000_000_000,
+});
+
+describe("runProviderAdd (subscription branch)", () => {
+  test("subscription choice skips the key prompt, logs in, marks auth kind, stores tokens", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config`;
+    await Bun.write(authFile, "{}");
+    const io = ioWith([
+      "anthropic",       // type
+      "",                // name default
+      "subscription",    // auth method
+      "",                // baseUrl default
+      "claude-sonnet-4-5",
+    ]);
+    try {
+      const profile = await runProviderAdd(io, okTest(), {
+        authFile,
+        subscriptionLogin: async () => fakeToken(),
+      });
+      expect(profile.auth).toEqual({ kind: "subscription" });
+      expect("apiKey" in profile).toBe(false);
+      // tokens live in the user config auth section, never in the profile
+      const saved = JSON.parse(readFileSync(authFile, "utf8"));
+      expect(saved.auth.tokens.anthropic.accessToken).toBe("acc-xyz");
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
+  test("api-key choice keeps the byte-identical key prompt path", async () => {
+    const io = ioWith([
+      "anthropic",
+      "",
+      "api-key",
+      "sk-live",
+      "",
+      "claude-sonnet-4-5",
+    ]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile.auth).toBeUndefined();
+    expect(profile.apiKey).toBe("sk-live");
+  });
+
+  test("openai-compat never asks for an auth method (no subscription grant)", async () => {
+    const io = ioWith(["openai-compat", "", "", "http://localhost:11434/v1", "qwen3"]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile.auth).toBeUndefined();
+    expect(io.said.join("\n")).not.toContain("Auth method");
+  });
+
+  test("declined ToS aborts the subscription branch", async () => {
+    const io = ioWith(["anthropic", "", "subscription"]);
+    await expect(
+      runProviderAdd(io, okTest(), {
+        subscriptionLogin: async () => { throw new Error("nope"); },
+      }),
+    ).rejects.toThrow("nope");
+  });
+});
+
+describe("minimalConnectionTest (subscription)", () => {
+  test("anthropic subscription uses the stored access token with the oauth beta header", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config`;
+    await Bun.write(authFile, JSON.stringify({ auth: { tokens: { claude: fakeToken() } } }));
+    const profile: EndpointProfile = {
+      name: "claude",
+      type: "anthropic",
+      defaultModel: "claude-sonnet-4-5",
+      auth: { kind: "subscription" },
+    };
+    const calls: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: string, init: Record<string, unknown>) => {
+      calls.push(init);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await minimalConnectionTest(profile, fetchImpl, AbortSignal.timeout(1000), {}, authFile);
+      expect(result.ok).toBe(true);
+      const headers = calls[0]!.headers as Record<string, string>;
+      expect(headers["authorization"]).toBe("Bearer acc-xyz");
+      expect(headers["anthropic-beta"]).toBe("oauth-2025-04-20");
+      expect(headers["x-api-key"]).toBeUndefined();
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
+  test("subscription endpoint without stored tokens fails fast, no request sent", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config`;
+    await Bun.write(authFile, "{}");
+    const profile: EndpointProfile = {
+      name: "claude",
+      type: "anthropic",
+      defaultModel: "claude-sonnet-4-5",
+      auth: { kind: "subscription" },
+    };
+    let sent = 0;
+    const fetchImpl = (async () => {
+      sent += 1;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await minimalConnectionTest(profile, fetchImpl, AbortSignal.timeout(1000), {}, authFile);
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.error).toContain("moh provider login");
+      expect(sent).toBe(0);
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+});
