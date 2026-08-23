@@ -49,11 +49,6 @@ export function generateState(): string {
   return base64url(randomBytes(32));
 }
 
-/** Re-derives the S256 challenge from a verifier (server-side check). */
-export function verifyPkceChallenge(verifier: string, challenge: string): boolean {
-  return base64url(createHash("sha256").update(verifier).digest()) === challenge;
-}
-
 /** Builds an authorize URL with URL-encoded query params. */
 export function buildAuthorizeUrl(endpoint: string, params: Record<string, string>): string {
   const url = new URL(endpoint);
@@ -145,6 +140,16 @@ export function startLoopbackCallback(opts: LoopbackOptions): Promise<CallbackSe
       res.end("not found");
       return null;
     }
+    // Provider-side refusal (e.g. access_denied): fail fast instead of
+    // making the user wait out the whole timeout.
+    const errorParam = url.searchParams.get("error");
+    if (errorParam) {
+      res.statusCode = 400;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end(`authorization failed: ${errorParam}; you can close this tab.`);
+      shutdown(new Error(`authorization failed: ${errorParam}`));
+      return null;
+    }
     const codeParam = url.searchParams.get("code");
     const stateParam = url.searchParams.get("state");
     if (!codeParam || stateParam !== opts.state) {
@@ -198,30 +203,34 @@ export function startLoopbackCallback(opts: LoopbackOptions): Promise<CallbackSe
 }
 
 /** The I/O seam the race needs: what `OnboardingIo` grows for subscriptions. */
-export type AuthorizationIo = Pick<OnboardingIo, "ask" | "info"> & {
-  /** Best-effort browser open; may be absent or fail on headless boxes. */
-  openUrl?(url: string): Promise<boolean>;
-};
+export type AuthorizationIo = Pick<OnboardingIo, "ask" | "info" | "openUrl">;
 
 export interface RaceOptions {
-  /** A started loopback callback server (the automatic path). */
-  callback: CallbackServer;
   /**
-   * The manual authorize URL (hosted redirect page that displays a code,
-   * e.g. platform.claude.com/oauth/code/callback). Shown to the user
-   * alongside the browser attempt.
+   * The **automatic-path authorize URL**: the provider's authorize endpoint
+   * with `redirect_uri` = the loopback callback. This is what `openUrl`
+   * opens in the browser; on success the provider redirects to the
+   * loopback server, which delivers the code.
+   */
+  authorizeUrl: string;
+  /**
+   * The **manual authorize URL**: the same authorize request but with a
+   * hosted redirect page (e.g. platform.claude.com/oauth/code/callback)
+   * that displays a code to paste back. Shown to the user alongside the
+   * browser attempt — on a headless box this is the only usable path.
    */
   manualUrl: string;
+  /** Max paste attempts before falling back to callback-only. Default 2. */
+  pasteAttempts?: number;
 }
 
-/**
- * Reads the pasted code from `ask`, joining lines until an empty line —
- * long codes often arrive wrapped by the terminal.
- */
-async function readPastedCode(io: AuthorizationIo): Promise<string> {
+/** Reads the pasted code from `ask`, joining lines until an empty line —
+ * long codes often arrive wrapped by the terminal. Empty result = nothing
+ * was pasted. */
+async function readPastedCode(io: AuthorizationIo, prompt: string): Promise<string> {
   const parts: string[] = [];
   while (true) {
-    const line = (await io.ask(parts.length === 0 ? "Paste code here if prompted (empty line to finish): " : "")).trim();
+    const line = (await io.ask(parts.length === 0 ? prompt : "")).trim();
     if (line === "") break;
     parts.push(line);
   }
@@ -244,18 +253,22 @@ export const NO_CODE = "";
  * `Promise.race` on `callback.code` — Bun flags a raced promise's late
  * rejection as unhandled even when handlers are attached.
  */
-export async function raceForCode(io: AuthorizationIo, opts: RaceOptions): Promise<string> {
+export async function raceForCode(
+  io: AuthorizationIo,
+  opts: RaceOptions & { callback: CallbackServer },
+): Promise<string> {
   await io.info(
     `Authorize in your browser:\n  ${opts.manualUrl}\n` +
-        `If a code is shown instead of a redirect, paste it below.`,
-    );
+      `If a code is shown instead of a redirect, paste it below.`,
+  );
   if (io.openUrl) {
     try {
-      await io.openUrl(opts.callback.redirectUri);
+      await io.openUrl(opts.authorizeUrl);
     } catch {
       // Best-effort: headless boxes have no browser; the paste path covers them.
     }
   }
+  const attempts = opts.pasteAttempts ?? 2;
   return new Promise<string>((resolve) => {
     let settled = false;
     const finish = (code: string): void => {
@@ -263,16 +276,21 @@ export async function raceForCode(io: AuthorizationIo, opts: RaceOptions): Promi
       settled = true;
       resolve(code);
     };
-    // Rejection here = cancel/timeout: settle with NO_CODE so the caller
-    // can distinguish "nothing delivered" from a real (non-empty) code.
+    // Rejection here = cancel/timeout/provider error: settle with NO_CODE
+    // so the caller can distinguish "nothing delivered" from a real code.
     opts.callback.code.then(finish, () => finish(NO_CODE));
-    readPastedCode(io).then((pasted) => {
-      if (pasted !== "") {
-        opts.callback.cancel();
-        finish(pasted);
-      }
-      // Empty paste: nothing entered yet — keep waiting for the callback.
-    });
+    const tryPaste = (attempt: number): void => {
+      readPastedCode(io, "Paste code here if prompted (empty line to finish): ").then((pasted) => {
+        if (pasted !== "") {
+          opts.callback.cancel();
+          finish(pasted);
+        } else if (attempt + 1 < attempts) {
+          tryPaste(attempt + 1); // stray Enter: re-prompt (Google allows 2)
+        }
+        // Attempts exhausted: keep waiting for the callback branch above.
+      });
+    };
+    tryPaste(0);
   });
 }
 

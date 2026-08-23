@@ -100,7 +100,6 @@ import {
   generateState,
   raceForCode,
   startLoopbackCallback,
-  verifyPkceChallenge,
   type AuthorizationIo,
   type CallbackServer,
   type LoopbackOptions,

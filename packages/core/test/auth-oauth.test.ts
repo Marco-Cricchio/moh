@@ -10,7 +10,6 @@ import {
   generateState,
   raceForCode,
   startLoopbackCallback,
-  verifyPkceChallenge,
   type AuthorizationIo,
 } from "../src/auth/oauth";
 
@@ -65,12 +64,6 @@ describe("PKCE + state", () => {
     const s = generateState();
     expect(s).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(generateState()).not.toBe(s);
-  });
-
-  test("verifyPkceChallenge round-trip and rejection", () => {
-    const { verifier, challenge } = generatePkce();
-    expect(verifyPkceChallenge(verifier, challenge)).toBe(true);
-    expect(verifyPkceChallenge("tampered-verifier", challenge)).toBe(false);
   });
 
   test("base64url strips padding", () => {
@@ -158,7 +151,7 @@ describe("manual-paste race", () => {
     const io = ioDouble(["pasted-code", ""], { errorOnOpen: new Error("no browser") });
     const state = generateState();
     const server = await startLoopbackCallback({ state });
-    const code = await raceForCode(io, { callback: server, manualUrl: "https://host.example/callback-manual" });
+    const code = await raceForCode(io, { authorizeUrl: "https://host.example/authorize", callback: server, manualUrl: "https://host.example/callback-manual" });
     expect(code).toBe("pasted-code");
     expect(io.openedUrls).toHaveLength(1);
     expect(io.infos.join("\n")).toContain("https://host.example/callback-manual");
@@ -169,7 +162,7 @@ describe("manual-paste race", () => {
   test("multi-line paste is joined until the empty line", async () => {
     const io = ioDouble(["part1", "part2", "", ""]);
     const server = await startLoopbackCallback({ state: generateState() });
-    const code = await raceForCode(io, { callback: server, manualUrl: "https://m/cb" });
+    const code = await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     expect(code).toBe("part1part2");
   });
 
@@ -178,7 +171,7 @@ describe("manual-paste race", () => {
     const io = ioDouble(["", ""]);
     const state = generateState();
     const server = await startLoopbackCallback({ state });
-    const raced = raceForCode(io, { callback: server, manualUrl: "https://m/cb" });
+    const raced = raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     await fetch(`${server.redirectUri}?code=browser-code&state=${encodeURIComponent(state)}`);
     expect(await raced).toBe("browser-code");
   });
@@ -191,15 +184,39 @@ describe("manual-paste race", () => {
     };
     const state = generateState();
     const server = await startLoopbackCallback({ state });
-    const raced = raceForCode(io, { callback: server, manualUrl: "https://m/cb" });
+    const raced = raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     await fetch(`${server.redirectUri}?code=browser-code&state=${encodeURIComponent(state)}`);
     expect(await raced).toBe("browser-code");
+  });
+
+  test("openUrl receives the authorize URL, not the loopback redirect", async () => {
+    const io = ioDouble(["pasted", "", ""]);
+    const server = await startLoopbackCallback({ state: generateState() });
+    await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
+    expect(io.openedUrls).toEqual(["https://m/authorize"]);
+  });
+
+  test("a stray empty paste is re-prompted before falling back to the callback", async () => {
+    // First paste attempt: accidental empty line. Second attempt: the code.
+    const io = ioDouble(["", "second-attempt", ""]);
+    const server = await startLoopbackCallback({ state: generateState() });
+    const code = await raceForCode(io, { authorizeUrl: "https://m/a", callback: server, manualUrl: "https://m/cb" });
+    expect(code).toBe("second-attempt");
+  });
+
+  test("provider error param on the callback settles the race with NO_CODE", async () => {
+    const io = ioDouble([]);
+    const state = generateState();
+    const server = await startLoopbackCallback({ state });
+    const raced = raceForCode(io, { authorizeUrl: "https://m/a", callback: server, manualUrl: "https://m/cb" });
+    await fetch(`${server.redirectUri}?error=access_denied&state=${encodeURIComponent(state)}`);
+    expect(await raced).toBe("");
   });
 
   test("cancelled callback settles the race with NO_CODE", async () => {
     const io = ioDouble(["", ""]); // nothing pasted
     const server = await startLoopbackCallback({ state: generateState() });
-    const raced = raceForCode(io, { callback: server, manualUrl: "https://m/cb" });
+    const raced = raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     server.cancel();
     expect(await raced).toBe("");
   });
@@ -208,7 +225,7 @@ describe("manual-paste race", () => {
     const io = ioDouble(["pasted", ""]);
     delete (io as Partial<AuthorizationIo>).openUrl;
     const server = await startLoopbackCallback({ state: generateState() });
-    const code = await raceForCode(io, { callback: server, manualUrl: "https://m/cb" });
+    const code = await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     expect(code).toBe("pasted");
   });
 });
