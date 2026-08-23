@@ -33,9 +33,11 @@ export interface ChatProps {
   /** Column budget override (dashboard center column, #115); defaults to
    * the centered measure of the full viewport. */
   width?: number;
+  /** False while the dashboard menu owns the keyboard (#116). */
+  inputFocused?: boolean;
 }
 
-export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand, width }: ChatProps) {
+export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand, width, inputFocused = true }: ChatProps) {
   const theme = useTheme();
   const state = useSessionState(session);
   const viewport = useViewport();
@@ -151,6 +153,7 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
       <MultilineInput
         placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+e editor)"}
         disabled={blocked}
+        focused={inputFocused}
         onAskCommands={onOpenCommands}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;

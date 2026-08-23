@@ -6,6 +6,7 @@ import { bodyRows, centerWidth, sidebarWidths, useViewport } from "./viewport";
 
 /** Left menu entries (T4 wires focus + activation; T3 renders them inert). */
 export const MENU_ENTRIES = ["Dashboard", "Sessions", "Wayfinder", "Settings", "Help"] as const;
+export type MenuEntry = (typeof MENU_ENTRIES)[number];
 
 /** Footer keybind chips: icon + name, only keys that are live today. */
 export const CHIPS: ReadonlyArray<readonly [string, string]> = [
@@ -35,6 +36,8 @@ export interface DashboardProps {
   modelLabel: string;
   /** The center column (T3 placeholder: the current Chat, flexGrow). */
   children: React.ReactNode;
+  /** Index of the `❯` selection while the menu has focus (#116); null/undefined = input focus. */
+  menuSel?: number | null;
 }
 
 /**
@@ -45,7 +48,7 @@ export interface DashboardProps {
  * borders land on the same row without manual sibling-row arithmetic
  * (prototype lesson: let Yoga absorb the remainder).
  */
-export function Dashboard({ modelLabel, children }: DashboardProps) {
+export function Dashboard({ modelLabel, children, menuSel }: DashboardProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const { menu, side } = sidebarWidths(viewport);
@@ -73,9 +76,13 @@ export function Dashboard({ modelLabel, children }: DashboardProps) {
           <Text bold underline>
             Menu
           </Text>
-          {MENU_ENTRIES.map((entry) => (
-            <Dim key={entry}>{`  ${entry}`}</Dim>
-          ))}
+          {MENU_ENTRIES.map((entry, i) =>
+            menuSel === i ? (
+              <Text key={entry} color={theme.accent} bold>{`❯ ${entry}`}</Text>
+            ) : (
+              <Dim key={entry}>{`  ${entry}`}</Dim>
+            ),
+          )}
         </Box>
         <Box flexDirection="column" width={centerWidth(viewport)} height={rows}>
           {children}
