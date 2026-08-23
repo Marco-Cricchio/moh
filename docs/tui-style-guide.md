@@ -51,11 +51,11 @@ Each turn renders as one **single-box MsgBox** (label row inside the box, no dou
 
 ## 5. Color & theming
 
-**Semantic tokens only** — components never use raw hex. Token set: `accent, dim, ok, warn, purple, border, bg`.
+**Semantic tokens only** — components never use raw hex. Token set: `fg, accent, dim, ok, warn, purple, border, bg`.
 
-Roles: `accent` = user + interactive affordances (blue family); `purple` = moh/assistant; `dim` = 60–70% of screen text (chrome, secondary data, footers); `ok/warn` = semantic state, max one use per screen; truecolor with automatic 256/16 fallback.
+Roles: `fg` = default text on bg (matches the theme's native foreground); `accent` = user + interactive affordances (blue family); `purple` = moh/assistant; `dim` = 60–70% of screen text (chrome, secondary data, footers); `ok/warn` = semantic state, max one use per screen; truecolor with automatic 256/16 fallback.
 
-**Theme catalog (9, keys 1–9)**: tokyo-night (default), catppuccin, gruvbox, nord, dracula, solarized, c64, amiga, phosphor. Retro palettes are researched reproductions — sources and hex in `research/retro-theme-palettes.md` (C64 = Pepto VIC-II PAL #7869C4 on #40318D; Amiga = Workbench 1.3 #0055AA/white/#FF9900; Phosphor = P1 pure green #00FF00 on black, all-roles-green mono). Themes switchable at runtime, live everywhere (home, chat, modals), label shown in footer + settings. Future: user themes in `~/.moh/themes` (à la pi).
+**Theme catalog (15, cycled via ctrl+t / settings)**: tokyo-night (default), catppuccin, gruvbox, nord, dracula, solarized, c64, amiga, phosphor, win95, dos, mac-platinum (first light theme), neon-noir, lava, candy. Retro palettes are researched reproductions — sources and hex in `research/retro-theme-palettes.md` (C64 = Pepto VIC-II PAL #7869C4 on #40318D; Amiga = Workbench 1.3 #0055AA/white/#FF9900; Phosphor = P1 pure green #00FF00 on black, all-roles-green mono; Win95 = teal #008080 / silver #C0C0C0 / navy #000080; DOS = blue #0000AA / Norton cyan #55FFFF; Mac Platinum = #DDDDDD light). Themes switchable at runtime, live everywhere (home, chat, modals), label shown in footer + settings. Future: user themes in `~/.moh/themes` (à la pi).
 
 **Implementation lessons (must keep)**:
 - Theme lives in **React state/context**, never a mutable global; a theme switch should remount or fully re-render the UI (we used `key={tick}`).
