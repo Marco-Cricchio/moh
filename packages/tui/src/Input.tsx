@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -15,6 +15,8 @@ export interface InputProps {
   onAskCommands?: () => void;
   /** False while the dashboard menu owns the keyboard (#116): the input hears nothing. */
   focused?: boolean;
+  /** Reports the current draft line count (#117): the chat window shrinks so a multiline draft never makes the frame scroll. */
+  onLinesChange?: (lines: number) => void;
   onSubmit(text: string): void;
 }
 
@@ -24,10 +26,14 @@ export interface InputProps {
  * opens $EDITOR for long text. The box is the only bordered element at rest
  * and spans the full terminal width.
  */
-export function MultilineInput({ placeholder, disabled, onAskCommands, focused = true, onSubmit }: InputProps) {
+export function MultilineInput({ placeholder, disabled, onAskCommands, focused = true, onLinesChange, onSubmit }: InputProps) {
   const theme = useTheme();
   const [lines, setLines] = useState<string[]>([""]);
   const [cursorLine, setCursorLine] = useState(0);
+
+  useEffect(() => {
+    onLinesChange?.(lines.length);
+  }, [lines.length, onLinesChange]);
 
   const submit = () => {
     const text = lines.join("\n").trim();
