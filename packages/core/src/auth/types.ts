@@ -52,12 +52,35 @@ export const authTokenSchema = z.object({
 export type AuthToken = z.infer<typeof authTokenSchema>;
 
 /**
+ * Per-provider overrides for the `auth.overrides` section of `~/.moh/config`.
+ * Hardcoded defaults drift (Anthropic already rotated OAuth hosts twice),
+ * so every issuer/client_id value is user-overridable (spec decision 5).
+ */
+export const anthropicAuthOverridesSchema = z.object({
+  authorizeUrl: z.string().url().optional(),
+  tokenUrl: z.string().url().optional(),
+  clientId: z.string().min(1).optional(),
+  /** Hosted manual-redirect page shown to headless users. */
+  manualRedirectUrl: z.string().url().optional(),
+  /** Client-requested `expires_in` (seconds) for long-lived
+   * inference-only tokens (spec decision 9). */
+  inferenceExpiresIn: z.number().int().positive().optional(),
+});
+export type AnthropicAuthOverrides = z.infer<typeof anthropicAuthOverridesSchema>;
+
+export const authOverridesSchema = z.object({
+  anthropic: anthropicAuthOverridesSchema.optional(),
+});
+export type AuthOverrides = z.infer<typeof authOverridesSchema>;
+
+/**
  * The `auth` section of `~/.moh/config`: tokens keyed by endpoint name,
- * plus (later tickets) provider overrides for client_id / issuer URLs.
+ * plus provider overrides for client_id / issuer URLs.
  * This section is **never a merge candidate** (issue #129 seam): the
  * provider merge reads only `provider`/`endpoints`.
  */
 export const authSectionSchema = z.object({
   tokens: z.record(z.string(), authTokenSchema),
+  overrides: authOverridesSchema.optional(),
 });
 export type AuthSection = z.infer<typeof authSectionSchema>;

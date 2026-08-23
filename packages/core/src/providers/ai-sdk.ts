@@ -7,14 +7,30 @@ import { jsonSchema, streamText, stepCountIs, type LanguageModel, type ToolSet }
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import type { AuthMethodKind } from "../auth/types";
+import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
 import { normalizeProviderError } from "../provider-errors";
 import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, ToolSpec } from "../types";
 
+/**
+ * Anthropic requires `anthropic-beta: oauth-2025-04-20` on API calls made
+ * with subscriber (OAuth) access tokens (issue #134). Returned only for
+ * subscription-authed anthropic endpoints; api-key traffic is untouched.
+ */
+export function anthropicSubscriptionHeaders(authKind: AuthMethodKind): Record<string, string> | undefined {
+  return authKind === "subscription" ? { ...ANTHROPIC_OAUTH_BETA } : undefined;
+}
+
 function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseUrl: string | undefined): LanguageModel {
   const { kind, name } = target.endpoint;
   if (kind === "anthropic") {
-    const anthropic = createAnthropic({ apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
+    const headers = anthropicSubscriptionHeaders(target.endpoint.authKind);
+    const anthropic = createAnthropic({
+      apiKey,
+      ...(baseUrl ? { baseURL: baseUrl } : {}),
+      ...(headers ? { headers } : {}),
+    });
     return anthropic(target.modelId);
   }
   if (kind === "openai") {
