@@ -6,6 +6,8 @@ import {
   SIDEBAR_FULL_COLS,
   bodyRows,
   centerWidth,
+  CHAT_CHROME_ROWS,
+  chatWindowRows,
   clampHomeListMax,
   contentWidth,
   dialogWidth,
@@ -85,9 +87,9 @@ describe("dashboard layout geometry (#113)", () => {
     expect(sidebarWidths({ columns: 220, rows: 50 })).toEqual({ menu: 20, side: 30 });
   });
 
-  test("bodyRows: rows minus header, gap, chip — the whole vertical budget", () => {
-    expect(bodyRows({ columns: 100, rows: 24 })).toBe(20);
-    expect(bodyRows({ columns: 100, rows: 40 })).toBe(36);
+  test("bodyRows: rows minus header, gap, chip and the fullscreen guard — the vertical budget", () => {
+    expect(bodyRows({ columns: 100, rows: 24 })).toBe(19);
+    expect(bodyRows({ columns: 100, rows: 40 })).toBe(35);
     expect(bodyRows({ columns: 100, rows: 4 })).toBe(1);
   });
 
@@ -95,6 +97,21 @@ describe("dashboard layout geometry (#113)", () => {
     expect(centerWidth({ columns: 80, rows: 24 })).toBe(80);
     expect(centerWidth({ columns: 120, rows: 30 })).toBe(68); // 120 − 20 − 30 − 2
     expect(centerWidth({ columns: 90, rows: 30 })).toBe(48); // 90 − 16 − 24 − 2
+  });
+});
+
+describe("chat window geometry (#117)", () => {
+  test("chatWindowRows: whole column budget minus chat chrome, floored at 3", () => {
+    // single-column: the full terminal rows
+    expect(chatWindowRows({ columns: 80, rows: 24 })).toBe(24 - CHAT_CHROME_ROWS);
+    // dashboard: the panel-row budget (header+gap+chips+guard = 5)
+    expect(chatWindowRows({ columns: 100, rows: 30 })).toBe(30 - 5 - CHAT_CHROME_ROWS);
+    expect(chatWindowRows({ columns: 100, rows: 8 })).toBe(3);
+  });
+
+  test("chatWindowRows: a multiline draft shrinks the window so the frame never scrolls", () => {
+    expect(chatWindowRows({ columns: 80, rows: 24 }, 3)).toBe(24 - CHAT_CHROME_ROWS - 2);
+    expect(chatWindowRows({ columns: 80, rows: 24 }, 0)).toBe(24 - CHAT_CHROME_ROWS); // degenerate → 1 line
   });
 });
 

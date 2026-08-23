@@ -135,10 +135,10 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const input = lines[inputIdx]!;
       expect(input.lead).toBeLessThanOrEqual(2);
       expect(input.width).toBeLessThanOrEqual(80);
-      // The settled turn is reprinted at the new width after the resize
-      // (clear + Static remount in Chat): the last " you " box in the
-      // stream is the reprint — it must fit the shrunken terminal.
-      const youIdx = lines.reduce<number>((acc, l, i) => (l.text.includes(" you ") ? i : acc), -1);
+      // The chat window reflows in place at the new width (no Static
+      // reprint anymore, issue #117): every post-resize row fits the
+      // shrunken terminal and the transcript label is still visible.
+      const youIdx = lines.reduce<number>((acc, l, i) => (l.text.trim() === "you" ? i : acc), -1);
       expect(youIdx).toBeGreaterThanOrEqual(0);
       expect(lines[youIdx]!.width).toBeLessThanOrEqual(80);
       for (const l of lines.slice(inputIdx)) expect(l.width).toBeLessThanOrEqual(80);
