@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentSession } from "@moh/core";
 import { projectTurns, type TurnView } from "./turns";
+import { projectSidebar, type SidebarState } from "./sidebar";
 
 /** ~30fps coalescing window (docs/tui-style-guide.md §1 Q3). */
 const FLUSH_MS = 33;
@@ -23,18 +24,46 @@ export interface SessionState {
  * session switch (the events async-iterator is `return()`ed).
  */
 export function useSessionState(session: AgentSession): SessionState {
-  const [state, setState] = useState<SessionState>(() => project(session.history()));
+  return useProjected(session, projectSessionState, () => projectSessionState(session.history()));
+}
+
+function projectSessionState(history: AgentEvent[]): SessionState {
+  const turns = projectTurns(history);
+  return {
+    turns,
+    turnCount: turns.length,
+    pending: turns.at(-1)?.phase === "streaming",
+    eventCount: history.length,
+  };
+}
+
+const EMPTY_SIDEBAR: SidebarState = { activity: [], tokens: { contextIn: 0, totalOut: 0, calls: 0 } };
+
+/**
+ * Sidebar feed (#118): the same coalesced event projection as
+ * `useSessionState`, but projecting Activity/Tokens for the right sidebar.
+ * A null session (home screen) yields the empty state.
+ */
+export function useSidebarState(session: AgentSession | null): SidebarState {
+  return useProjected(session, projectSidebar, () => (session ? projectSidebar(session.history()) : EMPTY_SIDEBAR));
+}
+
+function useProjected<T>(session: AgentSession | null, project: (history: AgentEvent[]) => T, initial: () => T): T {
+  const [state, setState] = useState<T>(initial);
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const buffered = useRef<AgentEvent[] | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setState(project(session.history()));
+    if (!session) return;
+    setState(projectRef.current(session.history()));
     let stopped = false;
 
     const flush = () => {
       timer.current = null;
       if (stopped || buffered.current === null) return;
-      setState(project(buffered.current));
+      setState(projectRef.current(buffered.current));
       buffered.current = null;
     };
 
@@ -65,14 +94,4 @@ export function useSessionState(session: AgentSession): SessionState {
   }, [session]);
 
   return state;
-}
-
-function project(history: AgentEvent[]): SessionState {
-  const turns = projectTurns(history);
-  return {
-    turns,
-    turnCount: turns.length,
-    pending: turns.at(-1)?.phase === "streaming",
-    eventCount: history.length,
-  };
 }

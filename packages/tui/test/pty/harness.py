@@ -159,6 +159,12 @@ def main() -> None:
     cols, rows = spec["cols"], spec["rows"]
     home = tempfile.mkdtemp(prefix="moh-pty-home-")
     cwd = tempfile.mkdtemp(prefix="moh-pty-cwd-")
+    # Optional user-config injection (~/.moh/config): lets tests pin TUI
+    # settings (mode, onboarding flags) instead of scripting overlays.
+    if isinstance(spec.get("config"), dict):
+        os.makedirs(os.path.join(home, ".moh"), exist_ok=True)
+        with open(os.path.join(home, ".moh", "config"), "w") as f:
+            json.dump(spec["config"], f)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     env = dict(os.environ, HOME=home, TERM="xterm-256color", COLORTERM="truecolor")
