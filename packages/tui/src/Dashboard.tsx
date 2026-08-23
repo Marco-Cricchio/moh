@@ -34,8 +34,15 @@ export function fitChips(chips: ReadonlyArray<readonly [string, string]>, width:
 
 export interface DashboardProps {
   modelLabel: string;
+  /** Live token usage for the header (T6); omitted while a session has no model calls yet. */
+  tokensLabel?: string;
   /** The center column (T3 placeholder: the current Chat, flexGrow). */
   children: React.ReactNode;
+  /**
+   * The right sidebar content (Activity/Workflow/Tokens, T6). Absent = vibe
+   * mode (spec D6): no right panel, the center column absorbs its width.
+   */
+  right?: React.ReactNode;
   /** Index of the `❯` selection while the menu has focus (#116); null/undefined = input focus. */
   menuSel?: number | null;
 }
@@ -48,7 +55,7 @@ export interface DashboardProps {
  * borders land on the same row without manual sibling-row arithmetic
  * (prototype lesson: let Yoga absorb the remainder).
  */
-export function Dashboard({ modelLabel, children, menuSel }: DashboardProps) {
+export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel }: DashboardProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const { menu, side } = sidebarWidths(viewport);
@@ -57,7 +64,7 @@ export function Dashboard({ modelLabel, children, menuSel }: DashboardProps) {
 
   return (
     <Box flexDirection="column" width="100%">
-      {/* header — logo · model (tokens + spinner land with the real data feeds, T6) */}
+      {/* header — logo · model · tokens */}
       <Box
         {...P}
         borderTop={false}
@@ -67,7 +74,7 @@ export function Dashboard({ modelLabel, children, menuSel }: DashboardProps) {
         justifyContent="space-between"
       >
         <Logo />
-        <Dim>{modelLabel}</Dim>
+        <Dim>{tokensLabel ? `${modelLabel} · ${tokensLabel}` : modelLabel}</Dim>
       </Box>
 
       {/* panels row — explicit heights, borders align on the same row */}
@@ -84,11 +91,16 @@ export function Dashboard({ modelLabel, children, menuSel }: DashboardProps) {
             ),
           )}
         </Box>
-        <Box flexDirection="column" width={centerWidth(viewport)} height={rows}>
+        <Box flexDirection="column" width={centerWidth(viewport, right !== undefined)} height={rows}>
           {children}
         </Box>
-        {/* right sidebar placeholder — Activity/Workflow/Tokens come with real data (T6) */}
-        <Box {...P} width={side} height={rows} />
+        {/* right sidebar — Activity/Workflow/Tokens from real session data (T6);
+            absent in vibe mode (spec D6): the center column widens instead */}
+        {right !== undefined && (
+          <Box {...P} width={side} height={rows} paddingX={1}>
+            {right}
+          </Box>
+        )}
       </Box>
 
       {/* gap row */}
