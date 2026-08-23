@@ -8,13 +8,14 @@ import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
+import { Dashboard } from "./Dashboard";
 import { Chat, type Mode } from "./Chat";
 import { makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
-import { useViewport } from "./viewport";
+import { useViewport, centerWidth, layoutClass } from "./viewport";
 import { PermissionModal } from "./PermissionModal";
 import { AskUserModal } from "./AskUserModal";
 import { Onboarding } from "./OnboardingOverlay";
@@ -238,6 +239,31 @@ export function App({
       <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
           <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
+          layoutClass(viewport) === "dashboard" ? (
+            <Dashboard mode={mode} modelLabel={modelLabel}>
+              <Chat
+                session={session}
+                mode={mode}
+                modelLabel={modelLabel}
+                blocked={blocked}
+                filePreview={config.filePreview}
+                width={centerWidth(viewport)}
+                onOpenCommands={() => setOverlay("commands")}
+                onCommand={(text) =>
+                  runSlashCommand(text, {
+                    cwd,
+                    mohHome: join(home ?? homedir(), ".moh"),
+                    config,
+                    updateConfig,
+                    session,
+                    notify: push,
+                    onOpenFrontier: () => setOverlay("frontier"),
+                    onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+                  })
+                }
+              />
+            </Dashboard>
+          ) : (
           <Chat
             session={session}
             mode={mode}
@@ -258,6 +284,7 @@ export function App({
               })
             }
           />
+          )
         ) : (
           <Home
             cwd={cwd}

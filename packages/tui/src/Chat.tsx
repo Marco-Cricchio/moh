@@ -30,13 +30,17 @@ export interface ChatProps {
    * command and must not reach the model.
    */
   onCommand?: (text: string) => boolean;
+  /** Column budget override (dashboard center column, #115); defaults to
+   * the centered measure of the full viewport. */
+  width?: number;
 }
 
-export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand }: ChatProps) {
+export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand, width }: ChatProps) {
   const theme = useTheme();
   const state = useSessionState(session);
   const viewport = useViewport();
-  const md = useMemo(() => createMarkdownRenderer(theme, contentWidth(viewport) - 4), [theme, viewport]);
+  const cols = width ?? contentWidth(viewport);
+  const md = useMemo(() => createMarkdownRenderer(theme, cols - 4), [theme, cols]);
   const compact = widthClass(viewport) === "compact";
   const [tick, setTick] = useState(0);
   const [lastEsc, setLastEsc] = useState(0);
@@ -98,7 +102,7 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
   return (
-    <Box flexDirection="column" height="100%" width={contentWidth(viewport)}>
+    <Box flexDirection="column" height="100%" width={cols}>
       <Box justifyContent="space-between" paddingX={2}>
         <Logo />
         {mode === "dev" && (
@@ -116,9 +120,9 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
             // Static output is hoisted above the frame at column 0 (Ink
             // extracts it into its own Output), so the gutter is padded
             // manually to keep settled turns aligned with the live column.
-            const gutter = Math.max(0, (viewport.columns - contentWidth(viewport)) >> 1);
+            const gutter = Math.max(0, (viewport.columns - cols) >> 1);
             return (
-              <Box key={turn.id} flexDirection="column" width={contentWidth(viewport)} marginLeft={gutter}>
+              <Box key={turn.id} flexDirection="column" width={cols} marginLeft={gutter}>
                 <TurnBoxes turn={turn} md={md} mode={mode} detail={detail} />
               </Box>
             );
