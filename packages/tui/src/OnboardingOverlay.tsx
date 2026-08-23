@@ -10,7 +10,7 @@ import {
   type EndpointProfile,
 } from "@moh/core";
 import { userConfigFile } from "@moh/core";
-import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, saveWizardProviderUser, saveProviderRefProject, wizardSavePlan, readUserWizardEndpoints, projectConfigExists, type EnvCandidate } from "./onboarding";
+import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, saveWizardProviderUser, saveProviderRefProject, profileDiff, wizardSavePlan, readUserWizardEndpoints, projectConfigExists, type EnvCandidate } from "./onboarding";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
 import { useViewport, windowing } from "./viewport";
@@ -78,8 +78,9 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
 
   // Where the default provider ref lands after a wizard save/reuse (#129):
   // project moh.json when one exists, user config otherwise.
+  const endpointRef = (profile: EndpointProfile): string => `${profile.name}/${profile.defaultModel}`;
   const setRef = (profile: EndpointProfile): string => {
-    const ref = `${profile.name}/${profile.defaultModel}`;
+    const ref = endpointRef(profile);
     if (hasProject) {
       saveProviderRefProject(configFile, ref);
       return ref;
@@ -97,7 +98,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (phase.envCandidate) {
           const ref =
             saveDetectedProvider(configFile, phase.envCandidate, phase.profile.defaultModel!)?.provider ??
-            `${phase.profile.name}/${phase.profile.defaultModel}`;
+            endpointRef(phase.profile);
           return onDone(ref);
         }
         // Wizard save semantics (#129 decision 7).
@@ -169,13 +170,13 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           if (phase.cursor === 0) return onDone(saveWizardProviderUser(userFile, phase.profile));
-          return onDone(saveWizardProvider(configFile, phase.profile)?.provider ?? `${phase.profile.name}/${phase.profile.defaultModel}`);
+          return onDone(saveWizardProvider(configFile, phase.profile)?.provider ?? endpointRef(phase.profile));
         }
         return;
       }
       case "conflict": {
         if (input === "r") return onDone(setRef(phase.existing)); // reuse the global endpoint
-        if (input === "p") return onDone(saveWizardProvider(configFile, phase.profile)?.provider ?? `${phase.profile.name}/${phase.profile.defaultModel}`);
+        if (input === "p") return onDone(saveWizardProvider(configFile, phase.profile)?.provider ?? endpointRef(phase.profile));
         if (input === "s") return onDone(null);
         return;
       }
@@ -277,7 +278,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         <>
           <Text color={theme.warn}>
             ~/.moh/config already has an endpoint "{phase.existing.name}" with different settings
-            {phase.existing.apiKey !== phase.profile.apiKey ? " (different API key)" : ""}.
+            {profileDiff(phase.existing, phase.profile).length ? ` (${profileDiff(phase.existing, phase.profile).join(", ")})` : ""}.
           </Text>
           <Text>Keeping both is legal (project fields win) but usually a mistake.</Text>
           <Text> </Text>

@@ -72,7 +72,6 @@ import {
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
 import {
   loadMergedConfig,
-  mergeProviderConfigs,
   readUserProviderConfig,
   upsertUserEndpoint,
   saveUserProviderRef,
@@ -118,7 +117,6 @@ export {
   updateUserConfigFile,
   userConfigFile,
   loadMergedConfig,
-  mergeProviderConfigs,
   readUserProviderConfig,
   upsertUserEndpoint,
   saveUserProviderRef,

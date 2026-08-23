@@ -7,9 +7,14 @@ import {
   loadMohConfig,
   upsertEndpoint,
   writeMohConfig,
+  readUserProviderConfig,
+  saveUserProviderRef,
+  upsertUserEndpoint,
+  userConfigFile,
   type EndpointProfile,
   type MohConfig,
 } from "@moh/core";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 export type DetectableProviderType = "anthropic" | "openai" | "google";
@@ -93,9 +98,6 @@ export function saveWizardProvider(
 
 // --- User-level layering (#129): wizard save semantics (decision 7) ---
 
-import { readUserProviderConfig, saveUserProviderRef, upsertUserEndpoint, userConfigFile } from "@moh/core";
-import { existsSync } from "node:fs";
-
 /**
  * What the wizard should do with a freshly collected profile, given the
  * user-level endpoints already configured (decision 7):
@@ -112,12 +114,29 @@ export type WizardPlan =
   | { kind: "key-conflict"; existing: EndpointProfile }
   | { kind: "duplicate"; existing: EndpointProfile };
 
+function canonical(profile: EndpointProfile): string {
+  return JSON.stringify(profile, Object.keys(profile).sort());
+}
+
+/** Same endpoint config, field-order-insensitive. */
 function sameProfile(a: EndpointProfile, b: EndpointProfile): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return canonical(a) === canonical(b);
 }
 
 function sameContent(a: EndpointProfile, b: EndpointProfile): boolean {
   return a.type === b.type && a.baseUrl === b.baseUrl && a.defaultModel === b.defaultModel;
+}
+
+/** Field names that differ between two same-named profiles (for the warning text). */
+export function profileDiff(a: EndpointProfile, b: EndpointProfile): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  const out: string[] = [];
+  for (const key of keys) {
+    const ka = (a as Record<string, unknown>)[key];
+    const kb = (b as Record<string, unknown>)[key];
+    if (JSON.stringify(ka) !== JSON.stringify(kb)) out.push(key);
+  }
+  return out.filter((k) => k !== "name");
 }
 
 export function wizardSavePlan(
