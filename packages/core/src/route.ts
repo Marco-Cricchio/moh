@@ -2,6 +2,7 @@ import type { Message, Provider, StreamEvent, ToolSpec } from "./types";
 import type { AuthMethodKind } from "./auth/types";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
 import { aiSdkStreamFor } from "./providers/ai-sdk";
+import { resolveEndpointCredential } from "./auth/resolve";
 import type { EndpointCapabilities } from "./types";
 
 /** What a provider implementation an Endpoint instantiates. */
@@ -81,6 +82,13 @@ export interface RouteConfig {
    * inject mocks for specific endpoints while keeping real ones live.
    */
   createStream?: (target: RouteTarget) => StreamFn | undefined;
+  /**
+   * Credential resolution override (#137): returns the credential a
+   * target's stream call uses. Default resolves subscription endpoints
+   * from the auth store with proactive refresh (refresh-before-stream);
+   * api-key endpoints short-circuit to their inline/env key.
+   */
+  credentialResolver?: (target: RouteTarget) => Promise<string | undefined>;
 }
 
 export interface Route extends Provider {
@@ -101,6 +109,7 @@ export function createRoute(config: RouteConfig): Route {
   const retries = config.retries ?? 1;
   const backoff = config.retryBackoffMs ?? 100;
   const streamFactory = config.createStream ?? (() => undefined);
+  const resolveCredential = config.credentialResolver ?? resolveEndpointCredential;
   const defaultFactory = defaultStreamFactory();
   const provider: Route = {
     ref: `${config.target.endpoint.name}/${config.target.modelId}`,
@@ -113,7 +122,13 @@ export function createRoute(config: RouteConfig): Route {
         let attempt = 0;
         while (true) {
           try {
-            const stream = streamFactory(target) ?? defaultFactory(target);
+            // #137: subscription credentials resolve (with proactive
+            // refresh) here — before the single stream call, never mid-stream.
+            // Api-key targets keep the pre-#137 path untouched.
+            const credential = target.endpoint.authKind === "subscription"
+              ? await resolveCredential(target)
+              : target.endpoint.apiKey;
+            const stream = streamFactory(target) ?? defaultFactory(target, credential);
             for await (const event of stream(messages, signal, tools)) {
               yield event;
             }
@@ -138,6 +153,6 @@ export function createRoute(config: RouteConfig): Route {
 
 type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent>;
 
-function defaultStreamFactory(): (target: RouteTarget) => StreamFn {
-  return (target) => aiSdkStreamFor(target, target.endpoint.apiKey, target.endpoint.baseUrl);
+function defaultStreamFactory(): (target: RouteTarget, credential: string | undefined) => StreamFn {
+  return (target, credential) => aiSdkStreamFor(target, credential, target.endpoint.baseUrl);
 }
