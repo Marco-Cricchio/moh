@@ -30,7 +30,7 @@ const backend: TrackerBackend = {
   claim: async () => {},
 };
 
-const state = (activity: SidebarState["activity"], tokens: SidebarState["tokens"] = { contextIn: 50_000, totalOut: 3_000, calls: 12 }): SidebarState => ({ activity, tokens });
+const state = (activity: SidebarState["activity"], tokens: SidebarState["tokens"] = { contextIn: 50_000, totalOut: 3_000, calls: 12 }, turnCount = 1): SidebarState => ({ activity, tokens, turnCount });
 
 const CENTER = (
   <Box flexGrow={1}>
@@ -69,6 +69,28 @@ describe("SidePanel (issue #118)", () => {
     i.unmount();
   });
 
+  test("workflow on but no tracker detected: the section says unavailable", async () => {
+    const i = atSize(100, 30, <SidePanel state={state([])} backend={null} workflowOn rows={24} width={20} />);
+    await new Promise((r) => setTimeout(r, 20));
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("tracker unavailable");
+    i.unmount();
+  });
+
+  test("workflow refreshes live at every new turn (tracker re-listed)", async () => {
+    let listed = 0;
+    const counting: TrackerBackend = { ...backend, list: async () => { listed += 1; return []; } };
+    const ui = (turnCount: number) => (
+      <SidePanel state={state([], { contextIn: 0, totalOut: 0, calls: 0 }, turnCount)} backend={counting} workflowOn rows={24} width={20} />
+    );
+    const i = atSize(100, 30, ui(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(listed).toBe(1);
+    i.rerender(ui(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(listed).toBe(2); // the new turn re-listed the tracker
+    i.unmount();
+  });
   test("internal windowing: only the most recent activity fits, the panel never exceeds its rows", async () => {
     const many = Array.from({ length: 40 }, (_, n) => ({ kind: "tool" as const, name: `t${n}`, detail: "", ok: true }));
     const i = atSize(100, 30, <SidePanel state={state(many)} backend={backend} workflowOn rows={24} width={20} />);

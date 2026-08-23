@@ -4,6 +4,8 @@ import { projectFrontier, type TrackerBackend } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dim, truncate } from "./ui";
 import {
+  SIDEBAR_BORDER_ROWS,
+  SIDEBAR_SLACK_ROWS,
   TOKENS_ROWS,
   WORKFLOW_ROWS,
   activityWindow,
@@ -40,17 +42,18 @@ export function SidePanel({ state, backend, workflowOn, rows, width }: SidePanel
   const theme = useTheme();
   const [load, setLoad] = useState<FrontierLoad>({ kind: "loading" });
 
-  // The frontier refreshes on mount and after each settled turn (claims made
-  // mid-session by the model or the frontier overlay show up on idle).
+  // The frontier refreshes on mount, on backend change, and at every new
+  // turn — claims made mid-session (by the model or the frontier overlay)
+  // show up without reopening anything.
   const reload = useCallback(() => {
-    if (!backend) return setLoad({ kind: "ready", frontier: { deps: false, inProgress: [], ready: [], blocked: [] } });
+    if (!backend) return setLoad({ kind: "error" });
     setLoad({ kind: "loading" });
     void backend
       .list()
       .then((issues) => setLoad({ kind: "ready", frontier: projectFrontier(issues) }))
       .catch(() => setLoad({ kind: "error" }));
   }, [backend]);
-  useEffect(reload, [reload]);
+  useEffect(reload, [reload, state.turnCount]);
 
   // Activity window: two-pass so the `↑ N more` indicator never grows the panel.
   const budget = sidebarActivityBudget(rows);
@@ -62,7 +65,7 @@ export function SidePanel({ state, backend, workflowOn, rows, width }: SidePanel
   const bar = tokenBar(contextFraction(tokens.contextIn), Math.max(4, width - 5));
 
   return (
-    <Box flexDirection="column" height={Math.max(0, rows - 3)}>
+    <Box flexDirection="column" height={Math.max(0, rows - SIDEBAR_BORDER_ROWS - SIDEBAR_SLACK_ROWS)}>
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Text bold underline>Activity</Text>
       {win.hidden > 0 && <Dim>{`↑ ${win.hidden} more`}</Dim>}

@@ -43,13 +43,18 @@ describe("projectSidebar (issue #118)", () => {
       ev({ type: "model_call", model: "m", usage: { inputTokens: 100, outputTokens: 50 } }),
       ev({ type: "model_call", model: "m", usage: { inputTokens: 900, outputTokens: 50 } }),
     ];
-    expect(projectSidebar(events).tokens).toEqual({ contextIn: 900, totalOut: 100, calls: 2 });
+    expect(projectSidebar(events).tokens).toEqual({ contextIn: 900, totalOut: 100, calls: 2 });  });
+
+  test("turnCount counts user messages (Workflow refresh trigger)", () => {
+    const events = [ev({ type: "user_message", text: "a" }), ev({ type: "user_message", text: "b" })];
+    expect(projectSidebar(events).turnCount).toBe(2);
   });
 
   test("empty log: zeroed tokens, empty activity", () => {
     expect(projectSidebar([])).toEqual({
       activity: [],
       tokens: { contextIn: 0, totalOut: 0, calls: 0 },
+      turnCount: 0,
     });
   });
 });
