@@ -81,7 +81,9 @@ import {
 import {
   authMethodKindSchema,
   anthropicAuthOverridesSchema,
+  openaiAuthOverridesSchema,
   type AnthropicAuthOverrides,
+  type OpenAiAuthOverrides,
   type AuthAccount,
   type AuthMethodKind,
   type AuthSection,
@@ -122,6 +124,16 @@ import {
   type AnthropicOAuthConfig,
   type TokenEndpointFetch,
 } from "./auth/anthropic";
+import {
+  OPENAI_OAUTH_DEFAULTS,
+  OPENAI_SCOPES,
+  OpenAiLoginAborted,
+  loginOpenAI,
+  refreshOpenaiToken,
+  resolveOpenAiOAuthConfig,
+  type OpenAiEndpointFetch,
+  type OpenAiOAuthConfig,
+} from "./auth/openai";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -165,6 +177,16 @@ export {
   type AnthropicAuthOverrides,
   type AnthropicOAuthConfig,
   type TokenEndpointFetch,
+  OPENAI_OAUTH_DEFAULTS,
+  OPENAI_SCOPES,
+  OpenAiLoginAborted,
+  openaiAuthOverridesSchema,
+  loginOpenAI,
+  refreshOpenaiToken,
+  resolveOpenAiOAuthConfig,
+  type OpenAiAuthOverrides,
+  type OpenAiEndpointFetch,
+  type OpenAiOAuthConfig,
   MockProvider,
   builtinTools,
   ExtensionRuntime,
