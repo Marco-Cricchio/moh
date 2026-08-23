@@ -49,6 +49,21 @@ describe("turnLines (flat prototype rendering, issue #117)", () => {
     expect(lines.at(-1)).toEqual({ text: "", tone: "fg" });
   });
 
+  test("reply with md renderer: markdown interpreted, not shown raw", () => {
+    const md = createMarkdownRenderer(THEMES[DEFAULT_THEME], W);
+    const strip = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
+    const lines = turnLines(turn({ reply: "**bold** and `code`" }), W, { md });
+    const flat = lines.map((l) => strip(l.text)).join("\n");
+    expect(flat).not.toContain("**bold**");
+    expect(flat).toContain("bold");
+    expect(flat).not.toContain("`code`");
+  });
+
+  test("reply without md renderer: plain word-wrap fallback", () => {
+    const lines = turnLines(turn({ reply: "**bold**" }), W, {});
+    expect(lines).toContainEqual({ text: " **bold**", tone: "fg" });
+  });
+
   test("tool lines: dim, ✓/✗/… marks, running calls stay pending", () => {
     const lines = turnLines(
       turn({

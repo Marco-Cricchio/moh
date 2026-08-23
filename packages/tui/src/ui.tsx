@@ -39,6 +39,22 @@ export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, Math.max(0, n - 1)) + "…" : s;
 }
 
+/**
+ * Strips terminal control characters and ANSI escape sequences from a
+ * single-line string before it enters the frame. Tool output can carry
+ * raw control bytes (vite's `\x1b[2K\r`, progress `\r`, stray ESC) that
+ * would move the *terminal* cursor while Ink's model disagrees — every
+ * later frame then renders diagonally out of place. Callers split on
+ * `\n` first; this removes everything else that moves a cursor.
+ */
+export function sanitizeLine(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "")
+    .replace(/\t/g, "  ");
+}
+
 /** moh logo, bold+underline accent */
 export function Logo() {
   const theme = useTheme();

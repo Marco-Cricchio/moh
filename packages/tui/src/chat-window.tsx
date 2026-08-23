@@ -1,10 +1,12 @@
 import React from "react";
 import { Box, Text } from "ink";
+import type { Marked } from "marked";
 import { useTheme } from "./themes";
 import type { Theme } from "./themes";
 import type { TurnView } from "./turns";
+import { closeOpenFences, wrapRenderedLines } from "./markdown";
 import { toolArgSummary } from "./permission-gate";
-import { truncate } from "./ui";
+import { sanitizeLine, truncate } from "./ui";
 
 /**
  * The chat window (issue #117, spec decisions 4–5): the session transcript
@@ -63,11 +65,11 @@ export function turnLines(turn: TurnView, wrapW: number, opts: TurnLineOptions =
   for (const call of turn.toolCalls) {
     const mark = call.ok === null ? "…" : call.ok ? "✓" : "✗";
     const args = toolArgSummary(call.args);
-    const out = call.ok === true && call.output ? ` ${truncate(call.output.split("\n")[0]!, 60)}` : "";
+    const out = call.ok === true && call.output ? ` ${truncate(sanitizeLine(call.output.split("\n")[0]!), 60)}` : "";
     lines.push({ text: ` ${mark} ${call.name}${args ? ` ${args}` : ""}${out}`, tone: "dim" });
     if (opts.detail && call.output) {
       for (const l of call.output.split("\n").slice(0, 15)) {
-        lines.push({ text: `   ${truncate(l, 200)}`, tone: "dim" });
+        lines.push({ text: `   ${truncate(sanitizeLine(l), 200)}`, tone: "dim" });
       }
     }
   }
