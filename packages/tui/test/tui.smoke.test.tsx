@@ -164,6 +164,21 @@ describe("home smoke", () => {
     i.unmount();
   });
 
+  test("App: ctrl+o switches vibe ↔ dev in session (regression: ctrl+m is \\r, indistinguishable from Enter)", async () => {
+    const provider = MockProvider.demo();
+    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} startInChat />);
+    await sleep(30);
+    // vibe default: the dev-mode header line (model · turn · events) is absent.
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("· turn ");
+    i.stdin.write("\x0f"); // ctrl+o — the raw byte a real terminal sends
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("· turn "); // dev header is live
+    i.stdin.write("\x0f");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("· turn ");
+    i.unmount();
+  });
+
   test("App: ctrl+t switches theme (remount), footer label follows", async () => {
     const provider = MockProvider.demo();
     const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} />);

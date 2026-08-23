@@ -94,6 +94,22 @@ describe("turnLines (flat prototype rendering, issue #117)", () => {
     expect(lines.some((l) => l.tone === "dim" && l.text.includes("line2"))).toBe(true);
   });
 
+  test("tool output is sanitized: control bytes never enter the frame", () => {
+    // vite's build spinner: \x1b[2K\r + \r progress + a tab. Raw bytes would
+    // move the terminal cursor mid-frame and desync every later render.
+    const output = "\u001b[2K\rtransforming...\r✓ 53 modules transformed.\nwide\tcolumn row";
+    for (const opts of [{}, { detail: true }] as const) {
+      const lines = turnLines(
+        turn({ toolCalls: [{ callId: "1", name: "bash", args: {}, ok: true, output }] }),
+        W,
+        opts,
+      );
+      // eslint-disable-next-line no-control-regex
+      expect(lines.some((l) => /[\u0000-\u0008\u000B-\u001F\u007F]/.test(l.text))).toBe(false);
+      expect(lines.some((l) => l.text.includes("transforming..."))).toBe(true);
+    }
+  });
+
   test("streaming turn: partial reply plus a live status line", () => {
     const lines = turnLines(turn({ phase: "streaming", reply: "so far" }), W, {
       spinner: "⠋",

@@ -18,7 +18,7 @@ import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
-import { Dashboard, MENU_ENTRIES, type MenuEntry } from "./Dashboard";
+import { Dashboard, MENU_ENTRIES, sessionChips, ChipFooter, type MenuEntry } from "./Dashboard";
 import { handleFocusKey, INITIAL_FOCUS, type FocusState } from "./focus";
 import { Chat, type Mode } from "./Chat";
 import { makeSession, providerLabel } from "./factory";
@@ -150,6 +150,13 @@ export function App({
   // Focus model (#116): tab cycles menu ↔ chat input; the menu owns the
   // keyboard while focused (↑↓ move, ⏎ activates, everything else inert).
   const [focus, setFocus] = useState<FocusState>(INITIAL_FOCUS);
+  // Footer hints reported by the chat column: merged into the chip footer
+  // (dashboard footer, or the single-column row under the chat).
+  const [chatHints, setChatHints] = useState({ streaming: false, atBottom: true });
+  const chips = useMemo(
+    () => sessionChips({ ...chatHints, detailToggle: config.filePreview !== "none" }),
+    [chatHints, config.filePreview],
+  );
   const focusRef = useRef(focus);
   focusRef.current = focus;
   const activateMenu = (entry: MenuEntry) => {
@@ -256,7 +263,10 @@ export function App({
       }
       if (r.state.focus === "menu" || key.tab) return; // the menu owns the keyboard
     }
-    if (key.ctrl && input === "m") {
+    // Mode toggle: ctrl+o. The historical ctrl+m is indistinguishable from
+    // Enter at the terminal level (both send \r, 0x0D), so it never fired
+    // in a real session — ctrl+o has its own byte and works everywhere.
+    if (key.ctrl && input === "o") {
       const next: Mode = mode === "vibe" ? "dev" : "vibe";
       setMode(next);
       updateConfig({ mode: next });
@@ -292,6 +302,7 @@ export function App({
       filePreview={config.filePreview}
       width={chatInDashboard ? centerWidth(viewport, showRight) : undefined}
       inputFocused={focus.focus === "input"}
+      onHints={setChatHints}
       onOpenCommands={() => setOverlay("commands")}
       onCommand={(text) =>
         runSlashCommand(text, {
@@ -329,6 +340,7 @@ export function App({
               toasts={toasts}
               tokensLabel={sidebar.tokens.calls > 0 ? `${sidebar.tokens.contextIn.toLocaleString()} tok` : undefined}
               menuSel={focus.focus === "menu" ? focus.menuSel : null}
+              chips={chips}
               right={
                 showRight ? (
                   <SidePanel
@@ -344,7 +356,10 @@ export function App({
               {chat}
             </Dashboard>
           ) : (
-            chat
+            <Box flexDirection="column" width="100%" height={Math.max(1, viewport.rows - 1)} alignItems="center">
+              {chat}
+              <ChipFooter chips={chips} />
+            </Box>
           )
         ) : (
           <Home
