@@ -14,6 +14,8 @@
  * existing api-key path (route resolution, env var precedence, tests)
  * — minimal core change. The OAuth tokens (access/refresh/id) are kept
  * in the stored token's grant metadata so a later refresh can re-mint.
+ * issuer and client_id are user-overridable (spec decision 5); the
+ * ports/callbackPath allowlist values are captured-only.
  *
  * Headless (spec decision 4): OpenAI offers a **custom device-code flow**
  * (POST `{issuer}/deviceauth/usercode`, poll `{issuer}/deviceauth/token` —
@@ -128,7 +130,10 @@ function decodeJwtPayload(idToken: string): Record<string, unknown> | undefined 
   }
 }
 
-/** Mints the AuthToken: minted API key up front, OAuth set + plan in grant. */
+/** Minted key up front, OAuth set + plan in grant. The OAuth access
+ * token's expiry (from `expires_in`) is recorded as `oauthExpiresAt` in
+ * grant metadata — the minted API key itself doesn't expire, but #137's
+ * proactive refresh window needs it to decide when to re-mint. */
 function toMintedAuthToken(
   mintedKey: string,
   tokens: OpenAiTokenResponse,
@@ -146,7 +151,7 @@ function toMintedAuthToken(
     // API keys don't expire; OAuth access-token expiry is kept in grant
     // metadata so a future re-mint can decide freshness.
     ...(tokens.access_token
-      ? { grant: { provider: "openai", minted: true, oauthAccessToken: tokens.access_token, ...(tokens.id_token ? { idToken: tokens.id_token } : {}), ...(plan ? { plan } : {}) } }
+      ? { grant: { provider: "openai", minted: true, oauthAccessToken: tokens.access_token, ...(tokens.expires_in !== undefined ? { oauthExpiresAt: opts.now + tokens.expires_in * 1000 } : {}), ...(tokens.id_token ? { idToken: tokens.id_token } : {}), ...(plan ? { plan } : {}) } }
       : {}),
     ...(email ? { account: { email } } : {}),
     updatedAt: opts.now,
@@ -181,6 +186,7 @@ export async function exchangeOpenaiCode(
     access_token: result.json.access_token,
     ...(typeof result.json.refresh_token === "string" ? { refresh_token: result.json.refresh_token } : {}),
     ...(typeof result.json.id_token === "string" ? { id_token: result.json.id_token } : {}),
+    ...(typeof result.json.expires_in === "number" ? { expires_in: result.json.expires_in } : {}),
   };
   // Posture (c): mint the API key right away — the point of the login.
   const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
@@ -247,7 +253,12 @@ export async function refreshOpenaiToken(
       : typeof token.grant?.idToken === "string"
         ? token.grant.idToken
         : undefined;
-  const tokens: OpenAiTokenResponse = { access_token: result.json.access_token, refresh_token: refreshToken, ...(idToken ? { id_token: idToken } : {}) };
+  const tokens: OpenAiTokenResponse = {
+    access_token: result.json.access_token,
+    refresh_token: refreshToken,
+    ...(idToken ? { id_token: idToken } : {}),
+    ...(typeof result.json.expires_in === "number" ? { expires_in: result.json.expires_in } : {}),
+  };
   const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
   const fresh = toMintedAuthToken(mintedKey, tokens, { now });
   return { ...fresh, account: fresh.account ?? token.account };
@@ -331,7 +342,9 @@ export async function pollOpenaiDeviceToken(
     if (typeof result.json.error === "string" && result.json.error !== "authorization_pending" && result.json.error !== "slow_down") {
       throw new Error(`OpenAI device-code polling error: ${result.json.error}`);
     }
-    await sleep(interval);
+    // slow_down: back off before the next poll (RFC 8628 semantics,
+    // applied to the custom protocol too).
+    await sleep(result.json.error === "slow_down" ? interval * 2 : interval);
   }
   return { code: "" };
 }
@@ -384,8 +397,8 @@ export async function loginOpenAI(
     code = polled.code;
     // The poll may carry the server-side verifier the code was issued for.
     codeVerifier = polled.codeVerifier ?? pkce.verifier;
-    // Device-flow codes are exchanged without a redirect-uri round-trip;
-    // Codex still sends one — the issuer allows it for this client.
+    // Device-flow codes go through the same "normal code exchange" as the
+    // browser flow (research §2), redirect_uri included per Codex's shape.
     const redirectUri = `http://localhost:${config.ports[0]}${config.callbackPath}`;
     const { minted } = await exchangeOpenaiCode(config, {
       code,
