@@ -111,6 +111,7 @@ describe("resolveEndpointCredential", () => {
       credential: "oauth-at",
       baseUrl: "https://chatgpt.com/backend-api/codex",
       headers: { originator: "codex_cli_rs" },
+      wire: "responses",
     });
   });
 
@@ -138,6 +139,7 @@ describe("resolveEndpointCredential", () => {
       credential: "at-oauth-new",
       baseUrl: "https://chatgpt.com/backend-api/codex",
       headers: { originator: "codex_cli_rs" },
+      wire: "responses",
     });
     const saved = JSON.parse(readFileSync(file, "utf8")).auth.tokens["openai-work"];
     expect(saved).toMatchObject({ accessToken: "at-oauth-new", grant: { minted: false } });
@@ -191,6 +193,29 @@ describe("route wiring (refresh-before-stream)", () => {
     for await (const _ of route.stream(msgs, new AbortController().signal));
     expect(resolved).toEqual(["anthropic-work"]);
     expect(seen).toEqual(["at-resolved"]);
+  });
+
+  test("#151: auth context (ChatGPT backend transport) reaches custom stream factories", async () => {
+    const seenCtx: (unknown | undefined)[] = [];
+    const target: RouteTarget = { endpoint: subscriptionEndpoint("openai-work"), modelId: "m" };
+    const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
+    const route = createRoute({
+      target,
+      credentialResolver: async () => ({
+        credential: "oauth-at",
+        baseUrl: "https://chatgpt.com/backend-api/codex",
+        headers: { originator: "codex_cli_rs" },
+        wire: "responses" as const,
+      }),
+      createStream: (_t, _c, authContext) => {
+        seenCtx.push(authContext);
+        return (m, s) => provider.stream(m, s);
+      },
+    });
+    for await (const _ of route.stream(msgs, new AbortController().signal));
+    expect(seenCtx).toEqual([
+      { credential: "oauth-at", baseUrl: "https://chatgpt.com/backend-api/codex", headers: { originator: "codex_cli_rs" }, wire: "responses" },
+    ]);
   });
 
   test("api-key targets skip the resolver entirely", async () => {
