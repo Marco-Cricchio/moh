@@ -168,7 +168,7 @@ export function App({
         for await (const event of session.events) {
           if (stopped) return;
           if (event.type === "memory_updated") {
-            push(`memory updated · ${event.topics.join(", ")}`);
+            push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
         }
       } catch {
@@ -268,6 +268,9 @@ export function App({
   });
 
   const showChat = session !== null;
+  // The session screen's layout decides where toasts live (#119): inside the
+  // dashboard panels, or the classic bottom row — one flag, used by both.
+  const chatInDashboard = showChat && layoutClass(viewport) === "dashboard";
   // The chat is the same tree in both layouts (invariant 1): only its column
   // budget differs — the dashboard center instead of the centered measure.
   const chat = showChat ? (
@@ -277,7 +280,7 @@ export function App({
       modelLabel={modelLabel}
       blocked={blocked}
       filePreview={config.filePreview}
-      width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport, showRight) : undefined}
+      width={chatInDashboard ? centerWidth(viewport, showRight) : undefined}
       inputFocused={focus.focus === "input"}
       onOpenCommands={() => setOverlay("commands")}
       onCommand={(text) =>
@@ -310,9 +313,10 @@ export function App({
       <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
           <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
-          layoutClass(viewport) === "dashboard" ? (
+          chatInDashboard ? (
             <Dashboard
               modelLabel={modelLabel}
+              toasts={toasts}
               tokensLabel={sidebar.tokens.calls > 0 ? `${sidebar.tokens.contextIn.toLocaleString()} tok` : undefined}
               menuSel={focus.focus === "menu" ? focus.menuSel : null}
               right={
@@ -416,7 +420,10 @@ export function App({
           <AskUserModal key={`${asking.question}|${asking.options.map((o) => o.label).join(",")}`} gate={askGate} />
         )}
         </OverlayLayer>}
-        <Toasts toasts={toasts} />
+        {/* Toasts (#119): positioned inside the dashboard panels when the
+            session screen is in dashboard layout; the classic bottom row
+            serves every other screen (home, single-column fallback). */}
+        {!chatInDashboard && <Toasts toasts={toasts} />}
       </Box>
     </ThemeProvider>
   );
