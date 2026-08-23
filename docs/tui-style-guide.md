@@ -108,7 +108,7 @@ chalk (or picocolors) · cli-highlight · cli-spinners · wrap-ansi/slice-ansi (
 | Q10 | Provider onboarding | Hybrid: auto-detect env vars → one-confirm; full wizard only if nothing detected. |
 | Q11 | Telemetry opt-in | Settings panel only, never actively asked. |
 | Q12 | Narrow terminals | Compact mode below 60 cols: minimal footer, inline labels, full-width dialogs. Single-column session fallback below 90 (§3.2). |
-| Q13 | Keybinding discovery | Context-sensitive footer + `?` all-commands panel. No first-run cheatsheet. |
+| Q13 | Keybinding discovery | Context-sensitive chip footer + ctrl+k all-commands panel (menu entry Help opens it). No first-run cheatsheet. |
 | Q16 | In-chat keybindings | Non-text keys only: **ctrl+m** mode, **ctrl+t** theme, **ctrl+d** tool detail. Bare `v`/`1–9` were prototype-only. |
 | Q17 | Bare `moh` start | Opens home (filter-first); one enter resumes the latest session. |
 | Q14 | Subagent permission attribution | Title tag + border color (§9). |
