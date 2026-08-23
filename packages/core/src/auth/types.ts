@@ -75,9 +75,21 @@ export const openaiAuthOverridesSchema = z.object({
 });
 export type OpenAiAuthOverrides = z.infer<typeof openaiAuthOverridesSchema>;
 
+export const googleAuthOverridesSchema = z.object({
+  authorizeUrl: z.string().url().optional(),
+  tokenUrl: z.string().url().optional(),
+  clientId: z.string().min(1).optional(),
+  /** Installed-app secret: not treated as a secret by Google's own guidance. */
+  clientSecret: z.string().min(1).optional(),
+  /** Out-of-band page that displays the code to paste (headless path). */
+  manualRedirectUrl: z.string().url().optional(),
+});
+export type GoogleAuthOverrides = z.infer<typeof googleAuthOverridesSchema>;
+
 export const authOverridesSchema = z.object({
   anthropic: anthropicAuthOverridesSchema.optional(),
   openai: openaiAuthOverridesSchema.optional(),
+  google: googleAuthOverridesSchema.optional(),
 });
 export type AuthOverrides = z.infer<typeof authOverridesSchema>;
 
