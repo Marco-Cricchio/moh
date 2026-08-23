@@ -112,7 +112,6 @@ export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel, t
             </Box>
           </Box>
         )}
-
         {/* right sidebar — Activity/Workflow/Tokens from real session data (T6);
             absent in vibe mode (spec D6): the center column widens instead */}
         {right !== undefined && (
