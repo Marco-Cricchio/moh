@@ -63,6 +63,10 @@ export interface CallbackServer {
   port: number;
   /** Resolves with the state-validated authorization code. */
   code: Promise<string>;
+  /** True once the HTTP callback delivered the code (vs. manual paste) —
+   * the winning path decides the token exchange's `redirect_uri`
+   * (Claude Code's `hasPendingResponse()` equivalent). */
+  readonly deliveredViaCallback: boolean;
   /** Aborts the wait and shuts the server down immediately. */
   cancel(): void;
 }
@@ -116,6 +120,8 @@ export function startLoopbackCallback(opts: LoopbackOptions): Promise<CallbackSe
   timer.unref?.();
 
   let server: Server | undefined;
+  let viaCallback = false;
+  const deliveredViaCallback = () => viaCallback;
 
   const shutdown = (err?: Error) => {
     clearTimeout(timer);
@@ -173,6 +179,7 @@ export function startLoopbackCallback(opts: LoopbackOptions): Promise<CallbackSe
       const candidate = createServer((req, res) => {
         const delivered = handleRequest(req, res);
         if (delivered !== null) {
+          viaCallback = true;
           settled = true;
           resolveCode(delivered);
           shutdown();
@@ -192,6 +199,9 @@ export function startLoopbackCallback(opts: LoopbackOptions): Promise<CallbackSe
           redirectUri: `http://${host}:${port}${callbackPath}`,
           port,
           code,
+          get deliveredViaCallback() {
+            return deliveredViaCallback();
+          },
           cancel() {
             shutdown(new Error("callback cancelled"));
           },

@@ -127,6 +127,7 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
       kind: profile.type === "openai-compat" ? "openai" : (profile.type as "anthropic" | "openai" | "google"),
       apiKey,
       baseUrl: profile.baseUrl,
+      auth: profile.auth,
       capabilities: profile.capabilities,
     }),
     modelId,

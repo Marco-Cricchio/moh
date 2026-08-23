@@ -1,4 +1,5 @@
 import type { Message, Provider, StreamEvent, ToolSpec } from "./types";
+import type { AuthMethodKind } from "./auth/types";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
 import { aiSdkStreamFor } from "./providers/ai-sdk";
 import type { EndpointCapabilities } from "./types";
@@ -14,6 +15,8 @@ export interface EndpointConfig {
   apiKey?: string;
   /** Override base URL (openai-compat style endpoints). */
   baseUrl?: string;
+  /** Auth kind of the endpoint (absent = api-key, backward compatible). */
+  auth?: { kind: AuthMethodKind };
   capabilities?: Partial<EndpointCapabilities>;
 }
 
@@ -26,12 +29,14 @@ export class Endpoint {
   readonly kind: ProviderKind;
   readonly #apiKey: string | undefined;
   readonly baseUrl: string | undefined;
+  readonly authKind: AuthMethodKind;
   readonly capabilities: EndpointCapabilities;
 
   constructor(config: EndpointConfig) {
     this.name = config.name;
     this.kind = config.kind;
     this.baseUrl = config.baseUrl;
+    this.authKind = config.auth?.kind ?? "api-key";
     this.capabilities = {
       caching: config.capabilities?.caching ?? false,
       parallelToolCalls: config.capabilities?.parallelToolCalls ?? true,

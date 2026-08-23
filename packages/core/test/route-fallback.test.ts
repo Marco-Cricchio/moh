@@ -192,7 +192,9 @@ describe("Route fallback chains", () => {
 describe("public API surface", () => {
   test("no AI SDK types/functions leak into @moh/core public API", async () => {
     const mod: Record<string, unknown> = await import("../src/index");
-    const leaked = Object.keys(mod).filter((k) => /streamText|LanguageModel|aiSdk|Anthropic|OpenAI|Google/i.test(k));
+    // AI SDK symbols only — moh's own anthropic auth grant (ANTHROPIC_*,
+    // buildAnthropicAuthorizeUrl, ...) is public API and must not match.
+    const leaked = Object.keys(mod).filter((k) => /streamText|LanguageModel|aiSdk|^create(Anthropic|OpenAI|Google)/.test(k));
     expect(leaked).toEqual([]);
   });
 });
