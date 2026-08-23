@@ -78,6 +78,19 @@ import {
   type MergedConfigOptions,
   type UserProviderConfig,
 } from "./provider-config";
+import {
+  authMethodKindSchema,
+  type AuthAccount,
+  type AuthMethodKind,
+  type AuthSection,
+  type AuthToken,
+} from "./auth/types";
+import {
+  clearTokens,
+  getStoredToken,
+  readStoredTokens,
+  saveTokens,
+} from "./auth/store";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
