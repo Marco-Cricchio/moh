@@ -6,7 +6,7 @@
  * provider merge reads only `provider`/`endpoints` and must never see it.
  */
 import { readFileSync } from "node:fs";
-import { authSectionSchema, type AuthToken } from "./types";
+import { authSectionSchema, type AuthSection, type AuthToken } from "./types";
 import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "../user-config";
 
 /**
@@ -18,14 +18,25 @@ export function readStoredTokens(
   file: string,
   read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): Record<string, AuthToken> {
+  return readAuthSection(file, read).tokens;
+}
+
+/**
+ * The whole parsed `auth` section: tokens plus provider overrides.
+ * Same tolerance/strictness rules as {@link readStoredTokens}.
+ */
+export function readAuthSection(
+  file: string,
+  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
+): AuthSection {
   const data = readUserConfigFile(file, read);
-  if (data.auth === undefined) return {};
+  if (data.auth === undefined) return { tokens: {} };
   const parsed = authSectionSchema.safeParse(data.auth);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
     throw new Error(`invalid ${file} auth section: ${issues}`);
   }
-  return parsed.data.tokens;
+  return parsed.data;
 }
 
 /** Tokens for one endpoint, or undefined when none are stored. */
