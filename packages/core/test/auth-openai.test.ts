@@ -49,6 +49,7 @@ const TOKEN_RESPONSE = {
   access_token: "oauth-at-1",
   refresh_token: "rt-1",
   id_token: ID_TOKEN,
+  expires_in: 3600,
 };
 const MINT_RESPONSE = { access_token: "sk-minted-1" };
 
@@ -135,7 +136,7 @@ describe("exchangeOpenaiCode", () => {
     expect(minted).toEqual({
       accessToken: "sk-minted-1",
       refreshToken: "rt-1",
-      grant: { provider: "openai", minted: true, oauthAccessToken: "oauth-at-1", idToken: ID_TOKEN, plan: "plus" },
+      grant: { provider: "openai", minted: true, oauthAccessToken: "oauth-at-1", oauthExpiresAt: NOW + 3600 * 1000, idToken: ID_TOKEN, plan: "plus" },
       account: { email: "me@example.com" },
       updatedAt: NOW,
     });
@@ -171,7 +172,7 @@ describe("refreshOpenaiToken", () => {
   const stored: AuthToken = {
     accessToken: "sk-minted-1",
     refreshToken: "rt-old",
-    grant: { provider: "openai", minted: true, oauthAccessToken: "at-old", idToken: ID_TOKEN, plan: "plus" },
+    grant: { provider: "openai", minted: true, oauthAccessToken: "at-old", oauthExpiresAt: NOW - 1000, idToken: ID_TOKEN, plan: "plus" },
     account: { email: "me@example.com" },
     updatedAt: NOW - 10_000,
   };
