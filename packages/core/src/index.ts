@@ -73,6 +73,7 @@ import {
   type SubscriptionLogin,
   type SubscriptionStatus,
   type UsageFetch,
+  type AuthEndpointFetch,
 } from "./auth/lifecycle";
 import {
   installFirstPartySkills,
@@ -303,6 +304,7 @@ export {
   type SubscriptionLogin,
   type SubscriptionStatus,
   type UsageFetch,
+  type AuthEndpointFetch,
   type UpstreamUpdate,
   type UserConfigData,
   type TrackerIssue,

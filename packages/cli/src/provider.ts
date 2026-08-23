@@ -17,7 +17,10 @@ import {
   providerLogin,
   providerLogout,
   providerStatus,
+  type ConnectionTester,
   type OnboardingIo,
+  type ProviderAddOptions,
+  type LoginOptions,
 } from "@moh/core";
 import { userConfigFile } from "@moh/core";
 
@@ -42,11 +45,11 @@ export interface ProviderCommandOptions {
   /** I/O seam (tests). Default: stdin/stdout readline + best-effort browser. */
   io?: OnboardingIo;
   /** Wizard subscription-grant seam (tests), for `add`. */
-  subscriptionLogin?: NonNullable<Parameters<typeof addProviderToFile>[2]>["subscriptionLogin"];
+  subscriptionLogin?: ProviderAddOptions["subscriptionLogin"];
   /** Connection-test seam (tests), for `add`. */
-  tester?: NonNullable<Parameters<typeof addProviderToFile>[2]>["tester"];
+  tester?: ConnectionTester;
   /** Login seam (tests): overrides the real subscription grant in `login`. */
-  loginImpl?: NonNullable<Parameters<typeof providerLogin>[2]>["loginImpl"];
+  loginImpl?: LoginOptions["loginImpl"];
 }
 
 const out = (opts: ProviderCommandOptions): NodeJS.WritableStream => opts.stdout ?? process.stdout;
@@ -67,16 +70,20 @@ async function openUrl(url: string): Promise<boolean> {
   });
 }
 
-/** Real terminal I/O (the CLI wiring of the OnboardingIo seam). */
-async function terminalIo(opts: ProviderCommandOptions): Promise<OnboardingIo> {
-  if (opts.io) return opts.io;
+/** Real terminal I/O (the CLI wiring of the OnboardingIo seam). Returns the
+ * io plus a cleanup for the readline handle it may have created. */
+async function terminalIo(opts: ProviderCommandOptions): Promise<{ io: OnboardingIo; close: () => void }> {
+  if (opts.io) return { io: opts.io, close: () => {} };
   const rl = createInterface({ input: process.stdin, output: out(opts) });
   return {
-    ask: (prompt: string) => rl.question(prompt),
-    info: async (line: string) => {
-      out(opts).write(`${line}\n`);
+    io: {
+      ask: (prompt: string) => rl.question(prompt),
+      info: async (line: string) => {
+        out(opts).write(`${line}\n`);
+      },
+      openUrl,
     },
-    openUrl,
+    close: () => rl.close(),
   };
 }
 
@@ -100,7 +107,7 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
       errOut(opts).write(`moh provider add takes no arguments\n`);
       return 2;
     }
-    const io = await terminalIo(opts);
+    const { io, close } = await terminalIo(opts);
     try {
       await addProviderToFile(io, join(opts.cwd, "moh.json"), {
         authFile,
@@ -111,6 +118,8 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
     } catch (err) {
       errOut(opts).write(`${(err as Error).message}\n`);
       return 1;
+    } finally {
+      close();
     }
   }
 
@@ -131,7 +140,7 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
       errOut(opts).write(`moh: no endpoint named "${name}" (configured: ${endpoints.map((e) => e.name).join(", ") || "none"})\n`);
       return 1;
     }
-    const io = await terminalIo(opts);
+    const { io, close } = await terminalIo(opts);
     try {
       const token = await providerLogin(endpoint, io, { authFile, ...(opts.loginImpl ? { loginImpl: opts.loginImpl } : {}) });
       const who = token.account?.email ?? token.account?.name ?? "unknown account";
@@ -140,6 +149,8 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
     } catch (err) {
       errOut(opts).write(`${(err as Error).message}\n`);
       return 1;
+    } finally {
+      close();
     }
   }
 

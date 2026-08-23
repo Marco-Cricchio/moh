@@ -32,15 +32,22 @@ export type SubscriptionLogin = (
   io: AuthorizationIo,
   kind: SubscriptionKind,
   overrides: AuthOverrides | undefined,
-  opts: { now?: number; fetchImpl?: unknown },
+  opts: { now?: number; fetchImpl?: AuthEndpointFetch },
 ) => Promise<AuthToken>;
+
+/** HTTP seam for the token endpoints (structural shape shared by all
+ * three grants — same as resolve.ts TokenFetch). */
+export type AuthEndpointFetch = (
+  url: string,
+  body: Record<string, unknown>,
+) => Promise<{ status: number; json: Record<string, unknown> }>;
 
 /** Runs the per-provider subscription grant (ToS first), **without**
  * storing anything — the wizard and providerLogin persist the result. */
 export async function runSubscriptionLogin(
   kind: SubscriptionKind,
   io: AuthorizationIo,
-  opts: { overrides?: AuthOverrides; now?: number; fetchImpl?: unknown } = {},
+  opts: { overrides?: AuthOverrides; now?: number; fetchImpl?: AuthEndpointFetch } = {},
 ): Promise<AuthToken> {
   const rest = {
     ...(opts.now !== undefined ? { now: opts.now } : {}),
@@ -62,7 +69,7 @@ export interface LoginOptions {
   /** Grant override (tests). Default: the per-provider login flows. */
   loginImpl?: SubscriptionLogin;
   now?: number;
-  fetchImpl?: unknown;
+  fetchImpl?: AuthEndpointFetch;
 }
 
 /**
@@ -190,24 +197,26 @@ async function anthropicUsage(accessToken: string, usageFetch: UsageFetch): Prom
       authorization: `Bearer ${accessToken}`,
       ...ANTHROPIC_OAUTH_BETA,
     });
-    if (res.status !== 200) return `usage unavailable (HTTP ${res.status}; run \`moh provider login\` if the token expired)`;
+    if (res.status !== 200) return `usage unavailable (HTTP ${res.status})`;
     return `usage: ${summarizeUsage(res.text)}`;
   } catch {
     return "usage unavailable";
   }
 }
 
-/** Compact `k: v` rendering of a JSON usage payload; truncated, redaction-free. */
+/** Compact `k: v` rendering of a JSON usage payload. Unparseable bodies
+ * are never echoed raw — a drifted endpoint must not leak whatever it
+ * decides to return (redaction by construction, spec invariant 2). */
 function summarizeUsage(text: string): string {
   try {
     const parsed = JSON.parse(text) as unknown;
-    if (parsed === null || typeof parsed !== "object") return text.slice(0, 120);
+    if (parsed === null || typeof parsed !== "object") return "unavailable (unparseable response)";
     const parts = Object.entries(parsed as Record<string, unknown>).map(
       ([k, v]) => `${k}: ${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`,
     );
     const joined = parts.join("; ");
     return joined.length > 160 ? `${joined.slice(0, 157)}...` : joined;
   } catch {
-    return text.slice(0, 120);
+    return "unavailable (unparseable response)";
   }
 }
