@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 import { Dim, Logo } from "./ui";
+import { Toasts, type Toast } from "./Toasts";
 import { bodyRows, centerWidth, sidebarWidths, useViewport } from "./viewport";
 
 /** Left menu entries (T4 wires focus + activation; T3 renders them inert). */
@@ -45,6 +46,10 @@ export interface DashboardProps {
   right?: React.ReactNode;
   /** Index of the `❯` selection while the menu has focus (#116); null/undefined = input focus. */
   menuSel?: number | null;
+  /** Positioned toasts (#119): chat-positioned notices float bottom-center
+   * over the chat column, side-positioned (memory) ones at the bottom of the
+   * left sidebar, wrapped to its width. */
+  toasts?: Toast[];
 }
 
 /**
@@ -55,7 +60,7 @@ export interface DashboardProps {
  * borders land on the same row without manual sibling-row arithmetic
  * (prototype lesson: let Yoga absorb the remainder).
  */
-export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel }: DashboardProps) {
+export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel, toasts }: DashboardProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const { menu, side } = sidebarWidths(viewport);
@@ -94,6 +99,19 @@ export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel }:
         <Box flexDirection="column" width={centerWidth(viewport, right !== undefined)} height={rows}>
           {children}
         </Box>
+        {/* toast layer (#119): floats above the panels, never shifts layout.
+            chat toasts anchor to the center column's bottom edge; memory
+            toasts to the menu sidebar's, wrapped to its width. */}
+        {toasts !== undefined && (
+          <Box position="absolute" width="100%" height={rows} flexDirection="row">
+            <Box width={menu} height={rows} flexDirection="column" justifyContent="flex-end">
+              <Toasts toasts={toasts.filter((t) => t.position === "side")} wrap={menu - 2} />
+            </Box>
+            <Box flexGrow={1} flexDirection="column" justifyContent="flex-end" alignItems="center">
+              <Toasts toasts={toasts.filter((t) => t.position !== "side")} />
+            </Box>
+          </Box>
+        )}
         {/* right sidebar — Activity/Workflow/Tokens from real session data (T6);
             absent in vibe mode (spec D6): the center column widens instead */}
         {right !== undefined && (

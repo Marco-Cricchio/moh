@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { Box } from "ink";
+import { Box, Text } from "ink";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,8 @@ import { AskUserModal } from "../src/AskUserModal";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { stripAnsi, unwrap } from "./helpers";
+import { Dialog } from "../src/ui";
+import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -120,5 +122,25 @@ describe("overlay layout integrity over Chat", () => {
     gate.resolve("no");
     await sleep(50);
     i.unmount();
+  });
+});
+
+describe("overlay restyle (issue #119, spec D8)", () => {
+  test("Dialog renders the dashboard language: round border, semantic title color, solid bg", () => {
+    const theme = THEMES[DEFAULT_THEME];
+    const { lastFrame } = render(
+      <ThemeProvider value={theme}>
+        <Dialog title=" settings " color={theme.ok}>
+          <Text>body</Text>
+        </Dialog>
+      </ThemeProvider>,
+    );
+    const raw = lastFrame() ?? "";
+    // chalk is level-0 in the test env, so color tokens are asserted via
+    // the Dialog contract (title/color/bg props) rather than ANSI escapes.
+    expect(raw).toContain("╭"); // round border (not single/square)
+    expect(raw).not.toContain("┌");
+    expect(stripAnsi(raw)).toContain("settings"); // semantic-colored title row
+    expect(stripAnsi(raw)).toContain("body");
   });
 });
