@@ -115,6 +115,7 @@ import {
 import {
   clearTokens,
   getStoredToken,
+  readAuthSection,
   readStoredTokens,
   saveTokens,
 } from "./auth/store";
@@ -187,6 +188,7 @@ export {
   type AuthToken,
   clearTokens,
   getStoredToken,
+  readAuthSection,
   readStoredTokens,
   saveTokens,
   TOS_WARNING,
