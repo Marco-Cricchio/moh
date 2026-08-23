@@ -23,7 +23,7 @@ const PREAMBLE = [
 
 describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
   test(
-    "wide terminal: chat column is a centered 100-col measure",
+    "wide terminal: dashboard frames the chat between the sidebars (#115)",
     async () => {
       const lines = await runPty({
         cols: 160,
@@ -33,10 +33,13 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       });
       const input = lines.find((l) => l.text.includes("type…"));
       expect(input).toBeDefined();
-      expect(input!.lead).toBeGreaterThanOrEqual(28);
-      expect(input!.lead).toBeLessThanOrEqual(32);
-      expect(input!.width - input!.lead).toBeGreaterThanOrEqual(98);
-      expect(input!.width - input!.lead).toBeLessThanOrEqual(102);
+      // Dashboard layout at 160 cols: the chat input sits inside the center
+      // column, right after the 20-col menu sidebar — no longer the centered
+      // 100-col measure of the single-column layout (superseded by #115).
+      const gutter = input!.text.indexOf("›");
+      expect(gutter).toBeGreaterThanOrEqual(20);
+      expect(gutter).toBeLessThanOrEqual(25);
+      expect(input!.text.includes("Wayfinder") || lines.some((l) => l.text.includes("Wayfinder"))).toBe(true);
       // Nothing ever paints past the terminal edge.
       for (const l of lines) expect(l.width).toBeLessThanOrEqual(160);
     },
