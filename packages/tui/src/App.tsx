@@ -42,7 +42,7 @@ type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" 
 
 /**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,
- * filter-first home, 9 themes in React state (a switch remounts the tree
+ * filter-first home, 15 themes in React state (a switch remounts the tree
  * via `key`), the blocking permission modal, hybrid onboarding, the
  * settings panel, the all-commands panel, and toast notices.
  */
