@@ -1,5 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { COMPACT_COLS, HOME_LIST_DEFAULT, MEASURE, clampHomeListMax, contentWidth, dialogWidth, homeListCycleValues, visibleListHeight, widthClass, windowing } from "../src/viewport";
+import {
+  CHIP_ROWS,
+  COMPACT_COLS,
+  DASHBOARD_COLS,
+  GAP_ROWS,
+  HEADER_ROWS,
+  HOME_LIST_DEFAULT,
+  MEASURE,
+  bodyRows,
+  centerWidth,
+  clampHomeListMax,
+  contentWidth,
+  dialogWidth,
+  homeListCycleValues,
+  layoutClass,
+  sidebarWidths,
+  visibleListHeight,
+  widthClass,
+  windowing,
+} from "../src/viewport";
 
 describe("viewport width classes (issue #65)", () => {
   test("compact below 60, regular through the measure, wide beyond it", () => {
@@ -52,6 +71,41 @@ describe("windowing (issue #64)", () => {
     expect(windowing(10, 9, 0)).toEqual({ start: 9, count: 1, above: 9, below: 0 });
     expect(windowing(10, 0, -3)).toEqual({ start: 0, count: 1, above: 0, below: 9 });
     expect(windowing(0, 0, 4)).toEqual({ start: 0, count: 0, above: 0, below: 0 });
+  });
+});
+
+describe("dashboard layout geometry (#113)", () => {
+  test("layoutClass switches to dashboard exactly at the threshold", () => {
+    expect(DASHBOARD_COLS).toBe(90);
+    expect(layoutClass({ columns: 89, rows: 24 })).toBe("single");
+    expect(layoutClass({ columns: 90, rows: 24 })).toBe("dashboard");
+    expect(layoutClass({ columns: 220, rows: 50 })).toBe("dashboard");
+  });
+
+  test("sidebarWidths: compact right at the threshold, full on wide terminals", () => {
+    const atThreshold = sidebarWidths({ columns: 90, rows: 30 });
+    expect(atThreshold.menu).toBeLessThanOrEqual(20);
+    expect(atThreshold.side).toBeLessThanOrEqual(30);
+    expect(sidebarWidths({ columns: 120, rows: 30 })).toEqual({ menu: 20, side: 30 });
+    // widths never grow past the wide values
+    expect(sidebarWidths({ columns: 220, rows: 50 })).toEqual({ menu: 20, side: 30 });
+  });
+
+  test("bodyRows: rows minus header, gap, chip — the whole vertical budget", () => {
+    expect(HEADER_ROWS).toBe(2);
+    expect(GAP_ROWS).toBe(1);
+    expect(CHIP_ROWS).toBe(1);
+    expect(bodyRows({ columns: 100, rows: 24 })).toBe(20);
+    expect(bodyRows({ columns: 100, rows: 40 })).toBe(36);
+    expect(bodyRows({ columns: 100, rows: 5 })).toBeGreaterThanOrEqual(1);
+  });
+
+  test("centerWidth: full terminal when single, terminal minus sidebars and gaps when dashboard", () => {
+    expect(centerWidth({ columns: 80, rows: 24 })).toBe(80);
+    const dashboard = centerWidth({ columns: 120, rows: 30 });
+    const { menu, side } = sidebarWidths({ columns: 120, rows: 30 });
+    expect(dashboard).toBe(120 - menu - side - 2);
+    expect(centerWidth({ columns: 90, rows: 30 })).toBeGreaterThanOrEqual(40);
   });
 });
 

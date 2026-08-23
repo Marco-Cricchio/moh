@@ -49,6 +49,49 @@ export function visibleListHeight(configured: number, rows: number): number {
   return Math.max(HOME_LIST_MIN_VISIBLE, Math.min(configured, rows - HOME_CHROME_ROWS));
 }
 
+// ── Dashboard layout geometry (T1, issue #113) ────────────────────────────
+
+/** Columns at which the session screen switches to the three-column dashboard. */
+export const DASHBOARD_COLS = 90;
+/** Header budget: title row + bottom border (prototype lesson: counts as 2 rows). */
+export const HEADER_ROWS = 2;
+/** Gap row between the panel row and the chip footer. */
+export const GAP_ROWS = 1;
+/** Chip footer budget. */
+export const CHIP_ROWS = 1;
+
+export type LayoutClass = "single" | "dashboard";
+
+/** Which layout the session screen uses: dashboard from DASHBOARD_COLS up. */
+export function layoutClass(v: Viewport): LayoutClass {
+  return v.columns >= DASHBOARD_COLS ? "dashboard" : "single";
+}
+
+export interface SidebarWidths {
+  /** Left menu sidebar width in columns. */
+  menu: number;
+  /** Right activity/workflow/tokens sidebar width in columns. */
+  side: number;
+}
+
+/** Sidebar widths: compact near the threshold so the center column keeps room to breathe. */
+export function sidebarWidths(v: Viewport): SidebarWidths {
+  if (v.columns < DASHBOARD_COLS + 20) return { menu: 16, side: 24 };
+  return { menu: 20, side: 30 };
+}
+
+/** Rows available to the panel row: the whole budget between header and chips. */
+export function bodyRows(v: Viewport): number {
+  return Math.max(1, v.rows - HEADER_ROWS - GAP_ROWS - CHIP_ROWS);
+}
+
+/** Center-column width: the terminal minus both sidebars and the two gap columns. */
+export function centerWidth(v: Viewport): number {
+  if (layoutClass(v) === "single") return v.columns;
+  const { menu, side } = sidebarWidths(v);
+  return v.columns - menu - side - 2;
+}
+
 export type WidthClass = "compact" | "regular" | "wide";
 
 /** Live terminal geometry; 80×24 fallback for non-tty hosts (tests, pipes). */
