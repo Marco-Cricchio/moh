@@ -68,8 +68,16 @@ export const anthropicAuthOverridesSchema = z.object({
 });
 export type AnthropicAuthOverrides = z.infer<typeof anthropicAuthOverridesSchema>;
 
+/** OpenAI overrides: issuer (client_id + all endpoints derive from it). */
+export const openaiAuthOverridesSchema = z.object({
+  issuer: z.string().url().optional(),
+  clientId: z.string().min(1).optional(),
+});
+export type OpenAiAuthOverrides = z.infer<typeof openaiAuthOverridesSchema>;
+
 export const authOverridesSchema = z.object({
   anthropic: anthropicAuthOverridesSchema.optional(),
+  openai: openaiAuthOverridesSchema.optional(),
 });
 export type AuthOverrides = z.infer<typeof authOverridesSchema>;
 
