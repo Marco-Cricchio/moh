@@ -49,6 +49,18 @@ user-fixable (surface the `message`); `session` is a startup validation
 error (e.g. a corrupt resumed log). The store is only created after
 validation, so a broken config leaves no orphan session file.
 
+**Subscription (OAuth) endpoints.** An endpoint profile may carry
+`auth: { kind: "subscription" }` (absent = api-key, the backward-compatible
+default). Subscription endpoints resolve their credential automatically at
+stream time: the access token is read from the `auth` section of
+`~/.moh/config` (ADR-0009 — never moh.json), refreshed proactively before
+the single stream call when near expiry, and a failure surfaces as a
+`ProviderError` of kind `auth` pointing at `moh provider login <name>`. As
+an embedder you do nothing: no token plumbing, no refresh handling — the
+login flow itself is a CLI concern (`moh provider add` / `login`), driven
+through the `OnboardingIo` seam (which grew a best-effort `openUrl` for
+headless-safe OAuth).
+
 ### 2. Consume the session through `events`
 
 The event log is the session: an append-only sequence of `AgentEvent`s
