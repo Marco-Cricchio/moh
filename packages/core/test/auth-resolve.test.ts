@@ -128,7 +128,7 @@ describe("resolveEndpointCredential", () => {
 });
 
 describe("route wiring (refresh-before-stream)", () => {
-  const msgs: Message[] = [{ role: "user", content: "hi" }];
+  const msgs: Message[] = [{ role: "user", parts: [{ kind: "text", text: "hi" }] }];
 
   test("credential resolver runs once per subscription target; token reaches the stream factory", async () => {
     const resolved: string[] = [];
