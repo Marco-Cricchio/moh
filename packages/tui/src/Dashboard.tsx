@@ -15,9 +15,47 @@ export const CHIPS: ReadonlyArray<readonly [string, string]> = [
   ["esc", "steer"],
   ["^s", "settings"],
   ["^k", "commands"],
-  ["^m", "mode"],
+  ["^o", "mode"],
   ["^t", "theme"],
 ];
+
+/**
+ * The session footer's chip list: the dashboard base plus the chat
+ * column's contextual hints (detail toggle, scroll-back, streaming stop)
+ * merged without duplicates — the chat no longer renders its own tips row.
+ * Order matters: `fitChips` drops from the end on narrow widths, so the
+ * most essential keys come first.
+ */
+export function sessionChips(hints: {
+  streaming?: boolean;
+  atBottom?: boolean;
+  detailToggle?: boolean;
+}): ReadonlyArray<readonly [string, string]> {
+  const out: [string, string][] = [["⏎", "send"]];
+  out.push(["esc", hints.streaming ? "esc stop" : "steer"]);
+  out.push(["^s", "settings"], ["^k", "commands"], ["^o", "mode"], ["^t", "theme"]);
+  if (hints.detailToggle) out.push(["^d", "detail"]);
+  if (hints.atBottom === false) out.push(["↑↓", "older"]);
+  return out;
+}
+
+/** The chip footer row: icon + name in delicate round frames, fit to width. */
+export function ChipFooter({ chips = CHIPS }: { chips?: ReadonlyArray<readonly [string, string]> }) {
+  const theme = useTheme();
+  const viewport = useViewport();
+  return (
+    <Box paddingX={1} gap={1} flexShrink={0} flexWrap="nowrap">
+      {fitChips(chips, viewport.columns).map(([icon, name]) => (
+        <Text key={name}>
+          <Dim>( </Dim>
+          <Text color={theme.accent}>{`${icon} `}</Text>
+          <Text color={theme.fg}>{name}</Text>
+          <Dim> )</Dim>
+        </Text>
+      ))}
+    </Box>
+  );
+}
 
 /** Prefix of chips that fits one row ("( ⏎ send )" = icon + name + 5, gap 1). */
 export function fitChips(chips: ReadonlyArray<readonly [string, string]>, width: number): ReadonlyArray<readonly [string, string]> {
@@ -46,6 +84,8 @@ export interface DashboardProps {
   right?: React.ReactNode;
   /** Index of the `❯` selection while the menu has focus (#116); null/undefined = input focus. */
   menuSel?: number | null;
+  /** Footer chips override (the session's merged key hints); defaults to CHIPS. */
+  chips?: ReadonlyArray<readonly [string, string]>;
   /** Positioned toasts (#119): chat-positioned notices float bottom-center
    * over the chat column, side-positioned (memory) ones at the bottom of the
    * left sidebar, wrapped to its width. */
@@ -60,7 +100,7 @@ export interface DashboardProps {
  * borders land on the same row without manual sibling-row arithmetic
  * (prototype lesson: let Yoga absorb the remainder).
  */
-export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel, toasts }: DashboardProps) {
+export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel, chips, toasts }: DashboardProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const { menu, side } = sidebarWidths(viewport);
@@ -128,16 +168,7 @@ export function Dashboard({ modelLabel, tokensLabel, children, right, menuSel, t
 
       {/* footer chips — one row: icon + name in delicate round frames;
           bordered boxes would cost 3 rows against the CHIP_ROWS=1 budget */}
-      <Box paddingX={1} gap={1} flexShrink={0} flexWrap="nowrap">
-        {fitChips(CHIPS, viewport.columns).map(([icon, name]) => (
-          <Text key={name}>
-            <Dim>( </Dim>
-            <Text color={theme.accent}>{`${icon} `}</Text>
-            <Text color={theme.fg}>{name}</Text>
-            <Dim> )</Dim>
-          </Text>
-        ))}
-      </Box>
+      <ChipFooter chips={chips} />
     </Box>
   );
 }

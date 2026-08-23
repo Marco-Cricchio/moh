@@ -14,7 +14,7 @@ import { stripAnsi, unwrap } from "./helpers";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("compact mode (issue #33)", () => {
-  test("below 60 cols the footer keeps only essential keys and the placeholder shrinks", async () => {
+  test("below 60 cols the placeholder shrinks and no key-tips row renders under the input", async () => {
     const { session } = unwrap(makeSession({
       cwd: process.cwd(),
       home: mkdtempSync(join(tmpdir(), "moh-cmp-")),
@@ -34,15 +34,16 @@ describe("compact mode (issue #33)", () => {
     );
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/\s+/g, " ");
-    // Truncate-end keeps the compact footer on one line: the essential
-    // keys render, the editor/steering hints never appear.
-    expect(frame).toContain("ctrl+t theme · ctrl+m");
+    // The chat column has no tips row of its own anymore (hints live in the
+    // chip footer); the compact placeholder keeps the short form.
+    expect(frame).toContain("type…");
     expect(frame).not.toContain("ctrl+j newline");
     expect(frame).not.toContain("esc steer");
+    expect(frame).not.toContain("q quit");
     i.unmount();
   });
 
-  test("at 80 cols the full footer and editor hint render", async () => {
+  test("at 80 cols the editor hint renders in the placeholder, not a tips row", async () => {
     const { session } = unwrap(makeSession({
       cwd: process.cwd(),
       home: mkdtempSync(join(tmpdir(), "moh-cmp-")),
@@ -52,7 +53,7 @@ describe("compact mode (issue #33)", () => {
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("ctrl+j newline · ctrl+e editor");
-    expect(frame).toContain("ctrl+s settings");
+    expect(frame).not.toContain("ctrl+s settings");
     i.unmount();
   });
 });

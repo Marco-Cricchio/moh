@@ -6,7 +6,7 @@ import { createMarkdownRenderer } from "./markdown";
 import { ChatWindow, CHAT_WINDOW_BUFFER, resolveOffset, scrollAnchor, turnLines, type ScrollAnchor } from "./chat-window";
 import { useTheme } from "./themes";
 import { SPINNER_FRAMES } from "./icons";
-import { Dim, Footer, Logo } from "./ui";
+import { Dim, Logo } from "./ui";
 import { chatWrapWidth, chatWindowRows, widthClass, useViewport, contentWidth } from "./viewport";
 import { MultilineInput } from "./Input";
 
@@ -37,6 +37,10 @@ export interface ChatProps {
   width?: number;
   /** False while the dashboard menu owns the keyboard (#116). */
   inputFocused?: boolean;
+  /** Reports the footer-relevant hints upward: the chip footer (dashboard
+   * footer or single-column row) renders them, the chat column has no
+   * tips row of its own anymore. */
+  onHints?: (hints: { streaming: boolean; atBottom: boolean }) => void;
 }
 
 /**
@@ -47,7 +51,7 @@ export interface ChatProps {
  * recent lines and ↑↓/PgUp–PgDn move a scroll offset; streaming re-renders
  * never fight the offset because follow-tail is explicit anchor state.
  */
-export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand, width, inputFocused = true }: ChatProps) {
+export function Chat({ session, mode, modelLabel, blocked = false, filePreview = "on-demand", onOpenCommands, onCommand, width, inputFocused = true, onHints }: ChatProps) {
   const theme = useTheme();
   const state = useSessionState(session);
   const viewport = useViewport();
@@ -92,6 +96,11 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const offset = resolveOffset(anchor, lines.length, height);
   const atBottom = anchor.follow || offset >= lines.length - height;
 
+  // Footer hints live in the chip footer now, not under the input.
+  useEffect(() => {
+    onHints?.({ streaming: state.pending, atBottom });
+  }, [onHints, state.pending, atBottom]);
+
   useInput((input, key) => {
     if (blocked) return;
     if (key.ctrl && input === "d" && filePreview !== "none") return setDetail((d) => !d);
@@ -133,7 +142,12 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
       </Box>
       <Text> </Text>
 
-      <ChatWindow lines={lines} height={height} offset={offset} />
+      {/* transcript window flexes to fill the column: the input is pinned
+          to the bottom edge, vertically aligned with the sidebar panels —
+          the fixed window height is an upper bound, never a gap. */}
+      <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" overflow="hidden">
+        <ChatWindow lines={lines} height={height} offset={offset} />
+      </Box>
 
       <Text> </Text>
       <MultilineInput
@@ -146,14 +160,6 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
           if (onCommand?.(text)) return;
           void session.send(text);
         }}
-      />
-      <Text> </Text>
-      <Footer
-        keys={
-          compact
-            ? `${theme.label} · ctrl+t theme · ctrl+m mode · ctrl+k keys · q quit`
-            : `${theme.label} · ctrl+t theme · ctrl+m ${mode === "vibe" ? "dev" : "vibe"}${filePreview === "none" ? "" : " · ctrl+d detail"} · ctrl+s settings · ctrl+k keys${streaming ? " · esc steer / esc esc stop" : ""}${atBottom ? "" : " · ↑ older"} · q quit`
-        }
       />
     </Box>
   );

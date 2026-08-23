@@ -104,11 +104,12 @@ export function centerWidth(v: Viewport, rightSidebar = true): number {
 
 // ── Chat window geometry (T5, issue #117) ─────────────────────────────────
 
-/** Rows the Chat column spends on its own chrome: header row, three spacer
- * rows, the bordered input box (3), the footer keybind line — plus one guard
- * row: a frame exactly as tall as the terminal trips Ink's fullscreen replay
- * path (clear + full repaint every tick), so the column stays one row short. */
-export const CHAT_CHROME_ROWS = 9;
+/** Rows the Chat column spends on its own chrome: header row, two spacer
+ * rows and the bordered input box (3) — the old key-tips footer row is gone
+ * (its hints live in the chip footer now) — plus one guard row: a frame
+ * exactly as tall as the terminal trips Ink's fullscreen replay path (clear
+ * + full repaint every tick), so the column stays one row short. */
+export const CHAT_CHROME_ROWS = 8;
 /** The transcript window never shrinks below this, however tiny the terminal. */
 export const CHAT_WINDOW_MIN_ROWS = 3;
 

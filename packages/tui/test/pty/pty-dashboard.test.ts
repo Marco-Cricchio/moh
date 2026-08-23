@@ -52,14 +52,14 @@ describe.skipIf(!hasPython)("PTY dashboard shell (issue #115)", () => {
       expect(lines.some((l) => l.text.includes("Tokens"))).toBe(true);
       expect(lines.some((l) => l.text.includes("( ⏎ send )"))).toBe(true);
       expect(lines.some((l) => l.text.includes("type…"))).toBe(true);
-      // Panel bottom borders aligned: the menu and right-sidebar ╰ corners
-      // land on the same row (two corners on one line — the chat input's
-      // own ╰ sits higher inside the center column).
+      // Panel bottom borders aligned: menu, center-column input and right
+      // sidebar all close on the same row — three ╰ corners on one line
+      // (the chat column is bottom-anchored to the sidebar panels).
       const bottoms = rowsWith(lines, "╰");
-      expect(bottoms.length).toBeGreaterThanOrEqual(2);
+      expect(bottoms.length).toBeGreaterThanOrEqual(1);
       const last = bottoms[bottoms.length - 1]!;
       const corners = lines[last - 1]!.text.split("╰").length - 1;
-      expect(corners).toBeGreaterThanOrEqual(2);
+      expect(corners).toBeGreaterThanOrEqual(3);
       // Budget: nothing paints past the terminal edge, chips sit on the last row.
       for (const l of lines) expect(l.width).toBeLessThanOrEqual(100);
       expect(lines.length).toBeLessThanOrEqual(30);

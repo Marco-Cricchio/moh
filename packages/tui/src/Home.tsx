@@ -106,8 +106,8 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
       <Footer
         keys={
           compact
-            ? `${theme.label} · ctrl+t theme · ctrl+m mode · q quit`
-            : `${theme.label} · ctrl+t theme · ctrl+m mode · s settings · ? keys · q quit`
+            ? `${theme.label} · ctrl+t theme · ctrl+o mode · q quit`
+            : `${theme.label} · ctrl+t theme · ctrl+o mode · s settings · ? keys · q quit`
         }
       />
     </Box>

@@ -56,12 +56,18 @@ export function MultilineInput({ placeholder, disabled, onAskCommands, focused =
       if (disabled) return;
       if (key.escape) return; // owned by the chat screen (steer/stop)
     if (input === "?" && lines.join("") === "" && onAskCommands) return onAskCommands();
-    if (key.return || input === "\n") {
-      if (key.shift) insertNewline();
+    if (key.return || input === "\r") {
+      // option/alt+enter (\x1b\r — Terminal.app/iTerm2 send it) is a
+      // newline too: shift+enter is indistinguishable from Enter there
+      // (no kitty protocol), but option+enter carries its own sequence.
+      if (key.shift || key.meta) insertNewline();
       else submit();
       return;
     }
-    if (input === "\x0a" || (key.ctrl && input === "j")) {
+    // ctrl+j newline. Ink parses its \n byte as name "enter", ctrl false,
+    // input "\n" — it must NOT fall into the submit branch above (a real
+    // Enter arrives as \r / key.return), or ctrl+j would send the draft.
+    if (input === "\n" || input === "\x0a" || (key.ctrl && input === "j")) {
       insertNewline();
       return;
     }
@@ -103,8 +109,13 @@ export function MultilineInput({ placeholder, disabled, onAskCommands, focused =
   );
 
   return (
-    <Box borderStyle="round" borderColor={theme.border} width="100%" paddingX={1}>
-      <Text color={theme.accent} bold>
+    <Box
+      borderStyle="round"
+      borderColor={focused && !disabled ? theme.accent : theme.border}
+      width="100%"
+      paddingX={1}
+    >
+      <Text color={focused && !disabled ? theme.accent : theme.dim} bold>
         ›{" "}
       </Text>
       <Box flexDirection="column">

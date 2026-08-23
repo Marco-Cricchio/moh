@@ -12,7 +12,7 @@ Status: **LIVING** — reflects the shipped dashboard TUI (`packages/tui`, issue
 | # | Decision | Choice |
 |---|----------|--------|
 | Q1 | Root layout | **Dashboard frame on the session screen** (≥ 90 cols): header, panels row, gap, chip footer; modal overlays float above it. Single-column fallback below 90. |
-| Q2 | Multiline input | Enter sends; **shift+enter / ctrl+j** newline (kitty protocol where supported, ctrl+j fallback); **ctrl+e** opens `$EDITOR` for long text. |
+| Q2 | Multiline input | Enter sends; **shift+enter / ctrl+j** newline (shift+enter needs the kitty keyboard protocol — enabled via `kittyKeyboard: auto` in main.tsx, negotiated on kitty/WezTerm/Ghostty; elsewhere it is a plain `\r`, indistinguishable from Enter — so ctrl+j is the universal fallback); **ctrl+e** opens `$EDITOR` for long text. Ink 6 parses ctrl+j's `\n` byte as `name:"enter", ctrl:false` — `\n` must map to newline, `\r`/`key.return` to submit. |
 | Q3 | Transcript rendering | **Internal chat window** (D4): fixed-height, bottom-anchored window inside the chat box; keyboard scroll moves a window offset; the terminal never scrolls in-session. `<Static>` scrollback is gone from the session screen. |
 | Q4 | Markdown | **Full markdown** rendering; streaming-safe (auto-close unterminated fences at render time). |
 | Q5 | Permission UX | **Blocking modal dialog**, full argument detail, `y / always / edit / deny`; plain-language in vibe mode. |
@@ -22,7 +22,7 @@ Status: **LIVING** — reflects the shipped dashboard TUI (`packages/tui`, issue
 
 ## 2. The two souls (owner's core directive)
 
-Two user modes, switchable with **ctrl+m** and persisted in config, settable from the settings panel:
+Two user modes, switchable with **ctrl+o** and persisted in config, settable from the settings panel:
 
 - **vibe (simple)**: plain human language; **zero technical metrics**; session titles auto-summarized; permission asks in plain language. **Vibe = dashboard minus the right sidebar** (D6): menu, chat, header, chips all stay — the center column absorbs the freed width.
 - **dev (developer)**: vibe mode **+ the right sidebar** (Activity / Workflow / Tokens) and verbose detail on demand (`ctrl+d` inline tool output).
@@ -109,7 +109,7 @@ chalk (or picocolors) · cli-highlight · cli-spinners · wrap-ansi/slice-ansi (
 | Q11 | Telemetry opt-in | Settings panel only, never actively asked. |
 | Q12 | Narrow terminals | Compact mode below 60 cols: minimal footer, inline labels, full-width dialogs. Single-column session fallback below 90 (§3.2). |
 | Q13 | Keybinding discovery | Context-sensitive chip footer + ctrl+k all-commands panel (menu entry Help opens it). No first-run cheatsheet. |
-| Q16 | In-chat keybindings | Non-text keys only: **ctrl+m** mode, **ctrl+t** theme, **ctrl+d** tool detail. Bare `v`/`1–9` were prototype-only. |
+| Q16 | In-chat keybindings | Non-text keys only: **ctrl+o** mode, **ctrl+t** theme, **ctrl+d** tool detail. Bare `v`/`1–9` were prototype-only. ctrl+m is unusable: terminals send `\r` (0x0D) for both Enter and ctrl+m, so the two are indistinguishable. |
 | Q17 | Bare `moh` start | Opens home (filter-first); one enter resumes the latest session. |
 | Q14 | Subagent permission attribution | Title tag + border color (§9). |
 | Q15 | Settings panel v1 | Mode, theme, icons, file preview, answer language, telemetry, $EDITOR, default permission mode + provider management. |

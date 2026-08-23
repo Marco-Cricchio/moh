@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { Box, Text } from "ink";
-import { Dashboard, MENU_ENTRIES, fitChips, CHIPS } from "../src/Dashboard";
+import { Dashboard, MENU_ENTRIES, fitChips, CHIPS, sessionChips } from "../src/Dashboard";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -22,6 +22,16 @@ describe("chip row budget", () => {
     expect(at80.length).toBeLessThan(6);
     expect(at80[0]).toEqual(["⏎", "send"]);
     expect(fitChips(CHIPS, 10)).toEqual([]);
+  });
+
+  test("session chips merge the chat hints without duplicates", () => {
+    const idle = sessionChips({ streaming: false, atBottom: true, detailToggle: true });
+    const names = idle.map(([, name]) => name);
+    expect(new Set(names).size).toBe(names.length); // no duplicates
+    expect(names).toEqual(["send", "steer", "settings", "commands", "mode", "theme", "detail"]);
+    const busy = sessionChips({ streaming: true, atBottom: false, detailToggle: true });
+    expect(busy.map(([, n]) => n)).toEqual(["send", "esc stop", "settings", "commands", "mode", "theme", "detail", "older"]);
+    expect(sessionChips({}).map(([, n]) => n)).not.toContain("detail");
   });
 });
 
