@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
+import { createMarkdownRenderer } from "./markdown";
 import { ChatWindow, CHAT_WINDOW_BUFFER, resolveOffset, scrollAnchor, turnLines, type ScrollAnchor } from "./chat-window";
 import { useTheme } from "./themes";
 import { SPINNER_FRAMES } from "./icons";
@@ -52,6 +53,9 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const viewport = useViewport();
   const cols = width ?? contentWidth(viewport);
   const wrapW = chatWrapWidth(cols);
+  // Regenerated per theme+width: marked-terminal captures both at construction
+  // (docs/tui-style-guide.md §5).
+  const md = useMemo(() => createMarkdownRenderer(theme, wrapW), [theme, wrapW]);
   const compact = widthClass(viewport) === "compact";
   const [tick, setTick] = useState(0);
   const [lastEsc, setLastEsc] = useState(0);
@@ -77,11 +81,11 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const lines = useMemo(
     () =>
       windowed
-        .flatMap((turn) => turnLines(turn, wrapW, { detail, spinner, streamingNote }))
+        .flatMap((turn) => turnLines(turn, wrapW, { detail, spinner, streamingNote, md }))
         .slice(-CHAT_WINDOW_BUFFER),
     // spinner/tick drive the live status line; windowed identity changes on every event flush
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windowed, wrapW, detail, spinner, streamingNote],
+    [windowed, wrapW, detail, spinner, streamingNote, md],
   );
 
   const height = chatWindowRows(viewport, draftLines);

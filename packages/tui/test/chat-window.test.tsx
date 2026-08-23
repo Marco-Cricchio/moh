@@ -13,6 +13,7 @@ import {
   type ChatLine,
 } from "../src/chat-window";
 import type { TurnView } from "../src/turns";
+import { createMarkdownRenderer } from "../src/markdown";
 
 const W = 40;
 
