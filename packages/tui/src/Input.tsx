@@ -13,6 +13,8 @@ export interface InputProps {
   disabled?: boolean;
   /** `?` on an empty draft opens the all-commands panel instead of typing. */
   onAskCommands?: () => void;
+  /** False while the dashboard menu owns the keyboard (#116): the input hears nothing. */
+  focused?: boolean;
   onSubmit(text: string): void;
 }
 
@@ -22,7 +24,7 @@ export interface InputProps {
  * opens $EDITOR for long text. The box is the only bordered element at rest
  * and spans the full terminal width.
  */
-export function MultilineInput({ placeholder, disabled, onAskCommands, onSubmit }: InputProps) {
+export function MultilineInput({ placeholder, disabled, onAskCommands, focused = true, onSubmit }: InputProps) {
   const theme = useTheme();
   const [lines, setLines] = useState<string[]>([""]);
   const [cursorLine, setCursorLine] = useState(0);
@@ -43,9 +45,10 @@ export function MultilineInput({ placeholder, disabled, onAskCommands, onSubmit 
     setCursorLine((l) => l + 1);
   };
 
-  useInput((input, key) => {
-    if (disabled) return;
-    if (key.escape) return; // owned by the chat screen (steer/stop)
+  useInput(
+    (input, key) => {
+      if (disabled) return;
+      if (key.escape) return; // owned by the chat screen (steer/stop)
     if (input === "?" && lines.join("") === "" && onAskCommands) return onAskCommands();
     if (key.return || input === "\n") {
       if (key.shift) insertNewline();
@@ -89,7 +92,9 @@ export function MultilineInput({ placeholder, disabled, onAskCommands, onSubmit 
         return next;
       });
     }
-  });
+    },
+    { isActive: focused && !disabled },
+  );
 
   return (
     <Box borderStyle="round" borderColor={theme.border} width="100%" paddingX={1}>
