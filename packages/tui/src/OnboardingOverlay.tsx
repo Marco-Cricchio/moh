@@ -1,9 +1,17 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import {
   BUILTIN_PROVIDER_TYPES,
+  TOS_WARNING,
   minimalConnectionTest,
+  readAuthSection,
+  runSubscriptionLogin,
+  saveTokens,
+  upsertUserEndpoint,
+  saveUserProviderRef,
+  type AuthToken,
+  type AuthorizationIo,
   type BuiltinProviderType,
   type ConnectionTestResult,
   type ConnectionTester,
@@ -12,6 +20,7 @@ import {
 import { userConfigFile } from "@moh/core";
 import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, saveWizardProviderUser, saveProviderRefProject, profileDiff, wizardSavePlan, readUserWizardEndpoints, projectConfigExists, type EnvCandidate } from "./onboarding";
 import { useTheme } from "./themes";
+import { TuiAuthorizationIo } from "./subscription-io";
 import { Dialog, Dim } from "./ui";
 import { useViewport, windowing } from "./viewport";
 
@@ -25,6 +34,9 @@ import { useViewport, windowing } from "./viewport";
 type Phase =
   | { kind: "detect"; cursor: number }
   | { kind: "wizard-type"; cursor: number }
+  | { kind: "wizard-auth"; cursor: number }
+  | { kind: "tos" }
+  | { kind: "sub-login"; error?: string }
   | { kind: "wizard-text"; field: "model" | "apiKey" | "baseUrl"; value: string }
   | { kind: "test"; profile: EndpointProfile; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
   | { kind: "save-scope"; profile: EndpointProfile; cursor: number }
@@ -41,6 +53,10 @@ export interface OnboardingProps {
   tester?: ConnectionTester;
   /** Skip detection (settings-panel "add provider"). */
   forceWizard?: boolean;
+  /** Subscription grant seam (tests); default runs the real flow. */
+  subscriptionLogin?: (io: AuthorizationIo) => Promise<AuthToken>;
+  /** Browser opener (tests); default spawns the OS opener. */
+  openUrl?: (url: string) => Promise<boolean>;
   onDone: (providerRef: string | null) => void;
 }
 
@@ -50,9 +66,13 @@ const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint
   baseUrl: { label: "Base URL", hint: "required for openai-compat, e.g. http://localhost:11434/v1" },
 };
 
-export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, forceWizard, onDone }: OnboardingProps) {
+export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, forceWizard, subscriptionLogin, openUrl, onDone }: OnboardingProps) {
   const theme = useTheme();
   const viewport = useViewport();
+  const [authKind, setAuthKind] = useState<"api-key" | "subscription">("api-key");
+  const [askValue, setAskValue] = useState("");
+  const [, setTick] = useState(0);
+  const authIo = useRef<TuiAuthorizationIo | null>(null);
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
   const userFile = useMemo(() => userConfigFile(home), [home]);
   // Broken user provider sections surface at assembly; the wizard reads them
@@ -101,6 +121,15 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
             endpointRef(phase.profile);
           return onDone(ref);
         }
+        // Subscription: the endpoint was persisted right after login; the
+        // wizard only completes it (model) and points the default ref at it.
+        if (phase.profile.auth?.kind === "subscription") {
+          upsertUserEndpoint(userFile, phase.profile);
+          const ref = endpointRef(phase.profile);
+          if (hasProject) saveProviderRefProject(configFile, ref);
+          else saveUserProviderRef(userFile, ref);
+          return onDone(ref);
+        }
         // Wizard save semantics (#129 decision 7).
         const plan = wizardSavePlan(phase.profile, userEndpoints, hasProject);
         if (plan.kind === "reuse") return onDone(setRef(plan.existing));
@@ -113,6 +142,40 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
     });
     return () => {
       live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  // Subscription login (issue #149): run the provider grant through the
+  // overlay-backed AuthorizationIo. ToS was acknowledged on the previous
+  // screen (spec invariant 4). On success, tokens are stored and the
+  // endpoint stub persisted immediately (#142/#150 ordering: a later abort
+  // never orphans tokens) — then model + connection test as usual.
+  useEffect(() => {
+    if (phase.kind !== "sub-login" || phase.error) return;
+    const io = new TuiAuthorizationIo(openUrl);
+    authIo.current = io;
+    const unsubscribe = io.subscribe(() => setTick((t) => t + 1));
+    let live = true;
+    const type = (wizard.type ?? "anthropic") as "anthropic" | "openai" | "google";
+    const login =
+      subscriptionLogin ??
+      ((io2: AuthorizationIo) => runSubscriptionLogin(type, io2, { overrides: readAuthSection(userFile).overrides }));
+    void login(io)
+      .then((token) => {
+        if (!live) return;
+        const name = wizard.name || type;
+        saveTokens(userFile, name, token);
+        upsertUserEndpoint(userFile, { name, type, auth: { kind: "subscription" } });
+        setPhase({ kind: "wizard-text", field: "model", value: "" });
+      })
+      .catch((err: unknown) => {
+        if (!live) return;
+        setPhase({ kind: "sub-login", error: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      live = false;
+      unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
@@ -145,14 +208,60 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
           setWizard({ name: type, type });
-          setPhase({ kind: "wizard-text", field: "model", value: "" });
+          // openai-compat has no subscription grant — the auth-method step
+          // is never shown (byte-identical path, issue #149).
+          if (type === "openai-compat") {
+            setAuthKind("api-key");
+            return setPhase({ kind: "wizard-text", field: "model", value: "" });
+          }
+          setPhase({ kind: "wizard-auth", cursor: 0 });
+        }
+        return;
+      }
+      case "wizard-auth": {
+        if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
+        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
+        if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(1, phase.cursor + 1) });
+        if (input === "s") return onDone(null);
+        if (key.return || input === "\n") {
+          const kind = phase.cursor === 0 ? "api-key" : "subscription";
+          setAuthKind(kind);
+          return setPhase(kind === "subscription" ? { kind: "tos" } : { kind: "wizard-text", field: "model", value: "" });
+        }
+        return;
+      }
+      case "tos": {
+        if (key.escape || input === "n") return setPhase({ kind: "wizard-auth", cursor: 1 });
+        if (key.return || input === "y") return setPhase({ kind: "sub-login" });
+        return;
+      }
+      case "sub-login": {
+        if (phase.error) {
+          if (input === "r") return setPhase({ kind: "sub-login" });
+          if (input === "w") return setPhase({ kind: "wizard-auth", cursor: 1 });
+          if (input === "s") return onDone(null);
+          return;
+        }
+        const io = authIo.current;
+        if (input === "s" && !io?.pendingPrompt) return onDone(null);
+        if (io?.pendingPrompt) {
+          if (key.escape) {
+            io.answer(""); // empty line terminates a multi-line paste
+            return setAskValue("");
+          }
+          if (key.backspace || key.delete) return setAskValue(askValue.slice(0, -1));
+          if (key.return || input === "\n") {
+            io.answer(askValue);
+            return setAskValue("");
+          }
+          if (input && !key.ctrl && !key.meta) return setAskValue(askValue + input);
         }
         return;
       }
       case "wizard-text": {
         if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return setPhase({ ...phase, value: phase.value.slice(0, -1) });
-        if (key.return || input === "\n") return submitField(phase, wizard, setWizard, setPhase);
+        if (key.return || input === "\n") return submitField(phase, wizard, setWizard, setPhase, authKind);
         if (input && !key.ctrl && !key.meta) setPhase({ ...phase, value: phase.value + input });
         return;
       }
@@ -232,8 +341,66 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           <Dim>enter select · s skip</Dim>
         </>
       )}
+      {phase.kind === "wizard-auth" && (
+        <>
+          <Text>How does {wizard.type} authenticate?</Text>
+          <Text> </Text>
+          {["api-key — inline key or env var", "subscription — OAuth login (Claude Pro/Max, ChatGPT, Google)"].map((row, i) => (
+            <Text key={row} color={i === phase.cursor ? theme.bg : undefined} backgroundColor={i === phase.cursor ? theme.accent : undefined}>
+              {` ${i === phase.cursor ? "\u203a" : " "} ${row}${i === phase.cursor ? " " : ""}`}
+            </Text>
+          ))}
+          <Text> </Text>
+          <Dim>enter select · esc back · s skip</Dim>
+        </>
+      )}
+      {phase.kind === "tos" && (
+        <>
+          <Text color={theme.warn}>Terms of service</Text>
+          <Text> </Text>
+          {TOS_WARNING.match(/.{1,64}(?:\s|$)/g)!.map((chunk) => (
+            <Text key={chunk}>{chunk.trim()}</Text>
+          ))}
+          <Text> </Text>
+          <Dim>y acknowledge and continue · n back</Dim>
+        </>
+      )}
+      {phase.kind === "sub-login" && (
+        <>
+          {phase.error ? (
+            <>
+              <Text color={theme.warn}>✗ Login failed: {phase.error}</Text>
+              <Text> </Text>
+              <Dim>r retry · w choose another method · s skip</Dim>
+            </>
+          ) : (
+            <>
+              {(authIo.current?.log ?? []).slice(-Math.max(3, budget - 4)).map((line, idx) => (
+                <Text key={`${idx}-${line.slice(0, 12)}`} wrap="truncate-middle">{` ${line}`}</Text>
+              ))}
+              <Text> </Text>
+              {authIo.current?.pendingPrompt ? (
+                <>
+                  <Text>{authIo.current.pendingPrompt}</Text>
+                  <Text>
+                    <Text color={theme.accent}>{`› ${askValue.replace(/./g, "*")}`}</Text>
+                    <Text color={theme.dim}>▊</Text>
+                  </Text>
+                </>
+              ) : (
+                <Dim>waiting for authorization… (pasted codes are masked)</Dim>
+              )}
+              <Text> </Text>
+              <Dim>{authIo.current?.pendingPrompt ? "enter submit · esc empty line" : "s skip"}</Dim>
+            </>
+          )}
+        </>
+      )}
       {phase.kind === "wizard-text" && (
         <>
+          {phase.field === "model" && authKind === "subscription" && (
+            <Text color={theme.ok}>✓ Subscription login complete — tokens stored in ~/.moh/config</Text>
+          )}
           <Text>{FIELD_LABELS[phase.field].label}</Text>
           <Text> </Text>
           <Text>
@@ -304,12 +471,16 @@ function submitField(
   wizard: Partial<EndpointProfile>,
   setWizard: (w: Partial<EndpointProfile>) => void,
   setPhase: (p: Phase) => void,
+  authKind: "api-key" | "subscription",
 ): void {
   const value = phase.value.trim();
   if (phase.field === "model") {
     if (!value) return; // a model is required
     setWizard({ ...wizard, defaultModel: value });
-    return setPhase({ kind: "wizard-text", field: "apiKey", value: "" });
+    // Subscription never asks for a key (tokens are already stored);
+    // openai-compat keeps its byte-identical model → key → base URL path.
+    const next = authKind === "subscription" ? "baseUrl" : "apiKey";
+    return setPhase({ kind: "wizard-text", field: next, value: "" });
   }
   if (phase.field === "apiKey") {
     setWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
@@ -320,6 +491,7 @@ function submitField(
   const profile: EndpointProfile = {
     name: wizard.name || wizard.type || "endpoint",
     type: (wizard.type ?? "anthropic") as string,
+    ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}),
     ...(wizard.apiKey ? { apiKey: wizard.apiKey } : {}),
     ...(value ? { baseUrl: value } : {}),
     defaultModel: wizard.defaultModel!,
