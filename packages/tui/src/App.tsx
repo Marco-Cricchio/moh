@@ -231,6 +231,31 @@ export function App({
   });
 
   const showChat = session !== null;
+  // The chat is the same tree in both layouts (invariant 1): only its column
+  // budget differs — the dashboard center instead of the centered measure.
+  const chat = showChat ? (
+    <Chat
+      session={session}
+      mode={mode}
+      modelLabel={modelLabel}
+      blocked={blocked}
+      filePreview={config.filePreview}
+      width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport) : undefined}
+      onOpenCommands={() => setOverlay("commands")}
+      onCommand={(text) =>
+        runSlashCommand(text, {
+          cwd,
+          mohHome: join(home ?? homedir(), ".moh"),
+          config,
+          updateConfig,
+          session,
+          notify: push,
+          onOpenFrontier: () => setOverlay("frontier"),
+          onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+        })
+      }
+    />
+  ) : null;
 
   const overlayOpen = overlay !== null || pending !== null;
 
@@ -240,50 +265,9 @@ export function App({
           <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           layoutClass(viewport) === "dashboard" ? (
-            <Dashboard mode={mode} modelLabel={modelLabel}>
-              <Chat
-                session={session}
-                mode={mode}
-                modelLabel={modelLabel}
-                blocked={blocked}
-                filePreview={config.filePreview}
-                width={centerWidth(viewport)}
-                onOpenCommands={() => setOverlay("commands")}
-                onCommand={(text) =>
-                  runSlashCommand(text, {
-                    cwd,
-                    mohHome: join(home ?? homedir(), ".moh"),
-                    config,
-                    updateConfig,
-                    session,
-                    notify: push,
-                    onOpenFrontier: () => setOverlay("frontier"),
-                    onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
-                  })
-                }
-              />
-            </Dashboard>
+            <Dashboard modelLabel={modelLabel}>{chat}</Dashboard>
           ) : (
-          <Chat
-            session={session}
-            mode={mode}
-            modelLabel={modelLabel}
-            blocked={blocked}
-            filePreview={config.filePreview}
-            onOpenCommands={() => setOverlay("commands")}
-            onCommand={(text) =>
-              runSlashCommand(text, {
-                cwd,
-                mohHome: join(home ?? homedir(), ".moh"),
-                config,
-                updateConfig,
-                session,
-                notify: push,
-                onOpenFrontier: () => setOverlay("frontier"),
-                onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
-              })
-            }
-          />
+            chat
           )
         ) : (
           <Home

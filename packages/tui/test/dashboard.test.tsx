@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { Box, Text } from "ink";
-import { Dashboard, MENU_ENTRIES, fitChips } from "../src/Dashboard";
+import { Dashboard, MENU_ENTRIES, fitChips, CHIPS } from "../src/Dashboard";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -17,19 +17,11 @@ function atSize(columns: number, rows: number, ui: React.ReactNode) {
 
 describe("chip row budget", () => {
   test("at 90 cols all six chips fit; on narrow widths the least-essential drop first", () => {
-    const chips: [string, string][] = [
-      ["⏎", "send"],
-      ["esc", "steer"],
-      ["^s", "settings"],
-      ["^k", "commands"],
-      ["^m", "mode"],
-      ["^t", "theme"],
-    ];
-    expect(fitChips(chips, 90).length).toBe(6);
-    const at80 = fitChips(chips, 80);
+    expect(fitChips(CHIPS, 90).length).toBe(6);
+    const at80 = fitChips(CHIPS, 80);
     expect(at80.length).toBeLessThan(6);
     expect(at80[0]).toEqual(["⏎", "send"]);
-    expect(fitChips(chips, 10)).toEqual([]);
+    expect(fitChips(CHIPS, 10)).toEqual([]);
   });
 });
 
@@ -38,7 +30,7 @@ describe("dashboard frame (issue #115)", () => {
     const i = atSize(
       100,
       30,
-      <Dashboard mode="dev" modelLabel="mock">
+      <Dashboard modelLabel="mock">
         <Box flexGrow={1}>
           <Text>center placeholder</Text>
         </Box>
@@ -47,7 +39,7 @@ describe("dashboard frame (issue #115)", () => {
     const frame = stripAnsi(i.lastFrame() ?? "");
     for (const entry of MENU_ENTRIES) expect(frame).toContain(entry);
     expect(frame).toContain("center placeholder");
-    expect(frame).toContain("mock · dev");
+    expect(frame).toContain("mock");
     for (const chip of ["send", "steer", "settings", "commands", "mode", "theme"]) {
       expect(frame).toContain(chip);
     }
@@ -59,7 +51,7 @@ describe("dashboard frame (issue #115)", () => {
       const i = atSize(
         columns,
         rows,
-        <Dashboard mode="vibe" modelLabel="m">
+        <Dashboard modelLabel="m">
           <Box flexGrow={1}>
             <Text>x</Text>
           </Box>

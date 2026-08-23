@@ -7,7 +7,7 @@ import { useTheme } from "./themes";
 import { ic, SPINNER_FRAMES } from "./icons";
 import { createMarkdownRenderer, Markdown } from "./markdown";
 import { Accent, Dim, Footer, Logo, MsgBox, truncate } from "./ui";
-import { contentWidth, useStdoutResize, useViewport, widthClass } from "./viewport";
+import { contentWidth, layoutClass, sidebarWidths, useStdoutResize, useViewport, widthClass } from "./viewport";
 import { toolArgSummary } from "./permission-gate";
 import { MultilineInput } from "./Input";
 
@@ -119,8 +119,13 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
           {(turn) => {
             // Static output is hoisted above the frame at column 0 (Ink
             // extracts it into its own Output), so the gutter is padded
-            // manually to keep settled turns aligned with the live column.
-            const gutter = Math.max(0, (viewport.columns - cols) >> 1);
+            // manually to keep settled turns aligned with the live column:
+            // centered in single-column mode, flush after the menu sidebar
+            // in the dashboard frame (#115).
+            const gutter =
+              layoutClass(viewport) === "dashboard"
+                ? sidebarWidths(viewport).menu
+                : Math.max(0, (viewport.columns - cols) >> 1);
             return (
               <Box key={turn.id} flexDirection="column" width={cols} marginLeft={gutter}>
                 <TurnBoxes turn={turn} md={md} mode={mode} detail={detail} />

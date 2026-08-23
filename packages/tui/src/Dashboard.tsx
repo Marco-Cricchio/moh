@@ -3,13 +3,12 @@ import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 import { Dim, Logo } from "./ui";
 import { bodyRows, centerWidth, sidebarWidths, useViewport } from "./viewport";
-import type { Mode } from "./Chat";
 
 /** Left menu entries (T4 wires focus + activation; T3 renders them inert). */
 export const MENU_ENTRIES = ["Dashboard", "Sessions", "Wayfinder", "Settings", "Help"] as const;
 
 /** Footer keybind chips: icon + name, only keys that are live today. */
-const CHIPS: ReadonlyArray<readonly [string, string]> = [
+export const CHIPS: ReadonlyArray<readonly [string, string]> = [
   ["⏎", "send"],
   ["esc", "steer"],
   ["^s", "settings"],
@@ -33,7 +32,6 @@ export function fitChips(chips: ReadonlyArray<readonly [string, string]>, width:
 }
 
 export interface DashboardProps {
-  mode: Mode;
   modelLabel: string;
   /** The center column (T3 placeholder: the current Chat, flexGrow). */
   children: React.ReactNode;
@@ -47,7 +45,7 @@ export interface DashboardProps {
  * borders land on the same row without manual sibling-row arithmetic
  * (prototype lesson: let Yoga absorb the remainder).
  */
-export function Dashboard({ mode, modelLabel, children }: DashboardProps) {
+export function Dashboard({ modelLabel, children }: DashboardProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const { menu, side } = sidebarWidths(viewport);
@@ -66,9 +64,7 @@ export function Dashboard({ mode, modelLabel, children }: DashboardProps) {
         justifyContent="space-between"
       >
         <Logo />
-        <Dim>
-          {modelLabel} · {mode === "dev" ? "dev" : "vibe"}
-        </Dim>
+        <Dim>{modelLabel}</Dim>
       </Box>
 
       {/* panels row — explicit heights, borders align on the same row */}
