@@ -1,5 +1,6 @@
 import type { Message, Provider, StreamEvent, ToolSpec } from "./types";
 import type { AuthMethodKind } from "./auth/types";
+import type { EndpointAuthContext } from "./auth/resolve";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
 import { aiSdkStreamFor } from "./providers/ai-sdk";
 import { resolveEndpointCredential } from "./auth/resolve";
@@ -81,16 +82,19 @@ export interface RouteConfig {
    * handle; return undefined to use the default AI SDK factory. Tests
    * inject mocks for specific endpoints while keeping real ones live.
    * Receives the target's resolved credential (subscription access token
-   * or api key) as its second argument.
+   * or api key) as its second argument, and — for OpenAI native grants
+   * (#151) — the ChatGPT-backend transport context as its third.
    */
-  createStream?: (target: RouteTarget, credential?: string) => StreamFn | undefined;
+  createStream?: (target: RouteTarget, credential?: string, authContext?: EndpointAuthContext) => StreamFn | undefined;
   /**
    * Credential resolution override (#137): returns the credential a
-   * target's stream call uses. Default resolves subscription endpoints
-   * from the auth store with proactive refresh (refresh-before-stream);
+   * target's stream call uses — a plain string, or (OpenAI native
+   * grants, #151) an auth context with ChatGPT-backend transport hints
+   * (baseUrl + headers). Default resolves subscription endpoints from
+   * the auth store with proactive refresh (refresh-before-stream);
    * api-key endpoints short-circuit to their inline/env key.
    */
-  credentialResolver?: (target: RouteTarget) => Promise<string | undefined>;
+  credentialResolver?: (target: RouteTarget) => Promise<string | EndpointAuthContext | undefined>;
 }
 
 export interface Route extends Provider {
@@ -125,13 +129,19 @@ export function createRoute(config: RouteConfig): Route {
         // once per target — before any stream call, never mid-stream, and
         // not re-resolved on retry (decision 6: no refresh retry loops).
         // Api-key targets keep the pre-#137 path untouched.
-        const credential = target.endpoint.authKind === "subscription"
+        const resolved = target.endpoint.authKind === "subscription"
           ? await resolveCredential(target)
           : target.endpoint.apiKey;
+        // #151: OpenAI native grants resolve to an auth context carrying
+        // the ChatGPT backend transport; plain strings (and api-key
+        // targets) keep the endpoint's own baseUrl.
+        const isContext = typeof resolved === "object" && resolved !== null;
+        const credential = isContext ? resolved.credential : resolved;
+        const authContext = isContext ? resolved : undefined;
         let attempt = 0;
         while (true) {
           try {
-            const stream = streamFactory(target, credential) ?? defaultFactory(target, credential);
+            const stream = streamFactory(target, credential, authContext) ?? defaultFactory(target, credential, authContext);
             for await (const event of stream(messages, signal, tools)) {
               yield event;
             }
@@ -156,6 +166,17 @@ export function createRoute(config: RouteConfig): Route {
 
 type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent>;
 
-function defaultStreamFactory(): (target: RouteTarget, credential: string | undefined) => StreamFn {
-  return (target, credential) => aiSdkStreamFor(target, credential, target.endpoint.baseUrl);
+function defaultStreamFactory(): (
+  target: RouteTarget,
+  credential: string | undefined,
+  authContext: EndpointAuthContext | undefined,
+) => StreamFn {
+  const toTransport = (ctx: EndpointAuthContext | undefined, baseUrl: string | undefined) =>
+    ctx ? { baseUrl: ctx.baseUrl ?? baseUrl, headers: ctx.headers, wire: ctx.wire } : undefined;
+  return (target, credential, authContext) =>
+    aiSdkStreamFor(
+      target,
+      credential,
+      authContext ? toTransport(authContext, target.endpoint.baseUrl) : (target.endpoint.baseUrl ? { baseUrl: target.endpoint.baseUrl } : undefined),
+    );
 }
