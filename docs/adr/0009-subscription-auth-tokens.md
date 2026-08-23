@@ -1,6 +1,6 @@
 # 0009 — Subscription (OAuth) tokens in a guardian-owned `auth` section, hybrid posture, reused client_ids
 
-Date: 2026-09-02 · Status: accepted · Refs: `docs/spec/oauth-subscription-auth.md`, tickets #132–#139, `docs/principles.md` (1, 3, 5), ADR-0006 (user-config guardian), `research/oauth-subscription-auth.md`
+Date: 2026-09-02 · Status: accepted (decision 2 amended by #151: OpenAI mint best-effort, ChatGPT-backend fallback) · Refs: `docs/spec/oauth-subscription-auth.md`, tickets #132–#139, `docs/principles.md` (1, 3, 5), ADR-0006 (user-config guardian), `research/oauth-subscription-auth.md`
 
 ## Context
 
@@ -10,7 +10,7 @@ All three built-in providers offer subscription auth users expect (Claude Pro/Ma
 
 **1. Token placement: a new `auth` section of `~/.moh/config`, guardian-owned, never merged.** Tokens never touch moh.json, session logs, or events. All reads/writes go through the auth store (`core/src/auth/store.ts`) over the ADR-0006 guardian: atomic temp-file+rename writes, 0600/0700, unrelated keys survive. The `auth` section is structurally excluded from the #129 project/user provider merge — the merge seam reads only `provider`/`endpoints`. The section also holds `auth.overrides` (per-provider client_id / issuer URLs) because Anthropic has already rotated OAuth hosts twice without notice; every captured value is user-overridable and documented as drift-prone.
 
-**2. Hybrid token posture (c).** Anthropic and Google use **native OAuth tokens** (plan limits apply); OpenAI **mints an API key** via the RFC 8693 token exchange its own flow mandates, and that minted key rides the existing api-key path unchanged (route resolution, env-var precedence, connection test). Anthropic minting is explicitly rejected: the minted key bills Console credits, not the Pro/Max plan.
+**2. Hybrid token posture (c) — amended by #151: OpenAI's mint is best-effort.** Anthropic and Google use **native OAuth tokens** (plan limits apply). OpenAI *attempts* to mint an API key via the RFC 8693 token exchange; when the mint succeeds the key rides the existing api-key path unchanged. When it fails (live failure: accounts whose id_token lacks `organization_id` cannot mint; the codex CLI itself tolerates mint failure via `obtain_api_key(...).ok()`), the native OAuth tokens are stored with `grant.minted: false` and streaming goes through the **ChatGPT backend** (`https://chatgpt.com/backend-api/codex`, Responses API wire, `originator` header like codex) — the fallback and the common case for ChatGPT-plan auth. Refresh keeps attempting the re-mint; failure is non-fatal for native grants (and may upgrade a native grant to a minted one). Anthropic minting is explicitly rejected: the minted key bills Console credits, not the Pro/Max plan.
 
 **3. Long-lived inference-only Anthropic tokens, with silent fallback.** Login requests `inferenceOnly` scope plus a client-requested `expires_in` (1 year); if the server rejects or caps that, we fall back silently to default-lifetime tokens under normal refresh-before-stream. Caveat recorded: this is the least-documented behavior in the flow — captured from a decompiled Claude Code snapshot, re-verify against a fresh copy when it drifts.
 

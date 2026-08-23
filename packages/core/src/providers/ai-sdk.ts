@@ -9,6 +9,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { AuthMethodKind } from "../auth/types";
 import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
+import { CHATGPT_CODEX_BASE_URL } from "../auth/openai";
 import { normalizeProviderError } from "../provider-errors";
 import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, ToolSpec } from "../types";
@@ -22,7 +23,12 @@ export function anthropicSubscriptionHeaders(authKind: AuthMethodKind): Record<s
   return authKind === "subscription" ? { ...ANTHROPIC_OAUTH_BETA } : undefined;
 }
 
-function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseUrl: string | undefined): LanguageModel {
+function languageModelFor(
+  target: RouteTarget,
+  apiKey: string | undefined,
+  baseUrl: string | undefined,
+  headers?: Record<string, string>,
+): LanguageModel {
   const { kind, name } = target.endpoint;
   if (kind === "anthropic") {
     const headers = anthropicSubscriptionHeaders(target.endpoint.authKind);
@@ -34,9 +40,13 @@ function languageModelFor(target: RouteTarget, apiKey: string | undefined, baseU
     return anthropic(target.modelId);
   }
   if (kind === "openai") {
-    // Chat Completions, not the Responses API: openai-compat endpoints
-    // (z.ai, Ollama, DeepSeek, ...) only expose /chat/completions.
-    const openai = createOpenAI({ apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
+    const openai = createOpenAI({ apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}), ...(headers ? { headers } : {}) });
+    // #151: subscription-authed endpoints without a minted key stream via
+    // the ChatGPT backend, which only speaks the Responses API (codex's
+    // wire). Minted-key and openai-compat endpoints keep /chat/completions.
+    if (target.endpoint.authKind === "subscription" && baseUrl === CHATGPT_CODEX_BASE_URL) {
+      return openai.responses(target.modelId);
+    }
     return openai.chat(target.modelId);
   }
   if (kind === "google") {
@@ -114,11 +124,13 @@ export function aiSdkStreamFor(
   target: RouteTarget,
   apiKey: string | undefined,
   baseUrl: string | undefined,
+  /** Extra headers for the model client (#151: ChatGPT-backend originator). */
+  headers?: Record<string, string>,
   /** Test seam: internal module (not exported from @moh/core), so the SDK
    * type stays invisible to clients (ADR-0002). Production callers omit it. */
   modelOverride?: LanguageModel,
 ): (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent> {
-  const model = modelOverride ?? languageModelFor(target, apiKey, baseUrl);
+  const model = modelOverride ?? languageModelFor(target, apiKey, baseUrl, headers);
   return (messages, signal, tools) => {
     return {
       async *[Symbol.asyncIterator]() {

@@ -86,11 +86,13 @@ export interface RouteConfig {
   createStream?: (target: RouteTarget, credential?: string) => StreamFn | undefined;
   /**
    * Credential resolution override (#137): returns the credential a
-   * target's stream call uses. Default resolves subscription endpoints
-   * from the auth store with proactive refresh (refresh-before-stream);
+   * target's stream call uses — a plain string, or (OpenAI native
+   * grants, #151) an auth context with ChatGPT-backend transport hints
+   * (baseUrl + headers). Default resolves subscription endpoints from
+   * the auth store with proactive refresh (refresh-before-stream);
    * api-key endpoints short-circuit to their inline/env key.
    */
-  credentialResolver?: (target: RouteTarget) => Promise<string | undefined>;
+  credentialResolver?: (target: RouteTarget) => Promise<string | import("./auth/resolve").EndpointAuthContext | undefined>;
 }
 
 export interface Route extends Provider {
@@ -125,13 +127,20 @@ export function createRoute(config: RouteConfig): Route {
         // once per target — before any stream call, never mid-stream, and
         // not re-resolved on retry (decision 6: no refresh retry loops).
         // Api-key targets keep the pre-#137 path untouched.
-        const credential = target.endpoint.authKind === "subscription"
+        const resolved = target.endpoint.authKind === "subscription"
           ? await resolveCredential(target)
           : target.endpoint.apiKey;
+        // #151: OpenAI native grants resolve to an auth context carrying
+        // the ChatGPT backend URL + originator header; plain strings (and
+        // api-key targets) keep the endpoint's own baseUrl.
+        const isContext = typeof resolved === "object" && resolved !== null;
+        const credential = isContext ? resolved.credential : resolved;
+        const baseUrl = isContext && resolved.baseUrl ? resolved.baseUrl : target.endpoint.baseUrl;
+        const headers = isContext ? resolved.headers : undefined;
         let attempt = 0;
         while (true) {
           try {
-            const stream = streamFactory(target, credential) ?? defaultFactory(target, credential);
+            const stream = streamFactory(target, credential) ?? defaultFactory(target, credential, baseUrl, headers);
             for await (const event of stream(messages, signal, tools)) {
               yield event;
             }
@@ -156,6 +165,11 @@ export function createRoute(config: RouteConfig): Route {
 
 type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent>;
 
-function defaultStreamFactory(): (target: RouteTarget, credential: string | undefined) => StreamFn {
-  return (target, credential) => aiSdkStreamFor(target, credential, target.endpoint.baseUrl);
+function defaultStreamFactory(): (
+  target: RouteTarget,
+  credential: string | undefined,
+  baseUrl: string | undefined,
+  headers?: Record<string, string>,
+) => StreamFn {
+  return (target, credential, baseUrl, headers) => aiSdkStreamFor(target, credential, baseUrl, headers);
 }
