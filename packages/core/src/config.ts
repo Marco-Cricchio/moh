@@ -7,6 +7,11 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
+
+// Defined in auth/types.ts (issue #132); reused here because auth/types
+// imports nothing from config.ts — absent auth = api-key, backward compatible.
+import { endpointAuthSchema } from "./auth/types";
+
 import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 import { subagentSpecSchema } from "./subagents";
 import { memoryConfigSchema } from "./memory";
@@ -33,6 +38,8 @@ export const endpointProfileSchema = z.object({
   baseUrl: z.string().optional(),
   /** Model used when a route references the endpoint without one. */
   defaultModel: z.string().optional(),
+  /** Auth method (issue #132): absent = api-key, backward compatible. */
+  auth: endpointAuthSchema.optional(),
   capabilities: capabilitiesSchema.optional(),
 });
 
