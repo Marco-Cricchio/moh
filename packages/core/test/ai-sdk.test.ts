@@ -29,7 +29,7 @@ function harness(parts: StreamPart[]) {
     endpoint: new Endpoint({ name: "t-openai", kind: "openai", apiKey: "k" }),
     modelId: "m",
   };
-  const stream = aiSdkStreamFor(target, "k", undefined, undefined, mockModel(parts, calls));
+  const stream = aiSdkStreamFor(target, "k", undefined, mockModel(parts, calls));
   return {
     calls,
     run: async (messages: Message[], tools?: readonly ToolSpec[]): Promise<StreamEvent[]> => {

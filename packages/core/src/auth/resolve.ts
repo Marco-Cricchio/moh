@@ -29,6 +29,9 @@ export interface EndpointAuthContext {
   credential: string;
   baseUrl?: string;
   headers?: Record<string, string>;
+  /** Wire protocol the baseUrl speaks (#151): the ChatGPT backend only
+   * exposes the Responses API, unlike api.openai.com / compat endpoints. */
+  wire?: "responses" | "chat";
 }
 
 /** ChatGPT-backend transport for a native (un-minted) OpenAI grant. */
@@ -37,6 +40,7 @@ export function openaiNativeAuthContext(token: AuthToken): EndpointAuthContext {
     credential: token.accessToken,
     baseUrl: CHATGPT_CODEX_BASE_URL,
     headers: { originator: CHATGPT_CODEX_ORIGINATOR },
+    wire: "responses",
   };
 }
 

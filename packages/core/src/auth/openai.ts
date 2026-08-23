@@ -137,6 +137,17 @@ function decodeJwtPayload(idToken: string): Record<string, unknown> | undefined 
   }
 }
 
+/** Shared claim extraction (email + plan) from the id_token payload. */
+function idTokenClaims(idToken: string | undefined): { email?: string; plan?: string } {
+  const claims = idToken ? decodeJwtPayload(idToken) : undefined;
+  const profile = claims?.[PROFILE_CLAIM] as Record<string, unknown> | undefined;
+  const auth = claims?.[AUTH_CLAIM] as Record<string, unknown> | undefined;
+  return {
+    email: typeof profile?.email === "string" ? profile.email : undefined,
+    plan: typeof auth?.chatgpt_plan_type === "string" ? auth.chatgpt_plan_type : undefined,
+  };
+}
+
 /** Minted key up front, OAuth set + plan in grant. The OAuth access
  * token's expiry (from `expires_in`) is recorded as `oauthExpiresAt` in
  * grant metadata — the minted API key itself doesn't expire, but #137's
@@ -146,11 +157,7 @@ function toMintedAuthToken(
   tokens: OpenAiTokenResponse,
   opts: { now: number },
 ): AuthToken {
-  const claims = tokens.id_token ? decodeJwtPayload(tokens.id_token) : undefined;
-  const profile = claims?.[PROFILE_CLAIM] as Record<string, unknown> | undefined;
-  const auth = claims?.[AUTH_CLAIM] as Record<string, unknown> | undefined;
-  const email = typeof profile?.email === "string" ? profile.email : undefined;
-  const plan = typeof auth?.chatgpt_plan_type === "string" ? auth.chatgpt_plan_type : undefined;
+  const { email, plan } = idTokenClaims(tokens.id_token);
   return {
     // The minted API key rides the existing api-key path (posture c).
     accessToken: mintedKey,
@@ -169,11 +176,7 @@ function toMintedAuthToken(
  * Streaming for this shape goes through the ChatGPT backend with the
  * OAuth access token as the bearer credential (#151). */
 function toNativeAuthToken(tokens: OpenAiTokenResponse, opts: { now: number }): AuthToken {
-  const claims = tokens.id_token ? decodeJwtPayload(tokens.id_token) : undefined;
-  const profile = claims?.[PROFILE_CLAIM] as Record<string, unknown> | undefined;
-  const auth = claims?.[AUTH_CLAIM] as Record<string, unknown> | undefined;
-  const email = typeof profile?.email === "string" ? profile.email : undefined;
-  const plan = typeof auth?.chatgpt_plan_type === "string" ? auth.chatgpt_plan_type : undefined;
+  const { email, plan } = idTokenClaims(tokens.id_token);
   return {
     accessToken: tokens.access_token,
     ...(tokens.refresh_token ? { refreshToken: tokens.refresh_token } : {}),
@@ -315,6 +318,12 @@ export async function refreshOpenaiToken(
   const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
   const fresh = toMintedAuthToken(mintedKey, tokens, { now });
   return { ...fresh, account: fresh.account ?? token.account };
+}
+
+/** Warn about a skipped mint (#151): OnboardingIo has no warn channel,
+ * so the warning rides `info` with an explicit prefix. */
+async function warnMintSkipped(io: AuthorizationIo, mintError: string): Promise<void> {
+  await io.info(`warning: API-key mint skipped (${mintError}); continuing with native ChatGPT-plan tokens`);
 }
 
 /** Thrown by {@link loginOpenAI} when the user declines the ToS warning. */
@@ -461,7 +470,7 @@ export async function loginOpenAI(
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
       ...(opts.now !== undefined ? { now: opts.now } : {}),
     });
-    if (mintError) await io.info(`warning: API-key mint skipped (${mintError}); continuing with native ChatGPT-plan tokens`);
+    if (mintError) await warnMintSkipped(io, mintError);
     return auth;
   }
 
@@ -503,6 +512,6 @@ export async function loginOpenAI(
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     ...(opts.now !== undefined ? { now: opts.now } : {}),
   });
-  if (mintError) await io.info(`warning: API-key mint skipped (${mintError}); continuing with native ChatGPT-plan tokens`);
+  if (mintError) await warnMintSkipped(io, mintError);
   return auth;
 }
