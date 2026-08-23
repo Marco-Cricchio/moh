@@ -8,6 +8,8 @@ export interface PtySpec {
   cols: number;
   rows: number;
   resize?: { cols: number; rows: number };
+  /** Optional user config written to the temp home's ~/.moh/config. */
+  config?: Record<string, unknown>;
   steps: ReadonlyArray<{ wait?: number; send?: string }>;
   tail?: number;
 }
@@ -34,3 +36,7 @@ export async function runPty(spec: PtySpec): Promise<PtyLine[]> {
   }
   return JSON.parse(new TextDecoder().decode(result.stdout)) as PtyLine[];
 }
+
+/** A session start with pinned settings: no onboarding/workflow overlays. */
+export const DEV_CONFIG = { onboarded: true, workflowOffered: true, mode: "dev" };
+export const VIBE_CONFIG = { onboarded: true, workflowOffered: true, mode: "vibe" };

@@ -1,21 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { hasPython, runPty } from "./pty-runner";
+import { DEV_CONFIG, VIBE_CONFIG, hasPython, runPty } from "./pty-runner";
 
 /**
  * Dashboard shell verification in a real PTY (issue #115 acceptance
- * criteria): at ≥90 columns the session screen renders the dashboard frame
- * with aligned panel borders inside the terminal budget; below 90 it is
- * the unchanged single-column chat; the switch reacts live to resize.
+ * criteria, right sidebar per #118): at ≥90 columns the session screen
+ * renders the dashboard frame with aligned panel borders inside the
+ * terminal budget; below 90 it is the unchanged single-column chat; the
+ * switch reacts live to resize.
  */
 
 const B = (s: string) => btoa(s);
+
+// Settings pinned via the injected config: no overlay preamble needed.
+const enterChat = (config: Record<string, unknown>) => ({
+  config,
+  steps: [
+    { wait: 1.5 },
+    { wait: 0.3, send: B("hello") },
+    { wait: 0.2, send: B("\r") },
+    { wait: 2.0 },
+  ],
+});
 
 // Standard preamble: skip onboarding, skip the workflow offer → home.
 const PREAMBLE = [
   { wait: 1.0, send: B("s") },
   { wait: 1.0, send: B("n") },
 ];
-// Open a new session from home with an initial prompt.
+// Open a new session from home with an initial prompt (default settings).
 const ENTER_CHAT = [
   ...PREAMBLE,
   { wait: 0.5 },
@@ -30,11 +42,14 @@ const rowsWith = (lines: readonly { text: string }[], marker: string) =>
 
 describe.skipIf(!hasPython)("PTY dashboard shell (issue #115)", () => {
   test(
-    "at 100 cols: menu + right placeholder + aligned borders + chip footer within budget",
+    "dev mode at 100 cols: menu + right sidebar (Activity/Workflow/Tokens) + aligned borders within budget",
     async () => {
-      const lines = await runPty({ cols: 100, rows: 30, steps: ENTER_CHAT, tail: 30 });
-      // The frame: menu entries, right sidebar, chip row.
+      const lines = await runPty({ cols: 100, rows: 30, tail: 30, ...enterChat(DEV_CONFIG) });
+      // The frame: menu entries, right sidebar sections, chip row.
       expect(lines.some((l) => l.text.includes("Wayfinder"))).toBe(true);
+      expect(lines.some((l) => l.text.includes("Activity"))).toBe(true);
+      expect(lines.some((l) => l.text.includes("Workflow"))).toBe(true);
+      expect(lines.some((l) => l.text.includes("Tokens"))).toBe(true);
       expect(lines.some((l) => l.text.includes("( ⏎ send )"))).toBe(true);
       expect(lines.some((l) => l.text.includes("type…"))).toBe(true);
       // Panel bottom borders aligned: the menu and right-sidebar ╰ corners
@@ -53,10 +68,25 @@ describe.skipIf(!hasPython)("PTY dashboard shell (issue #115)", () => {
   );
 
   test(
+    "vibe mode (default): right sidebar hidden, dashboard otherwise identical",
+    async () => {
+      const lines = await runPty({ cols: 100, rows: 30, tail: 30, ...enterChat(VIBE_CONFIG) });
+      expect(lines.some((l) => l.text.includes("Wayfinder"))).toBe(true);
+      expect(lines.some((l) => l.text.includes("type…"))).toBe(true);
+      // No right-sidebar sections in vibe (spec D6).
+      expect(lines.some((l) => l.text.includes("Activity"))).toBe(false);
+      expect(lines.some((l) => l.text.includes("Tokens"))).toBe(false);
+      for (const l of lines) expect(l.width).toBeLessThanOrEqual(100);
+      expect(lines.length).toBeLessThanOrEqual(30);
+    },
+    30000,
+  );
+
+  test(
     "border alignment and budget hold at several sizes",
     async () => {
       for (const [cols, rows] of [[90, 24], [120, 40], [160, 50]] as const) {
-        const lines = await runPty({ cols, rows, steps: ENTER_CHAT, tail: rows });
+        const lines = await runPty({ cols, rows, tail: rows, ...enterChat(DEV_CONFIG) });
         expect(lines.some((l) => l.text.includes("Dashboard"))).toBe(true);
         for (const l of lines) expect(l.width).toBeLessThanOrEqual(cols);
         expect(lines.length).toBeLessThanOrEqual(rows);

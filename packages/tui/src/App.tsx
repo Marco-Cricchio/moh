@@ -16,7 +16,9 @@ import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
-import { useViewport, centerWidth, layoutClass } from "./viewport";
+import { useViewport, centerWidth, layoutClass, bodyRows, sidebarWidths } from "./viewport";
+import { useSidebarState } from "./session-bridge";
+import { SidePanel } from "./SidePanel";
 import { PermissionModal } from "./PermissionModal";
 import { AskUserModal } from "./AskUserModal";
 import { Onboarding } from "./OnboardingOverlay";
@@ -126,6 +128,14 @@ export function App({
   const asking = askGate.current;
 
   const { toasts, push } = useToasts();
+
+  // Right-sidebar feed (#118): a coalesced event subscription (separate from
+  // Chat's) serves the header token label and the Activity/Tokens sections.
+  const sidebar = useSidebarState(session);
+  // Single source of truth for the right sidebar's presence (spec D6): vibe
+  // hides it and the center column absorbs its width — both the chat width
+  // and the Dashboard frame read this flag.
+  const showRight = mode === "dev";
 
   // Focus model (#116): tab cycles menu ↔ chat input; the menu owns the
   // keyboard while focused (↑↓ move, ⏎ activates, everything else inert).
@@ -267,7 +277,7 @@ export function App({
       modelLabel={modelLabel}
       blocked={blocked}
       filePreview={config.filePreview}
-      width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport) : undefined}
+      width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport, showRight) : undefined}
       inputFocused={focus.focus === "input"}
       onOpenCommands={() => setOverlay("commands")}
       onCommand={(text) =>
@@ -301,7 +311,22 @@ export function App({
           <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           layoutClass(viewport) === "dashboard" ? (
-            <Dashboard modelLabel={modelLabel} menuSel={focus.focus === "menu" ? focus.menuSel : null}>
+            <Dashboard
+              modelLabel={modelLabel}
+              tokensLabel={sidebar.tokens.calls > 0 ? `${sidebar.tokens.contextIn.toLocaleString()} tok` : undefined}
+              menuSel={focus.focus === "menu" ? focus.menuSel : null}
+              right={
+                showRight ? (
+                  <SidePanel
+                    state={sidebar}
+                    backend={workflowOn ? tracker : null}
+                    workflowOn={workflowOn}
+                    rows={bodyRows(viewport)}
+                    width={sidebarWidths(viewport).side - 4}
+                  />
+                ) : undefined
+              }
+            >
               {chat}
             </Dashboard>
           ) : (
