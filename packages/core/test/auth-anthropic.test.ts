@@ -103,7 +103,7 @@ describe("exchangeAnthropicCode", () => {
     redirectUri: "http://localhost:1234/callback",
   };
 
-  test("inference exchange requests user:inference + expires_in", async () => {
+  test("inference exchange requests expires_in; scope stays in the authorize URL only (Claude Code shape)", async () => {
     const fetchImpl = tokenEndpoint([{ status: 200, json: OK_RESPONSE }]);
     const token = await exchangeAnthropicCode(CONFIG, { ...exchange, inferenceOnly: true, fetchImpl, now: NOW });
     expect(fetchImpl.calls[0]).toMatchObject({
@@ -113,9 +113,9 @@ describe("exchangeAnthropicCode", () => {
       client_id: CONFIG.clientId,
       code_verifier: "verifier",
       state: "state-1",
-      scope: "user:inference",
       expires_in: CONFIG.inferenceExpiresIn,
     });
+    expect("scope" in fetchImpl.calls[0]!).toBe(false);
     expect(token).toEqual({
       accessToken: "at-1",
       refreshToken: "rt-1",
@@ -127,16 +127,17 @@ describe("exchangeAnthropicCode", () => {
     });
   });
 
-  test("silent fallback: rejected long-lived request retries with default scopes, no expires_in", async () => {
+  test("silent fallback: rejected long-lived request retries without expires_in, same code/scopes", async () => {
     const fetchImpl = tokenEndpoint([
-      { status: 400, json: { error: "invalid_scope" } },
-      { status: 200, json: { ...OK_RESPONSE, scope: ANTHROPIC_SUBSCRIPTION_SCOPES.join(" ") } },
+      { status: 400, json: { error: "unsupported expires_in" } },
+      { status: 200, json: { ...OK_RESPONSE, expires_in: 3600, scope: ANTHROPIC_SUBSCRIPTION_SCOPES.join(" ") } },
     ]);
     const token = await exchangeAnthropicCode(CONFIG, { ...exchange, inferenceOnly: true, fetchImpl, now: NOW });
     expect(fetchImpl.calls).toHaveLength(2);
-    expect(fetchImpl.calls[1]).toMatchObject({ scope: ANTHROPIC_SUBSCRIPTION_SCOPES.join(" ") });
+    expect(fetchImpl.calls[1]).toMatchObject({ code: "auth-code" });
     expect("expires_in" in fetchImpl.calls[1]!).toBe(false);
-    expect(token.grant).toEqual({ inferenceOnly: false });
+    expect("scope" in fetchImpl.calls[1]!).toBe(false);
+    expect(token.grant).toEqual({ inferenceOnly: false }); // full scope set granted
   });
 
   test("server-capped expires_in is accepted as-is (normal refresh covers it)", async () => {
@@ -179,8 +180,16 @@ describe("refreshAnthropicToken", () => {
     expect(fresh.accessToken).toBe("at-new");
     expect(fresh.refreshToken).toBe("rt-rotated");
     expect(fresh.scopes).toEqual(["user:profile", "user:inference"]); // expanded
+    expect(fresh.grant).toEqual({ inferenceOnly: false }); // recomputed from expanded scopes
     expect(fresh.account).toEqual({ id: "uuid-1", email: "me@example.com" }); // carried over
-    expect(fresh.grant).toEqual({ inferenceOnly: true });
+  });
+
+  test("scope expansion on refresh flips the inferenceOnly grant metadata", async () => {
+    const fetchImpl = tokenEndpoint([
+      { status: 200, json: { ...OK_RESPONSE, refresh_token: "rt-2", scope: "user:profile user:inference" } },
+    ]);
+    const fresh = await refreshAnthropicToken(CONFIG, stored, { fetchImpl, now: NOW });
+    expect(fresh.grant).toEqual({ inferenceOnly: false });
   });
 
   test("missing refresh_token in the response keeps the old one", async () => {
