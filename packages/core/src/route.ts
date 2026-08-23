@@ -80,8 +80,10 @@ export interface RouteConfig {
    * Per-target stream factory override. Return a stream for targets you
    * handle; return undefined to use the default AI SDK factory. Tests
    * inject mocks for specific endpoints while keeping real ones live.
+   * Receives the target's resolved credential (subscription access token
+   * or api key) as its second argument.
    */
-  createStream?: (target: RouteTarget) => StreamFn | undefined;
+  createStream?: (target: RouteTarget, credential?: string) => StreamFn | undefined;
   /**
    * Credential resolution override (#137): returns the credential a
    * target's stream call uses. Default resolves subscription endpoints
@@ -119,16 +121,17 @@ export function createRoute(config: RouteConfig): Route {
     async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]): AsyncIterable<StreamEvent> {
       for (let i = 0; i < chain.length; i++) {
         const target = chain[i]!;
+        // #137: subscription credentials resolve (with proactive refresh)
+        // once per target — before any stream call, never mid-stream, and
+        // not re-resolved on retry (decision 6: no refresh retry loops).
+        // Api-key targets keep the pre-#137 path untouched.
+        const credential = target.endpoint.authKind === "subscription"
+          ? await resolveCredential(target)
+          : target.endpoint.apiKey;
         let attempt = 0;
         while (true) {
           try {
-            // #137: subscription credentials resolve (with proactive
-            // refresh) here — before the single stream call, never mid-stream.
-            // Api-key targets keep the pre-#137 path untouched.
-            const credential = target.endpoint.authKind === "subscription"
-              ? await resolveCredential(target)
-              : target.endpoint.apiKey;
-            const stream = streamFactory(target) ?? defaultFactory(target, credential);
+            const stream = streamFactory(target, credential) ?? defaultFactory(target, credential);
             for await (const event of stream(messages, signal, tools)) {
               yield event;
             }
