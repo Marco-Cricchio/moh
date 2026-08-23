@@ -10,6 +10,7 @@ import {
   type EndpointProfile,
   type MohConfig,
 } from "@moh/core";
+import { join } from "node:path";
 
 export type DetectableProviderType = "anthropic" | "openai" | "google";
 
@@ -87,5 +88,77 @@ export function saveWizardProvider(
   const config = upsertEndpoint(read(configFile), profile);
   const withDefault: MohConfig = { ...config, provider: `${profile.name}/${profile.defaultModel}` };
   write(configFile, withDefault);
+  return withDefault;
+}
+
+// --- User-level layering (#129): wizard save semantics (decision 7) ---
+
+import { readUserProviderConfig, saveUserProviderRef, upsertUserEndpoint, userConfigFile } from "@moh/core";
+import { existsSync } from "node:fs";
+
+/**
+ * What the wizard should do with a freshly collected profile, given the
+ * user-level endpoints already configured (decision 7):
+ * - same name + same config → silent reuse;
+ * - same name + different config → warn (key conflict / human-error guard);
+ * - different name but content match (type + baseUrl + defaultModel, key
+ *   excluded) → duplicate warning;
+ * - otherwise brand-new → ask user vs project scope (default: user on
+ *   absolute first run, project when a moh.json exists).
+ */
+export type WizardPlan =
+  | { kind: "new"; defaultScope: "user" | "project" }
+  | { kind: "reuse"; existing: EndpointProfile }
+  | { kind: "key-conflict"; existing: EndpointProfile }
+  | { kind: "duplicate"; existing: EndpointProfile };
+
+function sameProfile(a: EndpointProfile, b: EndpointProfile): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function sameContent(a: EndpointProfile, b: EndpointProfile): boolean {
+  return a.type === b.type && a.baseUrl === b.baseUrl && a.defaultModel === b.defaultModel;
+}
+
+export function wizardSavePlan(
+  profile: EndpointProfile,
+  userEndpoints: EndpointProfile[],
+  projectConfigExists: boolean,
+): WizardPlan {
+  const sameName = userEndpoints.find((e) => e.name === profile.name);
+  if (sameName) {
+    if (sameProfile(sameName, profile)) return { kind: "reuse", existing: sameName };
+    return { kind: "key-conflict", existing: sameName };
+  }
+  const duplicate = userEndpoints.find((e) => sameContent(e, profile));
+  if (duplicate) return { kind: "duplicate", existing: duplicate };
+  return { kind: "new", defaultScope: projectConfigExists ? "project" : "user" };
+}
+
+/** User-level endpoints of `~/.moh/config` (strict read: throws on a broken section). */
+export function readUserWizardEndpoints(home?: string): EndpointProfile[] {
+  return readUserProviderConfig(userConfigFile(home)).endpoints ?? [];
+}
+
+export function projectConfigExists(cwd: string): boolean {
+  return existsSync(join(cwd, "moh.json"));
+}
+
+/**
+ * Persists a wizard profile user-level (endpoint + default provider ref)
+ * through the config guardian. Returns the effective provider ref.
+ */
+export function saveWizardProviderUser(file: string, profile: EndpointProfile): string {
+  upsertUserEndpoint(file, profile);
+  const ref = `${profile.name}/${profile.defaultModel}`;
+  saveUserProviderRef(file, ref);
+  return ref;
+}
+
+/** Sets only the default provider reference in the project moh.json. */
+export function saveProviderRefProject(configFile: string, ref: string): MohConfig {
+  const config = loadMohConfig(configFile);
+  const withDefault: MohConfig = { ...config, provider: ref };
+  writeMohConfig(configFile, withDefault);
   return withDefault;
 }

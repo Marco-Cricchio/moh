@@ -3,7 +3,17 @@ import { useApp, useInput } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig, installFirstPartySkills, checkUpstreamUpdates, resolveTrackerSync, type AgentSession, type AssemblyError, type Provider, type TrackerBackend } from "@moh/core";
+import { loadMohConfig } from "@moh/core";
+import {
+  installFirstPartySkills,
+  checkUpstreamUpdates,
+  resolveTrackerSync,
+  readUserProviderConfig,
+  type AgentSession,
+  type AssemblyError,
+  type Provider,
+  type TrackerBackend,
+} from "@moh/core";
 import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
@@ -80,7 +90,7 @@ export function App({
   const [themeName, setThemeName] = useState<ThemeName>(initialTheme ?? config.theme);
   const [themeTick, setThemeTick] = useState(0);
   const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
-  const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd));
+  const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd, home));
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
@@ -98,7 +108,7 @@ export function App({
       !skipOnboarding &&
       !loadUserConfig(cfgFile).onboarded &&
       !provider &&
-      !projectProviderConfigured(cwd),
+      !providerConfigured(cwd, home),
   );
   // Icon preference applies once at mount; the settings panel keeps it live.
   useEffect(() => {
@@ -354,6 +364,7 @@ export function App({
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
+            home={home}
             onDone={(ref) => {
               updateConfig({ onboarded: true });
               if (ref) {
@@ -453,10 +464,19 @@ function assemblyErrorToast(error: AssemblyError): string {
 }
 
 /** A `provider` reference in the project's moh.json (invalid = not configured). */
-function projectProviderConfigured(cwd: string): boolean {
+/** Onboarded when a provider reference exists anywhere: project moh.json
+ * or the user config (#129). A broken user provider section counts as
+ * configured — assembly reports that error, the wizard stays out of the way. */
+function providerConfigured(cwd: string, home?: string): boolean {
   try {
-    return typeof loadMohConfig(join(cwd, "moh.json")).provider === "string";
+    if (typeof loadMohConfig(join(cwd, "moh.json")).provider === "string") return true;
   } catch {
-    return false;
+    // broken moh.json: assembly reports it; not an onboarding trigger
+    return true;
+  }
+  try {
+    return typeof readUserProviderConfig(userConfigFile(home ?? homedir())).provider === "string";
+  } catch {
+    return true;
   }
 }

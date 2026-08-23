@@ -30,14 +30,19 @@ if ("error" in assembled) throw new Error(assembled.error.message);
 const { session, store } = assembled;
 ```
 
-`sessionFromConfig` owns the whole choreography: moh.json read, project +
-user MCP server merge, provider resolution, subagent/memory wiring, store
-creation, session creation. It returns an explicit
-`{ session, store } | { error }` — **no silent fallbacks**. Provider
-resolution is one path: a pre-built `provider` instance (used here, e.g. a
-`MockProvider.cassette` for evals) > an explicit `providerRef` (like the
-CLI's `--provider`) > moh.json `provider` > the zero-config `"mock"`
-default.
+`sessionFromConfig` owns the whole choreography: moh.json read, user-level
+provider layering (the `provider`/`endpoints` sections of `~/.moh/config`
+merge under the project ones — endpoints by `name`, per-field, project
+winning; keys and the default reference resolve env var > project > user,
+see `loadMergedConfig`), project + user MCP server merge, provider
+resolution, subagent/memory wiring, store creation, session creation. It
+returns an explicit `{ session, store } | { error }` — **no silent
+fallbacks**. Provider resolution is one path: a pre-built `provider`
+instance (used here, e.g. a `MockProvider.cassette` for evals) > an
+explicit `providerRef` (like the CLI's `--provider`) > the merged config's
+`provider` (project moh.json > user config) > the zero-config `"mock"`
+default. An invalid user `provider`/`endpoints` section fails loudly as a
+`config` error, like a broken moh.json.
 
 `AssemblyError.kind` tells you what to do: `config` / `provider` are
 user-fixable (surface the `message`); `session` is a startup validation
