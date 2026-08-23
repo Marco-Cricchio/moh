@@ -129,9 +129,13 @@ export function App({
 
   const { toasts, push } = useToasts();
 
-  // Right-sidebar feed (#118): one coalesced subscription serves both the
-  // header token label and the Activity/Tokens sections.
+  // Right-sidebar feed (#118): a coalesced event subscription (separate from
+  // Chat's) serves the header token label and the Activity/Tokens sections.
   const sidebar = useSidebarState(session);
+  // Single source of truth for the right sidebar's presence (spec D6): vibe
+  // hides it and the center column absorbs its width — both the chat width
+  // and the Dashboard frame read this flag.
+  const showRight = mode === "dev";
 
   // Focus model (#116): tab cycles menu ↔ chat input; the menu owns the
   // keyboard while focused (↑↓ move, ⏎ activates, everything else inert).
@@ -273,7 +277,7 @@ export function App({
       modelLabel={modelLabel}
       blocked={blocked}
       filePreview={config.filePreview}
-      width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport, mode === "dev") : undefined}
+      width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport, showRight) : undefined}
       inputFocused={focus.focus === "input"}
       onOpenCommands={() => setOverlay("commands")}
       onCommand={(text) =>
@@ -312,7 +316,7 @@ export function App({
               tokensLabel={sidebar.tokens.calls > 0 ? `${sidebar.tokens.contextIn.toLocaleString()} tok` : undefined}
               menuSel={focus.focus === "menu" ? focus.menuSel : null}
               right={
-                mode === "dev" ? (
+                showRight ? (
                   <SidePanel
                     state={sidebar}
                     backend={workflowOn ? tracker : null}

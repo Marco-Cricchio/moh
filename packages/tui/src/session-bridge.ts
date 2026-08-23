@@ -37,7 +37,7 @@ function projectSessionState(history: AgentEvent[]): SessionState {
   };
 }
 
-const EMPTY_SIDEBAR: SidebarState = { activity: [], tokens: { contextIn: 0, totalOut: 0, calls: 0 } };
+const EMPTY_SIDEBAR: SidebarState = { activity: [], tokens: { contextIn: 0, totalOut: 0, calls: 0 }, turnCount: 0 };
 
 /**
  * Sidebar feed (#118): the same coalesced event projection as

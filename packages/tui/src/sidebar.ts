@@ -10,7 +10,8 @@ import type { AgentEvent } from "@moh/core";
 /**
  * Assumed model context window for the usage bar. Providers do not expose
  * the limit, so the bar shows context-in against this default (200k is the
- * current floor for the models moh targets).
+ * current floor for the models moh targets) — the percentage is an estimate,
+ * shown, never persisted.
  */
 export const CONTEXT_WINDOW_DEFAULT = 200_000;
 
@@ -31,6 +32,8 @@ export interface SidebarTokens {
 export interface SidebarState {
   activity: ActivityItem[];
   tokens: SidebarTokens;
+  /** Turn count (user_message events) — drives the Workflow tracker refresh. */
+  turnCount: number;
 }
 
 /**
@@ -44,6 +47,7 @@ export function projectSidebar(events: ReadonlyArray<AgentEvent>): SidebarState 
   const tools = new Map<string, ActivityItem & { kind: "tool" }>();
   const subs = new Map<string, ActivityItem & { kind: "subagent" }>();
   const tokens: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
+  let turnCount = 0;
 
   for (const event of events) {
     switch (event.type) {
@@ -79,17 +83,29 @@ export function projectSidebar(events: ReadonlyArray<AgentEvent>): SidebarState 
         tokens.contextIn = event.usage.inputTokens;
         tokens.totalOut += event.usage.outputTokens;
         break;
+      case "user_message":
+        turnCount += 1;
+        break;
       default:
         break;
     }
   }
-  return { activity, tokens };
+  return { activity, tokens, turnCount };
 }
 
-/** First argument value as a one-line detail (the sidebar shows no output). */
+/** Arg keys whose value makes the best one-line activity detail, tried in order. */
+const DETAIL_KEYS = ["command", "path", "file", "pattern", "query", "url"];
+
+/** One-line detail for a tool call: a known arg key if present, else the
+ * first string value (arbitrary but stable for a given args object). */
 function detailOf(args: unknown): string {
   if (args && typeof args === "object") {
-    for (const v of Object.values(args as Record<string, unknown>)) {
+    const rec = args as Record<string, unknown>;
+    for (const key of DETAIL_KEYS) {
+      const v = rec[key];
+      if (typeof v === "string" && v) return v.split("\n")[0]!;
+    }
+    for (const v of Object.values(rec)) {
       if (typeof v === "string") return v.split("\n")[0]!;
     }
   }
@@ -121,6 +137,9 @@ export function contextFraction(contextIn: number, limit = CONTEXT_WINDOW_DEFAUL
 
 /** Right-panel border rows (top + bottom). */
 export const SIDEBAR_BORDER_ROWS = 2;
+/** Slack row between the section stack and the bottom border: an exact fit
+ * makes Ink's Yoga layout overflow the last row out of the panel. */
+export const SIDEBAR_SLACK_ROWS = 1;
 /** Workflow section: header + claimed/ready/blocked rows (fixed, bottom-anchored). */
 export const WORKFLOW_ROWS = 4;
 /** Tokens section: header + usage bar + counts (fixed, bottom-anchored). */
