@@ -435,6 +435,7 @@ export async function loginOpenAI(
   }
   try {
     code = await callback.code;
+    await io.info("✓ Authorization code received — exchanging tokens…");
   } catch (err) {
     throw new Error(`OpenAI login failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {

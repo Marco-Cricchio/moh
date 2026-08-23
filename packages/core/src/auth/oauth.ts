@@ -250,14 +250,36 @@ async function readPastedCode(io: AuthorizationIo, prompt: string): Promise<stri
 /** Cancel/timeout sentinel: no code was delivered. */
 export const NO_CODE = "";
 
+/** Narrated on every winning path before the token exchange starts. */
+export const CODE_RECEIVED_MSG = "✓ Authorization code received — exchanging tokens…";
+
+/** Reads pasted codes until one is non-empty or attempts run out. */
+async function pasteForCode(io: AuthorizationIo, attempts: number): Promise<string> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const pasted = await readPastedCode(io, "Paste code here: ");
+    if (pasted !== "") {
+      await io.info(CODE_RECEIVED_MSG);
+      return pasted;
+    } // stray Enter: re-prompt while attempts remain
+  }
+  return NO_CODE;
+}
+
 /**
- * The manual-paste race (headless-first, Claude Code's proven pattern):
- * show the manual URL *and* try `openUrl` on the automatic URL; whichever
- * path delivers a code first wins. `openUrl` failures are ignored — on a
- * headless box only the paste path remains, and it always works.
+ * The manual-paste race (issue #150): narrate every step and only show a
+ * paste prompt when it is actually needed.
  *
- * Returns `NO_CODE` ("") when the callback is cancelled or times out;
- * the caller decides how to surface that.
+ * - Browser path (`openUrl` succeeds): narrate "waiting…", no paste
+ *   prompt at all — the loopback callback is the expected winner. If the
+ *   callback fails (timeout/cancel/provider error), fall back to the
+ *   manual URL + paste prompt before giving up.
+ * - Headless path (`openUrl` absent/fails): show the manual URL and the
+ *   paste prompt immediately; the callback is still raced (it can win on
+ *   any redirect).
+ *
+ * Whichever path wins narrates `CODE_RECEIVED_MSG` so the pending prompt
+ * visibly resolves and the user knows the exchange is running. Returns
+ * `NO_CODE` ("") when nothing is delivered; the caller surfaces that.
  *
  * Note: implemented with an explicit first-settle race rather than
  * `Promise.race` on `callback.code` — Bun flags a raced promise's late
@@ -267,18 +289,46 @@ export async function raceForCode(
   io: AuthorizationIo,
   opts: RaceOptions & { callback: CallbackServer },
 ): Promise<string> {
-  await io.info(
-    `Authorize in your browser:\n  ${opts.manualUrl}\n` +
-      `If a code is shown instead of a redirect, paste it below.`,
-  );
+  const attempts = opts.pasteAttempts ?? 2;
+
+  let browserOpened = false;
   if (io.openUrl) {
     try {
-      await io.openUrl(opts.authorizeUrl);
+      browserOpened = (await io.openUrl(opts.authorizeUrl)) !== false;
     } catch {
-      // Best-effort: headless boxes have no browser; the paste path covers them.
+      browserOpened = false; // headless boxes have no browser
     }
   }
-  const attempts = opts.pasteAttempts ?? 2;
+
+  if (browserOpened) {
+    await io.info(
+      `Browser opened — waiting for the authorization to complete…\n` +
+        `If nothing happens, close the tab and press Enter here to paste a code manually.`,
+    );
+    let code: string;
+    try {
+      code = await opts.callback.code;
+    } catch {
+      // Timeout/cancel/provider error: the browser path delivered nothing.
+      code = NO_CODE;
+    }
+    if (code !== NO_CODE) {
+      await io.info(CODE_RECEIVED_MSG);
+      return code;
+    }
+    await io.info(
+      `The browser did not deliver a code. Fallback — authorize manually:\n  ${opts.manualUrl}\n` +
+        `If a code is shown instead of a redirect, paste it below.`,
+    );
+    return pasteForCode(io, attempts);
+  }
+
+  // Headless / manual path: manual URL + paste prompt, still racing the
+  // callback (a redirect from any machine can win).
+  await io.info(
+    `No browser available — authorize on any machine via:\n  ${opts.manualUrl}\n` +
+      `If a code is shown instead of a redirect, paste it below.`,
+  );
   return new Promise<string>((resolve) => {
     let settled = false;
     const finish = (code: string): void => {
@@ -286,18 +336,26 @@ export async function raceForCode(
       settled = true;
       resolve(code);
     };
-    // Rejection here = cancel/timeout/provider error: settle with NO_CODE
-    // so the caller can distinguish "nothing delivered" from a real code.
-    opts.callback.code.then(finish, () => finish(NO_CODE));
+    opts.callback.code.then(
+      async (code) => {
+        await io.info(CODE_RECEIVED_MSG);
+        finish(code);
+      },
+      // Cancel/timeout/provider error: nothing more to wait for here —
+      // the paste loop decides (its own exhaustion settles NO_CODE).
+      () => {},
+    );
     const tryPaste = (attempt: number): void => {
-      readPastedCode(io, "Paste code here if prompted (empty line to finish): ").then((pasted) => {
+      readPastedCode(io, "Paste code here: ").then((pasted) => {
+        if (settled) return; // callback already won; abandon the paste
         if (pasted !== "") {
           opts.callback.cancel();
-          finish(pasted);
+          io.info(CODE_RECEIVED_MSG).then(() => finish(pasted));
         } else if (attempt + 1 < attempts) {
-          tryPaste(attempt + 1); // stray Enter: re-prompt (Google allows 2)
+          tryPaste(attempt + 1);
+        } else {
+          finish(NO_CODE); // attempts exhausted, callback still pending
         }
-        // Attempts exhausted: keep waiting for the callback branch above.
       });
     };
     tryPaste(0);

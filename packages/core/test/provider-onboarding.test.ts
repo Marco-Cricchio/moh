@@ -268,6 +268,34 @@ describe("runProviderAdd (subscription branch)", () => {
       }),
     ).rejects.toThrow("nope");
   });
+
+  test("issue #150: endpoint stub persisted right after login — a post-login abort leaves a usable pair", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config-abort`;
+    const configFile = `${import.meta.dir}/tmp-onboarding/moh-abort.json`;
+    await Bun.write(authFile, "{}");
+    await Bun.write(configFile, "{}");
+    // Abort after login: no model given → OnboardingAborted.
+    const io = ioWith(["google", "mygoogle", "subscription", "", ""]);
+    try {
+      await expect(
+        runProviderAdd(io, okTest(), {
+          authFile,
+          configFile,
+          subscriptionLogin: async () => fakeToken(),
+        }),
+      ).rejects.toBeInstanceOf(OnboardingAborted);
+      // Tokens AND endpoint profile both survive the abort.
+      const saved = JSON.parse(readFileSync(authFile, "utf8"));
+      expect(saved.auth.tokens.mygoogle.accessToken).toBe("acc-xyz");
+      const config = JSON.parse(readFileSync(configFile, "utf8"));
+      expect(config.endpoints).toEqual([
+        { name: "mygoogle", type: "google", auth: { kind: "subscription" } },
+      ]);
+    } finally {
+      await Bun.file(authFile).delete();
+      await Bun.file(configFile).delete();
+    }
+  });
 });
 
 describe("minimalConnectionTest (subscription)", () => {

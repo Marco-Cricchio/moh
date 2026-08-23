@@ -47,6 +47,10 @@ function slugify(value: string): string {
 export interface ProviderAddOptions {
   /** Auth store for the subscription branch. Default: `~/.moh/config`. */
   authFile?: string;
+  /** moh.json target (issue #150): when set, the subscription branch
+   * persists a stub endpoint profile immediately after a successful login
+   * so tokens are never orphaned by a later abort. */
+  configFile?: string;
   /** Subscription grant override (tests); default runs the real flows. */
   subscriptionLogin?: (io: OnboardingIo) => Promise<import("./auth/types").AuthToken>;
 }
@@ -84,6 +88,14 @@ export async function runProviderAdd(
     const login = options.subscriptionLogin ?? ((io2) => runSubscriptionLogin(type as SubscriptionKind, io2, { overrides }));
     const token = await login(io); // ToS warning first (spec invariant 4)
     saveTokens(authFile, name, token);
+    // Issue #150: persist the endpoint stub right after the login so a
+    // later abort (model prompt, failed connection test, Ctrl-C) still
+    // leaves a usable endpoint + tokens pair in moh.json.
+    if (options.configFile) {
+      const stub: EndpointProfile = { name, type, auth: { kind: "subscription" } };
+      writeMohConfig(options.configFile, upsertEndpoint(loadMohConfig(options.configFile), stub));
+      await io.info(`Saved endpoint "${name}" (subscription) to ${options.configFile} — tokens stored.`);
+    }
   } else {
     apiKey = (await io.ask(`API key (empty to use MOH_ENDPOINT_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY${type === "openai-compat" ? "; local endpoints need none" : ""}): `)).trim();
   }
@@ -137,7 +149,7 @@ export async function addProviderToFile(
   options: { tester?: ConnectionTester; registry?: ProviderRegistry } & ProviderAddOptions = {},
 ): Promise<{ profile: EndpointProfile; config: MohConfig }> {
   const { tester, registry, ...addOptions } = options;
-  const profile = await runProviderAdd(io, tester, addOptions);
+  const profile = await runProviderAdd(io, tester, { configFile: file, ...addOptions });
   const config = upsertEndpoint(loadMohConfig(file), profile);
   const withDefault: MohConfig = { ...config, provider: `${profile.name}/${profile.defaultModel}` };
   // Sanity: the saved config must resolve before we write it.
