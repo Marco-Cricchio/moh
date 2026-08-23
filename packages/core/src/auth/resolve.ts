@@ -19,7 +19,26 @@ import { readAuthSection, saveTokens } from "./store";
 import type { AuthOverrides, AuthToken } from "./types";
 import { refreshAnthropicToken, resolveAnthropicOAuthConfig } from "./anthropic";
 import { refreshGoogleToken, resolveGoogleOAuthConfig } from "./google";
-import { refreshOpenaiToken, resolveOpenAiOAuthConfig } from "./openai";
+import { refreshOpenaiToken, resolveOpenAiOAuthConfig, CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./openai";
+
+/** Transport hints a resolver may return alongside the credential (#151):
+ * OpenAI subscription grants that could not mint an API key stream via
+ * the ChatGPT backend (Responses API wire + originator header) instead
+ * of api.openai.com. */
+export interface EndpointAuthContext {
+  credential: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+}
+
+/** ChatGPT-backend transport for a native (un-minted) OpenAI grant. */
+export function openaiNativeAuthContext(token: AuthToken): EndpointAuthContext {
+  return {
+    credential: token.accessToken,
+    baseUrl: CHATGPT_CODEX_BASE_URL,
+    headers: { originator: CHATGPT_CODEX_ORIGINATOR },
+  };
+}
 
 /** Refresh when the access token expires within this window (Codex-style). */
 export const REFRESH_WINDOW_MS = 5 * 60 * 1000;
@@ -49,7 +68,7 @@ export interface CredentialResolveOptions {
 export async function resolveEndpointCredential(
   target: RouteTarget,
   opts: CredentialResolveOptions = {},
-): Promise<string | undefined> {
+): Promise<string | EndpointAuthContext | undefined> {
   const endpoint = target.endpoint;
   if (endpoint.authKind !== "subscription") return endpoint.apiKey;
 
@@ -69,7 +88,7 @@ export async function resolveEndpointCredential(
     try {
       const fresh = await refreshToken(endpoint.kind, endpoint.name, token, section.overrides, opts);
       saveTokens(file, endpoint.name, fresh);
-      return fresh.accessToken;
+      return openaiCredentialFor(endpoint.kind, fresh);
     } catch (err) {
       throw new ProviderError(
         "auth",
@@ -77,6 +96,14 @@ export async function resolveEndpointCredential(
       );
     }
   }
+  return openaiCredentialFor(endpoint.kind, token);
+}
+
+/** #151: OpenAI native grants (minted: false) ride the ChatGPT backend;
+ * every other shape (including minted OpenAI keys) returns the plain
+ * credential string, byte-identical to the pre-#151 path. */
+function openaiCredentialFor(kind: string, token: AuthToken): string | EndpointAuthContext {
+  if (kind === "openai" && token.grant?.minted === false) return openaiNativeAuthContext(token);
   return token.accessToken;
 }
 

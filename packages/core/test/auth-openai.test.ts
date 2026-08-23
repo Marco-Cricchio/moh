@@ -103,7 +103,7 @@ describe("exchangeOpenaiCode", () => {
       { status: 200, json: TOKEN_RESPONSE },
       { status: 200, json: MINT_RESPONSE },
     ]);
-    const { token, minted } = await exchangeOpenaiCode(CONFIG, {
+    const { token, auth } = await exchangeOpenaiCode(CONFIG, {
       code: "auth-code",
       codeVerifier: "verifier",
       redirectUri: "http://localhost:1455/auth/callback",
@@ -133,7 +133,7 @@ describe("exchangeOpenaiCode", () => {
     });
     expect(token.access_token).toBe("oauth-at-1");
     // Posture (c): the minted key is the stored accessToken; OAuth set + plan live in grant.
-    expect(minted).toEqual({
+    expect(auth).toEqual({
       accessToken: "sk-minted-1",
       refreshToken: "rt-1",
       grant: { provider: "openai", minted: true, oauthAccessToken: "oauth-at-1", oauthExpiresAt: NOW + 3600 * 1000, idToken: ID_TOKEN, plan: "plus" },
@@ -149,13 +149,39 @@ describe("exchangeOpenaiCode", () => {
     ).rejects.toThrow(/token exchange failed \(401\)/);
   });
 
-  test("response without id_token fails the mint with a re-login hint", async () => {
+  test("#151: mint failure is non-fatal — native tokens + mintError", async () => {
     const fetchImpl = endpoint([
-      { status: 200, json: { access_token: "at", refresh_token: "rt" } },
+      { status: 200, json: TOKEN_RESPONSE },
+      { status: 401, json: { error: { message: "Invalid ID token: missing organization_id", code: "invalid_subject_token" } } },
     ]);
-    await expect(
-      exchangeOpenaiCode(CONFIG, { code: "c", codeVerifier: "v", redirectUri: "r", fetchImpl, now: NOW }),
-    ).rejects.toThrow(/id_token.*moh provider login/);
+    const { auth, mintError } = await exchangeOpenaiCode(CONFIG, {
+      code: "auth-code",
+      codeVerifier: "verifier",
+      redirectUri: "http://localhost:1455/auth/callback",
+      fetchImpl,
+      now: NOW,
+    });
+    expect(mintError).toContain("API-key mint failed (401)");
+    // Native grant: OAuth access token up front, minted:false (#151).
+    expect(auth).toEqual({
+      accessToken: "oauth-at-1",
+      refreshToken: "rt-1",
+      expiresAt: NOW + 3600 * 1000,
+      grant: { provider: "openai", minted: false, idToken: ID_TOKEN, plan: "plus" },
+      account: { email: "me@example.com" },
+      updatedAt: NOW,
+    });
+  });
+
+  test("response without id_token: mint skipped, native tokens returned (#151)", async () => {
+    const fetchImpl = endpoint([
+      { status: 200, json: { access_token: "at", refresh_token: "rt", expires_in: 3600 } },
+    ]);
+    const { auth, mintError } = await exchangeOpenaiCode(CONFIG, {
+      code: "c", codeVerifier: "v", redirectUri: "r", fetchImpl, now: NOW,
+    });
+    expect(mintError).toContain("id_token");
+    expect(auth).toMatchObject({ accessToken: "at", grant: { minted: false } });
   });
 });
 
@@ -205,6 +231,42 @@ describe("refreshOpenaiToken", () => {
     expect(fresh.refreshToken).toBe("rt-old");
     // id_token carried over from grant metadata for the re-mint
     expect(fetchImpl.calls[1]!.body.subject_token).toBe(ID_TOKEN);
+  });
+
+  test("#151: native grant (minted:false) tolerates re-mint failure", async () => {
+    const nativeStored: AuthToken = {
+      accessToken: "oauth-at-old",
+      refreshToken: "rt-old",
+      expiresAt: NOW - 1000,
+      grant: { provider: "openai", minted: false, idToken: ID_TOKEN, plan: "plus" },
+      account: { email: "me@example.com" },
+      updatedAt: NOW - 10_000,
+    };
+    const fetchImpl = endpoint([
+      { status: 200, json: { ...TOKEN_RESPONSE, access_token: "at-new" } },
+      { status: 401, json: { error: { code: "invalid_subject_token" } } },
+    ]);
+    const fresh = await refreshOpenaiToken(CONFIG, nativeStored, { fetchImpl, now: NOW });
+    expect(fresh.accessToken).toBe("at-new");
+    expect(fresh.grant).toMatchObject({ minted: false });
+    expect(fresh.account).toEqual({ email: "me@example.com" });
+  });
+
+  test("#151: native grant upgrades to a minted key when the re-mint succeeds", async () => {
+    const nativeStored: AuthToken = {
+      accessToken: "oauth-at-old",
+      refreshToken: "rt-old",
+      expiresAt: NOW - 1000,
+      grant: { provider: "openai", minted: false, idToken: ID_TOKEN },
+      updatedAt: NOW - 10_000,
+    };
+    const fetchImpl = endpoint([
+      { status: 200, json: { ...TOKEN_RESPONSE, access_token: "at-new" } },
+      { status: 200, json: { access_token: "sk-minted-upgrade" } },
+    ]);
+    const fresh = await refreshOpenaiToken(CONFIG, nativeStored, { fetchImpl, now: NOW });
+    expect(fresh.accessToken).toBe("sk-minted-upgrade");
+    expect(fresh.grant).toMatchObject({ minted: true });
   });
 
   test("no stored refresh token is a re-login error", async () => {

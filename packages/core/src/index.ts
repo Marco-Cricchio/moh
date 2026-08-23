@@ -149,6 +149,8 @@ import {
   type TokenEndpointFetch,
 } from "./auth/anthropic";
 import {
+  CHATGPT_CODEX_BASE_URL,
+  CHATGPT_CODEX_ORIGINATOR,
   OPENAI_OAUTH_DEFAULTS,
   OPENAI_SCOPES,
   OpenAiLoginAborted,
@@ -214,6 +216,8 @@ export {
   type AnthropicAuthOverrides,
   type AnthropicOAuthConfig,
   type TokenEndpointFetch,
+  CHATGPT_CODEX_BASE_URL,
+  CHATGPT_CODEX_ORIGINATOR,
   OPENAI_OAUTH_DEFAULTS,
   OPENAI_SCOPES,
   OpenAiLoginAborted,

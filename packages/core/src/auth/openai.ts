@@ -8,12 +8,15 @@
  * overridable via `auth.overrides.openai` in `~/.moh/config`
  * (spec decision 5).
  *
- * Posture (c) — spec decision 8: after the normal authorization-code
+ * Posture (c), amended by #151: after the normal authorization-code
  * exchange, an **RFC 8693 token exchange** (`requested_token=openai-api-key`,
- * subject = the id_token) mints an API key. That minted key rides the
- * existing api-key path (route resolution, env var precedence, tests)
- * — minimal core change. The OAuth tokens (access/refresh/id) are kept
- * in the stored token's grant metadata so a later refresh can re-mint.
+ * subject = the id_token) mints an API key **best-effort** — codex
+ * itself tolerates mint failure (`obtain_api_key(...).ok()`), and accounts
+ * whose id_token lacks organization/workspace claims cannot mint. When the
+ * mint succeeds the key rides the existing api-key path; when it fails we
+ * continue with the **native OAuth tokens** (grant `minted: false`) and
+ * streaming goes through the ChatGPT backend (`CHATGPT_CODEX_BASE_URL`,
+ * Responses API wire, `originator` header like codex).
  * issuer and client_id are user-overridable (spec decision 5); the
  * ports/callbackPath allowlist values are captured-only.
  *
@@ -58,6 +61,9 @@ export const OPENAI_SCOPES = [
 export const TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange";
 export const REQUESTED_TOKEN = "openai-api-key";
 export const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
+
+/** Codex CLI's originator header value (also sent to the ChatGPT backend). */
+export const CHATGPT_CODEX_ORIGINATOR = "codex_cli_rs";
 
 /** ChatGPT-mode backend used when subscription-authed (research §2). */
 export const CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -159,7 +165,29 @@ function toMintedAuthToken(
   };
 }
 
-/** Authorization-code exchange (server.rs exchange_code_for_tokens). */
+/** Native (un-minted) grant: OAuth access token up front, minted:false.
+ * Streaming for this shape goes through the ChatGPT backend with the
+ * OAuth access token as the bearer credential (#151). */
+function toNativeAuthToken(tokens: OpenAiTokenResponse, opts: { now: number }): AuthToken {
+  const claims = tokens.id_token ? decodeJwtPayload(tokens.id_token) : undefined;
+  const profile = claims?.[PROFILE_CLAIM] as Record<string, unknown> | undefined;
+  const auth = claims?.[AUTH_CLAIM] as Record<string, unknown> | undefined;
+  const email = typeof profile?.email === "string" ? profile.email : undefined;
+  const plan = typeof auth?.chatgpt_plan_type === "string" ? auth.chatgpt_plan_type : undefined;
+  return {
+    accessToken: tokens.access_token,
+    ...(tokens.refresh_token ? { refreshToken: tokens.refresh_token } : {}),
+    ...(tokens.expires_in !== undefined ? { expiresAt: opts.now + tokens.expires_in * 1000 } : {}),
+    grant: { provider: "openai", minted: false, ...(tokens.id_token ? { idToken: tokens.id_token } : {}), ...(plan ? { plan } : {}) },
+    ...(email ? { account: { email } } : {}),
+    updatedAt: opts.now,
+  };
+}
+
+/** Authorization-code exchange (server.rs exchange_code_for_tokens).
+ * The RFC 8693 mint is best-effort (#151): on failure the returned
+ * `auth` is the native token set (`grant.minted: false`) and
+ * `mintError` carries the reason so callers can warn. */
 export async function exchangeOpenaiCode(
   config: OpenAiOAuthConfig,
   opts: {
@@ -169,7 +197,7 @@ export async function exchangeOpenaiCode(
     fetchImpl?: OpenAiEndpointFetch;
     now?: number;
   },
-): Promise<{ token: OpenAiTokenResponse; minted: AuthToken }> {
+): Promise<{ token: OpenAiTokenResponse; auth: AuthToken; mintError?: string }> {
   const fetchImpl = opts.fetchImpl ?? defaultOpenAiEndpointFetch;
   const now = opts.now ?? Date.now();
   const result = await fetchImpl(`${config.issuer}/oauth/token`, {
@@ -189,9 +217,19 @@ export async function exchangeOpenaiCode(
     ...(typeof result.json.id_token === "string" ? { id_token: result.json.id_token } : {}),
     ...(typeof result.json.expires_in === "number" ? { expires_in: result.json.expires_in } : {}),
   };
-  // Posture (c): mint the API key right away — the point of the login.
-  const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
-  return { token: tokens, minted: toMintedAuthToken(mintedKey, tokens, { now }) };
+  // #151: mint best-effort — codex tolerates failure; accounts without
+  // organization claims in the id_token cannot mint and still work via
+  // the ChatGPT backend with the native tokens.
+  try {
+    const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
+    return { token: tokens, auth: toMintedAuthToken(mintedKey, tokens, { now }) };
+  } catch (err) {
+    return {
+      token: tokens,
+      auth: toNativeAuthToken(tokens, { now }),
+      mintError: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
@@ -260,6 +298,20 @@ export async function refreshOpenaiToken(
     ...(idToken ? { id_token: idToken } : {}),
     ...(typeof result.json.expires_in === "number" ? { expires_in: result.json.expires_in } : {}),
   };
+  // #151: a stored native grant (minted: false) treats re-mint failure as
+  // non-fatal — the fresh native tokens still work via the ChatGPT
+  // backend. A previously-minted grant keeps the fatal re-mint (its
+  // consumers ride the api-key path and have no native fallback stored).
+  if (token.grant?.minted === false) {
+    try {
+      const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
+      const fresh = toMintedAuthToken(mintedKey, tokens, { now });
+      return { ...fresh, account: fresh.account ?? token.account };
+    } catch {
+      const fresh = toNativeAuthToken(tokens, { now });
+      return { ...fresh, account: fresh.account ?? token.account };
+    }
+  }
   const mintedKey = await exchangeOpenaiApiKey(config, tokens, { fetchImpl });
   const fresh = toMintedAuthToken(mintedKey, tokens, { now });
   return { ...fresh, account: fresh.account ?? token.account };
@@ -355,7 +407,8 @@ export async function pollOpenaiDeviceToken(
  * 4), then the user picks the path — browser (loopback on the Codex
  * allowlist ports) or device code (headless-native, spec decision 4).
  * Whichever path delivers the authorization code, the same PKCE pair is
- * used for the exchange, then the RFC 8693 exchange mints the API key.
+ * used for the exchange, then the RFC 8693 exchange mints the API key
+ * (best-effort, #151: mint failure warns and keeps the native tokens).
  */
 export async function loginOpenAI(
   io: AuthorizationIo,
@@ -401,14 +454,15 @@ export async function loginOpenAI(
     // Device-flow codes go through the same "normal code exchange" as the
     // browser flow (research §2), redirect_uri included per Codex's shape.
     const redirectUri = `http://localhost:${config.ports[0]}${config.callbackPath}`;
-    const { minted } = await exchangeOpenaiCode(config, {
+    const { auth, mintError } = await exchangeOpenaiCode(config, {
       code,
       codeVerifier,
       redirectUri,
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
       ...(opts.now !== undefined ? { now: opts.now } : {}),
     });
-    return minted;
+    if (mintError) await io.info(`warning: API-key mint skipped (${mintError}); continuing with native ChatGPT-plan tokens`);
+    return auth;
   }
 
   const callback = await startLoopbackCallback({
@@ -442,12 +496,13 @@ export async function loginOpenAI(
   } finally {
     callback.cancel();
   }
-  const { minted } = await exchangeOpenaiCode(config, {
+  const { auth, mintError } = await exchangeOpenaiCode(config, {
     code,
     codeVerifier: pkce.verifier,
     redirectUri: callback.redirectUri,
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     ...(opts.now !== undefined ? { now: opts.now } : {}),
   });
-  return minted;
+  if (mintError) await io.info(`warning: API-key mint skipped (${mintError}); continuing with native ChatGPT-plan tokens`);
+  return auth;
 }
