@@ -119,6 +119,7 @@ import {
   saveTokens,
 } from "./auth/store";
 import {
+  CODE_RECEIVED_MSG,
   TOS_WARNING,
   base64url,
   buildAuthorizeUrl,

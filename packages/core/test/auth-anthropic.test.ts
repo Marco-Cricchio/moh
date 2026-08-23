@@ -212,7 +212,7 @@ describe("refreshAnthropicToken", () => {
   });
 });
 
-function loginIoDouble(answers: string[]): AuthorizationIo & { infos: string[]; openedUrls: string[] } {
+function loginIoDouble(answers: string[], opts: { noBrowser?: boolean } = {}): AuthorizationIo & { infos: string[]; openedUrls: string[] } {
     let i = 0;
     const infos: string[] = [];
     const openedUrls: string[] = [];
@@ -226,6 +226,7 @@ function loginIoDouble(answers: string[]): AuthorizationIo & { infos: string[]; 
       },
       openUrl: async (url) => {
         openedUrls.push(url);
+        if (opts.noBrowser) throw new Error("no browser");
         return true;
       },
       infos,
@@ -244,7 +245,7 @@ describe("loginAnthropic", () => {
   });
 
   test("paste path: manual redirect_uri used for the exchange", async () => {
-    const io = loginIoDouble(["y", "pasted-code", ""]);
+    const io = loginIoDouble(["y", "pasted-code", ""], { noBrowser: true }); // headless: the paste path is the winner
     const fetchImpl = tokenResults();
     const token = await loginAnthropic(io, {
       fetchImpl,
