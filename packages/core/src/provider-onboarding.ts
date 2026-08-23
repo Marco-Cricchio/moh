@@ -13,10 +13,16 @@ import { envApiKey, endpointEnvVarName } from "./route";
 export const BUILTIN_PROVIDER_TYPES = ["anthropic", "openai", "google", "openai-compat"] as const;
 export type BuiltinProviderType = (typeof BUILTIN_PROVIDER_TYPES)[number];
 
-/** Question/answer seam. `ask` returns the trimmed user answer. */
+/**
+ * Question/answer seam. `ask` returns the trimmed user answer.
+ * `openUrl` (issue #133) is best-effort browser opening for OAuth flows —
+ * it may be absent or fail on headless boxes; subscription flows always
+ * show the manual URL as well and race the two (auth/oauth.ts).
+ */
 export interface OnboardingIo {
   ask(prompt: string): Promise<string>;
   info(line: string): Promise<void>;
+  openUrl?(url: string): Promise<boolean>;
 }
 
 export type ConnectionTestResult = { ok: true; modelId: string } | { ok: false; error: string };
