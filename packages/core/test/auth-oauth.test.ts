@@ -160,23 +160,41 @@ describe("manual-paste race", () => {
   });
 
   test("multi-line paste is joined until the empty line", async () => {
-    const io = ioDouble(["part1", "part2", "", ""]);
+    const io = ioDouble(["part1", "part2", "", ""], { errorOnOpen: new Error("no browser") });
     const server = await startLoopbackCallback({ state: generateState() });
     const code = await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     expect(code).toBe("part1part2");
   });
 
-  test("empty paste falls back to waiting for the callback", async () => {
-    // Paste path yields nothing (immediate empty line); the loopback code wins.
-    const io = ioDouble(["", ""]);
+  test("browser path (openUrl succeeds): no paste prompt, callback delivers, narration shows", async () => {
+    const io = ioDouble([]);
     const state = generateState();
     const server = await startLoopbackCallback({ state });
     const raced = raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     await fetch(`${server.redirectUri}?code=browser-code&state=${encodeURIComponent(state)}`);
     expect(await raced).toBe("browser-code");
+    expect(io.prompts).toEqual([]); // no paste prompt unless needed (issue #150)
+    expect(io.infos.join("\n")).toContain("Waiting for the browser");
+    expect(io.infos.join("\n")).toContain("✓ Authorization code received");
   });
 
-  test("loopback redirect wins over a slow paste: server code returned", async () => {
+  test("browser path failure (timeout) falls back to the manual paste prompt", async () => {
+    const io = ioDouble(["late-paste", ""]);
+    const server = await startLoopbackCallback({ state: generateState(), timeoutMs: 50 });
+    const code = await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
+    expect(code).toBe("late-paste");
+    expect(io.infos.join("\n")).toContain("https://m/cb");
+    expect(io.prompts.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("empty paste on the headless path settles with NO_CODE after the attempts", async () => {
+    const io = ioDouble(["", ""], { errorOnOpen: new Error("no browser") });
+    const server = await startLoopbackCallback({ state: generateState() });
+    const code = await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
+    expect(code).toBe("");
+  });
+
+  test("loopback redirect wins over a slow paste: server code returned, prompt visibly resolves", async () => {
     // Paste path blocks (user is off opening the browser); callback resolves.
     const io: AuthorizationIo = {
       ask: () => new Promise<string>(() => {}), // never answers
@@ -189,16 +207,32 @@ describe("manual-paste race", () => {
     expect(await raced).toBe("browser-code");
   });
 
+  test("headless callback win narrates the received code while a paste is pending", async () => {
+    const infos: string[] = [];
+    const io: AuthorizationIo = {
+      ask: () => new Promise<string>(() => {}), // never answers
+      info: async (line) => {
+        infos.push(line);
+      },
+    };
+    const state = generateState();
+    const server = await startLoopbackCallback({ state });
+    const raced = raceForCode(io, { authorizeUrl: "https://m/a", callback: server, manualUrl: "https://m/cb" });
+    await fetch(`${server.redirectUri}?code=cb-code&state=${encodeURIComponent(state)}`);
+    expect(await raced).toBe("cb-code");
+    expect(infos.join("\n")).toContain("✓ Authorization code received");
+  });
+
   test("openUrl receives the authorize URL, not the loopback redirect", async () => {
-    const io = ioDouble(["pasted", "", ""]);
+    const io = ioDouble(["pasted", "", ""], { errorOnOpen: new Error("no browser") });
     const server = await startLoopbackCallback({ state: generateState() });
     await raceForCode(io, { authorizeUrl: "https://m/authorize", callback: server, manualUrl: "https://m/cb" });
     expect(io.openedUrls).toEqual(["https://m/authorize"]);
   });
 
-  test("a stray empty paste is re-prompted before falling back to the callback", async () => {
+  test("a stray empty paste is re-prompted before settling", async () => {
     // First paste attempt: accidental empty line. Second attempt: the code.
-    const io = ioDouble(["", "second-attempt", ""]);
+    const io = ioDouble(["", "second-attempt", ""], { errorOnOpen: new Error("no browser") });
     const server = await startLoopbackCallback({ state: generateState() });
     const code = await raceForCode(io, { authorizeUrl: "https://m/a", callback: server, manualUrl: "https://m/cb" });
     expect(code).toBe("second-attempt");
