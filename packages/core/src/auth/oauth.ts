@@ -293,6 +293,7 @@ export async function raceForCode(
 
   let browserOpened = false;
   if (io.openUrl) {
+    await io.info("Opening your browser to authorize…");
     try {
       browserOpened = (await io.openUrl(opts.authorizeUrl)) !== false;
     } catch {
@@ -301,10 +302,7 @@ export async function raceForCode(
   }
 
   if (browserOpened) {
-    await io.info(
-      `Browser opened — waiting for the authorization to complete…\n` +
-        `If nothing happens, close the tab and press Enter here to paste a code manually.`,
-    );
+    await io.info("Waiting for the browser to complete the authorization…");
     let code: string;
     try {
       code = await opts.callback.code;
@@ -350,7 +348,8 @@ export async function raceForCode(
         if (settled) return; // callback already won; abandon the paste
         if (pasted !== "") {
           opts.callback.cancel();
-          io.info(CODE_RECEIVED_MSG).then(() => finish(pasted));
+          finish(pasted);
+          void io.info(CODE_RECEIVED_MSG).catch(() => {}); // narration must not block
         } else if (attempt + 1 < attempts) {
           tryPaste(attempt + 1);
         } else {

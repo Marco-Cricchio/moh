@@ -174,7 +174,7 @@ describe("manual-paste race", () => {
     await fetch(`${server.redirectUri}?code=browser-code&state=${encodeURIComponent(state)}`);
     expect(await raced).toBe("browser-code");
     expect(io.prompts).toEqual([]); // no paste prompt unless needed (issue #150)
-    expect(io.infos.join("\n")).toContain("waiting for the authorization");
+    expect(io.infos.join("\n")).toContain("Waiting for the browser");
     expect(io.infos.join("\n")).toContain("✓ Authorization code received");
   });
 

@@ -31,6 +31,7 @@ import {
   generateState,
   startLoopbackCallback,
   type AuthorizationIo,
+  CODE_RECEIVED_MSG,
 } from "./oauth";
 
 /** Drift-prone captured values (re-verify against a fresh codex checkout). */
@@ -435,7 +436,7 @@ export async function loginOpenAI(
   }
   try {
     code = await callback.code;
-    await io.info("✓ Authorization code received — exchanging tokens…");
+    await io.info(CODE_RECEIVED_MSG);
   } catch (err) {
     throw new Error(`OpenAI login failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
