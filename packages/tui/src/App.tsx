@@ -8,7 +8,8 @@ import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
-import { Dashboard } from "./Dashboard";
+import { Dashboard, MENU_ENTRIES, type MenuEntry } from "./Dashboard";
+import { handleFocusKey, INITIAL_FOCUS, type FocusState } from "./focus";
 import { Chat, type Mode } from "./Chat";
 import { makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
@@ -125,6 +126,22 @@ export function App({
   const asking = askGate.current;
 
   const { toasts, push } = useToasts();
+
+  // Focus model (#116): tab cycles menu ↔ chat input; the menu owns the
+  // keyboard while focused (↑↓ move, ⏎ activates, everything else inert).
+  const [focus, setFocus] = useState<FocusState>(INITIAL_FOCUS);
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  const activateMenu = (entry: MenuEntry) => {
+    if (entry === "Sessions") return setSession(null); // back to filter-first home
+    if (entry === "Wayfinder") {
+      if (workflowOn) return setOverlay("frontier");
+      return push("wayfinder needs workflow on (/workflow on)");
+    }
+    if (entry === "Settings") return setOverlay("settings");
+    if (entry === "Help") return setOverlay("commands");
+    // Dashboard: already in chat — focus returned to the input above.
+  };
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
   useEffect(() => {
     if (initialSession && "error" in initialSession) push(assemblyErrorToast(initialSession.error));
@@ -209,6 +226,16 @@ export function App({
   }, [session]);
 
   useInput((input, key) => {
+    const menuLive = session !== null && !blocked && layoutClass(viewport) === "dashboard";
+    if (menuLive) {
+      const r = handleFocusKey(focusRef.current, input, key, MENU_ENTRIES.length);
+      if (r.state !== focusRef.current || r.activated !== null) {
+        focusRef.current = r.state;
+        setFocus(r.state);
+        if (r.activated !== null) activateMenu(MENU_ENTRIES[r.activated]!);
+      }
+      if (r.state.focus === "menu" || key.tab) return; // the menu owns the keyboard
+    }
     if (key.ctrl && input === "m") {
       const next: Mode = mode === "vibe" ? "dev" : "vibe";
       setMode(next);
@@ -241,6 +268,7 @@ export function App({
       blocked={blocked}
       filePreview={config.filePreview}
       width={layoutClass(viewport) === "dashboard" ? centerWidth(viewport) : undefined}
+      inputFocused={focus.focus === "input"}
       onOpenCommands={() => setOverlay("commands")}
       onCommand={(text) =>
         runSlashCommand(text, {
@@ -259,13 +287,23 @@ export function App({
 
   const overlayOpen = overlay !== null || pending !== null;
 
+  // Leaving the session (Sessions entry, disposal) resets the zones.
+  useEffect(() => {
+    if (!showChat && focusRef.current !== INITIAL_FOCUS) {
+      focusRef.current = INITIAL_FOCUS;
+      setFocus(INITIAL_FOCUS);
+    }
+  }, [showChat]);
+
   return (
     <ThemeProvider value={THEMES[themeName]}>
       <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
           <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           layoutClass(viewport) === "dashboard" ? (
-            <Dashboard modelLabel={modelLabel}>{chat}</Dashboard>
+            <Dashboard modelLabel={modelLabel} menuSel={focus.focus === "menu" ? focus.menuSel : null}>
+              {chat}
+            </Dashboard>
           ) : (
             chat
           )
