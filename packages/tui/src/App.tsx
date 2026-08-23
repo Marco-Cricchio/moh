@@ -168,7 +168,7 @@ export function App({
         for await (const event of session.events) {
           if (stopped) return;
           if (event.type === "memory_updated") {
-            push(`memory updated · ${event.topics.join(", ")}`);
+            push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
         }
       } catch {
@@ -313,6 +313,7 @@ export function App({
           layoutClass(viewport) === "dashboard" ? (
             <Dashboard
               modelLabel={modelLabel}
+              toasts={toasts}
               tokensLabel={sidebar.tokens.calls > 0 ? `${sidebar.tokens.contextIn.toLocaleString()} tok` : undefined}
               menuSel={focus.focus === "menu" ? focus.menuSel : null}
               right={
@@ -416,7 +417,10 @@ export function App({
           <AskUserModal key={`${asking.question}|${asking.options.map((o) => o.label).join(",")}`} gate={askGate} />
         )}
         </OverlayLayer>}
-        <Toasts toasts={toasts} />
+        {/* Toasts (#119): positioned inside the dashboard panels when the
+            session screen is in dashboard layout; the classic bottom row
+            serves every other screen (home, single-column fallback). */}
+        {!(showChat && layoutClass(viewport) === "dashboard") && <Toasts toasts={toasts} />}
       </Box>
     </ThemeProvider>
   );
