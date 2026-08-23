@@ -135,6 +135,8 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\r"); // select anthropic
     await sleep(30);
+    i.stdin.write("\r"); // api-key (default) → model prompt
+    await sleep(30);
     i.stdin.write("\r"); // empty model → stays
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
