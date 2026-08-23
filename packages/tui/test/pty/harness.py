@@ -20,6 +20,7 @@ Protocol: a JSON spec on stdin, one JSON array on stdout:
 Each reported line: {"lead": <leading spaces>, "width": <rstripped length>,
 "text": <rstripped text>}.
 """
+import codecs
 import base64
 import fcntl
 import json
@@ -40,6 +41,119 @@ CLI = os.path.join(REPO_ROOT, "packages", "cli", "src", "cli.ts")
 ANSI = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
+class Screen:
+    """A minimal VT100 screen model.
+
+    The chat transcript now lives inside a fixed-height window (issue #117),
+    so Ink repaints rows in place with cursor-movement sequences instead of
+    emitting a newline per line. Splitting the raw byte stream on "\n" fused
+    unrelated rows; assertions need the *physical* screen, so this class
+    emulates the cursor/erase subset Ink emits (CUU/CUD/CUF/CUB, ED, EL,
+    CUP/CHA, CR/LF/BS, autowrap) and ignores styling (SGR/OSC).
+    """
+
+    def __init__(self, cols: int, rows: int):
+        self.cols, self.rows = cols, rows
+        self.grid = [[" "] * cols for _ in range(rows)]
+        self.row = self.col = 0
+        self.pending = ""  # partial escape sequence across writes
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def feed_bytes(self, data: bytes) -> None:
+        self.feed(self.decoder.decode(data))
+
+    def _scroll(self) -> None:
+        if self.row >= self.rows:
+            self.grid.pop(0)
+            self.grid.append([" "] * self.cols)
+            self.row = self.rows - 1
+
+    def put(self, ch: str) -> None:
+        if self.col >= self.cols:  # autowrap
+            self.col = 0
+            self.row += 1
+            self._scroll()
+        self.grid[self.row][self.col] = ch
+        self.col += 1
+
+    def feed(self, text: str) -> None:
+        text = self.pending + text
+        self.pending = ""
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "\x1b":
+                m = ANSI.match(text, i)
+                if m:
+                    self._csi(m.group(0))
+                    i = m.end()
+                    continue
+                if ch == "\x1b" and i + 1 < n and text[i + 1] == "]":
+                    end = text.find("\x07", i)  # OSC: skip to BEL
+                    if end == -1:
+                        self.pending = text[i:]
+                        return
+                    i = end + 1
+                    continue
+                self.pending = text[i:]  # sequence split across writes
+                return
+            if ch == "\r":
+                self.col = 0
+            elif ch == "\n":
+                self.row += 1
+                self._scroll()
+            elif ch == "\b":
+                self.col = max(0, self.col - 1)
+            elif ch == "\t":
+                self.col = min(self.cols - 1, (self.col // 8 + 1) * 8)
+            elif ch >= " ":
+                self.put(ch)
+            i += 1
+
+    def _csi(self, seq: str) -> None:
+        params = re.findall(r"\d+", seq)
+        p1 = int(params[0]) if params else None
+        final = seq[-1]
+        if final == "A":
+            self.row = max(0, self.row - (p1 or 1))
+        elif final == "B":
+            self.row = min(self.rows - 1, self.row + (p1 or 1))
+        elif final == "C":
+            self.col = min(self.cols - 1, self.col + (p1 or 1))
+        elif final == "D":
+            self.col = max(0, self.col - (p1 or 1))
+        elif final == "G":
+            self.col = min(self.cols - 1, max(0, (p1 or 1) - 1))
+        elif final in ("H", "f"):
+            r = int(params[0]) if len(params) > 0 else 1
+            c = int(params[1]) if len(params) > 1 else 1
+            self.row = min(self.rows - 1, max(0, r - 1))
+            self.col = min(self.cols - 1, max(0, c - 1))
+        elif final == "K":
+            mode = p1 or 0
+            start, end = self.col, self.cols
+            if mode == 1:
+                start, end = 0, self.col + 1
+            elif mode == 2:
+                start, end = 0, self.cols
+            for c in range(start, end):
+                self.grid[self.row][c] = " "
+        elif final == "J":
+            mode = p1 or 0
+            if mode >= 2:
+                self.grid = [[" "] * self.cols for _ in range(self.rows)]
+            elif mode == 0:
+                for c in range(self.col, self.cols):
+                    self.grid[self.row][c] = " "
+                for r in range(self.row + 1, self.rows):
+                    self.grid[r] = [" "] * self.cols
+        # SGR (m), OSC and anything else: styling or unsupported → ignore
+
+    def lines(self) -> list[str]:
+        return ["".join(row).rstrip() for row in self.grid]
+
+
 def main() -> None:
     spec = json.loads(sys.argv[1])
     cols, rows = spec["cols"], spec["rows"]
@@ -55,6 +169,7 @@ def main() -> None:
     )
     os.close(slave)
     buf = bytearray()
+    screen = Screen(cols, rows)
 
     def pump(seconds: float) -> None:
         end = time.time() + seconds
@@ -67,6 +182,7 @@ def main() -> None:
                     return
                 if chunk:
                     buf.extend(chunk)
+                    screen.feed_bytes(chunk)
 
     def send(b64: str) -> None:
         os.write(master, base64.b64decode(b64))
@@ -82,6 +198,7 @@ def main() -> None:
             fcntl.ioctl(master, termios.TIOCSWINSZ,
                         struct.pack("HHHH", resize["rows"], resize["cols"], 0, 0))
             os.kill(proc.pid, signal.SIGWINCH)
+            screen = Screen(resize["cols"], resize["rows"])  # Ink fully repaints after SIGWINCH
             pump(2.0)
     finally:
         try:
@@ -91,15 +208,13 @@ def main() -> None:
         time.sleep(0.3)
         proc.terminate()
 
-    text = ANSI.sub("", buf.decode("utf-8", "replace"))
-    lines = text.split("\n")[-spec.get("tail", rows):]
+    lines = screen.lines()[-spec.get("tail", rows):]
     out = []
     for line in lines:
-        stripped = line.rstrip()
         out.append({
-            "lead": len(stripped) - len(stripped.lstrip()),
-            "width": len(stripped),
-            "text": stripped,
+            "lead": len(line) - len(line.lstrip()),
+            "width": len(line),
+            "text": line,
         })
     json.dump(out, sys.stdout)
 
