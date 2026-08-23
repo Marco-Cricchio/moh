@@ -239,7 +239,7 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     );
     const cwd = tempCwd();
     const { i, done } = await runWizard(home, cwd);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("different API key");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("(apiKey)");
     i.stdin.write("p");
     await sleep(100);
     expect(done).toEqual(["openai-compat/qwen3"]);

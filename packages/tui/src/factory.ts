@@ -14,6 +14,7 @@ import {
   resolveTrackerSync,
   trackerTools,
   sessionFromConfig,
+  type MohConfig,
   type AgentEvent,
   type AgentSession,
   type AskUserQuestion,
@@ -87,9 +88,11 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
 }
 
 /** Merged provider view (project moh.json + user config, #129) for the
- * status-line label. Display-only: a broken config still surfaces loudly at
- * session assembly (`sessionFromConfig`), this just keeps the chrome alive. */
-function readMergedConfigFor(cwd: string, home?: string) {
+ * status-line label. Display-only and warning-only (decision 6): a broken
+ * config still surfaces loudly at session assembly; here it just shows a
+ * warning label instead of crashing the chrome.
+ * Returns `null` when the merged view is broken. */
+function readMergedConfigFor(cwd: string, home?: string): MohConfig | null {
   try {
     return loadMergedConfig(cwd, { home });
   } catch {
@@ -100,5 +103,7 @@ function readMergedConfigFor(cwd: string, home?: string) {
 /** Model label shown in the dev status line. */
 export function providerLabel(provider: Provider | undefined, cwd: string, home?: string): string {
   if (provider) return provider.name;
-  return readMergedConfigFor(cwd, home)?.provider ?? "mock";
+  const config = readMergedConfigFor(cwd, home);
+  if (config === null) return "invalid config";
+  return config.provider ?? "mock";
 }

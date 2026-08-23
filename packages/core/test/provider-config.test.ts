@@ -234,3 +234,15 @@ describe("user-level writes (guardian)", () => {
     }
   });
 });
+
+describe("review fixes (#129)", () => {
+  test("env key beats the user file for user-only endpoints too (decision 3)", () => {
+    const merged = mergeProviderConfigs({}, userEndpoint(), { MOH_ENDPOINT_WORK_API_KEY: "sk-env" });
+    expect(merged.endpoints![0]!.apiKey).toBe("sk-env");
+  });
+
+  test("env unset: user-only endpoint keeps its inline key", () => {
+    const merged = mergeProviderConfigs({}, userEndpoint(), {});
+    expect(merged.endpoints![0]!.apiKey).toBe("sk-user-key");
+  });
+});

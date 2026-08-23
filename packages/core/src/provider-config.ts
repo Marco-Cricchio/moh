@@ -68,10 +68,19 @@ function definedFields<T extends object>(obj: T): Partial<T> {
 /** One endpoint merged per-field: project fields win, absent fields inherit from user. */
 function mergeEndpoint(project: EndpointProfile, user: EndpointProfile | undefined): EndpointProfile {
   if (!user) return project;
-  const capabilities = user.capabilities ?? project.capabilities
-    ? { ...user.capabilities, ...project.capabilities }
-    : undefined;
+  const capabilities = mergeCapabilities(user, project);
   return { ...user, ...definedFields(project), ...(capabilities !== undefined ? { capabilities } : {}) };
+}
+
+function mergeCapabilities(user: EndpointProfile, project: EndpointProfile): EndpointProfile["capabilities"] {
+  if (user.capabilities === undefined && project.capabilities === undefined) return undefined;
+  return { ...user.capabilities, ...project.capabilities };
+}
+
+/** Decision 3: an env-var key beats both files — project and user-only endpoints alike. */
+function withEnvKey(endpoint: EndpointProfile, env: Record<string, string | undefined>): EndpointProfile {
+  const envKey = envApiKey(endpoint.name, env);
+  return envKey !== undefined ? { ...endpoint, apiKey: envKey } : endpoint;
 }
 
 /**
@@ -89,11 +98,9 @@ export function mergeProviderConfigs(
   const merged = projectEndpoints.map((e) => {
     const perField = mergeEndpoint(e, byName.get(e.name));
     byName.delete(e.name);
-    const envKey = envApiKey(e.name, env);
-    const inline = perField.apiKey;
-    return envKey !== undefined ? { ...perField, apiKey: envKey } : perField;
+    return withEnvKey(perField, env);
   });
-  const endpoints = [...merged, ...byName.values()];
+  const endpoints = [...merged, ...[...byName.values()].map((e) => withEnvKey(e, env))];
   const provider = project.provider ?? user.provider;
   return {
     ...project,
