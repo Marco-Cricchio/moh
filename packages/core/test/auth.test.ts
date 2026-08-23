@@ -4,9 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authSectionSchema, authMethodKindSchema, authTokenSchema, endpointAuthSchema } from "../src/auth/types";
 import { clearTokens, getStoredToken, readStoredTokens, saveTokens } from "../src/auth/store";
-import { updateUserConfigFile } from "../src/user-config";
-import { loadMergedConfig } from "../src/provider-config";
-import { upsertUserEndpoint } from "../src/provider-config";
+import { loadMergedConfig, upsertUserEndpoint } from "../src/provider-config";
+import { updateUserConfigFile, userConfigFile } from "../src/user-config";
 
 function tmpFile(): string {
   return join(mkdtempSync(join(tmpdir(), "moh-auth-")), "config");
@@ -89,6 +88,7 @@ describe("auth store", () => {
     const file = tmpFile();
     updateUserConfigFile(file, (d) => void (d.auth = { tokens: "not-an-object" }));
     expect(() => readStoredTokens(file)).toThrow(/auth section/);
+    expect(() => saveTokens(file, "a", token)).toThrow(/auth section/);
   });
 
   test("auth is never a merge candidate and survives provider writes", () => {
@@ -97,7 +97,8 @@ describe("auth store", () => {
     upsertUserEndpoint(file, { name: "claude", type: "anthropic", auth: { kind: "subscription" } });
     // merged config carries no token material anywhere (auth never merges)
     const home = mkdtempSync(join(tmpdir(), "moh-auth-home-"));
-    updateUserConfigFile(join(home, ".moh", "config"), (d) => {
+    const homeConfig = userConfigFile(home);
+    updateUserConfigFile(homeConfig, (d) => {
       d.auth = JSON.parse(readFileSync(file, "utf8")).auth;
       d.endpoints = [{ name: "claude", type: "anthropic" }];
     });

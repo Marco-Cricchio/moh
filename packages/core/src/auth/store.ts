@@ -47,8 +47,11 @@ export function saveTokens(
   updateUserConfigFile(
     file,
     (data) => {
-      const section = authSectionSchema.safeParse(data.auth ?? { tokens: {} });
-      const tokens = section.success ? section.data.tokens : {};
+      const existing = authSectionSchema.safeParse(data.auth ?? { tokens: {} });
+      if (!existing.success) {
+        throw new Error(`invalid ${file} auth section; fix or remove it before saving tokens`);
+      }
+      const tokens = existing.data.tokens;
       tokens[endpoint] = token;
       data.auth = { ...(data.auth as Record<string, unknown>), tokens };
     },
