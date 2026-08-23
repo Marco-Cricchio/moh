@@ -53,6 +53,8 @@ export interface TurnLineOptions {
   spinner?: string;
   /** Live hint after the spinner (e.g. "streaming… · esc to steer"). */
   streamingNote?: string;
+  /** Markdown renderer for the assistant reply; plain wrap when absent. */
+  md?: Marked;
 }
 
 /** Projects one turn into flat transcript lines (pure). */
@@ -78,7 +80,23 @@ export function turnLines(turn: TurnView, wrapW: number, opts: TurnLineOptions =
   const reply = turn.reply.trim();
   if (reply || turn.phase === "error" || streaming) {
     lines.push({ text: " moh", tone: "purple" });
-    for (const l of wrapWords(reply, wrapW)) lines.push({ text: ` ${l}`, tone: "fg" });
+    // Markdown path: the renderer carries its own ANSI styling and reflow
+    // (already wrapped to `wrapW`); a mid-stream parse hiccup falls back to
+    // the plain word-wrap so the transcript never blanks out.
+    if (opts.md && reply) {
+      let rendered: string[];
+      try {
+        rendered = wrapRenderedLines(
+          String(opts.md.parse(closeOpenFences(reply))).replace(/\n+$/, ""),
+          wrapW,
+        );
+      } catch {
+        rendered = wrapWords(reply, wrapW);
+      }
+      for (const l of rendered) lines.push({ text: ` ${l}`, tone: "fg" });
+    } else {
+      for (const l of wrapWords(reply, wrapW)) lines.push({ text: ` ${l}`, tone: "fg" });
+    }
     if (streaming) {
       lines.push({ text: ` ${opts.spinner ?? "·"} ${opts.streamingNote ?? "streaming…"}`, tone: "dim" });
     } else {
