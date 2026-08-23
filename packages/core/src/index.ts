@@ -81,8 +81,10 @@ import {
 import {
   authMethodKindSchema,
   anthropicAuthOverridesSchema,
+  googleAuthOverridesSchema,
   openaiAuthOverridesSchema,
   type AnthropicAuthOverrides,
+  type GoogleAuthOverrides,
   type OpenAiAuthOverrides,
   type AuthAccount,
   type AuthMethodKind,
@@ -134,6 +136,19 @@ import {
   type OpenAiEndpointFetch,
   type OpenAiOAuthConfig,
 } from "./auth/openai";
+import {
+  GOOGLE_API_BASE_URL,
+  GOOGLE_OAUTH_DEFAULTS,
+  GOOGLE_SCOPES,
+  GoogleLoginAborted,
+  buildGoogleAuthorizeUrl,
+  exchangeGoogleCode,
+  loginGoogle,
+  refreshGoogleToken,
+  resolveGoogleOAuthConfig,
+  type GoogleEndpointFetch,
+  type GoogleOAuthConfig,
+} from "./auth/google";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
