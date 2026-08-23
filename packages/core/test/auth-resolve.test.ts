@@ -130,8 +130,9 @@ describe("resolveEndpointCredential", () => {
 describe("route wiring (refresh-before-stream)", () => {
   const msgs: Message[] = [{ role: "user", content: "hi" }];
 
-  test("credential resolver runs once per subscription target before streaming", async () => {
+  test("credential resolver runs once per subscription target; token reaches the stream factory", async () => {
     const resolved: string[] = [];
+    const seen: (string | undefined)[] = [];
     const target: RouteTarget = { endpoint: subscriptionEndpoint("anthropic-work"), modelId: "m" };
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
     const route = createRoute({
@@ -140,10 +141,14 @@ describe("route wiring (refresh-before-stream)", () => {
         resolved.push(t.endpoint.name);
         return "at-resolved";
       },
-      createStream: () => (m, s) => provider.stream(m, s),
+      createStream: (t, credential) => {
+        seen.push(credential);
+        return (m, s) => provider.stream(m, s);
+      },
     });
     for await (const _ of route.stream(msgs, new AbortController().signal));
     expect(resolved).toEqual(["anthropic-work"]);
+    expect(seen).toEqual(["at-resolved"]);
   });
 
   test("api-key targets skip the resolver entirely", async () => {

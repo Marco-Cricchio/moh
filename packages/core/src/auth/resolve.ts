@@ -16,7 +16,7 @@ import type { RouteTarget } from "../route";
 import { ProviderError } from "../types";
 import { userConfigFile } from "../user-config";
 import { readAuthSection, saveTokens } from "./store";
-import type { AuthToken } from "./types";
+import type { AuthOverrides, AuthToken } from "./types";
 import { refreshAnthropicToken, resolveAnthropicOAuthConfig } from "./anthropic";
 import { refreshGoogleToken, resolveGoogleOAuthConfig } from "./google";
 import { refreshOpenaiToken, resolveOpenAiOAuthConfig } from "./openai";
@@ -64,7 +64,8 @@ export async function resolveEndpointCredential(
     );
   }
 
-  if (effectiveExpiry(token) !== undefined && effectiveExpiry(token)! - now < REFRESH_WINDOW_MS) {
+  const exp = effectiveExpiry(token);
+  if (exp !== undefined && exp - now < REFRESH_WINDOW_MS) {
     try {
       const fresh = await refreshToken(endpoint.kind, endpoint.name, token, section.overrides, opts);
       saveTokens(file, endpoint.name, fresh);
@@ -96,7 +97,7 @@ async function refreshToken(
   kind: string,
   endpointName: string,
   token: AuthToken,
-  overrides: import("./types").AuthOverrides | undefined,
+  overrides: AuthOverrides | undefined,
   opts: CredentialResolveOptions,
 ): Promise<AuthToken> {
   switch (kind) {

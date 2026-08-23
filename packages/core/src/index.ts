@@ -94,11 +94,9 @@ import {
 import {
   clearTokens,
   getStoredToken,
-  readAuthSection,
   readStoredTokens,
   saveTokens,
 } from "./auth/store";
-import { REFRESH_WINDOW_MS, resolveEndpointCredential, type CredentialResolveOptions } from "./auth/resolve";
 import {
   TOS_WARNING,
   base64url,
@@ -158,10 +156,6 @@ export function createSession(config: SessionConfig): AgentSession {
 
 export {
   AgentSession,
-  REFRESH_WINDOW_MS,
-  readAuthSection,
-  resolveEndpointCredential,
-  type CredentialResolveOptions,
   authMethodKindSchema,
   type AuthAccount,
   type AuthMethodKind,
