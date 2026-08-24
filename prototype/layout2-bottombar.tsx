@@ -862,8 +862,10 @@ function App() {
   useInput((input, key) => {
     // i modal catturano TUTTO (bloccanti): esc/⏎ chiudono (in ModalDemo)
     if (modal !== null) return;
-    const mi = MODALS.findIndex((m) => m === input && input >= "1" && input <= "7");
-    if (mi >= 0) return setModal(MODALS[mi]!);
+    if (input >= "1" && input <= "7") {
+      const mi = Number(input) - 1;
+      if (mi < MODALS.length) return setModal(MODALS[mi]!);
+    }
     if (key.tab) {
       // navigazione: null → 0 → … → ultimo → null; shift+tab inverte
       const n = CHIP_LABELS.length;
