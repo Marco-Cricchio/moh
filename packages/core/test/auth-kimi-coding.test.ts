@@ -52,13 +52,22 @@ describe("kimi-coding config", () => {
   });
 
   test("env host wins; then overrides; trailing slashes trimmed", () => {
-    process.env.KIMI_CODE_OAUTH_HOST = "https://mirror.example//";
-    expect(resolveKimiCodingOAuthConfig().oauthHost).toBe("https://mirror.example");
-    delete process.env.KIMI_CODE_OAUTH_HOST;
-    process.env.KIMI_OAUTH_HOST = "https://env2.example";
-    expect(resolveKimiCodingOAuthConfig({ oauthHost: "https://override.example" }).oauthHost).toBe("https://env2.example");
-    delete process.env.KIMI_OAUTH_HOST;
-    expect(resolveKimiCodingOAuthConfig({ oauthHost: "https://override.example/" }).oauthHost).toBe("https://override.example");
+    const savedCode = process.env.KIMI_CODE_OAUTH_HOST;
+    const saved = process.env.KIMI_OAUTH_HOST;
+    try {
+      process.env.KIMI_CODE_OAUTH_HOST = "https://mirror.example//";
+      expect(resolveKimiCodingOAuthConfig().oauthHost).toBe("https://mirror.example");
+      delete process.env.KIMI_CODE_OAUTH_HOST;
+      process.env.KIMI_OAUTH_HOST = "https://env2.example";
+      expect(resolveKimiCodingOAuthConfig({ oauthHost: "https://override.example" }).oauthHost).toBe("https://env2.example");
+      delete process.env.KIMI_OAUTH_HOST;
+      expect(resolveKimiCodingOAuthConfig({ oauthHost: "https://override.example/" }).oauthHost).toBe("https://override.example");
+    } finally {
+      if (savedCode === undefined) delete process.env.KIMI_CODE_OAUTH_HOST;
+      else process.env.KIMI_CODE_OAUTH_HOST = savedCode;
+      if (saved === undefined) delete process.env.KIMI_OAUTH_HOST;
+      else process.env.KIMI_OAUTH_HOST = saved;
+    }
   });
 });
 
