@@ -77,6 +77,11 @@ export function copilotBaseUrlFromToken(copilotToken: string): string | undefine
   return `https://${match[1]!.replace(/^proxy\./, "api.")}`;
 }
 
+/** Enterprise domain recorded in a stored grant, if any. */
+function copilotDomain(token: AuthToken): string | undefined {
+  return typeof token.grant?.domain === "string" ? token.grant.domain : undefined;
+}
+
 /** The base URL for a copilot credential: token first, enterprise/domain fallback. */
 export function copilotBaseUrl(copilotToken: string | undefined, domain: string | undefined): string {
   return (
@@ -98,7 +103,9 @@ export const defaultCopilotEndpointFetch: CopilotEndpointFetch = async (url, ini
     headers: {
       accept: "application/json",
       ...(init.body ? { "content-type": "application/x-www-form-urlencoded" } : {}),
-      "User-Agent": "GitHubCopilotChat/0.35.0",
+      // Editor UA floor: caller headers may override (the exchange sends
+      // the full editor set, which repeats it).
+      "User-Agent": COPILOT_EDITOR_HEADERS["User-Agent"],
       ...init.headers,
     },
     ...(init.body ? { body: new URLSearchParams(init.body).toString() } : {}),
@@ -217,7 +224,7 @@ export async function exchangeCopilotToken(
  * (catalog entries repeat them per model — #164 — this is the floor).
  */
 export function copilotAuthContext(token: AuthToken): EndpointAuthContext {
-  const domain = typeof token.grant?.domain === "string" ? token.grant.domain : undefined;
+  const domain = copilotDomain(token);
   return {
     credential: token.accessToken,
     baseUrl: copilotBaseUrl(token.accessToken, domain),
@@ -272,8 +279,7 @@ export async function refreshCopilotToken(
   if (!token.refreshToken) {
     throw new Error("Copilot grant has no stored GitHub token; run `moh provider login`");
   }
-  const domain = typeof token.grant?.domain === "string" ? token.grant.domain : undefined;
   const fetchImpl = opts.fetchImpl ?? defaultCopilotEndpointFetch;
-  const fresh = await exchangeCopilotToken(token.refreshToken, domain, fetchImpl, opts.now ?? Date.now());
+  const fresh = await exchangeCopilotToken(token.refreshToken, copilotDomain(token), fetchImpl, opts.now ?? Date.now());
   return { ...fresh, account: fresh.account ?? token.account };
 }
