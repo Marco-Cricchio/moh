@@ -1,17 +1,30 @@
 /**
- * Vendored model catalogs for subscription providers (#156): the
- * post-login model list the wizard shows. Data files are verbatim
- * copies of pi-ai's auto-generated catalogs (MIT — see
- * model-catalogs/README.md for attribution and the regeneration
- * script); this module flattens them into a per-provider list.
+ * Vendored model catalogs for subscription providers (#156, extended to
+ * the four new OAuth providers in #164): the post-login model list the
+ * wizard shows. Data files are verbatim copies of pi-ai's
+ * auto-generated catalogs (MIT — see model-catalogs/README.md for
+ * attribution and the regeneration script); this module flattens them
+ * into a per-provider list.
  *
  * Deliberately read-only and static: no pi-ai runtime dependency, no
  * network fetch — the catalog ships with the package and is versioned
- * in the repo (issue #156 owner decision).
+ * in the repo (issue #156 owner decision; #164 keeps one mechanism and
+ * one regeneration story for all providers, openrouter's 346-model list
+ * included).
+ *
+ * #164 also turns the catalog into the per-model metadata source for
+ * the #159 wire seam: `catalogEntryFor` gives the wire (pi api name
+ * mapped to WireApi), per-model headers (copilot editor headers) and
+ * compat flags the route attaches to its targets.
  */
 import anthropicJson from "./model-catalogs/anthropic.json";
 import openaiCodexJson from "./model-catalogs/openai-codex.json";
 import googleJson from "./model-catalogs/google.json";
+import githubCopilotJson from "./model-catalogs/github-copilot.json";
+import openrouterJson from "./model-catalogs/openrouter.json";
+import kimiCodingJson from "./model-catalogs/kimi-coding.json";
+import xaiJson from "./model-catalogs/xai.json";
+import type { WireApi } from "./wire";
 
 /** One selectable model in a subscription catalog. */
 export interface CatalogModel {
@@ -21,6 +34,14 @@ export interface CatalogModel {
   name: string;
   contextWindow: number;
   reasoning: boolean;
+  /** Wire the backend speaks for this model (#159 seam; the pi api name
+   * mapped to WireApi). Absent = the kind's default wire. */
+  wire?: WireApi;
+  /** Per-model headers (copilot editor headers). */
+  headers?: Record<string, string>;
+  /** Provider compat flags (e.g. kimi allowEmptySignature) — carried as
+   * data; application is per-flag and lands with the flags that need it. */
+  compat?: Record<string, unknown>;
 }
 
 /** The pi-ai catalog shape: `{ <api>: { <modelId>: entry } }`. */
@@ -30,30 +51,60 @@ interface PiAiEntry {
   name?: string;
   contextWindow?: number;
   reasoning?: boolean;
+  headers?: Record<string, string>;
+  compat?: Record<string, unknown>;
 }
 
+/** pi api names → moh wires. Unknown apis are skipped (not guessed). */
+const PI_API_TO_WIRE: Record<string, WireApi> = {
+  "anthropic-messages": "anthropic-messages",
+  "openai-completions": "openai-chat",
+  "openai-responses": "openai-responses",
+  // #156-era files use their own api names for the same wires.
+  "openai-codex-responses": "openai-responses",
+  "google-generative-ai": "google",
+};
+
+function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
+  const wire = PI_API_TO_WIRE[api];
+  if (!wire) return undefined;
+  return {
+    id: entry.id,
+    name: entry.name ?? entry.id,
+    contextWindow: entry.contextWindow ?? 0,
+    reasoning: entry.reasoning ?? false,
+    wire,
+    ...(entry.headers ? { headers: entry.headers } : {}),
+    ...(entry.compat ? { compat: entry.compat } : {}),
+  };
+}
+
+/** The picker list: deduped by id, first api wins (file order is the
+ * provider's own preference — e.g. copilot lists anthropic-messages
+ * first). */
 function collect(catalog: PiAiCatalog): CatalogModel[] {
   const out: CatalogModel[] = [];
   const seen = new Set<string>();
-  for (const api of Object.values(catalog)) {
-    for (const entry of Object.values(api)) {
+  for (const [api, models] of Object.entries(catalog)) {
+    for (const entry of Object.values(models)) {
       if (seen.has(entry.id)) continue;
+      const model = toModel(entry, api);
+      if (!model) continue;
       seen.add(entry.id);
-      out.push({
-        id: entry.id,
-        name: entry.name ?? entry.id,
-        contextWindow: entry.contextWindow ?? 0,
-        reasoning: entry.reasoning ?? false,
-      });
+      out.push(model);
     }
   }
   return out;
 }
 
-const CATALOGS: Record<"anthropic" | "openai" | "google", CatalogModel[]> = {
+const CATALOGS: Record<string, CatalogModel[]> = {
   anthropic: collect(anthropicJson),
   openai: collect(openaiCodexJson),
   google: collect(googleJson),
+  "github-copilot": collect(githubCopilotJson),
+  openrouter: collect(openrouterJson),
+  "kimi-coding": collect(kimiCodingJson),
+  xai: collect(xaiJson),
 };
 
 /** Providers that have a vendored subscription catalog. */
@@ -66,5 +117,14 @@ export type CatalogProviderType = keyof typeof CATALOGS;
  * the list, but never requires typing when one exists).
  */
 export function subscriptionModelCatalog(type: string): CatalogModel[] {
-  return (CATALOGS as Record<string, CatalogModel[]>)[type] ?? [];
+  return CATALOGS[type] ?? [];
+}
+
+/**
+ * The catalog entry for one model id (#164): the wire/headers/compat a
+ * route target attaches. First matching api wins, matching the picker's
+ * dedupe order. Absent entry = use the kind's default wire.
+ */
+export function catalogEntryFor(type: string, modelId: string): CatalogModel | undefined {
+  return subscriptionModelCatalog(type).find((m) => m.id === modelId);
 }

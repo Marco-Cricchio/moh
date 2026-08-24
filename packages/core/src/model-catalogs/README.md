@@ -9,6 +9,13 @@ and an auditable, versioned data surface.
 - `anthropic.json` — Anthropic models (Claude Pro/Max subscriptions)
 - `openai-codex.json` — ChatGPT/Codex backend models (Plus/Pro subscriptions)
 - `google.json` — Google AI Studio / Gemini models (personal Google accounts)
+- `github-copilot.json` — GitHub Copilot models (claude/gpt/gemini/kimi/grok;
+  per-model wire + editor headers, #164)
+- `openrouter.json` — OpenRouter's multi-vendor list (vendored verbatim,
+  346 models — one regeneration story for all providers, #164)
+- `kimi-coding.json` — Kimi Code models (k3 family; anthropic-messages wire
+  + compat flags)
+- `xai.json` — xAI grok models
 
 Source version at the last regeneration: **pi-ai 0.84.2**.
 

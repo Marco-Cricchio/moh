@@ -9,7 +9,8 @@ import { EchoProvider } from "./echo-provider";
 import { Endpoint, createRoute, envApiKey, type ProviderKind, type RouteTarget } from "./route";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider } from "./types";
-import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
+import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
+import { catalogEntryFor } from "./model-catalog";
 
 /** Options a custom provider factory receives from an endpoint profile. */
 export interface ProviderFactoryOptions {
@@ -147,6 +148,14 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
       capabilities: profile.capabilities,
     }),
     modelId,
+    // #164: catalog metadata rides the target — per-model wire (copilot
+    // claude vs gpt) and per-model headers (copilot editor headers).
+    ...(isOAuthBuiltinKind(kind)
+      ? (() => {
+          const entry = catalogEntryFor(kind, modelId);
+          return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}) };
+        })()
+      : {}),
   };
 }
 
