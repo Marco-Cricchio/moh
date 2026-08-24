@@ -268,28 +268,39 @@ export async function minimalConnectionTest(
     if (openaiNative && nativeContext) {
       // ChatGPT backend only speaks the Responses API (codex's wire):
       // transport (URL + originator header) comes straight from the
-      // stream path's auth context; tiny max_output_tokens ping. `input`
-      // must be a **list of message items** — this backend is stricter
-      // than api.openai.com, which also accepts a bare string (a string
-      // gets "Input must be a list" HTTP 400 here).
+      // stream path's auth context. The body mirrors the codex client
+      // shape (pi-ai api/openai-codex-responses.js): the backend enforces
+      // several invariants with 400s — input must be a message-item
+      // list, store must be false, stream must be true. The ping streams
+      // and drains the SSE body (any 2xx passes).
       const res = await fetchImpl(`${nativeContext.baseUrl ?? CHATGPT_CODEX_BASE_URL}/responses`, {
         method: "POST",
         signal,
         headers: {
           "content-type": "application/json",
+          accept: "text/event-stream",
           authorization: `Bearer ${nativeContext.credential}`,
           ...(nativeContext.headers ?? { originator: CHATGPT_CODEX_ORIGINATOR }),
         },
         body: JSON.stringify({
           model: modelId,
-          // ChatGPT backend invariants (codex client shape): input is a
-          // message-item list AND store is pinned to false — it rejects
-          // defaults with 400 "Store must be set to false".
           store: false,
+          stream: true,
           input: [{ role: "user", content: [{ type: "input_text", text: "ping" }] }],
-          max_output_tokens: 16,
         }),
       });
+      if (res.ok && res.body) {
+        // Drain the SSE stream so the server sees a completed request
+        // (and the verdict's text read below stays small).
+        const reader = (res.body as unknown as { getReader(): { read(): Promise<{ done: boolean; value?: unknown }> } }).getReader();
+        try {
+          while (!(await reader.read()).done) {
+            /* drain */
+          }
+        } catch {
+          // A drain failure after a 2xx still counts as connected.
+        }
+      }
       return verdict(res, modelId);
     }
     const auth: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
