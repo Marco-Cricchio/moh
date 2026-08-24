@@ -299,6 +299,13 @@ export class AgentSession {
     return this.#endpoints.find((e) => e.name === ref.slice(0, slash))?.type;
   }
 
+  /** The session's merged endpoint profiles (#181 follow-up): read-only
+   * copy — feeds the /model modal's every-endpoint model list. Session-
+   * owned, never re-read from disk (same posture as activeEndpointType). */
+  get endpointProfiles(): import("../config").EndpointProfile[] {
+    return this.#endpoints.map((e) => ({ ...e }));
+  }
+
   /**
    * In-session model switch (#166): re-resolves `ref` ("mock", a
    * registered id, or "endpoint/model-id") against the session's frozen

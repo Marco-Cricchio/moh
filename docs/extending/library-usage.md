@@ -63,7 +63,10 @@ headless-safe OAuth). After a successful login the wizard offers the
 provider's model list from the vendored catalogs
 (`subscriptionModelCatalog` in `@moh/core` — verbatim pi-ai data, see
 `src/model-catalogs/README.md` for attribution and regeneration); free-text
-entry stays as the advanced fallback.
+entry stays as the advanced fallback. openai-compat endpoints have no
+vendored catalog: `listOpenAiCompatModels(baseUrl, apiKey?)` fetches
+`GET <baseUrl>/models` live (used by the model pickers; a failure falls
+back to free-text entry).
 
 ### 2. Consume the session through `events`
 

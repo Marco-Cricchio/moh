@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { createSession, subscriptionModelCatalog, type CatalogModel } from "@moh/core";
-import { ModelPickerModal } from "../src/ModelPickerModal";
-import { filterCatalog } from "../src/model-picker";
+import { createSession, listOpenAiCompatModels, subscriptionModelCatalog, type CatalogModel } from "@moh/core";
+import { ModelPickerModal, type ModelPickerModalProps } from "../src/ModelPickerModal";
+import { filterCatalog, type EndpointPick } from "../src/model-picker";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -42,20 +42,54 @@ describe("filterCatalog (#181 shared source)", () => {
   });
 });
 
+describe("listOpenAiCompatModels (#181 follow-up)", () => {
+  test("fetches GET <baseUrl>/models with bearer auth and maps ids", async () => {
+    let sawAuth = "";
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        sawAuth = req.headers.get("authorization") ?? "";
+        return Response.json({ data: [{ id: "glm-5.3" }, { id: "glm-5.3-air" }, { nope: true }] });
+      },
+    });
+    try {
+      const ids = await listOpenAiCompatModels(`http://localhost:${server.port}/v1`, "key-1");
+      expect(ids).toEqual(["glm-5.3", "glm-5.3-air"]);
+      expect(sawAuth).toBe("Bearer key-1");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("non-2xx and empty lists throw (callers fall back to free text)", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("nope", { status: 401 });
+      },
+    });
+    try {
+      await expect(listOpenAiCompatModels(`http://localhost:${server.port}/v1`)).rejects.toThrow("401");
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
 describe("/model modal (#181)", () => {
-  function mount(over: Partial<Parameters<typeof ModelPickerModal>[0]> = {}) {
+  function mount(over: Partial<ModelPickerModalProps> = {}) {
     const switched: string[] = [];
     const toasts: string[] = [];
     let closed = 0;
+    const endpoints: EndpointPick[] = [{ name: "alpha", type: "anthropic", catalog: CATALOG }];
     const i = render(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
         <ModelPickerModal
           activeModel="alpha/claude-sonnet-4-5"
-          providerType="anthropic"
-          catalog={CATALOG}
+          endpoints={endpoints}
           onSwitch={(ref) => {
             switched.push(ref);
-            return { ok: true, model: `alpha/${ref}` };
+            return { ok: true, model: ref.includes("/") ? ref : `alpha/${ref}` };
           }}
           onSwitched={() => {}}
           onToast={(m) => toasts.push(m)}
@@ -72,8 +106,80 @@ describe("/model modal (#181)", () => {
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("active: alpha/claude-sonnet-4-5");
-    expect(frame).toContain("Claude Sonnet 4.5 (claude-sonnet-4-5)");
-    expect(frame).toContain("ctx 200k");
+    expect(frame).toContain("alpha · Claude Sonnet 4.5 · 200k");
+    i.unmount();
+  });
+
+  test("every configured endpoint's models are listed, not just the active one", async () => {
+    const { i, switched, toasts } = mount({
+      endpoints: [
+        { name: "alpha", type: "anthropic", catalog: CATALOG },
+        { name: "zai", type: "openai-compat", catalog: [{ id: "glm-5.3", name: "glm-5.3", contextWindow: 0, reasoning: false }] },
+      ],
+    });
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("alpha · Claude");
+    expect(frame).toContain("zai · glm-5.3");
+    // selecting another endpoint's model switches across endpoints
+    i.stdin.write("glm");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(switched).toEqual(["zai/glm-5.3"]);
+    expect(toasts[0]).toContain("zai/glm-5.3");
+    i.unmount();
+  });
+
+  test("a slash query narrows by endpoint name", async () => {
+    const { i, switched, toasts } = mount({
+      endpoints: [
+        { name: "alpha", type: "anthropic", catalog: CATALOG },
+        { name: "zai", type: "openai-compat", catalog: [{ id: "glm-5.3", name: "glm-5.3", contextWindow: 0, reasoning: false }] },
+      ],
+    });
+    await sleep(30);
+    i.stdin.write("zai/");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("zai · glm-5.3");
+    expect(frame).not.toContain("Claude");
+    i.unmount();
+  });
+
+  test("openai-compat endpoints fetch their model list live", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({ data: [{ id: "glm-5.3" }, { id: "glm-5.3-air" }] });
+      },
+    });
+    try {
+      const { i } = mount({
+        endpoints: [{ name: "zai", type: "openai-compat", baseUrl: `http://localhost:${server.port}/v1`, apiKey: "k", catalog: [] }],
+      });
+      await sleep(80);
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      expect(frame).toContain("zai · glm-5.3");
+      expect(frame).toContain("zai · glm-5.3-air");
+      i.unmount();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a failed fetch degrades to free text, never blocks", async () => {
+    const { i, switched } = mount({
+      endpoints: [{ name: "zai", type: "openai-compat", baseUrl: "http://localhost:9/v1", catalog: [] }],
+    });
+    await sleep(120);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("no list from zai");
+    i.stdin.write("glm-5.3");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(switched).toEqual(["alpha/glm-5.3"]);
     i.unmount();
   });
 
@@ -84,14 +190,14 @@ describe("/model modal (#181)", () => {
     await sleep(30);
     i.stdin.write("\r");
     await sleep(30);
-    expect(switched).toEqual(["claude-opus-4-1"]);
+    expect(switched).toEqual(["alpha/claude-opus-4-1"]);
     expect(toasts[0]).toContain("claude-opus-4-1");
     expect(toasts[0]).toContain("next turn");
     expect(closed()).toBe(1);
     i.unmount();
   });
 
-  test("typing filters; the free-text row commits endpoint/<typed>", async () => {
+  test("typing filters; the free-text row commits the typed id", async () => {
     const { i, switched } = mount();
     await sleep(30);
     i.stdin.write("zzz-not-in-catalog");
@@ -143,8 +249,14 @@ describe("/model modal against a live session (#181 shared semantics)", () => {
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
         <ModelPickerModal
           activeModel={session.activeModel}
-          providerType={session.activeEndpointType}
-          catalog={[]}
+          endpoints={session.endpointProfiles.map((e) => ({
+            name: e.name,
+            type: e.type,
+            defaultModel: e.defaultModel,
+            baseUrl: e.baseUrl,
+            apiKey: e.apiKey,
+            catalog: [],
+          }))}
           onSwitch={(ref) => session.switchModel(ref)}
           onSwitched={() => {}}
           onToast={() => {}}

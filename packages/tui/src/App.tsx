@@ -427,8 +427,14 @@ export function App({
         {overlay === "model" && session && (
           <ModelPickerModal
             activeModel={session.activeModel}
-            providerType={session.activeEndpointType}
-            catalog={subscriptionModelCatalog(session.activeEndpointType ?? "")}
+            endpoints={session.endpointProfiles.map((e) => ({
+              name: e.name,
+              type: e.type,
+              defaultModel: e.defaultModel,
+              baseUrl: e.baseUrl,
+              apiKey: e.apiKey,
+              catalog: subscriptionModelCatalog(e.type),
+            }))}
             onSwitch={(ref) => session.switchModel(ref)}
             onSwitched={(model) => setModelLabel(model)}
             onToast={push}

@@ -60,6 +60,7 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { catalogEntryFor, subscriptionModelCatalog } from "./model-catalog";
+export { listOpenAiCompatModels } from "./endpoint-models";
 import {
   isSubscriptionKind,
   providerLogin,
