@@ -18,6 +18,7 @@ import {
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { UserConfig } from "./user-config";
+import { subscriptionModelCatalog } from "@moh/core";
 
 export interface SlashContext {
   cwd: string;
@@ -31,6 +32,12 @@ export interface SlashContext {
   /** Toast / inline notice channel. */
   notify: (message: string) => void;
   onOpenFrontier?: () => void;
+  /** Provider type of the active endpoint (#166): feeds /model's catalog
+   * list. Absent (pre-built providers, tests) — the command skips the list. */
+  activeProviderType?: () => string | undefined;
+  /** Notified on a successful /model switch (App refreshes the footer
+   * chip — #166 status surface). */
+  onModelSwitched?: (model: string) => void;
   /** Notified on a workflow toggle (App re-reads the tracker, #36). */
   onWorkflowToggle?: (enabled: boolean) => void;
 }
@@ -150,6 +157,39 @@ const skillsCommand: SlashCommand = {
 /** The last shown update plan — `apply` consents to exactly these. */
 let pendingUpdates: UpstreamUpdate[] | null = null;
 
+/** #166: in-session model switching. `/model` with no argument shows the
+ * active model plus the vendored catalog of the active provider (the
+ * same list onboarding shows, #156/#164); `/model <ref>` switches — a
+ * catalog id, an `endpoint/model-id` ref, or any free-text model on a
+ * custom provider. The switch takes effect from the next turn. */
+const modelCommand: SlashCommand = {
+  name: "model",
+  description: "show or switch the active model (catalog picker / free text)",
+  usage: "/model [endpoint/model-id | model-id]",
+  run(ctx, args) {
+    const ref = args.trim();
+    if (!ctx.session) return ctx.notify("/model needs an open session");
+    if (!ref) {
+      ctx.notify(`active model: ${ctx.session.activeModel}`);
+      const type = ctx.activeProviderType?.();
+      if (type) {
+        const models = subscriptionModelCatalog(type);
+        if (models.length) {
+          ctx.notify(
+            `${type} catalog (pick with /model <id>):\n` +
+              models.map((m) => `  ${m.name} (${m.id}) · ctx ${Math.round(m.contextWindow / 1000)}k`).join("\n"),
+          );
+        }
+      }
+      return ctx.notify("usage: /model <endpoint/model-id | model-id> — free text works for models outside any catalog");
+    }
+    const result = ctx.session.switchModel(ref);
+    if (!result.ok) return ctx.notify(`✗ ${result.error}`);
+    ctx.onModelSwitched?.(result.model);
+    ctx.notify(`✓ model switched to ${result.model} — effective from the next turn`);
+  },
+};
+
 function readInstalled(mohHome: string, name: string): Record<string, string> {
   const dir = join(mohHome, "skills", name);
   const files: Record<string, string> = {};
@@ -164,7 +204,7 @@ function readInstalled(mohHome: string, name: string): Record<string, string> {
 }
 
 /** Commands available regardless of workflow mode. */
-export const BASE_COMMANDS: SlashCommand[] = [workflowCommand];
+export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, modelCommand];
 
 /** Workflow-mode commands (thin skill aliases + frontier + skills). */
 export function workflowCommands(): SlashCommand[] {

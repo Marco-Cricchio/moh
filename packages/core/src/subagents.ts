@@ -109,7 +109,7 @@ export interface SubagentHostOptions {
   /** Registry used to resolve string provider refs for children. */
   registry?: ProviderRegistry;
   /** Default provider for children without their own ref. */
-  defaultProvider: Provider | string;
+  defaultProvider: Provider | string | (() => Provider | string);
   presets?: Record<string, SubagentSpec>;
   maxConcurrency?: number;
   /** Home dir for child session files. Default: real home. */
@@ -208,7 +208,9 @@ export class SubagentHost {
   #resolveChildProvider(spec: SubagentSpec): Provider | string {
     if (spec.provider) return spec.provider;
     if (spec.model) return spec.model;
-    return this.#options.defaultProvider;
+    const fallback = this.#options.defaultProvider;
+    // #166: a live accessor follows in-session model switches.
+    return typeof fallback === "function" ? fallback() : fallback;
   }
 
   async #spawn(

@@ -92,7 +92,7 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
  * config still surfaces loudly at session assembly; here it just shows a
  * warning label instead of crashing the chrome.
  * Returns `null` when the merged view is broken. */
-function readMergedConfigFor(cwd: string, home?: string): MohConfig | null {
+export function readMergedConfigFor(cwd: string, home?: string): MohConfig | null {
   try {
     return loadMergedConfig(cwd, { home });
   } catch {
