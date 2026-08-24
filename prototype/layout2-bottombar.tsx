@@ -601,10 +601,12 @@ function KeyRow({ th, focusChip }: { th: Theme; focusChip: number | null }) {
   const chips: ReadonlyArray<readonly [string, string, string | undefined]> = [
     ["⏎", "send", undefined],
     ["esc", "stop", undefined],
+    ["^m", "model", undefined],
     ["^o", "mode", th.dim],
     ["^t", "theme", th.dim],
     ["^k", "commands", th.dim],
     ["^s", "settings", th.dim],
+    ["^w", "workflow", th.purple],
     ["^f", "frontier", th.purple],
   ];
   const budget = WIDTH - 4;
@@ -669,7 +671,7 @@ function BottomBar({ live, focusChip }: { live: LiveState; focusChip: number | n
 
 const PHASES = ["thinking", "calling anthropic", "streaming", "running bash", "streaming"];
 
-const CHIP_LABELS = ["send", "stop", "mode", "theme", "commands", "settings", "frontier"];
+const CHIP_LABELS = ["send", "stop", "model", "mode", "theme", "commands", "settings", "workflow", "frontier"];
 
 function Session({ showBar, paused, focusChip, draft, level }: {
   showBar: boolean;
@@ -856,6 +858,7 @@ function App() {
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
   const [level, setLevel] = useState<ThinkingLevel>("medium");
+  const [workflowOn, setWorkflowOn] = useState(true);
   T = THEMES[THEME_ORDER[themeIdx]!];
   const cycleTheme = () => setThemeIdx((i) => (i + 1) % THEME_ORDER.length);
   const [modal, setModal] = useState<ModalName | null>(null);
@@ -880,6 +883,17 @@ function App() {
       if (key.return) {
         const label = CHIP_LABELS[focusChip]!;
         if (label === "theme") cycleTheme();
+        if (label === "model") return setModal("model");
+        if (label === "workflow") {
+          setWorkflowOn((w) => !w);
+          setNote(`workflow ${!workflowOn ? "on" : "off"}`);
+          return;
+        }
+        if (label === "frontier") {
+          if (workflowOn) return setModal("frontier");
+          setNote("workflow needs /workflow on");
+          return;
+        }
         setNote(`chip: ${label}`);
       }
       // ←/→ spostano il focus tra i chip senza tab
@@ -893,6 +907,12 @@ function App() {
     if (input === "y") return cycleTheme();
     if (input === "b") return setShowBar((b) => !b);
     if (input === "p") return setPaused((p) => !p);
+    if (key.ctrl && input === "m") return setModal("model");
+    if (key.ctrl && input === "w") {
+      setWorkflowOn((w) => !w);
+      setNote(`workflow ${!workflowOn ? "on" : "off"}`);
+      return;
+    }
     if (input === "x") {
       const next = THINKING_ORDER[(THINKING_ORDER.indexOf(level) + 1) % THINKING_ORDER.length]!;
       setLevel(next);
@@ -930,7 +950,7 @@ function App() {
       )}
       <Text color={th.warn}> </Text>
       <Box alignSelf="center" borderStyle="round" borderColor={th.warn} paddingX={1} flexShrink={0}>
-        <Text color={th.warn}>{`‹ PROTOTYPE › ${note ? `${note} · ` : ""}[1-7] modals · [tab] chips · [x] thinking · [y] ${th.label} · [b] bar · [p] live · [q] quit`}</Text>
+        <Text color={th.warn}>{`‹ PROTOTYPE › ${note ? `${note} · ` : ""}[1-7] modals · ^m model · ^w workflow · [tab] chips · [x] thinking · [y] ${th.label} · [b] bar · [p] live · [q] quit`}</Text>
       </Box>
     </Box>
   );
