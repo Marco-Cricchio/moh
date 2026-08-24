@@ -13,6 +13,7 @@ import { runSubscriptionLogin } from "./auth/lifecycle";
 import { getStoredToken, readAuthSection, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
+import { openaiNativeAuthContext } from "./auth/resolve";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
@@ -186,13 +187,17 @@ export async function minimalConnectionTest(
   // the old ping came back billing_not_active. Minted keys keep the
   // api.openai.com path below.
   let openaiNative = false;
+  let nativeContext: ReturnType<typeof openaiNativeAuthContext> | undefined;
   if (subscription) {
     const token = getStoredToken(authFile, profile.name);
     if (!token) {
       return { ok: false, error: `no subscription credentials for endpoint "${profile.name}"; run \`moh provider login ${profile.name}\`` };
     }
     apiKey = token.accessToken;
+    // Reuse the stream path's own transport builder so "test path ==
+    // stream path" holds structurally, not by convention.
     openaiNative = profile.type === "openai" && token.grant?.minted === false;
+    nativeContext = openaiNative ? openaiNativeAuthContext(token) : undefined;
   } else {
     // Inline key first (an empty/whitespace string counts as absent — the
     // wizard may persist "" when the field is left blank); otherwise the
@@ -206,16 +211,17 @@ export async function minimalConnectionTest(
     return { ok: false, error: `no api key configured: set an inline key or ${endpointEnvVarName(profile.name)}` };
   }
   try {
-    if (openaiNative) {
+    if (openaiNative && nativeContext) {
       // ChatGPT backend only speaks the Responses API (codex's wire):
-      // originator header + JWT bearer, tiny max_output_tokens ping.
-      const res = await fetchImpl(`${CHATGPT_CODEX_BASE_URL}/responses`, {
+      // transport (URL + originator header) comes straight from the
+      // stream path's auth context; tiny max_output_tokens ping.
+      const res = await fetchImpl(`${nativeContext.baseUrl ?? CHATGPT_CODEX_BASE_URL}/responses`, {
         method: "POST",
         signal,
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`,
-          originator: CHATGPT_CODEX_ORIGINATOR,
+          authorization: `Bearer ${nativeContext.credential}`,
+          ...(nativeContext.headers ?? { originator: CHATGPT_CODEX_ORIGINATOR }),
         },
         body: JSON.stringify({ model: modelId, input: "ping", max_output_tokens: 16 }),
       });
