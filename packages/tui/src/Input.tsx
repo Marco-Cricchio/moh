@@ -238,11 +238,33 @@ export function MultilineInput({
     }
     if (key.home) { setCursorColumn(0); setPreferredColumn(null); return; }
     if (key.end) { setCursorColumn(line.length); setPreferredColumn(null); return; }
-    if (key.backspace || key.delete) {
-      record();
-      if (key.delete && cursorColumn < line.length) { setLines((ls) => ls.map((value, i) => i === cursorLine ? value.slice(0, cursorColumn) + value.slice(cursorColumn + 1) : value)); return; }
-      if (!key.delete && cursorColumn > 0) { setCursorColumn(previousColumn(line, cursorColumn)); setLines((ls) => ls.map((value, i) => i === cursorLine ? value.slice(0, previousColumn(line, cursorColumn)) + value.slice(cursorColumn) : value)); return; }
-      if (!key.delete && cursorLine > 0) { const previous = lines[cursorLine - 1] ?? ""; setLines((ls) => [...ls.slice(0, cursorLine - 1), previous + line, ...ls.slice(cursorLine + 1)]); setCursorLine(cursorLine - 1); setCursorColumn(previous.length); }
+    if (key.backspace || key.delete || input === "\x7f") {
+      // Some terminal/Ink combinations classify the raw DEL byte as
+      // `delete`, although it is the user's Backspace key. Prefer the raw
+      // byte's conventional meaning so Backspace always deletes left.
+      // Ink reports the terminal's Backspace/DEL sequence as `delete` on
+      // some terminals, so both flags are treated as backward deletion here.
+      const backward = key.backspace || key.delete || input === "\x7f";
+      // Backspace removes the grapheme directly before the cursor, never the
+      // character currently under it.
+      if (backward && cursorColumn > 0) {
+        const start = previousColumn(line, cursorColumn);
+        record();
+        setLines((ls) => ls.map((value, i) => i === cursorLine ? value.slice(0, start) + value.slice(cursorColumn) : value));
+        setCursorColumn(start);
+        setPreferredColumn(null);
+        return;
+      }
+      // At the beginning of a logical line, Backspace joins it to the
+      // previous line and places the cursor at the join.
+      if (backward && cursorLine > 0) {
+        const previous = lines[cursorLine - 1] ?? "";
+        record();
+        setLines((ls) => [...ls.slice(0, cursorLine - 1), previous + line, ...ls.slice(cursorLine + 1)]);
+        setCursorLine(cursorLine - 1);
+        setCursorColumn(previous.length);
+        setPreferredColumn(null);
+      }
       return;
     }
     if (key.upArrow || key.downArrow) {

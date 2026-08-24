@@ -86,6 +86,57 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     i.unmount();
   });
 
+  test("backspace removes the grapheme immediately to the left of the cursor", async () => {
+    let submitted = "";
+    const i = await mount((text) => { submitted = text; });
+    i.stdin.write("abcd");
+    await sleep(20);
+    i.stdin.write("\x1b[D");
+    await sleep(40);
+    i.stdin.write("\x1b[D");
+    await sleep(40);
+    i.stdin.write("\x7f");
+    await sleep(40);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(submitted).toBe("acd");
+    i.unmount();
+  });
+
+  test("backspace removes an entire emoji grapheme", async () => {
+    let submitted = "";
+    const i = await mount((text) => { submitted = text; });
+    i.stdin.write("a👍b");
+    await sleep(30);
+    i.stdin.write("\x1b[D");
+    await sleep(40);
+    i.stdin.write("\x7f");
+    await sleep(40);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(submitted).toBe("ab");
+    i.unmount();
+  });
+
+  test("backspace at the start of a line joins the previous line", async () => {
+    let submitted = "";
+    const i = await mount((text) => { submitted = text; });
+    i.stdin.write("one");
+    await sleep(10);
+    i.stdin.write("\x0a");
+    await sleep(30);
+    i.stdin.write("two");
+    await sleep(30);
+    i.stdin.write("\x1b[H");
+    await sleep(40);
+    i.stdin.write("\x7f");
+    await sleep(40);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(submitted).toBe("onetwo");
+    i.unmount();
+  });
+
   test("up/down at the draft edges request transcript scrolling", async () => {
     const requests: number[] = [];
     const i = await mount(() => {}, (delta) => requests.push(delta));
