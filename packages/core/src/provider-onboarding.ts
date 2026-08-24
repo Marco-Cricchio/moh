@@ -13,6 +13,8 @@ import { runSubscriptionLogin } from "./auth/lifecycle";
 import { getStoredToken, readAuthSection, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
+import { openaiNativeAuthContext } from "./auth/resolve";
+import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
 export const BUILTIN_PROVIDER_TYPES = ["anthropic", "openai", "google", "openai-compat"] as const;
@@ -179,11 +181,23 @@ export async function minimalConnectionTest(
   // the test right after a fresh login.
   const subscription = profile.auth?.kind === "subscription";
   let apiKey: string | undefined;
+  // #157: OpenAI native grants (minted: false) must exercise the same
+  // ChatGPT-backend transport the stream path uses (auth/resolve.ts
+  // openaiNativeAuthContext): the JWT has no key for api.openai.com, so
+  // the old ping came back billing_not_active. Minted keys keep the
+  // api.openai.com path below.
+  let openaiNative = false;
+  let nativeContext: ReturnType<typeof openaiNativeAuthContext> | undefined;
   if (subscription) {
-    apiKey = getStoredToken(authFile, profile.name)?.accessToken;
-    if (!apiKey) {
+    const token = getStoredToken(authFile, profile.name);
+    if (!token) {
       return { ok: false, error: `no subscription credentials for endpoint "${profile.name}"; run \`moh provider login ${profile.name}\`` };
     }
+    apiKey = token.accessToken;
+    // Reuse the stream path's own transport builder so "test path ==
+    // stream path" holds structurally, not by convention.
+    openaiNative = profile.type === "openai" && token.grant?.minted === false;
+    nativeContext = openaiNative ? openaiNativeAuthContext(token) : undefined;
   } else {
     // Inline key first (an empty/whitespace string counts as absent — the
     // wizard may persist "" when the field is left blank); otherwise the
@@ -197,6 +211,22 @@ export async function minimalConnectionTest(
     return { ok: false, error: `no api key configured: set an inline key or ${endpointEnvVarName(profile.name)}` };
   }
   try {
+    if (openaiNative && nativeContext) {
+      // ChatGPT backend only speaks the Responses API (codex's wire):
+      // transport (URL + originator header) comes straight from the
+      // stream path's auth context; tiny max_output_tokens ping.
+      const res = await fetchImpl(`${nativeContext.baseUrl ?? CHATGPT_CODEX_BASE_URL}/responses`, {
+        method: "POST",
+        signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${nativeContext.credential}`,
+          ...(nativeContext.headers ?? { originator: CHATGPT_CODEX_ORIGINATOR }),
+        },
+        body: JSON.stringify({ model: modelId, input: "ping", max_output_tokens: 16 }),
+      });
+      return verdict(res, modelId);
+    }
     const auth: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
     if (profile.type === "anthropic") {
       const res = await fetchImpl(`${profile.baseUrl ?? "https://api.anthropic.com"}/v1/messages`, {
@@ -220,12 +250,15 @@ export async function minimalConnectionTest(
         signal,
         headers: {
           "content-type": "application/json",
-          ...(subscription ? { authorization: `Bearer ${apiKey}` } : { "x-goog-api-key": apiKey ?? "" }),
+          "x-goog-api-key": apiKey ?? "",
         },
         body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 1 } }),
       });
       return verdict(res, modelId);
     }
+    // #157: subscription or api-key, the stream path (AI SDK google
+    // factory) always sends the credential as x-goog-api-key — never a
+    // Bearer header.
     if (profile.type === "openai" || profile.type === "openai-compat") {
       const base = profile.baseUrl ?? "https://api.openai.com/v1";
       const res = await fetchImpl(`${base}/chat/completions`, {
