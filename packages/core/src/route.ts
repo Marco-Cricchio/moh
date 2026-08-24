@@ -2,12 +2,22 @@ import type { Message, Provider, StreamEvent, ToolSpec } from "./types";
 import type { AuthMethodKind } from "./auth/types";
 import type { EndpointAuthContext } from "./auth/resolve";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
-import { aiSdkStreamFor } from "./providers/ai-sdk";
+import { aiSdkStreamFor, type AiSdkTransport } from "./providers/ai-sdk";
 import { resolveEndpointCredential } from "./auth/resolve";
 import type { EndpointCapabilities } from "./types";
+import type { WireApi } from "./wire";
 
 /** What a provider implementation an Endpoint instantiates. */
-export type ProviderKind = "anthropic" | "openai" | "google" | "mock" | "custom";
+export type ProviderKind =
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "github-copilot"
+  | "openrouter"
+  | "kimi-coding"
+  | "xai"
+  | "mock"
+  | "custom";
 
 export interface EndpointConfig {
   /** Endpoint name, e.g. "anthropic-work". Drives MOH_ENDPOINT_<NAME>_API_KEY. */
@@ -66,6 +76,12 @@ export interface RouteTarget {
   endpoint: Endpoint;
   /** Model id as the provider knows it, e.g. "claude-sonnet-4-5". */
   modelId: string;
+  /** Wire override (ADR-0010): per-model wire for github-copilot and
+   * future multi-wire providers; absent = wireForKind(endpoint.kind). */
+  wire?: WireApi;
+  /** Per-model headers (copilot editor headers, #160/#164). Sent in
+   * addition to any auth-context headers. */
+  headers?: Record<string, string>;
 }
 
 export interface RouteConfig {
@@ -171,12 +187,18 @@ function defaultStreamFactory(): (
   credential: string | undefined,
   authContext: EndpointAuthContext | undefined,
 ) => StreamFn {
-  const toTransport = (ctx: EndpointAuthContext | undefined, baseUrl: string | undefined) =>
-    ctx ? { baseUrl: ctx.baseUrl ?? baseUrl, headers: ctx.headers, wire: ctx.wire } : undefined;
-  return (target, credential, authContext) =>
-    aiSdkStreamFor(
-      target,
-      credential,
-      authContext ? toTransport(authContext, target.endpoint.baseUrl) : (target.endpoint.baseUrl ? { baseUrl: target.endpoint.baseUrl } : undefined),
-    );
+  // #159: the target itself can carry wire/headers (per-model catalog
+  // metadata); they ride along even without an auth context.
+  const toTransport = (
+    target: RouteTarget,
+    ctx: EndpointAuthContext | undefined,
+  ): AiSdkTransport | undefined => {
+    if (!ctx && target.wire === undefined && target.headers === undefined && !target.endpoint.baseUrl) return undefined;
+    return {
+      baseUrl: ctx?.baseUrl ?? target.endpoint.baseUrl,
+      headers: { ...(target.headers ?? {}), ...(ctx?.headers ?? {}) },
+      wire: target.wire ?? ctx?.wire,
+    };
+  };
+  return (target, credential, authContext) => aiSdkStreamFor(target, credential, toTransport(target, authContext));
 }

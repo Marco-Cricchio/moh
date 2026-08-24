@@ -13,7 +13,8 @@
 - **Turn** — one send→stream→tools→reply cycle of the agent loop. Loop protection and errors are scoped per turn, not per session.
 - **Tool call / tool result** — a paired tool invocation and its outcome, correlated by `callId`.
 - **Steering** — user input injected during an active stream: interrupts and re-sends.
-- **Provider** — an implementation that talks to LLMs: built-in (anthropic, openai, google) or custom, registered via `registerProvider` or an `openai-compat` profile in moh.json. Single-shot: it never loops.
+- **Provider** — an implementation that talks to LLMs: built-in (anthropic, openai, google, github-copilot, openrouter, kimi-coding, xai — ADR-0010) or custom, registered via `registerProvider` or an `openai-compat` profile in moh.json. Single-shot: it never loops.
+- **Wire** — the message format a backend speaks (`anthropic-messages`, `openai-chat`, `openai-responses`, `google`; ADR-0010): a per-model property of the catalog, distinct from the provider (auth + backend + catalog). kimi-coding and github-copilot speak anthropic-messages against non-Anthropic backends; copilot switches wire per model.
 - **Endpoint** — a configured Provider instance with its own credentials (e.g. two Anthropic accounts = two endpoints).
 - **Route** — a model reference `endpoint/model-id` with a declared fallback chain. The user declares the chain; moh assumes no model equivalence.
 - **ProviderError** — a normalized error from a provider, one of 9 `kinds`: `auth`, `rate_limited`, `quota_exhausted`, `overloaded`, `network`, `invalid_request`, `context_length`, `content_filtered`, `aborted` (signal, not an error).
