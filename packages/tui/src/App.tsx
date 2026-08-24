@@ -15,7 +15,7 @@ import {
   type TrackerBackend,
 } from "@moh/core";
 import { SessionStore } from "@moh/core";
-import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, useTheme, type ThemeName } from "./themes";
+import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
@@ -25,7 +25,7 @@ import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
-import { useViewport } from "./viewport";
+import { useViewport, ViewportProvider } from "./viewport";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
 import { AskUserModal } from "./AskUserModal";
@@ -351,8 +351,8 @@ export function App({
 
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" width={Math.max(1, viewport.columns - 1)} position="relative" key={themeTick}>
-        <Box position={overlayOpen ? "absolute" : "relative"} width="100%" flexDirection="column" alignItems="center">
+      <Box flexDirection="column" width={Math.max(1, viewport.columns - 1)} minHeight={Math.min(13, Math.max(1, viewport.rows - 1))} position="relative" key={themeTick}>
+        <Box width="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
         ) : (
@@ -464,15 +464,25 @@ export function App({
   );
 }
 
-/** Opaque live-area layer over the still-mounted Chat. Keeping Chat mounted
- * preserves its Static identity (no duplicate scrollback on close); the
- * themed fill prevents the live input/bar from bleeding through. */
+/** Transparent layer over the still-mounted Chat. Absolute positioning keeps
+ * the chat, input, and bottom bar on their existing rows; only the dialog
+ * itself paints an opaque themed surface for readability. */
 function OverlayLayer({ children }: { children: React.ReactNode }) {
   const viewport = useViewport();
-  const theme = useTheme();
+  // The session's native live region is thirteen rows at most. Keeping the
+  // overlay inside that already-reserved space avoids growing Ink's dynamic
+  // output and pushing terminal scrollback upward when a modal opens.
+  const rows = Math.min(13, Math.max(1, viewport.rows - 1));
   return (
-    <Box width={Math.max(1, viewport.columns - 1)} height={Math.max(1, viewport.rows - 1)} backgroundColor={theme.bg} flexDirection="column">
-      {children}
+    <Box
+      position="absolute"
+      width={Math.max(1, viewport.columns - 1)}
+      height={rows}
+      flexDirection="column"
+    >
+      <ViewportProvider value={{ columns: viewport.columns, rows }}>
+        {children}
+      </ViewportProvider>
     </Box>
   );
 }

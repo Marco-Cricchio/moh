@@ -47,24 +47,30 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
   );
 
   test(
-    "wide terminal: settings dialog is centered on both axes",
+    "wide terminal: settings floats transparently without moving the live chat",
     async () => {
+      const enterChat = [...PREAMBLE, { wait: 0.5, send: B("n") }, { wait: 0.8 }];
+      const baseline = await runPty({ cols: 160, rows: 45, steps: enterChat, tail: 45 });
       const lines = await runPty({
         cols: 160,
         rows: 45,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("\x13") }],
+        steps: [...enterChat, { wait: 0.8, send: B("\x13") }],
         tail: 45,
       });
-      const top = lines.findIndex((l) => l.text.includes("╭"));
-      expect(top).toBeGreaterThanOrEqual(0);
-      // Horizontally: ~62% of 160 (99±2) centered with a ~30-col margin.
-      expect(lines[top]!.width - lines[top]!.lead).toBeGreaterThanOrEqual(97);
-      expect(lines[top]!.width - lines[top]!.lead).toBeLessThanOrEqual(101);
-      expect(lines[top]!.lead).toBeGreaterThanOrEqual(28);
-      expect(lines[top]!.lead).toBeLessThanOrEqual(32);
-      // Vertically: a 16-line dialog in 45 rows starts around row 14.
-      expect(top).toBeGreaterThanOrEqual(10);
-      expect(top).toBeLessThanOrEqual(20);
+      const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("type…"));
+      const chipsRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("⏎ send"));
+      expect(inputRow(baseline)).toBeGreaterThanOrEqual(0);
+      expect(chipsRow(baseline)).toBeGreaterThanOrEqual(0);
+      expect(inputRow(lines)).toBe(inputRow(baseline));
+      expect(chipsRow(lines)).toBe(chipsRow(baseline));
+      const title = lines.find((l) => l.text.includes("settings"));
+      expect(title).toBeDefined();
+      // Horizontally: ~62% of 160 (99±2), with transparent chat on both sides.
+      const border = lines.find((l) => l.text.indexOf("╭") >= 28);
+      expect(border).toBeDefined();
+      const dialogStart = border!.text.indexOf("╭");
+      expect(border!.width - dialogStart).toBeGreaterThanOrEqual(97);
+      expect(border!.width - dialogStart).toBeLessThanOrEqual(101);
     },
     30000,
   );

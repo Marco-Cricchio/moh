@@ -11,6 +11,7 @@ The session screen is a single native-scrollback column. It never renders the fo
 3. Transcript content has no frame glyphs. Input has no side borders; full-width horizontal separators delimit it.
 4. Home and dialogs may still use `MEASURE` and framed chrome. Dialogs are blocking interaction surfaces, so round borders are appropriate there.
 5. Theme switches remount the session tree; already printed scrollback remains above the new tree.
+6. Modal layers are transparent outside the dialog and absolutely overlay the reserved 13-row live region. Opening one must not move the transcript, input, or bottom bar; only the dialog surface uses `bg` for readability.
 
 ## 2. Transcript block grammar
 
