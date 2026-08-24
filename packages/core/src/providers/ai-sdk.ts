@@ -147,6 +147,16 @@ export function aiSdkStreamFor(
   modelOverride?: LanguageModel,
 ): (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent> {
   const model = modelOverride ?? languageModelFor(target, apiKey, transport);
+  // ChatGPT-backend invariant (#151 follow-up): the codex backend rejects
+  // /responses calls without an explicit `store: false` (400 "Store must
+  // be set to false") — same rule the wizard ping hit. The model factory
+  // in this @ai-sdk/openai version takes no options, so it rides as a
+  // providerOption. Harmless on api.openai.com (the codex clients send
+  // it there too); scoped to the responses wire only.
+  const responsesStoreFalse =
+    (transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind)) === "openai-responses"
+      ? { providerOptions: { openai: { store: false } } }
+      : {};
   return (messages, signal, tools) => {
     return {
       async *[Symbol.asyncIterator]() {
@@ -162,6 +172,7 @@ export function aiSdkStreamFor(
           messages: aiMessages ?? [],
           abortSignal: signal,
           ...(aiTools ? { tools: aiTools, toolChoice: "auto" as const, stopWhen: stepCountIs(1) } : {}),
+          ...responsesStoreFalse,
           onError: () => {}, // errors surface via fullStream error parts
         });
         for await (const part of result.fullStream) {
