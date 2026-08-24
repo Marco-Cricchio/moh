@@ -33,6 +33,8 @@ export interface KimiCodingOAuthConfig {
  */
 export function resolveKimiCodingOAuthConfig(overrides?: KimiCodingAuthOverrides): KimiCodingOAuthConfig {
   const envHost = process.env.KIMI_CODE_OAUTH_HOST || process.env.KIMI_OAUTH_HOST;
+  // Both env names mirror pi's escape hatches exactly (kimi-coding.js
+  // reads KIMI_CODE_OAUTH_HOST then KIMI_OAUTH_HOST).
   return {
     oauthHost: (envHost || overrides?.oauthHost || KIMI_CODE_OAUTH_DEFAULTS.oauthHost).replace(/\/+$/, ""),
     clientId: KIMI_CODE_OAUTH_DEFAULTS.clientId,
@@ -117,7 +119,10 @@ async function requestDeviceAuthorization(config: KimiCodingOAuthConfig, fetchIm
   };
 }
 
-/** Token response → AuthToken. Kimi always returns access + refresh + expires_in. */
+/** Token response → AuthToken. Kimi always returns the full pair
+ * (access + refresh + expires_in) on both login and refresh — pi's
+ * parseTokenResponse requires the same, so rotation-omission tolerance
+ * is deliberately absent. */
 function tokenFromResponse(json: Record<string, unknown>, now: number): AuthToken {
   const access = json.access_token;
   const refresh = json.refresh_token;
