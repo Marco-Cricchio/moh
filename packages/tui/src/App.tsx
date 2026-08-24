@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useApp, useInput } from "ink";
+import { useApp, useInput, useStdout } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,7 @@ import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
-import { useViewport, ViewportProvider } from "./viewport";
+import { useViewport } from "./viewport";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
 import { AskUserModal } from "./AskUserModal";
@@ -70,6 +70,7 @@ export function App({
   skipOnboarding,
 }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   // Double ctrl+c is the only way out (see useInput; exitOnCtrlC is off in
   // main.tsx): the first press arms, the second within the window exits.
   const exitArmRef = useRef(0);
@@ -119,6 +120,7 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : null);
+  const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
   const [offerWorkflow] = useState(
     () => !skipOnboarding && !needsOnboarding && !loadUserConfig(cfgFile).workflowOffered,
@@ -322,6 +324,7 @@ export function App({
       memoryFresh={memoryFresh}
       notice={toasts.at(-1)?.text}
       submitSignal={submitSignal}
+      replaySettled={alternateScreen}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
         if (!item) return undefined;
@@ -346,12 +349,35 @@ export function App({
     />
   ) : null;
 
-  const overlayOpen = overlay !== null || pending !== null;
+  const overlayOpen = overlay !== null || pending !== null || asking !== null;
+  const alternateRef = useRef(false);
+  alternateRef.current = alternateScreen;
+
+  // A centered transparent overlay needs the whole viewport, while the
+  // session normally owns only its small native-scrollback live region.
+  // Render modals in the terminal's alternate buffer: expanding there cannot
+  // push the main buffer's transcript upward, and closing restores it byte-for-byte.
+  useEffect(() => {
+    if (overlayOpen === alternateScreen) return;
+    if (overlayOpen) stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
+    else stdout.write("\x1b[?1049l");
+    setAlternateScreen(overlayOpen);
+  }, [alternateScreen, overlayOpen, stdout]);
+  useEffect(() => () => {
+    if (alternateRef.current) stdout.write("\x1b[?1049l");
+  }, [stdout]);
   useEffect(() => { if (!showChat) setFocusedChip(null); }, [showChat]);
 
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" width={Math.max(1, viewport.columns - 1)} minHeight={Math.min(13, Math.max(1, viewport.rows - 1))} position="relative" key={themeTick}>
+      <Box
+        flexDirection="column"
+        width={Math.max(1, viewport.columns - 1)}
+        height={alternateScreen ? Math.max(1, viewport.rows - 1) : undefined}
+        overflow={alternateScreen ? "hidden" : undefined}
+        position="relative"
+        key={themeTick}
+      >
         <Box width="100%" flexDirection="column" alignItems="center">
         {showChat ? (
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
@@ -368,7 +394,7 @@ export function App({
           />
         )}
         </Box>
-        {overlayOpen && <OverlayLayer>
+        {overlayOpen && alternateScreen && <OverlayLayer>
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -464,25 +490,18 @@ export function App({
   );
 }
 
-/** Transparent layer over the still-mounted Chat. Absolute positioning keeps
- * the chat, input, and bottom bar on their existing rows; only the dialog
- * itself paints an opaque themed surface for readability. */
+/** Full-viewport transparent layer in the terminal's alternate buffer.
+ * The dialog surface is opaque; the surrounding session remains visible. */
 function OverlayLayer({ children }: { children: React.ReactNode }) {
   const viewport = useViewport();
-  // The session's native live region is thirteen rows at most. Keeping the
-  // overlay inside that already-reserved space avoids growing Ink's dynamic
-  // output and pushing terminal scrollback upward when a modal opens.
-  const rows = Math.min(13, Math.max(1, viewport.rows - 1));
   return (
     <Box
       position="absolute"
       width={Math.max(1, viewport.columns - 1)}
-      height={rows}
+      height={Math.max(1, viewport.rows - 1)}
       flexDirection="column"
     >
-      <ViewportProvider value={{ columns: viewport.columns, rows }}>
-        {children}
-      </ViewportProvider>
+      {children}
     </Box>
   );
 }
