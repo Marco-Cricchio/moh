@@ -376,6 +376,7 @@ describe("minimalConnectionTest (subscription)", () => {
       expect((calls[0]!.body as Record<string, unknown>).input).toEqual([
         { role: "user", content: [{ type: "input_text", text: "ping" }] },
       ]);
+      expect((calls[0]!.body as Record<string, unknown>).store).toBe(false);
     } finally {
       await Bun.file(authFile).delete();
     }
