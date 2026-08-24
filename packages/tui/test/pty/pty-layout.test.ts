@@ -22,8 +22,8 @@ const PREAMBLE = [
 ];
 
 describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
-  test(
-    "wide terminal: dashboard frames the chat between the sidebars (#115)",
+  test.skip(
+    "wide terminal: dashboard frames the chat between the sidebars (#115) (retired by #183)",
     async () => {
       const lines = await runPty({
         cols: 160,
@@ -118,8 +118,8 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
     30000,
   );
 
-  test(
-    "resize mid-session: layout reflows without corruption",
+  test.skip(
+    "resize mid-session: layout reflows without corruption (retired by native scrollback #183)",
     async () => {
       const lines = await runPty({
         cols: 120,
