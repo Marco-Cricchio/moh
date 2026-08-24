@@ -29,7 +29,6 @@ const WIRE_FOR_KIND: Record<string, WireApi> = {
   anthropic: "anthropic-messages",
   openai: "openai-chat",
   google: "google",
-  openai_compat: "openai-chat",
   "openai-compat": "openai-chat",
   "github-copilot": "openai-chat",
   openrouter: "openai-chat",
@@ -37,8 +36,14 @@ const WIRE_FOR_KIND: Record<string, WireApi> = {
   xai: "openai-chat",
 };
 
+/** Wire for a builtin kind. Unknown kinds throw — a typo must fail
+ * loudly, not silently fall back to chat-completions (fail-fast). */
 export function wireForKind(kind: string): WireApi {
-  return WIRE_FOR_KIND[kind] ?? "openai-chat";
+  const wire = WIRE_FOR_KIND[kind];
+  if (wire === undefined) {
+    throw new Error(`provider kind "${kind}" has no wire mapping; it cannot use the default AI SDK factory`);
+  }
+  return wire;
 }
 
 /** Default backend base URL per new builtin kind (api-key posture uses

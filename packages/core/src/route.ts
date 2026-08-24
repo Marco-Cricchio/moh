@@ -196,6 +196,9 @@ function defaultStreamFactory(): (
     if (!ctx && target.wire === undefined && target.headers === undefined && !target.endpoint.baseUrl) return undefined;
     return {
       baseUrl: ctx?.baseUrl ?? target.endpoint.baseUrl,
+      // Auth-context headers win on collision with catalog headers — the
+      // credential's own transport (e.g. a copilot token's backend) is the
+      // freshest source.
       headers: { ...(target.headers ?? {}), ...(ctx?.headers ?? {}) },
       wire: target.wire ?? ctx?.wire,
     };
