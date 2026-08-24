@@ -62,7 +62,10 @@ export function turnLines(turn: TurnView, wrapW: number, opts: TurnLineOptions =
   const lines: ChatLine[] = [];
   lines.push({ text: " you", tone: "accent" });
   for (const l of wrapWords(turn.user, wrapW)) lines.push({ text: ` ${l}`, tone: "fg" });
-  lines.push({ text: "", tone: "fg" });
+  // Ink does not preserve an empty <Text> as a terminal row. Use a single
+  // space so the visual gap remains visible between the user block and the
+  // following assistant/tool content.
+  lines.push({ text: " ", tone: "fg" });
 
   for (const call of turn.toolCalls) {
     const mark = call.ok === null ? "…" : call.ok ? "✓" : "✗";
@@ -104,7 +107,9 @@ export function turnLines(turn: TurnView, wrapW: number, opts: TurnLineOptions =
         lines.push({ text: ` ⚠ ${turn.error?.reason ?? "error"}: ${turn.error?.message ?? ""}`, tone: "warn" });
       }
       if (turn.phase === "cancelled") lines.push({ text: " · stopped ·", tone: "dim" });
-      lines.push({ text: "", tone: "fg" });
+      // Keep a real terminal row after moh's reply. An empty string is
+      // collapsed by Ink and therefore does not create the requested gap.
+      lines.push({ text: " ", tone: "fg" });
     }
   }
   return lines;
