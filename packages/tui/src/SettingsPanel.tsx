@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { loadMohConfig, loadMergedConfig, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
+import { loadMohConfig, loadMergedConfig, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, subscriptionModelCatalog, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
+import { filterCatalog, freeTextRow, modelRow } from "./model-picker";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
@@ -50,7 +51,16 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     return loadMergedConfig(cwd, { home });
   });
   const [cursor, setCursor] = useState(0);
-  const [sub, setSub] = useState<{ kind: "switch" | "remove"; options: string[]; cursor: number } | null>(null);
+  // #181 hierarchical provider picker: endpoint → its catalog models
+  // (free-text fallback for unknown types). Selecting a model rewrites
+  // `defaultModel` on the project moh.json endpoint (user-level endpoints
+  // are display-only here) and switches the default `provider` ref.
+  type Sub =
+    | { kind: "endpoint"; cursor: number }
+    | { kind: "model"; name: string; type: string; current?: string; userOwned: boolean; cursor: number; query: string }
+    | { kind: "model-free"; name: string; userOwned: boolean; value: string }
+    | { kind: "remove"; cursor: number };
+  const [sub, setSub] = useState<Sub | null>(null);
 
   const cycle = <T,>(values: readonly T[], current: T): T => values[(values.indexOf(current) + 1) % values.length]!;
 
@@ -71,7 +81,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     [config, modelLabel, moh],
   );
 
-  const endpointRefs = (moh.endpoints ?? []).map((e) => (e.defaultModel ? `${e.name}/${e.defaultModel}` : e.name));
+  // Endpoints defined in the project moh.json (editable defaultModel);
+  // user-level merged endpoints are display-only (#181, #129).
+  const projectNames = useMemo(
+    () => new Set((loadMohConfig(configFile).endpoints ?? []).map((e) => e.name)),
+    [configFile, moh],
+  );
 
   // Keep the dialog inside the terminal: title, spacing, footer and borders
   // consume roughly eight rows, leaving the settings list a scroll window
@@ -80,11 +95,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const visibleRows = rows.slice(win.start, win.start + win.count);
   // Rows never overflow the dialog interior (border 2 + paddingX 4).
   const innerWidth = dialogWidth(viewport) - 6;
+  // Sub-menu rows for the current level (endpoint list / model list).
+  const subOptions = useMemo((): string[] => {
+    if (!sub) return [];
+    if (sub.kind === "endpoint")
+      return ["mock", ...(moh.endpoints ?? []).map((e) => (projectNames.has(e.name) ? e.name : `${e.name} (user)`))];
+    if (sub.kind === "model") {
+      const rows = filterCatalog(subscriptionModelCatalog(sub.type), sub.query).map((m) => modelRow(m, m.id === sub.current));
+      rows.push(sub.query.trim() ? freeTextRow(sub.query) : "+ other… (type a model id)");
+      return rows;
+    }
+    if (sub.kind === "model-free") return [];
+    return (moh.endpoints ?? []).map((e) => e.name);
+  }, [sub, moh, projectNames]);
+
+  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model") ? sub.cursor : 0;
   const subWin = windowing(
-    sub?.options.length ?? 0,
-    sub?.cursor ?? 0,
-    // The sub-menu renders below the main list inside the same dialog:
-    // its budget is whatever height the main window left (#65).
+    subOptions.length,
+    subCursor,
     Math.max(3, viewport.rows - 8 - win.count),
   );
 
@@ -120,7 +148,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onToast(`home list rows: ${next}`);
       }
       case "provider":
-        return setSub({ kind: "switch", options: ["mock", ...endpointRefs], cursor: 0 });
+        return setSub({ kind: "endpoint", cursor: 0 });
       case "provider-add":
         return onStartWizard();
       case "provider-remove":
@@ -129,34 +157,114 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     }
   };
 
+  /** #181: model committed for one endpoint — rewrites `defaultModel` in
+   * the project moh.json (user endpoints display-only) and switches the
+   * default `provider` ref. moh.json only; user config untouched. */
+  const commitModel = (name: string, modelId: string, userOwned: boolean) => {
+    const project = loadMohConfig(configFile);
+    const ref = `${name}/${modelId}`;
+    if (!userOwned) {
+      writeMohConfig(configFile, {
+        ...project,
+        endpoints: (project.endpoints ?? []).map((e) => (e.name === name ? { ...e, defaultModel: modelId } : e)),
+        provider: ref,
+      });
+      setMoh({
+        ...moh,
+        endpoints: (moh.endpoints ?? []).map((e) => (e.name === name ? { ...e, defaultModel: modelId } : e)),
+        provider: ref,
+      });
+    } else {
+      writeMohConfig(configFile, { ...project, provider: ref });
+      setMoh({ ...moh, provider: ref });
+    }
+    onProviderSwitch(ref);
+    onToast(`provider: ${ref} (new sessions)${userOwned ? " · user endpoint, default not editable here" : " · default saved in moh.json"}`);
+  };
+
   useInput((input, key) => {
     if (key.escape) {
+      if (sub?.kind === "model") return setSub({ kind: "endpoint", cursor: 0 });
+      if (sub?.kind === "model-free") return setSub({ kind: "endpoint", cursor: 0 });
       if (sub) return setSub(null);
       return onClose();
     }
+    if (sub?.kind === "model-free") {
+      if (key.backspace || key.delete) return setSub({ ...sub, value: sub.value.slice(0, -1) });
+      if ((key.return || input === "\n") && sub.value.trim()) {
+        commitModel(sub.name, sub.value.trim(), sub.userOwned);
+        return setSub(null);
+      }
+      if (input && !key.ctrl && !key.meta) return setSub({ ...sub, value: sub.value + input });
+      return;
+    }
     if (sub) {
-      if (key.upArrow) return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
-      if (key.downArrow) return setSub({ ...sub, cursor: Math.min(sub.options.length - 1, sub.cursor + 1) });
+      if (key.upArrow) {
+        if (sub.kind === "endpoint" || sub.kind === "remove") return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
+        return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
+      }
+      if (key.downArrow) {
+        if (sub.kind === "endpoint" || sub.kind === "remove") return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
+        return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
+      }
+      // Typing inside the model level filters incrementally (#181).
+      if (sub.kind === "model" && input && !key.ctrl && !key.meta && !key.return && input !== "\n") {
+        return setSub({ ...sub, query: sub.query + input, cursor: 0 });
+      }
+      if (sub.kind === "model" && (key.backspace || key.delete)) {
+        return setSub({ ...sub, query: sub.query.slice(0, -1), cursor: 0 });
+      }
       if (key.return || input === "\n") {
-        const option = sub.options[sub.cursor]!;
-        if (sub.kind === "switch") {
-          // Persist only the project default; never copy merged user
-          // endpoints (or their credentials) into moh.json.
+        const index = sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" ? sub.cursor : 0;
+        const option = subOptions[index];
+        if (option === undefined) return;
+        if (sub.kind === "endpoint") {
+          if (option === "mock") {
+            const project = loadMohConfig(configFile);
+            writeMohConfig(configFile, { ...project, provider: "mock" });
+            setMoh({ ...moh, provider: "mock" });
+            onProviderSwitch("mock");
+            onToast("provider: mock (new sessions)");
+            return setSub(null);
+          }
+          const name = option.replace(/ \(user\)$/, "");
+          const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
+          if (!endpoint) return;
+          const userOwned = !projectNames.has(name);
+          const catalog = subscriptionModelCatalog(endpoint.type);
+          if (catalog.length === 0) {
+            // Unknown types (openai-compat, custom): free text only, as in
+            // the wizard (acceptance).
+            return setSub({ kind: "model-free", name, userOwned, value: endpoint.defaultModel ?? "" });
+          }
+          return setSub({ kind: "model", name, type: endpoint.type, current: endpoint.defaultModel, userOwned, cursor: 0, query: "" });
+        }
+        if (sub.kind === "model") {
+          const catalog = filterCatalog(subscriptionModelCatalog(sub.type), sub.query);
+          if (index < catalog.length) {
+            commitModel(sub.name, catalog[index]!.id, sub.userOwned);
+            return setSub(null);
+          }
+          // Free-text row (last): catalog rows + 1.
+          if (index === catalog.length) {
+            const typed = sub.query.trim();
+            if (typed) {
+              commitModel(sub.name, typed, sub.userOwned);
+              return setSub(null);
+            }
+            return setSub({ kind: "model-free", name: sub.name, userOwned: sub.userOwned, value: "" });
+          }
+          return;
+        }
+        // remove
+        {
+          const optionName = option;
           const project = loadMohConfig(configFile);
-          writeMohConfig(configFile, { ...project, provider: option });
-          setMoh({ ...moh, provider: option });
-          onProviderSwitch(option);
-          onToast(`provider: ${option} (new sessions)`);
-        } else {
-          // Remove from every file that defines the endpoint (project
-          // moh.json and/or user config — the list is the merged view).
-          const project = loadMohConfig(configFile);
-          const inProject = (project.endpoints ?? []).some((e) => e.name === option);
-          const inUser = (readUserProviderConfig(userFile).endpoints ?? []).some((e) => e.name === option);
-          const remaining = (moh.endpoints ?? []).filter((e) => e.name !== option);
-          // Never leave a default provider dangling on a removed endpoint.
+          const inProject = (project.endpoints ?? []).some((e) => e.name === optionName);
+          const inUser = (readUserProviderConfig(userFile).endpoints ?? []).some((e) => e.name === optionName);
+          const remaining = (moh.endpoints ?? []).filter((e) => e.name !== optionName);
           const refDangling = moh.provider && moh.provider !== "mock" &&
-            (moh.provider === option || moh.provider.startsWith(`${option}/`));
+            (moh.provider === optionName || moh.provider.startsWith(`${optionName}/`));
           const fallback = remaining[0];
           const nextRef = refDangling
             ? (fallback?.defaultModel ? `${fallback.name}/${fallback.defaultModel}` : fallback?.name) ?? "mock"
@@ -164,16 +272,16 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (inProject) {
             writeMohConfig(configFile, {
               ...project,
-              endpoints: (project.endpoints ?? []).filter((e) => e.name !== option),
-              ...((project.provider === option || project.provider?.startsWith(`${option}/`)) && nextRef ? { provider: nextRef } : {}),
+              endpoints: (project.endpoints ?? []).filter((e) => e.name !== optionName),
+              ...((project.provider === optionName || project.provider?.startsWith(`${optionName}/`)) && nextRef ? { provider: nextRef } : {}),
             });
           }
           if (inUser) {
-            removeUserEndpoint(userFile, option);
+            removeUserEndpoint(userFile, optionName);
             if (refDangling && nextRef) saveUserProviderRef(userFile, nextRef);
           }
           setMoh({ ...moh, endpoints: remaining, ...(refDangling && nextRef ? { provider: nextRef } : {}) });
-          onToast(`removed endpoint ${option}`);
+          onToast(`removed endpoint ${optionName}`);
         }
         return setSub(null);
       }
@@ -201,19 +309,37 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       <Text> </Text>
       {sub ? (
         <>
-          {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
-          {sub.options.slice(subWin.start, subWin.start + subWin.count).map((option, i) => {
-            const index = subWin.start + i;
-            const selected = index === sub.cursor;
-            return (
-              <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
-                {truncate(` ${selected ? "›" : " "} ${option}${selected ? " " : ""}`, innerWidth)}
-              </Text>
-            );
-          })}
-          {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
+          {sub.kind === "model-free" ? (
+            <>
+              <Text bold>{`model id: ${sub.value}▏`}</Text>
+              <Text> </Text>
+              <Dim>{sub.userOwned ? "user endpoint — the default is not editable here" : "saved as defaultModel in moh.json"}</Dim>
+            </>
+          ) : (
+            <>
+              {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
+              {subOptions.slice(subWin.start, subWin.start + subWin.count).map((option, i) => {
+                const index = subWin.start + i;
+                const selected = sub.kind !== "model-free" && index === subCursor;
+                return (
+                  <Text key={`${index}-${option}`} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                    {truncate(` ${selected ? "›" : " "} ${option}${selected ? " " : ""}`, innerWidth)}
+                  </Text>
+                );
+              })}
+              {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
+            </>
+          )}
           <Text> </Text>
-          <Dim>{`↑↓ select · enter confirm · esc back — ${sub.kind === "switch" ? "switch provider" : "remove endpoint"}`}</Dim>
+          <Dim>
+            {sub.kind === "endpoint"
+              ? "↑↓ select · enter models · esc back — switch endpoint"
+              : sub.kind === "model"
+                ? "type to filter · enter select · esc back — set default model"
+                : sub.kind === "model-free"
+                  ? "type a model id · enter save · esc back"
+                  : "↑↓ select · enter confirm · esc back — remove endpoint"}
+          </Dim>
         </>
       ) : (
         <Dim>enter change · esc close</Dim>
