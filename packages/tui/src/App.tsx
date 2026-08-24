@@ -407,6 +407,7 @@ export function App({
         {overlay === "settings" && (
           <SettingsPanel
             cwd={cwd}
+            home={home}
             config={config}
             onChange={updateConfig}
             modelLabel={modelLabel}

@@ -122,3 +122,36 @@ describe("ai-sdk adapter tool plumbing (#46)", () => {
     expect(h.calls).toHaveLength(1);
   });
 });
+
+describe("responses-wire providerOptions (ChatGPT-backend store invariant)", () => {
+  it("openai-responses wire sends providerOptions.openai.store=false to the model", async () => {
+    const h = harness([finish("stop")]);
+    // Re-run with a responses-wire target: same harness shape, wire override.
+    const calls: any[] = [];
+    const target: RouteTarget = {
+      endpoint: new Endpoint({ name: "t-openai", kind: "openai", apiKey: "k" }),
+      modelId: "m",
+      wire: "openai-responses",
+    };
+    const stream = aiSdkStreamFor(target, "k", undefined, mockModel([finish("stop")], calls));
+    for await (const _e of stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) {
+      void _e;
+    }
+    expect(calls[0].providerOptions?.openai?.store).toBe(false);
+    void h;
+  });
+
+  it("chat wire sends no openai store providerOption", async () => {
+    const calls: any[] = [];
+    const target: RouteTarget = {
+      endpoint: new Endpoint({ name: "t-openai", kind: "openai", apiKey: "k" }),
+      modelId: "m",
+      wire: "openai-chat",
+    };
+    const stream = aiSdkStreamFor(target, "k", undefined, mockModel([finish("stop")], calls));
+    for await (const _e of stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) {
+      void _e;
+    }
+    expect(calls[0].providerOptions?.openai?.store).toBeUndefined();
+  });
+});
