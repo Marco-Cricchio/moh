@@ -282,6 +282,10 @@ export async function minimalConnectionTest(
         },
         body: JSON.stringify({
           model: modelId,
+          // ChatGPT backend invariants (codex client shape): input is a
+          // message-item list AND store is pinned to false — it rejects
+          // defaults with 400 "Store must be set to false".
+          store: false,
           input: [{ role: "user", content: [{ type: "input_text", text: "ping" }] }],
           max_output_tokens: 16,
         }),
