@@ -3,7 +3,7 @@ import { Box, Text, Static, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer } from "./markdown";
-import { CHAT_WINDOW_BUFFER, turnLines } from "./chat-window";
+import { CHAT_WINDOW_BUFFER, turnLines, type ChatLine } from "./chat-window";
 import { useTheme } from "./themes";
 import { SPINNER_FRAMES } from "./icons";
 import { Dim, Logo } from "./ui";
@@ -139,11 +139,11 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
           intentionally not inside a fixed-height box: native scrollback is
           the selection/persistence boundary (#183). */}
       <Static items={settledLines}>
-        {(line, index) => <Text key={`${index}-${line}`}>{line}</Text>}
+        {(line: ChatLine, index) => <Text key={`${index}-${line.text}`} color={theme[line.tone]}>{line.text}</Text>}
       </Static>
       {state.pending && (
         <Box flexDirection="column">
-          {liveLines.map((line, index) => <Text key={`live-${index}`}>{line}</Text>)}
+          {liveLines.map((line: ChatLine, index) => <Text key={`live-${index}`} color={theme[line.tone]}>{line.text}</Text>)}
         </Box>
       )}
 
