@@ -15,20 +15,18 @@ import {
   type TrackerBackend,
 } from "@moh/core";
 import { SessionStore } from "@moh/core";
-import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
+import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, useTheme, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home } from "./Home";
-import { Dashboard, MENU_ENTRIES, sessionChips, ChipFooter, type MenuEntry } from "./Dashboard";
-import { handleFocusKey, INITIAL_FOCUS, type FocusState } from "./focus";
+import { visibleChips, type ChipAction } from "./BottomBar";
 import { Chat, type Mode } from "./Chat";
 import { makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
-import { useViewport, centerWidth, layoutClass, bodyRows, sidebarWidths } from "./viewport";
+import { useViewport } from "./viewport";
 import { useSidebarState } from "./session-bridge";
-import { SidePanel } from "./SidePanel";
 import { PermissionModal } from "./PermissionModal";
 import { AskUserModal } from "./AskUserModal";
 import { Onboarding } from "./OnboardingOverlay";
@@ -58,7 +56,7 @@ type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" 
 
 /**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,
- * filter-first home, 15 themes in React state (a switch remounts the tree
+ * filter-first home, 8 curated themes in React state (a switch remounts the tree
  * via `key`), the blocking permission modal, hybrid onboarding, the
  * settings panel, the all-commands panel, and toast notices.
  */
@@ -143,37 +141,19 @@ export function App({
   const asking = askGate.current;
 
   const { toasts, push } = useToasts();
+  const [memoryFresh, setMemoryFresh] = useState(false);
 
   // Right-sidebar feed (#118): a coalesced event subscription (separate from
   // Chat's) serves the header token label and the Activity/Tokens sections.
   const sidebar = useSidebarState(session);
-  // Single source of truth for the right sidebar's presence (spec D6): vibe
-  // hides it and the center column absorbs its width — both the chat width
-  // and the Dashboard frame read this flag.
-  const showRight = mode === "dev";
-
-  // Focus model (#116): tab cycles menu ↔ chat input; the menu owns the
-  // keyboard while focused (↑↓ move, ⏎ activates, everything else inert).
-  const [focus, setFocus] = useState<FocusState>(INITIAL_FOCUS);
-  // Footer hints reported by the chat column: merged into the chip footer
-  // (dashboard footer, or the single-column row under the chat).
-  const [chatHints, setChatHints] = useState({ streaming: false, atBottom: true });
-  const chips = useMemo(
-    () => sessionChips({ ...chatHints, detailToggle: config.filePreview !== "none" }),
-    [chatHints, config.filePreview],
-  );
-  const focusRef = useRef(focus);
-  focusRef.current = focus;
-  const activateMenu = (entry: MenuEntry) => {
-    if (entry === "Sessions") return setSession(null); // back to filter-first home
-    if (entry === "Wayfinder") {
-      if (workflowOn) return setOverlay("frontier");
-      return push("wayfinder needs workflow on (/workflow on)");
-    }
-    if (entry === "Settings") return setOverlay("settings");
-    if (entry === "Help") return setOverlay("commands");
-    // Dashboard: already in chat — focus returned to the input above.
-  };
+  // Native-scrollback focus model (#183): null = textarea, otherwise the
+  // index of the visible bottom-bar chip.
+  const [focusedChip, setFocusedChip] = useState<number | null>(null);
+  const [submitSignal, setSubmitSignal] = useState(0);
+  useEffect(() => {
+    const count = visibleChips(viewport.columns).chips.length;
+    setFocusedChip((focused) => focused !== null && focused >= count ? null : focused);
+  }, [viewport.columns]);
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
   useEffect(() => {
     if (initialSession && "error" in initialSession) push(assemblyErrorToast(initialSession.error));
@@ -190,6 +170,7 @@ export function App({
         for await (const event of session.events) {
           if (stopped) return;
           if (event.type === "memory_updated") {
+            setMemoryFresh(true);
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
         }
@@ -203,6 +184,7 @@ export function App({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
+  useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
 
   // Workflow mode (#36): the frontier tracker and the background
   // upstream check exist only while enabled (and opted in).
@@ -257,44 +239,68 @@ export function App({
     };
   }, [session]);
 
+  const cycleMode = () => {
+    const next: Mode = mode === "vibe" ? "dev" : "vibe";
+    setMode(next);
+    updateConfig({ mode: next });
+  };
+  const cycleTheme = () => {
+    const index = THEME_ORDER.indexOf(themeName);
+    const next = THEME_ORDER[(index + 1) % THEME_ORDER.length]!;
+    setThemeName(next);
+    setThemeTick((value) => value + 1);
+    updateConfig({ theme: next });
+    push(`theme: ${THEMES[next].label}`);
+  };
+  const activateChip = (action: ChipAction) => {
+    setFocusedChip(null);
+    if (action === "send") return setSubmitSignal((value) => value + 1);
+    if (action === "stop") return session?.abort();
+    if (action === "model") return setOverlay("model");
+    if (action === "mode") return cycleMode();
+    if (action === "theme") return cycleTheme();
+    if (action === "commands") return setOverlay("commands");
+    if (action === "settings") return setOverlay("settings");
+    if (action === "frontier") return workflowOn ? setOverlay("frontier") : push("wayfinder needs workflow on (/workflow on)");
+    if (action === "workflow") {
+      const enabled = !configRef.current.workflow.enabled;
+      updateConfig({ workflow: { ...configRef.current.workflow, enabled } });
+      setTracker(enabled ? resolveTrackerSync({ cwd }) : null);
+      return push(`workflow ${enabled ? "on" : "off"}`);
+    }
+  };
+
   useInput((input, key) => {
     // Exit: two ctrl+c presses within 1.5s (exitOnCtrlC is off in main.tsx,
     // so the keypress reaches us as input "c" + key.ctrl). Runs first so it
-    // works over overlays and menu focus alike. A lone ctrl+c only arms.
+    // works over overlays and chip focus alike. A lone ctrl+c only arms.
     if (key.ctrl && input === "c") {
       const now = Date.now();
       if (now - exitArmRef.current < 1500) return exit();
       exitArmRef.current = now;
       return push("press ctrl+c again to exit");
     }
-    const menuLive = session !== null && !blocked && layoutClass(viewport) === "dashboard";
-    if (menuLive) {
-      const r = handleFocusKey(focusRef.current, input, key, MENU_ENTRIES.length);
-      if (r.state !== focusRef.current || r.activated !== null) {
-        focusRef.current = r.state;
-        setFocus(r.state);
-        if (r.activated !== null) activateMenu(MENU_ENTRIES[r.activated]!);
+    if (session && !blocked) {
+      const chips = visibleChips(viewport.columns).chips;
+      if (key.tab) {
+        setFocusedChip((current) => key.shift
+          ? current === null ? chips.length - 1 : current === 0 ? null : current - 1
+          : current === null ? 0 : current + 1 >= chips.length ? null : current + 1);
+        return;
       }
-      if (r.state.focus === "menu" || key.tab) return; // the menu owns the keyboard
+      if (focusedChip !== null) {
+        if (key.escape) return setFocusedChip(null);
+        if (key.leftArrow || key.rightArrow) {
+          const delta = key.leftArrow ? -1 : 1;
+          return setFocusedChip((focusedChip + delta + chips.length) % chips.length);
+        }
+        if (key.return) return activateChip(chips[focusedChip]?.label ?? "send");
+        return;
+      }
     }
-    // Mode toggle: ctrl+o. The historical ctrl+m is indistinguishable from
-    // Enter at the terminal level (both send \r, 0x0D), so it never fired
-    // in a real session — ctrl+o has its own byte and works everywhere.
-    if (key.ctrl && input === "o") {
-      const next: Mode = mode === "vibe" ? "dev" : "vibe";
-      setMode(next);
-      updateConfig({ mode: next });
-      return;
-    }
-    if (key.ctrl && input === "t") {
-      const i = THEME_ORDER.indexOf(themeName);
-      const next = THEME_ORDER[(i + 1) % THEME_ORDER.length]!;
-      setThemeName(next);
-      setThemeTick((t) => t + 1);
-      updateConfig({ theme: next });
-      push(`theme: ${THEMES[next].label}`);
-      return;
-    }
+    if (key.ctrl && input === "o") return cycleMode();
+    if (key.ctrl && input === "t") return cycleTheme();
+    if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
@@ -302,13 +308,6 @@ export function App({
   });
 
   const showChat = session !== null;
-  // The session screen's layout decides where toasts live (#119): inside the
-  // dashboard panels, or the classic bottom row — one flag, used by both.
-  // Sessions use native terminal scrollback (#183); Dashboard remains
-  // available only as historical code for non-session experiments.
-  const chatInDashboard = false;
-  // The chat is the same tree in both layouts (invariant 1): only its column
-  // budget differs — the dashboard center instead of the centered measure.
   const chat = showChat ? (
     <Chat
       session={session}
@@ -316,72 +315,46 @@ export function App({
       modelLabel={modelLabel}
       blocked={blocked}
       filePreview={config.filePreview}
-      width={chatInDashboard ? centerWidth(viewport, showRight) : undefined}
-      inputFocused={focus.focus === "input"}
-      onHints={setChatHints}
+      inputFocused={focusedChip === null}
+      focusedChip={focusedChip}
+      tokens={sidebar.tokens}
+      workflowOn={workflowOn}
+      memoryFresh={memoryFresh}
+      notice={toasts.at(-1)?.text}
+      submitSignal={submitSignal}
+      livePhase={(() => {
+        const item = sidebar.activity.at(-1);
+        if (!item) return undefined;
+        if (item.kind === "tool" && item.ok === null) return `running ${item.name}`;
+        if (item.kind === "subagent" && item.status === "running") return item.name;
+        return undefined;
+      })()}
       onOpenCommands={() => setOverlay("commands")}
-      onCommand={(text) =>
-        runSlashCommand(text, {
-          cwd,
-          mohHome: join(home ?? homedir(), ".moh"),
-          config,
-          updateConfig,
-          session,
-          notify: push,
-          onOpenFrontier: () => setOverlay("frontier"),
-          onOpenModelPicker: () => setOverlay("model"),
-          onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
-          // Session-owned (never re-read from disk): the type of the
-          // endpoint actually serving turns — correct after switches too.
-          activeProviderType: () => session?.activeEndpointType,
-          onModelSwitched: (model) => setModelLabel(model),
-        })
-      }
+      onCommand={(text) => runSlashCommand(text, {
+        cwd,
+        mohHome: join(home ?? homedir(), ".moh"),
+        config,
+        updateConfig,
+        session,
+        notify: push,
+        onOpenFrontier: () => setOverlay("frontier"),
+        onOpenModelPicker: () => setOverlay("model"),
+        onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+        activeProviderType: () => session?.activeEndpointType,
+        onModelSwitched: (model) => setModelLabel(model),
+      })}
     />
   ) : null;
 
   const overlayOpen = overlay !== null || pending !== null;
-
-  // Leaving the session (Sessions entry, disposal) resets the zones.
-  useEffect(() => {
-    if (!showChat && focusRef.current !== INITIAL_FOCUS) {
-      focusRef.current = INITIAL_FOCUS;
-      setFocus(INITIAL_FOCUS);
-    }
-  }, [showChat]);
+  useEffect(() => { if (!showChat) setFocusedChip(null); }, [showChat]);
 
   return (
     <ThemeProvider value={THEMES[themeName]}>
-      <Box flexDirection="column" width={viewport.columns} position="relative" key={themeTick}>
-          <Box position={overlayOpen ? "absolute" : "relative"} width="100%" height="100%" flexDirection="column" alignItems="center">
+      <Box flexDirection="column" width={Math.max(1, viewport.columns - 1)} position="relative" key={themeTick}>
+        <Box position={overlayOpen ? "absolute" : "relative"} width="100%" flexDirection="column" alignItems="center">
         {showChat ? (
-          chatInDashboard ? (
-            <Dashboard
-              modelLabel={modelLabel}
-              toasts={toasts}
-              tokensLabel={sidebar.tokens.calls > 0 ? `${sidebar.tokens.contextIn.toLocaleString()} tok` : undefined}
-              menuSel={focus.focus === "menu" ? focus.menuSel : null}
-              chips={chips}
-              right={
-                showRight ? (
-                  <SidePanel
-                    state={sidebar}
-                    backend={workflowOn ? tracker : null}
-                    workflowOn={workflowOn}
-                    rows={bodyRows(viewport)}
-                    width={sidebarWidths(viewport).side - 4}
-                  />
-                ) : undefined
-              }
-            >
-              {chat}
-            </Dashboard>
-          ) : (
-            <Box flexDirection="column" width="100%" height={Math.max(1, viewport.rows - 1)} alignItems="center">
-              {chat}
-              <ChipFooter chips={chips} />
-            </Box>
-          )
+          <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
         ) : (
           <Home
             cwd={cwd}
@@ -484,24 +457,21 @@ export function App({
           <AskUserModal key={`${asking.question}|${asking.options.map((o) => o.label).join(",")}`} gate={askGate} />
         )}
         </OverlayLayer>}
-        {/* Toasts (#119): positioned inside the dashboard panels when the
-            session screen is in dashboard layout; the classic bottom row
-            serves every other screen (home, single-column fallback). */}
-        {!chatInDashboard && <Toasts toasts={toasts} />}
+        {/* Toasts remain non-blocking bottom chrome on every screen. */}
+        {!showChat && <Toasts toasts={toasts} />}
       </Box>
     </ThemeProvider>
   );
 }
 
-/** Transparent full-viewport backdrop behind an open overlay (not a
- * scrim: nothing is dimmed): centers the dialog layer over the visible
- * content (pi-style floating dialog). Height is rows - 1 so Ink never
- * enters its fullscreen repaint path (which would clear the screen and
- * replay the whole transcript behind the dialog). */
+/** Opaque live-area layer over the still-mounted Chat. Keeping Chat mounted
+ * preserves its Static identity (no duplicate scrollback on close); the
+ * themed fill prevents the live input/bar from bleeding through. */
 function OverlayLayer({ children }: { children: React.ReactNode }) {
   const viewport = useViewport();
+  const theme = useTheme();
   return (
-    <Box width={viewport.columns} height={Math.max(1, viewport.rows - 1)} flexDirection="column">
+    <Box width={Math.max(1, viewport.columns - 1)} height={Math.max(1, viewport.rows - 1)} backgroundColor={theme.bg} flexDirection="column">
       {children}
     </Box>
   );

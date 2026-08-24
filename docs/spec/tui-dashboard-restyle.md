@@ -1,6 +1,6 @@
 # Spec: TUI dashboard restyle
 
-Status: agreed · Origin: owner-inspired restyle (Juniarto Samsudin's Ink dashboard article), prototyped in `prototype/tui-dashboard.tsx`, `prototype/tui-real-session.tsx`, `prototype/tui-mockup-session.tsx` · Related: `docs/tui-style-guide.md` (to be superseded in part), viewport seam (#65), themes set
+Status: superseded by issue #183 (native scrollback session layout) · Origin: owner-inspired restyle (Juniarto Samsudin's Ink dashboard article), prototyped in `prototype/tui-dashboard.tsx`, `prototype/tui-real-session.tsx`, `prototype/tui-mockup-session.tsx` · Related: `docs/tui-style-guide.md` (to be superseded in part), viewport seam (#65), themes set
 
 ## Problem
 

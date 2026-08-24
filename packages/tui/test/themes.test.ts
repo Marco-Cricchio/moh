@@ -16,12 +16,10 @@ function contrast(a: string, b: string): number {
 
 describe("themes catalog (issue #114)", () => {
   it("offers the curated eight themes in THEME_ORDER", () => {
-    expect(THEME_ORDER.length).toBe(8);
-    expect(THEME_ORDER).toContain("gruvbox-material");
-    expect(THEME_ORDER).toContain("phosphor-amber");
-    expect(THEME_ORDER).toContain("neon-noir");
-    expect(THEME_ORDER).toContain("lava");
-    expect(THEME_ORDER).toContain("candy");
+    expect(THEME_ORDER).toEqual([
+      "tokyo-night", "catppuccin", "gruvbox-material", "phosphor",
+      "phosphor-amber", "neon-noir", "lava", "candy",
+    ]);
   });
 
   it("every theme defines the full semantic token set (fg..bg)", () => {

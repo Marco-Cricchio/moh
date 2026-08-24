@@ -22,12 +22,12 @@ export interface Theme {
 export const THEMES = {
   "tokyo-night": { label: "Tokyo Night", fg: "#c0caf5", accent: "#7aa2f7", dim: "#565f89", ok: "#9ece6a", warn: "#e0af68", err: "#f7768e", purple: "#bb9af7", border: "#292e42", bg: "#16161e" },
   "catppuccin": { label: "Catppuccin Mocha", fg: "#cdd6f4", accent: "#89b4fa", dim: "#6c7086", ok: "#a6e3a1", warn: "#f9e2af", err: "#f38ba8", purple: "#cba6f7", border: "#45475a", bg: "#1e1e2e" },
-  "gruvbox-material": { label: "Gruvbox Material", fg: "#d4be98", accent: "#a9b665", dim: "#7c6f64", ok: "#a9b665", warn: "#d8a657", err: "#ea6962", purple: "#d3869b", border: "#504945", bg: "#282828" },
-  "phosphor": { label: "Green Phosphor", fg: "#00ff00", accent: "#00ff00", dim: "#008800", ok: "#00cc00", warn: "#00ff41", err: "#ff4444", purple: "#00dd00", border: "#00aa00", bg: "#000000" },
-  "phosphor-amber": { label: "Amber Phosphor", fg: "#ffb000", accent: "#ffb000", dim: "#996600", ok: "#dfff00", warn: "#ffcc00", err: "#ff4444", purple: "#ff8800", border: "#aa7700", bg: "#080500" },
-  "neon-noir": { label: "Neon Noir", fg: "#e8f0ff", accent: "#00e5ff", dim: "#5a7a9a", ok: "#00ff9d", warn: "#ffb300", err: "#ff3355", purple: "#ff2ec4", border: "#2a3f5a", bg: "#0a0e1a" },
-  "lava": { label: "Lava", fg: "#ffe8d6", accent: "#ff6a00", dim: "#8a4a2a", ok: "#ffd23f", warn: "#ffb000", err: "#ff2e2e", purple: "#ff4fa3", border: "#5a2c18", bg: "#1c0e08" },
-  "candy": { label: "Candy Pop", fg: "#fff0fa", accent: "#ff4fa3", dim: "#9a6a8a", ok: "#3dffb0", warn: "#ffe14d", err: "#ff4f81", purple: "#7a5cff", border: "#5a2a48", bg: "#1a0d16" },
+  "gruvbox-material": { label: "Gruvbox · Material", fg: "#d4be98", accent: "#89b482", dim: "#7c6f64", ok: "#a9b665", warn: "#d8a657", err: "#ea6962", purple: "#d3869b", border: "#45403d", bg: "#1d2021" },
+  "phosphor": { label: "Green Phosphor", fg: "#00ff00", accent: "#00ff00", dim: "#008800", ok: "#00cc00", warn: "#00ff41", err: "#ff5555", purple: "#00dd00", border: "#00aa00", bg: "#000000" },
+  "phosphor-amber": { label: "Amber Phosphor (P3)", fg: "#ffb000", accent: "#ffb000", dim: "#8a6000", ok: "#ffd000", warn: "#ff7b00", err: "#ff5555", purple: "#ff9500", border: "#a07000", bg: "#100800" },
+  "neon-noir": { label: "Neon Noir", fg: "#e8f0ff", accent: "#00e5ff", dim: "#5a7a9a", ok: "#00ff9d", warn: "#ffb300", err: "#ff2e63", purple: "#ff2ec4", border: "#2a3f5a", bg: "#0a0e1a" },
+  "lava": { label: "Lava", fg: "#ffe8d6", accent: "#ff6a00", dim: "#8a4a2a", ok: "#ffd23f", warn: "#ff2e2e", err: "#ff1a1a", purple: "#ff4fa3", border: "#5a2c18", bg: "#1c0e08" },
+  "candy": { label: "Candy Pop", fg: "#fff0fa", accent: "#ff4fa3", dim: "#9a6a8a", ok: "#3dffb0", warn: "#ffe14d", err: "#ff5f7a", purple: "#7a5cff", border: "#5a2a48", bg: "#1a0d16" },
 } as const satisfies Record<string, Theme>;
 
 export type ThemeName = keyof typeof THEMES;

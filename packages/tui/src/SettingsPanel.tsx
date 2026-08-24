@@ -169,7 +169,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onStartWizard();
       case "provider-remove":
         if ((moh.endpoints ?? []).length === 0) return onToast("no endpoints to remove");
-        return setSub({ kind: "remove", options: (moh.endpoints ?? []).map((e) => e.name), cursor: 0 });
+        return setSub({ kind: "remove", cursor: 0 });
     }
   };
 

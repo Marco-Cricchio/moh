@@ -3,36 +3,21 @@ import {
   COMPACT_COLS,
   HOME_LIST_DEFAULT,
   MEASURE,
-  SIDEBAR_FULL_COLS,
-  bodyRows,
-  centerWidth,
-  CHAT_CHROME_ROWS,
-  chatWindowRows,
   clampHomeListMax,
-  contentWidth,
   dialogWidth,
   homeListCycleValues,
-  layoutClass,
-  sidebarWidths,
   visibleListHeight,
   widthClass,
   windowing,
 } from "../src/viewport";
 
 describe("viewport width classes (issue #65)", () => {
-  test("compact below 60, regular through the measure, wide beyond it", () => {
-    expect(widthClass({ columns: 59, rows: 24 })).toBe("compact");
+  test("#183 breakpoints are compact <70, regular through 109, wide from 110", () => {
+    expect(widthClass({ columns: 69, rows: 24 })).toBe("compact");
     expect(widthClass({ columns: COMPACT_COLS, rows: 24 })).toBe("regular");
-    expect(widthClass({ columns: MEASURE, rows: 24 })).toBe("regular");
-    expect(widthClass({ columns: MEASURE + 1, rows: 24 })).toBe("wide");
+    expect(widthClass({ columns: 109, rows: 24 })).toBe("regular");
+    expect(widthClass({ columns: 110, rows: 24 })).toBe("wide");
     expect(widthClass({ columns: 220, rows: 50 })).toBe("wide");
-  });
-
-  test("content width is the measure or the terminal, whichever is smaller", () => {
-    expect(contentWidth({ columns: 80, rows: 24 })).toBe(80);
-    expect(contentWidth({ columns: 100, rows: 24 })).toBe(100);
-    expect(contentWidth({ columns: 160, rows: 45 })).toBe(MEASURE);
-    expect(contentWidth({ columns: 220, rows: 50 })).toBe(MEASURE);
   });
 
   test("dialog width: 62% clamped to [40, measure], full width when compact", () => {
@@ -41,8 +26,9 @@ describe("viewport width classes (issue #65)", () => {
     expect(dialogWidth({ columns: 100, rows: 30 })).toBe(62);
     expect(dialogWidth({ columns: 160, rows: 45 })).toBe(99);
     expect(dialogWidth({ columns: 220, rows: 50 })).toBe(MEASURE); // clamped to measure
-    expect(dialogWidth({ columns: 62, rows: 24 })).toBe(40); // floor
-    expect(dialogWidth({ columns: 41, rows: 24 })).toBe(41); // never wider than terminal
+    expect(dialogWidth({ columns: 70, rows: 24 })).toBe(43); // first regular width
+    expect(dialogWidth({ columns: 62, rows: 24 })).toBe(62); // compact: full width
+    expect(dialogWidth({ columns: 41, rows: 24 })).toBe(41); // compact: full width
   });
 });
 
@@ -70,48 +56,6 @@ describe("windowing (issue #64)", () => {
     expect(windowing(10, 9, 0)).toEqual({ start: 9, count: 1, above: 9, below: 0 });
     expect(windowing(10, 0, -3)).toEqual({ start: 0, count: 1, above: 0, below: 9 });
     expect(windowing(0, 0, 4)).toEqual({ start: 0, count: 0, above: 0, below: 0 });
-  });
-});
-
-describe("dashboard layout geometry (#113)", () => {
-  test("layoutClass switches to dashboard exactly at the threshold", () => {
-    expect(layoutClass({ columns: 89, rows: 24 })).toBe("single");
-    expect(layoutClass({ columns: 90, rows: 24 })).toBe("dashboard");
-    expect(layoutClass({ columns: 220, rows: 50 })).toBe("dashboard");
-  });
-
-  test("sidebarWidths: compact right at the threshold, full from SIDEBAR_FULL_COLS up", () => {
-    expect(sidebarWidths({ columns: 90, rows: 30 })).toEqual({ menu: 16, side: 24 });
-    expect(sidebarWidths({ columns: SIDEBAR_FULL_COLS - 1, rows: 30 })).toEqual({ menu: 16, side: 24 });
-    expect(sidebarWidths({ columns: SIDEBAR_FULL_COLS, rows: 30 })).toEqual({ menu: 20, side: 30 });
-    expect(sidebarWidths({ columns: 220, rows: 50 })).toEqual({ menu: 20, side: 30 });
-  });
-
-  test("bodyRows: rows minus header, gap, chip and the fullscreen guard — the vertical budget", () => {
-    expect(bodyRows({ columns: 100, rows: 24 })).toBe(19);
-    expect(bodyRows({ columns: 100, rows: 40 })).toBe(35);
-    expect(bodyRows({ columns: 100, rows: 4 })).toBe(1);
-  });
-
-  test("centerWidth: full terminal when single, terminal minus sidebars and gaps when dashboard", () => {
-    expect(centerWidth({ columns: 80, rows: 24 })).toBe(80);
-    expect(centerWidth({ columns: 120, rows: 30 })).toBe(68); // 120 − 20 − 30 − 2
-    expect(centerWidth({ columns: 90, rows: 30 })).toBe(48); // 90 − 16 − 24 − 2
-  });
-});
-
-describe("chat window geometry (#117)", () => {
-  test("chatWindowRows: whole column budget minus chat chrome, floored at 3", () => {
-    // single-column: the full terminal rows
-    expect(chatWindowRows({ columns: 80, rows: 24 })).toBe(24 - CHAT_CHROME_ROWS);
-    // dashboard: the panel-row budget (header+gap+chips+guard = 5)
-    expect(chatWindowRows({ columns: 100, rows: 30 })).toBe(30 - 5 - CHAT_CHROME_ROWS);
-    expect(chatWindowRows({ columns: 100, rows: 8 })).toBe(3);
-  });
-
-  test("chatWindowRows: a multiline draft shrinks the window so the frame never scrolls", () => {
-    expect(chatWindowRows({ columns: 80, rows: 24 }, 3)).toBe(24 - CHAT_CHROME_ROWS - 2);
-    expect(chatWindowRows({ columns: 80, rows: 24 }, 0)).toBe(24 - CHAT_CHROME_ROWS); // degenerate → 1 line
   });
 });
 

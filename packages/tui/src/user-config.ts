@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { clampHomeListMax, HOME_LIST_DEFAULT } from "./viewport";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile as coreUserConfigFile } from "@moh/core";
-import { DEFAULT_THEME, type ThemeName } from "./themes";
+import { DEFAULT_THEME, THEMES, type ThemeName } from "./themes";
 
 export type VibeMode = "vibe" | "dev";
 export type FilePreview = "always" | "on-demand" | "none";
@@ -83,7 +83,8 @@ function coerce(raw: unknown): Partial<UserConfig> {
       dos: "phosphor",
       "mac-platinum": "catppuccin",
     };
-    out.theme = (migrated[src.theme] ?? src.theme) as ThemeName;
+    const candidate = migrated[src.theme] ?? src.theme;
+    if (candidate in THEMES) out.theme = candidate as ThemeName;
   }
   if (typeof src.icons === "boolean") out.icons = src.icons;
   if (src.filePreview === "always" || src.filePreview === "on-demand" || src.filePreview === "none") {
