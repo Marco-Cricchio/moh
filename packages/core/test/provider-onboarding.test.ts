@@ -371,7 +371,11 @@ describe("minimalConnectionTest (subscription)", () => {
       expect(calls[0]!.url).toBe("https://chatgpt.com/backend-api/codex/responses");
       expect(calls[0]!.headers["authorization"]).toBe("Bearer jwt-abc");
       expect(calls[0]!.headers["originator"]).toBe("codex_cli_rs");
-      expect((calls[0]!.body as Record<string, unknown>).input).toBe("ping");
+      // The ChatGPT backend rejects a bare string with "Input must be a
+      // list" (HTTP 400) — the ping must use message items.
+      expect((calls[0]!.body as Record<string, unknown>).input).toEqual([
+        { role: "user", content: [{ type: "input_text", text: "ping" }] },
+      ]);
     } finally {
       await Bun.file(authFile).delete();
     }
