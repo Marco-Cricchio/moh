@@ -6,9 +6,10 @@
  */
 import { MockProvider } from "./mock-provider";
 import { EchoProvider } from "./echo-provider";
-import { Endpoint, createRoute, envApiKey, type RouteTarget } from "./route";
+import { Endpoint, createRoute, envApiKey, type ProviderKind, type RouteTarget } from "./route";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider } from "./types";
+import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
 
 /** Options a custom provider factory receives from an endpoint profile. */
 export interface ProviderFactoryOptions {
@@ -93,7 +94,16 @@ function splitRef(ref: string): { name: string; modelId: string | undefined } {
   return { name: ref.slice(0, slash), modelId: modelId === "" ? undefined : modelId };
 }
 
-const BUILTIN_KINDS = new Set(["anthropic", "openai", "google"]);
+const BUILTIN_KINDS = new Set([
+  "anthropic",
+  "openai",
+  "google",
+  // ADR-0010 (#159): the four new OAuth providers are builtin kinds.
+  "github-copilot",
+  "openrouter",
+  "kimi-coding",
+  "xai",
+]);
 
 function resolveProfile(profile: EndpointProfile, modelId: string, registry: FrozenProviderRegistry): Provider {
   const apiKey = profile.apiKey ?? envApiKey(profile.name);
@@ -120,13 +130,19 @@ function resolveProfile(profile: EndpointProfile, modelId: string, registry: Fro
 }
 
 function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
+  // openai-compat travels the OpenAI Chat Completions wire protocol as a
+  // plain "openai" endpoint; every other builtin keeps its own kind —
+  // the wire mapping lives in wire.ts (ADR-0010), not here.
+  const kind = profile.type === "openai-compat" ? "openai" : profile.type;
+  // New builtin kinds default their backend base URL when the profile
+  // has none (subscription grants override it via the auth context).
+  const baseUrl = profile.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind];
   return {
     endpoint: new Endpoint({
       name: profile.name,
-      // openai-compat travels the OpenAI Chat Completions wire protocol.
-      kind: profile.type === "openai-compat" ? "openai" : (profile.type as "anthropic" | "openai" | "google"),
+      kind: kind as ProviderKind,
       apiKey,
-      baseUrl: profile.baseUrl,
+      baseUrl,
       auth: profile.auth,
       capabilities: profile.capabilities,
     }),

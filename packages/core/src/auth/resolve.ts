@@ -20,6 +20,7 @@ import type { AuthOverrides, AuthToken } from "./types";
 import { refreshAnthropicToken, resolveAnthropicOAuthConfig } from "./anthropic";
 import { refreshGoogleToken, resolveGoogleOAuthConfig } from "./google";
 import { refreshOpenaiToken, resolveOpenAiOAuthConfig, CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./openai";
+import type { WireApi } from "../wire";
 
 /** Transport hints a resolver may return alongside the credential (#151):
  * OpenAI subscription grants that could not mint an API key stream via
@@ -31,7 +32,7 @@ export interface EndpointAuthContext {
   headers?: Record<string, string>;
   /** Wire protocol the baseUrl speaks (#151): the ChatGPT backend only
    * exposes the Responses API, unlike api.openai.com / compat endpoints. */
-  wire?: "responses" | "chat";
+  wire?: WireApi;
 }
 
 /** ChatGPT-backend transport for a native (un-minted) OpenAI grant. */
@@ -40,7 +41,7 @@ export function openaiNativeAuthContext(token: AuthToken): EndpointAuthContext {
     credential: token.accessToken,
     baseUrl: CHATGPT_CODEX_BASE_URL,
     headers: { originator: CHATGPT_CODEX_ORIGINATOR },
-    wire: "responses",
+    wire: "openai-responses",
   };
 }
 

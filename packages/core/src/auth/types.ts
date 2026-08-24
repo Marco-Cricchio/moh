@@ -86,10 +86,44 @@ export const googleAuthOverridesSchema = z.object({
 });
 export type GoogleAuthOverrides = z.infer<typeof googleAuthOverridesSchema>;
 
+// ADR-0010 (#159): override schemas for the four new OAuth providers —
+// drift-prone captured endpoints/hosts, user-overridable like the rest.
+
+/** OpenRouter overrides: authorize + key-exchange endpoints. */
+export const openrouterAuthOverridesSchema = z.object({
+  authorizeUrl: z.string().url().optional(),
+  tokenUrl: z.string().url().optional(),
+});
+export type OpenrouterAuthOverrides = z.infer<typeof openrouterAuthOverridesSchema>;
+
+/** Kimi overrides: the OAuth host both device flow endpoints derive from. */
+export const kimiCodingAuthOverridesSchema = z.object({
+  oauthHost: z.string().url().optional(),
+});
+export type KimiCodingAuthOverrides = z.infer<typeof kimiCodingAuthOverridesSchema>;
+
+/** xAI overrides: device-code + token endpoints, client_id. */
+export const xaiAuthOverridesSchema = z.object({
+  deviceCodeUrl: z.string().url().optional(),
+  tokenUrl: z.string().url().optional(),
+  clientId: z.string().min(1).optional(),
+});
+export type XaiAuthOverrides = z.infer<typeof xaiAuthOverridesSchema>;
+
+/** GitHub Copilot overrides: GitHub host (enterprise domains). */
+export const githubCopilotAuthOverridesSchema = z.object({
+  domain: z.string().min(1).optional(),
+});
+export type GithubCopilotAuthOverrides = z.infer<typeof githubCopilotAuthOverridesSchema>;
+
 export const authOverridesSchema = z.object({
   anthropic: anthropicAuthOverridesSchema.optional(),
   openai: openaiAuthOverridesSchema.optional(),
   google: googleAuthOverridesSchema.optional(),
+  openrouter: openrouterAuthOverridesSchema.optional(),
+  "kimi-coding": kimiCodingAuthOverridesSchema.optional(),
+  xai: xaiAuthOverridesSchema.optional(),
+  "github-copilot": githubCopilotAuthOverridesSchema.optional(),
 });
 export type AuthOverrides = z.infer<typeof authOverridesSchema>;
 

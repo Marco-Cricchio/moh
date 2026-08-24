@@ -9,16 +9,27 @@ import { loadMohConfig, upsertEndpoint, writeMohConfig, type EndpointProfile, ty
 import { defaultRegistry, resolveProvider, type ProviderRegistry } from "./provider-registry";
 import { envApiKey, endpointEnvVarName } from "./route";
 import { userConfigFile } from "./user-config";
-import { runSubscriptionLogin } from "./auth/lifecycle";
+import { runSubscriptionLogin, isSubscriptionKind } from "./auth/lifecycle";
 import { getStoredToken, readAuthSection, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
+import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
 import { subscriptionModelCatalog } from "./model-catalog";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
-export const BUILTIN_PROVIDER_TYPES = ["anthropic", "openai", "google", "openai-compat"] as const;
+export const BUILTIN_PROVIDER_TYPES = [
+  "anthropic",
+  "openai",
+  "google",
+  "openai-compat",
+  // ADR-0010 (#159): the four new OAuth providers are builtin.
+  "github-copilot",
+  "openrouter",
+  "kimi-coding",
+  "xai",
+] as const;
 export type BuiltinProviderType = (typeof BUILTIN_PROVIDER_TYPES)[number];
 
 /**
@@ -76,8 +87,11 @@ export async function runProviderAdd(
   if (!name) throw new OnboardingAborted("endpoint name cannot be empty");
 
   let authKind: "api-key" | "subscription" = "api-key";
-  if (type !== "openai-compat") {
-    // openai-compat has no subscription grant — never ask (byte-identical path).
+  if (isSubscriptionKind(type)) {
+    // Auth method is asked per capability: only kinds with a grant offer
+    // subscription (openai-compat and the not-yet-granted new providers
+    // never see the question — the api-key path is unchanged). The new
+    // providers join isSubscriptionKind as their grant tickets land.
     const answer = await askOneOf(io, "Auth method (api-key | subscription)", ["api-key", "subscription"]);
     authKind = answer as "api-key" | "subscription";
   }
@@ -299,8 +313,8 @@ export async function minimalConnectionTest(
     // #157: subscription or api-key, the stream path (AI SDK google
     // factory) always sends the credential as x-goog-api-key — never a
     // Bearer header.
-    if (profile.type === "openai" || profile.type === "openai-compat") {
-      const base = profile.baseUrl ?? "https://api.openai.com/v1";
+    if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type)) {
+      const base = profile.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
       const res = await fetchImpl(`${base}/chat/completions`, {
         method: "POST",
         signal,
