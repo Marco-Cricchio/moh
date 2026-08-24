@@ -1,13 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, Static, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer } from "./markdown";
-import { ChatWindow, CHAT_WINDOW_BUFFER, resolveOffset, scrollAnchor, turnLines, type ScrollAnchor } from "./chat-window";
+import { CHAT_WINDOW_BUFFER, turnLines } from "./chat-window";
 import { useTheme } from "./themes";
 import { SPINNER_FRAMES } from "./icons";
 import { Dim, Logo } from "./ui";
-import { chatWrapWidth, chatWindowRows, widthClass, useViewport, contentWidth } from "./viewport";
+import { chatWrapWidth, widthClass, useViewport, contentWidth } from "./viewport";
 import { MultilineInput } from "./Input";
 
 export type Mode = "vibe" | "dev";
@@ -65,8 +65,6 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const [lastEsc, setLastEsc] = useState(0);
   const [armed, setArmed] = useState(false);
   const [detail, setDetail] = useState(filePreview === "always");
-  const [draftLines, setDraftLines] = useState(1);
-  const [anchor, setAnchor] = useState<ScrollAnchor>({ follow: true, offset: 0 });
 
   // The spinner tick runs only while a turn is in flight: an idle session
   // re-renders nothing, so the 200-turn line projection never rebuilds at
@@ -82,19 +80,19 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   const windowed = state.turns.slice(-TURN_BUFFER);
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
   const streamingNote = `${mode === "vibe" ? "thinking…" : "streaming…"} · ${armed ? "esc again to stop" : "esc to steer"}`;
-  const lines = useMemo(
-    () =>
-      windowed
-        .flatMap((turn) => turnLines(turn, wrapW, { detail, spinner, streamingNote, md }))
-        .slice(-CHAT_WINDOW_BUFFER),
-    // spinner/tick drive the live status line; windowed identity changes on every event flush
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windowed, wrapW, detail, spinner, streamingNote, md],
+  const settledLines = useMemo(
+    () => windowed.slice(0, state.pending ? -1 : undefined)
+      .flatMap((turn) => turnLines(turn, wrapW, { detail, spinner, streamingNote, md }))
+      .slice(-CHAT_WINDOW_BUFFER),
+    [windowed, state.pending, wrapW, detail, spinner, streamingNote, md],
   );
-
-  const height = chatWindowRows(viewport, draftLines);
-  const offset = resolveOffset(anchor, lines.length, height);
-  const atBottom = anchor.follow || offset >= lines.length - height;
+  const liveLines = useMemo(
+    () => state.pending && windowed.length > 0
+      ? turnLines(windowed[windowed.length - 1]!, wrapW, { detail, spinner, streamingNote, md })
+      : [],
+    [windowed, state.pending, wrapW, detail, spinner, streamingNote, md],
+  );
+  const atBottom = true;
 
   // Footer hints live in the chip footer now, not under the input.
   useEffect(() => {
@@ -104,14 +102,6 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
   useInput((input, key) => {
     if (blocked) return;
     if (key.ctrl && input === "d" && filePreview !== "none") return setDetail((d) => !d);
-    // Keyboard scroll (#117): PgUp/PgDn always; ↑↓ only while the draft is a
-    // single line (multiline editing keeps the cursor keys).
-    if (inputFocused && (key.pageUp || key.pageDown || ((key.upArrow || key.downArrow) && draftLines <= 1))) {
-      const step = key.pageUp || key.pageDown ? height : 1;
-      const delta = (key.pageUp || key.upArrow ? -step : step);
-      setAnchor((a) => scrollAnchor(a, delta, lines.length, height));
-      return;
-    }
     if (key.escape) {
       const now = Date.now();
       if (now - lastEsc < ESC_WINDOW_MS && session.pending()) {
@@ -148,12 +138,12 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
       {/* Settled transcript is emitted into terminal scrollback.  It is
           intentionally not inside a fixed-height box: native scrollback is
           the selection/persistence boundary (#183). */}
-      <Static items={lines}>
+      <Static items={settledLines}>
         {(line, index) => <Text key={`${index}-${line}`}>{line}</Text>}
       </Static>
       {state.pending && (
         <Box flexDirection="column">
-          <Text color={theme.accent}>{streamingNote}</Text>
+          {liveLines.map((line, index) => <Text key={`live-${index}`}>{line}</Text>)}
         </Box>
       )}
 
@@ -163,10 +153,6 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
         disabled={blocked}
         focused={inputFocused}
         onAskCommands={onOpenCommands}
-        onLinesChange={setDraftLines}
-        onScrollRequest={(delta) => {
-          setAnchor((a) => scrollAnchor(a, delta, lines.length, height));
-        }}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;
           void session.send(text);
