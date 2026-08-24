@@ -154,7 +154,9 @@ async function askOneOf(io: OnboardingIo, prompt: string, options: readonly stri
 /**
  * Post-login model choice (#156): print the provider's vendored catalog
  * as a numbered list and accept a number, or any non-empty free-text id
- * as the advanced fallback. Empty input re-asks (a model is required).
+ * as the advanced fallback. Empty input aborts (#150 semantics: the
+ * login's tokens and endpoint stub are already persisted, so a later
+ * `provider add` run reuses them).
  */
 async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<string> {
   const models = subscriptionModelCatalog(type);

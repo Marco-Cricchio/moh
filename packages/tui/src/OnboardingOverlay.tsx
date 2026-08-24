@@ -175,7 +175,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         // #156: post-login model list (free-text stays the advanced
         // fallback — the manual row at the bottom of the list).
         setPhase(
-          subscriptionModelCatalog(type).length
+          catalog.length
             ? { kind: "wizard-model-list", cursor: 0 }
             : { kind: "wizard-text", field: "model", value: "" },
         );
@@ -271,7 +271,6 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "wizard-model-list": {
         const rows = catalog.length + 1; // + manual entry
-        if (key.escape) return setPhase({ kind: "wizard-auth", cursor: 1 });
         if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
         if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(rows - 1, phase.cursor + 1) });
         if (input === "s") return onDone(null);
@@ -455,7 +454,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           )}
           {modelWin.below > 0 && <Dim>{` ↓ ${modelWin.below} more`}</Dim>}
           <Text> </Text>
-          <Dim>enter select · esc back · s skip</Dim>
+          <Dim>enter select · s skip</Dim>
         </>
       )}
       {phase.kind === "wizard-text" && (
