@@ -1,158 +1,292 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { useTheme } from "./themes";
+import { useViewport } from "./viewport";
 
 export interface InputProps {
-  /** Placeholder shown when the (single) line is empty. */
   placeholder?: string;
-  /** Override the send hint (e.g. while steering). */
   disabled?: boolean;
-  /** `?` on an empty draft opens the all-commands panel instead of typing. */
   onAskCommands?: () => void;
-  /** False while the dashboard menu owns the keyboard (#116): the input hears nothing. */
   focused?: boolean;
-  /** Reports the current draft line count (#117): the chat window shrinks so a multiline draft never makes the frame scroll. */
   onLinesChange?: (lines: number) => void;
+  onScrollRequest?: (delta: number) => void;
   onSubmit(text: string): void;
 }
 
+interface EditorSnapshot {
+  lines: string[];
+  line: number;
+  column: number;
+}
+
+const HISTORY_LIMIT = 100;
+const COMMANDS = ["/help", "/model", "/settings", "/sessions", "/workflow", "/skills", "/frontier"];
+
+function graphemes(value: string): Intl.SegmentData[] {
+  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+}
+
+function previousColumn(value: string, column: number): number {
+  return graphemes(value).filter((part) => part.index < column).at(-1)?.index ?? 0;
+}
+
+function nextColumn(value: string, column: number): number {
+  const next = graphemes(value).find((part) => part.index >= column);
+  return next ? next.index + next.segment.length : value.length;
+}
+
+function wordLeft(value: string, column: number): number {
+  let i = Math.max(0, column);
+  while (i > 0 && /\s/.test(value[i - 1]!)) i--;
+  while (i > 0 && !/\s/.test(value[i - 1]!)) i--;
+  return i;
+}
+
+function wordRight(value: string, column: number): number {
+  let i = Math.min(value.length, column);
+  while (i < value.length && /\s/.test(value[i]!)) i++;
+  while (i < value.length && !/\s/.test(value[i]!)) i++;
+  return i;
+}
+
 /**
- * Multiline input (#14 Q2): enter sends; ctrl+j inserts a newline
- * (shift+enter too, where the kitty keyboard protocol reports it); ctrl+e
- * opens $EDITOR for long text. The box is the only bordered element at rest
- * and spans the full terminal width.
+ * Pi-like terminal editor: logical lines, visual wrapping, prompt history,
+ * undo/redo, grapheme-aware navigation, bracketed paste, and a small slash
+ * command completion list. Kill-ring behavior is intentionally not included.
  */
-export function MultilineInput({ placeholder, disabled, onAskCommands, focused = true, onLinesChange, onSubmit }: InputProps) {
+export function MultilineInput({
+  placeholder,
+  disabled,
+  onAskCommands,
+  focused = true,
+  onLinesChange,
+  onScrollRequest,
+  onSubmit,
+}: InputProps) {
   const theme = useTheme();
+  const viewport = useViewport();
   const [lines, setLines] = useState<string[]>([""]);
   const [cursorLine, setCursorLine] = useState(0);
+  const [cursorColumn, setCursorColumn] = useState(0);
+  const [preferredColumn, setPreferredColumn] = useState<number | null>(null);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [historyDraft, setHistoryDraft] = useState<EditorSnapshot | null>(null);
+  const [undo, setUndo] = useState<EditorSnapshot[]>([]);
+  const [redo, setRedo] = useState<EditorSnapshot[]>([]);
+  const [pasteBuffer, setPasteBuffer] = useState("");
+  const [inPaste, setInPaste] = useState(false);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+
+  const snapshot = (): EditorSnapshot => ({ lines: [...lines], line: cursorLine, column: cursorColumn });
+  const setEditor = (next: EditorSnapshot) => {
+    setLines(next.lines.length ? next.lines : [""]);
+    setCursorLine(Math.min(next.line, Math.max(0, next.lines.length - 1)));
+    setCursorColumn(next.column);
+    setPreferredColumn(null);
+  };
+  const record = () => {
+    setUndo((stack) => [...stack.slice(-(HISTORY_LIMIT - 1)), snapshot()]);
+    setRedo([]);
+  };
+
+  const wrapWidth = Math.max(10, viewport.columns - 8);
+  const visualLines = useMemo(() => {
+    const result: Array<{ text: string; logicalLine: number; start: number }> = [];
+    for (let line = 0; line < lines.length; line++) {
+      const value = lines[line] ?? "";
+      if (!value) {
+        result.push({ text: "", logicalLine: line, start: 0 });
+        continue;
+      }
+      let start = 0;
+      for (const part of graphemes(value)) {
+        if (part.index + part.segment.length - start > wrapWidth) {
+          result.push({ text: value.slice(start, part.index), logicalLine: line, start });
+          start = part.index;
+        }
+      }
+      result.push({ text: value.slice(start), logicalLine: line, start });
+    }
+    return result;
+  }, [lines, wrapWidth]);
 
   useEffect(() => {
-    onLinesChange?.(lines.length);
-  }, [lines.length, onLinesChange]);
+    onLinesChange?.(Math.max(1, visualLines.length));
+    const current = visualLines.findIndex((item) => item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length);
+    if (current >= 0) {
+      const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
+      setScrollOffset((offset) => Math.max(0, Math.min(Math.max(0, visualLines.length - maxVisible), current < offset ? current : current >= offset + maxVisible ? current - maxVisible + 1 : offset)));
+    }
+  }, [visualLines, cursorLine, cursorColumn, onLinesChange, viewport.rows]);
+
+  const replaceText = (text: string, position: "start" | "end" = "end") => {
+    const next = text.replace(/\r\n?/g, "\n").split("\n");
+    setLines(next.length ? next : [""]);
+    const line = position === "start" ? 0 : next.length - 1;
+    setCursorLine(line);
+    setCursorColumn(position === "start" ? 0 : (next[line] ?? "").length);
+    setPreferredColumn(null);
+  };
+
+  const insertText = (text: string) => {
+    if (!text) return;
+    record();
+    const normalized = text.replace(/\r\n?/g, "\n");
+    const inserted = normalized.split("\n");
+    const current = lines[cursorLine] ?? "";
+    const before = current.slice(0, cursorColumn);
+    const after = current.slice(cursorColumn);
+    const next = inserted.length === 1
+      ? [...lines.slice(0, cursorLine), before + inserted[0] + after, ...lines.slice(cursorLine + 1)]
+      : [...lines.slice(0, cursorLine), before + inserted[0], ...inserted.slice(1, -1), (inserted.at(-1) ?? "") + after, ...lines.slice(cursorLine + 1)];
+    setLines(next);
+    setCursorLine(cursorLine + inserted.length - 1);
+    setCursorColumn(inserted.length === 1 ? cursorColumn + inserted[0]!.length : inserted.at(-1)!.length);
+    setPreferredColumn(null);
+  };
 
   const submit = () => {
     const text = lines.join("\n").trim();
-    setLines([""]);
-    setCursorLine(0);
-    if (text) onSubmit(text);
+    if (!text) return;
+    setHistory((items) => [text, ...items.filter((item) => item !== text)].slice(0, HISTORY_LIMIT));
+    setHistoryIndex(-1);
+    setHistoryDraft(null);
+    setLines([""]); setCursorLine(0); setCursorColumn(0); setScrollOffset(0);
+    setUndo([]); setRedo([]);
+    onSubmit(text);
   };
 
-  const insertNewline = () => {
-    setLines((ls) => {
-      const next = [...ls];
-      next.splice(cursorLine + 1, 0, "");
-      return next;
-    });
-    setCursorLine((l) => l + 1);
-  };
-
-  useInput(
-    (input, key) => {
-      if (disabled) return;
-      if (key.escape) return; // owned by the chat screen (steer/stop)
+  useInput((input, key) => {
+    if (disabled) return;
+    if (key.escape) return;
     if (input === "?" && lines.join("") === "" && onAskCommands) return onAskCommands();
+
+    // Bracketed paste is atomic and preserves newlines. Ink may strip the
+    // leading ESC from the marker, so accept both terminal spellings.
+    if (input.includes("[201~") && !input.includes("[200~")) {
+      insertText(input.slice(0, input.indexOf("[201~")));
+      setPasteBuffer("");
+      setInPaste(false);
+      return;
+    }
+    if (input.includes("\x1b[200~") || input.includes("[200~")) {
+      setInPaste(true);
+      const started = input.slice(input.indexOf("\x1b[200~") + 6);
+      const endMatch = started.match(/\x1b?\[201~/);
+      if (endMatch?.index !== undefined) { insertText(started.slice(0, endMatch.index)); setInPaste(false); return; }
+      setPasteBuffer(started);
+      return;
+    }
+    if (pasteBuffer || inPaste) {
+      const all = pasteBuffer + input;
+      const endMatch = all.match(/\x1b?\[201~/);
+      if (endMatch?.index === undefined) return setPasteBuffer(all);
+      insertText(all.slice(0, endMatch.index));
+      setPasteBuffer("");
+      setInPaste(false);
+      return;
+    }
+
+    if (key.ctrl && input === "z") {
+      const previous = undo.at(-1); if (!previous) return;
+      setRedo((stack) => [...stack, snapshot()]); setUndo((stack) => stack.slice(0, -1)); setEditor(previous); return;
+    }
+    if ((key.ctrl && input === "y") || (key.ctrl && key.shift && input === "z")) {
+      const next = redo.at(-1); if (!next) return;
+      setUndo((stack) => [...stack, snapshot()]); setRedo((stack) => stack.slice(0, -1)); setEditor(next); return;
+    }
+    const queryBeforeKeys = lines.length === 1 ? lines[0] ?? "" : "";
+    const availableSuggestions = queryBeforeKeys.startsWith("/") ? COMMANDS.filter((command) => command.startsWith(queryBeforeKeys)).slice(0, 5) : [];
+    if (availableSuggestions.length > 0 && (key.upArrow || key.downArrow)) {
+      setSuggestionIndex((index) => (index + (key.downArrow ? 1 : -1) + availableSuggestions.length) % availableSuggestions.length);
+      return;
+    }
+    if (availableSuggestions.length > 0 && key.tab) {
+      const completion = availableSuggestions[suggestionIndex] ?? availableSuggestions[0]!;
+      replaceText(completion);
+      return;
+    }
     if (key.return || input === "\r") {
-      // option/alt+enter (\x1b\r — Terminal.app/iTerm2 send it) is a
-      // newline too: shift+enter is indistinguishable from Enter there
-      // (no kitty protocol), but option+enter carries its own sequence.
-      if (key.shift || key.meta) insertNewline();
-      else submit();
+      if (availableSuggestions.length > 0 && suggestionIndex > 0) {
+        replaceText(availableSuggestions[suggestionIndex]!);
+      } else if (key.shift || key.meta) insertText("\n"); else submit();
       return;
     }
-    // ctrl+j newline. Ink parses its \n byte as name "enter", ctrl false,
-    // input "\n" — it must NOT fall into the submit branch above (a real
-    // Enter arrives as \r / key.return), or ctrl+j would send the draft.
-    if (input === "\n" || input === "\x0a" || (key.ctrl && input === "j")) {
-      insertNewline();
-      return;
+    if (input === "\n" || input === "\x0a" || (key.ctrl && input === "j")) { insertText("\n"); return; }
+    if (key.ctrl && input === "e") { editInEditor(lines, setLines, setCursorLine); return; }
+
+    const line = lines[cursorLine] ?? "";
+    if (key.ctrl && key.leftArrow) { setCursorColumn(wordLeft(line, cursorColumn)); setPreferredColumn(null); return; }
+    if (key.ctrl && key.rightArrow) { setCursorColumn(wordRight(line, cursorColumn)); setPreferredColumn(null); return; }
+    if (input === "\x1bb") { setCursorColumn(wordLeft(line, cursorColumn)); setPreferredColumn(null); return; }
+    if (input === "\x1bf") { setCursorColumn(wordRight(line, cursorColumn)); setPreferredColumn(null); return; }
+    if (key.leftArrow) {
+      if (cursorColumn === 0 && cursorLine > 0) { setCursorLine(cursorLine - 1); setCursorColumn((lines[cursorLine - 1] ?? "").length); }
+      else setCursorColumn(previousColumn(line, cursorColumn));
+      setPreferredColumn(null); return;
     }
-    if (key.ctrl && input === "e") {
-      editInEditor(lines, setLines, setCursorLine);
-      return;
+    if (key.rightArrow) {
+      if (cursorColumn >= line.length && cursorLine < lines.length - 1) { setCursorLine(cursorLine + 1); setCursorColumn(0); }
+      else setCursorColumn(nextColumn(line, cursorColumn));
+      setPreferredColumn(null); return;
     }
+    if (key.home) { setCursorColumn(0); setPreferredColumn(null); return; }
+    if (key.end) { setCursorColumn(line.length); setPreferredColumn(null); return; }
     if (key.backspace || key.delete) {
-      const line = lines[cursorLine] ?? "";
-      if (line === "") {
-        if (cursorLine > 0) {
-          setLines((ls) => {
-            const next = [...ls];
-            next.splice(cursorLine, 1);
-            return next;
-          });
-          setCursorLine(cursorLine - 1);
-        }
-      } else {
-        setLines((ls) => {
-          const next = [...ls];
-          next[cursorLine] = line.slice(0, -1);
-          return next;
-        });
-      }
+      record();
+      if (key.delete && cursorColumn < line.length) { setLines((ls) => ls.map((value, i) => i === cursorLine ? value.slice(0, cursorColumn) + value.slice(cursorColumn + 1) : value)); return; }
+      if (!key.delete && cursorColumn > 0) { setCursorColumn(previousColumn(line, cursorColumn)); setLines((ls) => ls.map((value, i) => i === cursorLine ? value.slice(0, previousColumn(line, cursorColumn)) + value.slice(cursorColumn) : value)); return; }
+      if (!key.delete && cursorLine > 0) { const previous = lines[cursorLine - 1] ?? ""; setLines((ls) => [...ls.slice(0, cursorLine - 1), previous + line, ...ls.slice(cursorLine + 1)]); setCursorLine(cursorLine - 1); setCursorColumn(previous.length); }
       return;
     }
-    if (key.upArrow && cursorLine > 0) return setCursorLine(cursorLine - 1);
-    if (key.downArrow && cursorLine < lines.length - 1) return setCursorLine(cursorLine + 1);
-    if (input && !key.ctrl && !key.meta) {
-      setLines((ls) => {
-        const next = [...ls];
-        next[cursorLine] = (next[cursorLine] ?? "") + input;
-        return next;
-      });
+    if (key.upArrow || key.downArrow) {
+      const direction = key.upArrow ? -1 : 1;
+      if (history.length && lines.length === 1 && (key.upArrow && cursorLine === 0 || key.downArrow && cursorLine === lines.length - 1) && (cursorColumn === 0 || cursorColumn === line.length || historyIndex >= 0)) {
+        if (historyIndex < 0) { setHistoryDraft(snapshot()); setHistoryIndex(0); replaceText(history[0]!, "end"); }
+        else { const next = historyIndex + (direction < 0 ? 1 : -1); if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); } else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); } }
+        return;
+      }
+      if (direction < 0 && cursorLine === 0) { onScrollRequest?.(-1); return; }
+      if (direction > 0 && cursorLine === lines.length - 1) { onScrollRequest?.(1); return; }
+      const target = preferredColumn ?? cursorColumn; const nextLine = cursorLine + direction;
+      setPreferredColumn(target); setCursorLine(nextLine); setCursorColumn(Math.min(target, (lines[nextLine] ?? "").length)); return;
     }
-    },
-    { isActive: focused && !disabled },
-  );
+    if (input && !key.ctrl && !key.meta) { setSuggestionIndex(0); insertText(input); }
+  }, { isActive: focused && !disabled });
+
+  const query = lines.length === 1 ? lines[0] ?? "" : "";
+  const suggestions = query.startsWith("/") ? COMMANDS.filter((command) => command.startsWith(query)).slice(0, 5) : [];
+  const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
+  const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor={focused && !disabled ? theme.accent : theme.border}
-      width="100%"
-      paddingX={1}
-    >
-      <Text color={focused && !disabled ? theme.accent : theme.dim} bold>
-        ›{" "}
-      </Text>
+    <Box flexDirection="column" borderStyle="round" borderColor={focused && !disabled ? theme.accent : theme.border} width="100%" paddingX={1}>
       <Box flexDirection="column">
-        {lines.map((line, i) => (
-          <Text key={i}>
-            {line}
-            {i === cursorLine && lines.length === 1 && line === "" ? (
-              <Text color={theme.dim}>{placeholder ?? "type…"}</Text>
-            ) : null}
-            {i === cursorLine ? <Text color={theme.dim}>▊</Text> : null}
-          </Text>
-        ))}
+        {shown.map((item, index) => {
+          const active = item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length;
+          const column = active ? cursorColumn - item.start : -1;
+          return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{item.text.slice(0, column)}{column >= 0 ? <Text inverse>{column < item.text.length ? item.text[column] : " "}</Text> : null}{item.text.slice(column + 1)}</> : <>{"  "}{item.text}</>}</Text>;
+        })}
+        {lines.length === 1 && lines[0] === "" && <Text><Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text><Text color={theme.dim}>{placeholder ?? "type…"}</Text></Text>}
       </Box>
+      {suggestions.length > 0 && <Text color={theme.dim}>{suggestions.join("  ")}</Text>}
     </Box>
   );
 }
 
-/** ctrl+e: round-trip the draft through $EDITOR (vim fallback). */
-function editInEditor(
-  lines: string[],
-  setLines: (fn: (ls: string[]) => string[]) => void,
-  setCursorLine: (n: number) => void,
-): void {
+function editInEditor(lines: string[], setLines: (fn: (ls: string[]) => string[]) => void, setCursorLine: (n: number) => void): void {
   const file = join(tmpdir(), `moh-input-${Date.now()}.md`);
   writeFileSync(file, lines.join("\n"));
-  const editor = process.env.EDITOR || "vi";
   try {
-    spawnSync(editor, [file], { stdio: "inherit" });
+    spawnSync(process.env.EDITOR || "vi", [file], { stdio: "inherit" });
     const text = readFileSync(file, "utf8").replace(/\n$/, "");
     const next = text === "" ? [""] : text.split("\n");
-    setLines(() => next);
-    setCursorLine(next.length - 1);
-  } finally {
-    try {
-      unlinkSync(file);
-    } catch {
-      // best effort
-    }
-  }
+    setLines(() => next); setCursorLine(next.length - 1);
+  } finally { try { unlinkSync(file); } catch { /* best effort */ } }
 }
