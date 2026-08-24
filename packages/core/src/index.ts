@@ -194,6 +194,17 @@ import {
   type OpenrouterEndpointFetch,
   type OpenrouterOAuthConfig,
 } from "./auth/openrouter";
+import {
+  XAI_API_BASE_URL,
+  XAI_OAUTH_DEFAULTS,
+  XAI_SCOPES,
+  XaiLoginAborted,
+  loginXai,
+  refreshXaiToken,
+  resolveXaiOAuthConfig,
+  type XaiEndpointFetch,
+  type XaiOAuthConfig,
+} from "./auth/xai";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -267,6 +278,15 @@ export {
   resolveOpenrouterOAuthConfig,
   type OpenrouterEndpointFetch,
   type OpenrouterOAuthConfig,
+  XAI_API_BASE_URL,
+  XAI_OAUTH_DEFAULTS,
+  XAI_SCOPES,
+  XaiLoginAborted,
+  loginXai,
+  refreshXaiToken,
+  resolveXaiOAuthConfig,
+  type XaiEndpointFetch,
+  type XaiOAuthConfig,
   MockProvider,
   builtinTools,
   ExtensionRuntime,
