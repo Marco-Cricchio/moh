@@ -9,13 +9,14 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { AuthMethodKind } from "../auth/types";
 import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
+import { wireForKind, type WireApi } from "../wire";
 
 /** Transport hints from the credential resolver (#151): ChatGPT-backend
  * URL, extra headers, and the wire protocol that backend speaks. */
 export interface AiSdkTransport {
   baseUrl?: string;
   headers?: Record<string, string>;
-  wire?: "responses" | "chat";
+  wire?: WireApi;
 }
 import { normalizeProviderError } from "../provider-errors";
 import type { RouteTarget } from "../route";
@@ -37,8 +38,16 @@ function languageModelFor(
 ): LanguageModel {
   const { kind, name } = target.endpoint;
   const baseUrl = transport?.baseUrl;
-  if (kind === "anthropic") {
-    const anthropicHeaders = anthropicSubscriptionHeaders(target.endpoint.authKind);
+  const headers = transport?.headers;
+  // ADR-0010 (#159): dispatch on the wire, not the provider kind — kimi
+  // and copilot speak anthropic-messages against their own backends, and
+  // copilot switches wire per model (catalog metadata on the target).
+  const wire: WireApi = transport?.wire ?? target.wire ?? wireForKind(kind);
+  // OAuth beta headers apply only to the anthropic provider's own
+  // subscription grants — never to other backends that happen to speak
+  // the anthropic-messages wire.
+  const anthropicHeaders = kind === "anthropic" ? anthropicSubscriptionHeaders(target.endpoint.authKind) : undefined;
+  if (wire === "anthropic-messages") {
     const anthropic = createAnthropic({
       apiKey,
       ...(baseUrl ? { baseURL: baseUrl } : {}),
@@ -46,26 +55,22 @@ function languageModelFor(
     });
     return anthropic(target.modelId);
   }
-  if (kind === "openai") {
-    const openai = createOpenAI({
-      apiKey,
-      ...(baseUrl ? { baseURL: baseUrl } : {}),
-      ...(transport?.headers ? { headers: transport.headers } : {}),
-    });
-    // #151: native subscription grants stream via the ChatGPT backend,
-    // which only speaks the Responses API (codex's wire) — declared
-    // explicitly by the auth context, not inferred from the URL.
-    // Minted-key and openai-compat endpoints keep /chat/completions.
-    if (transport?.wire === "responses") {
-      return openai.responses(target.modelId);
-    }
-    return openai.chat(target.modelId);
-  }
-  if (kind === "google") {
+  if (wire === "google") {
     const google = createGoogleGenerativeAI({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
     return google(target.modelId);
   }
-  throw new Error(`endpoint "${name}": kind "${kind}" has no AI SDK model factory; provide createStream`);
+  const openai = createOpenAI({
+    apiKey,
+    ...(baseUrl ? { baseURL: baseUrl } : {}),
+    ...(headers ? { headers } : {}),
+  });
+  if (wire === "openai-responses") {
+    return openai.responses(target.modelId);
+  }
+  if (wire === "openai-chat") {
+    return openai.chat(target.modelId);
+  }
+  throw new Error(`endpoint "${name}": wire "${wire}" has no AI SDK model factory; provide createStream`);
 }
 
 /** Maps moh messages to AI SDK: system messages become the `system` option. */

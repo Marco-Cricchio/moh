@@ -111,7 +111,7 @@ describe("resolveEndpointCredential", () => {
       credential: "oauth-at",
       baseUrl: "https://chatgpt.com/backend-api/codex",
       headers: { originator: "codex_cli_rs" },
-      wire: "responses",
+      wire: "openai-responses",
     });
   });
 
@@ -139,7 +139,7 @@ describe("resolveEndpointCredential", () => {
       credential: "at-oauth-new",
       baseUrl: "https://chatgpt.com/backend-api/codex",
       headers: { originator: "codex_cli_rs" },
-      wire: "responses",
+      wire: "openai-responses",
     });
     const saved = JSON.parse(readFileSync(file, "utf8")).auth.tokens["openai-work"];
     expect(saved).toMatchObject({ accessToken: "at-oauth-new", grant: { minted: false } });
@@ -205,7 +205,7 @@ describe("route wiring (refresh-before-stream)", () => {
         credential: "oauth-at",
         baseUrl: "https://chatgpt.com/backend-api/codex",
         headers: { originator: "codex_cli_rs" },
-        wire: "responses" as const,
+        wire: "openai-responses" as const,
       }),
       createStream: (_t, _c, authContext) => {
         seenCtx.push(authContext);
@@ -214,7 +214,7 @@ describe("route wiring (refresh-before-stream)", () => {
     });
     for await (const _ of route.stream(msgs, new AbortController().signal));
     expect(seenCtx).toEqual([
-      { credential: "oauth-at", baseUrl: "https://chatgpt.com/backend-api/codex", headers: { originator: "codex_cli_rs" }, wire: "responses" },
+      { credential: "oauth-at", baseUrl: "https://chatgpt.com/backend-api/codex", headers: { originator: "codex_cli_rs" }, wire: "openai-responses" },
     ]);
   });
 
