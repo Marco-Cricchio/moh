@@ -23,6 +23,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { OnboardingIo } from "../provider-onboarding";
+import type { OAuthBuiltinKind } from "../wire";
+import { isOAuthBuiltinKind } from "../wire";
 
 /** Default callback wait: 5 minutes, matching the official CLIs. */
 export const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -383,9 +385,10 @@ export async function confirmToSWarning(io: AuthorizationIo): Promise<boolean> {
 /**
  * Per-provider ToS posture (ADR-0010, #159): which client_id moh reuses
  * and how the provider treats it. The generic warning covers the three
- * original grants; the new providers get their own copy.
+ * original grants; the new providers get their own copy. The grants
+ * themselves (child tickets #160–#163) gate on this before their flows.
  */
-export const TOS_WARNING_BY_PROVIDER: Record<string, string> = {
+export const TOS_WARNING_BY_PROVIDER: Record<OAuthBuiltinKind, string> = {
   "github-copilot":
     "GitHub Copilot subscription auth reuses the official VS Code Copilot " +
     "GitHub App client_id via the device flow. Your access follows your " +
@@ -407,12 +410,17 @@ export const TOS_WARNING_BY_PROVIDER: Record<string, string> = {
 /** ToS warning for a provider kind: per-provider copy when one exists,
  * the generic warning otherwise. */
 export function tosWarningFor(provider: string): string {
-  return TOS_WARNING_BY_PROVIDER[provider] ?? TOS_WARNING;
+  return isOAuthBuiltinKind(provider) ? TOS_WARNING_BY_PROVIDER[provider] : TOS_WARNING;
 }
 
 /** Acknowledgement gate with per-provider copy (same y/yes rule). */
 export async function confirmToSWarningFor(io: AuthorizationIo, provider: string): Promise<boolean> {
   await io.info(tosWarningFor(provider));
+  return confirmWarning(io);
+}
+
+/** The y/yes acknowledgement rule shared by both ToS gates. */
+async function confirmWarning(io: AuthorizationIo): Promise<boolean> {
   const answer = (await io.ask("Acknowledge and continue? (y/n): ")).trim().toLowerCase();
   return answer === "y" || answer === "yes";
 }
