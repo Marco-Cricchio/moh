@@ -111,7 +111,7 @@ describe("/model slash command (#166)", () => {
     });
     const ctx = makeCtx({
       session,
-      activeProviderType: () => "anthropic",
+      activeProviderType: () => "anthropic", // stub: catalog display (alpha is openai-compat, no catalog)
       onModelSwitched: (m) => switchedTo.push(m),
     }) as any;
     const switchedTo: string[] = [];

@@ -14,13 +14,14 @@ describe("switchModel (#166)", () => {
     const session = createSession({ provider: "mock" });
     await session.send("hi");
     const eventsBefore = session.history().length;
-    const result = session.switchModel("mock");
-    expect(result).toEqual({ ok: true, model: "mock" });
+    const result = session.switchModel("echo"); // distinct registered id
+    expect(result).toEqual({ ok: true, model: "echo" });
     const events = session.history();
     expect(events.length).toBe(eventsBefore + 1);
     const switched = events[events.length - 1] as Extract<AgentEvent, { type: "model_switched" }>;
     expect(switched.type).toBe("model_switched");
-    expect(switched.to).toBe("mock");
+    expect(switched.from).toBe("mock");
+    expect(switched.to).toBe("echo");
     // Same session continues: a further turn appends, and no second
     // session_start appears (switching is not a new session).
     await session.send("again");
@@ -61,42 +62,39 @@ describe("switchModel (#166)", () => {
     expect(session.switchModel("  ").ok).toBe(false);
   });
 
-  test("the running turn keeps its provider — switch takes effect from the next turn", async () => {
-    // A pre-built instance streamer that records which provider served it.
-    const served: string[] = [];
-    const providerA: Provider = {
-      name: "a/first",
-      stream: async function* () {
-        served.push("a");
-        yield { type: "text_delta", text: "from a" } as never;
-        yield { type: "finish", reason: "stop" } as never;
-      },
-    };
-    const providerB: Provider = {
-      name: "b/second",
-      stream: async function* () {
-        served.push("b");
-        yield { type: "text_delta", text: "from b" } as never;
-        yield { type: "finish", reason: "stop" } as never;
-      },
-    };
-    let current = providerA;
-    const session = createSession({ provider: current });
-    // switchModel works on refs; for a pre-built instance we simulate the
-    // accessor semantics by switching to a registered id after the turn.
-    await session.send("first");
-    expect(served).toEqual(["a"]);
-    // Register not possible post-freeze; use endpoints path instead:
-    const s2 = createSession({
-      provider: "a/first",
-      endpoints: [
-        { name: "a", type: "openai-compat", baseUrl: "http://localhost:1/v1", defaultModel: "first" },
-        { name: "b", type: "openai-compat", baseUrl: "http://localhost:2/v1", defaultModel: "second" },
-      ],
+  test("no-op switch (same ref) appends no chrome event", () => {
+    const session = createSession({
+      provider: "alpha/one",
+      endpoints: [{ name: "alpha", type: "openai-compat", baseUrl: "http://localhost:1/v1", defaultModel: "one" }],
     });
-    expect(s2.switchModel("b/second").ok).toBe(true);
-    expect(s2.activeModel).toBe("b/second");
-    void current;
+    const before = session.history().length;
+    expect(session.switchModel("alpha/one")).toEqual({ ok: true, model: "alpha/one" });
+    expect(session.history().length).toBe(before);
+  });
+
+  test("the provider is read once per turn — a switch lands on the next turn", async () => {
+    const served: string[] = [];
+    const make = (name: string): Provider => ({
+      name,
+      capabilities: { caching: false, parallelToolCalls: false, multimodal: false },
+      stream: async function* () {
+        served.push(name);
+        yield { type: "text_delta", text: "x" } as never;
+        yield { type: "finish", reason: "stop" } as never;
+      },
+    });
+    // Registry with two switchable ids over distinct providers.
+    const { ProviderRegistry } = require("../src/provider-registry");
+    const registry = new ProviderRegistry()
+      .registerProvider("pa", () => make("pa/m"))
+      .registerProvider("pb", () => make("pb/m"));
+    const session = createSession({ provider: "pa", registry });
+    await session.send("first");
+    expect(served).toEqual(["pa/m"]);
+    expect(session.switchModel("pb").ok).toBe(true);
+    await session.send("second");
+    expect(served).toEqual(["pa/m", "pb/m"]); // next turn only
+    expect(session.activeEndpointType).toBeUndefined(); // registered ids carry no endpoint profile
   });
 
   test("model_switched survives as chrome in the persisted event order", async () => {
