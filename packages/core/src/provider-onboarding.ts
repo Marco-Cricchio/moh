@@ -14,6 +14,7 @@ import { getStoredToken, readAuthSection, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
+import { subscriptionModelCatalog } from "./model-catalog";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
@@ -102,14 +103,23 @@ export async function runProviderAdd(
     apiKey = (await io.ask(`API key (empty to use MOH_ENDPOINT_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY${type === "openai-compat" ? "; local endpoints need none" : ""}): `)).trim();
   }
 
-  let baseUrl = (await io.ask(type === "openai-compat" ? "Base URL (e.g. http://localhost:11434/v1): " : "Base URL (empty for default): ")).trim();
-  if (type === "openai-compat" && baseUrl === "") {
-    throw new OnboardingAborted("openai-compat endpoints require a base URL");
-  }
-
-  let defaultModel = (await io.ask(`Default model${type === "openai-compat" ? " (e.g. qwen3, deepseek-chat)" : ""}: `)).trim();
-  if (defaultModel === "") {
-    throw new OnboardingAborted("a default model is required");
+  let baseUrl = "";
+  let defaultModel: string;
+  if (authKind === "subscription") {
+    // #156: subscription onboarding never asks for a model id by hand —
+    // the vendored catalog is offered as a numbered list right after the
+    // successful login, free-text stays the advanced fallback. The grant
+    // fixes the base URL (and there is no key), so neither is asked.
+    defaultModel = await askSubscriptionModel(io, type);
+  } else {
+    baseUrl = (await io.ask(type === "openai-compat" ? "Base URL (e.g. http://localhost:11434/v1): " : "Base URL (empty for default): ")).trim();
+    if (type === "openai-compat" && baseUrl === "") {
+      throw new OnboardingAborted("openai-compat endpoints require a base URL");
+    }
+    defaultModel = (await io.ask(`Default model${type === "openai-compat" ? " (e.g. qwen3, deepseek-chat)" : ""}: `)).trim();
+    if (defaultModel === "") {
+      throw new OnboardingAborted("a default model is required");
+    }
   }
 
   let profile: EndpointProfile = { name, type, ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}), ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}), defaultModel };
@@ -138,6 +148,36 @@ async function askOneOf(io: OnboardingIo, prompt: string, options: readonly stri
     const answer = (await io.ask(`${prompt}: `)).trim().toLowerCase();
     if ((options as readonly string[]).includes(answer)) return answer;
     await io.info(`Please choose one of: ${options.join(", ")}`);
+  }
+}
+
+/**
+ * Post-login model choice (#156): print the provider's vendored catalog
+ * as a numbered list and accept a number, or any non-empty free-text id
+ * as the advanced fallback. Empty input aborts (#150 semantics: the
+ * login's tokens and endpoint stub are already persisted, so a later
+ * `provider add` run reuses them).
+ */
+async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<string> {
+  const models = subscriptionModelCatalog(type);
+  while (true) {
+    if (models.length) {
+      await io.info(`Models available on ${type} subscriptions:`);
+      for (const [i, model] of models.entries()) {
+        await io.info(`  ${i + 1}. ${model.name} (${model.id})`);
+      }
+    }
+    const answer = (await io.ask(`Default model${models.length ? " (1-" + models.length + " or a model id)" : ""}: `)).trim();
+    if (answer === "") {
+      throw new OnboardingAborted("a default model is required");
+    }
+    if (/^\d+$/.test(answer)) {
+      const n = Number(answer);
+      if (models.length && n >= 1 && n <= models.length) return models[n - 1]!.id;
+      await io.info(models.length ? `enter a number between 1 and ${models.length}, or a model id` : "enter a model id");
+      continue;
+    }
+    return answer; // free-text fallback (advanced)
   }
 }
 

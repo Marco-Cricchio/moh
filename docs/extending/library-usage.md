@@ -59,7 +59,11 @@ the single stream call when near expiry, and a failure surfaces as a
 an embedder you do nothing: no token plumbing, no refresh handling — the
 login flow itself is a CLI concern (`moh provider add` / `login`), driven
 through the `OnboardingIo` seam (which grew a best-effort `openUrl` for
-headless-safe OAuth).
+headless-safe OAuth). After a successful login the wizard offers the
+provider's model list from the vendored catalogs
+(`subscriptionModelCatalog` in `@moh/core` — verbatim pi-ai data, see
+`src/model-catalogs/README.md` for attribution and regeneration); free-text
+entry stays as the advanced fallback.
 
 ### 2. Consume the session through `events`
 

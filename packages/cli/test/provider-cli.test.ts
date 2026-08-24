@@ -84,7 +84,7 @@ describe("moh provider", () => {
       account: { email: "dev@example.test" },
       updatedAt: 1_700_000_000_000,
     };
-    const io = wizardIo(["anthropic", "", "subscription", "", "claude-sonnet-4-5"], token);
+    const io = wizardIo(["anthropic", "", "subscription", "claude-sonnet-4-5"], token);
     const r = await run(["add"], { cwd, home, io, subscriptionLogin: async () => token, tester: async () => ({ ok: true, modelId: "claude-sonnet-4-5" }) });
     expect(r.code).toBe(0);
     const moh = JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8"));
