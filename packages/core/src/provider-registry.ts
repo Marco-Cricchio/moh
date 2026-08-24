@@ -130,6 +130,15 @@ function resolveProfile(profile: EndpointProfile, modelId: string, registry: Fro
   return factory({ apiKey, baseUrl: profile.baseUrl, modelId });
 }
 
+/** #164: per-model catalog overrides for a route target — wire (copilot
+ * claude vs gpt) and headers (copilot editor headers). Exported from the
+ * defining module (ADR-0004) for direct testing. */
+export function catalogTargetOverrides(kind: string, modelId: string): { wire?: RouteTarget["wire"]; headers?: Record<string, string> } {
+  if (!isOAuthBuiltinKind(kind)) return {};
+  const entry = catalogEntryFor(kind, modelId);
+  return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}) };
+}
+
 function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
   // openai-compat travels the OpenAI Chat Completions wire protocol as a
   // plain "openai" endpoint; every other builtin keeps its own kind —
@@ -148,14 +157,7 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
       capabilities: profile.capabilities,
     }),
     modelId,
-    // #164: catalog metadata rides the target — per-model wire (copilot
-    // claude vs gpt) and per-model headers (copilot editor headers).
-    ...(isOAuthBuiltinKind(kind)
-      ? (() => {
-          const entry = catalogEntryFor(kind, modelId);
-          return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}) };
-        })()
-      : {}),
+    ...catalogTargetOverrides(kind, modelId),
   };
 }
 

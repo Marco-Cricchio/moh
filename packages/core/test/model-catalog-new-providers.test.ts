@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { catalogEntryFor, subscriptionModelCatalog } from "../src/model-catalog";
+import { catalogEntryFor, PI_API_TO_WIRE, subscriptionModelCatalog, vendoredApiNames, vendoredBaseUrls } from "../src/model-catalog";
+import { catalogTargetOverrides } from "../src/provider-registry";
+import { OAUTH_BUILTIN_BASE_URLS } from "../src/wire";
 import { COPILOT_EDITOR_HEADERS } from "../src/auth/github-copilot";
 import { resolveProvider } from "../src/provider-registry";
 import type { MohConfig } from "../src/config";
@@ -58,27 +60,39 @@ describe("new provider catalogs (#164)", () => {
 });
 
 describe("route targets pick up catalog metadata (#164)", () => {
-  test("copilot claude model routes with anthropic wire + editor headers; gpt with responses", () => {
+  test("copilot claude model gets anthropic wire + editor headers; gpt gets responses", () => {
+    const claude = catalogTargetOverrides("github-copilot", "claude-opus-4.6");
+    expect(claude.wire).toBe("anthropic-messages");
+    expect(claude.headers).toEqual({ ...COPILOT_EDITOR_HEADERS });
+    const gpt = catalogTargetOverrides("github-copilot", "gpt-5.2");
+    expect(gpt.wire).toBe("openai-responses");
+    expect(gpt.headers).toEqual({ ...COPILOT_EDITOR_HEADERS });
+  });
+
+  test("unknown model and non-new kinds get no overrides (kind default wire)", () => {
+    expect(catalogTargetOverrides("github-copilot", "no-such-model")).toEqual({});
+    expect(catalogTargetOverrides("anthropic", "claude-anything")).toEqual({});
+  });
+
+  test("resolution path stays intact for the new kinds", () => {
     const provider = resolveProvider({
       provider: "copilot/claude-opus-4.6",
       endpoints: [{ name: "copilot", type: "github-copilot", auth: { kind: "subscription" }, defaultModel: "claude-opus-4.6" }],
     } satisfies MohConfig);
     expect(provider.name).toBe("copilot/claude-opus-4.6");
+  });
+});
 
-    const gpt = resolveProvider({
-      provider: "copilot/gpt-5.2",
-      endpoints: [{ name: "copilot", type: "github-copilot", auth: { kind: "subscription" } }],
-    } satisfies MohConfig);
-    expect(gpt.name).toBe("copilot/gpt-5.2");
+describe("vendored-data drift checks (#164)", () => {
+  test("every api name in the vendored files maps to a wire — unmapped means silent model loss", () => {
+    for (const api of vendoredApiNames()) {
+      expect(PI_API_TO_WIRE[api]).toBeDefined();
+    }
   });
 
-  test("kimi model without an explicit entry still defaults to its kind wire", () => {
-    // every kimi catalog entry exists; a free-text model falls back to
-    // wireForKind("kimi-coding") = anthropic-messages (#159 default).
-    const provider = resolveProvider({
-      provider: "kimi/custom-free-text",
-      endpoints: [{ name: "kimi", type: "kimi-coding", auth: { kind: "subscription" } }],
-    } satisfies MohConfig);
-    expect(provider.name).toBe("kimi/custom-free-text");
+  test("vendored baseUrls match the registry's builtin base URLs", () => {
+    for (const [kind, baseUrl] of Object.entries(OAUTH_BUILTIN_BASE_URLS)) {
+      expect(vendoredBaseUrls(kind)).toContain(baseUrl);
+    }
   });
 });
