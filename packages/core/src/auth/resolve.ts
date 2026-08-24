@@ -22,8 +22,7 @@ import { refreshGoogleToken, resolveGoogleOAuthConfig } from "./google";
 import { refreshOpenaiToken, resolveOpenAiOAuthConfig, CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./openai";
 import { refreshXaiToken } from "./xai";
 import { refreshKimiCodingToken } from "./kimi-coding";
-import { refreshCopilotToken } from "./github-copilot";
-import { copilotAuthContext } from "./github-copilot";
+import { copilotAuthContext, refreshCopilotToken } from "./github-copilot";
 import type { WireApi } from "../wire";
 
 /** Transport hints a resolver may return alongside the credential (#151):
