@@ -859,6 +859,8 @@ function App() {
   T = THEMES[THEME_ORDER[themeIdx]!];
   const cycleTheme = () => setThemeIdx((i) => (i + 1) % THEME_ORDER.length);
   const [modal, setModal] = useState<ModalName | null>(null);
+  const { stdout } = useStdout();
+  const stdoutRows = stdout?.rows;
   useInput((input, key) => {
     // i modal catturano TUTTO (bloccanti): esc/⏎ chiudono (in ModalDemo)
     if (modal !== null) return;
@@ -901,9 +903,10 @@ function App() {
   });
   const th = t();
   return (
-    <Box flexDirection="column">
-      {modal !== null && <ModalDemo which={modal} onClose={() => setModal(null)} />}
-      {/* key: il remount ristampa il transcript nella palette nuova */}
+    <Box flexDirection="column" position="relative">
+      {/* key: il remount ristampa il transcript nella palette nuova.
+          Nascosta mentre un modal è aperto: il modal possiede l'area live. */}
+      {!modal && (
       <Session
         key={themeIdx}
         showBar={showBar}
@@ -912,10 +915,27 @@ function App() {
         draft={draft}
         level={level}
       />
+      )}
       <Text color={th.warn}> </Text>
       <Box alignSelf="center" borderStyle="round" borderColor={th.warn} paddingX={1} flexShrink={0}>
         <Text color={th.warn}>{`‹ PROTOTYPE › ${note ? `${note} · ` : ""}[1-7] modals · [tab] chips · [x] thinking · [y] ${th.label} · [b] bar · [p] live · [q] quit`}</Text>
       </Box>
+      {/* Modal layer (pattern OverlayLayer dell'App reale): quando un modal è
+          aperto è l'UNICA cosa nell'area live — Box a pieno terminale
+          (rows-1: mai fullscreen esatto, Ink ripartirebbe da zero) che
+          centra il dialog su entrambi gli assi. Lo scrollback sopra resta
+          intatto e selezionabile: il terminale non lo ridisegna. */}
+      {modal !== null && (
+        <Box
+          width={WIDTH}
+          height={Math.max(1, (stdoutRows ?? 24) - 1)}
+          flexDirection="column"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <ModalDemo which={modal} onClose={() => setModal(null)} />
+        </Box>
+      )}
     </Box>
   );
 }
