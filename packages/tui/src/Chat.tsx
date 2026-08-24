@@ -156,6 +156,9 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
         focused={inputFocused}
         onAskCommands={onOpenCommands}
         onLinesChange={setDraftLines}
+        onScrollRequest={(delta) => {
+          setAnchor((a) => scrollAnchor(a, delta, lines.length, height));
+        }}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;
           void session.send(text);
