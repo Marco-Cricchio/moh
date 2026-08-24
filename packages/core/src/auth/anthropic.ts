@@ -52,8 +52,13 @@ export const ANTHROPIC_SUBSCRIPTION_SCOPES = [
   "user:file_upload",
 ] as const;
 
-/** Injected on API calls whenever the endpoint is subscription-authed. */
-export const ANTHROPIC_OAUTH_BETA = { "anthropic-beta": "oauth-2025-04-20" } as const;
+/**
+ * Injected on API calls whenever the endpoint is subscription-authed.
+ * Mirrors Claude Code and pi-ai: both beta features are sent together.
+ */
+export const ANTHROPIC_OAUTH_BETA = {
+  "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+} as const;
 
 export interface AnthropicOAuthConfig {
   authorizeUrl: string;

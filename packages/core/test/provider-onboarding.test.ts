@@ -318,7 +318,7 @@ describe("minimalConnectionTest (subscription)", () => {
       expect(result.ok).toBe(true);
       const headers = calls[0]!.headers as Record<string, string>;
       expect(headers["authorization"]).toBe("Bearer acc-xyz");
-      expect(headers["anthropic-beta"]).toBe("oauth-2025-04-20");
+      expect(headers["anthropic-beta"]).toBe("claude-code-20250219,oauth-2025-04-20");
       expect(headers["x-api-key"]).toBeUndefined();
     } finally {
       await Bun.file(authFile).delete();
