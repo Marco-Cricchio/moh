@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   CONTEXT_WINDOW_DEFAULT,
-  activityWindow,
   projectSidebar,
-  sidebarActivityBudget,
-  tokenBar,
 } from "../src/sidebar";
 
 const ev = (e: Record<string, unknown>) => e as never;
@@ -59,39 +56,7 @@ describe("projectSidebar (issue #118)", () => {
   });
 });
 
-describe("activityWindow", () => {
-  const items = [1, 2, 3, 4, 5].map((n) => ({ kind: "tool" as const, name: `t${n}`, detail: "", ok: true }));
-
-  test("shows the most recent items that fit and reports the hidden count", () => {
-    expect(activityWindow(items, 3)).toEqual({ visible: items.slice(2), hidden: 2 });
-  });
-
-  test("everything fits: nothing hidden", () => {
-    expect(activityWindow(items, 5)).toEqual({ visible: items, hidden: 0 });
-  });
-
-  test("zero/negative budget: nothing visible, all hidden", () => {
-    expect(activityWindow(items, 0)).toEqual({ visible: [], hidden: 5 });
-  });
-});
-
-describe("tokenBar", () => {
-  test("renders a filled fraction of the width, capped at 100%", () => {
-    expect(tokenBar(0.5, 8)).toBe("████░░░░");
-    expect(tokenBar(2, 4)).toBe("████");
-    expect(tokenBar(0, 4)).toBe("░░░░");
-    expect(tokenBar(1 / 8, 8)).toBe("█░░░░░░░");
-  });
-});
 
 test("CONTEXT_WINDOW_DEFAULT is a sane modern window", () => {
   expect(CONTEXT_WINDOW_DEFAULT).toBeGreaterThan(100_000);
-});
-
-describe("sidebarActivityBudget", () => {
-  test("subtracts borders, the section headers and the bottom-anchored sections", () => {
-    // 30-row terminal → 24 panel rows → 24 - 2 - 1 - 4 - 3 = 14 item rows
-    expect(sidebarActivityBudget(24)).toBe(14);
-    expect(sidebarActivityBudget(10)).toBe(0);
-  });
 });

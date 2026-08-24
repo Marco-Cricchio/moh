@@ -45,7 +45,7 @@ describe("chat smoke (mock provider)", () => {
     await sleep(20);
     i.stdin.write("\r");
     await sleep(150); // mid-stream
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("esc to steer");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("esc stop");
     i.stdin.write("\x1b"); // arm
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("esc again to stop");
@@ -53,7 +53,7 @@ describe("chat smoke (mock provider)", () => {
     await sleep(30);
     await sleep(300);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("stopped");
+    expect(frame).toContain("cancelled");
     expect(session.pending()).toBe(false);
     i.unmount();
   });
@@ -82,13 +82,15 @@ describe("chat smoke (mock provider)", () => {
     i.unmount();
   });
 
-  test("dev mode shows the status line; vibe mode does not", async () => {
+  test("status row always shows model and current mode", async () => {
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
     const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
     const i = render(<Chat session={session} mode="dev" modelLabel="mock" />);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("mock · turn");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("◉ dev");
     i.rerender(<Chat session={session} mode="vibe" modelLabel="mock" />);
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("mock · turn");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
     i.unmount();
   });
 });
@@ -166,16 +168,15 @@ describe("home smoke", () => {
 
   test("App: ctrl+o switches vibe ↔ dev in session (regression: ctrl+m is \\r, indistinguishable from Enter)", async () => {
     const provider = MockProvider.demo();
-    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} startInChat />);
+    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} startInChat skipOnboarding />);
     await sleep(30);
-    // vibe default: the dev-mode header line (model · turn · events) is absent.
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("· turn ");
-    i.stdin.write("\x0f"); // ctrl+o — the raw byte a real terminal sends
-    await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("· turn "); // dev header is live
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
     i.stdin.write("\x0f");
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("· turn ");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("◉ dev");
+    i.stdin.write("\x0f");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
     i.unmount();
   });
 

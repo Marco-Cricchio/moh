@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentSession } from "@moh/core";
-import { projectTurns, type TurnView } from "./turns";
 import { projectSidebar, type SidebarState } from "./sidebar";
 
 /** ~30fps coalescing window (docs/tui-style-guide.md §1 Q3). */
 const FLUSH_MS = 33;
 
 export interface SessionState {
-  /** Projected turn views. */
-  turns: TurnView[];
+  /** Raw append-only log, used by the semantic transcript projection. */
+  events: AgentEvent[];
   /** Turn count for the dev status line. */
   turnCount: number;
   /** True while a turn is in flight (including one being steered away). */
   pending: boolean;
-  /** Raw log length (dev status line). */
-  eventCount: number;
 }
 
 /**
@@ -28,20 +25,20 @@ export function useSessionState(session: AgentSession): SessionState {
 }
 
 function projectSessionState(history: AgentEvent[]): SessionState {
-  const turns = projectTurns(history);
-  return {
-    turns,
-    turnCount: turns.length,
-    pending: turns.at(-1)?.phase === "streaming",
-    eventCount: history.length,
-  };
+  let turnCount = 0;
+  let pending = false;
+  for (const event of history) {
+    if (event.type === "user_message") { turnCount += 1; pending = true; }
+    if (event.type === "done" || event.type === "error" || event.type === "cancelled") pending = false;
+  }
+  return { events: history, turnCount, pending };
 }
 
 const EMPTY_SIDEBAR: SidebarState = { activity: [], tokens: { contextIn: 0, totalOut: 0, calls: 0 }, turnCount: 0 };
 
 /**
- * Sidebar feed (#118): the same coalesced event projection as
- * `useSessionState`, but projecting Activity/Tokens for the right sidebar.
+ * Bottom-status feed (#183): the same coalesced event projection as
+ * `useSessionState`, projecting activity/token/turn context.
  * A null session (home screen) yields the empty state.
  */
 export function useSidebarState(session: AgentSession | null): SidebarState {

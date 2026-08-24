@@ -44,10 +44,10 @@ ANSI = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 class Screen:
     """A minimal VT100 screen model.
 
-    The chat transcript now lives inside a fixed-height window (issue #117),
-    so Ink repaints rows in place with cursor-movement sequences instead of
-    emitting a newline per line. Splitting the raw byte stream on "\n" fused
-    unrelated rows; assertions need the *physical* screen, so this class
+    Ink's interactive area repaints rows with cursor-movement sequences while
+    settled transcript blocks are emitted to native scrollback (#183).
+    Splitting the raw byte stream on "\n" fuses unrelated rows; assertions
+    need the *physical* screen, so this class
     emulates the cursor/erase subset Ink emits (CUU/CUD/CUF/CUB, ED, EL,
     CUP/CHA, CR/LF/BS, autowrap) and ignores styling (SGR/OSC).
     """
