@@ -10,7 +10,15 @@ import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const target = join(import.meta.dir, "../src/model-catalogs");
-const files = ["anthropic.json", "openai-codex.json", "google.json"];
+const files = [
+  "anthropic.json",
+  "openai-codex.json",
+  "google.json",
+  "github-copilot.json",
+  "openrouter.json",
+  "kimi-coding.json",
+  "xai.json",
+];
 
 const arg = process.argv[2];
 if (!arg) {

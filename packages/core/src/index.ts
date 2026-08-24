@@ -59,7 +59,7 @@ import {
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-export { subscriptionModelCatalog } from "./model-catalog";
+export { catalogEntryFor, subscriptionModelCatalog } from "./model-catalog";
 import {
   isSubscriptionKind,
   providerLogin,
