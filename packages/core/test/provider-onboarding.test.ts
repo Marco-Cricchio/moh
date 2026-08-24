@@ -299,6 +299,104 @@ describe("runProviderAdd (subscription branch)", () => {
 });
 
 describe("minimalConnectionTest (subscription)", () => {
+  test("openai native grant (minted: false) pings the ChatGPT codex backend /responses with JWT + originator", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config`;
+    await Bun.write(authFile, JSON.stringify({
+      auth: {
+        tokens: {
+          codex: {
+            accessToken: "jwt-abc",
+            refreshToken: "ref-abc",
+            updatedAt: 1_700_000_000_000,
+            grant: { provider: "openai", minted: false },
+          },
+        },
+      },
+    }));
+    const profile: EndpointProfile = {
+      name: "codex",
+      type: "openai",
+      defaultModel: "gpt-5",
+      auth: { kind: "subscription" },
+    };
+    const calls: Array<{ url: string; headers: Record<string, string>; body: unknown }> = [];
+    const fetchImpl = (async (url: string, init: Record<string, unknown>) => {
+      calls.push({ url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await minimalConnectionTest(profile, fetchImpl, AbortSignal.timeout(1000), {}, authFile);
+      expect(result.ok).toBe(true);
+      expect(calls.length).toBe(1);
+      expect(calls[0]!.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+      expect(calls[0]!.headers["authorization"]).toBe("Bearer jwt-abc");
+      expect(calls[0]!.headers["originator"]).toBe("codex_cli_rs");
+      expect((calls[0]!.body as Record<string, unknown>).input).toBe("ping");
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
+  test("openai minted grant keeps the api.openai.com chat/completions path", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config`;
+    await Bun.write(authFile, JSON.stringify({
+      auth: {
+        tokens: {
+          openai: {
+            accessToken: "sk-minted",
+            refreshToken: "ref-abc",
+            updatedAt: 1_700_000_000_000,
+            grant: { provider: "openai", minted: true },
+          },
+        },
+      },
+    }));
+    const profile: EndpointProfile = {
+      name: "openai",
+      type: "openai",
+      defaultModel: "gpt-5",
+      auth: { kind: "subscription" },
+    };
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    const fetchImpl = (async (url: string, init: Record<string, unknown>) => {
+      calls.push({ url, headers: init.headers as Record<string, string> });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await minimalConnectionTest(profile, fetchImpl, AbortSignal.timeout(1000), {}, authFile);
+      expect(result.ok).toBe(true);
+      expect(calls[0]!.url).toBe("https://api.openai.com/v1/chat/completions");
+      expect(calls[0]!.headers["authorization"]).toBe("Bearer sk-minted");
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
+  test("google subscription sends the token as x-goog-api-key, matching the stream path", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config`;
+    await Bun.write(authFile, JSON.stringify({ auth: { tokens: { gemini: fakeToken() } } }));
+    const profile: EndpointProfile = {
+      name: "gemini",
+      type: "google",
+      defaultModel: "gemini-2.5-pro",
+      auth: { kind: "subscription" },
+    };
+    const calls: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: string, init: Record<string, unknown>) => {
+      calls.push(init);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await minimalConnectionTest(profile, fetchImpl, AbortSignal.timeout(1000), {}, authFile);
+      expect(result.ok).toBe(true);
+      const headers = calls[0]!.headers as Record<string, string>;
+      expect(headers["x-goog-api-key"]).toBe("acc-xyz");
+      expect(headers["authorization"]).toBeUndefined();
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
   test("anthropic subscription uses the stored access token with the oauth beta header", async () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config`;
     await Bun.write(authFile, JSON.stringify({ auth: { tokens: { claude: fakeToken() } } }));
