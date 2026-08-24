@@ -4,7 +4,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig } from "@moh/core";
+import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/core";
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
@@ -32,8 +32,10 @@ function mount(cwd: string, overrides: Partial<Parameters<typeof SettingsPanel>[
   const switched: string[] = [];
   const toasts: string[] = [];
   let wizard = 0;
+  const testHome = overrides.home ?? mkdtempSync(join(tmpdir(), "moh-home-"));
   const props = {
     cwd,
+    home: testHome,
     config: DEFAULT_USER_CONFIG,
     onChange: (patch: Partial<UserConfig>) => changes.push(patch),
     modelLabel: "anthropic/claude-sonnet-4-5",
@@ -176,6 +178,52 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\x1b");
     await sleep(30);
     expect(closed).toBe(1);
+    i.unmount();
+  });
+});
+
+describe("merged provider endpoints (#129)", () => {
+  test("provider switch list includes user-level endpoints", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    upsertUserEndpoint(join(home, ".moh", "config"), {
+      name: "zai",
+      type: "openai-compat",
+      baseUrl: "https://api.z.ai/api/coding/paas/v4",
+      defaultModel: "glm-5.3",
+      apiKey: "key",
+    });
+    const { i } = mount(cwd, { home });
+    await sleep(30);
+    await down(i, 7);
+    i.stdin.write("\r");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("zai/glm-5.3");
+    i.unmount();
+  });
+
+  test("removing a user-level endpoint updates user config", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    const userFile = join(home, ".moh", "config");
+    upsertUserEndpoint(userFile, {
+      name: "zai",
+      type: "openai-compat",
+      baseUrl: "https://api.z.ai/api/coding/paas/v4",
+      defaultModel: "glm-5.3",
+      apiKey: "key",
+    });
+    const { i, toasts } = mount(cwd, { home });
+    await sleep(30);
+    await down(i, 9);
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, 2); // anthropic, openai, then zai
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(readUserProviderConfig(userFile).endpoints?.some((e) => e.name === "zai")).toBe(false);
+    expect(toasts.some((t) => t.includes("removed endpoint zai"))).toBe(true);
     i.unmount();
   });
 });
