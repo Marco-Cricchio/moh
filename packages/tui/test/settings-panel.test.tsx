@@ -32,8 +32,10 @@ function mount(cwd: string, overrides: Partial<Parameters<typeof SettingsPanel>[
   const switched: string[] = [];
   const toasts: string[] = [];
   let wizard = 0;
+  const testHome = overrides.home ?? mkdtempSync(join(tmpdir(), "moh-home-"));
   const props = {
     cwd,
+    home: testHome,
     config: DEFAULT_USER_CONFIG,
     onChange: (patch: Partial<UserConfig>) => changes.push(patch),
     modelLabel: "anthropic/claude-sonnet-4-5",

@@ -44,17 +44,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const userFile = useMemo(() => userConfigFile(home), [home]);
   const [moh, setMoh] = useState<MohConfig>(() => {
     // #129 merged view (project + user endpoints): the switch list must
-    // show user-level endpoints too — a project-only read hides providers
-    // the user configured globally (e.g. via the wizard in another project).
-    try {
-      return loadMergedConfig(cwd, { home });
-    } catch {
-      try {
-        return loadMohConfig(configFile);
-      } catch {
-        return {};
-      }
-    }
+    // show user-level endpoints too. Invalid provider config stays loud;
+    // the guardian's strict-when-present contract must not be masked by
+    // falling back to a partial project-only view.
+    return loadMergedConfig(cwd, { home });
   });
   const [cursor, setCursor] = useState(0);
   const [sub, setSub] = useState<{ kind: "switch" | "remove"; options: string[]; cursor: number } | null>(null);
@@ -162,16 +155,17 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           const inUser = (readUserProviderConfig(userFile).endpoints ?? []).some((e) => e.name === option);
           const remaining = (moh.endpoints ?? []).filter((e) => e.name !== option);
           // Never leave a default provider dangling on a removed endpoint.
-          const refDangling = moh.provider && moh.provider !== "mock" && moh.provider.startsWith(`${option}/`);
+          const refDangling = moh.provider && moh.provider !== "mock" &&
+            (moh.provider === option || moh.provider.startsWith(`${option}/`));
           const fallback = remaining[0];
           const nextRef = refDangling
-            ? fallback?.defaultModel ? `${fallback.name}/${fallback.defaultModel}` : fallback?.name
+            ? (fallback?.defaultModel ? `${fallback.name}/${fallback.defaultModel}` : fallback?.name) ?? "mock"
             : moh.provider;
           if (inProject) {
             writeMohConfig(configFile, {
               ...project,
               endpoints: (project.endpoints ?? []).filter((e) => e.name !== option),
-              ...(project.provider?.startsWith(`${option}/`) && nextRef ? { provider: nextRef } : {}),
+              ...((project.provider === option || project.provider?.startsWith(`${option}/`)) && nextRef ? { provider: nextRef } : {}),
             });
           }
           if (inUser) {
