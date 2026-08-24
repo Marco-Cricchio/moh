@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { loadMohConfig, writeMohConfig, type MohConfig } from "@moh/core";
+import { loadMohConfig, loadMergedConfig, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
@@ -17,6 +17,8 @@ import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./view
  */
 export interface SettingsPanelProps {
   cwd: string;
+  /** User home override for merged provider config/tests. */
+  home?: string;
   config: UserConfig;
   /** Persisted field update (App owns the config file). */
   onChange: (patch: Partial<UserConfig>) => void;
@@ -35,16 +37,17 @@ interface Row {
   value: string;
 }
 
-export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onToast, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onToast, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
+  const userFile = useMemo(() => userConfigFile(home), [home]);
   const [moh, setMoh] = useState<MohConfig>(() => {
-    try {
-      return loadMohConfig(configFile);
-    } catch {
-      return {};
-    }
+    // #129 merged view (project + user endpoints): the switch list must
+    // show user-level endpoints too. Invalid provider config stays loud;
+    // the guardian's strict-when-present contract must not be masked by
+    // falling back to a partial project-only view.
+    return loadMergedConfig(cwd, { home });
   });
   const [cursor, setCursor] = useState(0);
   const [sub, setSub] = useState<{ kind: "switch" | "remove"; options: string[]; cursor: number } | null>(null);
@@ -67,11 +70,6 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
     ],
     [config, modelLabel, moh],
   );
-
-  const persistMoh = (next: MohConfig) => {
-    writeMohConfig(configFile, next);
-    setMoh(next);
-  };
 
   const endpointRefs = (moh.endpoints ?? []).map((e) => (e.defaultModel ? `${e.name}/${e.defaultModel}` : e.name));
 
@@ -142,19 +140,39 @@ export function SettingsPanel({ cwd, config, onChange, modelLabel, onProviderSwi
       if (key.return || input === "\n") {
         const option = sub.options[sub.cursor]!;
         if (sub.kind === "switch") {
-          const next = { ...moh, provider: option };
-          persistMoh(next);
+          // Persist only the project default; never copy merged user
+          // endpoints (or their credentials) into moh.json.
+          const project = loadMohConfig(configFile);
+          writeMohConfig(configFile, { ...project, provider: option });
+          setMoh({ ...moh, provider: option });
           onProviderSwitch(option);
           onToast(`provider: ${option} (new sessions)`);
         } else {
+          // Remove from every file that defines the endpoint (project
+          // moh.json and/or user config — the list is the merged view).
+          const project = loadMohConfig(configFile);
+          const inProject = (project.endpoints ?? []).some((e) => e.name === option);
+          const inUser = (readUserProviderConfig(userFile).endpoints ?? []).some((e) => e.name === option);
           const remaining = (moh.endpoints ?? []).filter((e) => e.name !== option);
-          const next = { ...moh, endpoints: remaining };
-          // Never leave the default provider dangling on a removed endpoint.
-          if (moh.provider && moh.provider !== "mock" && moh.provider.startsWith(`${option}/`)) {
-            const fallback = remaining[0];
-            next.provider = fallback?.defaultModel ? `${fallback.name}/${fallback.defaultModel}` : fallback?.name;
+          // Never leave a default provider dangling on a removed endpoint.
+          const refDangling = moh.provider && moh.provider !== "mock" &&
+            (moh.provider === option || moh.provider.startsWith(`${option}/`));
+          const fallback = remaining[0];
+          const nextRef = refDangling
+            ? (fallback?.defaultModel ? `${fallback.name}/${fallback.defaultModel}` : fallback?.name) ?? "mock"
+            : moh.provider;
+          if (inProject) {
+            writeMohConfig(configFile, {
+              ...project,
+              endpoints: (project.endpoints ?? []).filter((e) => e.name !== option),
+              ...((project.provider === option || project.provider?.startsWith(`${option}/`)) && nextRef ? { provider: nextRef } : {}),
+            });
           }
-          persistMoh(next);
+          if (inUser) {
+            removeUserEndpoint(userFile, option);
+            if (refDangling && nextRef) saveUserProviderRef(userFile, nextRef);
+          }
+          setMoh({ ...moh, endpoints: remaining, ...(refDangling && nextRef ? { provider: nextRef } : {}) });
           onToast(`removed endpoint ${option}`);
         }
         return setSub(null);

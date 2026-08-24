@@ -145,3 +145,15 @@ export function upsertUserEndpoint(file: string, profile: EndpointProfile, io: U
 export function saveUserProviderRef(file: string, ref: string, io: UserConfigIo = {}): void {
   updateUserConfigFile(file, (data) => void (data.provider = ref), io);
 }
+
+/** Removes a user-level endpoint profile by name, through the guardian. */
+export function removeUserEndpoint(file: string, name: string, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      if (!Array.isArray(data.endpoints)) return;
+      data.endpoints = data.endpoints.filter((e) => (e as { name?: unknown }).name !== name);
+    },
+    io,
+  );
+}
