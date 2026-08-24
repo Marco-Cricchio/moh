@@ -182,6 +182,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   try {
     const session = new AgentSession({
       provider,
+      endpoints: config.endpoints ?? [],
       cwd: options.cwd,
       tools: o.tools ?? builtinTools(),
       mohHome,

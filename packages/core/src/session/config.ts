@@ -11,6 +11,7 @@ import type { McpRuntimeOptions } from "../mcp";
 import type { PermissionOverrides, PermissionRule } from "../permissions";
 import type { PromptComposer, SkillIndexEntry } from "../prompt-composer";
 import type { ProviderRegistry } from "../provider-registry";
+import type { EndpointProfile } from "../config";
 import type { SubagentOptions } from "../subagents";
 import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, Tool } from "../types";
 
@@ -36,6 +37,10 @@ export interface SessionConfig {
   provider: Provider | string;
   /** Registry used to resolve string provider refs; frozen at creation. */
   registry?: ProviderRegistry;
+  /** Endpoint profiles (#166): what `switchModel` resolves new refs
+   * against — the same merged profile list the initial provider came
+   * from (passed by sessionFromConfig). */
+  endpoints?: EndpointProfile[];
   /** Per-turn iteration cap. Default 50. */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */

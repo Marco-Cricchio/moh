@@ -103,6 +103,9 @@ export type AgentEvent =
   | { type: "permission_denied"; callId: string; tool: string; reason: string }
   | { type: "permission_rule_added"; rule: PermissionRule }
   | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" }
+  /** #166: the active model ref changed mid-session (no new session;
+   * takes effect from the next turn). Chrome — replay shows the switch. */
+  | { type: "model_switched"; from: string; to: string }
   /**
    * Compaction marker (schema only, no implementation yet): replay uses
    * `summary` in place of the events before index `upTo` (exclusive); the

@@ -21,7 +21,7 @@ import { Home } from "./Home";
 import { Dashboard, MENU_ENTRIES, sessionChips, ChipFooter, type MenuEntry } from "./Dashboard";
 import { handleFocusKey, INITIAL_FOCUS, type FocusState } from "./focus";
 import { Chat, type Mode } from "./Chat";
-import { makeSession, providerLabel } from "./factory";
+import { makeSession, providerLabel, readMergedConfigFor } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
@@ -314,6 +314,14 @@ export function App({
           notify: push,
           onOpenFrontier: () => setOverlay("frontier"),
           onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+          activeProviderType: () => {
+            const merged = readMergedConfigFor(cwd, home);
+            const ref = merged?.provider;
+            if (!ref || !ref.includes("/")) return ref ?? undefined;
+            const name = ref.slice(0, ref.indexOf("/"));
+            return merged?.endpoints?.find((e) => e.name === name)?.type;
+          },
+          onModelSwitched: (model) => setModelLabel(model),
         })
       }
     />
