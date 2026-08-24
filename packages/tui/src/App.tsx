@@ -34,6 +34,8 @@ import { AskUserModal } from "./AskUserModal";
 import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
+import { ModelPickerModal } from "./ModelPickerModal";
+import { subscriptionModelCatalog } from "@moh/core";
 import { Frontier } from "./Frontier";
 import { WorkflowOffer } from "./WorkflowOffer";
 import { runSlashCommand } from "./commands";
@@ -52,7 +54,7 @@ export interface AppProps {
   skipOnboarding?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier";
+type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "model";
 
 /**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,
@@ -313,6 +315,7 @@ export function App({
           session,
           notify: push,
           onOpenFrontier: () => setOverlay("frontier"),
+          onOpenModelPicker: () => setOverlay("model"),
           onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
           // Session-owned (never re-read from disk): the type of the
           // endpoint actually serving turns — correct after switches too.
@@ -421,6 +424,17 @@ export function App({
           />
         )}
         {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
+        {overlay === "model" && session && (
+          <ModelPickerModal
+            activeModel={session.activeModel}
+            providerType={session.activeEndpointType}
+            catalog={subscriptionModelCatalog(session.activeEndpointType ?? "")}
+            onSwitch={(ref) => session.switchModel(ref)}
+            onSwitched={(model) => setModelLabel(model)}
+            onToast={push}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "workflow-offer" && (
           <WorkflowOffer
             onDone={(enable) => {
