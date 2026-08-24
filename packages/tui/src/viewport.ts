@@ -130,6 +130,24 @@ export function chatWrapWidth(width: number): number {
   return Math.max(10, width - 4);
 }
 
+/** Fits optional status segments into a single terminal row. Required
+ * segments are preserved; optional segments are dropped from the end and
+ * the final segment is truncated rather than wrapped (#183). */
+export function fitRow(segments: ReadonlyArray<{ text: string; width?: number; optional?: boolean }>, budget: number): string[] {
+  const limit = Math.max(1, budget);
+  const out: string[] = [];
+  let used = 0;
+  for (const segment of segments) {
+    const width = segment.width ?? segment.text.length;
+    if (used + width <= limit) { out.push(segment.text); used += width; continue; }
+    if (segment.optional) continue;
+    const remaining = Math.max(0, limit - used);
+    if (remaining > 0) out.push(segment.text.slice(0, remaining));
+    break;
+  }
+  return out;
+}
+
 export type WidthClass = "compact" | "regular" | "wide";
 
 /** Live terminal geometry; 80×24 fallback for non-tty hosts (tests, pipes). */
