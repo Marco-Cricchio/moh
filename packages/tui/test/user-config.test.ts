@@ -46,7 +46,7 @@ describe("user config", () => {
     });
     const cfg = loadUserConfig(file);
     expect(cfg.mode).toBe("vibe"); // invalid falls back
-    expect(cfg.theme).toBe("gruvbox"); // valid field survives
+    expect(cfg.theme).toBe("gruvbox-material"); // legacy name is migrated
   });
 
   test("homeListMax coerces into 3..10, default 5", () => {

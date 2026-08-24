@@ -15,28 +15,23 @@ function contrast(a: string, b: string): number {
 }
 
 describe("themes catalog (issue #114)", () => {
-  it("offers 15 themes in THEME_ORDER", () => {
-    expect(THEME_ORDER.length).toBe(15);
-    expect(THEME_ORDER).toContain("win95");
-    expect(THEME_ORDER).toContain("dos");
-    expect(THEME_ORDER).toContain("mac-platinum");
+  it("offers the curated eight themes in THEME_ORDER", () => {
+    expect(THEME_ORDER.length).toBe(8);
+    expect(THEME_ORDER).toContain("gruvbox-material");
+    expect(THEME_ORDER).toContain("phosphor-amber");
     expect(THEME_ORDER).toContain("neon-noir");
     expect(THEME_ORDER).toContain("lava");
     expect(THEME_ORDER).toContain("candy");
   });
 
   it("every theme defines the full semantic token set (fg..bg)", () => {
-    const tokens: (keyof Theme)[] = ["label", "fg", "accent", "dim", "ok", "warn", "purple", "border", "bg"];
+    const tokens: (keyof Theme)[] = ["label", "fg", "accent", "dim", "ok", "warn", "err", "purple", "border", "bg"];
     for (const name of THEME_ORDER) {
       for (const token of tokens) expect(THEMES[name][token], `${name}.${token}`).toBeTruthy();
     }
   });
 
-  it("mac-platinum: dim and border readable on the light background", () => {
-    const t = THEMES["mac-platinum"];
-    expect(contrast(t.fg, t.bg)).toBeGreaterThanOrEqual(7); // black on #dddddd
-    expect(contrast(t.dim, t.bg)).toBeGreaterThanOrEqual(4); // audited dim
-    expect(contrast(t.border, t.bg)).toBeGreaterThanOrEqual(2.5); // visible chrome
-    expect(contrast(t.accent, t.bg)).toBeGreaterThanOrEqual(4); // amber accent
+  it("error token is distinct from warning", () => {
+    for (const name of THEME_ORDER) expect(THEMES[name].err).not.toBe(THEMES[name].warn);
   });
 });

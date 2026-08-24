@@ -70,7 +70,21 @@ function coerce(raw: unknown): Partial<UserConfig> {
   const out: Partial<UserConfig> = {};
   if (typeof src.onboarded === "boolean") out.onboarded = src.onboarded;
   if (src.mode === "vibe" || src.mode === "dev") out.mode = src.mode;
-  if (typeof src.theme === "string") out.theme = src.theme as ThemeName;
+  if (typeof src.theme === "string") {
+    // Migrate names removed from the curated catalog (#183).
+    const migrated: Record<string, ThemeName> = {
+      gruvbox: "gruvbox-material",
+      nord: "tokyo-night",
+      dracula: "neon-noir",
+      solarized: "tokyo-night",
+      c64: "phosphor",
+      amiga: "phosphor",
+      win95: "tokyo-night",
+      dos: "phosphor",
+      "mac-platinum": "catppuccin",
+    };
+    out.theme = (migrated[src.theme] ?? src.theme) as ThemeName;
+  }
   if (typeof src.icons === "boolean") out.icons = src.icons;
   if (src.filePreview === "always" || src.filePreview === "on-demand" || src.filePreview === "none") {
     out.filePreview = src.filePreview;

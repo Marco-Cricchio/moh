@@ -304,7 +304,9 @@ export function App({
   const showChat = session !== null;
   // The session screen's layout decides where toasts live (#119): inside the
   // dashboard panels, or the classic bottom row — one flag, used by both.
-  const chatInDashboard = showChat && layoutClass(viewport) === "dashboard";
+  // Sessions use native terminal scrollback (#183); Dashboard remains
+  // available only as historical code for non-session experiments.
+  const chatInDashboard = false;
   // The chat is the same tree in both layouts (invariant 1): only its column
   // budget differs — the dashboard center instead of the centered measure.
   const chat = showChat ? (
