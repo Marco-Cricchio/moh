@@ -105,23 +105,54 @@ describe("settings panel (issue #33)", () => {
     i.unmount();
   });
 
-  test("provider switch rewrites moh.json and notifies the live label", async () => {
+  test("provider switch is hierarchical: endpoint → model, rewrites defaultModel + provider in moh.json", async () => {
     const cwd = setupCwd();
     const { i, switched, toasts } = mount(cwd);
     await sleep(30);
     await down(i, 7); // Provider row
     i.stdin.write("\r");
     await sleep(30);
-    const frame = stripAnsi(i.lastFrame() ?? "");
+    let frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("mock");
-    expect(frame).toContain("anthropic/claude-sonnet-4-5");
-    expect(frame).toContain("openai/gpt-5");
-    await down(i, 2); // openai/gpt-5
+    expect(frame).toContain("anthropic");
+    expect(frame).toContain("openai");
+    await down(i, 2); // openai endpoint
     i.stdin.write("\r");
     await sleep(30);
-    expect(switched).toEqual(["openai/gpt-5"]);
-    expect(toasts.some((t) => t.includes("openai/gpt-5"))).toBe(true);
-    expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("openai/gpt-5");
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("ctx "); // model rows with context windows
+    // type a model id → the free-text row commits it
+    i.stdin.write("gpt-5.4");
+    await sleep(30);
+    i.stdin.write("\x1b[B"); // gpt-5.4-mini
+    await sleep(30);
+    i.stdin.write("\x1b[B"); // the free-text row (catalog rows first)
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(switched).toEqual(["openai/gpt-5.4"]);
+    expect(toasts.some((t) => t.includes("openai/gpt-5.4"))).toBe(true);
+    const config = loadMohConfig(join(cwd, "moh.json"));
+    expect(config.provider).toBe("openai/gpt-5.4");
+    expect(config.endpoints?.find((e) => e.name === "openai")?.defaultModel).toBe("gpt-5.4");
+    i.unmount();
+  });
+
+  test("typing in the model level filters the catalog incrementally", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 7);
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, 2); // openai
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("mini");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("gpt-5.4-mini");
+    expect(frame).not.toContain("gpt-5.5");
     i.unmount();
   });
 
@@ -183,7 +214,7 @@ describe("settings panel (issue #33)", () => {
 });
 
 describe("merged provider endpoints (#129)", () => {
-  test("provider switch list includes user-level endpoints", async () => {
+  test("provider switch list includes user-level endpoints (display-only)", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     upsertUserEndpoint(join(home, ".moh", "config"), {
@@ -199,8 +230,55 @@ describe("merged provider endpoints (#129)", () => {
     i.stdin.write("\r");
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("zai/glm-5.3");
+    expect(frame).toContain("zai (user)");
     i.unmount();
+  });
+
+  test("picking a model on a user openai-compat endpoint fetches the live list and switches only the provider ref", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    const userFile = join(home, ".moh", "config");
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({ data: [{ id: "glm-5.3" }, { id: "glm-5.3-air" }] });
+      },
+    });
+    upsertUserEndpoint(userFile, {
+      name: "zai",
+      type: "openai-compat",
+      baseUrl: `http://localhost:${server.port}/v1`,
+      defaultModel: "glm-5.3",
+      apiKey: "key",
+    });
+    try {
+      const { i, switched } = mount(cwd, { home });
+      await sleep(30);
+      await down(i, 7);
+      i.stdin.write("\r");
+      await sleep(30);
+      await down(i, 3); // zai (user)
+      i.stdin.write("\r");
+      await sleep(30);
+      // model level: fetched list arrives asynchronously
+      await sleep(120);
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      expect(frame).toContain("glm-5.3-air");
+      i.stdin.write("air");
+      await sleep(30);
+      i.stdin.write("\x1b[B"); // free-text row (filter narrowed to nothing)
+      await sleep(30);
+      i.stdin.write("\r");
+      await sleep(30);
+      expect(switched).toEqual(["zai/air"]);
+      expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("zai/air");
+      // user endpoint: its defaultModel is never rewritten here
+      expect(readUserProviderConfig(userFile).endpoints?.find((e) => e.name === "zai")?.defaultModel).toBe("glm-5.3");
+      expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.some((e) => e.name === "zai")).toBe(false);
+      i.unmount();
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("removing a user-level endpoint updates user config", async () => {

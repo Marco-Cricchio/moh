@@ -32,6 +32,9 @@ export interface SlashContext {
   /** Toast / inline notice channel. */
   notify: (message: string) => void;
   onOpenFrontier?: () => void;
+  /** Opens the /model picker modal (#181): called for bare `/model` when
+   * a UI is present; the text list remains the headless fallback. */
+  onOpenModelPicker?: () => void;
   /** Provider type of the active endpoint (#166): feeds /model's catalog
    * list. Absent (pre-built providers, tests) — the command skips the list. */
   activeProviderType?: () => string | undefined;
@@ -164,12 +167,15 @@ let pendingUpdates: UpstreamUpdate[] | null = null;
  * custom provider. The switch takes effect from the next turn. */
 const modelCommand: SlashCommand = {
   name: "model",
-  description: "show or switch the active model (catalog picker / free text)",
+  description: "open the model picker modal (or /model <ref> to switch)",
   usage: "/model [endpoint/model-id | model-id]",
   run(ctx, args) {
     const ref = args.trim();
     if (!ctx.session) return ctx.notify("/model needs an open session");
     if (!ref) {
+      // #181: with a UI, bare /model opens the modal instead of dumping
+      // the catalog as text; the text list stays for headless callers.
+      if (ctx.onOpenModelPicker) return ctx.onOpenModelPicker();
       ctx.notify(`active model: ${ctx.session.activeModel}`);
       const type = ctx.activeProviderType?.();
       if (type) {

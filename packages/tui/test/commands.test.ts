@@ -153,4 +153,16 @@ describe("/model slash command (#166)", () => {
     expect(runSlashCommand("/model", ctx)).toBe(true);
     expect(ctx.notices()[0]).toContain("needs an open session");
   });
+
+  test("bare /model opens the picker modal when a UI offers it (#181)", () => {
+    let opened = 0;
+    const session = createSession({
+      provider: "alpha/one",
+      endpoints: [{ name: "alpha", type: "openai-compat", baseUrl: "http://localhost:9/v1", defaultModel: "one" }],
+    });
+    const ctx = makeCtx({ session, onOpenModelPicker: () => (opened += 1) });
+    expect(runSlashCommand("/model", ctx)).toBe(true);
+    expect(opened).toBe(1);
+    expect((ctx as any).notices()).toHaveLength(0); // no text dump
+  });
 });
