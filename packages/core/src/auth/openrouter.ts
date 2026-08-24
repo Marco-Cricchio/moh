@@ -16,6 +16,7 @@ import type { AuthToken, OpenrouterAuthOverrides } from "./types";
 import {
   confirmToSWarningFor,
   generatePkce,
+  generateState,
   raceForCode,
   startLoopbackCallback,
   type AuthorizationIo,
@@ -49,10 +50,12 @@ export type OpenrouterEndpointFetch = (
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
 export const defaultOpenrouterEndpointFetch: OpenrouterEndpointFetch = async (tokenUrl, body) => {
+  // pi pattern: a bounded exchange — 30s, never an infinite hang.
   const res = await fetch(tokenUrl, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   return { status: res.status, json };
@@ -83,7 +86,11 @@ export async function exchangeOpenrouterCode(
     code_challenge_method: "S256",
   });
   if (result.status !== 200 || typeof result.json.key !== "string" || result.json.key === "") {
-    const detail = result.json.error_description ?? result.json.message ?? result.json.error;
+    const rawDetail = result.json.error_description ?? result.json.message ?? result.json.error;
+    const detail =
+      typeof rawDetail === "object" && rawDetail !== null
+        ? (rawDetail as { message?: unknown }).message
+        : rawDetail;
     throw new Error(
       `OpenRouter key exchange failed (HTTP ${result.status})${typeof detail === "string" ? `: ${detail}` : ""}`,
     );
@@ -122,29 +129,33 @@ export async function loginOpenRouter(
 
   const config = resolveOpenrouterOAuthConfig(opts.overrides);
   const pkce = generatePkce();
+  // Random per-attempt state, validated on the loopback callback (CSRF).
+  // OpenRouter has no state parameter of its own — we embed ours in the
+  // callback_url it redirects to, so the callback carries it back.
+  const state = generateState();
   const callback = await startLoopbackCallback({
-    state: "openrouter", // OpenRouter has no state flow of its own; the
-    // callback_url carries our marker and the server rejects anything else.
+    state,
     ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
   });
 
   // OpenRouter's authorize page takes `callback_url` (+ PKCE), not the
   // standard redirect_uri; the state rides inside the callback URL.
   const callbackUrl = new URL(callback.redirectUri);
-  callbackUrl.searchParams.set("state", "openrouter");
+  callbackUrl.searchParams.set("state", state);
   const authorizeUrl = new URL(config.authorizeUrl);
   authorizeUrl.searchParams.set("callback_url", callbackUrl.toString());
   authorizeUrl.searchParams.set("code_challenge", pkce.challenge);
   authorizeUrl.searchParams.set("code_challenge_method", "S256");
 
-  // Manual path: same authorize URL; OpenRouter shows the final redirect
-  // URL (with the code) for the user to paste back. The paste wrapper
-  // extracts the code from a pasted URL/query — raceForCode's prompt
-  // semantics expect a bare code.
+  // Manual path: same authorize URL; OpenRouter redirects to the loopback
+  // callback (which a headless browser cannot reach) — the user copies the
+  // final redirect URL from the browser's address bar and pastes it back.
   let pasteDone = false;
   const pasteIo: AuthorizationIo = {
     ask: async (prompt) => {
-      if (pasteDone) return ""; // end the paste immediately after one input
+      // After one real input, answer "" on the follow-up so the paste
+      // loop closes instead of consuming a second attempt.
+      if (pasteDone) return "";
       const line = await io.ask(prompt);
       if (!line.trim()) return "";
       pasteDone = true;

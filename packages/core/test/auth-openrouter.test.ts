@@ -71,6 +71,20 @@ describe("exchangeOpenrouterCode", () => {
     expect(fetchImpl.calls[0]!.body).toEqual({ code: "c-1", code_verifier: "v-1", code_challenge_method: "S256" });
   });
 
+  test("200 without a key fails", async () => {
+    const fetchImpl = scriptedEndpoint([{ status: 200, json: {} }]);
+    await expect(
+      exchangeOpenrouterCode(resolveOpenrouterOAuthConfig(), { code: "c", codeVerifier: "v", fetchImpl, now: NOW }),
+    ).rejects.toThrow("(HTTP 200)");
+  });
+
+  test("error object detail is unwrapped", async () => {
+    const fetchImpl = scriptedEndpoint([{ status: 400, json: { error: { message: "nested" } } }]);
+    await expect(
+      exchangeOpenrouterCode(resolveOpenrouterOAuthConfig(), { code: "c", codeVerifier: "v", fetchImpl, now: NOW }),
+    ).rejects.toThrow("nested");
+  });
+
   test("non-200 or missing key fails with detail", async () => {
     const fetchImpl = scriptedEndpoint([{ status: 400, json: { message: "bad verifier" } }]);
     await expect(
