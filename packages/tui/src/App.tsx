@@ -314,6 +314,10 @@ export function App({
           notify: push,
           onOpenFrontier: () => setOverlay("frontier"),
           onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+          // Session-owned (never re-read from disk): the type of the
+          // endpoint actually serving turns — correct after switches too.
+          activeProviderType: () => session?.activeEndpointType,
+          onModelSwitched: (model) => setModelLabel(model),
         })
       }
     />

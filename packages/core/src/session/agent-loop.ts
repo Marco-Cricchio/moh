@@ -25,7 +25,7 @@ export interface LoopToolRunner {
 }
 
 export interface AgentLoopOptions {
-  provider: Provider;
+  provider: () => Provider;
   /** Iteration cap per turn. */
   maxIterations: number;
   /** All registered tools, including MCP ones (live accessor). */
@@ -56,7 +56,7 @@ export interface AgentLoopOptions {
  * exposes it as a projection.
  */
 export class AgentLoop {
-  readonly #provider: Provider;
+  readonly #provider: () => Provider;
   readonly #maxIterations: number;
   readonly #tools: () => Record<string, Tool>;
   readonly #toolRunner: LoopToolRunner;
@@ -106,6 +106,10 @@ export class AgentLoop {
   }
 
   async #runInner(text: string, controller: AbortController): Promise<TurnResult> {
+    // #166: the provider is read once per turn — a mid-session switch
+    // (AgentSession.switchModel) takes effect from the next turn, never
+    // mid-stream.
+    const provider = this.#provider();
     this.#append({ type: "user_message", text });
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
@@ -146,7 +150,7 @@ export class AgentLoop {
           description: t.description,
           ...(t.inputSchema ? { parameters: z.toJSONSchema(t.inputSchema) as Record<string, unknown> } : {}),
         }));
-        for await (const event of this.#provider.stream(this.#messages, controller.signal, toolSpecs)) {
+        for await (const event of provider.stream(this.#messages, controller.signal, toolSpecs)) {
           if (controller.signal.aborted) break;
           if (event.type === "text_delta") {
             assistantText += event.text;

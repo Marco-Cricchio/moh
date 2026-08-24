@@ -73,7 +73,7 @@ describe("workflow slash command", () => {
 describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
-    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow"]);
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "model"]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
     for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "wayfinder", "frontier", "skills"]) {
@@ -97,5 +97,60 @@ describe("workflow skill aliases", () => {
     const ctx = makeCtx() as any;
     expect(runSlashCommand("hello world", ctx)).toBe(false);
     expect(runSlashCommand("/nosuchcommand", ctx)).toBe(false);
+  });
+});
+
+describe("/model slash command (#166)", () => {
+  function sessionCtx() {
+    const session = createSession({
+      provider: "alpha/one",
+      endpoints: [
+        { name: "alpha", type: "openai-compat", baseUrl: "http://localhost:1/v1", defaultModel: "one" },
+        { name: "beta", type: "openai-compat", baseUrl: "http://localhost:2/v1", defaultModel: "two" },
+      ],
+    });
+    const ctx = makeCtx({
+      session,
+      activeProviderType: () => "anthropic", // stub: catalog display (alpha is openai-compat, no catalog)
+      onModelSwitched: (m) => switchedTo.push(m),
+    }) as any;
+    const switchedTo: string[] = [];
+    (ctx as any).switchedTo = switchedTo;
+    return ctx;
+  }
+
+  test("/model with no args shows the active model, the catalog, and the usage hint", () => {
+    const ctx = sessionCtx();
+    expect(runSlashCommand("/model", ctx)).toBe(true);
+    const notices = ctx.notices();
+    expect(notices[0]).toContain("active model: alpha/one");
+    expect(notices.some((n: string) => n.includes("anthropic catalog"))).toBe(true);
+    expect(notices.some((n: string) => n.includes("claude"))).toBe(true);
+    expect(notices.at(-1)).toContain("usage: /model");
+  });
+
+  test("/model <ref> switches and notifies next-turn semantics", () => {
+    const ctx = sessionCtx();
+    expect(runSlashCommand("/model beta/two", ctx)).toBe(true);
+    expect(ctx.session.activeModel).toBe("beta/two");
+    expect(ctx.notices().at(-1)).toContain("beta/two");
+    expect(ctx.notices().at(-1)).toContain("next turn");
+    expect(ctx.switchedTo).toEqual(["beta/two"]);
+  });
+
+  test("failed switch surfaces the error; free-text ids on custom providers still resolve via profiles", () => {
+    const ctx = sessionCtx();
+    expect(runSlashCommand("/model nope/x", ctx)).toBe(true);
+    expect(ctx.notices().at(-1)).toContain("✗");
+    expect(ctx.session.activeModel).toBe("alpha/one");
+    // free-text model on a declared endpoint
+    expect(runSlashCommand("/model alpha/custom-free-text", ctx)).toBe(true);
+    expect(ctx.session.activeModel).toBe("alpha/custom-free-text");
+  });
+
+  test("/model without an open session notifies", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/model", ctx)).toBe(true);
+    expect(ctx.notices()[0]).toContain("needs an open session");
   });
 });
