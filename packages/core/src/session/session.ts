@@ -31,7 +31,10 @@ const DEFAULT_MAX_ITERATIONS = 50;
  * ToolRunner, PermissionGate, EventLog, MemoryRunner — wired here.
  */
 export class AgentSession {
-  readonly #provider: Provider;
+  /** #166: mutable — switchModel replaces it for the next turn. */
+  #provider: Provider;
+  /** #166: merged endpoint profiles, what switchModel resolves against. */
+  readonly #endpoints: import("../config").EndpointProfile[];
   /** Registry snapshot frozen at creation; later registrations never reach it. */
   readonly #registry: FrozenProviderRegistry | undefined;
   #tools: Record<string, Tool>;
@@ -66,9 +69,10 @@ export class AgentSession {
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
+    this.#endpoints = config.endpoints ?? [];
     this.#provider =
       typeof config.provider === "string"
-        ? resolveProviderRef(config.provider, this.#registry ?? defaultRegistry.freeze(), [])
+        ? resolveProviderRef(config.provider, this.#registry ?? defaultRegistry.freeze(), this.#endpoints)
         : config.provider;
     const maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.#tools = config.tools ?? {};
@@ -113,7 +117,7 @@ export class AgentSession {
         runtimeRules: () => this.#permissions.rules,
         onPermissionRequest: config.onPermissionRequest,
         registry: config.registry,
-        defaultProvider: config.subagents.provider ?? this.#provider,
+        defaultProvider: config.subagents.provider ?? (() => this.#provider),
         presets: config.subagents.presets,
         maxConcurrency: config.subagents.maxConcurrency,
         home: config.subagents.home,
@@ -161,7 +165,7 @@ export class AgentSession {
       });
     }
     this.#loop = new AgentLoop({
-      provider: this.#provider,
+      provider: () => this.#provider,
       maxIterations,
       tools: () => this.#allTools(),
       toolRunner: this.#toolRunner,
@@ -277,6 +281,48 @@ export class AgentSession {
   /** Registry snapshot this session was created with (frozen). */
   get registry(): FrozenProviderRegistry | undefined {
     return this.#registry;
+  }
+
+  /** The active model ref (`endpoint/model-id`, or a provider name). #166. */
+  get activeModel(): string {
+    return this.#provider.name;
+  }
+
+  /** The provider type of the active endpoint (#166): feeds /model's
+   * catalog list. Undefined when the provider is a pre-built instance
+   * or a bare registered id — the command then skips the list. Derived
+   * from the session's own endpoint profiles, never re-read from disk. */
+  get activeEndpointType(): string | undefined {
+    const ref = this.#provider.name;
+    const slash = ref.indexOf("/");
+    if (slash === -1) return undefined;
+    return this.#endpoints.find((e) => e.name === ref.slice(0, slash))?.type;
+  }
+
+  /**
+   * In-session model switch (#166): re-resolves `ref` ("mock", a
+   * registered id, or "endpoint/model-id") against the session's frozen
+   * registry and merged endpoint profiles, appends a `model_switched`
+   * chrome event, and serves subsequent turns from the new provider.
+   * The event log stays intact — same session, no re-numbering. Takes
+   * effect from the **next** turn: the running turn keeps its provider
+   * (read once per turn, never mid-stream). A route with a declared
+   * fallback chain is not silently rewritten — switching replaces the
+   * active provider ref wholesale; re-declare chains in config.
+   */
+  switchModel(ref: string): { ok: true; model: string } | { ok: false; error: string } {
+    const trimmed = ref.trim();
+    if (!trimmed) return { ok: false, error: "empty model reference" };
+    try {
+      const next = resolveProviderRef(trimmed, this.#registry ?? defaultRegistry.freeze(), this.#endpoints);
+      const from = this.#provider.name;
+      if (next.name === from) return { ok: true, model: from }; // no-op: same ref, no chrome
+      this.#provider = next;
+      this.#append({ type: "model_switched", from, to: next.name });
+      return { ok: true, model: next.name };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /** Tools registered on this session, including connected MCP tools. */
