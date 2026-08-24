@@ -268,7 +268,10 @@ export async function minimalConnectionTest(
     if (openaiNative && nativeContext) {
       // ChatGPT backend only speaks the Responses API (codex's wire):
       // transport (URL + originator header) comes straight from the
-      // stream path's auth context; tiny max_output_tokens ping.
+      // stream path's auth context; tiny max_output_tokens ping. `input`
+      // must be a **list of message items** — this backend is stricter
+      // than api.openai.com, which also accepts a bare string (a string
+      // gets "Input must be a list" HTTP 400 here).
       const res = await fetchImpl(`${nativeContext.baseUrl ?? CHATGPT_CODEX_BASE_URL}/responses`, {
         method: "POST",
         signal,
@@ -277,7 +280,11 @@ export async function minimalConnectionTest(
           authorization: `Bearer ${nativeContext.credential}`,
           ...(nativeContext.headers ?? { originator: CHATGPT_CODEX_ORIGINATOR }),
         },
-        body: JSON.stringify({ model: modelId, input: "ping", max_output_tokens: 16 }),
+        body: JSON.stringify({
+          model: modelId,
+          input: [{ role: "user", content: [{ type: "input_text", text: "ping" }] }],
+          max_output_tokens: 16,
+        }),
       });
       return verdict(res, modelId);
     }
