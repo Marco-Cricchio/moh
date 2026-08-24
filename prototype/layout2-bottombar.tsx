@@ -534,6 +534,8 @@ function StatusRow({ th, live }: { th: Theme; live: LiveState }) {
   } else {
     right.push([`◆ ${live.model}`, th.fg]);
   }
+  // workflow: visibile SOLO quando on (l'off è lo stato silenzioso di default)
+  if (live.workflowOn) right.push(["◈ wf", th.purple, true]);
   right.push([live.mode === "dev" ? "◉ dev" : "○ vibe", live.mode === "dev" ? th.accent : th.dim, true]); // cade solo sotto i 45 col
   const left: Array<readonly [string, string, boolean?]> = live.active
     ? ([[live.spin, th.accent], ...(widthClass() !== "compact" ? ([[live.phase, th.accent, true]] as Array<readonly [string, string, boolean?]>) : []), ...(live.progress != null ? ([[`${live.progress}%`, th.dim, true]] as Array<readonly [string, string, boolean?]>) : [])] as Array<readonly [string, string, boolean?]>)
@@ -645,6 +647,7 @@ function KeyRow({ th, focusChip }: { th: Theme; focusChip: number | null }) {
 
 interface LiveState {
   level: ThinkingLevel;
+  workflowOn: boolean;
   mode: "dev" | "vibe";
   model: string;
   tokens: number;
@@ -673,12 +676,13 @@ const PHASES = ["thinking", "calling anthropic", "streaming", "running bash", "s
 
 const CHIP_LABELS = ["send", "stop", "model", "mode", "theme", "commands", "settings", "workflow", "frontier"];
 
-function Session({ showBar, paused, focusChip, draft, level }: {
+function Session({ showBar, paused, focusChip, draft, level, workflowOn }: {
   showBar: boolean;
   paused: boolean;
   focusChip: number | null;
   draft: string;
   level: ThinkingLevel;
+  workflowOn: boolean;
 }) {
   useViewport(); // live: ogni resize ritriggera il render (e il rebuild delle righe Static)
   const staticItems = useMemo(() => [{ id: "conversation", nodes: buildConversation() }], []);
@@ -694,6 +698,7 @@ function Session({ showBar, paused, focusChip, draft, level }: {
   const inputFocused = focusChip === null;
   const live: LiveState = {
     level,
+    workflowOn,
     mode: "dev",
     model: "claude-sonnet-4",
     tokens: 14304,
@@ -939,6 +944,7 @@ function App() {
           focusChip={focusChip}
           draft={draft}
           level={level}
+          workflowOn={workflowOn}
         />
       ) : (
         /* Modal layer (pattern OverlayLayer dell'App reale): Box che riempie
