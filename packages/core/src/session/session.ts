@@ -288,6 +288,17 @@ export class AgentSession {
     return this.#provider.name;
   }
 
+  /** The provider type of the active endpoint (#166): feeds /model's
+   * catalog list. Undefined when the provider is a pre-built instance
+   * or a bare registered id — the command then skips the list. Derived
+   * from the session's own endpoint profiles, never re-read from disk. */
+  get activeEndpointType(): string | undefined {
+    const ref = this.#provider.name;
+    const slash = ref.indexOf("/");
+    if (slash === -1) return undefined;
+    return this.#endpoints.find((e) => e.name === ref.slice(0, slash))?.type;
+  }
+
   /**
    * In-session model switch (#166): re-resolves `ref` ("mock", a
    * registered id, or "endpoint/model-id") against the session's frozen
@@ -305,6 +316,7 @@ export class AgentSession {
     try {
       const next = resolveProviderRef(trimmed, this.#registry ?? defaultRegistry.freeze(), this.#endpoints);
       const from = this.#provider.name;
+      if (next.name === from) return { ok: true, model: from }; // no-op: same ref, no chrome
       this.#provider = next;
       this.#append({ type: "model_switched", from, to: next.name });
       return { ok: true, model: next.name };
