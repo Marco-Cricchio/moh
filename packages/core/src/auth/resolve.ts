@@ -20,6 +20,7 @@ import type { AuthOverrides, AuthToken } from "./types";
 import { refreshAnthropicToken, resolveAnthropicOAuthConfig } from "./anthropic";
 import { refreshGoogleToken, resolveGoogleOAuthConfig } from "./google";
 import { refreshOpenaiToken, resolveOpenAiOAuthConfig, CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./openai";
+import { refreshXaiToken } from "./xai";
 import type { WireApi } from "../wire";
 
 /** Transport hints a resolver may return alongside the credential (#151):
@@ -139,6 +140,10 @@ async function refreshToken(
       return refreshGoogleToken(resolveGoogleOAuthConfig(overrides?.google), token, opts);
     case "openai":
       return refreshOpenaiToken(resolveOpenAiOAuthConfig(overrides?.openai), token, opts);
+    case "xai":
+      // No config of its own beyond overrides; the xAI grant reads
+      // them from the auth section like the others.
+      return refreshXaiToken(token, { overrides: overrides?.xai, ...opts });
     default:
       throw new ProviderError(
         "auth",
