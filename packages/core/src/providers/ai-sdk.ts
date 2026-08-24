@@ -22,7 +22,7 @@ import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, ToolSpec } from "../types";
 
 /**
- * Anthropic requires `anthropic-beta: oauth-2025-04-20` on API calls made
+ * Anthropic requires `anthropic-beta: claude-code-20250219,oauth-2025-04-20` on API calls made
  * with subscriber (OAuth) access tokens (issue #134). Returned only for
  * subscription-authed anthropic endpoints; api-key traffic is untouched.
  */
