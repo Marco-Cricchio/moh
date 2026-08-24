@@ -322,7 +322,7 @@ describe("loginAnthropic", () => {
 });
 
 describe("anthropic adapter beta header", () => {
-  test("subscription endpoints get anthropic-beta: oauth-2025-04-20", () => {
+  test("subscription endpoints get anthropic-beta: claude-code-20250219,oauth-2025-04-20", () => {
     expect(anthropicSubscriptionHeaders("subscription")).toEqual(ANTHROPIC_OAUTH_BETA);
   });
 
