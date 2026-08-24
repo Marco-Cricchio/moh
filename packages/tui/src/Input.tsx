@@ -288,7 +288,7 @@ export function MultilineInput({
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={focused && !disabled ? theme.accent : theme.border} width="100%" paddingX={1}>
+    <Box flexDirection="column" width="100%" paddingX={1}>
       <Box flexDirection="column">
         {shown.map((item, index) => {
           const active = item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length;

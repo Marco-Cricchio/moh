@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, Static, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer } from "./markdown";
@@ -145,11 +145,19 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
       {/* transcript window flexes to fill the column: the input is pinned
           to the bottom edge, vertically aligned with the sidebar panels —
           the fixed window height is an upper bound, never a gap. */}
-      <Box flexDirection="column" flexGrow={1} justifyContent="flex-end" overflow="hidden">
-        <ChatWindow lines={lines} height={height} offset={offset} />
-      </Box>
+      {/* Settled transcript is emitted into terminal scrollback.  It is
+          intentionally not inside a fixed-height box: native scrollback is
+          the selection/persistence boundary (#183). */}
+      <Static items={lines}>
+        {(line, index) => <Text key={`${index}-${line}`}>{line}</Text>}
+      </Static>
+      {state.pending && (
+        <Box flexDirection="column">
+          <Text color={theme.accent}>{streamingNote}</Text>
+        </Box>
+      )}
 
-      <Text> </Text>
+      <Text color={theme.border}>{"─".repeat(Math.max(1, cols - 1))}</Text>
       <MultilineInput
         placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+e editor)"}
         disabled={blocked}
@@ -164,6 +172,11 @@ export function Chat({ session, mode, modelLabel, blocked = false, filePreview =
           void session.send(text);
         }}
       />
+      <Text color={theme.border}>{"─".repeat(Math.max(1, cols - 1))}</Text>
+      <Box width={cols} justifyContent="space-between">
+        <Text color={state.pending ? theme.accent : theme.dim}>{state.pending ? `${spinner} ${mode === "vibe" ? "thinking" : "streaming"}` : "ready"}</Text>
+        <Text color={theme.dim}>tab chips · ctrl+k commands · esc stop</Text>
+      </Box>
     </Box>
   );
 }
