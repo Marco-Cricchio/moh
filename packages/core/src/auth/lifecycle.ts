@@ -19,11 +19,12 @@ import { loginOpenAI } from "./openai";
 import { loginOpenRouter } from "./openrouter";
 import { loginXai } from "./xai";
 import { loginKimiCoding } from "./kimi-coding";
+import { loginGitHubCopilot } from "./github-copilot";
 import type { AuthorizationIo } from "./oauth";
 import { clearTokens, readAuthSection, saveTokens } from "./store";
 import type { AuthOverrides, AuthToken } from "./types";
 /** Provider kinds with a subscription grant (openai-compat has none). */
-export const SUBSCRIPTION_KINDS = ["anthropic", "openai", "google", "openrouter", "xai", "kimi-coding"] as const;
+export const SUBSCRIPTION_KINDS = ["anthropic", "openai", "google", "openrouter", "xai", "kimi-coding", "github-copilot"] as const;
 export type SubscriptionKind = (typeof SUBSCRIPTION_KINDS)[number];
 
 export function isSubscriptionKind(kind: string): kind is SubscriptionKind {
@@ -69,6 +70,8 @@ export async function runSubscriptionLogin(
       return loginXai(io, { overrides: opts.overrides?.xai, ...rest });
     case "kimi-coding":
       return loginKimiCoding(io, { overrides: opts.overrides?.["kimi-coding"], ...rest });
+    case "github-copilot":
+      return loginGitHubCopilot(io, { overrides: opts.overrides?.["github-copilot"], ...rest });
   }
 }
 
