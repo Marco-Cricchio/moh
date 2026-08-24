@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { minimalConnectionTest, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { minimalConnectionTest, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
 import {
   addProviderToFile,
   OnboardingAborted,
@@ -221,8 +221,7 @@ describe("runProviderAdd (subscription branch)", () => {
       "anthropic",       // type
       "",                // name default
       "subscription",    // auth method
-      "",                // baseUrl default
-      "claude-sonnet-4-5",
+      "claude-sonnet-4-5", // model: free-text fallback
     ]);
     try {
       const profile = await runProviderAdd(io, okTest(), {
@@ -231,9 +230,50 @@ describe("runProviderAdd (subscription branch)", () => {
       });
       expect(profile.auth).toEqual({ kind: "subscription" });
       expect("apiKey" in profile).toBe(false);
+      // #156: the catalog list is shown; subscription never asks for a
+      // base URL or key.
+      expect(io.said.join("\n")).toContain("Models available on anthropic subscriptions:");
+      expect(io.said.join("\n")).not.toContain("Base URL");
       // tokens live in the user config auth section, never in the profile
       const saved = JSON.parse(readFileSync(authFile, "utf8"));
       expect(saved.auth.tokens.anthropic.accessToken).toBe("acc-xyz");
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
+  test("#156: post-login model list — a number picks the catalog entry", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config-list`;
+    await Bun.write(authFile, "{}");
+    const io = ioWith([
+      "google",   // type
+      "",         // name default
+      "subscription",
+      "2",        // model: second catalog entry
+    ]);
+    try {
+      const profile = await runProviderAdd(io, okTest(), {
+        authFile,
+        subscriptionLogin: async () => fakeToken(),
+      });
+      const second = subscriptionModelCatalog("google")[1]!;
+      expect(profile.defaultModel).toBe(second.id);
+    } finally {
+      await Bun.file(authFile).delete();
+    }
+  });
+
+  test("#156: out-of-range numbers are re-asked, then free text passes", async () => {
+    const authFile = `${import.meta.dir}/tmp-onboarding/config-range`;
+    await Bun.write(authFile, "{}");
+    const io = ioWith(["anthropic", "", "subscription", "999", "claude-opus-4-5"]);
+    try {
+      const profile = await runProviderAdd(io, okTest(), {
+        authFile,
+        subscriptionLogin: async () => fakeToken(),
+      });
+      expect(profile.defaultModel).toBe("claude-opus-4-5");
+      expect(io.said.join("\n")).toContain("enter a number between 1 and");
     } finally {
       await Bun.file(authFile).delete();
     }
@@ -275,7 +315,7 @@ describe("runProviderAdd (subscription branch)", () => {
     await Bun.write(authFile, "{}");
     await Bun.write(configFile, "{}");
     // Abort after login: no model given → OnboardingAborted.
-    const io = ioWith(["google", "mygoogle", "subscription", "", ""]);
+    const io = ioWith(["google", "mygoogle", "subscription", ""]);
     try {
       await expect(
         runProviderAdd(io, okTest(), {
