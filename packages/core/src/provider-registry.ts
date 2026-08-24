@@ -9,7 +9,8 @@ import { EchoProvider } from "./echo-provider";
 import { Endpoint, createRoute, envApiKey, type ProviderKind, type RouteTarget } from "./route";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider } from "./types";
-import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
+import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
+import { catalogEntryFor } from "./model-catalog";
 
 /** Options a custom provider factory receives from an endpoint profile. */
 export interface ProviderFactoryOptions {
@@ -129,6 +130,15 @@ function resolveProfile(profile: EndpointProfile, modelId: string, registry: Fro
   return factory({ apiKey, baseUrl: profile.baseUrl, modelId });
 }
 
+/** #164: per-model catalog overrides for a route target — wire (copilot
+ * claude vs gpt) and headers (copilot editor headers). Exported from the
+ * defining module (ADR-0004) for direct testing. */
+export function catalogTargetOverrides(kind: string, modelId: string): { wire?: RouteTarget["wire"]; headers?: Record<string, string> } {
+  if (!isOAuthBuiltinKind(kind)) return {};
+  const entry = catalogEntryFor(kind, modelId);
+  return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}) };
+}
+
 function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
   // openai-compat travels the OpenAI Chat Completions wire protocol as a
   // plain "openai" endpoint; every other builtin keeps its own kind —
@@ -147,6 +157,7 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
       capabilities: profile.capabilities,
     }),
     modelId,
+    ...catalogTargetOverrides(kind, modelId),
   };
 }
 
