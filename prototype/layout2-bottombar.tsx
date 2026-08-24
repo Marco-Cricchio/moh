@@ -728,6 +728,124 @@ function Session({ showBar, paused, focusChip, draft, level }: {
   );
 }
 
+// ── Modals (demo): lo stile Dialog dell'App reale, adattato ai token ──────
+// Sovrastruttura BLOCCANTE sopra l'area live: il transcript resta nello
+// scrollback sotto, intatto. Cornice round = chrome di interazione (qui è
+// corretta: non c'è contenuto da copiare).
+
+/** Cornice dialog: round border colorata, bg del tema, centrata, clampata. */
+function Dialog({ title, color, children, w }: { title: string; color: string; children: React.ReactNode; w?: number }) {
+  const width = Math.min(w ?? Math.round(WIDTH * 0.62), WIDTH - 2, 80);
+  return (
+    <Box flexDirection="column" alignItems="center" flexShrink={0}>
+      <Box borderStyle="round" borderColor={color} backgroundColor={t().bg} width={width} paddingX={2} flexDirection="column">
+        <Text color={color} bold>{title}</Text>
+        <Text> </Text>
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
+const MODALS = ["permission", "ask", "model", "settings", "commands", "onboarding", "frontier"] as const;
+type ModalName = (typeof MODALS)[number];
+
+function ModalDemo({ which, onClose }: { which: ModalName; onClose: () => void }) {
+  const th = t();
+  useInput((input, key) => {
+    if (key.escape || key.return) onClose();
+  });
+  switch (which) {
+    case "permission":
+      return (
+        <Dialog title=" permission " color={th.warn}>
+          <Text color={th.fg}>A tool call needs your approval:</Text>
+          <Text> </Text>
+          <Text color={th.fg}>{"  bash · bun install --save-dev ink"}</Text>
+          <Text color={th.dim}>{"  cwd: packages/tui"}</Text>
+          <Text> </Text>
+          <Text color={th.dim}>{"  “always” writes the session rule: bash:bun install*"}</Text>
+          <Text> </Text>
+          <Text><Text color={th.accent} bold>y</Text>{" yes  "}<Text color={th.accent}>a</Text>{" always  "}<Text color={th.accent}>e</Text>{" edit  "}<Text color={th.accent}>n</Text>{" deny"}</Text>
+        </Dialog>
+      );
+    case "ask":
+      return (
+        <Dialog title=" ask " color={th.purple}>
+          <Text color={th.fg}>CONTEXT.md: sezione glossary o ADR separato?</Text>
+          <Text> </Text>
+          <Text color={th.accent}>{">"} glossary (suggested)</Text>
+          <Text color={th.fg}>  adr</Text>
+          <Text color={th.fg}>  both</Text>
+          <Text> </Text>
+          <Text color={th.dim}>↑↓ move · 1–3 pick · tab free text · esc suggested</Text>
+        </Dialog>
+      );
+    case "model":
+      return (
+        <Dialog title=" /model " color={th.accent}>
+          <Text color={th.dim}>filter: claude…</Text>
+          <Text> </Text>
+          <Text color={th.fg}>◆ anthropic (subscription)</Text>
+          <Text color={th.accent}>  ● claude-sonnet-4</Text>
+          <Text color={th.fg}>  ○ claude-opus-4.5</Text>
+          <Text color={th.fg}>◆ openai (subscription)</Text>
+          <Text color={th.fg}>  ○ gpt-5.2</Text>
+          <Text> </Text>
+          <Text color={th.dim}>⏎ switch (next turn) · f free text · esc close</Text>
+        </Dialog>
+      );
+    case "settings":
+      return (
+        <Dialog title=" settings " color={th.accent}>
+          <Text color={th.fg}>theme      <Text color={th.accent}>{th.label}</Text></Text>
+          <Text color={th.fg}>mode       dev</Text>
+          <Text color={th.fg}>permission ask</Text>
+          <Text color={th.fg}>editor     $EDITOR</Text>
+          <Text color={th.fg}>provider   <Text color={th.accent}>w: wizard · s: switch</Text></Text>
+          <Text> </Text>
+          <Text color={th.dim}>↑↓ move · ⏎ change · esc close</Text>
+        </Dialog>
+      );
+    case "commands":
+      return (
+        <Dialog title=" commands " color={th.accent}>
+          {["/model — switch model (next turn)", "/theme — cycle theme", "/workflow on|off", "/skills update", "/memory — show memory index", "/help — all commands"].map((c, i) => (
+            <Text key={i} color={th.fg}>{c}</Text>
+          ))}
+          <Text> </Text>
+          <Text color={th.dim}>type / · ↑↓ · ⏎ run · esc close</Text>
+        </Dialog>
+      );
+    case "onboarding":
+      return (
+        <Dialog title=" welcome to moh " color={th.accent}>
+          <Text color={th.fg}>Pick a provider to start:</Text>
+          <Text> </Text>
+          <Text color={th.accent}>1. Claude (subscription · pro/max)</Text>
+          <Text color={th.fg}>2. ChatGPT (subscription · plus/pro)</Text>
+          <Text color={th.fg}>3. GitHub Copilot</Text>
+          <Text color={th.fg}>4. Custom (openai-compat)</Text>
+          <Text> </Text>
+          <Text color={th.dim}>1–4 pick · esc later</Text>
+        </Dialog>
+      );
+    case "frontier":
+      return (
+        <Dialog title=" wayfinder · frontier " color={th.purple}>
+          <Text color={th.fg}>Next unblocked ticket:</Text>
+          <Text> </Text>
+          <Text color={th.accent}>#184 task — vendored catalog for kimi</Text>
+          <Text color={th.dim}>  labels: ready-for-agent · no blockers</Text>
+          <Text> </Text>
+          <Text color={th.fg}>Queue: 3 research · 2 tasks · 1 blocked</Text>
+          <Text> </Text>
+          <Text color={th.dim}>⏎ claim · r refresh · esc close</Text>
+        </Dialog>
+      );
+  }
+}
+
 function App() {
   const { exit } = useApp();
   const [themeIdx, setThemeIdx] = useState(0);
@@ -740,7 +858,12 @@ function App() {
   const [level, setLevel] = useState<ThinkingLevel>("medium");
   T = THEMES[THEME_ORDER[themeIdx]!];
   const cycleTheme = () => setThemeIdx((i) => (i + 1) % THEME_ORDER.length);
+  const [modal, setModal] = useState<ModalName | null>(null);
   useInput((input, key) => {
+    // i modal catturano TUTTO (bloccanti): esc/⏎ chiudono (in ModalDemo)
+    if (modal !== null) return;
+    const mi = MODALS.findIndex((m) => m === input && input >= "1" && input <= "7");
+    if (mi >= 0) return setModal(MODALS[mi]!);
     if (key.tab) {
       // navigazione: null → 0 → … → ultimo → null; shift+tab inverte
       const n = CHIP_LABELS.length;
@@ -777,6 +900,7 @@ function App() {
   const th = t();
   return (
     <Box flexDirection="column">
+      {modal !== null && <ModalDemo which={modal} onClose={() => setModal(null)} />}
       {/* key: il remount ristampa il transcript nella palette nuova */}
       <Session
         key={themeIdx}
@@ -788,7 +912,7 @@ function App() {
       />
       <Text color={th.warn}> </Text>
       <Box alignSelf="center" borderStyle="round" borderColor={th.warn} paddingX={1} flexShrink={0}>
-        <Text color={th.warn}>{`‹ PROTOTYPE › ${note ? `${note} · ` : ""}[tab] chips · [x] thinking: ${level} · [y] ${th.label} · [b] bar · [p] live · [q] quit`}</Text>
+        <Text color={th.warn}>{`‹ PROTOTYPE › ${note ? `${note} · ` : ""}[1-7] modals · [tab] chips · [x] thinking · [y] ${th.label} · [b] bar · [p] live · [q] quit`}</Text>
       </Box>
     </Box>
   );
