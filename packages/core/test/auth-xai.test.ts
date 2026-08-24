@@ -103,7 +103,7 @@ describe("device-code poller", () => {
     const clock: DeviceFlowClock = { now: () => t, sleep: async () => { t += 2000; } };
     await expect(
       pollDeviceCodeFlow({ clock, expiresInSeconds: 1, poll: async () => ({ status: "pending" }) }),
-    ).rejects.toThrow("timed out");
+    ).rejects.toThrow("device flow timed out");
   });
 });
 

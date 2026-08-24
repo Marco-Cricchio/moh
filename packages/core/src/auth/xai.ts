@@ -94,10 +94,16 @@ async function requestDeviceCode(config: XaiOAuthConfig, fetchImpl: XaiEndpointF
   if (typeof expiresIn !== "number" || !Number.isFinite(expiresIn) || expiresIn <= 0) {
     throw new Error(`Invalid xAI OAuth response field: expires_in`);
   }
+  // Device flow: prefer verification_uri_complete (auto-fills the user
+  // code) like pi-ai does; fall back to the bare verification_uri.
+  const verificationUriComplete =
+    typeof body.verification_uri_complete === "string" && body.verification_uri_complete.length > 0
+      ? validateVerificationUri(body.verification_uri_complete, "verification_uri_complete")
+      : undefined;
   return {
     deviceCode,
     userCode,
-    verificationUri: validateVerificationUri(body.verification_uri, "verification_uri"),
+    verificationUri: verificationUriComplete ?? validateVerificationUri(body.verification_uri, "verification_uri"),
     intervalSeconds: typeof interval === "number" && interval > 0 ? interval : undefined,
     expiresInSeconds: expiresIn,
   };
@@ -113,14 +119,14 @@ function tokenFromResponse(
   // Rotation tolerance: xAI may omit refresh_token on refresh — the
   // previous one stays valid; anything else must be a string.
   const rawRefresh = json.refresh_token ?? previousRefreshToken;
-  const expiresInSeconds =
-    json.expires_in === undefined ? DEFAULT_TOKEN_LIFETIME_SECONDS : (json.expires_in as number);
+  const rawExpires = json.expires_in;
   if (typeof access !== "string" || access.length === 0 || typeof rawRefresh !== "string") {
     throw new Error(`Invalid xAI token response: ${JSON.stringify(json)}`);
   }
-  if (typeof expiresInSeconds !== "number" || !Number.isFinite(expiresInSeconds) || expiresInSeconds <= 0) {
-    throw new Error("Invalid xAI OAuth response field: expires_in");
-  }
+  const expiresInSeconds =
+    typeof rawExpires === "number" && Number.isFinite(rawExpires) && rawExpires > 0
+      ? rawExpires
+      : DEFAULT_TOKEN_LIFETIME_SECONDS;
   return {
     accessToken: access,
     refreshToken: rawRefresh,
@@ -161,7 +167,7 @@ export async function loginXai(
     intervalSeconds: device.intervalSeconds,
     expiresInSeconds: device.expiresInSeconds,
     waitBeforeFirstPoll: true,
-    ...(opts.clock ? { clock: opts.clock } : {}),
+    clock: opts.clock,
     poll: async (): Promise<DevicePollResult<AuthToken>> => {
       const result = await fetchImpl(config.tokenUrl, {
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",

@@ -48,11 +48,13 @@ export async function pollDeviceCodeFlow<T>(options: DevicePollOptions<T>): Prom
   if (options.waitBeforeFirstPoll && clock.now() < deadline) {
     await clock.sleep(Math.min(intervalMs, deadline - clock.now()));
   }
+  let slowDownResponses = 0;
   while (clock.now() < deadline) {
     const result = await options.poll();
     if (result.status === "complete") return result.value;
     if (result.status === "failed") throw new Error(result.message);
     if (result.status === "slow_down") {
+      slowDownResponses += 1;
       // Server-provided interval wins (GitHub reports the new minimum);
       // otherwise the RFC 3.5 increment. Guards against polling early
       // forever under clock drift.
@@ -65,5 +67,11 @@ export async function pollDeviceCodeFlow<T>(options: DevicePollOptions<T>): Prom
     if (remaining <= 0) break;
     await clock.sleep(Math.min(intervalMs, remaining));
   }
-  throw new Error("device flow timed out");
+  // A timeout after slow_down responses is usually clock drift (WSL/VM)
+  // — a distinct message points the user at the right fix (pi's hint).
+  throw new Error(
+    slowDownResponses > 0
+      ? "device flow timed out after slow_down responses — often clock drift in WSL/VM environments; sync the clock and retry"
+      : "device flow timed out",
+  );
 }
