@@ -48,6 +48,7 @@ export interface CatalogModel {
 type PiAiCatalog = Record<string, Record<string, PiAiEntry>>;
 interface PiAiEntry {
   id: string;
+  baseUrl?: string;
   name?: string;
   contextWindow?: number;
   reasoning?: boolean;
@@ -56,7 +57,7 @@ interface PiAiEntry {
 }
 
 /** pi api names → moh wires. Unknown apis are skipped (not guessed). */
-const PI_API_TO_WIRE: Record<string, WireApi> = {
+export const PI_API_TO_WIRE: Record<string, WireApi> = {
   "anthropic-messages": "anthropic-messages",
   "openai-completions": "openai-chat",
   "openai-responses": "openai-responses",
@@ -97,7 +98,7 @@ function collect(catalog: PiAiCatalog): CatalogModel[] {
   return out;
 }
 
-const CATALOGS: Record<string, CatalogModel[]> = {
+const CATALOGS = {
   anthropic: collect(anthropicJson),
   openai: collect(openaiCodexJson),
   google: collect(googleJson),
@@ -105,10 +106,41 @@ const CATALOGS: Record<string, CatalogModel[]> = {
   openrouter: collect(openrouterJson),
   "kimi-coding": collect(kimiCodingJson),
   xai: collect(xaiJson),
-};
+} as const satisfies Record<string, CatalogModel[]>;
 
 /** Providers that have a vendored subscription catalog. */
 export type CatalogProviderType = keyof typeof CATALOGS;
+
+/** Every api key present in the vendored files — a regen check: an
+ * unmapped pi api name must fail loudly here, not silently drop models
+ * from the picker. */
+export function vendoredApiNames(): string[] {
+  return [
+    ...Object.keys(anthropicJson),
+    ...Object.keys(openaiCodexJson),
+    ...Object.keys(googleJson),
+    ...Object.keys(githubCopilotJson),
+    ...Object.keys(openrouterJson),
+    ...Object.keys(kimiCodingJson),
+    ...Object.keys(xaiJson),
+  ].filter((api, i, all) => all.indexOf(api) === i);
+}
+
+/** The baseUrl values the vendored data declares, per provider — drift
+ * check against OAUTH_BUILTIN_BASE_URLS (the registry's own source). */
+export function vendoredBaseUrls(type: string): Set<string> {
+  const files: Record<string, PiAiCatalog> = {
+    anthropic: anthropicJson,
+    openai: openaiCodexJson,
+    google: googleJson,
+    "github-copilot": githubCopilotJson,
+    openrouter: openrouterJson,
+    "kimi-coding": kimiCodingJson,
+    xai: xaiJson,
+  };
+  const file = files[type] ?? {};
+  return new Set(Object.values(file).flatMap((models) => Object.values(models).map((e) => e.baseUrl).filter((b): b is string => typeof b === "string")));
+}
 
 /**
  * The post-login model list for a subscription provider. Unknown types
@@ -117,7 +149,7 @@ export type CatalogProviderType = keyof typeof CATALOGS;
  * the list, but never requires typing when one exists).
  */
 export function subscriptionModelCatalog(type: string): CatalogModel[] {
-  return CATALOGS[type] ?? [];
+  return (CATALOGS as Record<string, CatalogModel[]>)[type] ?? [];
 }
 
 /**
