@@ -902,40 +902,36 @@ function App() {
     if (input && !key.escape) setDraft((d) => (d + input).slice(0, 70));
   });
   const th = t();
+  // Altezza disponibile per l'area live: terminale - footer prototipo (3 righe:
+  // gap + box + margine). Il layer modale la riempie e centra il dialog;
+  // il footer resta SEMPRE l'ultima riga visibile (è il selettore del proto).
+  const footerRows = 3;
+  const liveHeight = Math.max(1, (stdoutRows ?? 24) - footerRows - 1);
   return (
-    <Box flexDirection="column" position="relative">
+    <Box flexDirection="column">
       {/* key: il remount ristampa il transcript nella palette nuova.
           Nascosta mentre un modal è aperto: il modal possiede l'area live. */}
-      {!modal && (
-      <Session
-        key={themeIdx}
-        showBar={showBar}
-        paused={paused}
-        focusChip={focusChip}
-        draft={draft}
-        level={level}
-      />
+      {!modal ? (
+        <Session
+          key={themeIdx}
+          showBar={showBar}
+          paused={paused}
+          focusChip={focusChip}
+          draft={draft}
+          level={level}
+        />
+      ) : (
+        /* Modal layer (pattern OverlayLayer dell'App reale): Box che riempie
+           l'area live e centra il dialog su entrambi gli assi. Lo scrollback
+           sopra resta intatto e selezionabile. */
+        <Box width={WIDTH} height={liveHeight} flexDirection="column" alignItems="center" justifyContent="center">
+          <ModalDemo which={modal} onClose={() => setModal(null)} />
+        </Box>
       )}
       <Text color={th.warn}> </Text>
       <Box alignSelf="center" borderStyle="round" borderColor={th.warn} paddingX={1} flexShrink={0}>
         <Text color={th.warn}>{`‹ PROTOTYPE › ${note ? `${note} · ` : ""}[1-7] modals · [tab] chips · [x] thinking · [y] ${th.label} · [b] bar · [p] live · [q] quit`}</Text>
       </Box>
-      {/* Modal layer (pattern OverlayLayer dell'App reale): quando un modal è
-          aperto è l'UNICA cosa nell'area live — Box a pieno terminale
-          (rows-1: mai fullscreen esatto, Ink ripartirebbe da zero) che
-          centra il dialog su entrambi gli assi. Lo scrollback sopra resta
-          intatto e selezionabile: il terminale non lo ridisegna. */}
-      {modal !== null && (
-        <Box
-          width={WIDTH}
-          height={Math.max(1, (stdoutRows ?? 24) - 1)}
-          flexDirection="column"
-          alignItems="center"
-          justifyContent="center"
-        >
-          <ModalDemo which={modal} onClose={() => setModal(null)} />
-        </Box>
-      )}
     </Box>
   );
 }
