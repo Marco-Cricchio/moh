@@ -40,14 +40,14 @@ describe("turnLines (flat prototype rendering, issue #117)", () => {
     const lines = turnLines(turn({ user: "hi there" }), W, {});
     expect(lines[0]).toEqual({ text: " you", tone: "accent" });
     expect(lines[1]).toEqual({ text: " hi there", tone: "fg" });
-    expect(lines[2]).toEqual({ text: "", tone: "fg" });
+    expect(lines[2]).toEqual({ text: " ", tone: "fg" });
   });
 
   test("settled reply: purple moh label, wrapped reply, spacer", () => {
     const lines = turnLines(turn({ reply: "the answer" }), W, {});
     expect(lines).toContainEqual({ text: " moh", tone: "purple" });
     expect(lines).toContainEqual({ text: " the answer", tone: "fg" });
-    expect(lines.at(-1)).toEqual({ text: "", tone: "fg" });
+    expect(lines.at(-1)).toEqual({ text: " ", tone: "fg" });
   });
 
   test("reply with md renderer: markdown interpreted, not shown raw", () => {
