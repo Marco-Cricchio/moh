@@ -52,3 +52,22 @@ export function modelRow(m: CatalogModel, current?: boolean): string {
 export function freeTextRow(query: string): string {
   return `+ use "${query}" (free text)`;
 }
+
+/** One endpoint in a picker: its profile plus the model list to show —
+ * the vendored `subscriptionModelCatalog` when one exists, the live
+ * `GET /models` fetch for openai-compat backends (#181 follow-up), or
+ * nothing (free text only). */
+export interface EndpointPick {
+  name: string;
+  type: string;
+  defaultModel?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  /** Catalog rows (vendored or fetched). Empty + no baseUrl = free-text only. */
+  catalog: CatalogModel[];
+}
+
+/** Fetched model ids → picker rows (name = id, no metadata available). */
+export function fetchedToCatalog(ids: string[]): CatalogModel[] {
+  return ids.map((id) => ({ id, name: id, contextWindow: 0, reasoning: false }));
+}

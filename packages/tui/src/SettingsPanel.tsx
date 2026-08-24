@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { loadMohConfig, loadMergedConfig, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, subscriptionModelCatalog, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
+import { loadMohConfig, loadMergedConfig, listOpenAiCompatModels, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, subscriptionModelCatalog, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
-import { filterCatalog, freeTextRow, modelRow } from "./model-picker";
+import { fetchedToCatalog, filterCatalog, freeTextRow, modelRow } from "./model-picker";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
@@ -61,6 +61,18 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
     | { kind: "remove"; cursor: number };
   const [sub, setSub] = useState<Sub | null>(null);
+  // Live-fetched model lists for openai-compat endpoints (#181 follow-up):
+  // `GET <baseUrl>/models`, shown in the model level like a vendored
+  // catalog. Failure = free-text entry only, as before.
+  const [remote, setRemote] = useState<Record<string, string[] | "error" | "loading">>({});
+
+  const fetchRemoteModels = (endpoint: { name: string; baseUrl?: string; apiKey?: string }) => {
+    if (!endpoint.baseUrl || remote[endpoint.name]) return;
+    setRemote((r) => ({ ...r, [endpoint.name]: "loading" }));
+    listOpenAiCompatModels(endpoint.baseUrl, endpoint.apiKey)
+      .then((ids) => setRemote((r) => ({ ...r, [endpoint.name]: ids })))
+      .catch(() => setRemote((r) => ({ ...r, [endpoint.name]: "error" })));
+  };
 
   const cycle = <T,>(values: readonly T[], current: T): T => values[(values.indexOf(current) + 1) % values.length]!;
 
@@ -101,13 +113,16 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (sub.kind === "endpoint")
       return ["mock", ...(moh.endpoints ?? []).map((e) => (projectNames.has(e.name) ? e.name : `${e.name} (user)`))];
     if (sub.kind === "model") {
-      const rows = filterCatalog(subscriptionModelCatalog(sub.type), sub.query).map((m) => modelRow(m, m.id === sub.current));
+      // Vendored catalog when one exists; otherwise the fetched list.
+      const vendored = subscriptionModelCatalog(sub.type);
+      const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
+      const rows = filterCatalog(list, sub.query).map((m) => modelRow(m, m.id === sub.current));
       rows.push(sub.query.trim() ? freeTextRow(sub.query) : "+ other… (type a model id)");
       return rows;
     }
     if (sub.kind === "model-free") return [];
     return (moh.endpoints ?? []).map((e) => e.name);
-  }, [sub, moh, projectNames]);
+  }, [sub, moh, projectNames, remote]);
 
   const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model") ? sub.cursor : 0;
   const subWin = windowing(
@@ -232,15 +247,18 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (!endpoint) return;
           const userOwned = !projectNames.has(name);
           const catalog = subscriptionModelCatalog(endpoint.type);
-          if (catalog.length === 0) {
-            // Unknown types (openai-compat, custom): free text only, as in
-            // the wizard (acceptance).
+          if (catalog.length === 0 && !endpoint.baseUrl) {
+            // Unknown types without a base URL (custom): free text only,
+            // as in the wizard (acceptance).
             return setSub({ kind: "model-free", name, userOwned, value: endpoint.defaultModel ?? "" });
           }
+          if (catalog.length === 0) fetchRemoteModels(endpoint);
           return setSub({ kind: "model", name, type: endpoint.type, current: endpoint.defaultModel, userOwned, cursor: 0, query: "" });
         }
         if (sub.kind === "model") {
-          const catalog = filterCatalog(subscriptionModelCatalog(sub.type), sub.query);
+          const vendored = subscriptionModelCatalog(sub.type);
+          const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
+          const catalog = filterCatalog(list, sub.query);
           if (index < catalog.length) {
             commitModel(sub.name, catalog[index]!.id, sub.userOwned);
             return setSub(null);
@@ -328,6 +346,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 );
               })}
               {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
+              {sub.kind === "model" && subscriptionModelCatalog(sub.type).length === 0 && remote[sub.name] === "loading" && (
+                <Dim> fetching models…</Dim>
+              )}
+              {sub.kind === "model" && subscriptionModelCatalog(sub.type).length === 0 && remote[sub.name] === "error" && (
+                <Dim> no list from this endpoint — free text works</Dim>
+              )}
             </>
           )}
           <Text> </Text>

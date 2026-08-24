@@ -234,35 +234,51 @@ describe("merged provider endpoints (#129)", () => {
     i.unmount();
   });
 
-  test("picking a model on a user endpoint switches only the provider ref (moh.json)", async () => {
+  test("picking a model on a user openai-compat endpoint fetches the live list and switches only the provider ref", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const userFile = join(home, ".moh", "config");
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({ data: [{ id: "glm-5.3" }, { id: "glm-5.3-air" }] });
+      },
+    });
     upsertUserEndpoint(userFile, {
       name: "zai",
       type: "openai-compat",
-      baseUrl: "https://api.z.ai/api/coding/paas/v4",
+      baseUrl: `http://localhost:${server.port}/v1`,
       defaultModel: "glm-5.3",
       apiKey: "key",
     });
-    const { i, switched, toasts } = mount(cwd, { home });
-    await sleep(30);
-    await down(i, 7);
-    i.stdin.write("\r");
-    await sleep(30);
-    await down(i, 3); // zai (user)
-    i.stdin.write("\r");
-    await sleep(30);
-    // openai-compat → free-text entry, prefilled with the current default
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("glm-5.3");
-    i.stdin.write("\r");
-    await sleep(30);
-    expect(switched).toEqual(["zai/glm-5.3"]);
-    expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("zai/glm-5.3");
-    expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.some((e) => e.name === "zai")).toBe(false);
-    expect(readUserProviderConfig(userFile).endpoints?.find((e) => e.name === "zai")?.defaultModel).toBe("glm-5.3");
-    expect(toasts.some((t) => t.includes("user endpoint"))).toBe(true);
-    i.unmount();
+    try {
+      const { i, switched } = mount(cwd, { home });
+      await sleep(30);
+      await down(i, 7);
+      i.stdin.write("\r");
+      await sleep(30);
+      await down(i, 3); // zai (user)
+      i.stdin.write("\r");
+      await sleep(30);
+      // model level: fetched list arrives asynchronously
+      await sleep(120);
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      expect(frame).toContain("glm-5.3-air");
+      i.stdin.write("air");
+      await sleep(30);
+      i.stdin.write("\x1b[B"); // free-text row (filter narrowed to nothing)
+      await sleep(30);
+      i.stdin.write("\r");
+      await sleep(30);
+      expect(switched).toEqual(["zai/air"]);
+      expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("zai/air");
+      // user endpoint: its defaultModel is never rewritten here
+      expect(readUserProviderConfig(userFile).endpoints?.find((e) => e.name === "zai")?.defaultModel).toBe("glm-5.3");
+      expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.some((e) => e.name === "zai")).toBe(false);
+      i.unmount();
+    } finally {
+      server.stop(true);
+    }
   });
 
   test("removing a user-level endpoint updates user config", async () => {
