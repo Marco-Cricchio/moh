@@ -371,12 +371,12 @@ describe("minimalConnectionTest (subscription)", () => {
       expect(calls[0]!.url).toBe("https://chatgpt.com/backend-api/codex/responses");
       expect(calls[0]!.headers["authorization"]).toBe("Bearer jwt-abc");
       expect(calls[0]!.headers["originator"]).toBe("codex_cli_rs");
-      // The ChatGPT backend rejects a bare string with "Input must be a
-      // list" (HTTP 400) — the ping must use message items.
-      expect((calls[0]!.body as Record<string, unknown>).input).toEqual([
-        { role: "user", content: [{ type: "input_text", text: "ping" }] },
-      ]);
-      expect((calls[0]!.body as Record<string, unknown>).store).toBe(false);
+      // Codex client shape, pinned as a block: message-item input list,
+      // store:false, stream:true — the ChatGPT backend 400s otherwise.
+      const body = calls[0]!.body as Record<string, unknown>;
+      expect(body.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "ping" }] }]);
+      expect(body.store).toBe(false);
+      expect(body.stream).toBe(true);
     } finally {
       await Bun.file(authFile).delete();
     }
