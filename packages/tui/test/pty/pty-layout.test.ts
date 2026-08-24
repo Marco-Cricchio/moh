@@ -66,11 +66,16 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const title = lines.find((l) => l.text.includes("settings"));
       expect(title).toBeDefined();
       // Horizontally: ~62% of 160 (99±2), with transparent chat on both sides.
-      const border = lines.find((l) => l.text.indexOf("╭") >= 28);
-      expect(border).toBeDefined();
-      const dialogStart = border!.text.indexOf("╭");
-      expect(border!.width - dialogStart).toBeGreaterThanOrEqual(97);
-      expect(border!.width - dialogStart).toBeLessThanOrEqual(101);
+      const top = lines.findIndex((l) => l.text.indexOf("╭") >= 28);
+      expect(top).toBeGreaterThanOrEqual(10);
+      expect(top).toBeLessThanOrEqual(20);
+      const border = lines[top]!;
+      const dialogStart = border.text.indexOf("╭");
+      expect(border.width - dialogStart).toBeGreaterThanOrEqual(97);
+      expect(border.width - dialogStart).toBeLessThanOrEqual(101);
+      const visibleSettings = ["Mode", "Theme", "Icons", "File preview", "Answer language", "Telemetry", "Default permission mode", "Provider"]
+        .filter((label) => lines.some((line) => line.text.includes(label)));
+      expect(visibleSettings.length).toBeGreaterThanOrEqual(8);
     },
     30000,
   );

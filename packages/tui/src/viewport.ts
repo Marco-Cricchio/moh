@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useStdout } from "ink";
 
 /**
@@ -77,16 +77,8 @@ export function fitRow(segments: ReadonlyArray<{ text: string; optional?: boolea
 
 export type WidthClass = "compact" | "regular" | "wide";
 
-const ViewportOverride = createContext<Viewport | null>(null);
-
-/** Constrains viewport-aware children to a layer's actual geometry. */
-export function ViewportProvider({ value, children }: { value: Viewport; children: React.ReactNode }) {
-  return React.createElement(ViewportOverride.Provider, { value }, children);
-}
-
 /** Live terminal geometry; 80×24 fallback for non-tty hosts (tests, pipes). */
 export function useViewport(): Viewport {
-  const override = useContext(ViewportOverride);
   const { stdout } = useStdout();
   const [, bump] = useState(0);
   useEffect(() => {
@@ -96,7 +88,7 @@ export function useViewport(): Viewport {
       stdout?.off("resize", onResize);
     };
   }, [stdout]);
-  return override ?? { columns: stdout?.columns ?? 80, rows: stdout?.rows ?? 24 };
+  return { columns: stdout?.columns ?? 80, rows: stdout?.rows ?? 24 };
 }
 
 /** #183 breakpoints: compact <70, regular 70–109, wide ≥110. */

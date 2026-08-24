@@ -5,7 +5,7 @@ import { useSessionState } from "./session-bridge";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
-import { projectTranscript, TranscriptBlockView } from "./transcript";
+import { projectTranscript, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { BottomBar, ThinkingSeparator, type ThinkingLevel } from "./BottomBar";
 import type { SidebarTokens } from "./sidebar";
 
@@ -31,6 +31,8 @@ export interface ChatProps {
   livePhase?: string;
   notice?: string;
   submitSignal?: number;
+  /** Repaint settled history in the alternate-screen modal buffer. */
+  replaySettled?: boolean;
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -54,6 +56,7 @@ export function Chat({
   livePhase,
   notice,
   submitSignal = 0,
+  replaySettled = false,
 }: ChatProps) {
   const state = useSessionState(session);
   const viewport = useViewport();
@@ -81,6 +84,10 @@ export function Chat({
       liveBlocks: projectTranscript(live, { filePreview }),
     };
   }, [state.events, state.pending, filePreview]);
+  const replayBlocks = useMemo(
+    () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
+    [replaySettled, settledBlocks, cols, viewport.rows],
+  );
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
   useInput((input, key) => {
@@ -102,9 +109,13 @@ export function Chat({
 
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
-      <Static items={settledBlocks}>
-        {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
-      </Static>
+      {replaySettled ? replayBlocks.map((block) => (
+        <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
+      )) : (
+        <Static items={settledBlocks}>
+          {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
+        </Static>
+      )}
       {state.pending && <Box flexDirection="column">{liveBlocks.map((block) => <TranscriptBlockView key={`live-${block.key}`} block={block} width={cols} />)}</Box>}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
@@ -138,4 +149,21 @@ export function Chat({
       />
     </Box>
   );
+}
+
+/** Tail projection for the alternate-screen modal background. It keeps the
+ * newest complete blocks that fit above the live input instead of clipping
+ * the current turn/status when a long session is replayed. */
+export function transcriptTail(blocks: readonly TranscriptBlock[], width: number, rowBudget: number): TranscriptBlock[] {
+  const selected: TranscriptBlock[] = [];
+  let rows = 0;
+  const bodyWidth = Math.max(1, width - 3);
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!;
+    const blockRows = 2 + block.lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / bodyWidth)), 0);
+    if (selected.length > 0 && rows + blockRows > rowBudget) break;
+    selected.unshift(block);
+    rows += blockRows;
+  }
+  return selected;
 }

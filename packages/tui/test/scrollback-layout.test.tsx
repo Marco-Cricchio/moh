@@ -5,6 +5,8 @@ import { fitRow } from "../src/viewport";
 import { BottomBar, ThinkingSeparator, fitStatusSegments, visibleChips, widthClass183 } from "../src/BottomBar";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
+import { transcriptTail } from "../src/Chat";
+import type { TranscriptBlock } from "../src/transcript";
 
 const terminalWidth = (text: string): number => {
   const chars = Array.from(text);
@@ -18,6 +20,13 @@ const terminalWidth = (text: string): number => {
 };
 
 describe("native scrollback layout geometry", () => {
+  it("replays the newest complete transcript blocks within the modal budget", () => {
+    const blocks: TranscriptBlock[] = ["one", "two", "three", "four"].map((type, i) => ({
+      key: String(i), kind: "moh", glyph: "◆", type, lines: [type],
+    }));
+    expect(transcriptTail(blocks, 100, 6).map((block) => block.type)).toEqual(["three", "four"]);
+  });
+
   it("drops optional segments before wrapping", () => {
     expect(fitRow([
       { text: "live" },

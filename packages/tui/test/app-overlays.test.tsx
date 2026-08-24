@@ -70,25 +70,23 @@ describe("App overlays (issue #33)", () => {
     i.unmount();
   });
 
-  test("a modal overlays the chat transparently without moving its live rows", async () => {
+  test("a modal layer remains transparent around the dialog", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "columns", { value: 100, configurable: true });
     Object.defineProperty(i.stdout, "rows", { value: 40, configurable: true });
     i.stdout.emit("resize");
     await sleep(50);
-    const before = stripAnsi(i.lastFrame() ?? "").split("\n");
-    const inputRow = before.findIndex((line) => line.includes("type…"));
-    const statusRow = before.findIndex((line) => line.includes("· ready"));
-    expect(inputRow).toBeGreaterThanOrEqual(0);
-    expect(statusRow).toBeGreaterThan(inputRow);
+    const before = stripAnsi(i.lastFrame() ?? "");
+    expect(before).toContain("type…");
+    expect(before).toContain("· ready");
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(50);
     const during = stripAnsi(i.lastFrame() ?? "").split("\n");
     expect(during.some((line) => line.includes("settings"))).toBe(true);
-    expect(during.findIndex((line) => line.includes("type…"))).toBe(inputRow);
-    expect(during.findIndex((line) => line.includes("· ready"))).toBe(statusRow);
+    expect(during.some((line) => line.includes("type…"))).toBe(true);
+    expect(during.some((line) => line.includes("· ready"))).toBe(true);
     i.unmount();
   });
 
