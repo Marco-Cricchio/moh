@@ -16,11 +16,12 @@ import { userConfigFile } from "../user-config";
 import { loginAnthropic, ANTHROPIC_OAUTH_BETA } from "./anthropic";
 import { loginGoogle } from "./google";
 import { loginOpenAI } from "./openai";
+import { loginOpenRouter } from "./openrouter";
 import type { AuthorizationIo } from "./oauth";
 import { clearTokens, readAuthSection, saveTokens } from "./store";
 import type { AuthOverrides, AuthToken } from "./types";
 /** Provider kinds with a subscription grant (openai-compat has none). */
-export const SUBSCRIPTION_KINDS = ["anthropic", "openai", "google"] as const;
+export const SUBSCRIPTION_KINDS = ["anthropic", "openai", "google", "openrouter"] as const;
 export type SubscriptionKind = (typeof SUBSCRIPTION_KINDS)[number];
 
 export function isSubscriptionKind(kind: string): kind is SubscriptionKind {
@@ -60,6 +61,8 @@ export async function runSubscriptionLogin(
       return loginOpenAI(io, { overrides: opts.overrides?.openai, ...rest });
     case "google":
       return loginGoogle(io, { overrides: opts.overrides?.google, ...rest });
+    case "openrouter":
+      return loginOpenRouter(io, { overrides: opts.overrides?.openrouter, ...rest });
   }
 }
 
