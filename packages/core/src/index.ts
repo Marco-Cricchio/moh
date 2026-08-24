@@ -205,6 +205,16 @@ import {
   type XaiEndpointFetch,
   type XaiOAuthConfig,
 } from "./auth/xai";
+import {
+  KIMI_CODE_API_BASE_URL,
+  KIMI_CODE_OAUTH_DEFAULTS,
+  KimiCodingLoginAborted,
+  loginKimiCoding,
+  refreshKimiCodingToken,
+  resolveKimiCodingOAuthConfig,
+  type KimiCodingEndpointFetch,
+  type KimiCodingOAuthConfig,
+} from "./auth/kimi-coding";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -287,6 +297,14 @@ export {
   resolveXaiOAuthConfig,
   type XaiEndpointFetch,
   type XaiOAuthConfig,
+  KIMI_CODE_API_BASE_URL,
+  KIMI_CODE_OAUTH_DEFAULTS,
+  KimiCodingLoginAborted,
+  loginKimiCoding,
+  refreshKimiCodingToken,
+  resolveKimiCodingOAuthConfig,
+  type KimiCodingEndpointFetch,
+  type KimiCodingOAuthConfig,
   MockProvider,
   builtinTools,
   ExtensionRuntime,
