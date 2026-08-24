@@ -69,7 +69,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
     await sleep(80);
     const overlayFrame = stripAnsi(ink.lastFrame() ?? "");
     expect(overlayFrame).toContain("active: mock");
-    expect(overlayFrame).not.toContain("type…");
+    expect(overlayFrame).toContain("type…"); // transparent layer leaves the live chat in place
     ink.unmount();
   });
 });
