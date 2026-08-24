@@ -183,6 +183,17 @@ import {
   type GoogleEndpointFetch,
   type GoogleOAuthConfig,
 } from "./auth/google";
+import {
+  OPENROUTER_API_BASE_URL,
+  OPENROUTER_OAUTH_DEFAULTS,
+  OpenrouterLoginAborted,
+  exchangeOpenrouterCode,
+  loginOpenRouter,
+  parseOpenrouterAuthorizationInput,
+  resolveOpenrouterOAuthConfig,
+  type OpenrouterEndpointFetch,
+  type OpenrouterOAuthConfig,
+} from "./auth/openrouter";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -247,6 +258,15 @@ export {
   type OpenAiAuthOverrides,
   type OpenAiEndpointFetch,
   type OpenAiOAuthConfig,
+  OPENROUTER_API_BASE_URL,
+  OPENROUTER_OAUTH_DEFAULTS,
+  OpenrouterLoginAborted,
+  exchangeOpenrouterCode,
+  loginOpenRouter,
+  parseOpenrouterAuthorizationInput,
+  resolveOpenrouterOAuthConfig,
+  type OpenrouterEndpointFetch,
+  type OpenrouterOAuthConfig,
   MockProvider,
   builtinTools,
   ExtensionRuntime,
