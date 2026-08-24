@@ -215,6 +215,22 @@ import {
   type KimiCodingEndpointFetch,
   type KimiCodingOAuthConfig,
 } from "./auth/kimi-coding";
+import {
+  COPILOT_CLIENT_ID,
+  COPILOT_DEFAULT_BASE_URL,
+  COPILOT_EDITOR_HEADERS,
+  COPILOT_OAUTH_DEFAULTS,
+  COPILOT_DEVICE_SCOPE,
+  CopilotLoginAborted,
+  copilotAuthContext,
+  copilotBaseUrl,
+  copilotBaseUrlFromToken,
+  exchangeCopilotToken,
+  loginGitHubCopilot,
+  normalizeGithubDomain,
+  refreshCopilotToken,
+  type CopilotEndpointFetch,
+} from "./auth/github-copilot";
 
 export function createSession(config: SessionConfig): AgentSession {
   return new AgentSession(config);
@@ -305,6 +321,20 @@ export {
   resolveKimiCodingOAuthConfig,
   type KimiCodingEndpointFetch,
   type KimiCodingOAuthConfig,
+  COPILOT_CLIENT_ID,
+  COPILOT_DEFAULT_BASE_URL,
+  COPILOT_EDITOR_HEADERS,
+  COPILOT_OAUTH_DEFAULTS,
+  COPILOT_DEVICE_SCOPE,
+  CopilotLoginAborted,
+  copilotAuthContext,
+  copilotBaseUrl,
+  copilotBaseUrlFromToken,
+  exchangeCopilotToken,
+  loginGitHubCopilot,
+  normalizeGithubDomain,
+  refreshCopilotToken,
+  type CopilotEndpointFetch,
   MockProvider,
   builtinTools,
   ExtensionRuntime,

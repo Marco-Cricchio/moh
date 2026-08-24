@@ -22,6 +22,7 @@ import { refreshGoogleToken, resolveGoogleOAuthConfig } from "./google";
 import { refreshOpenaiToken, resolveOpenAiOAuthConfig, CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./openai";
 import { refreshXaiToken } from "./xai";
 import { refreshKimiCodingToken } from "./kimi-coding";
+import { copilotAuthContext, refreshCopilotToken } from "./github-copilot";
 import type { WireApi } from "../wire";
 
 /** Transport hints a resolver may return alongside the credential (#151):
@@ -107,10 +108,12 @@ export async function resolveEndpointCredential(
 }
 
 /** #151: OpenAI native grants (minted: false) ride the ChatGPT backend;
- * every other shape (including minted OpenAI keys) returns the plain
- * credential string, byte-identical to the pre-#151 path. */
+ * #160: copilot grants ride the token-derived proxy backend with editor
+ * headers; every other shape (including minted OpenAI keys) returns the
+ * plain credential string, byte-identical to the pre-#151 path. */
 function openaiCredentialFor(kind: string, token: AuthToken): string | EndpointAuthContext {
   if (kind === "openai" && token.grant?.minted === false) return openaiNativeAuthContext(token);
+  if (kind === "github-copilot") return copilotAuthContext(token);
   return token.accessToken;
 }
 
@@ -147,6 +150,8 @@ async function refreshToken(
       return refreshXaiToken(token, { overrides: overrides?.xai, ...opts });
     case "kimi-coding":
       return refreshKimiCodingToken(token, { overrides: overrides?.["kimi-coding"], ...opts });
+    case "github-copilot":
+      return refreshCopilotToken(token, opts);
     default:
       throw new ProviderError(
         "auth",
