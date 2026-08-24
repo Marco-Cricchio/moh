@@ -11,7 +11,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TOS_WARNING, getStoredToken, readUserConfigFile, type AuthToken, type AuthorizationIo } from "@moh/core";
+import { TOS_WARNING, getStoredToken, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
 import { stripAnsi } from "./helpers";
 
@@ -110,19 +110,21 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     i.stdin.write("\r");
     await sleep(80);
 
-    // Completion: model prompt with success note, no key prompt.
+    // Completion (#156): post-login model list — no typing required. The
+    // catalog names are shown, with a manual free-text row at the bottom.
     const modelFrame = stripAnsi(i.lastFrame() ?? "");
     expect(modelFrame).toContain("tokens stored in");
-    expect(modelFrame).toContain("Default model");
-    i.stdin.write("claude-sonnet-4-5");
+    expect(modelFrame).toContain("Pick your default model");
+    expect(modelFrame).toContain("enter a model id manually");
+    const first = subscriptionModelCatalog("anthropic")[0]!;
+    expect(modelFrame).toContain(first.id);
+    i.stdin.write("\r"); // select the first catalog entry
     await sleep(60);
-    i.stdin.write("\r");
-    await sleep(60);
-    // Model enter goes straight to the connection test (no key, no base URL).
+    // Selection goes straight to the connection test (no key, no base URL).
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Testing connection");
     await sleep(150);
 
-    expect(done).toEqual(["anthropic/claude-sonnet-4-5"]);
+    expect(done).toEqual([`anthropic/${first.id}`]);
     expect(logins).toBe(1);
 
     // Tokens live in ~/.moh/config (never moh.json); endpoint completed.
@@ -131,7 +133,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "anthropic")).toMatchObject({
       type: "anthropic",
       auth: { kind: "subscription" },
-      defaultModel: "claude-sonnet-4-5",
+      defaultModel: first.id,
     });
     // No token material in the rendered frames.
     for (const frame of [tos, loginFrame, masked, modelFrame]) {
@@ -178,7 +180,52 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     const user = readUserConfigFile(userFile);
     expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "anthropic")).toMatchObject({ auth: { kind: "subscription" } });
     expect(getStoredToken(userFile, "anthropic")).toBeDefined();
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Pick your default model");
+    i.unmount();
+  });
+
+  test("#156: manual free-text entry stays available from the model list", async () => {
+    const home = tempHome();
+    const done: (string | null)[] = [];
+    const i = render(
+      <Onboarding
+        cwd={tempCwd()}
+        home={home}
+        env={{}}
+        tester={okTester}
+        subscriptionLogin={async (io) => scriptedLogin(io)}
+        onDone={(ref) => done.push(ref)}
+      />,
+    );
+    await sleep(60);
+    i.stdin.write("\r"); // anthropic
+    await sleep(60);
+    i.stdin.write("\x1b[B"); // subscription
+    await sleep(60);
+    i.stdin.write("\r");
+    await sleep(60);
+    i.stdin.write("y"); // ToS
+    await sleep(80);
+    i.stdin.write("CODE-123");
+    await sleep(60);
+    i.stdin.write("\r");
+    await sleep(80);
+    // Bottom row = free-text fallback (advanced).
+    const list = stripAnsi(i.lastFrame() ?? "");
+    expect(list).toContain("Pick your default model");
+    const down = subscriptionModelCatalog("anthropic").length;
+    for (let d = 0; d < down; d++) {
+      i.stdin.write("\x1b[B");
+      await sleep(10);
+    }
+    i.stdin.write("\r"); // manual entry
+    await sleep(60);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+    i.stdin.write("claude-sonnet-4-5");
+    await sleep(60);
+    i.stdin.write("\r");
+    await sleep(150);
+    expect(done).toEqual(["anthropic/claude-sonnet-4-5"]);
     i.unmount();
   });
 
@@ -258,7 +305,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     await sleep(60);
     i.stdin.write("\r");
     await sleep(80);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Pick your default model");
     expect(attempts).toBe(2);
     i.unmount();
   });

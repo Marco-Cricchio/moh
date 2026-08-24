@@ -16,6 +16,7 @@ import {
   type ConnectionTestResult,
   type ConnectionTester,
   type EndpointProfile,
+  subscriptionModelCatalog,
 } from "@moh/core";
 import { userConfigFile } from "@moh/core";
 import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, saveWizardProviderUser, saveProviderRefProject, profileDiff, wizardSavePlan, readUserWizardEndpoints, projectConfigExists, type EnvCandidate } from "./onboarding";
@@ -37,6 +38,7 @@ type Phase =
   | { kind: "wizard-auth"; cursor: number }
   | { kind: "tos" }
   | { kind: "sub-login"; error?: string }
+  | { kind: "wizard-model-list"; cursor: number }
   | { kind: "wizard-text"; field: "model" | "apiKey" | "baseUrl"; value: string }
   | { kind: "test"; profile: EndpointProfile; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
   | { kind: "save-scope"; profile: EndpointProfile; cursor: number }
@@ -95,6 +97,9 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   const budget = Math.max(3, viewport.rows - 10);
   const detectWin = windowing(candidates.length + 1, phase.kind === "detect" ? phase.cursor : 0, budget);
   const typeWin = windowing(BUILTIN_PROVIDER_TYPES.length, phase.kind === "wizard-type" ? phase.cursor : 0, budget);
+  // #156: post-login subscription catalog (may be empty → free-text only).
+  const catalog = useMemo(() => subscriptionModelCatalog(wizard.type ?? ""), [wizard.type]);
+  const modelWin = windowing(catalog.length + 1, phase.kind === "wizard-model-list" ? phase.cursor : 0, budget);
 
   // Where the default provider ref lands after a wizard save/reuse (#129):
   // project moh.json when one exists, user config otherwise.
@@ -167,7 +172,13 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         const name = wizard.name || type;
         saveTokens(userFile, name, token);
         upsertUserEndpoint(userFile, { name, type, auth: { kind: "subscription" } });
-        setPhase({ kind: "wizard-text", field: "model", value: "" });
+        // #156: post-login model list (free-text stays the advanced
+        // fallback — the manual row at the bottom of the list).
+        setPhase(
+          subscriptionModelCatalog(type).length
+            ? { kind: "wizard-model-list", cursor: 0 }
+            : { kind: "wizard-text", field: "model", value: "" },
+        );
       })
       .catch((err: unknown) => {
         if (!live) return;
@@ -255,6 +266,31 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
             return setAskValue("");
           }
           if (input && !key.ctrl && !key.meta) return setAskValue(askValue + input);
+        }
+        return;
+      }
+      case "wizard-model-list": {
+        const rows = catalog.length + 1; // + manual entry
+        if (key.escape) return setPhase({ kind: "wizard-auth", cursor: 1 });
+        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
+        if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(rows - 1, phase.cursor + 1) });
+        if (input === "s") return onDone(null);
+        if (key.return || input === "\n") {
+          if (phase.cursor === catalog.length) {
+            setWizard({ ...wizard, defaultModel: undefined });
+            return setPhase({ kind: "wizard-text", field: "model", value: "" });
+          }
+          const model = catalog[phase.cursor]!;
+          setWizard({ ...wizard, defaultModel: model.id });
+          return setPhase({
+            kind: "test",
+            profile: {
+              name: wizard.name || wizard.type || "endpoint",
+              type: (wizard.type ?? "anthropic") as string,
+              auth: { kind: "subscription" },
+              defaultModel: model.id,
+            },
+          });
         }
         return;
       }
@@ -396,6 +432,30 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
               <Dim>{pendingPrompt ? "enter submit · esc empty line" : "s skip"}</Dim>
             </>
           );})()}
+        </>
+      )}
+      {phase.kind === "wizard-model-list" && (
+        <>
+          <Text color={theme.ok}>✓ Subscription login complete — tokens stored in ~/.moh/config</Text>
+          <Text>Pick your default model:</Text>
+          <Text> </Text>
+          {modelWin.above > 0 && <Dim>{` ↑ ${modelWin.above} more`}</Dim>}
+          {catalog.slice(modelWin.start, modelWin.start + modelWin.count - 1).map((m, i) => {
+            const index = modelWin.start + i;
+            return (
+              <Text key={m.id} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+                {` ${index === phase.cursor ? "›" : " "} ${m.name} · ${m.id}${index === phase.cursor ? " " : ""}`}
+              </Text>
+            );
+          })}
+          {modelWin.start + modelWin.count > catalog.length && (
+            <Text color={phase.cursor === catalog.length ? theme.bg : undefined} backgroundColor={phase.cursor === catalog.length ? theme.dim : undefined}>
+              {` ${phase.cursor === catalog.length ? "›" : " "} enter a model id manually`}
+            </Text>
+          )}
+          {modelWin.below > 0 && <Dim>{` ↓ ${modelWin.below} more`}</Dim>}
+          <Text> </Text>
+          <Dim>enter select · esc back · s skip</Dim>
         </>
       )}
       {phase.kind === "wizard-text" && (
