@@ -73,7 +73,7 @@ describe("workflow slash command", () => {
 describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
-    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "model"]);
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "ask-moh", "model"]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
     for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "wayfinder", "frontier", "skills"]) {
@@ -164,5 +164,46 @@ describe("/model slash command (#166)", () => {
     expect(runSlashCommand("/model", ctx)).toBe(true);
     expect(opened).toBe(1);
     expect((ctx as any).notices()).toHaveLength(0); // no text dump
+  });
+});
+
+describe("ask-moh slash command", () => {
+  function askCtx(workflowEnabled = false) {
+    const sent: string[] = [];
+    const ctx = makeCtx({
+      session: { send: (t: string) => sent.push(t) } as any,
+    }) as any;
+    if (workflowEnabled) runSlashCommand("/workflow on", ctx);
+    return { ctx, sent };
+  }
+
+  test("/ask-moh is a base command: works with workflow mode off", () => {
+    const { ctx } = askCtx();
+    expect(activeCommands(ctx).find((c) => c.name === "ask-moh")).toBeTruthy();
+    expect(runSlashCommand("/ask-moh which skill for a bug?", ctx)).toBe(true);
+    expect(ctx.notices()).toHaveLength(0); // routed to the session, no error
+  });
+
+  test("the prompt embeds the bundled SKILL.md and the workflow state", () => {
+    const { ctx, sent } = askCtx();
+    runSlashCommand("/ask-moh", ctx);
+    expect(sent).toHaveLength(1);
+    const prompt = sent[0]!;
+    expect(prompt).toContain('Follow the "ask-moh" skill');
+    expect(prompt).toContain("Workflow mode is currently off");
+    expect(prompt).toContain("## Workflow mode gate"); // verbatim SKILL.md
+    expect(prompt).toContain("User asks:");
+  });
+
+  test("workflow state is injected as on after /workflow on", () => {
+    const { ctx, sent } = askCtx(true);
+    runSlashCommand("/ask-moh route me", ctx);
+    expect(sent[0]).toContain("Workflow mode is currently on");
+  });
+
+  test("/ask-moh without an open session notifies", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/ask-moh hi", ctx)).toBe(true);
+    expect(ctx.notices()[0]).toContain("needs an open session");
   });
 });
