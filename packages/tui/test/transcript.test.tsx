@@ -52,7 +52,7 @@ describe("semantic transcript projection (#183)", () => {
     ];
     const blocks = projectTranscript(events, { mode: "vibe" });
     const plain = blocks.filter((block) => block.lines.length === 1);
-    expect(plain.map((block) => block.lines[0])).toContain("ran a command");
+    expect(plain.map((block) => block.lines[0])).toContain("ran a command · rm");
     expect(plain.map((block) => block.lines[0])).toContain("read a file · src/a.ts");
     expect(plain.map((block) => block.lines[0])).toContain("searched the code · vibe");
     expect(blocks.some((block) => block.type === "preview")).toBe(false);
@@ -80,6 +80,35 @@ describe("semantic transcript projection (#183)", () => {
   });
 
 
+
+  test("auto-accept grants are ambient noise; explicit grants and denials still show (#215)", () => {
+    const events: AgentEvent[] = [
+      { type: "permission_requested", callId: "p1", tool: "bash" },
+      { type: "permission_granted", callId: "p1", tool: "bash", reason: "auto_accept" },
+      { type: "permission_requested", callId: "p2", tool: "bash" },
+      { type: "permission_granted", callId: "p2", tool: "bash", reason: "bypass" },
+      { type: "permission_granted", callId: "p3", tool: "bash", reason: "user" },
+      { type: "permission_denied", callId: "p4", tool: "bash", reason: "user" },
+    ];
+    for (const mode of ["dev", "vibe"] as const) {
+      const blocks = projectTranscript(events, { mode });
+      expect(blocks.filter((block) => block.type === "permission" && block.state === "ok").map((block) => block.detail)).toEqual(["bash · allowed (user)"]);
+      expect(blocks.some((block) => block.type === "permission" && block.state === "fail")).toBe(true);
+    }
+  });
+
+  test("vibe command hint is a short synthesis, never the full command line (#215)", () => {
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "h1", name: "bash", args: { command: "FOO=1 bun test packages/tui" } },
+      { type: "tool_call", callId: "h2", name: "bash", args: { command: "git status --porcelain -b" } },
+      { type: "tool_call", callId: "h3", name: "bash", args: { command: "/usr/bin/git log --oneline" } },
+    ];
+    const lines = projectTranscript(events, { mode: "vibe" }).filter((block) => block.lines.length === 1).map((block) => block.lines[0]);
+    expect(lines).toContain("ran a command · bun test");
+    expect(lines).toContain("ran a command · git status");
+    expect(lines).toContain("ran a command · git log");
+    expect(lines.some((line) => line.includes("--porcelain") || line.includes("FOO=1") || line.includes("/usr/bin"))).toBe(false);
+  });
 
   test("covers productive, permission, usage, subagent and chrome events", () => {
     const blocks = projectTranscript(base);
