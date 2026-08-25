@@ -28,6 +28,9 @@ export function closeOpenFences(text: string): string {
 
 const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(";");
 
+const fg = (hex: string) => `\x1b[38;2;${hexToRgb(hex)}m`;
+const RESET = "\x1b[0m";
+
 /**
  * The markdown renderer captures theme colors at construction, so it must be
  * regenerated per theme (docs/tui-style-guide.md §5, implementation lessons).
@@ -36,7 +39,21 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
   const marked = new Marked(
     { gfm: true },
     markedTerminal({
-      code: (code: string) => `\x1b[38;2;${hexToRgb(theme.accent)}m${code}\x1b[0m`,
+      // marked-terminal styles through chalk, which disables itself when
+      // stdout is not a TTY (or NO_COLOR is set) — under the TUI the whole
+      // reply rendered flat, with no theme colors in any theme (#205).
+      // Explicit ANSI strings keyed to the theme instead.
+      code: (code: string) => `${fg(theme.accent)}${code}${RESET}`,
+      firstHeading: (t: string) => `${fg(theme.accent)}\x1b[1m${t}${RESET}`,
+      heading: (t: string) => `${fg(theme.accent)}\x1b[1m${t}${RESET}`,
+      strong: (t: string) => `\x1b[1m${t}\x1b[22m`,
+      em: (t: string) => `\x1b[3m${t}\x1b[23m`,
+      del: (t: string) => `\x1b[9m${t}\x1b[29m`,
+      codespan: (t: string) => `${fg(theme.accent)}${t}${RESET}`,
+      blockquote: (t: string) => `${fg(theme.dim)}\x1b[3m${t}${RESET}`,
+      html: (t: string) => `${fg(theme.dim)}${t}${RESET}`,
+      link: (t: string) => `${fg(theme.accent)}${t}${RESET}`,
+      href: (t: string) => `${fg(theme.dim)}${t}${RESET}`,
       width,
       reflowText: true,
       // Terminal headings are styled; source `#` prefixes add noise and
