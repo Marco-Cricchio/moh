@@ -74,7 +74,7 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
           wordWrap: true,
         });
         for (const row of token.rows) t.push(row.map(cell));
-        return `\n${t.toString()}\n`;
+        return `${t.toString()}\n`;
       },
     },
   });
