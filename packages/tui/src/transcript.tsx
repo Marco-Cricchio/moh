@@ -4,7 +4,7 @@ import type { AgentEvent } from "@moh/core";
 import type { Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
-import { createMarkdownRenderer, Markdown } from "./markdown";
+import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown";
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking";
 export interface TranscriptBlock {
   key: string;
@@ -149,23 +149,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "permission_rule_added":
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission rule", detail: JSON.stringify(event.rule), lines: [] });
         break;
-      case "model_call": {
-        if (vibe) break;
-        // Deterministic by construction (#194): the block renders exactly
-        // what the event carries and never whether a later `done` will
-        // summarize the turn — settled blocks are promoted to Static
-        // incrementally mid-turn and a Static item must never change or
-        // disappear later (ink would desync its printed-items index). The
-        // token totals stay on `done` alone so turns don't show duplicate
-        // usage numbers; per-call lines record which model served the call.
-        blocks.push({ key, kind: "chrome", glyph: "─", type: "model", detail: event.model, lines: [] });
+      case "model_call":
+        // The model line closes the turn instead (#213): per-call blocks
+        // appear mid-turn and after every prompt; `done` reports the models
+        // that actually served the turn, and only then is the line final
+        // (settled blocks must never mutate after Static promotion, #194).
         break;
-      }
       case "done":
         if (vibe) break;
-        blocks.push(event.usage
-          ? { key, kind: "chrome", glyph: "─", type: "usage", detail: event.models?.join(", "), lines: [], usage: event.usage }
-          : { key, kind: "chrome", glyph: "✓", type: "done", detail: event.models?.join(", "), lines: [] });
+        // End-of-turn chrome (#213): one `model` line only, carried by
+        // `done` so it is written once when the model's reply turn ends.
+        // The usage line is gone entirely.
+        if (event.models?.length) blocks.push({ key, kind: "chrome", glyph: "─", type: "model", detail: event.models.join(", "), lines: [] });
         break;
       case "error":
         blocks.push({ key, kind: "error", glyph: "✗", type: "error", detail: event.reason, lines: [event.message], state: "fail" });
@@ -385,15 +380,33 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   const theme = useTheme();
   const color = blockColor(block, theme);
   const bg = blockTint(block, theme);
-  const detail = block.usage ? `${block.usage.inputTokens.toLocaleString()} in · ${block.usage.outputTokens.toLocaleString()} out${block.detail ? ` · ${block.detail}` : ""}` : block.detail;
+  const detail = block.detail;
   const contentWidth = Math.max(20, width - 6);
+  // ink drops the fg color on wrapped continuation lines of a Text (#213):
+  // wrap the head detail ourselves and render each line as its own row.
+  const headLabel = `${block.glyph} ${block.type}`;
+  const detailBudget = Math.max(10, width - 2 - headLabel.length - 1);
+  // wrapRenderedLines never splits a word; an overlong unbroken token
+  // (path, URL) would still overflow and hit ink's color-dropping wrap —
+  // hard-chunk such words so every row is ours (#213).
+  const detailLines = detail
+    ? wrapRenderedLines(detail, detailBudget).flatMap((line) =>
+        line.length > detailBudget ? (line.match(new RegExp(`.{1,${detailBudget}}`, "g")) ?? [line]) : [line])
+    : [];
   const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
   return (
     <Box flexDirection="column">
       {/* One blank row separates blocks (not head from body): a block opens
           with a top margin so the head sits directly above its body (#211). */}
       {block.continuation ? null : <Text> </Text>}
-      {block.continuation ? null : <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>}
+      {block.continuation ? null : (
+        <>
+          <Row width={width} bg={bg}><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
+          {detailLines.slice(1).map((line, index) => (
+            <Row key={`detail-${index}`} width={width} bg={bg} indent={headLabel.length + 1}><Text color={theme.dim}>{line}</Text></Row>
+          ))}
+        </>
+      )}
       {block.markdown && markdown ? (
         <>
           {/* Segments split exactly at blank lines (trimmed per segment),
@@ -410,7 +423,18 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
           ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={stateGlyph[2]!.includes("✓") ? theme.ok : stateGlyph[2]!.includes("✗") ? theme.err : theme.accent}>{stateGlyph[2]}</Text></>
           : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{line || " "}</Text>;
         if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={4}>{body}</Row><Row width={width} bg={bg} indent={4}><Text color={theme.border}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
-        return <Row key={index} width={width} bg={bg} indent={lineKind === "bullet" ? 6 : 4}>{body}</Row>;
+        // Wrapped body continuations must keep the row color too (#213):
+        // pre-wrap instead of relying on ink's Text wrap.
+        const indent = lineKind === "bullet" ? 6 : 4;
+        const bodyBudget = Math.max(8, width - 1 - indent);
+        const wrapped = wrapRenderedLines(line || " ", bodyBudget)
+          .flatMap((row) => (row.length > bodyBudget ? (row.match(new RegExp(`.{1,${bodyBudget}}`, "g")) ?? [row]) : [row]));
+        return <React.Fragment key={index}>
+          <Row width={width} bg={bg} indent={indent}>{body}</Row>
+          {wrapped.slice(1).map((segment, s) => (
+            <Row key={s} width={width} bg={bg} indent={indent}><Text color={lineColor}>{segment}</Text></Row>
+          ))}
+        </React.Fragment>;
       })}
     </Box>
   );
