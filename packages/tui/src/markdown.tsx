@@ -7,10 +7,23 @@ import { Text } from "ink";
 import Table from "cli-table3";
 import type { Theme } from "./themes";
 
-/** Closes unterminated code fences so mid-stream markdown renders safely. */
+/** Closes an unterminated standard code fence so mid-stream Markdown stays
+ * renderable. Both backtick and tilde fences are valid GFM; preserve the
+ * opener's delimiter length so a four-backtick fence may contain ``` safely. */
 export function closeOpenFences(text: string): string {
-  const fences = (text.match(/```/g) ?? []).length;
-  return fences % 2 === 1 ? text + "\n```" : text;
+  let open: { char: "`" | "~"; length: number } | null = null;
+  for (const line of text.split("\n")) {
+    const match = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (!match) continue;
+    const marker = match[1]!;
+    const char = marker[0]! as "`" | "~";
+    // GFM closing fences may only be followed by spaces/tabs. A streamed
+    // line such as ``` explanation is code content, not a close marker.
+    const trailing = line.slice(match[0].length);
+    if (open && open.char === char && marker.length >= open.length && /^[ \t]*$/.test(trailing)) open = null;
+    else if (!open) open = { char, length: marker.length };
+  }
+  return open ? `${text}\n${open.char.repeat(open.length)}` : text;
 }
 
 const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(";");
@@ -21,10 +34,14 @@ const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i +
  */
 export function createMarkdownRenderer(theme: Theme, width: number): Marked {
   const marked = new Marked(
+    { gfm: true },
     markedTerminal({
       code: (code: string) => `\x1b[38;2;${hexToRgb(theme.accent)}m${code}\x1b[0m`,
       width,
       reflowText: true,
+      // Terminal headings are styled; source `#` prefixes add noise and
+      // make an otherwise rendered chat line look like plain Markdown.
+      showSectionPrefix: false,
     }) as never,
   );
   // Tables: marked-terminal builds cli-table3 without column widths, so long
@@ -39,6 +56,11 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
       text(this: { parser: { parseInline(t: unknown): string } }, token: Tokens.Text | Tokens.Escape): string {
         if (typeof token !== "object") return String(token);
         return "tokens" in token && token.tokens ? this.parser.parseInline(token.tokens) : token.text;
+      },
+      image(token: Tokens.Image): string {
+        // A terminal cannot embed an image; preserve its accessible label and
+        // destination rather than leaking Markdown source syntax.
+        return token.text ? `${token.text} (${token.href})` : token.href;
       },
       table(this: { parser: { parseInline(t: unknown): string } }, token: Tokens.Table): string {
         const nCols = Math.max(1, token.header.length);
@@ -95,10 +117,10 @@ export function wrapRenderedLines(text: string, width: number): string[] {
 }
 
 /** Streaming-safe markdown text, rendered with the current theme. */
-export function Markdown({ text, md }: { text: string; md: Marked }) {
+export function Markdown({ text, md, width }: { text: string; md: Marked; width: number }) {
   const out = useMemo(
-    () => String(md.parse(closeOpenFences(text))).replace(/\n+$/, ""),
-    [text, md],
+    () => wrapRenderedLines(String(md.parse(closeOpenFences(text))).replace(/\n+$/, ""), width).join("\n"),
+    [text, md, width],
   );
   return <Text>{out}</Text>;
 }
