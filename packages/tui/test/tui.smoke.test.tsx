@@ -89,6 +89,7 @@ describe("chat smoke (mock provider)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◉ dev");
     i.rerender(<Chat session={session} mode="vibe" modelLabel="mock" />);
+    await sleep(30); // the mode repaint fires in an effect
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
     i.unmount();
