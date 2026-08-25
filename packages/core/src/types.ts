@@ -103,6 +103,10 @@ export type AgentEvent =
   | { type: "permission_denied"; callId: string; tool: string; reason: string }
   | { type: "permission_rule_added"; rule: PermissionRule }
   | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" }
+  /** ADR-0011: a turn-scoped skill prompt was attached to this turn's
+   * send. Chrome — appended just before the turn's user_message; replay
+   * ignores it (the skill body lived in the system prompt, not the log). */
+  | { type: "skill_invoked"; name: string }
   /** #166: the active model ref changed mid-session (no new session;
    * takes effect from the next turn). Chrome — replay shows the switch. */
   | { type: "model_switched"; from: string; to: string }
@@ -192,4 +196,20 @@ export interface TurnResult {
   /** Present when status is "error" (e.g. "max_iterations" or a ProviderError kind). */
   reason?: string;
   message?: string;
+}
+
+/** ADR-0011: one turn-scoped skill prompt attached to a send. The body
+ * rides the system prompt (skills section) for exactly one turn; the
+ * user message stays the clean text. */
+export interface SkillPrompt {
+  /** Skill name for audit/chrome (the `skill_invoked` event). */
+  name: string;
+  /** Full instructions, body only (frontmatter already stripped). */
+  text: string;
+}
+
+/** Options for `AgentSession.send` (ADR-0011). */
+export interface SendOptions {
+  /** Turn-scoped skill prompt; dropped when the turn settles. */
+  prompt?: SkillPrompt;
 }

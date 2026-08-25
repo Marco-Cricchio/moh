@@ -213,8 +213,9 @@ function readInstalled(mohHome: string, name: string): Record<string, string> {
 /** #ask-moh: the router over the workflow skills and the moh docs.
  * Registered as a base command so it works with workflow mode off too —
  * the SKILL.md is read from the bundle (it is only copied into
- * `~/.moh/skills/` when workflow mode is on), and the current workflow
- * state is injected so the skill can apply its workflow-mode gate. */
+ * `~/.moh/skills/` when workflow mode is on). ADR-0011: the skill body
+ * rides the system prompt via `send(text, { prompt })`; the user message
+ * is the clean question and the log records a discreet `skill_invoked`. */
 const askMohCommand: SlashCommand = {
   name: "ask-moh",
   description: "which skill or flow fits? router over moh skills + docs",
@@ -225,14 +226,24 @@ const askMohCommand: SlashCommand = {
     if (!skill) return ctx.notify("ask-moh skill missing from the bundle");
     const state = ctx.config.workflow.enabled ? "on" : "off";
     const question = args.trim() || "Which skill or flow fits my situation?";
+    const body = stripSkillFrontmatter(skill.files["SKILL.md"] ?? "");
     void ctx.session.send(
-      `Follow the "ask-moh" skill — its SKILL.md is reproduced verbatim below.\n\n` +
-        `Workflow mode is currently ${state}. The skill's workflow-mode gate applies as written.\n\n` +
-        `--- SKILL.md ---\n${skill.files["SKILL.md"] ?? ""}\n--- end SKILL.md ---\n\n` +
-        `User asks: ${question}`,
+      `${question}\n\n(Workflow mode is currently ${state}. The ask-moh skill's workflow-mode gate applies as written.)`,
+      {
+        prompt: {
+          name: "ask-moh",
+          text: body,
+        },
+      },
     );
   },
 };
+
+/** Body of a SKILL.md: everything after the closing frontmatter fence. */
+function stripSkillFrontmatter(raw: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(raw);
+  return match ? raw.slice(match[0].length) : raw;
+}
 
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, askMohCommand, modelCommand];
