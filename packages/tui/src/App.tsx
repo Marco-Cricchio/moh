@@ -81,19 +81,27 @@ export function App({
   // Latest-config ref so persistence happens outside React's pure updaters.
   const configRef = useRef(config);
   configRef.current = config;
+  const [themeName, setThemeName] = useState<ThemeName>(initialTheme ?? config.theme);
+  const [themeTick, setThemeTick] = useState(0);
+  const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
+  // Settings-panel changes must apply live, not only after a restart:
+  // `mode` and `theme` also live in React state (projection grammar and
+  // the remount key), so persisting alone leaves the session stale (#196).
   const updateConfig = useCallback(
     (patch: Partial<UserConfig>) => {
-      const next = { ...configRef.current, ...patch };
+      const previous = configRef.current;
+      const next = { ...previous, ...patch };
       configRef.current = next;
       setConfig(next);
+      if (patch.mode === "vibe" || patch.mode === "dev") setMode(patch.mode);
+      if (patch.theme && patch.theme !== previous.theme) {
+        setThemeName(patch.theme);
+        setThemeTick((value) => value + 1);
+      }
       saveUserConfig(next, cfgFile);
     },
     [cfgFile],
   );
-
-  const [themeName, setThemeName] = useState<ThemeName>(initialTheme ?? config.theme);
-  const [themeTick, setThemeTick] = useState(0);
-  const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
   const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd, home));
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
