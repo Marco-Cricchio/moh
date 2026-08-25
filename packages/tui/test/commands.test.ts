@@ -172,9 +172,9 @@ describe("/model slash command (#166)", () => {
 
 describe("ask-moh slash command", () => {
   function askCtx(workflowEnabled = false) {
-    const sent: string[] = [];
+    const sent: unknown[] = [];
     const ctx = makeCtx({
-      session: { send: (t: string) => sent.push(t) } as any,
+      session: { send: (t: string, o?: unknown) => (sent.push([t, o]), Promise.resolve(null)) } as any,
     }) as any;
     if (workflowEnabled) runSlashCommand("/workflow on", ctx);
     return { ctx, sent };
@@ -187,21 +187,29 @@ describe("ask-moh slash command", () => {
     expect(ctx.notices()).toHaveLength(0); // routed to the session, no error
   });
 
-  test("the prompt embeds the bundled SKILL.md and the workflow state", () => {
+  test("the sent text is the clean question; the SKILL.md rides the prompt option (ADR-0011)", () => {
+    const { ctx, sent } = askCtx();
+    runSlashCommand("/ask-moh which skill for a bug?", ctx);
+    expect(sent).toHaveLength(1);
+    const [text, options] = sent[0] as unknown as [string, { prompt?: { name: string; text: string } }];
+    expect(text).toBe("which skill for a bug?\n\n(Workflow mode is currently off. The ask-moh skill's workflow-mode gate applies as written.)");
+    expect(text).not.toContain("## Workflow mode gate"); // no SKILL.md blob in the user message
+    expect(options?.prompt?.name).toBe("ask-moh");
+    expect(options.prompt!.text).toContain("## Workflow mode gate"); // verbatim body, frontmatter stripped
+    expect(options.prompt!.text).not.toContain("---\nname: ask-moh"); // frontmatter gone
+  });
+
+  test("an empty question falls back to the default routing question", () => {
     const { ctx, sent } = askCtx();
     runSlashCommand("/ask-moh", ctx);
-    expect(sent).toHaveLength(1);
-    const prompt = sent[0]!;
-    expect(prompt).toContain('Follow the "ask-moh" skill');
-    expect(prompt).toContain("Workflow mode is currently off");
-    expect(prompt).toContain("## Workflow mode gate"); // verbatim SKILL.md
-    expect(prompt).toContain("User asks:");
+    const [text] = sent[0] as unknown as [string];
+    expect(text).toContain("Which skill or flow fits my situation?");
   });
 
   test("workflow state is injected as on after /workflow on", () => {
     const { ctx, sent } = askCtx(true);
     runSlashCommand("/ask-moh route me", ctx);
-    expect(sent[0]).toContain("Workflow mode is currently on");
+    expect((sent[0] as unknown as [string])[0]).toContain("Workflow mode is currently on");
   });
 
   test("/ask-moh without an open session notifies", () => {

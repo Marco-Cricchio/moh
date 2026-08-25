@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, Message, Provider, Tool, TurnResult } from "../types";
+import type { AgentEvent, Message, Provider, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "../provider-registry";
@@ -66,6 +66,9 @@ export class AgentSession {
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
   readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
   #memory: MemoryRunner | null = null;
+  /** ADR-0011: turn-scoped skill prompt — set by the send that carries
+   * it, cleared when that turn settles. Null for every ordinary turn. */
+  #skillPrompt: SkillPrompt | null = null;
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
@@ -177,7 +180,18 @@ export class AgentSession {
       append: (event) => this.#append(event),
       ...(this.#memory ? { onTurnSettled: (result) => this.#maybeExtractMemory(result) } : {}),
     });
-    this.#queue = new TurnQueue({ execute: (text, controller) => this.#loop.run(text, controller) });
+    this.#queue = new TurnQueue({
+      execute: (text, controller) => this.#loop.run(text, controller),
+      onTurnSettled: () => {
+        // ADR-0011: a turn-scoped skill prompt lives exactly one turn.
+        // Dropped when the turn's promise settles and before the queue
+        // re-pumps, so the next turn composes the ordinary skills index.
+        if (this.#skillPrompt) {
+          this.#skillPrompt = null;
+          this.#assemblePrompt();
+        }
+      },
+    });
     if (config.resume?.events.length) {
       // Resume (#31): the log continues in a new AgentSession over the same
       // persisted history. Seeded events are never re-appended (the file
@@ -354,7 +368,16 @@ export class AgentSession {
    * resolves with the result of its own turn; there is no queued-only mode
    * — a later send always preempts the running one.
    */
-  send(text: string): Promise<TurnResult> {
+  send(text: string, options?: SendOptions): Promise<TurnResult> {
+    // ADR-0011: a turn-scoped skill prompt is attached before the turn
+    // starts (the loop reassembles the prompt before every model call,
+    // so the skills section picks it up) and recorded as chrome in the
+    // log — the user_message stays the clean text.
+    if (options?.prompt) {
+      this.#skillPrompt = options.prompt;
+      this.#append({ type: "skill_invoked", name: options.prompt.name });
+      this.#assemblePrompt();
+    }
     return this.#queue.send(text);
   }
 
@@ -376,6 +399,7 @@ export class AgentSession {
       model: this.#provider.name,
       tools: Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description })),
       skills: this.#skills,
+      ...(this.#skillPrompt ? { skillPrompt: this.#skillPrompt } : {}),
       memory: this.#memory?.excerpt(),
       extensionNotes: this.#extensions?.notes(),
     });
