@@ -14,6 +14,10 @@ export interface InputProps {
   focused?: boolean;
   /** Incremented by the focused send chip to submit the current draft. */
   submitSignal?: number;
+  /** Slash commands active for this context (`/`-prefixed, workflow-aware).
+   * The completion list and its Tab/enter acceptance consult only these;
+   * anything missing here is undiscoverable, runnable or not. */
+  commands?: readonly string[];
   onSubmit(text: string): void;
 }
 
@@ -24,7 +28,6 @@ interface EditorSnapshot {
 }
 
 const HISTORY_LIMIT = 100;
-const COMMANDS = ["/help", "/model", "/settings", "/sessions", "/workflow", "/skills", "/frontier"];
 
 function graphemes(value: string): Intl.SegmentData[] {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
@@ -64,6 +67,7 @@ export function MultilineInput({
   onAskCommands,
   focused = true,
   submitSignal = 0,
+  commands = [],
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -208,7 +212,7 @@ export function MultilineInput({
       setUndo((stack) => [...stack, snapshot()]); setRedo((stack) => stack.slice(0, -1)); setEditor(next); return;
     }
     const queryBeforeKeys = lines.length === 1 ? lines[0] ?? "" : "";
-    const availableSuggestions = queryBeforeKeys.startsWith("/") ? COMMANDS.filter((command) => command.startsWith(queryBeforeKeys)).slice(0, 5) : [];
+    const availableSuggestions = queryBeforeKeys.startsWith("/") ? commands.filter((command) => command.startsWith(queryBeforeKeys)).slice(0, 5) : [];
     if (availableSuggestions.length > 0 && (key.upArrow || key.downArrow)) {
       setSuggestionIndex((index) => (index + (key.downArrow ? 1 : -1) + availableSuggestions.length) % availableSuggestions.length);
       return;
@@ -289,7 +293,7 @@ export function MultilineInput({
   }, { isActive: focused && !disabled });
 
   const query = lines.length === 1 ? lines[0] ?? "" : "";
-  const suggestions = query.startsWith("/") ? COMMANDS.filter((command) => command.startsWith(query)).slice(0, 5) : [];
+  const suggestions = query.startsWith("/") ? commands.filter((command) => command.startsWith(query)).slice(0, 5) : [];
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
 
