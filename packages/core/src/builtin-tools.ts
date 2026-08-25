@@ -65,19 +65,71 @@ const readSchema = z.object({
   offset: z.number().int().positive().optional(),
   limit: z.number().int().positive().optional(),
 });
-const read: Tool<z.infer<typeof readSchema>> = {
+
+/** One served read of an unchanged file: content hash, the line ranges
+ * already handed to the model, and the turn that served them. */
+interface ServedRead {
+  hash: string;
+  turn: number;
+  ranges: Array<[number, number]>; // 1-based, inclusive
+}
+
+const sha = (text: string): string =>
+  new Bun.CryptoHasher("sha256").update(text).digest("hex");
+
+/** True when [from, to] is fully covered by the (unmerged) range list. */
+function covers(ranges: Array<[number, number]>, from: number, to: number): boolean {
+  const merged: Array<[number, number]> = [];
+  for (const [a, b] of [...ranges].sort((x, y) => x[0] - y[0])) {
+    const last = merged[merged.length - 1];
+    if (last && a <= last[1] + 1) last[1] = Math.max(last[1], b);
+    else merged.push([a, b]);
+  }
+  let at = from;
+  for (const [a, b] of merged) {
+    if (a > at) break;
+    at = Math.max(at, b + 1);
+    if (at > to) return true;
+  }
+  return at > to;
+}
+
+/** Read tool with the per-session read ledger (#196): within one turn, a
+ * repeat read of an unchanged file whose requested range was already
+ * served returns a short nudge instead of the content — the model
+ * re-reads unchanged files out of habit, burning iteration budget and
+ * context. Entries are turn-scoped (a later turn may legitimately need
+ * the file again) and content-hash keyed, so an mtime-only touch still
+ * nudges while a real edit re-serves in full. */
+const readTool = (ledger: Map<string, ServedRead>): Tool<z.infer<typeof readSchema>> => ({
   name: "read",
   description: "Read a text file (optionally a line range) inside the project root or a skill directory.",
   inputSchema: readSchema,
   async execute(args, ctx) {
-    const file = Bun.file(inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])]));
+    const abs = inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])]);
+    const file = Bun.file(abs);
     if (!(await file.exists())) throw new Error(`file not found: ${args.path}`);
     const text = await file.text();
     const lines = text.split("\n");
-    const slice = lines.slice((args.offset ?? 1) - 1, args.limit ? (args.offset ?? 1) - 1 + args.limit : undefined);
-    return truncate(slice.join("\n"));
+    const from = args.offset ?? 1;
+    const slice = lines.slice(from - 1, args.limit ? from - 1 + args.limit : undefined);
+    const to = from - 1 + slice.length;
+    const hash = sha(text);
+    const served = ledger.get(abs);
+    const sameTurn = served !== undefined && served.turn === ctx.turn;
+    if (sameTurn && served.hash === hash && covers(served.ranges, from, to)) {
+      return `[already read] ${args.path} is unchanged and lines ${from}–${to} were already served earlier in this turn. ` +
+        "Reuse the earlier result instead of re-reading; read a different or narrower range only if you truly need it again.";
+    }
+    const output = slice.join("\n");
+    // Only count the range as served when it was handed over whole — a
+    // truncated read must stay re-readable (narrower) without a nudge.
+    if (output.length <= MAX_OUTPUT) {
+      ledger.set(abs, { hash, turn: ctx.turn ?? 0, ranges: sameTurn && served.hash === hash ? [...served.ranges, [from, to]] : [[from, to]] });
+    }
+    return truncate(output);
   },
-};
+});
 
 const writeSchema = z.object({
   path: z.string().min(1),
@@ -251,6 +303,9 @@ function joinSafe(root: string, rel: string): string {
 }
 
 export function builtinTools(): Record<string, Tool> {
-  const all = [bash, read, write, edit, glob, grep, fetchTool, todo, askUser];
+  // Per-session read ledger: shared by the read tool instances of this
+  // session only (#196).
+  const readLedger = new Map<string, ServedRead>();
+  const all = [bash, readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));
 }

@@ -171,6 +171,9 @@ export interface ToolContext {
   onProgress: (chunk: string) => void;
   /** Skill directories (#30): read-only roots outside cwd the read tool may access. */
   skillDirs?: readonly string[];
+  /** 1-based live-run turn sequence — lets tools scope caches per turn
+   * (e.g. the read ledger's re-read nudge, #196). */
+  turn?: number;
   /** Interactive question channel (ask_user). Absent (headless) → the tool fails fast. */
   askUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
 }
