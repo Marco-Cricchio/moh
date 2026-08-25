@@ -2,7 +2,8 @@
 
 The skills bundled in this directory (`grilling`, `domain-modeling`, `wayfinder`,
 and the remaining first-party workflow skills) are ported from Matt Pocock's
-skills repository:
+skills repository. `ask-moh` is an original moh skill, but its router map is
+adapted from that repository's `ask-matt` skill and inherits its terms:
 
 - Source: https://github.com/mattpocock/skills
 - Upstream commit at port time: `5b15a47f2d7150f545fbcacbfe381787fc0230dc`
