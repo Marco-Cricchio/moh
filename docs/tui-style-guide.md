@@ -37,6 +37,8 @@ Semantic forms:
 
 The event log remains the source of truth. Projection may group adjacent deltas or pair tool calls/results, but it must not silently discard an `AgentEvent` type.
 
+**Vibe projection (#193).** The mode is a projection option, never a log filter. In vibe, usage/done metric blocks and non-essential chrome (session start, permission mode, skill invoked, model switched, memory updated, compaction, extension loaded, MCP started) do not render; tool activity collapses to one plain-language moh block ("read a file · src/a.ts", "ran a command") that keeps the run/ok state marker but shows no raw command line, argument dump, or output preview; failures always render as error blocks with their message. A mode switch cannot retro-edit native scrollback: each switch seals a new projection segment at the current boundary — printed blocks keep their grammar (same behavior as a theme switch), and later events follow the new one.
+
 ## 3. Input and thinking level
 
 Separators encode the visual thinking level (real model wiring is separate):
@@ -53,7 +55,7 @@ Thinking labels are `·`, `🌱`, `⚙️`, `🧠✨`, `🧠🔥`. VS16 emoji ma
 The first row combines current activity and session context:
 
 - left: spinner + phase/progress while live, otherwise ready/done and memory freshness;
-- right: context bar, token count, turns, model + thinking level, workflow, and mode.
+- right: context bar, token count, turns, model + thinking level, workflow, and mode. In vibe mode the metrics stay hidden (no context bar, token count, or turn counter — "plain language, no metrics", #193); the mode chip itself always shows (`○ vibe`/`◉ dev`).
 
 Context thresholds are `ok ≤ 60%`, `warn > 60%`, `err > 80%`. Optional segments drop before wrapping; if required content still exceeds the budget, the longest segment truncates. Status rows never wrap.
 

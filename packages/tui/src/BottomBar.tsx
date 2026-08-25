@@ -87,13 +87,16 @@ function StatusRow(props: StatusProps) {
     : props.notice ? `· ${props.notice}` : props.turns ? "✓ done" : "· ready";
   const left = fitRow([{ text: rawLeft }], Math.max(3, Math.floor((props.width - 4) / 3)))[0] ?? "";
   const model = cls === "compact" ? `◆ ${props.model}` : `◆ ${props.model} ${thinkingEmoji(props.level)}${props.level === "off" ? "" : ` ${props.level}`}`;
+  // Vibe is plain language, no metrics (v1 spec): token count, context bar
+  // and turn counter stay in dev only (#193).
+  const vibe = props.mode === "vibe";
   const right = fitStatusSegments([
-    { text: props.tokens.contextIn > 0 ? `⊣ ${(props.tokens.contextIn / 1000).toFixed(1)}k` : "", optional: true },
-    { text: `↻ ${props.turns}`, optional: true },
+    { text: !vibe && props.tokens.contextIn > 0 ? `⊣ ${(props.tokens.contextIn / 1000).toFixed(1)}k` : "", optional: true },
+    { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
     { text: model },
     { text: props.workflowOn ? "◈ wf" : "", optional: true },
     { text: props.mode === "dev" ? "◉ dev" : "○ vibe", optional: true },
-  ].filter((item) => item.text), Math.max(1, props.width - left.length - (props.tokens.contextIn ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0) - 5));
+  ].filter((item) => item.text), Math.max(1, props.width - left.length - (!vibe && props.tokens.contextIn ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0) - 5));
   const statusColor = (text: string): string => {
     if (text.startsWith("⊣")) return tokenColor;
     if (text === "◈ wf" || (text.startsWith("◆") && (props.level === "high" || props.level === "xhigh"))) return theme.purple;
@@ -103,7 +106,7 @@ function StatusRow(props: StatusProps) {
   };
   return <Box width={Math.max(1, props.width - 1)} justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
     <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}</Box>
-    <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} width={props.width} theme={theme} />}{right.map((text, index) => <Text key={index} color={statusColor(text)}>{text}</Text>)}</Box>
+    <Box gap={1} flexWrap="nowrap">{!vibe && props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} width={props.width} theme={theme} />}{right.map((text, index) => <Text key={index} color={statusColor(text)}>{text}</Text>)}</Box>
   </Box>;
 }
 
