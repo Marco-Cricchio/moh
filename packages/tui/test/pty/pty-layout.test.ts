@@ -23,7 +23,7 @@ const PREAMBLE = [
 
 describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
   test(
-    "wide terminal: dashboard frames the chat between the sidebars (#115)",
+    "wide terminal: session is a frameless full-width scrollback column (#183)",
     async () => {
       const lines = await runPty({
         cols: 160,
@@ -33,13 +33,13 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       });
       const input = lines.find((l) => l.text.includes("type…"));
       expect(input).toBeDefined();
-      // Dashboard layout at 160 cols: the chat input sits inside the center
-      // column, right after the 20-col menu sidebar — no longer the centered
-      // 100-col measure of the single-column layout (superseded by #115).
       const gutter = input!.text.indexOf("›");
-      expect(gutter).toBeGreaterThanOrEqual(20);
-      expect(gutter).toBeLessThanOrEqual(25);
-      expect(input!.text.includes("Wayfinder") || lines.some((l) => l.text.includes("Wayfinder"))).toBe(true);
+      expect(gutter).toBeLessThanOrEqual(3);
+      expect(lines.some((l) => l.text.includes("Wayfinder"))).toBe(false);
+      expect(lines.some((l) => l.text.includes("model"))).toBe(true);
+      expect(lines.some((l) => l.text.trim() === "› you")).toBe(true);
+      const transcriptRows = lines.filter((l) => l.text.includes("hello") || l.text.includes("› you") || l.text.includes("◆ moh"));
+      for (const row of transcriptRows) expect(row.text).not.toMatch(/[┌┐└┘╭╮╰╯]/);
       // Nothing ever paints past the terminal edge.
       for (const l of lines) expect(l.width).toBeLessThanOrEqual(160);
     },
@@ -47,24 +47,35 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
   );
 
   test(
-    "wide terminal: settings dialog is centered on both axes",
+    "wide terminal: settings floats transparently without moving the live chat",
     async () => {
+      const enterChat = [...PREAMBLE, { wait: 0.5, send: B("n") }, { wait: 0.8 }];
+      const baseline = await runPty({ cols: 160, rows: 45, steps: enterChat, tail: 45 });
       const lines = await runPty({
         cols: 160,
         rows: 45,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("\x13") }],
+        steps: [...enterChat, { wait: 0.8, send: B("\x13") }],
         tail: 45,
       });
-      const top = lines.findIndex((l) => l.text.includes("╭"));
-      expect(top).toBeGreaterThanOrEqual(0);
-      // Horizontally: ~62% of 160 (99±2) centered with a ~30-col margin.
-      expect(lines[top]!.width - lines[top]!.lead).toBeGreaterThanOrEqual(97);
-      expect(lines[top]!.width - lines[top]!.lead).toBeLessThanOrEqual(101);
-      expect(lines[top]!.lead).toBeGreaterThanOrEqual(28);
-      expect(lines[top]!.lead).toBeLessThanOrEqual(32);
-      // Vertically: a 16-line dialog in 45 rows starts around row 14.
+      const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("type…"));
+      const chipsRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("⏎ send"));
+      expect(inputRow(baseline)).toBeGreaterThanOrEqual(0);
+      expect(chipsRow(baseline)).toBeGreaterThanOrEqual(0);
+      expect(inputRow(lines)).toBe(inputRow(baseline));
+      expect(chipsRow(lines)).toBe(chipsRow(baseline));
+      const title = lines.find((l) => l.text.includes("settings"));
+      expect(title).toBeDefined();
+      // Horizontally: ~62% of 160 (99±2), with transparent chat on both sides.
+      const top = lines.findIndex((l) => l.text.indexOf("╭") >= 28);
       expect(top).toBeGreaterThanOrEqual(10);
       expect(top).toBeLessThanOrEqual(20);
+      const border = lines[top]!;
+      const dialogStart = border.text.indexOf("╭");
+      expect(border.width - dialogStart).toBeGreaterThanOrEqual(97);
+      expect(border.width - dialogStart).toBeLessThanOrEqual(101);
+      const visibleSettings = ["Mode", "Theme", "Icons", "File preview", "Answer language", "Telemetry", "Default permission mode", "Provider"]
+        .filter((label) => lines.some((line) => line.text.includes(label)));
+      expect(visibleSettings.length).toBeGreaterThanOrEqual(8);
     },
     30000,
   );
@@ -119,7 +130,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
   );
 
   test(
-    "resize mid-session: layout reflows without corruption",
+    "resize mid-session: live input and bottom bar reflow; printed scrollback remains native (#183)",
     async () => {
       const lines = await runPty({
         cols: 120,
@@ -135,13 +146,10 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const input = lines[inputIdx]!;
       expect(input.lead).toBeLessThanOrEqual(2);
       expect(input.width).toBeLessThanOrEqual(80);
-      // The chat window reflows in place at the new width (no Static
-      // reprint anymore, issue #117): every post-resize row fits the
-      // shrunken terminal and the transcript label is still visible.
-      const youIdx = lines.reduce<number>((acc, l, i) => (l.text.trim() === "you" ? i : acc), -1);
-      expect(youIdx).toBeGreaterThanOrEqual(0);
-      expect(lines[youIdx]!.width).toBeLessThanOrEqual(80);
+      // Static rows keep their original width in terminal history; only the
+      // post-resize live area must fit the new terminal.
       for (const l of lines.slice(inputIdx)) expect(l.width).toBeLessThanOrEqual(80);
+      expect(lines.slice(inputIdx).some((l) => l.text.includes("model"))).toBe(true);
     },
     30000,
   );

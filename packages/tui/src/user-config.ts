@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { clampHomeListMax, HOME_LIST_DEFAULT } from "./viewport";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile as coreUserConfigFile } from "@moh/core";
-import { DEFAULT_THEME, type ThemeName } from "./themes";
+import { DEFAULT_THEME, THEMES, type ThemeName } from "./themes";
 
 export type VibeMode = "vibe" | "dev";
 export type FilePreview = "always" | "on-demand" | "none";
@@ -70,7 +70,22 @@ function coerce(raw: unknown): Partial<UserConfig> {
   const out: Partial<UserConfig> = {};
   if (typeof src.onboarded === "boolean") out.onboarded = src.onboarded;
   if (src.mode === "vibe" || src.mode === "dev") out.mode = src.mode;
-  if (typeof src.theme === "string") out.theme = src.theme as ThemeName;
+  if (typeof src.theme === "string") {
+    // Migrate names removed from the curated catalog (#183).
+    const migrated: Record<string, ThemeName> = {
+      gruvbox: "gruvbox-material",
+      nord: "tokyo-night",
+      dracula: "neon-noir",
+      solarized: "tokyo-night",
+      c64: "phosphor",
+      amiga: "phosphor",
+      win95: "tokyo-night",
+      dos: "phosphor",
+      "mac-platinum": "catppuccin",
+    };
+    const candidate = migrated[src.theme] ?? src.theme;
+    if (candidate in THEMES) out.theme = candidate as ThemeName;
+  }
   if (typeof src.icons === "boolean") out.icons = src.icons;
   if (src.filePreview === "always" || src.filePreview === "on-demand" || src.filePreview === "none") {
     out.filePreview = src.filePreview;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useStdout } from "ink";
 
 /**
@@ -19,7 +19,8 @@ export interface Viewport {
 /** Widest the chat column ever gets: a readable measure, centered on wider terminals. */
 export const MEASURE = 100;
 /** Below this many columns the UI switches to compact styling (style guide §10 Q12). */
-export const COMPACT_COLS = 60;
+export const COMPACT_COLS = 70;
+export const WIDE_COLS = 110;
 
 // ── Home session-list geometry (#112) ─────────────────────────────────────
 
@@ -49,85 +50,29 @@ export function visibleListHeight(configured: number, rows: number): number {
   return Math.max(HOME_LIST_MIN_VISIBLE, Math.min(configured, rows - HOME_CHROME_ROWS));
 }
 
-// ── Dashboard layout geometry (T1, issue #113) ────────────────────────────
+// Session geometry is deliberately single-column (#183). Dashboard/sidebar
+// and fixed transcript-window budgets were retired; MEASURE remains shared
+// by Home, dialogs and the readable session column.
 
-/** Columns at which the session screen switches to the three-column dashboard. */
-export const DASHBOARD_COLS = 90;
-/** Header budget: title row + bottom border (prototype lesson: counts as 2 rows). */
-export const HEADER_ROWS = 2;
-/** Gap row between the panel row and the chip footer. */
-export const GAP_ROWS = 1;
-/** Chip footer budget. */
-export const CHIP_ROWS = 1;
-/** Guard row: a frame exactly as tall as the terminal trips Ink's fullscreen
- * replay path (clear + full repaint on every tick, and a mid-repaint kill
- * leaves a partial frame) — the dashboard stays one row short. */
-export const FULLSCREEN_GUARD_ROWS = 1;
-/** Columns at which the sidebars switch from compact to full width. */
-export const SIDEBAR_FULL_COLS = DASHBOARD_COLS + 20;
-
-export type LayoutClass = "single" | "dashboard";
-
-/** Which layout the session screen uses: dashboard from DASHBOARD_COLS up. */
-export function layoutClass(v: Viewport): LayoutClass {
-  return v.columns >= DASHBOARD_COLS ? "dashboard" : "single";
-}
-
-export interface SidebarWidths {
-  /** Left menu sidebar width in columns. */
-  menu: number;
-  /** Right activity/workflow/tokens sidebar width in columns. */
-  side: number;
-}
-
-/** Sidebar widths: compact near the threshold so the center column keeps room to breathe. */
-export function sidebarWidths(v: Viewport): SidebarWidths {
-  if (v.columns < SIDEBAR_FULL_COLS) return { menu: 16, side: 24 };
-  return { menu: 20, side: 30 };
-}
-
-/** Rows available to the panel row: the whole budget between header and
- * chips, minus the fullscreen guard. Floored at 1 so degenerate hosts
- * (tiny rows) still render one panel row instead of a negative-height box. */
-export function bodyRows(v: Viewport): number {
-  return Math.max(1, v.rows - HEADER_ROWS - GAP_ROWS - CHIP_ROWS - FULLSCREEN_GUARD_ROWS);
-}
-
-/** Center-column width: the terminal minus both sidebars and one gap column
- * on each side of the center (the horizontal counterpart of GAP_ROWS). With
- * the right sidebar hidden (vibe mode, spec D6) the center absorbs its width. */
-export function centerWidth(v: Viewport, rightSidebar = true): number {
-  if (layoutClass(v) === "single") return v.columns;
-  const { menu, side } = sidebarWidths(v);
-  return v.columns - menu - (rightSidebar ? side : 0) - 2;
-}
-
-// ── Chat window geometry (T5, issue #117) ─────────────────────────────────
-
-/** Rows the Chat column spends on its own chrome: header row, two spacer
- * rows and the bordered input box (3) — the old key-tips footer row is gone
- * (its hints live in the chip footer now) — plus one guard row: a frame
- * exactly as tall as the terminal trips Ink's fullscreen replay path (clear
- * + full repaint every tick), so the column stays one row short. */
-export const CHAT_CHROME_ROWS = 8;
-/** The transcript window never shrinks below this, however tiny the terminal. */
-export const CHAT_WINDOW_MIN_ROWS = 3;
-
-/** Fixed transcript-window height (spec D4): the column budget minus the
- * chat chrome, shrunk by extra draft lines so a multiline input never makes
- * the frame exceed the terminal (the terminal never scrolls in-session). */
-export function chatWindowRows(v: Viewport, inputLines = 1): number {
-  const total = layoutClass(v) === "dashboard" ? bodyRows(v) : v.rows;
-  const extra = Math.max(0, (Math.max(1, inputLines) - 1));
-  return Math.max(CHAT_WINDOW_MIN_ROWS, total - CHAT_CHROME_ROWS - extra);
-}
-
-/** Wrapping width for transcript lines (spec D4): the chat column minus its
- * in-box chrome — the leading speaker-label column and the box padding
- * (paddingX 1 each side). All line geometry derives from the seam, never
- * from ad-hoc subtraction at call sites. */
-export function chatWrapWidth(width: number): number {
-  return Math.max(10, width - 4);
+/** Fits optional status segments into a single terminal row. Required
+ * segments are preserved; optional segments are dropped from the end and
+ * the final segment is truncated rather than wrapped (#183). */
+export function fitRow(segments: ReadonlyArray<{ text: string; optional?: boolean }>, budget: number): string[] {
+  const limit = Math.max(1, budget);
+  const keep = [...segments];
+  const total = () => keep.reduce((sum, item) => sum + item.text.length + 1, -1);
+  while (total() > limit) {
+    let optional = -1;
+    for (let i = keep.length - 1; i >= 0; i--) if (keep[i]!.optional) { optional = i; break; }
+    if (optional < 0) break;
+    keep.splice(optional, 1);
+  }
+  if (total() > limit && keep.length) {
+    let longest = 0;
+    for (let i = 1; i < keep.length; i++) if (keep[i]!.text.length > keep[longest]!.text.length) longest = i;
+    keep[longest] = { text: keep[longest]!.text.slice(0, Math.max(1, keep[longest]!.text.length - (total() - limit))) };
+  }
+  return keep.map((item) => item.text);
 }
 
 export type WidthClass = "compact" | "regular" | "wide";
@@ -146,15 +91,10 @@ export function useViewport(): Viewport {
   return { columns: stdout?.columns ?? 80, rows: stdout?.rows ?? 24 };
 }
 
-/** Width classes: compact (< 60), regular (60…100), wide (> 100). */
+/** #183 breakpoints: compact <70, regular 70–109, wide ≥110. */
 export function widthClass(v: Viewport): WidthClass {
   if (v.columns < COMPACT_COLS) return "compact";
-  return v.columns > MEASURE ? "wide" : "regular";
-}
-
-/** Content column width: the readable measure, or the whole terminal when narrower. */
-export function contentWidth(v: Viewport): number {
-  return Math.min(MEASURE, v.columns);
+  return v.columns >= WIDE_COLS ? "wide" : "regular";
 }
 
 /**
@@ -185,21 +125,4 @@ export function windowing(total: number, cursor: number, budget: number): Window
   const count = Math.max(1, Math.min(budget, total));
   const start = Math.min(Math.max(0, cursor - count + 1), Math.max(0, total - count));
   return { start, count, above: start, below: Math.max(0, total - start - count) };
-}
-
-/** The seam for resize *side effects* that need the live stdout stream
- * itself (e.g. repainting the screen): components never touch
- * `stdout.on("resize")` directly — they register here (rule 8). */
-export function useStdoutResize(onResize: (stdout: NodeJS.WriteStream & { columns?: number; rows?: number }) => void): void {
-  const { stdout } = useStdout();
-  const ref = useRef(onResize);
-  ref.current = onResize;
-  useEffect(() => {
-    if (!stdout) return;
-    const handler = () => ref.current(stdout);
-    stdout.on("resize", handler);
-    return () => {
-      stdout.off("resize", handler);
-    };
-  }, [stdout]);
 }

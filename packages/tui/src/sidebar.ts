@@ -1,10 +1,8 @@
 import type { AgentEvent } from "@moh/core";
 
 /**
- * Pure projections feeding the right sidebar (#118, spec decision 6 /
- * delivery slice T6): Activity (recent tool calls + subagent state) and
- * Tokens (context usage from model_call usage). Pure: same events, same
- * sidebar state — the component only renders.
+ * Pure session-status projection. Activity remains useful for live phase
+ * summaries; token usage and turn count feed the #183 bottom bar.
  */
 
 /**
@@ -37,7 +35,7 @@ export interface SidebarState {
 }
 
 /**
- * Projects the event log into sidebar state. Tool calls appear in order and
+ * Projects the event log into session status. Tool calls appear in order and
  * settle when their `tool_result` arrives (`ok` stays null while in
  * flight); subagents appear at spawn as `running` and settle on
  * `subagent_result`. Everything else is chrome.
@@ -112,49 +110,7 @@ function detailOf(args: unknown): string {
   return "";
 }
 
-export interface ActivityWindow {
-  visible: ActivityItem[];
-  /** Rows hidden above the window (`↑ N more`). */
-  hidden: number;
-}
-
-/**
- * Internal windowing for the Activity section: the most recent items that
- * fit in `budget` rows, everything older counted as hidden. The panel
- * itself never grows (#118 acceptance: windowing is internal only).
- */
-export function activityWindow(items: ReadonlyArray<ActivityItem>, budget: number): ActivityWindow {
-  const count = Math.max(0, Math.min(budget, items.length));
-  return { visible: items.slice(items.length - count), hidden: items.length - count };
-}
-
 /** Fraction of the context window in use, capped at 1. */
 export function contextFraction(contextIn: number, limit = CONTEXT_WINDOW_DEFAULT): number {
   return limit > 0 ? Math.min(1, Math.max(0, contextIn / limit)) : 0;
-}
-
-// ── panel geometry (fixed-height anchoring, #118) ─────────────────────────
-
-/** Right-panel border rows (top + bottom). */
-export const SIDEBAR_BORDER_ROWS = 2;
-/** Slack row between the section stack and the bottom border: an exact fit
- * makes Ink's Yoga layout overflow the last row out of the panel. */
-export const SIDEBAR_SLACK_ROWS = 1;
-/** Workflow section: header + claimed/ready/blocked rows (fixed, bottom-anchored). */
-export const WORKFLOW_ROWS = 4;
-/** Tokens section: header + usage bar + counts (fixed, bottom-anchored). */
-export const TOKENS_ROWS = 3;
-
-/** Rows the Activity section gets for its items: everything between the
- * panel borders and the bottom-anchored sections, minus its own header.
- * Floored at 0 — with a tiny terminal the section simply renders nothing. */
-export function sidebarActivityBudget(panelRows: number): number {
-  return Math.max(0, panelRows - SIDEBAR_BORDER_ROWS - 1 - WORKFLOW_ROWS - TOKENS_ROWS);
-}
-
-/** The usage bar: `█` filled cells then `░`, exactly `width` cells. */
-export function tokenBar(fraction: number, width: number): string {
-  const w = Math.max(0, Math.trunc(width));
-  const filled = Math.min(w, Math.max(0, Math.round(fraction * w)));
-  return "█".repeat(filled) + "░".repeat(Math.max(0, w - filled));
 }

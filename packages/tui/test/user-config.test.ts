@@ -9,6 +9,7 @@ import {
   userConfigFile,
   withSetting,
 } from "../src/user-config";
+import type { ThemeName } from "../src/themes";
 
 describe("user config", () => {
   test("defaults when the file is missing", () => {
@@ -46,7 +47,20 @@ describe("user config", () => {
     });
     const cfg = loadUserConfig(file);
     expect(cfg.mode).toBe("vibe"); // invalid falls back
-    expect(cfg.theme).toBe("gruvbox"); // valid field survives
+    expect(cfg.theme).toBe("gruvbox-material"); // legacy name is migrated
+  });
+
+  test("all retired persisted theme names migrate into the curated catalog", () => {
+    const expected: Record<string, ThemeName> = {
+      gruvbox: "gruvbox-material", nord: "tokyo-night", dracula: "neon-noir",
+      solarized: "tokyo-night", c64: "phosphor", amiga: "phosphor",
+      win95: "tokyo-night", dos: "phosphor", "mac-platinum": "catppuccin",
+    };
+    for (const [legacy, current] of Object.entries(expected)) {
+      const cfg = loadUserConfig("ignored", () => JSON.stringify({ theme: legacy }));
+      expect(cfg.theme).toBe(current);
+    }
+    expect(loadUserConfig("ignored", () => JSON.stringify({ theme: "unknown" })).theme).toBe(DEFAULT_USER_CONFIG.theme);
   });
 
   test("homeListMax coerces into 3..10, default 5", () => {

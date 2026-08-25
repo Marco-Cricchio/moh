@@ -7,8 +7,8 @@ import { stripAnsi } from "./helpers";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Renders the input in isolation and returns a frame prober. */
-async function mount(onSubmit: (text: string) => void, onScrollRequest?: (delta: number) => void) {
-  const i = render(<MultilineInput placeholder="p" focused onScrollRequest={onScrollRequest} onSubmit={onSubmit} />);
+async function mount(onSubmit: (text: string) => void) {
+  const i = render(<MultilineInput placeholder="p" focused onSubmit={onSubmit} />);
   await sleep(30);
   return {
     stdin: i.stdin,
@@ -134,23 +134,6 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     i.stdin.write("\r");
     await sleep(30);
     expect(submitted).toBe("onetwo");
-    i.unmount();
-  });
-
-  test("up/down at the draft edges request transcript scrolling", async () => {
-    const requests: number[] = [];
-    const i = await mount(() => {}, (delta) => requests.push(delta));
-    i.stdin.write("\x0a");
-    await sleep(20);
-    i.stdin.write("\x1b[A");
-    await sleep(20);
-    i.stdin.write("\x1b[A");
-    await sleep(20);
-    i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.stdin.write("\x1b[B");
-    await sleep(20);
-    expect(requests).toEqual([-1, 1]);
     i.unmount();
   });
 
