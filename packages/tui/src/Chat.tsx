@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Static, useInput } from "ink";
+import { Box, Static, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { SPINNER_FRAMES } from "./icons";
@@ -70,13 +70,10 @@ export function Chat({
   const [tick, setTick] = useState(0);
   const [lastEsc, setLastEsc] = useState(0);
   const [armed, setArmed] = useState(false);
-  // A projection switch (vibe ↔ dev) cannot retro-filter scrollback: what
-  // ink already printed keeps its form — exactly how a theme switch
-  // behaves. Removing printed blocks would corrupt Static's index (ink
-  // skips misaligned items and new blocks fall below the old counter).
-  // So the settled history is segmented: each mode switch starts a new
-  // segment at the current seal boundary; segments keep their grammar
-  // forever and concatenate into one stable `items` array (#193).
+  // Settled-history projection state (#193, superseded by #201): the
+  // segments list now exists only for the repaint reset — every mode
+  // switch rebuilds it from zero in the new grammar and remounts Static,
+  // so stale print indices cannot survive a switch.
   interface Segment { base: number; mode: Mode }
   const sessionRef = useRef(session);
   const segmentsRef = useRef<Segment[]>([{ base: 0, mode }]);
@@ -85,12 +82,27 @@ export function Chat({
     segmentsRef.current = [{ base: 0, mode }];
   }
   const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
+  // Mode switch repaints (#201): the printed grammar is no longer sealed —
+  // the visible transcript is cleared and reprinted whole in the new mode.
+  // A pending repaint waits while a modal owns the alternate screen; it
+  // fires on close, before anything else settles into scrollback.
+  const { stdout } = useStdout();
+  const [repaint, setRepaint] = useState(0);
   const modeRef = useRef(mode);
+  const repaintRef = useRef(false);
   if (mode !== modeRef.current) {
     modeRef.current = mode;
-    const last = segmentsRef.current[segmentsRef.current.length - 1]!;
-    if (last.mode !== mode) segmentsRef.current.push({ base: settledEnd, mode });
+    repaintRef.current = true;
   }
+  useEffect(() => {
+    if (!repaintRef.current || replaySettled || blocked) return;
+    repaintRef.current = false;
+    segmentsRef.current = [{ base: 0, mode }];
+    // Clear screen + scrollback, cursor home: the whole visible transcript
+    // (including anything printed before moh) goes away by owner decision.
+    stdout.write("\x1b[H\x1b[2J\x1b[3J");
+    setRepaint((value) => value + 1);
+  }, [mode, replaySettled, blocked, stdout]);
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked
@@ -113,7 +125,7 @@ export function Chat({
       settledBlocks,
       liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd }),
     };
-  }, [state.events, settledEnd, filePreview, mode]);
+  }, [state.events, settledEnd, filePreview, mode, repaint]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],
@@ -163,7 +175,7 @@ export function Chat({
 
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
-        <Static items={staticItems as TranscriptBlock[]}>
+        <Static key={repaint} items={staticItems as TranscriptBlock[]}>
           {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
         </Static>
       {replaySettled && replayBlocks.map((block) => (
