@@ -391,8 +391,18 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   return (
     <Box flexDirection="column">
       {block.continuation ? null : <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>}
+      {/* Continuation segments are separated only by the renderer's own
+          blank lines — an extra block gap here doubles them, breaking one
+          reply into visibly detached paragraphs (#205). */}
+      {block.continuation ? null : <Text> </Text>}
       {block.markdown && markdown ? (
-        <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} />
+        <>
+          {/* Segments split exactly at blank lines (trimmed per segment),
+              so restore the single GFM inter-block blank row here — heading
+              and hr paragraphs get their spacing back without doubles. */}
+          {block.continuation ? <Box width={Math.max(1, width - 1)} backgroundColor={bg} flexShrink={0}><Text> </Text></Box> : null}
+          <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} />
+        </>
       ) : block.lines.map((line, index) => {
         const lineKind = block.lineKinds?.[index];
         const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
@@ -403,7 +413,6 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={2}>{body}</Row><Row width={width} bg={bg} indent={2}><Text color={theme.border}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
         return <Row key={index} width={width} bg={bg} indent={lineKind === "bullet" ? 4 : 2}>{body}</Row>;
       })}
-      <Text> </Text>
     </Box>
   );
 }, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block));
