@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, useInput } from "ink";
 import type { AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
@@ -75,7 +75,7 @@ export function Chat({
     return () => clearInterval(timer);
   }, [blocked, state.pending]);
 
-  const { settledBlocks, liveBlocks } = useMemo(() => {
+  const { settledBlocks, liveBlocks } = useMemo((): { settledBlocks: readonly TranscriptBlock[]; liveBlocks: readonly TranscriptBlock[] } => {
     let openTurnAt = -1;
     if (state.pending) for (let i = state.events.length - 1; i >= 0; i--) {
       if (state.events[i]!.type === "user_message") { openTurnAt = i; break; }
@@ -100,6 +100,21 @@ export function Chat({
     () => transcriptTail(liveBlocks, cols, Math.max(1, viewport.rows - 9)),
     [liveBlocks, cols, viewport.rows],
   );
+  // Static must stay MOUNTED across modal cycles: unmounting it (the old
+  // alternate-screen swap) reset ink's internal printed-items counter, so
+  // every remount reprinted the whole settled transcript into the main
+  // buffer — one duplicate per opened modal. While replaySettled, freeze
+  // the items so Static emits nothing into the alternate buffer; on close
+  // it resumes and prints only items settled in the meantime.
+  const frozenRef = useRef<readonly TranscriptBlock[] | null>(null);
+  let staticItems: readonly TranscriptBlock[];
+  if (replaySettled) {
+    if (frozenRef.current === null) frozenRef.current = settledBlocks;
+    staticItems = frozenRef.current;
+  } else {
+    frozenRef.current = null;
+    staticItems = settledBlocks;
+  }
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
   useInput((input, key) => {
@@ -121,13 +136,12 @@ export function Chat({
 
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
-      {replaySettled ? replayBlocks.map((block) => (
-        <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
-      )) : (
-        <Static items={settledBlocks}>
+        <Static items={staticItems as TranscriptBlock[]}>
           {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
         </Static>
-      )}
+      {replaySettled && replayBlocks.map((block) => (
+        <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
+      ))}
       {state.pending && <Box flexDirection="column">{liveTail.map((block) => <TranscriptBlockView key={`live-${block.key}`} block={block} width={cols} />)}</Box>}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
