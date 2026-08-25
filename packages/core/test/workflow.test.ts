@@ -76,7 +76,9 @@ describe("first-party skill install", () => {
   test("bundled assets ship the workflow skills", () => {
     const sources = firstPartySkillSources();
     expect(sources.map((s) => s.name).sort()).toEqual([
-      // #74: reduced set removed; original-vocabulary ports only (NOTICE.md)
+      // #74: reduced set removed; original-vocabulary ports only (NOTICE.md).
+      // ask-moh: the router skill (base /ask-moh command reads it from the bundle).
+      "ask-moh",
       "code-review",
       "codebase-design",
       "diagnosing-bugs",

@@ -111,6 +111,15 @@ export function versionSatisfied(need: string, have: string): boolean {
   return true;
 }
 
+/** Reads one bundled first-party skill by name (the /ask-moh router).
+ * Returns null when the skill is not in the bundle. */
+export function readBundledSkill(
+  name: string,
+  bundleDir: string = defaultBundleDir(),
+): FirstPartySkillSource | null {
+  return firstPartySkillSources(bundleDir).find((s) => s.name === name) ?? null;
+}
+
 export interface SkillInstallReport {
   /** Newly copied skills. */
   installed: string[];
