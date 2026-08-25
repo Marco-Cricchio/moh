@@ -27,6 +27,7 @@ function harness(opts: {
     parallel: () => opts.parallel ?? true,
     cwd: "/w",
     skillDirs: () => ["/skills"],
+    turn: () => 1,
     ...(opts.askUser ? { onAskUser: (async () => ({ kind: "answer", text: "y" })) as never } : {}),
     append: (e) => events.push(e),
   });
@@ -160,6 +161,7 @@ describe("ToolRunner", () => {
     expect(contexts[0].skillDirs).toEqual(["/skills"]);
     expect(typeof contexts[0].askUser).toBe("function");
     expect(contexts[0].onProgress).toBeTypeOf("function");
+    expect(contexts[0].turn).toBe(1);
     // Without onAskUser the channel is absent (headless fail-fast contract).
     const seen: any[] = [];
     const bareTool = makeTool({ name: "ctx", execute: (_a, ctx) => { seen.push(ctx); return "ok"; } });

@@ -21,6 +21,8 @@ export interface ToolRunnerOptions {
   cwd: string;
   /** Skill dirs passed to every ToolContext (live accessor — refreshSkills rewrites them). */
   skillDirs: () => readonly string[];
+  /** 1-based live-run turn sequence passed to every ToolContext (#196). */
+  turn: () => number;
   /** Interactive question channel; absent in headless sessions. */
   onAskUser?: SessionConfig["onAskUser"];
   /** Log append callback — the runner owns its tool_call/tool_result emission. */
@@ -41,6 +43,7 @@ export class ToolRunner {
   readonly #parallel: () => boolean;
   readonly #cwd: string;
   readonly #skillDirs: () => readonly string[];
+  readonly #turn: () => number;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
   readonly #append: (event: AgentEvent) => void;
 
@@ -50,6 +53,7 @@ export class ToolRunner {
     this.#parallel = options.parallel;
     this.#cwd = options.cwd;
     this.#skillDirs = options.skillDirs;
+    this.#turn = options.turn;
     this.#onAskUser = options.onAskUser;
     this.#append = options.append;
   }
@@ -119,6 +123,7 @@ export class ToolRunner {
       cwd: this.#cwd,
       onProgress: () => {},
       skillDirs: this.#skillDirs(),
+      turn: this.#turn(),
       ...(this.#onAskUser ? { askUser: this.#onAskUser } : {}),
     };
     try {

@@ -39,6 +39,10 @@ export class AgentSession {
   readonly #registry: FrozenProviderRegistry | undefined;
   #tools: Record<string, Tool>;
   readonly #cwd: string;
+  /** 1-based live-run turn sequence, bumped when each turn starts (#196). */
+  #turnSeq = 0;
+  /** Current turn, surfaced to tools via ToolContext (read ledger scope). */
+  readonly #turn = (): number => this.#turnSeq;
   readonly #permissions: PermissionResolver;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
   /** The permission gate (#90): 3-tier check + "always" persistence. */
@@ -106,6 +110,7 @@ export class AgentSession {
       parallel: () => this.#provider.capabilities?.parallelToolCalls !== false,
       cwd: this.#cwd,
       skillDirs: () => this.#skillDirs,
+      turn: this.#turn,
       ...(this.#onAskUser ? { onAskUser: this.#onAskUser } : {}),
       append: (event) => this.#append(event),
     });
@@ -181,7 +186,10 @@ export class AgentSession {
       ...(this.#memory ? { onTurnSettled: (result) => this.#maybeExtractMemory(result) } : {}),
     });
     this.#queue = new TurnQueue({
-      execute: (text, controller) => this.#loop.run(text, controller),
+      execute: (text, controller) => {
+        this.#turnSeq += 1;
+        return this.#loop.run(text, controller);
+      },
       onTurnSettled: () => {
         // ADR-0011: a turn-scoped skill prompt lives exactly one turn.
         // Dropped when the turn's promise settles and before the queue
