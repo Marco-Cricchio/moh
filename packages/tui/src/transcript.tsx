@@ -211,7 +211,25 @@ function Row({ width, bg, indent = 0, children }: { width: number; bg?: string; 
   return <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={indent} flexShrink={0}><Text>{children}</Text></Box>;
 }
 
-export function TranscriptBlockView({ block, width }: { block: TranscriptBlock; width: number }) {
+const sameKinds = (a: string[] | undefined, b: string[] | undefined): boolean => {
+  if (!a || !b) return !a && !b;
+  return a.length === b.length && a.every((kind, i) => kind === b[i]);
+};
+
+const sameBlock = (a: TranscriptBlock, b: TranscriptBlock): boolean =>
+  a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type
+  && a.detail === b.detail && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
+  && a.usage?.outputTokens === b.usage?.outputTokens
+  && a.lines.length === b.lines.length && a.lines.every((line, i) => line === b.lines[i])
+  && sameKinds(a.lineKinds, b.lineKinds);
+
+/**
+ * Content-compared memo: projection rebuilds every block object per event
+ * (ref equality is useless), but unchanged blocks must not re-render —
+ * each re-render repaints its rows, which at streaming rates is O(n²)
+ * output and froze the UI (session 20260825T062108113Z regression).
+ */
+export const TranscriptBlockView = React.memo(function TranscriptBlockView({ block, width }: { block: TranscriptBlock; width: number }) {
   const theme = useTheme();
   const color = blockColor(block, theme);
   const bg = blockTint(block, theme);
@@ -232,4 +250,4 @@ export function TranscriptBlockView({ block, width }: { block: TranscriptBlock; 
       <Text> </Text>
     </Box>
   );
-}
+}, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block));
