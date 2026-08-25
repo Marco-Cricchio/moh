@@ -204,7 +204,7 @@ export function Markdown({ text, md, width, rowWidth, bg }: { text: string; md: 
     [text, md, width],
   );
   return <>{lines.map((line, index) => (
-    <Box key={index} width={Math.max(1, rowWidth - 1)} backgroundColor={bg} paddingLeft={2} flexShrink={0}>
+    <Box key={index} width={Math.max(1, rowWidth - 1)} backgroundColor={bg} paddingLeft={4} flexShrink={0}>
       <Text>{parseAnsiSegments(line).map((segment, s) => (
         <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>
       ))}{line.trim() === "" ? " " : null}</Text>
