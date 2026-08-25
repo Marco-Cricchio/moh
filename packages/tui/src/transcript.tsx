@@ -18,6 +18,32 @@ export interface TranscriptBlock {
   usage?: { inputTokens: number; outputTokens: number };
 }
 
+/** Vibe phrasing for a tool call (#193): plain language, no raw command. */
+const TOOL_ACTION: Record<string, string> = {
+  read: "read a file",
+  write: "wrote a file",
+  edit: "edited a file",
+  glob: "looked for files",
+  grep: "searched the code",
+  fetch: "fetched a page",
+  todo: "updated the plan",
+  bash: "ran a command",
+};
+
+/** The file-ish detail vibe shows (a path or pattern, not a command line). */
+const vibeDetail = (name: string, args: unknown): string => {
+  if (!args || typeof args !== "object") return "";
+  const rec = args as Record<string, unknown>;
+  // Search tools: the pattern says what was looked for, the path is noise.
+  if (name === "glob" || name === "grep") {
+    if (typeof rec.pattern === "string") return rec.pattern.split("\n")[0]!;
+  }
+  const path = rec.path ?? rec.file;
+  if (typeof path === "string") return path.split("\n")[0]!;
+  if (name === "fetch" && typeof rec.url === "string") return rec.url.split("\n")[0]!;
+  return "";
+};
+
 const detailOf = (args: unknown): string => {
   if (!args || typeof args !== "object") return "";
   const rec = args as Record<string, unknown>;
@@ -29,15 +55,23 @@ const detailOf = (args: unknown): string => {
 
 /** Complete, deterministic projection of the append-only event log. Events
  * may be grouped (assistant deltas, tool call/result), but none disappear
- * without an intentional chrome representation. */
-export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { filePreview?: "always" | "on-demand" | "none" } = {}): TranscriptBlock[] {
+ * without an intentional chrome representation.
+ *
+ * `mode` (#193): `dev` renders the full technical grammar; `vibe` is the
+ * plain-language view over the same log — metric/chrome blocks drop, tool
+ * activity collapses to one plain-language line (unresolved calls keep
+ * `state: "run"` so the pending marker stays live), failures always show.
+ * The log itself is never filtered: this is a projection option only. */
+export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number } = {}): TranscriptBlock[] {
+  const vibe = options.mode === "vibe";
+  const keyBase = options.keyBase ?? 0;
   const blocks: TranscriptBlock[] = [];
   const results = new Map<string, Extract<AgentEvent, { type: "tool_result" }>>();
   for (const event of events) if (event.type === "tool_result") results.set(event.callId, event);
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i]!;
-    const key = `${i}-${event.type}`;
+    const key = `${keyBase + i}-${event.type}`;
     switch (event.type) {
       case "user_message":
         blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: event.text.split("\n") });
@@ -55,6 +89,16 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           const question = event.args && typeof event.args === "object" && "question" in event.args ? String((event.args as { question: unknown }).question) : detailOf(event.args);
           const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
           blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state });
+          break;
+        }
+        if (vibe) {
+          if (state !== "fail") {
+            const action = TOOL_ACTION[event.name] ?? `used ${event.name}`;
+            const target = vibeDetail(event.name, event.args);
+            blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [target ? `${action} · ${target}` : action], state });
+            break;
+          }
+          blocks.push({ key, kind: "error", glyph: "✗", type: event.name, detail: detailOf(event.args), lines: result?.ok === false ? result.output.split("\n").slice(0, 5).map(sanitizeLine) : [], state: "fail" });
           break;
         }
         blocks.push({
@@ -91,6 +135,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission rule", detail: JSON.stringify(event.rule), lines: [] });
         break;
       case "model_call": {
+        if (vibe) break;
         const nextUser = events.slice(i + 1).findIndex((candidate) => candidate.type === "user_message");
         const turnTail = events.slice(i + 1, nextUser < 0 ? undefined : i + 1 + nextUser);
         if (!turnTail.some((candidate) => candidate.type === "done" && candidate.usage)) {
@@ -99,6 +144,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         break;
       }
       case "done":
+        if (vibe) break;
         blocks.push(event.usage
           ? { key, kind: "chrome", glyph: "─", type: "usage", detail: event.models?.join(", "), lines: [], usage: event.usage }
           : { key, kind: "chrome", glyph: "✓", type: "done", detail: event.models?.join(", "), lines: [] });
@@ -113,33 +159,43 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         blocks.push({ key, kind: "chrome", glyph: "◇", type: event.name, detail: `spawn${event.preset ? ` · ${event.preset}` : ""}`, lines: [] });
         break;
       case "subagent_result":
-        blocks.push({ key, kind: event.status === "error" ? "error" : "chrome", glyph: event.status === "done" ? "✓" : event.status === "error" ? "✗" : "◌", type: event.name, detail: `${event.status} · ${event.usage.inputTokens + event.usage.outputTokens} tok`, lines: [] });
+        blocks.push(vibe
+          ? { key, kind: event.status === "error" ? "error" : "chrome", glyph: event.status === "done" ? "✓" : event.status === "error" ? "✗" : "◌", type: event.name, detail: event.status === "error" ? "failed" : event.status, lines: [] }
+          : { key, kind: event.status === "error" ? "error" : "chrome", glyph: event.status === "done" ? "✓" : event.status === "error" ? "✗" : "◌", type: event.name, detail: `${event.status} · ${event.usage.inputTokens + event.usage.outputTokens} tok`, lines: [] });
         break;
       case "session_start":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "session started", detail: `prompt ${event.promptVersion.slice(0, 8)}`, lines: [] });
         break;
       case "session_mode":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission mode", detail: event.mode, lines: [] });
         break;
       case "skill_invoked":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "skill", detail: event.name, lines: [] });
         break;
       case "model_switched":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "model switched", detail: `${event.from} → ${event.to} (next turn)`, lines: [] });
         break;
       case "memory_updated":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });
         break;
       case "compaction":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "context compacted", detail: `${event.upTo} events`, lines: [event.summary] });
         break;
       case "extension_loaded":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "extension loaded", detail: `${event.name} ${event.version}`, lines: [] });
         break;
       case "extension_failed":
         blocks.push({ key, kind: "error", glyph: "✗", type: "extension failed", detail: event.name, lines: [event.message], state: "fail" });
         break;
       case "mcp_server_started":
+        if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "MCP started", detail: `${event.server} · ${event.tools.length} tools`, lines: [] });
         break;
       case "mcp_server_failed":
