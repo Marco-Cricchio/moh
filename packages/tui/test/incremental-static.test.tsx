@@ -8,6 +8,7 @@ import type { AgentEvent } from "@moh/core";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { settledBoundary } from "../src/Chat";
+import { projectTranscript } from "../src/transcript";
 import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -112,6 +113,34 @@ describe("settledBoundary — incremental Static promotion (#194)", () => {
       { type: "done", usage: { inputTokens: 1, outputTokens: 2 }, models: ["mock"] },
     ];
     expect(settledBoundary(events, true)).toBe(3);
+  });
+
+  test("the emitted Static prefix is content-stable across GLM-style split fences", () => {
+    // Minimized from 20260825T171016939Z-959fcc92: GLM split both fence
+    // delimiters across deltas after a completed read action.
+    const events: AgentEvent[] = [
+      { type: "user_message", text: "inspect" },
+      { type: "model_call", model: "openai-compat/glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "tool_call", callId: "read-1", name: "read", args: { path: "README.md" } },
+      { type: "tool_result", callId: "read-1", ok: true, output: "excerpt" },
+      { type: "assistant_delta", text: "Here is the excerpt:\n\n" },
+      { type: "assistant_delta", text: "``" },
+      { type: "assistant_delta", text: "`\n" },
+      { type: "assistant_delta", text: "# heading\n\nbody\n" },
+      { type: "assistant_delta", text: "``" },
+      { type: "assistant_delta", text: "`\n\n" },
+      { type: "model_call", model: "openai-compat/glm-5.3", usage: { inputTokens: 2, outputTokens: 2 } },
+      { type: "done", usage: { inputTokens: 3, outputTokens: 3 }, models: ["openai-compat/glm-5.3"] },
+    ];
+    let emitted: ReturnType<typeof projectTranscript> = [];
+    for (let length = 1; length <= events.length; length++) {
+      const boundary = settledBoundary(events.slice(0, length), true);
+      const staticItems = projectTranscript(events.slice(0, boundary), { mode: "dev" });
+      // Static cannot revise already printed items: its next projection must
+      // keep every emitted item byte-for-byte at the same array index.
+      expect(staticItems.slice(0, emitted.length)).toEqual(emitted);
+      emitted = staticItems;
+    }
   });
 
   test("the boundary is monotonic as events append (no Static item ever re-opens)", () => {

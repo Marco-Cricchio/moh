@@ -145,6 +145,17 @@ describe("semantic transcript projection (#183)", () => {
     expect(block.lineKinds).toEqual(["heading", "bullet"]);
   });
 
+  test("renders assistant prose through the terminal Markdown renderer", () => {
+    const block = projectTranscript([{ type: "assistant_delta", text: "## Result\n\n**bold**\n\n- first" }])[0]!;
+    expect(block.markdown).toBe("## Result\n\n**bold**\n\n- first");
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={block} width={80} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("Result");
+    expect(frame).toContain("bold");
+    expect(frame).toContain("* first");
+    ink.unmount();
+  });
+
   test("renders the validated head/body/gap grammar with tint and no transcript frame", () => {
     const block = projectTranscript([{ type: "user_message", text: "select this cleanly" }])[0]!;
     const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={block} width={80} /></ThemeProvider>);
