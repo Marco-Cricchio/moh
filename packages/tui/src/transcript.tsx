@@ -136,11 +136,14 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         break;
       case "model_call": {
         if (vibe) break;
-        const nextUser = events.slice(i + 1).findIndex((candidate) => candidate.type === "user_message");
-        const turnTail = events.slice(i + 1, nextUser < 0 ? undefined : i + 1 + nextUser);
-        if (!turnTail.some((candidate) => candidate.type === "done" && candidate.usage)) {
-          blocks.push({ key, kind: "chrome", glyph: "─", type: "usage", detail: event.model, lines: [], usage: event.usage });
-        }
+        // Deterministic by construction (#194): the block renders exactly
+        // what the event carries and never whether a later `done` will
+        // summarize the turn — settled blocks are promoted to Static
+        // incrementally mid-turn and a Static item must never change or
+        // disappear later (ink would desync its printed-items index). The
+        // token totals stay on `done` alone so turns don't show duplicate
+        // usage numbers; per-call lines record which model served the call.
+        blocks.push({ key, kind: "chrome", glyph: "─", type: "model", detail: event.model, lines: [] });
         break;
       }
       case "done":
