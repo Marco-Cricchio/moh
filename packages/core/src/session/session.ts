@@ -191,6 +191,15 @@ export class AgentSession {
           this.#assemblePrompt();
         }
       },
+      onTurnStart: (attachment) => {
+        // Applied at turn start, not enqueue time: a steering send that
+        // waited out a cancelled turn keeps its prompt (the settling
+        // turn's cleanup runs before this).
+        const prompt = attachment as SkillPrompt;
+        this.#skillPrompt = prompt;
+        this.#append({ type: "skill_invoked", name: prompt.name });
+        this.#assemblePrompt();
+      },
     });
     if (config.resume?.events.length) {
       // Resume (#31): the log continues in a new AgentSession over the same
@@ -373,12 +382,7 @@ export class AgentSession {
     // starts (the loop reassembles the prompt before every model call,
     // so the skills section picks it up) and recorded as chrome in the
     // log — the user_message stays the clean text.
-    if (options?.prompt) {
-      this.#skillPrompt = options.prompt;
-      this.#append({ type: "skill_invoked", name: options.prompt.name });
-      this.#assemblePrompt();
-    }
-    return this.#queue.send(text);
+    return this.#queue.send(text, options?.prompt);
   }
 
   /**

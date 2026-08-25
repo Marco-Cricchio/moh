@@ -102,3 +102,33 @@ describe("skill prompt seam (ADR-0011)", () => {
     expect(systems[0]).not.toContain('Follow the "ask-moh" skill');
   });
 });
+
+describe("skill prompt seam — steering (ADR-0011 gap)", () => {
+  test("a skill send that steers an active turn keeps its prompt for the new turn", async () => {
+    const systems: string[] = [];
+    let call = 0;
+    const provider: Provider = {
+      name: "slow",
+      async *stream(messages: Message[], signal: AbortSignal): AsyncIterable<StreamEvent> {
+        call += 1;
+        systems.push(String(messages[0]?.parts[0]?.kind === "text" ? (messages[0].parts[0] as { text: string }).text : ""));
+        yield { type: "model_call_start", model: "s" };
+        if (call === 1) await Bun.sleep(80); // slow first turn: steering window
+        if (signal.aborted) return;
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const session = createSession({ provider });
+
+    const first = session.send("first turn");
+    await Bun.sleep(10); // mid-stream
+    const second = session.send("steered skill turn", { prompt: { name: "ask-moh", text: "STEERED-SKILL-BODY" } });
+    expect((await first).status).toBe("cancelled");
+    expect((await second).status).toBe("done");
+
+    // Turn 1 had no skill; the steering turn MUST carry the skill body.
+    expect(systems[0]).not.toContain("STEERED-SKILL-BODY");
+    expect(systems[1]).toContain("STEERED-SKILL-BODY");
+    expect(systems[1]).toContain('Follow the "ask-moh" skill');
+  });
+});

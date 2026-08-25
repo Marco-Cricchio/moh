@@ -12,6 +12,13 @@ export interface TurnQueueOptions {
    * drops its turn-scoped skill prompt here.
    */
   onTurnSettled?: (result: TurnResult) => void;
+  /**
+   * Called when a queued send actually STARTS its turn (ADR-0011): the
+   * attachment rides the queue item — a steering send that waited out a
+   * cancelled turn applies its prompt here, not at enqueue time, so the
+   * settling turn's cleanup cannot clear it first.
+   */
+  onTurnStart?: (attachment?: unknown) => void;
 }
 
 /**
@@ -25,14 +32,16 @@ export interface TurnQueueOptions {
 export class TurnQueue {
   readonly #execute: TurnQueueOptions["execute"];
   readonly #onTurnSettled: TurnQueueOptions["onTurnSettled"];
+  readonly #onTurnStart: TurnQueueOptions["onTurnStart"];
   #turn: Promise<TurnResult> | null = null;
   #controller: AbortController | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
-  readonly #queue: { text: string; resolve: (result: TurnResult) => void }[] = [];
+  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: unknown }[] = [];
 
   constructor(options: TurnQueueOptions) {
     this.#execute = options.execute;
     this.#onTurnSettled = options.onTurnSettled;
+    this.#onTurnStart = options.onTurnStart;
   }
 
   /** True while a turn is in flight (including one being steered away). */
@@ -45,10 +54,12 @@ export class TurnQueue {
     this.#controller?.abort();
   }
 
-  /** Enqueues a user message; preempts the active turn if sends are waiting. */
-  send(text: string): Promise<TurnResult> {
+  /** Enqueues a user message; preempts the active turn if sends are waiting.
+   * An optional opaque attachment (ADR-0011 skill prompt) is applied at
+   * turn start via `onTurnStart`, surviving preemption and queueing. */
+  send(text: string, attachment?: unknown): Promise<TurnResult> {
     return new Promise<TurnResult>((resolve) => {
-      this.#queue.push({ text, resolve });
+      this.#queue.push({ text, resolve, attachment });
       this.#pump();
     });
   }
@@ -65,6 +76,7 @@ export class TurnQueue {
     }
     const item = this.#queue.shift();
     if (!item) return;
+    if (item.attachment !== undefined) this.#onTurnStart?.(item.attachment);
     const controller = new AbortController();
     this.#controller = controller;
     const turn = this.#execute(item.text, controller);
