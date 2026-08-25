@@ -3,7 +3,7 @@ import { Marked, type Tokens } from "marked";
 // @ts-expect-error untyped module
 import { markedTerminal } from "marked-terminal";
 import { useMemo } from "react";
-import { Text } from "ink";
+import { Box, Text } from "ink";
 import Table from "cli-table3";
 import type { Theme } from "./themes";
 
@@ -116,11 +116,14 @@ export function wrapRenderedLines(text: string, width: number): string[] {
   return out;
 }
 
-/** Streaming-safe markdown text, rendered with the current theme. */
-export function Markdown({ text, md, width }: { text: string; md: Marked; width: number }) {
-  const out = useMemo(
-    () => wrapRenderedLines(String(md.parse(closeOpenFences(text))).replace(/\n+$/, ""), width).join("\n"),
+/** Streaming-safe markdown, rendered with the current theme. Each terminal
+ * row is its own full-width Box so the tint paints blank lines and padding
+ * too: a single multiline Text leaves gaps and the text sits on the
+ * terminal's default bg instead of the theme tint (#205 follow-up). */
+export function Markdown({ text, md, width, rowWidth, bg }: { text: string; md: Marked; width: number; rowWidth: number; bg?: string }) {
+  const lines = useMemo(
+    () => wrapRenderedLines(String(md.parse(closeOpenFences(text))).replace(/\n+$/, ""), width),
     [text, md, width],
   );
-  return <Text>{out}</Text>;
+  return <>{lines.map((line, index) => <Box key={index} width={Math.max(1, rowWidth - 1)} backgroundColor={bg} paddingLeft={2} flexShrink={0}><Text>{line || " "}</Text></Box>)}</>;
 }
