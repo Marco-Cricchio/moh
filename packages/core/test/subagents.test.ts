@@ -220,7 +220,7 @@ describe("subagents (#13)", () => {
     expect(secondSpawnIndex).toBeLessThan(firstResultIndex);
   });
 
-  test("child per-turn loop cap yields an error result, not a parent failure", async () => {
+  test("child per-turn loop cap wraps up (#190): partial result reaches the parent", async () => {
     const home = tmpHome();
     const parent = createSession({
       provider: MockProvider.scripted([
@@ -234,9 +234,11 @@ describe("subagents (#13)", () => {
       tools: builtinTools(),
       permissions: { overrides: { tools: { spawn: "allow" } } },
       subagents: { home: home,
-        // Never stops: always requests another tool call.
+        // Never stops: always requests another tool call; the wrap-up call
+        // (#190) repeats the last entry with no tools offered, so its text
+        // ("child partial") becomes the child's closing reply.
         provider: MockProvider.scripted([
-          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "read", args: { path: "x" } }] },
+          { deltas: ["child partial"], finish: "tool_calls", toolCalls: [{ name: "read", args: { path: "x" } }] },
         ]),
       },
     });
@@ -245,12 +247,12 @@ describe("subagents (#13)", () => {
     expect(result.status).toBe("done");
 
     const res = tapped.find((e) => e.type === "subagent_result") as any;
-    expect(res.status).toBe("error");
+    expect(res.status).toBe("done");
 
     const toolResult = tapped.find((e) => e.type === "tool_result") as any;
     const parsed = JSON.parse(toolResult.output) as SubagentResult;
-    expect(parsed.status).toBe("error");
-    expect(parsed.error).toContain("iteration cap");
+    expect(parsed.status).toBe("done");
+    expect(parsed.output).toContain("child partial");
   });
 
   test("aborting the parent turn propagates to the child; the parent continues afterwards", async () => {

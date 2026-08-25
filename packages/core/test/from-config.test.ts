@@ -290,4 +290,23 @@ describe("sessionFromConfig — user-level provider layering (#129)", () => {
       cleanup();
     }
   });
+
+  test("#190: moh.json maxIterations configures the per-turn cap (wrap-up after N calls)", async () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", maxIterations: 2 }));
+      const loopTurn = { deltas: ["working "], finish: "tool_calls" as const, toolCalls: [{ name: "bash", args: { command: "true" } }] };
+      const provider = MockProvider.scripted([loopTurn, loopTurn, { deltas: ["WRAPUP"], finish: "stop" as const }]);
+      const result = sessionFromConfig({ cwd, home, provider, overrides: { permissions: { bypassPermissions: true } } });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      const done = await result.session.send("go");
+      expect(done.status).toBe("done");
+      const calls = result.session.history().filter((e) => e.type === "model_call");
+      // 2 capped loop calls + 1 wrap-up call.
+      expect(calls.length).toBe(3);
+    } finally {
+      cleanup();
+    }
+  });
 });

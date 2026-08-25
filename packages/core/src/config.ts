@@ -72,6 +72,9 @@ export const mohConfigSchema = z.object({
   agents: z.record(z.string(), subagentSpecSchema).optional(),
   /** Cross-session memory (#38); `enabled: false` disables everything. */
   memory: memoryConfigSchema.optional(),
+  /** Per-turn tool-call iteration cap (#190). Default 50; the cap triggers
+   * a final no-tools wrap-up call instead of dropping the turn. */
+  maxIterations: z.number().int().positive().optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;

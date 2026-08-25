@@ -122,10 +122,46 @@ export class AgentLoop {
     let iterations = 0;
     let assistantText = "";
     let finishReason: FinishReason | null = null;
+    // #190: the cap is a budget boundary, not a dead end. When reached, one
+    // final no-tools call lets the model deliver its work-in-progress state
+    // (what's done, what remains, the next step) instead of dropping the
+    // turn with a bare error.
+    const WRAP_UP =
+      "You have reached the per-turn tool-call iteration cap. You may NOT call any more tools. " +
+      "Reply now, concisely: (1) what you completed so far, (2) what remains, (3) the exact next step to continue.";
     while (finishReason !== "stop") {
       if (iterations >= this.#maxIterations) {
-        this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
-        return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
+        this.#messages.push({ role: "user", parts: [{ kind: "text", text: WRAP_UP }] });
+        this.#assemblePrompt();
+        let wrapText = "";
+        try {
+          for await (const event of provider.stream(this.#messages, controller.signal, [])) {
+            if (controller.signal.aborted) break;
+            if (event.type === "text_delta") {
+              wrapText += event.text;
+              this.#append({ type: "assistant_delta", text: event.text });
+            } else if (event.type === "model_call_start") {
+              this.#flushModelCall();
+              this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 } };
+            } else if (event.type === "usage") {
+              this.#usage.inputTokens += event.inputTokens;
+              this.#usage.outputTokens += event.outputTokens;
+              if (this.#pendingCall) {
+                this.#pendingCall.usage.inputTokens += event.inputTokens;
+                this.#pendingCall.usage.outputTokens += event.outputTokens;
+              }
+            }
+          }
+        } catch {
+          // The wrap-up is best-effort: a failing final call degrades to the
+          // historical cap error rather than masking it.
+          this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
+          return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
+        }
+        this.#flushModelCall();
+        assistantText = wrapText;
+        finishReason = "stop";
+        continue;
       }
       iterations += 1;
       assistantText = "";
