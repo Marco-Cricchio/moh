@@ -6,8 +6,13 @@ describe("closeOpenFences", () => {
   test("closes an unterminated code fence", () => {
     expect(closeOpenFences("```ts\nconst x = 1;")).toBe("```ts\nconst x = 1;\n```");
   });
-  test("leaves balanced text alone", () => {
-    expect(closeOpenFences("```ts\nx\n``` done")).toBe("```ts\nx\n``` done");
+  test("closes tilde and variable-length fences with their original delimiter", () => {
+    expect(closeOpenFences("~~~~ts\nconst ticks = ```;")).toBe("~~~~ts\nconst ticks = ```;\n~~~~");
+    expect(closeOpenFences("~~~~\ncode\n~~~~")).toBe("~~~~\ncode\n~~~~");
+  });
+  test("does not mistake a fence-like code line for a closing fence", () => {
+    expect(closeOpenFences("```ts\nx\n``` done")).toBe("```ts\nx\n``` done\n```");
+    expect(closeOpenFences("```ts\nx\n```   ")).toBe("```ts\nx\n```   ");
     expect(closeOpenFences("no fences")).toBe("no fences");
   });
 });
@@ -35,6 +40,56 @@ describe("createMarkdownRenderer", () => {
     const md = createMarkdownRenderer(THEMES["tokyo-night"], 76);
     const out = String(md.parse(closeOpenFences("# Hi\n\nsome `code`"))).trim();
     expect(out.length).toBeGreaterThan(0);
+  });
+
+  test("renders standard GFM constructs as formatted terminal content", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 60);
+    const source = [
+      "# Heading",
+      "",
+      "**bold** and *emphasis* with ~~deleted~~ and `code`.",
+      "",
+      "> quoted text",
+      "",
+      "- unordered",
+      "1. ordered",
+      "- [x] task",
+      "",
+      "[link](https://example.test)",
+      "",
+      "![diagram](https://example.test/diagram.png)",
+      "",
+      "soft break",
+      "continues",
+      "hard break  ",
+      "continues too",
+      "",
+      "```ts",
+      "const value = 1;",
+      "```",
+      "",
+      "---",
+    ].join("\n");
+    const visible = String(md.parse(closeOpenFences(source))).replace(/\u001b\[[0-9;]*m/g, "");
+    expect(visible).toContain("Heading");
+    expect(visible).not.toContain("# Heading");
+    expect(visible).toContain("bold");
+    expect(visible).not.toContain("**bold**");
+    expect(visible).toContain("deleted");
+    expect(visible).not.toContain("~~deleted~~");
+    expect(visible).toContain("code");
+    expect(visible).not.toContain("`code`");
+    expect(visible).toContain("quoted text");
+    expect(visible).toContain("unordered");
+    expect(visible).toContain("ordered");
+    expect(visible).toMatch(/\[X\]\s+task/);
+    expect(visible).toContain("link (https://example.test)");
+    expect(visible).toContain("diagram (https://example.test/diagram.png)");
+    expect(visible).not.toContain("![diagram]");
+    expect(visible).toContain("const value = 1;");
+    expect(visible).toContain("soft break continues"); // Markdown soft break
+    expect(visible).toContain("hard break\ncontinues too"); // two-space hard break
+    expect(visible).toMatch(/-{20,}/); // thematic break
   });
 
   test("tables: long cell text wraps inside the column budget, not truncated", () => {

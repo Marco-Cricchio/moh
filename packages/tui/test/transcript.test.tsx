@@ -82,7 +82,9 @@ describe("semantic transcript projection (#183)", () => {
     const blocks = projectTranscript(base);
     expect(blocks.some((block) => block.glyph === "›" && block.type === "you")).toBe(true);
     expect(blocks.some((block) => block.glyph === "◆" && block.type === "moh")).toBe(true);
-    expect(blocks.some((block) => block.kind === "diff" && block.lines.includes("-old"))).toBe(true);
+    // Fenced diffs render inline through the Markdown renderer (#205), not
+    // as a separate `diff` block.
+    expect(blocks.some((block) => block.markdown?.includes("```diff") && block.markdown.includes("-old"))).toBe(true);
     expect(blocks.some((block) => block.type === "bash" && block.state === "ok" && block.lines[0] === "1 pass ✓")).toBe(true);
     expect(blocks.some((block) => block.type === "permission" && block.state === "ok")).toBe(true);
     expect(blocks.some((block) => block.type === "usage" && block.usage?.inputTokens === 100)).toBe(true);
@@ -146,13 +148,30 @@ describe("semantic transcript projection (#183)", () => {
   });
 
   test("renders assistant prose through the terminal Markdown renderer", () => {
-    const block = projectTranscript([{ type: "assistant_delta", text: "## Result\n\n**bold**\n\n- first" }])[0]!;
-    expect(block.markdown).toBe("## Result\n\n**bold**\n\n- first");
+    const block = projectTranscript([{ type: "assistant_delta", text: "## Result with **bold** and `code`" }])[0]!;
+    expect(block.markdown).toBe("## Result with **bold** and `code`");
     const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={block} width={80} /></ThemeProvider>);
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame).toContain("Result");
     expect(frame).toContain("bold");
-    expect(frame).toContain("* first");
+    ink.unmount();
+  });
+
+  test("splits a reply into append-only paragraph segments with stable keys; continuation segments render without a head row (#205)", () => {
+    const events: AgentEvent[] = [{ type: "assistant_delta", text: "first paragraph.\n\nsecond paragraph with a list:\n\n- one\n\n- two\n\nfinal unclosed tail" }];
+    const blocks = projectTranscript(events);
+    expect(blocks.length).toBeGreaterThan(1);
+    expect(blocks[0]!.continuation).toBeFalsy();
+    expect(blocks.slice(1).every((block) => block.continuation === true)).toBe(true);
+    // Append-only across growth: the prefix projection never mutates an
+    // already-emitted segment.
+    const partial = projectTranscript([{ type: "assistant_delta", text: "first paragraph.\n\n" }]);
+    expect(blocks[0]).toEqual(partial[0]);
+    // Loose-list blank lines do not split: the list stays one segment.
+    const list = projectTranscript([{ type: "assistant_delta", text: "intro:\n\n- one\n\n- two" }]);
+    expect(list.filter((block) => block.markdown?.includes("- one")).length).toBe(1);
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={blocks[1]!} width={80} /></ThemeProvider>);
+    expect(stripAnsi(ink.lastFrame() ?? "").startsWith("  second")).toBe(true);
     ink.unmount();
   });
 
