@@ -299,12 +299,13 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   const color = blockColor(block, theme);
   const bg = blockTint(block, theme);
   const detail = block.usage ? `${block.usage.inputTokens.toLocaleString()} in · ${block.usage.outputTokens.toLocaleString()} out${block.detail ? ` · ${block.detail}` : ""}` : block.detail;
-  const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, Math.max(20, width - 4)) : null, [block.markdown, theme, width]);
+  const contentWidth = Math.max(20, width - 4);
+  const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
   return (
     <Box flexDirection="column">
       <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>
       {block.markdown && markdown ? (
-        <Row width={width} bg={bg} indent={2}><Markdown text={block.markdown} md={markdown} /></Row>
+        <Row width={width} bg={bg} indent={2}><Markdown text={block.markdown} md={markdown} width={contentWidth} /></Row>
       ) : block.lines.map((line, index) => {
         const lineKind = block.lineKinds?.[index];
         const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
