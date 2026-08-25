@@ -42,6 +42,22 @@ describe("createMarkdownRenderer", () => {
     expect(out.length).toBeGreaterThan(0);
   });
 
+  test("emits theme-colored ANSI regardless of TTY detection (no chalk flattening)", () => {
+    // marked-terminal defaults to chalk, which strips styling when stdout is
+    // not a TTY — under the TUI every theme rendered flat (#205).
+    const rgb = (hex: string) => hex.slice(1).match(/../g)!.map((h) => parseInt(h, 16)).join(";");
+    for (const name of ["tokyo-night", "lava", "candy"] as const) {
+      const theme = THEMES[name]!;
+      const md = createMarkdownRenderer(theme, 60);
+      const heading = String(md.parse("# Titolo"));
+      expect(heading).toContain(`38;2;${rgb(theme.accent)}`);
+      const strong = String(md.parse("**bold**"));
+      expect(strong).toContain("\x1b[1m");
+      const codespan = String(md.parse("`x`"));
+      expect(codespan).toContain(`38;2;${rgb(theme.accent)}`);
+    }
+  });
+
   test("renders standard GFM constructs as formatted terminal content", () => {
     const md = createMarkdownRenderer(THEMES["tokyo-night"], 60);
     const source = [
