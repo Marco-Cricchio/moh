@@ -271,9 +271,53 @@ export function transcriptTail(blocks: readonly TranscriptBlock[], width: number
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i]!;
     const blockRows = 2 + block.lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / bodyWidth)), 0);
+    // A streaming response is commonly one giant prose block (GLM-5.6
+    // emitted 220+ deltas without a paragraph break, #201). Keeping that
+    // one block whole bypasses the block-level budget and makes Ink rewrite
+    // hundreds of rows every frame — text flashes/disappears in Terminal.
+    // Clip its tail at line/character granularity instead.
+    if (selected.length === 0 && blockRows > rowBudget) return [clipBlockTail(block, bodyWidth, rowBudget)];
     if (selected.length > 0 && rows + blockRows > rowBudget) break;
     selected.unshift(block);
     rows += blockRows;
   }
   return selected;
+}
+
+/** Makes one too-tall block fit its transcript-tail budget. The header and
+ * trailing gap cost two rows; the body retains its newest lines (or the tail
+ * of one wrapped line) so an active stream remains bounded even before it
+ * reaches a semantic paragraph boundary. */
+function clipBlockTail(block: TranscriptBlock, bodyWidth: number, rowBudget: number): TranscriptBlock {
+  let remaining = Math.max(0, rowBudget - 2);
+  const picked: Array<{ line: string; kind?: NonNullable<TranscriptBlock["lineKinds"]>[number] }> = [];
+  let clipped = false;
+  for (let i = block.lines.length - 1; i >= 0 && remaining > 0; i--) {
+    const line = block.lines[i]!;
+    const lineRows = Math.max(1, Math.ceil(line.length / bodyWidth));
+    const kind = block.lineKinds?.[i];
+    if (lineRows <= remaining) {
+      picked.unshift({ line, kind });
+      remaining -= lineRows;
+      continue;
+    }
+    const chars = Math.max(1, remaining * bodyWidth);
+    const tail = line.length > chars
+      ? chars === 1 ? "…" : `…${line.slice(-(chars - 1))}`
+      : line;
+    picked.unshift({ line: tail, kind });
+    remaining = 0;
+    clipped = true;
+  }
+  if (picked.length < block.lines.length) clipped = true;
+  if (clipped && remaining > 0) picked.unshift({ line: "…", kind: "body" });
+  const lines = picked.map((entry) => entry.line);
+  return {
+    ...block,
+    lines,
+    // prose blocks may render through the terminal Markdown path; keep that
+    // source in lockstep with the clipped lines or it bypasses this cap.
+    ...(block.markdown ? { markdown: lines.join("\n") } : {}),
+    ...(block.lineKinds ? { lineKinds: picked.map((entry) => entry.kind ?? "body") } : {}),
+  };
 }
