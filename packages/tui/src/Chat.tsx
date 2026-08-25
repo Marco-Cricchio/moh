@@ -70,6 +70,33 @@ export function Chat({
   const [tick, setTick] = useState(0);
   const [lastEsc, setLastEsc] = useState(0);
   const [armed, setArmed] = useState(false);
+  // A projection switch (vibe ↔ dev) cannot retro-filter scrollback: what
+  // ink already printed keeps its form — exactly how a theme switch
+  // behaves. Removing printed blocks would corrupt Static's index (ink
+  // skips misaligned items and new blocks fall below the old counter).
+  // So the settled history is segmented: each mode switch starts a new
+  // segment at the current seal boundary; segments keep their grammar
+  // forever and concatenate into one stable `items` array (#193).
+  interface Segment { base: number; mode: Mode }
+  const sessionRef = useRef(session);
+  const segmentsRef = useRef<Segment[]>([{ base: 0, mode }]);
+  if (sessionRef.current !== session) {
+    sessionRef.current = session;
+    segmentsRef.current = [{ base: 0, mode }];
+  }
+  const settledEnd = useMemo((): number => {
+    if (!state.pending) return state.events.length;
+    for (let i = state.events.length - 1; i >= 0; i--) {
+      if (state.events[i]!.type === "user_message") return i;
+    }
+    return state.events.length;
+  }, [state.events, state.pending]);
+  const modeRef = useRef(mode);
+  if (mode !== modeRef.current) {
+    modeRef.current = mode;
+    const last = segmentsRef.current[segmentsRef.current.length - 1]!;
+    if (last.mode !== mode) segmentsRef.current.push({ base: settledEnd, mode });
+  }
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked
@@ -81,17 +108,18 @@ export function Chat({
   }, [blocked, state.pending]);
 
   const { settledBlocks, liveBlocks } = useMemo((): { settledBlocks: readonly TranscriptBlock[]; liveBlocks: readonly TranscriptBlock[] } => {
-    let openTurnAt = -1;
-    if (state.pending) for (let i = state.events.length - 1; i >= 0; i--) {
-      if (state.events[i]!.type === "user_message") { openTurnAt = i; break; }
-    }
-    const settled = openTurnAt >= 0 ? state.events.slice(0, openTurnAt) : state.events;
-    const live = openTurnAt >= 0 ? state.events.slice(openTurnAt) : [];
+    const segments = segmentsRef.current.filter((segment, index) =>
+      segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
+    const settledBlocks = segments.flatMap((segment, index) => projectTranscript(
+      state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
+      { filePreview, mode: segment.mode, keyBase: segment.base },
+    ));
+    const live = settledEnd < state.events.length ? state.events.slice(settledEnd) : [];
     return {
-      settledBlocks: projectTranscript(settled, { filePreview }),
-      liveBlocks: projectTranscript(live, { filePreview }),
+      settledBlocks,
+      liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd }),
     };
-  }, [state.events, state.pending, filePreview]);
+  }, [state.events, settledEnd, filePreview, mode]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],

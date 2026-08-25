@@ -75,6 +75,22 @@ describe("native scrollback layout geometry", () => {
     expect(renderLevel("xhigh")).toBe("═".repeat(19));
   });
 
+  it("hides token/context/turn metrics in vibe, keeps them in dev (#193)", () => {
+    const props = { width: 120, pending: false, spinner: "⠸", model: "claude-sonnet-4", turns: 12, tokens: { contextIn: 170_000, totalOut: 4_000, calls: 2 }, level: "medium" as const, workflowOn: true, memoryFresh: true, focusedChip: null };
+    const renderBar = (mode: "vibe" | "dev") => {
+      const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar {...props} mode={mode} /></ThemeProvider>);
+      const value = stripAnsi(ink.lastFrame() ?? "");
+      ink.unmount();
+      return value;
+    };
+    expect(renderBar("vibe")).not.toContain("⊣");
+    expect(renderBar("vibe")).not.toContain("↻ 12");
+    expect(renderBar("vibe")).not.toContain("█");
+    expect(renderBar("vibe")).toContain("○ vibe");
+    expect(renderBar("dev")).toContain("↻ 12");
+    expect(renderBar("dev")).toContain("◉ dev");
+  });
+
   it("renders status and chips without wrapping at representative 35–140 widths", () => {
     for (const width of [35, 45, 69, 70, 90, 109, 110, 140]) {
       const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar width={width} pending spinner="⠸" mode="dev" model="claude-sonnet-4" turns={12} tokens={{ contextIn: 170_000, totalOut: 4_000, calls: 2 }} level="xhigh" workflowOn memoryFresh focusedChip={null} /></ThemeProvider>);

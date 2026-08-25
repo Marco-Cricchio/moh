@@ -27,6 +27,57 @@ const base: AgentEvent[] = [
 ];
 
 describe("semantic transcript projection (#183)", () => {
+  test("vibe hides metric/chrome blocks and keeps failures; dev keeps the full grammar (#193)", () => {
+    const vibe = projectTranscript(base, { mode: "vibe" });
+    expect(vibe.some((block) => block.type === "usage" || block.usage)).toBe(false);
+    expect(vibe.some((block) => block.type === "done")).toBe(false);
+    expect(vibe.some((block) => block.type === "session started" || block.type === "permission mode" || block.type === "model switched" || block.type === "memory updated" || block.type === "MCP started")).toBe(false);
+    expect(vibe.some((block) => block.kind === "error" && block.type === "extension failed")).toBe(true);
+    expect(vibe.some((block) => block.type === "cancelled")).toBe(true);
+    expect(projectTranscript(base, { mode: "dev" }).some((block) => block.type === "usage" && block.usage?.inputTokens === 100)).toBe(true);
+  });
+
+  test("vibe renders tool activity as plain language without command or output (#193)", () => {
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "v1", name: "bash", args: { command: "rm -rf secrets" } },
+      { type: "tool_result", callId: "v1", ok: true, output: "1 pass" },
+      { type: "tool_call", callId: "v2", name: "read", args: { path: "src/a.ts" } },
+      { type: "tool_result", callId: "v2", ok: true, output: "one\ntwo" },
+      { type: "tool_call", callId: "v3", name: "grep", args: { pattern: "vibe", path: "src" } },
+      { type: "tool_call", callId: "v4", name: "ask_user", args: { question: "Proceed?" } },
+      { type: "tool_result", callId: "v4", ok: true, output: "yes" },
+    ];
+    const blocks = projectTranscript(events, { mode: "vibe" });
+    const plain = blocks.filter((block) => block.lines.length === 1);
+    expect(plain.map((block) => block.lines[0])).toContain("ran a command");
+    expect(plain.map((block) => block.lines[0])).toContain("read a file · src/a.ts");
+    expect(plain.map((block) => block.lines[0])).toContain("searched the code · vibe");
+    expect(blocks.some((block) => block.type === "preview")).toBe(false);
+    expect(blocks.some((block) => block.lines.includes("1 pass") || block.lines.includes("  1 │ one"))).toBe(false);
+    expect(blocks.find((block) => block.type === "ask")?.lines).toEqual(["Proceed?", "↳ you: yes"]);
+    // The in-flight marker survives the plain-language collapse.
+    expect(plain.find((block) => block.lines[0] === "searched the code · vibe")?.state).toBe("run");
+    // dev keeps the technical detail
+    const dev = projectTranscript(events, { mode: "dev" });
+    expect(dev.find((block) => block.type === "bash")?.detail).toBe("rm -rf secrets");
+    expect(dev.find((block) => block.type === "bash")?.lines).toEqual(["1 pass"]);
+    expect(dev.some((block) => block.type === "preview")).toBe(true);
+  });
+
+  test("vibe shows a failed tool as an error with its message (#193)", () => {
+    const blocks = projectTranscript([
+      { type: "tool_call", callId: "f1", name: "bash", args: { command: "bun test" } },
+      { type: "tool_result", callId: "f1", ok: false, output: "error: boom" },
+    ], { mode: "vibe" });
+    const failed = blocks.find((block) => block.state === "fail")!;
+    expect(failed.kind).toBe("error");
+    expect(failed.type).toBe("bash");
+    expect(failed.detail).toBe("bun test");
+    expect(failed.lines).toEqual(["error: boom"]);
+  });
+
+
+
   test("covers productive, permission, usage, subagent and chrome events", () => {
     const blocks = projectTranscript(base);
     expect(blocks.some((block) => block.glyph === "›" && block.type === "you")).toBe(true);
