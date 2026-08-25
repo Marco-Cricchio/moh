@@ -30,7 +30,7 @@ const DOWN = "\x1b[B";
 describe("home session list", () => {
   test("the first row is always New session, even with no sessions", async () => {
     const home = mkdtempSync(join(tmpdir(), "moh-tui-home-list-"));
-    const i = render(<Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} onExit={() => {}} />);
+    const i = render(<Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("New session");
@@ -39,7 +39,7 @@ describe("home session list", () => {
 
   test("caps the list at 5 visible sessions with a more-below hint", async () => {
     const { cwd, home } = homeWithSessions(8);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} onExit={() => {}} />);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("New session");
@@ -52,7 +52,7 @@ describe("home session list", () => {
 
   test("scrolling follows the cursor to the tail and back up", async () => {
     const { cwd, home } = homeWithSessions(8);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} onExit={() => {}} />);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     for (const _ of Array.from({ length: 8 })) {
       i.stdin.write(DOWN);
@@ -70,7 +70,7 @@ describe("home session list — configurable cap", () => {
   test("listMax prop raises the visible window", async () => {
     const { cwd, home } = homeWithSessions(8);
     const i = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} onExit={() => {}} listMax={8} />,
+      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} listMax={8} />,
     );
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
