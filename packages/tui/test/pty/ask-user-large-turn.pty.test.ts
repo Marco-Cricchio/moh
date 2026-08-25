@@ -1,0 +1,62 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { hasPython, runPtyRaw } from "./pty-runner";
+import { startFakeOpenAi } from "./fake-openai";
+
+/**
+ * Regression (session 20260825T062108113Z): with a large open turn, every
+ * 90ms spinner tick re-rendered the whole live transcript (unmemoized), so
+ * modal arrow keypresses queued behind renders (selection frozen) and
+ * memory climbed until macOS killed the process ("killed", SIGKILL/OOM).
+ *
+ * Assertions are on the RAW pty byte stream: the harness's Screen model
+ * is unreliable on huge repaint streams.
+ */
+const B = (s: string) => btoa(s);
+const DOWN = B("\x1b[B");
+const RAW = "/tmp/moh-pty-regression-raw.bin";
+
+describe.skipIf(!hasPython)("ask_user modal with a large open turn (PTY regression)", () => {
+  test(
+    "arrows move the selection promptly and the process survives",
+    async () => {
+      const { server, url } = startFakeOpenAi();
+      try {
+        const meta = await runPtyRaw({
+          cols: 120,
+          rows: 40,
+          config: {
+            onboarded: true,
+            workflowOffered: true,
+            mode: "dev",
+            provider: "fake",
+            endpoints: [
+              { name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" },
+            ],
+          },
+          project: { permissions: { overrides: { tools: { bash: "allow" } } } },
+          steps: [
+            { wait: 2.0 },
+            { wait: 0.3, send: B("hello") },
+            { wait: 0.4, send: B("\r") },
+            { wait: 10.0 }, // tool chain + modal up
+            { wait: 0.3, send: DOWN },
+            { wait: 1.5, send: DOWN },
+            { wait: 4.0 },
+          ],
+          tail: 40,
+          rawDump: RAW,
+        });
+        expect(meta.exited).toBe(false); // the real crash: SIGKILL ("killed")
+        const raw = readFileSync(RAW, "utf8");
+        // The modal rendered its question…
+        expect(raw).toContain("Q1 — which way?");
+        // …and two ↓ keypresses moved the selection off option 1.
+        expect(raw).toContain("> 2  beta");
+      } finally {
+        server.stop(true);
+      }
+    },
+    40000,
+  );
+});
