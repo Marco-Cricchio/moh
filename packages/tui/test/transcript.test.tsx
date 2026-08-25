@@ -171,7 +171,10 @@ describe("semantic transcript projection (#183)", () => {
     const list = projectTranscript([{ type: "assistant_delta", text: "intro:\n\n- one\n\n- two" }]);
     expect(list.filter((block) => block.markdown?.includes("- one")).length).toBe(1);
     const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={blocks[1]!} width={80} /></ThemeProvider>);
-    expect(stripAnsi(ink.lastFrame() ?? "").startsWith("  second")).toBe(true);
+    // Continuations open with the single GFM inter-block blank row, then the
+    // body — never a `◆ moh` head row.
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame.startsWith("\n  second")).toBe(true);
     ink.unmount();
   });
 
