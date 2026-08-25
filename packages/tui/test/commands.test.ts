@@ -6,7 +6,10 @@ import { MockProvider, createSession } from "@moh/core";
 import { activeCommands, runSlashCommand, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
-function makeCtx(over: Partial<SlashContext> = {}): SlashContext {
+/** The test-side enrichment of SlashContext: the notices channel and config file. */
+type TestSlashContext = SlashContext & { notices: () => string[]; cfgFile: string };
+
+function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
   const notices: string[] = [];
   const home = mkdtempSync(join(tmpdir(), "moh-cmd-"));
   const cfgFile = userConfigFile(home);
@@ -25,7 +28,7 @@ function makeCtx(over: Partial<SlashContext> = {}): SlashContext {
   };
   // keep the live config in sync for status checks
   Object.defineProperty(ctx, "config", { get: () => config });
-  return Object.assign(ctx, { notices: () => notices, cfgFile });
+  return Object.assign(ctx, { notices: () => notices, cfgFile }) as TestSlashContext;
 }
 
 describe("workflow slash command", () => {
