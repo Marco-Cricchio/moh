@@ -76,36 +76,41 @@ describe("core agent loop", () => {
     expect(a.history()).not.toEqual(b.history());
   });
 
-  test("per-turn iteration cap emits error with reason max_iterations and the session survives", async () => {
-    // A script that never stops loops the turn until the cap fires.
+  test("per-turn iteration cap wraps up (#190): looping script degrades to a text-only final reply", async () => {
+    // A script that never stops loops the turn until the cap fires; the
+    // wrap-up call gets the same (last) script entry but no tools are
+    // offered, so its text becomes the turn's closing reply.
     const provider = MockProvider.scripted([
       { deltas: ["more"], finish: "tool_calls" },
     ]);
     const session = createSession({ provider, maxIterations: 3 });
 
     const result = await session.send("loop forever");
-    expect(result).toEqual({
-      status: "error",
-      reason: "max_iterations",
-      message: "iteration cap reached",
-    });
-
-    const log = session.history();
-    const errorEvent = log.find((e) => e.type === "error");
-    expect(errorEvent).toEqual({
-      type: "error",
-      reason: "max_iterations",
-      message: "iteration cap of 3 reached",
-    });
-
-    // The session survives: a subsequent send on the SAME session completes
-    // a fresh turn and the log keeps growing.
-    const result2 = await session.send("again");
-    expect(result2.reason).toBe("max_iterations");
+    expect(result).toEqual({ status: "done" });
     expect(session.pending()).toBe(false);
-    const errors = session.history().filter((e) => e.type === "error");
-    expect(errors.length).toBe(2);
+    // No error event: the turn delivered its wrap-up instead of dying.
+    expect(session.history().filter((e) => e.type === "error")).toEqual([]);
+    expect(session.history().some((e) => e.type === "done")).toBe(true);
+    // The session survives: a subsequent send completes a fresh turn.
+    const result2 = await session.send("again");
+    expect(result2.status).toBe("done");
     expect(session.history()[0]!.type).toBe("session_start");
+  });
+
+  test("#190: iteration cap wraps up gracefully — final no-tools reply, done, no lost turn", async () => {
+    const provider = MockProvider.scripted([
+      { deltas: ["working "], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "true" } }] },
+      { deltas: ["WRAPUP: done so far X, remains Y, next Z"], finish: "stop" },
+    ]);
+    const session = createSession({ provider, maxIterations: 2, permissions: { bypassPermissions: true } });
+
+    const result = await session.send("implement something");
+    expect(result.status).toBe("done");
+    const log = session.history();
+    expect(log.filter((e) => e.type === "error")).toEqual([]);
+    expect(log.some((e) => e.type === "done")).toBe(true);
+    // The wrap-up reply is visible in the transcript.
+    expect(log.some((e) => e.type === "assistant_delta" && e.text.includes("WRAPUP"))).toBe(true);
   });
 
   test("session_start carries promptVersion and the system prompt leads every model call", async () => {
