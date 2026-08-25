@@ -386,15 +386,14 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   const color = blockColor(block, theme);
   const bg = blockTint(block, theme);
   const detail = block.usage ? `${block.usage.inputTokens.toLocaleString()} in · ${block.usage.outputTokens.toLocaleString()} out${block.detail ? ` · ${block.detail}` : ""}` : block.detail;
-  const contentWidth = Math.max(20, width - 4);
+  const contentWidth = Math.max(20, width - 6);
   const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
   return (
     <Box flexDirection="column">
-      {block.continuation ? null : <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>}
-      {/* Continuation segments are separated only by the renderer's own
-          blank lines — an extra block gap here doubles them, breaking one
-          reply into visibly detached paragraphs (#205). */}
+      {/* One blank row separates blocks (not head from body): a block opens
+          with a top margin so the head sits directly above its body (#211). */}
       {block.continuation ? null : <Text> </Text>}
+      {block.continuation ? null : <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>}
       {block.markdown && markdown ? (
         <>
           {/* Segments split exactly at blank lines (trimmed per segment),
@@ -410,8 +409,8 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         const body = stateGlyph
           ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={stateGlyph[2]!.includes("✓") ? theme.ok : stateGlyph[2]!.includes("✗") ? theme.err : theme.accent}>{stateGlyph[2]}</Text></>
           : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{line || " "}</Text>;
-        if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={2}>{body}</Row><Row width={width} bg={bg} indent={2}><Text color={theme.border}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
-        return <Row key={index} width={width} bg={bg} indent={lineKind === "bullet" ? 4 : 2}>{body}</Row>;
+        if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={4}>{body}</Row><Row width={width} bg={bg} indent={4}><Text color={theme.border}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
+        return <Row key={index} width={width} bg={bg} indent={lineKind === "bullet" ? 6 : 4}>{body}</Row>;
       })}
     </Box>
   );
