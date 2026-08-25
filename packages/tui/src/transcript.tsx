@@ -5,7 +5,6 @@ import type { Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
 import { createMarkdownRenderer, Markdown } from "./markdown";
-
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking";
 export interface TranscriptBlock {
   key: string;
@@ -393,7 +392,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
     <Box flexDirection="column">
       {block.continuation ? null : <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>}
       {block.markdown && markdown ? (
-        <Row width={width} bg={bg} indent={2}><Markdown text={block.markdown} md={markdown} width={contentWidth} /></Row>
+        <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} />
       ) : block.lines.map((line, index) => {
         const lineKind = block.lineKinds?.[index];
         const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
