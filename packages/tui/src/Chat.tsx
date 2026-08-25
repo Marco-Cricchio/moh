@@ -67,10 +67,13 @@ export function Chat({
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
-    if (!state.pending) return;
+    // While a modal owns the input (ask/permission), the turn is parked
+    // on the user — no spinner, so ticks stop re-rendering behind the
+    // overlay (large-turn regression, session 20260825T062108113Z).
+    if (blocked || !state.pending) return;
     const timer = setInterval(() => setTick((value) => value + 1), 90);
     return () => clearInterval(timer);
-  }, [state.pending]);
+  }, [blocked, state.pending]);
 
   const { settledBlocks, liveBlocks } = useMemo(() => {
     let openTurnAt = -1;
@@ -87,6 +90,15 @@ export function Chat({
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],
+  );
+  // The volatile area is tail-capped to the viewport: ink rewrites the whole
+  // interactive region every frame (no row diffing — that is what Static is
+  // for), so an uncapped open turn rewrites hundreds of rows per frame —
+  // O(n²) output that froze keypress handling and ballooned memory until the
+  // OS killed the process (session 20260825T062108113Z).
+  const liveTail = useMemo(
+    () => transcriptTail(liveBlocks, cols, Math.max(1, viewport.rows - 9)),
+    [liveBlocks, cols, viewport.rows],
   );
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
@@ -116,7 +128,7 @@ export function Chat({
           {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
         </Static>
       )}
-      {state.pending && <Box flexDirection="column">{liveBlocks.map((block) => <TranscriptBlockView key={`live-${block.key}`} block={block} width={cols} />)}</Box>}
+      {state.pending && <Box flexDirection="column">{liveTail.map((block) => <TranscriptBlockView key={`live-${block.key}`} block={block} width={cols} />)}</Box>}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
