@@ -16,6 +16,10 @@ export interface TranscriptBlock {
   lines: string[];
   /** Original assistant prose, retained for terminal Markdown rendering. */
   markdown?: string;
+  /** True for paragraphs that continue an assistant reply already started
+   * above: they render without their own head row so one reply reads as one
+   * continuous output (#205). */
+  continuation?: boolean;
   lineKinds?: Array<"body" | "heading" | "bullet" | "ask" | "answer">;
   state?: "run" | "ok" | "fail";
   usage?: { inputTokens: number; outputTokens: number };
@@ -65,7 +69,7 @@ const detailOf = (args: unknown): string => {
  * activity collapses to one plain-language line (unresolved calls keep
  * `state: "run"` so the pending marker stays live), failures always show.
  * The log itself is never filtered: this is a projection option only. */
-export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number } = {}): TranscriptBlock[] {
+export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean } = {}): TranscriptBlock[] {
   const vibe = options.mode === "vibe";
   const keyBase = options.keyBase ?? 0;
   const blocks: TranscriptBlock[] = [];
@@ -82,7 +86,16 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "assistant_delta": {
         let text = event.text;
         while (events[i + 1]?.type === "assistant_delta") text += (events[++i] as Extract<AgentEvent, { type: "assistant_delta" }>).text;
-        blocks.push(...assistantBlocks(key, text));
+        // One reply, many append-only segments (#205): the terminal Markdown
+        // renderer owns fences/tables/headings inline, but a whole reply as
+        // ONE block would grow after Static promotion and ink never reprints
+        // a promoted item — later paragraphs would vanish. Each closed
+        // segment becomes its own never-mutating block; continuation
+        // segments render without a head row so the reply still reads as one
+        // continuous output.
+        for (const segment of assistantSegments(text)) {
+          blocks.push(proseBlock(`${key}-p${segment.start}`, segment.text, segment.start > 0 || !!options.proseContinuation));
+        }
         break;
       }
       case "tool_call": {
@@ -222,24 +235,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
   return blocks;
 }
 
-function assistantBlocks(key: string, text: string): TranscriptBlock[] {
-  const blocks: TranscriptBlock[] = [];
-  const fence = /```([^\n]*)\n([\s\S]*?)```/g;
-  let at = 0;
-  let match: RegExpExecArray | null;
-  while ((match = fence.exec(text))) {
-    const prose = text.slice(at, match.index).trim();
-    if (prose) blocks.push(proseBlock(`${key}-prose-${at}`, prose));
-    const lang = match[1]!.trim();
-    blocks.push({ key: `${key}-code-${match.index}`, kind: lang === "diff" ? "diff" : "code", glyph: lang === "diff" ? "±" : "⌨", type: lang === "diff" ? "diff" : "code", detail: lang || undefined, lines: match[2]!.replace(/\n$/, "").split("\n") });
-    at = match.index + match[0].length;
-  }
-  const rest = text.slice(at).trim();
-  if (rest) blocks.push(proseBlock(`${key}-prose-${at}`, rest));
-  return blocks;
-}
-
-function proseBlock(key: string, prose: string): TranscriptBlock {
+function proseBlock(key: string, prose: string, continuation = false): TranscriptBlock {
   const raw = prose.split("\n");
   const lineKinds: Array<"body" | "heading" | "bullet"> = [];
   const lines = raw.map((line) => {
@@ -248,7 +244,99 @@ function proseBlock(key: string, prose: string): TranscriptBlock {
     lineKinds.push("body");
     return line;
   });
-  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds, markdown: prose };
+  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds, markdown: prose, ...(continuation ? { continuation: true } : {}) };
+}
+
+const LIST_ITEM = /^\s{0,3}(?:[-*+]|\d+[.)])\s+/;
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/;
+
+/** Splits an assistant reply into promotable segments (#205). A segment
+ * closes at a blank line outside code fences — but not between the items of
+ * a loose list (GFM keeps it one list; splitting would restart numbering) —
+ * or right after a closing fence (fence content is final once closed). The
+ * final segment stays open while the reply streams. Shared by the
+ * transcript projection and the settled/live boundary so a promoted prefix
+ * never mutates after ink has printed it. */
+export function assistantSegments(text: string): Array<{ start: number; end: number; text: string }> {
+  const lines = text.split("\n");
+  const offsets: number[] = [];
+  let at = 0;
+  for (const line of lines) { offsets.push(at); at += line.length + 1; }
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let segStart = 0;
+  let fenceChar: "`" | "~" | null = null;
+  let fenceLen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const fence = line.match(FENCE_LINE);
+    if (fence) {
+      const marker = fence[1]!;
+      const char = marker[0]! as "`" | "~";
+      if (fenceChar === null) { fenceChar = char; fenceLen = marker.length; }
+      else if (fenceChar === char && marker.length >= fenceLen && /^\s*$/.test(line.slice(fence[0].length))) {
+        // Closed fence: the segment (prose + code) is final.
+        fenceChar = null;
+        const end = Math.min(text.length, offsets[i + 1] ?? text.length);
+        segments.push({ start: segStart, end, text: text.slice(segStart, end) });
+        segStart = end;
+      }
+      continue;
+    }
+    if (fenceChar !== null) continue;
+    if (line.trim() === "") {
+      const prev = lines[i - 1] ?? "";
+      const next = lines[i + 1] ?? "";
+      if (LIST_ITEM.test(prev) && LIST_ITEM.test(next)) continue; // loose list
+      if (i + 1 >= lines.length) break; // trailing blank: nothing new opens
+      const end = Math.min(text.length, offsets[i + 1] ?? text.length);
+      if (next.trim() === "" ) continue;
+      segments.push({ start: segStart, end, text: text.slice(segStart, end) });
+      segStart = end;
+    }
+  }
+  if (segStart < text.length) segments.push({ start: segStart, end: text.length, text: text.slice(segStart) });
+  return segments.filter((segment) => segment.text.trim().length > 0 || segments.length === 1);
+}
+
+/** Length of the reply prefix that is semantically final (last closed
+ * segment). The settled/live boundary may promote up to here and no
+ * further: everything after it can still grow (#205). */
+export function closedPrefixLength(text: string): number {
+  const lines = text.split("\n");
+  let at = 0;
+  let segStart = 0;
+  let closed = 0;
+  let fenceChar: "`" | "~" | null = null;
+  let fenceLen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const offset = at;
+    at += line.length + 1;
+    const fence = line.match(FENCE_LINE);
+    if (fence) {
+      const marker = fence[1]!;
+      const char = marker[0]! as "`" | "~";
+      if (fenceChar === null) { fenceChar = char; fenceLen = marker.length; }
+      else if (fenceChar === char && marker.length >= fenceLen && /^\s*$/.test(line.slice(fence[0].length))) {
+        fenceChar = null;
+        closed = Math.min(text.length, at);
+        segStart = closed;
+      }
+      continue;
+    }
+    if (fenceChar !== null) continue;
+    if (line.trim() === "") {
+      const prev = lines[i - 1] ?? "";
+      const next = lines[i + 1] ?? "";
+      if (LIST_ITEM.test(prev) && LIST_ITEM.test(next)) continue;
+      // A blank line as the last line closes the paragraph: the next delta
+      // will start a new one, so everything so far is final.
+      if (next.trim() === "") { closed = Math.min(text.length, at); segStart = closed; continue; }
+      closed = Math.min(text.length, at);
+      segStart = closed;
+    }
+  }
+  return closed;
 }
 
 const mix = (a: string, b: string, amount: number): string => {
@@ -282,7 +370,7 @@ const sameKinds = (a: string[] | undefined, b: string[] | undefined): boolean =>
 };
 
 const sameBlock = (a: TranscriptBlock, b: TranscriptBlock): boolean =>
-  a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type
+  a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type && a.continuation === b.continuation
   && a.detail === b.detail && a.markdown === b.markdown && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
   && a.usage?.outputTokens === b.usage?.outputTokens
   && a.lines.length === b.lines.length && a.lines.every((line, i) => line === b.lines[i])
@@ -303,7 +391,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
   return (
     <Box flexDirection="column">
-      <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>
+      {block.continuation ? null : <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>}
       {block.markdown && markdown ? (
         <Row width={width} bg={bg} indent={2}><Markdown text={block.markdown} md={markdown} width={contentWidth} /></Row>
       ) : block.lines.map((line, index) => {

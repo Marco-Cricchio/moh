@@ -6,7 +6,7 @@ import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
 import { BASE_COMMANDS } from "./commands";
-import { projectTranscript, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { BottomBar, ThinkingSeparator, type ThinkingLevel } from "./BottomBar";
 import type { SidebarTokens } from "./sidebar";
 
@@ -121,9 +121,13 @@ export function Chat({
       { filePreview, mode: segment.mode, keyBase: segment.base },
     ));
     const live = settledEnd < state.events.length ? state.events.slice(settledEnd) : [];
+    // The live tail often begins mid-reply (the boundary closed a paragraph
+    // inside a delta run): its first paragraph is a continuation of the
+    // reply already printed above, not a new headed block (#205).
+    const proseContinuation = settledEnd > 0 && state.events[settledEnd - 1]?.type === "assistant_delta";
     return {
       settledBlocks,
-      liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd }),
+      liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation }),
     };
   }, [state.events, settledEnd, filePreview, mode, repaint]);
   const replayBlocks = useMemo(
@@ -235,18 +239,17 @@ export function settledBoundary(events: readonly AgentEvent[], pending: boolean)
   }
   let pendingCalls = 0;
   let boundary = turnStart + 1;
-  // Streaming prose promotes paragraph-by-paragraph: once a delta run ends
-  // at a blank line outside any code fence, the text before it is final
-  // (deltas only append), so the prefix closes. The fence guard keeps a
-  // still-growing ``` block from being promoted as raw prose and then
-  // re-rendered as a code block (duplicate transcript).
+  // Streaming prose promotes segment-by-segment using the same closing rules
+  // as the transcript projection (#205): a blank line outside any code fence
+  // (loose-list blank lines do not close), or a closing fence. The shared
+  // `closedPrefixLength` guarantees a promoted prefix never mutates after
+  // ink prints it.
   let deltaRun = "";
   for (let i = turnStart + 1; i < events.length; i++) {
     const event = events[i]!;
     if (event.type === "assistant_delta") {
       deltaRun += event.text;
-      const fences = (deltaRun.match(/```/g) ?? []).length;
-      if (fences % 2 === 0 && deltaRun.endsWith("\n\n")) boundary = i + 1;
+      if (closedPrefixLength(deltaRun) === deltaRun.length) boundary = i + 1;
       continue;
     }
     deltaRun = "";
