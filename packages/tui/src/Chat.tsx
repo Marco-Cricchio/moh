@@ -5,6 +5,7 @@ import { useSessionState } from "./session-bridge";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
+import { BASE_COMMANDS } from "./commands";
 import { projectTranscript, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { BottomBar, ThinkingSeparator, type ThinkingLevel } from "./BottomBar";
 import type { SidebarTokens } from "./sidebar";
@@ -33,6 +34,9 @@ export interface ChatProps {
   submitSignal?: number;
   /** Repaint settled history in the alternate-screen modal buffer. */
   replaySettled?: boolean;
+  /** Slash commands active for this context (workflow-aware completion).
+   * Standalone mounts default to the base list from the registry. */
+  commands?: readonly string[];
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -57,6 +61,7 @@ export function Chat({
   notice,
   submitSignal = 0,
   replaySettled = false,
+  commands = BASE_COMMANDS.map((command) => `/${command.name}`),
 }: ChatProps) {
   const state = useSessionState(session);
   const viewport = useViewport();
@@ -124,6 +129,7 @@ export function Chat({
         disabled={blocked}
         focused={inputFocused}
         onAskCommands={onOpenCommands}
+        commands={commands}
         submitSignal={submitSignal}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;

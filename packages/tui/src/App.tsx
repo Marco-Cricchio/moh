@@ -36,7 +36,7 @@ import { ModelPickerModal } from "./ModelPickerModal";
 import { subscriptionModelCatalog } from "@moh/core";
 import { Frontier } from "./Frontier";
 import { WorkflowOffer } from "./WorkflowOffer";
-import { runSlashCommand } from "./commands";
+import { runSlashCommand, activeCommands } from "./commands";
 import { Toasts, useToasts } from "./Toasts";
 
 export interface AppProps {
@@ -325,6 +325,7 @@ export function App({
       notice={toasts.at(-1)?.text}
       submitSignal={submitSignal}
       replaySettled={alternateScreen}
+      commands={activeCommands({ config }).map((command) => `/${command.name}`)}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
         if (!item) return undefined;

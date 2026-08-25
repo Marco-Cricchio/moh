@@ -7,8 +7,8 @@ import { stripAnsi } from "./helpers";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Renders the input in isolation and returns a frame prober. */
-async function mount(onSubmit: (text: string) => void) {
-  const i = render(<MultilineInput placeholder="p" focused onSubmit={onSubmit} />);
+async function mount(onSubmit: (text: string) => void, commands: readonly string[] = []) {
+  const i = render(<MultilineInput placeholder="p" focused commands={commands} onSubmit={onSubmit} />);
   await sleep(30);
   return {
     stdin: i.stdin,
@@ -182,7 +182,7 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
 
   test("slash completion accepts a matching command with Tab", async () => {
     let submitted = "";
-    const i = await mount((text) => { submitted = text; });
+    const i = await mount((text) => { submitted = text; }, ["/workflow"]);
     i.stdin.write("/work");
     await sleep(20);
     i.stdin.write("\t");
@@ -190,6 +190,53 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     i.stdin.write("\r");
     await sleep(30);
     expect(submitted).toBe("/workflow");
+    i.unmount();
+  });
+
+  test("slash suggestions come from the commands prop: /ask-moh offered, unknown names never", async () => {
+    // Regression: the completion list was a hardcoded array that missed
+    // /ask-moh (and listed commands that no longer exist).
+    let submitted = "";
+    const i = render(
+      <MultilineInput
+        placeholder="p"
+        focused
+        commands={["/workflow", "/ask-moh", "/model"]}
+        onSubmit={(text) => { submitted = text; }}
+      />,
+    );
+    await sleep(30);
+    i.stdin.write("/ask");
+    await sleep(20);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("/ask-moh");
+    i.stdin.write("\t");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(submitted).toBe("/ask-moh");
+    i.unmount();
+  });
+
+  test("workflow-mode commands complete only when passed in (registry decides)", async () => {
+    let submitted = "";
+    const i = render(
+      <MultilineInput
+        placeholder="p"
+        focused
+        commands={["/workflow", "/ask-moh", "/model", "/implement", "/tdd"]}
+        onSubmit={(text) => { submitted = text; }}
+      />,
+    );
+    await sleep(30);
+    i.stdin.write("/t");
+    await sleep(20);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("/tdd");
+    i.stdin.write("\t");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(submitted).toBe("/tdd");
     i.unmount();
   });
 
