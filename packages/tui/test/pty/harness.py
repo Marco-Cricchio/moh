@@ -161,6 +161,9 @@ def main() -> None:
     cwd = tempfile.mkdtemp(prefix="moh-pty-cwd-")
     # Optional user-config injection (~/.moh/config): lets tests pin TUI
     # settings (mode, onboarding flags) instead of scripting overlays.
+    if isinstance(spec.get("project"), dict):
+        with open(os.path.join(cwd, "moh.json"), "w") as f:
+            json.dump(spec["project"], f)
     if isinstance(spec.get("config"), dict):
         os.makedirs(os.path.join(home, ".moh"), exist_ok=True)
         with open(os.path.join(home, ".moh", "config"), "w") as f:
@@ -222,7 +225,13 @@ def main() -> None:
             "width": len(line),
             "text": line,
         })
-    json.dump(out, sys.stdout)
+    if spec.get("rawDump"):
+        with open(spec["rawDump"], "wb") as f:
+            f.write(bytes(buf))
+    payload = out
+    if spec.get("meta"):
+        payload = {"lines": out, "exited": proc.poll() is not None, "exitCode": proc.returncode}
+    json.dump(payload, sys.stdout)
 
 
 if __name__ == "__main__":
