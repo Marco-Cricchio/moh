@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, useInput } from "ink";
-import type { AgentSession } from "@moh/core";
+import type { AgentEvent, AgentSession } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
@@ -84,13 +84,7 @@ export function Chat({
     sessionRef.current = session;
     segmentsRef.current = [{ base: 0, mode }];
   }
-  const settledEnd = useMemo((): number => {
-    if (!state.pending) return state.events.length;
-    for (let i = state.events.length - 1; i >= 0; i--) {
-      if (state.events[i]!.type === "user_message") return i;
-    }
-    return state.events.length;
-  }, [state.events, state.pending]);
+  const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
   const modeRef = useRef(mode);
   if (mode !== modeRef.current) {
     modeRef.current = mode;
@@ -209,6 +203,50 @@ export function Chat({
       />
     </Box>
   );
+}
+
+/** Incremental promotion boundary (#194): while a turn is pending, the
+ * settled/live split is not the turn start (the user_message) but the end
+ * of the last *closed* prefix of the open turn — every tool_call in it has
+ * its tool_result, streaming prose closes paragraph-by-paragraph, and no
+ * volatile-tail event crosses it. Blocks that mutate in place (pending
+ * tool_call ◌→✓, ask_user awaiting its answer, a still-growing code fence)
+ * stay volatile until complete; each closed block scrolls into native
+ * scrollback as soon as it closes, keeping the volatile region
+ * viewport-small (#188 stays flat). Monotonic while pending: appended
+ * events can only close prefixes, never reopen one. */
+export function settledBoundary(events: readonly AgentEvent[], pending: boolean): number {
+  if (!pending) return events.length;
+  let turnStart = events.length;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i]!.type === "user_message") { turnStart = i; break; }
+  }
+  let pendingCalls = 0;
+  let boundary = turnStart + 1;
+  // Streaming prose promotes paragraph-by-paragraph: once a delta run ends
+  // at a blank line outside any code fence, the text before it is final
+  // (deltas only append), so the prefix closes. The fence guard keeps a
+  // still-growing ``` block from being promoted as raw prose and then
+  // re-rendered as a code block (duplicate transcript).
+  let deltaRun = "";
+  for (let i = turnStart + 1; i < events.length; i++) {
+    const event = events[i]!;
+    if (event.type === "assistant_delta") {
+      deltaRun += event.text;
+      const fences = (deltaRun.match(/```/g) ?? []).length;
+      if (fences % 2 === 0 && deltaRun.endsWith("\n\n")) boundary = i + 1;
+      continue;
+    }
+    deltaRun = "";
+    if (event.type === "tool_call") { pendingCalls++; continue; }
+    // Clamp: a stray result without its call must not under-count and
+    // over-promote a prefix.
+    if (event.type === "tool_result" && pendingCalls > 0) pendingCalls--;
+    if (pendingCalls > 0) continue;
+    if (event.type === "model_call") continue;
+    boundary = i + 1;
+  }
+  return boundary;
 }
 
 /** Tail projection for the alternate-screen modal background. It keeps the
