@@ -72,6 +72,9 @@ export function App({
   skipOnboarding,
 }: AppProps) {
   const { exit } = useApp();
+  // Double ctrl+c is the only way out (see useInput; exitOnCtrlC is off in
+  // main.tsx): the first press arms, the second within the window exits.
+  const exitArmRef = useRef(0);
   const viewport = useViewport();
 
   const cfgFile = useMemo(() => userConfigFile(home), [home]);
@@ -255,6 +258,15 @@ export function App({
   }, [session]);
 
   useInput((input, key) => {
+    // Exit: two ctrl+c presses within 1.5s (exitOnCtrlC is off in main.tsx,
+    // so the keypress reaches us as input "c" + key.ctrl). Runs first so it
+    // works over overlays and menu focus alike. A lone ctrl+c only arms.
+    if (key.ctrl && input === "c") {
+      const now = Date.now();
+      if (now - exitArmRef.current < 1500) return exit();
+      exitArmRef.current = now;
+      return push("press ctrl+c again to exit");
+    }
     const menuLive = session !== null && !blocked && layoutClass(viewport) === "dashboard";
     if (menuLive) {
       const r = handleFocusKey(focusRef.current, input, key, MENU_ENTRIES.length);
@@ -374,7 +386,6 @@ export function App({
             home={home}
             mode={mode}
             onOpen={open}
-            onExit={exit}
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}
             blocked={overlayOpen}
