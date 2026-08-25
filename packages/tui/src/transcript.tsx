@@ -121,6 +121,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "session_mode":
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission mode", detail: event.mode, lines: [] });
         break;
+      case "skill_invoked":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "skill", detail: event.name, lines: [] });
+        break;
       case "model_switched":
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "model switched", detail: `${event.from} → ${event.to} (next turn)`, lines: [] });
         break;

@@ -91,6 +91,12 @@ Every event is also persisted (the `sink` you can add via
 `store.file` — one append-only JSONL per session, which you can `load()`
 to resume or `fork()` to branch later.
 
+`send` accepts options (ADR-0011): `session.send(text, { prompt: { name,
+text } })` attaches a turn-scoped skill prompt that rides the system
+prompt for exactly one turn — the user message (and its persisted event)
+stays the clean text, and a `skill_invoked` chrome event records the
+invocation. See `docs/extending/skills.md`.
+
 ### 3. Permissions, headless
 
 Permission rules have one string grammar (ADR-0007), the same one the

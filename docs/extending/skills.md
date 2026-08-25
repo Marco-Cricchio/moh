@@ -32,7 +32,21 @@ the skill's directory.
 - `~/.moh/skills/` — user-level
 - `.moh/skills/` — project-level; **wins** on a name clash
 
-First-party skills shipped with moh are ordinary files copied into `~/.moh/skills/` at install/upgrade; they are updated from the workflow upstream only when unmodified (hash check) and are active only with workflow mode on. One exception: **`ask-moh`**, the router skill — its `SKILL.md` is read straight from the bundle by the base `/ask-moh` command (always available, workflow mode on or off), which injects the current workflow state so the skill can route around the mode gate.
+First-party skills shipped with moh are ordinary files copied into `~/.moh/skills/` at install/upgrade; they are updated from the workflow upstream only when unmodified (hash check) and are active only with workflow mode on. One exception: **`ask-moh`**, the router skill — its `SKILL.md` is read straight from the bundle by the base `/ask-moh` command (always available, workflow mode on or off), which injects the current workflow state so the skill can route around the mode gate. The skill body reaches the model through the turn-scoped skill prompt (ADR-0011): the command sends the clean question via `session.send(text, { prompt: { name, text } })`, the `skills` prompt section renders the skill in full for exactly that turn, and the log records a `skill_invoked` chrome event instead of polluting the user message.
+
+## Turn-scoped skill prompts (ADR-0011)
+
+Any client can attach one skill's full instructions to a single turn:
+
+```ts
+await session.send("which skill fits?", {
+  prompt: { name: "ask-moh", text: skillBody }, // body only, frontmatter stripped
+});
+```
+
+- The body replaces the `skills` section for that turn (framed with a fixed "follow this skill" line), then the section falls back to the ordinary index.
+- The user message and the persisted `user_message` event stay the clean text; a `skill_invoked` chrome event records the invocation.
+- The injection is dropped when the turn settles (done, error or cancelled) — it never survives into the next turn or a resume.
 
 ## Progressive disclosure
 

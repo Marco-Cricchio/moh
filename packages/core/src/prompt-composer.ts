@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import type { Message } from "./types";
+import type { Message, SkillPrompt } from "./types";
 
 /**
  * PromptComposer (#27): the core assembles the system prompt for every
@@ -42,6 +42,9 @@ export interface PromptContext {
   model?: string;
   tools: { name: string; description: string }[];
   skills: SkillIndexEntry[];
+  /** ADR-0011: turn-scoped skill prompt; when set, the skills section
+   * renders this skill in full instead of the index. */
+  skillPrompt?: SkillPrompt;
   /** Durable memory excerpt injected as a section (P1 feature; optional). */
   memory?: string;
   /** Current session-state summary (compaction, todo snapshot; optional). */
@@ -213,6 +216,18 @@ export class PromptComposer {
   }
 
   #renderSkills(ctx: PromptContext): string {
+    // ADR-0011: a turn-scoped skill prompt replaces the index — the
+    // model follows this one skill for the turn; the index stays for
+    // every other call.
+    if (ctx.skillPrompt) {
+      const body = ctx.skillPrompt.text.trim();
+      if (!body) return "";
+      return [
+        `Follow the "${ctx.skillPrompt.name}" skill for this turn. Its instructions are reproduced verbatim below.`,
+        "",
+        body,
+      ].join("\n");
+    }
     if (ctx.skills.length === 0) return "";
     const lines = [
       "## Skills",
