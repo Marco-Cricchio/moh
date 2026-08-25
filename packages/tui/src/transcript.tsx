@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { AgentEvent } from "@moh/core";
 import type { Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
+import { createMarkdownRenderer, Markdown } from "./markdown";
 
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking";
 export interface TranscriptBlock {
@@ -13,6 +14,8 @@ export interface TranscriptBlock {
   type: string;
   detail?: string;
   lines: string[];
+  /** Original assistant prose, retained for terminal Markdown rendering. */
+  markdown?: string;
   lineKinds?: Array<"body" | "heading" | "bullet" | "ask" | "answer">;
   state?: "run" | "ok" | "fail";
   usage?: { inputTokens: number; outputTokens: number };
@@ -245,7 +248,7 @@ function proseBlock(key: string, prose: string): TranscriptBlock {
     lineKinds.push("body");
     return line;
   });
-  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds };
+  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds, markdown: prose };
 }
 
 const mix = (a: string, b: string, amount: number): string => {
@@ -280,7 +283,7 @@ const sameKinds = (a: string[] | undefined, b: string[] | undefined): boolean =>
 
 const sameBlock = (a: TranscriptBlock, b: TranscriptBlock): boolean =>
   a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type
-  && a.detail === b.detail && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
+  && a.detail === b.detail && a.markdown === b.markdown && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
   && a.usage?.outputTokens === b.usage?.outputTokens
   && a.lines.length === b.lines.length && a.lines.every((line, i) => line === b.lines[i])
   && sameKinds(a.lineKinds, b.lineKinds);
@@ -296,10 +299,13 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   const color = blockColor(block, theme);
   const bg = blockTint(block, theme);
   const detail = block.usage ? `${block.usage.inputTokens.toLocaleString()} in · ${block.usage.outputTokens.toLocaleString()} out${block.detail ? ` · ${block.detail}` : ""}` : block.detail;
+  const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, Math.max(20, width - 4)) : null, [block.markdown, theme, width]);
   return (
     <Box flexDirection="column">
       <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>
-      {block.lines.map((line, index) => {
+      {block.markdown && markdown ? (
+        <Row width={width} bg={bg} indent={2}><Markdown text={block.markdown} md={markdown} /></Row>
+      ) : block.lines.map((line, index) => {
         const lineKind = block.lineKinds?.[index];
         const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
         const stateGlyph = block.kind === "tool" ? line.match(/^(.*?)(\s[✓✗◌])$/) : null;
