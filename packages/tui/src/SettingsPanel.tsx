@@ -59,7 +59,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "endpoint"; cursor: number }
     | { kind: "model"; name: string; type: string; current?: string; userOwned: boolean; cursor: number; query: string }
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
-    | { kind: "remove"; cursor: number };
+    | { kind: "remove"; options: string[]; cursor: number };
   const [sub, setSub] = useState<Sub | null>(null);
   // Live-fetched model lists for openai-compat endpoints (#181 follow-up):
   // `GET <baseUrl>/models`, shown in the model level like a vendored
@@ -121,6 +121,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return rows;
     }
     if (sub.kind === "model-free") return [];
+    if (sub.kind === "remove") return sub.options;
     return (moh.endpoints ?? []).map((e) => e.name);
   }, [sub, moh, projectNames, remote]);
 
@@ -338,7 +339,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
               {subOptions.slice(subWin.start, subWin.start + subWin.count).map((option, i) => {
                 const index = subWin.start + i;
-                const selected = sub.kind !== "model-free" && index === subCursor;
+                const selected = index === subCursor;
                 return (
                   <Text key={`${index}-${option}`} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
                     {truncate(` ${selected ? "›" : " "} ${option}${selected ? " " : ""}`, innerWidth)}
