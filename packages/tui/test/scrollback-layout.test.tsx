@@ -27,6 +27,24 @@ describe("native scrollback layout geometry", () => {
     expect(transcriptTail(blocks, 100, 6).map((block) => block.type)).toEqual(["three", "four"]);
   });
 
+  it("clips an oversized single live block to the row budget (#201)", () => {
+    const text = `BEGIN-${"x".repeat(500)}-END`;
+    const blocks: TranscriptBlock[] = [{
+      key: "oversized", kind: "moh", glyph: "◆", type: "moh",
+      lines: [text], markdown: text,
+    }];
+    const tail = transcriptTail(blocks, 20, 5);
+    expect(tail).toHaveLength(1);
+    expect(tail[0]!.lines.join("\n")).toContain("-END");
+    expect(tail[0]!.lines.join("\n")).not.toContain("BEGIN-");
+    // The terminal Markdown renderer consumes markdown rather than lines;
+    // its live tail must be clipped too (#201).
+    expect(tail[0]!.markdown).not.toContain("BEGIN-");
+    // One available character must still clip; String#slice(-0) would
+    // otherwise return the entire line.
+    expect(transcriptTail(blocks, 4, 3)[0]!.lines).toEqual(["…"]);
+  });
+
   it("drops optional segments before wrapping", () => {
     expect(fitRow([
       { text: "live" },
