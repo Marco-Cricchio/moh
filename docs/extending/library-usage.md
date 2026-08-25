@@ -44,6 +44,13 @@ explicit `providerRef` (like the CLI's `--provider`) > the merged config's
 default. An invalid user `provider`/`endpoints` section fails loudly as a
 `config` error, like a broken moh.json.
 
+moh.json's `maxIterations` (#190) configures the per-turn tool-call cap
+(default 50). Reaching the cap no longer kills the turn: the core makes
+one final **no-tools wrap-up call** — the model must reply with what it
+completed, what remains, and the next step — and the turn ends `done`
+instead of `error` (subagent children inherit the same behavior; a
+failing wrap-up call degrades to the historical `max_iterations` error).
+
 `AssemblyError.kind` tells you what to do: `config` / `provider` are
 user-fixable (surface the `message`); `session` is a startup validation
 error (e.g. a corrupt resumed log). The store is only created after
