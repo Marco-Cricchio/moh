@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -12,8 +12,8 @@ export interface InputProps {
   disabled?: boolean;
   onAskCommands?: () => void;
   focused?: boolean;
-  onLinesChange?: (lines: number) => void;
-  onScrollRequest?: (delta: number) => void;
+  /** Incremented by the focused send chip to submit the current draft. */
+  submitSignal?: number;
   onSubmit(text: string): void;
 }
 
@@ -63,8 +63,7 @@ export function MultilineInput({
   disabled,
   onAskCommands,
   focused = true,
-  onLinesChange,
-  onScrollRequest,
+  submitSignal = 0,
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -82,6 +81,7 @@ export function MultilineInput({
   const [inPaste, setInPaste] = useState(false);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const previousSubmitSignal = useRef(submitSignal);
 
   const snapshot = (): EditorSnapshot => ({ lines: [...lines], line: cursorLine, column: cursorColumn });
   const setEditor = (next: EditorSnapshot) => {
@@ -117,13 +117,12 @@ export function MultilineInput({
   }, [lines, wrapWidth]);
 
   useEffect(() => {
-    onLinesChange?.(Math.max(1, visualLines.length));
     const current = visualLines.findIndex((item) => item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length);
     if (current >= 0) {
       const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
       setScrollOffset((offset) => Math.max(0, Math.min(Math.max(0, visualLines.length - maxVisible), current < offset ? current : current >= offset + maxVisible ? current - maxVisible + 1 : offset)));
     }
-  }, [visualLines, cursorLine, cursorColumn, onLinesChange, viewport.rows]);
+  }, [visualLines, cursorLine, cursorColumn, viewport.rows]);
 
   const replaceText = (text: string, position: "start" | "end" = "end") => {
     const next = text.replace(/\r\n?/g, "\n").split("\n");
@@ -161,6 +160,13 @@ export function MultilineInput({
     setUndo([]); setRedo([]);
     onSubmit(text);
   };
+  useEffect(() => {
+    if (submitSignal === previousSubmitSignal.current) return;
+    previousSubmitSignal.current = submitSignal;
+    submit();
+    // submit intentionally reads the draft at the signal edge.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitSignal]);
 
   useInput((input, key) => {
     if (disabled) return;
@@ -274,8 +280,8 @@ export function MultilineInput({
         else { const next = historyIndex + (direction < 0 ? 1 : -1); if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); } else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); } }
         return;
       }
-      if (direction < 0 && cursorLine === 0) { onScrollRequest?.(-1); return; }
-      if (direction > 0 && cursorLine === lines.length - 1) { onScrollRequest?.(1); return; }
+      if (direction < 0 && cursorLine === 0) return;
+      if (direction > 0 && cursorLine === lines.length - 1) return;
       const target = preferredColumn ?? cursorColumn; const nextLine = cursorLine + direction;
       setPreferredColumn(target); setCursorLine(nextLine); setCursorColumn(Math.min(target, (lines[nextLine] ?? "").length)); return;
     }
@@ -288,10 +294,10 @@ export function MultilineInput({
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={focused && !disabled ? theme.accent : theme.border} width="100%" paddingX={1}>
+    <Box flexDirection="column" width="100%" paddingX={1}>
       <Box flexDirection="column">
-        {shown.map((item, index) => {
-          const active = item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length;
+        {!(lines.length === 1 && lines[0] === "") && shown.map((item, index) => {
+          const active = focused && item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length;
           const column = active ? cursorColumn - item.start : -1;
           return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{item.text.slice(0, column)}{column >= 0 ? <Text inverse>{column < item.text.length ? item.text[column] : " "}</Text> : null}{item.text.slice(column + 1)}</> : <>{"  "}{item.text}</>}</Text>;
         })}

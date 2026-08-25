@@ -1,0 +1,235 @@
+import React from "react";
+import { Box, Text } from "ink";
+import type { AgentEvent } from "@moh/core";
+import type { Theme } from "./themes";
+import { useTheme } from "./themes";
+import { sanitizeLine, truncate } from "./ui";
+
+export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking";
+export interface TranscriptBlock {
+  key: string;
+  kind: BlockKind;
+  glyph: string;
+  type: string;
+  detail?: string;
+  lines: string[];
+  lineKinds?: Array<"body" | "heading" | "bullet" | "ask" | "answer">;
+  state?: "run" | "ok" | "fail";
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+const detailOf = (args: unknown): string => {
+  if (!args || typeof args !== "object") return "";
+  const rec = args as Record<string, unknown>;
+  for (const key of ["command", "path", "file", "pattern", "query", "url"]) {
+    if (typeof rec[key] === "string") return sanitizeLine(String(rec[key])).split("\n")[0]!;
+  }
+  return truncate(sanitizeLine(JSON.stringify(args)), 100);
+};
+
+/** Complete, deterministic projection of the append-only event log. Events
+ * may be grouped (assistant deltas, tool call/result), but none disappear
+ * without an intentional chrome representation. */
+export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { filePreview?: "always" | "on-demand" | "none" } = {}): TranscriptBlock[] {
+  const blocks: TranscriptBlock[] = [];
+  const results = new Map<string, Extract<AgentEvent, { type: "tool_result" }>>();
+  for (const event of events) if (event.type === "tool_result") results.set(event.callId, event);
+
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]!;
+    const key = `${i}-${event.type}`;
+    switch (event.type) {
+      case "user_message":
+        blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: event.text.split("\n") });
+        break;
+      case "assistant_delta": {
+        let text = event.text;
+        while (events[i + 1]?.type === "assistant_delta") text += (events[++i] as Extract<AgentEvent, { type: "assistant_delta" }>).text;
+        blocks.push(...assistantBlocks(key, text));
+        break;
+      }
+      case "tool_call": {
+        const result = results.get(event.callId);
+        const state = result ? (result.ok ? "ok" : "fail") : "run";
+        if (event.name === "ask_user") {
+          const question = event.args && typeof event.args === "object" && "question" in event.args ? String((event.args as { question: unknown }).question) : detailOf(event.args);
+          const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
+          blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state });
+          break;
+        }
+        blocks.push({
+          key,
+          kind: "tool",
+          glyph: state === "ok" ? "✓" : state === "fail" ? "✗" : "◌",
+          type: event.name,
+          detail: detailOf(event.args),
+          lines: event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
+          state,
+        });
+        if (event.name === "read" && result?.ok && options.filePreview !== "none") {
+          const start = event.args && typeof event.args === "object" && typeof (event.args as { offset?: unknown }).offset === "number" ? (event.args as { offset: number }).offset : 1;
+          const previewLines = result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5);
+          blocks.push({ key: `${key}-preview`, kind: "code", glyph: "⌨", type: "preview", detail: `${detailOf(event.args)} · ${start}–${start + Math.max(0, previewLines.length - 1)}`, lines: previewLines.map((line, lineIndex) => `${String(start + lineIndex).padStart(3)} │ ${sanitizeLine(line)}`) });
+        }
+        break;
+      }
+      case "tool_result":
+        if (!events.some((candidate) => candidate.type === "tool_call" && candidate.callId === event.callId)) {
+          blocks.push({ key, kind: "tool", glyph: event.ok ? "✓" : "✗", type: "tool result", detail: event.callId, lines: event.output.split("\n").map(sanitizeLine), state: event.ok ? "ok" : "fail" });
+        }
+        break;
+      case "permission_requested":
+        blocks.push({ key, kind: "tool", glyph: "◌", type: "permission", detail: `${event.tool} · requested`, lines: [], state: "run" });
+        break;
+      case "permission_granted":
+        blocks.push({ key, kind: "tool", glyph: "✓", type: "permission", detail: `${event.tool} · allowed (${event.reason})`, lines: [], state: "ok" });
+        break;
+      case "permission_denied":
+        blocks.push({ key, kind: "tool", glyph: "⊘", type: "permission", detail: `${event.tool} · denied`, lines: [event.reason], state: "fail" });
+        break;
+      case "permission_rule_added":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission rule", detail: JSON.stringify(event.rule), lines: [] });
+        break;
+      case "model_call": {
+        const nextUser = events.slice(i + 1).findIndex((candidate) => candidate.type === "user_message");
+        const turnTail = events.slice(i + 1, nextUser < 0 ? undefined : i + 1 + nextUser);
+        if (!turnTail.some((candidate) => candidate.type === "done" && candidate.usage)) {
+          blocks.push({ key, kind: "chrome", glyph: "─", type: "usage", detail: event.model, lines: [], usage: event.usage });
+        }
+        break;
+      }
+      case "done":
+        blocks.push(event.usage
+          ? { key, kind: "chrome", glyph: "─", type: "usage", detail: event.models?.join(", "), lines: [], usage: event.usage }
+          : { key, kind: "chrome", glyph: "✓", type: "done", detail: event.models?.join(", "), lines: [] });
+        break;
+      case "error":
+        blocks.push({ key, kind: "error", glyph: "✗", type: "error", detail: event.reason, lines: [event.message], state: "fail" });
+        break;
+      case "cancelled":
+        blocks.push({ key, kind: "chrome", glyph: "◌", type: "cancelled", detail: "steering · turn interrupted", lines: [] });
+        break;
+      case "subagent_spawn":
+        blocks.push({ key, kind: "chrome", glyph: "◇", type: event.name, detail: `spawn${event.preset ? ` · ${event.preset}` : ""}`, lines: [] });
+        break;
+      case "subagent_result":
+        blocks.push({ key, kind: event.status === "error" ? "error" : "chrome", glyph: event.status === "done" ? "✓" : event.status === "error" ? "✗" : "◌", type: event.name, detail: `${event.status} · ${event.usage.inputTokens + event.usage.outputTokens} tok`, lines: [] });
+        break;
+      case "session_start":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "session started", detail: `prompt ${event.promptVersion.slice(0, 8)}`, lines: [] });
+        break;
+      case "session_mode":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission mode", detail: event.mode, lines: [] });
+        break;
+      case "model_switched":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "model switched", detail: `${event.from} → ${event.to} (next turn)`, lines: [] });
+        break;
+      case "memory_updated":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });
+        break;
+      case "compaction":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "context compacted", detail: `${event.upTo} events`, lines: [event.summary] });
+        break;
+      case "extension_loaded":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "extension loaded", detail: `${event.name} ${event.version}`, lines: [] });
+        break;
+      case "extension_failed":
+        blocks.push({ key, kind: "error", glyph: "✗", type: "extension failed", detail: event.name, lines: [event.message], state: "fail" });
+        break;
+      case "mcp_server_started":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "MCP started", detail: `${event.server} · ${event.tools.length} tools`, lines: [] });
+        break;
+      case "mcp_server_failed":
+        blocks.push({ key, kind: "error", glyph: "✗", type: "MCP failed", detail: event.server, lines: [event.message], state: "fail" });
+        break;
+      case "mcp_server_stopped":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "MCP stopped", detail: event.server, lines: [] });
+        break;
+      case "mcp_refused":
+        blocks.push({ key, kind: "chrome", glyph: "⊘", type: "MCP refused", detail: `${event.server} · ${event.capability}`, lines: [] });
+        break;
+      default: {
+        const exhaustive: never = event;
+        throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
+      }
+    }
+  }
+  return blocks;
+}
+
+function assistantBlocks(key: string, text: string): TranscriptBlock[] {
+  const blocks: TranscriptBlock[] = [];
+  const fence = /```([^\n]*)\n([\s\S]*?)```/g;
+  let at = 0;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(text))) {
+    const prose = text.slice(at, match.index).trim();
+    if (prose) blocks.push(proseBlock(`${key}-prose-${at}`, prose));
+    const lang = match[1]!.trim();
+    blocks.push({ key: `${key}-code-${match.index}`, kind: lang === "diff" ? "diff" : "code", glyph: lang === "diff" ? "±" : "⌨", type: lang === "diff" ? "diff" : "code", detail: lang || undefined, lines: match[2]!.replace(/\n$/, "").split("\n") });
+    at = match.index + match[0].length;
+  }
+  const rest = text.slice(at).trim();
+  if (rest) blocks.push(proseBlock(`${key}-prose-${at}`, rest));
+  return blocks;
+}
+
+function proseBlock(key: string, prose: string): TranscriptBlock {
+  const raw = prose.split("\n");
+  const lineKinds: Array<"body" | "heading" | "bullet"> = [];
+  const lines = raw.map((line) => {
+    if (/^#{1,6}\s+/.test(line)) { lineKinds.push("heading"); return line.replace(/^#{1,6}\s+/, ""); }
+    if (/^\s*[-*]\s+/.test(line)) { lineKinds.push("bullet"); return line.replace(/^\s*[-*]\s+/, "· "); }
+    lineKinds.push("body");
+    return line;
+  });
+  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds };
+}
+
+const mix = (a: string, b: string, amount: number): string => {
+  const rgb = (value: string) => [1, 3, 5].map((i) => Number.parseInt(value.slice(i, i + 2), 16));
+  const aa = rgb(a), bb = rgb(b);
+  return `#${aa.map((value, i) => Math.round(value * amount + bb[i]! * (1 - amount)).toString(16).padStart(2, "0")).join("")}`;
+};
+
+function blockColor(block: TranscriptBlock, theme: Theme): string {
+  if (block.state === "fail" || block.kind === "error") return theme.err;
+  if (block.state === "ok") return theme.ok;
+  if (block.kind === "user") return theme.warn;
+  if (block.kind === "code" || block.kind === "diff") return theme.purple;
+  if (block.kind === "chrome" || block.kind === "thinking") return theme.dim;
+  return theme.accent;
+}
+
+export function blockTint(block: TranscriptBlock, theme: Theme): string | undefined {
+  if (block.kind === "thinking") return undefined;
+  const semantic = block.kind === "user" ? theme.warn : block.kind === "moh" ? theme.accent : block.kind === "code" || block.kind === "diff" ? theme.purple : block.kind === "error" ? theme.err : theme.dim;
+  return mix(semantic, theme.bg, block.kind === "error" ? 0.2 : block.kind === "chrome" ? 0.07 : 0.14);
+}
+
+function Row({ width, bg, indent = 0, children }: { width: number; bg?: string; indent?: number; children: React.ReactNode }) {
+  return <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={indent} flexShrink={0}><Text>{children}</Text></Box>;
+}
+
+export function TranscriptBlockView({ block, width }: { block: TranscriptBlock; width: number }) {
+  const theme = useTheme();
+  const color = blockColor(block, theme);
+  const bg = blockTint(block, theme);
+  const detail = block.usage ? `${block.usage.inputTokens.toLocaleString()} in · ${block.usage.outputTokens.toLocaleString()} out${block.detail ? ` · ${block.detail}` : ""}` : block.detail;
+  return (
+    <Box flexDirection="column">
+      <Row width={width} bg={bg}><Text color={color}>{block.glyph} {block.type}</Text>{detail && <Text color={theme.dim}> {detail}</Text>}</Row>
+      {block.lines.map((line, index) => {
+        const lineKind = block.lineKinds?.[index];
+        const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
+        const stateGlyph = block.kind === "tool" ? line.match(/^(.*?)(\s[✓✗◌])$/) : null;
+        const body = stateGlyph
+          ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={stateGlyph[2]!.includes("✓") ? theme.ok : stateGlyph[2]!.includes("✗") ? theme.err : theme.accent}>{stateGlyph[2]}</Text></>
+          : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{line || " "}</Text>;
+        if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={2}>{body}</Row><Row width={width} bg={bg} indent={2}><Text color={theme.border}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
+        return <Row key={index} width={width} bg={bg} indent={lineKind === "bullet" ? 4 : 2}>{body}</Row>;
+      })}
+      <Text> </Text>
+    </Box>
+  );
+}

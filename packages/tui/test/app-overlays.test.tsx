@@ -42,7 +42,7 @@ describe("App overlays (issue #33)", () => {
     await sleep(50);
     i.stdin.write("?");
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Home");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
     i.stdin.write("\x1b"); // esc closes
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("all commands");
@@ -66,7 +66,27 @@ describe("App overlays (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\x0b"); // ctrl+k
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Home");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
+    i.unmount();
+  });
+
+  test("a modal layer remains transparent around the dialog", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    Object.defineProperty(i.stdout, "columns", { value: 100, configurable: true });
+    Object.defineProperty(i.stdout, "rows", { value: 40, configurable: true });
+    i.stdout.emit("resize");
+    await sleep(50);
+    const before = stripAnsi(i.lastFrame() ?? "");
+    expect(before).toContain("type…");
+    expect(before).toContain("· ready");
+
+    i.stdin.write("\x13"); // ctrl+s
+    await sleep(50);
+    const during = stripAnsi(i.lastFrame() ?? "").split("\n");
+    expect(during.some((line) => line.includes("settings"))).toBe(true);
+    expect(during.some((line) => line.includes("type…"))).toBe(true);
+    expect(during.some((line) => line.includes("· ready"))).toBe(true);
     i.unmount();
   });
 
@@ -79,7 +99,7 @@ describe("App overlays (issue #33)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("type…");
     i.stdin.write("?");
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Home");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
     i.stdin.write("\x1b");
     await sleep(50);
     const frame = stripAnsi(i.lastFrame() ?? "");
