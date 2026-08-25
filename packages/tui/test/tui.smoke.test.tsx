@@ -180,6 +180,47 @@ describe("home smoke", () => {
     i.unmount();
   });
 
+  test("App: mode switch changes the transcript grammar, not just the label (#193)", async () => {
+    const provider = MockProvider.scripted([
+      { deltas: ["first answer"], finish: "stop", usage: { inputTokens: 100, outputTokens: 10 } },
+      { deltas: ["second answer"], finish: "stop", usage: { inputTokens: 200, outputTokens: 40 } },
+      { deltas: ["third answer"], finish: "stop", usage: { inputTokens: 300, outputTokens: 50 } },
+    ]);
+    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} startInChat skipOnboarding />);
+    await sleep(30);
+    i.stdin.write("one");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(300);
+    // vibe: plain transcript, no usage metrics
+    let frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("first answer");
+    expect(frame).not.toContain("100 in");
+    // dev: turns settled after the switch carry usage blocks
+    i.stdin.write("\x0f");
+    await sleep(50);
+    i.stdin.write("two");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(300);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("second answer");
+    expect(frame).toContain("200 in · 40 out");
+    // back to vibe: the dev-printed block stays (native scrollback), but
+    // the new turn settles without one
+    i.stdin.write("\x0f");
+    await sleep(50);
+    i.stdin.write("three");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(300);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("third answer");
+    expect(frame).toContain("200 in · 40 out"); // printed dev form persists
+    expect(frame).not.toContain("300 in"); // vibe suppressed the new one
+    i.unmount();
+  });
+
   test("App: ctrl+t switches theme (remount), footer label follows", async () => {
     const provider = MockProvider.demo();
     const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} />);
