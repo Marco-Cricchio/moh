@@ -23,6 +23,7 @@ import { type PermissionsConfig, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
+import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, SendOptions, SkillPrompt, Tool } from "./types";
 import { SessionStore } from "./session-store";
 import {
   formatRule,
@@ -37,7 +38,6 @@ import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProvide
 import { type MemoryOptions } from "./memory";
 import { type SubagentOptions } from "./subagents";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
-import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, Tool } from "./types";
 import {
   loadMohConfig,
   writeMohConfig,
@@ -342,6 +342,8 @@ export {
   builtinTools,
   ExtensionRuntime,
   PromptComposer,
+  type SendOptions,
+  type SkillPrompt,
   SessionStore,
   splitCommandSegments,
   formatRule,
