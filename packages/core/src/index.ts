@@ -83,6 +83,7 @@ import {
   applyUpstreamUpdates,
   loadFirstPartyManifest,
   diffSkillFiles,
+  readBundledSkill,
   type UpstreamUpdate,
 } from "./workflow";
 import {
@@ -365,6 +366,7 @@ export {
   applyUpstreamUpdates,
   loadFirstPartyManifest,
   diffSkillFiles,
+  readBundledSkill,
   trackerTools,
   projectFrontier,
   resolveTrackerSync,

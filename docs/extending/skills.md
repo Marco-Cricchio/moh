@@ -32,7 +32,7 @@ the skill's directory.
 - `~/.moh/skills/` — user-level
 - `.moh/skills/` — project-level; **wins** on a name clash
 
-First-party skills shipped with moh are ordinary files copied into `~/.moh/skills/` at install/upgrade; they are updated from the workflow upstream only when unmodified (hash check) and are active only with workflow mode on.
+First-party skills shipped with moh are ordinary files copied into `~/.moh/skills/` at install/upgrade; they are updated from the workflow upstream only when unmodified (hash check) and are active only with workflow mode on. One exception: **`ask-moh`**, the router skill — its `SKILL.md` is read straight from the bundle by the base `/ask-moh` command (always available, workflow mode on or off), which injects the current workflow state so the skill can route around the mode gate.
 
 ## Progressive disclosure
 

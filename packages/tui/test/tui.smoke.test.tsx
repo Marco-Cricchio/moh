@@ -112,7 +112,7 @@ describe("home smoke", () => {
         onOpen={(resume, initialPrompt) => {
           expect(resume === null || resume.file === store.file).toBe(true);
         }}
-        onExit={() => {}}
+       
       />,
     );
     let frame = stripAnsi(i.lastFrame() ?? "");

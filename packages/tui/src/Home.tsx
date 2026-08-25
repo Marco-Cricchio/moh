@@ -19,7 +19,6 @@ export interface HomeProps {
   mode: Mode;
   /** Opens a session: resume when a summary is given, fresh when null. */
   onOpen: (resume: SessionSummary | null, initialPrompt?: string) => void;
-  onExit: () => void;
   onOpenSettings?: () => void;
   onOpenCommands?: () => void;
   /** Modal overlays own input while open. */
@@ -35,7 +34,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -54,7 +53,7 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
 
   useInput((input, key) => {
     if (blocked) return;
-    if (input === "q" && query === "") return onExit(); // else "q" is just a search char
+    if (input === "q" && query === "") return; // q is just a search char; exit is double ctrl+c (App-level)
     if (key.upArrow) return setCursor((c) => Math.max(0, Math.min(c, totalRows - 1) - 1));
     if (key.downArrow) return setCursor((c) => Math.min(totalRows - 1, Math.max(c, 0) + 1));
     if (key.return || input === "\n") {
@@ -106,8 +105,8 @@ export function Home({ cwd, home, mode, onOpen, onExit, onOpenSettings, onOpenCo
       <Footer
         keys={
           compact
-            ? `${theme.label} · ctrl+t theme · ctrl+o mode · q quit`
-            : `${theme.label} · ctrl+t theme · ctrl+o mode · s settings · ? keys · q quit`
+            ? `${theme.label} · ctrl+t theme · ctrl+o mode · ctrl+c ×2 quit`
+            : `${theme.label} · ctrl+t theme · ctrl+o mode · s settings · ? keys · ctrl+c ×2 quit`
         }
       />
     </Box>

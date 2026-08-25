@@ -11,7 +11,9 @@ import { App, type AppProps } from "./App";
  * ctrl+j remains the newline fallback everywhere. */
 export function renderTui(options: AppProps) {
   return render(React.createElement(App, options), {
-    exitOnCtrlC: true,
+    // Exit is the deliberate double ctrl+c handled in App: a single stray
+    // ctrl+c only arms ("press ctrl+c again") and never kills the session.
+    exitOnCtrlC: false,
     kittyKeyboard: { mode: "auto" },
   });
 }
