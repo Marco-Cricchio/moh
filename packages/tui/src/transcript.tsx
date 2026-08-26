@@ -76,15 +76,6 @@ const detailOf = (args: unknown): string => {
   return truncate(sanitizeLine(JSON.stringify(args)), 100);
 };
 
-/** Fetched pages are usually a wall of minified HTML/JSON where whole
- * lines run thousands of columns: preview rows must respect the block
- * width, so rows are column-capped and blank noise collapses (#217). */
-const fetchPreview = (output: string | undefined, maxLines: number): string[] => {
-  if (!output) return [];
-  const rows = output.split("\n").filter((line) => line.trim() !== "").map((line) => sanitizeLine(truncate(line, 100)));
-  return rows.length > maxLines ? [...rows.slice(0, maxLines), `… +${rows.length - maxLines} lines`] : rows;
-};
-
 /** Complete, deterministic projection of the append-only event log. Events
  * may be grouped (assistant deltas, tool call/result), but none disappear
  * without an intentional chrome representation.
@@ -126,6 +117,16 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "tool_call": {
         const result = results.get(event.callId);
         const state = result ? (result.ok ? "ok" : "fail") : "run";
+        // Fetch output is page-sized minified noise in any mode: vibe's
+        // plain-language collapse (URL only, no body) applies to dev too (#219).
+        if (event.name === "fetch") {
+          if (state !== "fail") {
+            blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [vibeDetail("fetch", event.args) ? `fetched a page · ${vibeDetail("fetch", event.args)}` : "fetched a page"], state });
+            break;
+          }
+          blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args), lines: result.output.split("\n").slice(0, 5).map(sanitizeLine), state: "fail" });
+          break;
+        }
         if (event.name === "ask_user") {
           const question = event.args && typeof event.args === "object" && "question" in event.args ? String((event.args as { question: unknown }).question) : detailOf(event.args);
           const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
@@ -148,9 +149,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           glyph: state === "ok" ? "✓" : state === "fail" ? "✗" : "◌",
           type: event.name,
           detail: detailOf(event.args),
-          lines: event.name === "fetch"
-            ? fetchPreview(result?.output, options.filePreview === "always" ? 15 : 5)
-            : event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
+          lines: event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
           state,
         });
         if (event.name === "read" && result?.ok && options.filePreview !== "none") {
