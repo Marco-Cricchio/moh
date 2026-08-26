@@ -1,41 +1,39 @@
 import { describe, expect, test } from "bun:test";
-import { createFallbackWatcher } from "../src/fallback-notice";
+import { createFallbackWatcher, fallbackToastText } from "../src/fallback-notice";
 import type { AgentEvent } from "@moh/core";
 
 /** ADR-0012 (#234): a fallback stop is surfaced visibly (toast), never silent. */
 
+function fallback(from: string, to: string, reason = "quota_exhausted"): AgentEvent {
+  return { type: "fallback", from, to, reason };
+}
+
 describe("createFallbackWatcher", () => {
-  test("no notice for a single model call or repeats of the same model", () => {
+  test("fallback events produce an informative toast: reason on from → to", () => {
     const watch = createFallbackWatcher();
-    expect(watch({ type: "model_call", model: "zai/glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } })).toBeNull();
-    expect(watch({ type: "model_call", model: "zai/glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } })).toBeNull();
+    expect(watch(fallback("zai/glm-5.3", "openai/gpt-5.6-terra")))
+      .toBe("quota exhausted on zai/glm-5.3 → openai/gpt-5.6-terra");
+    expect(watch(fallback("a/x", "b/y", "rate_limited"))).toBe("rate limited on a/x → b/y");
+    expect(watch(fallback("a/x", "b/y", "network"))).toBe("network error on a/x → b/y");
   });
 
-  test("notice when the model changes within a turn (fallback fired)", () => {
-    const watch = createFallbackWatcher();
-    watch({ type: "model_call", model: "zai/glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } });
-    expect(watch({ type: "model_call", model: "openai/gpt-5.6-terra", usage: { inputTokens: 1, outputTokens: 1 } }))
-      .toBe("fallback → openai/gpt-5.6-terra");
-  });
-
-  test("a new turn or an explicit model switch resets the baseline", () => {
-    const watch = createFallbackWatcher();
-    watch({ type: "model_call", model: "zai/glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } });
-    watch({ type: "user_message", text: "again" });
-    expect(watch({ type: "model_call", model: "openai/gpt-5.6-terra", usage: { inputTokens: 1, outputTokens: 1 } })).toBeNull();
-    watch({ type: "model_call", model: "openai/gpt-5.6-terra", usage: { inputTokens: 1, outputTokens: 1 } });
-    watch({ type: "model_switched", from: "openai/gpt-5.6-terra", to: "google/gemini-3-pro" });
-    expect(watch({ type: "model_call", model: "google/gemini-3-pro", usage: { inputTokens: 1, outputTokens: 1 } })).toBeNull();
-  });
-
-  test("other events pass through silently", () => {
+  test("every other event passes through silently", () => {
     const watch = createFallbackWatcher();
     const noise: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "v1" },
+      { type: "user_message", text: "hi" },
       { type: "assistant_delta", text: "hi" },
+      { type: "model_call", model: "zai/glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "model_call", model: "other/m2", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "model_switched", from: "a", to: "b" },
       { type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: ["zai/glm-5.3"] },
-      { type: "error", reason: "x", message: "y" },
     ];
     for (const event of noise) expect(watch(event)).toBeNull();
+  });
+});
+
+describe("fallbackToastText", () => {
+  test("unknown reasons fall back to the raw kind", () => {
+    expect(fallbackToastText("a", "b", "mystery")).toBe("mystery on a → b");
   });
 });

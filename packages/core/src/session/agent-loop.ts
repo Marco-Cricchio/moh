@@ -143,6 +143,8 @@ export class AgentLoop {
             } else if (event.type === "model_call_start") {
               this.#flushModelCall();
               this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 } };
+            } else if (event.type === "fallback") {
+              this.#append(event);
             } else if (event.type === "usage") {
               this.#usage.inputTokens += event.inputTokens;
               this.#usage.outputTokens += event.outputTokens;
@@ -199,6 +201,10 @@ export class AgentLoop {
             // call inside the same provider.stream — both get recorded.
             this.#flushModelCall();
             this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 } };
+          } else if (event.type === "fallback") {
+            // ADR-0012: the stop is chrome the log keeps — replay and the
+            // TUI toast both key off it.
+            this.#append(event);
           } else if (event.type === "usage") {
             this.#usage.inputTokens += event.inputTokens;
             this.#usage.outputTokens += event.outputTokens;
