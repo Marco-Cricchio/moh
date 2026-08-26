@@ -170,7 +170,10 @@ def main() -> None:
             json.dump(spec["config"], f)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    env = dict(os.environ, HOME=home, TERM="xterm-256color", COLORTERM="truecolor")
+    # CI=true silences Ink entirely (it detects CI environments and skips
+    # live frames) — strip it or every PTY test renders nothing on runners.
+    env = { k: v for k, v in os.environ.items() if k != "CI" }
+    env.update(HOME=home, TERM="xterm-256color", COLORTERM="truecolor")
 
     # The pty must be the child's CONTROLLING terminal (#236): bun on Linux
     # reads the window size from /dev/tty, not the stdout fd — without
