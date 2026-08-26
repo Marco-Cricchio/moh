@@ -46,7 +46,11 @@ export type StreamEvent =
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "finish"; reason: FinishReason }
   /** #83: providers announce the model serving this call at stream start. */
-  | { type: "model_call_start"; model: string };
+  | { type: "model_call_start"; model: string }
+  /** ADR-0012: the route engine announces a fallback stop: the active
+   * target failed with `reason` (a ProviderError kind, e.g.
+   * "quota_exhausted") and the request restarts on `to`. */
+  | { type: "fallback"; from: string; to: string; reason: string };
 
 export type FinishReason = "stop" | "tool_calls";
 
@@ -110,6 +114,9 @@ export type AgentEvent =
   /** #166: the active model ref changed mid-session (no new session;
    * takes effect from the next turn). Chrome — replay shows the switch. */
   | { type: "model_switched"; from: string; to: string }
+  /** ADR-0012: a fallback stop fired mid-call (route engine). Chrome —
+   * replay shows the switch; the TUI toasts it (visible, not silent). */
+  | { type: "fallback"; from: string; to: string; reason: string }
   /**
    * Compaction marker (schema only, no implementation yet): replay uses
    * `summary` in place of the events before index `upTo` (exclusive); the
