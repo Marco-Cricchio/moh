@@ -107,6 +107,8 @@ describe("Route fallback chains", () => {
     }
     const text = events.filter((e) => e.type === "text_delta").map((e) => (e as { text: string }).text).join("");
     expect(text).toBe("partial recovery"); // primary's emitted delta stays, fallback restarts single-shot
+    // ADR-0012: the stop is announced — visible downstream, never silent.
+    expect(events).toContainEqual({ type: "fallback", from: "ep0/m0", to: "ep1/m1", reason: "quota_exhausted" });
     expect(events.at(-1)).toEqual({ type: "finish", reason: "stop" });
   });
   test("rate_limited retries then falls back after retries exhausted", async () => {
