@@ -110,16 +110,23 @@ describe("semantic transcript projection (#183)", () => {
     expect(lines.some((line) => line.includes("--porcelain") || line.includes("FOO=1") || line.includes("/usr/bin"))).toBe(false);
   });
 
-  test("fetch output previews as bounded, column-capped rows (#217)", () => {
-    const events: AgentEvent[] = [
-      { type: "tool_call", callId: "f1", name: "fetch", args: { url: "https://example.com/big" } },
-      { type: "tool_result", callId: "f1", ok: true, output: `${"x".repeat(500)}\n\n<div>${"y".repeat(300)}</div>\n${Array.from({ length: 9 }, (_, i) => `line ${i}`).join("\n")}` },
+  test("fetch collapses to a plain-language line in both modes; failures show (#219)", () => {
+    const ok: AgentEvent[] = [
+      { type: "tool_call", callId: "d1", name: "fetch", args: { url: "https://example.com/doc" } },
+      { type: "tool_result", callId: "d1", ok: true, output: "<html>" + "x".repeat(9_000) },
     ];
-    const block = projectTranscript(events, { mode: "dev" }).find((b) => b.type === "fetch")!;
-    expect(block.lines.every((line) => line.length <= 100)).toBe(true);
-    expect(block.lines.some((line) => line.trim() === "")).toBe(false);
-    expect(block.lines.at(-1)).toBe("… +6 lines");
-    expect(block.lines).toHaveLength(6);
+    for (const mode of ["dev", "vibe"] as const) {
+      const blocks = projectTranscript(ok, { mode });
+      const fetch = blocks.find((block) => block.lines.length === 1 && block.lines[0]!.startsWith("fetched a page"));
+      expect(fetch?.lines[0]).toBe("fetched a page · https://example.com/doc");
+      expect(blocks.some((block) => block.type === "fetch" && block.lines.length > 0)).toBe(false);
+    }
+    const fail: AgentEvent[] = [
+      { type: "tool_call", callId: "d2", name: "fetch", args: { url: "https://example.com/missing" } },
+      { type: "tool_result", callId: "d2", ok: false, output: "HTTP 404" },
+    ];
+    const failed = projectTranscript(fail, { mode: "dev" }).find((block) => block.state === "fail");
+    expect(failed?.lines).toContain("HTTP 404");
   });
 
   test("covers productive, permission, usage, subagent and chrome events", () => {
