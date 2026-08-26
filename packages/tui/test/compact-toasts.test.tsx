@@ -22,14 +22,14 @@ describe("compact mode (issue #33)", () => {
     }));
     const i = render(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
-        <Chat session={session} mode="vibe" modelLabel="mock" />
+        <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />
       </ThemeProvider>,
     );
     Object.defineProperty(i.stdout, "columns", { value: 40, configurable: true });
     await sleep(30);
     i.rerender(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
-        <Chat session={session} mode="vibe" modelLabel="mock" />
+        <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />
       </ThemeProvider>,
     );
     await sleep(30);
@@ -49,7 +49,7 @@ describe("compact mode (issue #33)", () => {
       home: mkdtempSync(join(tmpdir(), "moh-cmp-")),
       provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
     }));
-    const i = render(<Chat session={session} mode="vibe" modelLabel="mock" />);
+    const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("ctrl+j newline · ctrl+e editor");
