@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.19
+          bun-version: latest
       - run: bun install --frozen-lockfile
       - name: ink live render inside a pty
         run: |
