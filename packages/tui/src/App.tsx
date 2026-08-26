@@ -51,6 +51,11 @@ export interface AppProps {
   initialTheme?: ThemeName;
   /** Skip first-run onboarding (tests, CLI flags). */
   skipOnboarding?: boolean;
+  /** Environment for onboarding env-detection (tests inject a clean map;
+   * default is the real process.env — #236: without this seam a machine with
+   * provider keys in the environment makes every "first run" test see the
+   * detect list, regardless of the injected home dir). */
+  env?: Record<string, string | undefined>;
 }
 
 type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "model";
@@ -69,6 +74,7 @@ export function App({
   initialMode,
   initialTheme,
   skipOnboarding,
+  env,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -414,6 +420,7 @@ export function App({
           <Onboarding
             cwd={cwd}
             home={home}
+            env={env}
             onDone={(ref) => {
               updateConfig({ onboarded: true });
               if (ref) {
