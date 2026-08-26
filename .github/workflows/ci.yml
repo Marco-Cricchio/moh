@@ -24,7 +24,7 @@ jobs:
               os.setsid()
               fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
           p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave,
-                               preexec_fn=ctty, env={**{k: v for k, v in os.environ.items() if k != "CI"}, "TERM": "xterm-256color"}))
+                               preexec_fn=ctty, env={**{k: v for k, v in os.environ.items() if k != "CI"}, "TERM": "xterm-256color"})
           os.close(slave)
           time.sleep(1.0)
           os.write(master, b"hi")
