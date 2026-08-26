@@ -184,6 +184,10 @@ export interface Tool<A = any> {
   description: string;
   /** Zod schema validating raw model args before execute(). */
   inputSchema: z.ZodType<A> | undefined;
+  /** True for tools that converse with the human (ask_user): they
+   * serialize within a parallel batch — one pending question at a
+   * time is a UI invariant (#223). */
+  interactive?: boolean;
   execute(args: A, ctx: ToolContext): Promise<string> | string;
 }
 

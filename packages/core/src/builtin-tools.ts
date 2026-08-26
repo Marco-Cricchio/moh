@@ -271,6 +271,7 @@ const askUserSchema = z
 
 const askUser: Tool<z.infer<typeof askUserSchema>> = {
   name: "ask_user",
+  interactive: true,
   description:
     "Ask the user one question with up to 4 options (label + short description); " +
     "exactly one option is the suggested answer. The user may also answer with free text. " +
