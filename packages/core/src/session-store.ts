@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentEvent, Message } from "./types";
-import { SCHEMA_VERSION } from "./types";
+import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 
 /**
  * Oldest schemaVersion this build can load. Logs older than this fail with
@@ -177,11 +177,24 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   };
 
   const results: Message["parts"] = [];
+  // Call ids whose tool_result has already been folded into `results` —
+  // used to spot orphan tool_calls (aborted turn, crash mid-tool) and
+  // repair them at the next flush with a synthetic failed tool_result.
+  // Without the repair, replaying the log produces an assistant message
+  // with an unanswered tool_call and every later provider request fails
+  // with `invalid_request: Tool result is missing` (#237).
+  const settled = new Set<string>();
   const flushResults = () => {
-    if (results.length === 0) return;
-    flushAssistant();
-    messages.push({ role: "user", parts: [...results] });
+    const orphans = toolCalls.flatMap((c) =>
+      c.kind === "tool_call" && !settled.has(c.callId)
+        ? [{ kind: "tool_result" as const, callId: c.callId, ok: false, output: CANCELLED_TOOL_OUTPUT }]
+        : [],
+    );
+    const all = [...results, ...orphans];
     results.length = 0;
+    if (all.length === 0) return;
+    flushAssistant();
+    messages.push({ role: "user", parts: all });
   };
 
   for (const event of events) {
@@ -201,6 +214,7 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         sawContent = true;
         break;
       case "tool_result":
+        settled.add(event.callId);
         results.push({ kind: "tool_result", callId: event.callId, ok: event.ok, output: event.output });
         break;
       case "done":
