@@ -50,6 +50,23 @@ const vibeDetail = (name: string, args: unknown): string => {
   return "";
 };
 
+/** Vibe hint for a shell command (#215): enough to tell what kind of
+ * thing is running, never the full command line (that's dev's job). The
+ * leading words — command plus its main argument, env assignments and
+ * option flags dropped — capped short. */
+const vibeCommandHint = (args: unknown): string => {
+  if (!args || typeof args !== "object") return "";
+  const command = (args as { command?: unknown }).command;
+  if (typeof command !== "string" || !command.trim()) return "";
+  const words = command.trim().split(/\s+/)
+    // Skip leading env assignments (FOO=bar cmd) and wrappers (cd x && cmd)
+    .filter((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && word !== "&&" && word !== ";");
+  const first = words[0]?.split("/").pop() ?? "";
+  const second = words[1]?.startsWith("-") ? "" : words[1] ?? "";
+  const hint = [first, second].filter(Boolean).join(" ");
+  return hint.length > 32 ? `${hint.slice(0, 31)}…` : hint;
+};
+
 const detailOf = (args: unknown): string => {
   if (!args || typeof args !== "object") return "";
   const rec = args as Record<string, unknown>;
@@ -109,7 +126,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) {
           if (state !== "fail") {
             const action = TOOL_ACTION[event.name] ?? `used ${event.name}`;
-            const target = vibeDetail(event.name, event.args);
+            const target = event.name === "bash" ? vibeCommandHint(event.args) : vibeDetail(event.name, event.args);
             blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [target ? `${action} · ${target}` : action], state });
             break;
           }
@@ -141,6 +158,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         blocks.push({ key, kind: "tool", glyph: "◌", type: "permission", detail: `${event.tool} · requested`, lines: [], state: "run" });
         break;
       case "permission_granted":
+        // Auto-accept grants are ambient mode, not news: one block per tool
+        // call only adds noise (#215). Explicit grants still show.
+        if (event.reason === "auto_accept" || event.reason === "bypass") break;
         blocks.push({ key, kind: "tool", glyph: "✓", type: "permission", detail: `${event.tool} · allowed (${event.reason})`, lines: [], state: "ok" });
         break;
       case "permission_denied":
