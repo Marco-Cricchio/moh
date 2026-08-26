@@ -191,12 +191,19 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
+  // Functional cursor moves: two arrows delivered inside one render window
+  // must both apply — a stale closure ({ ...phase, cursor: phase.cursor + 1 })
+  // drops one when the first render of a tall list is still in flight (see
+  // test/onboarding-cursor-race.test.tsx).
+  const move = (max: number, delta: number) =>
+    setPhase((p) => ("cursor" in p ? { ...p, cursor: Math.max(0, Math.min(max, p.cursor + delta)) } : p));
+
   useInput((input, key) => {
     switch (phase.kind) {
       case "detect": {
         const rows = candidates.length + 1; // + skip
-        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
-        if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(rows - 1, phase.cursor + 1) });
+        if (key.upArrow) return move(rows - 1, -1);
+        if (key.downArrow) return move(rows - 1, 1);
         if (input === "s") return onDone(null);
         if (input === "w") return setPhase({ kind: "wizard-type", cursor: 0 });
         if (key.return || input === "\n") {
@@ -212,9 +219,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         return;
       }
       case "wizard-type": {
-        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
-        if (key.downArrow)
-          return setPhase({ ...phase, cursor: Math.min(BUILTIN_PROVIDER_TYPES.length - 1, phase.cursor + 1) });
+        if (key.upArrow) return move(BUILTIN_PROVIDER_TYPES.length - 1, -1);
+        if (key.downArrow) return move(BUILTIN_PROVIDER_TYPES.length - 1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
@@ -231,8 +237,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "wizard-auth": {
         if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
-        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
-        if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(1, phase.cursor + 1) });
+        if (key.upArrow) return move(1, -1);
+        if (key.downArrow) return move(1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           const kind = phase.cursor === 0 ? "api-key" : "subscription";
@@ -271,8 +277,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "wizard-model-list": {
         const rows = catalog.length + 1; // + manual entry
-        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
-        if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(rows - 1, phase.cursor + 1) });
+        if (key.upArrow) return move(rows - 1, -1);
+        if (key.downArrow) return move(rows - 1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           if (phase.cursor === catalog.length) {
@@ -309,8 +315,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         return;
       }
       case "save-scope": {
-        if (key.upArrow) return setPhase({ ...phase, cursor: Math.max(0, phase.cursor - 1) });
-        if (key.downArrow) return setPhase({ ...phase, cursor: Math.min(1, phase.cursor + 1) });
+        if (key.upArrow) return move(1, -1);
+        if (key.downArrow) return move(1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           if (phase.cursor === 0) return onDone(saveWizardProviderUser(userFile, phase.profile));
