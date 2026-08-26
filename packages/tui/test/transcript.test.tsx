@@ -110,6 +110,18 @@ describe("semantic transcript projection (#183)", () => {
     expect(lines.some((line) => line.includes("--porcelain") || line.includes("FOO=1") || line.includes("/usr/bin"))).toBe(false);
   });
 
+  test("fetch output previews as bounded, column-capped rows (#217)", () => {
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "f1", name: "fetch", args: { url: "https://example.com/big" } },
+      { type: "tool_result", callId: "f1", ok: true, output: `${"x".repeat(500)}\n\n<div>${"y".repeat(300)}</div>\n${Array.from({ length: 9 }, (_, i) => `line ${i}`).join("\n")}` },
+    ];
+    const block = projectTranscript(events, { mode: "dev" }).find((b) => b.type === "fetch")!;
+    expect(block.lines.every((line) => line.length <= 100)).toBe(true);
+    expect(block.lines.some((line) => line.trim() === "")).toBe(false);
+    expect(block.lines.at(-1)).toBe("… +6 lines");
+    expect(block.lines).toHaveLength(6);
+  });
+
   test("covers productive, permission, usage, subagent and chrome events", () => {
     const blocks = projectTranscript(base);
     expect(blocks.some((block) => block.glyph === "›" && block.type === "you")).toBe(true);
