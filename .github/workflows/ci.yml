@@ -19,7 +19,7 @@ jobs:
           python3 - <<'PY'
           import pty, os, time, select, subprocess
           master, slave = pty.openpty()
-          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color"))
+          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color", COLUMNS="160", LINES="45"))
           os.close(slave)
           buf = b""
           end = time.time() + 5
