@@ -16,7 +16,7 @@ export interface PtySpec {
   project?: Record<string, unknown>;
   /** Optional path to dump the raw PTY byte stream. */
   rawDump?: string;
-  steps: ReadonlyArray<{ wait?: number; send?: string }>;
+  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string }>;
   tail?: number;
 }
 
@@ -38,6 +38,9 @@ export interface PtyMeta {
   lines: PtyLine[];
   exited: boolean;
   exitCode: number | null;
+  /** #236: sampled before the harness kills the process — unlike `exited`,
+   * false here genuinely means the app died mid-script (OOM/kill). */
+  aliveAtEnd?: boolean;
 }
 
 export async function runPtyRaw(spec: PtySpec): Promise<PtyMeta> {

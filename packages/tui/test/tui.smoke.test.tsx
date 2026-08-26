@@ -153,7 +153,7 @@ describe("home smoke", () => {
     await persisted.send("fix the login page");
 
     const provider = MockProvider.scripted([{ deltas: ["done!"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} />);
+    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} />);
     await sleep(30);
     i.stdin.write("\r"); // enter on the (only) session row
     await sleep(300);

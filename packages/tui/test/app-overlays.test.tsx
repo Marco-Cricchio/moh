@@ -12,10 +12,32 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-app-ov-"));
 
 describe("App overlays (issue #33)", () => {
+  // #236 Class 1: App must isolate onboarding env-detection from the real
+  // process environment — a machine with provider keys in the environment
+  // made every "first run" test see the detect list (or its chrome) instead
+  // of the wizard, regardless of the injected home dir.
+  test("onboarding env-detection uses the injected env, not the real process env (#236)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const home = tempHome();
+    const withKey = render(<App cwd={cwd} home={home} env={{ ANTHROPIC_API_KEY: "sk-test-236" }} />);
+    await sleep(50);
+    expect(stripAnsi(withKey.lastFrame() ?? "")).toContain("connect a provider");
+    withKey.unmount();
+    const fresh = tempHome();
+    const clean = render(<App cwd={mkdtempSync(join(tmpdir(), "moh-app-cwd-"))} home={fresh} env={{}} />);
+    await sleep(50);
+    const frame = stripAnsi(clean.lastFrame() ?? "");
+    expect(frame).toContain("connect a provider");
+    // A fresh environment never offers a detected candidate — wizard phase.
+    expect(frame).not.toContain("sk-test-236");
+    expect(frame).not.toMatch(/detected/i);
+    clean.unmount();
+  });
+
   test("first run with nothing configured opens onboarding; skip lands on home", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const i = render(<App cwd={cwd} home={home} />);
+    const i = render(<App cwd={cwd} home={home} env={{}} />);
     await sleep(50);
     // Either the env-detect list or the wizard — never the home screen.
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("connect a provider");

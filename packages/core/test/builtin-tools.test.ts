@@ -44,7 +44,7 @@ describe("built-in tools", () => {
     await new Promise((r) => setTimeout(r, 200));
     controller.abort();
     // Settles (rejects) promptly instead of hanging on pipes held by children.
-    await expect(withDeadline(pending, 3_000)).rejects.toThrow(/cancelled/);
+    await expect(withDeadline(Promise.resolve(pending), 3_000)).rejects.toThrow(/cancelled/);
     // The children (foreground + background sleep) are dead shortly after.
     let survivors = "";
     for (let i = 0; i < 10 && survivors === ""; i++) {
@@ -56,7 +56,7 @@ describe("built-in tools", () => {
 
   test("bash resolves normally when a background child still holds the pipes (#237)", async () => {
     const out = await withDeadline(
-      tools.bash.execute({ command: "sleep 60 & echo hi" }, ctx),
+      Promise.resolve(tools.bash.execute({ command: "sleep 60 & echo hi" }, ctx)),
       3_000,
     );
     expect(out.trim()).toBe("hi");
@@ -65,7 +65,7 @@ describe("built-in tools", () => {
   test("bash timeout rejects instead of hanging on pipe holders (#237)", async () => {
     await expect(
       withDeadline(
-        tools.bash.execute({ command: "sleep 60 & sleep 60", timeoutMs: 300 }, ctx),
+        Promise.resolve(tools.bash.execute({ command: "sleep 60 & sleep 60", timeoutMs: 300 }, ctx)),
         3_000,
       ),
     ).rejects.toThrow(/timed out/);
