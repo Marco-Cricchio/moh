@@ -28,6 +28,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const lines = await runPty({
         cols: 160,
         rows: 45,
+        rawDump: "/tmp/moh-pty-debug.bin",
         steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 2.0 }],
         tail: 45,
       });
