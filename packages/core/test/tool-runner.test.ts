@@ -169,4 +169,35 @@ describe("ToolRunner", () => {
     await bare.runner.run([call("ctx")], new AbortController().signal);
     expect(seen[0].askUser).toBeUndefined();
   });
+
+  test("interactive tools serialize within a parallel batch; non-interactive keep concurrency (#223)", async () => {
+    const active = new Set<string>();
+    let peak = 0;
+    const track = async (name: string, ms: number) => {
+      active.add(name);
+      peak = Math.max(peak, active.size);
+      await new Promise((r) => setTimeout(r, ms));
+      active.delete(name);
+      return `${name}-done`;
+    };
+    const ask = (n: string) => makeTool({ name: n, interactive: true, execute: () => track(n, 5) });
+    const work = makeTool({ name: "work", execute: () => track("work", 5) });
+    const { runner } = harness({ tools: { q1: ask("q1"), q2: ask("q2"), work } });
+    const { outcome, parts } = await runner.run([call("q1"), call("work"), call("q2")], new AbortController().signal);
+    expect(outcome).toBe("ok");
+    expect(parts.map((p) => (p as { callId: string }).callId)).toEqual(["c-work", "c-q1", "c-q2"]);
+    // The two questions never overlapped; work overlapped at least one of them.
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  test("a single interactive call in a batch is untouched", async () => {
+    const order: string[] = [];
+    const q = makeTool({ name: "q", interactive: true, execute: async () => { order.push("q"); return "a"; } });
+    const w = makeTool({ name: "w", execute: async () => { order.push("w"); return "b"; } });
+    const { runner } = harness({ tools: { q, w } });
+    await runner.run([call("q"), call("w")], new AbortController().signal);
+    expect(order.length).toBe(2);
+    expect(order).toContain("w");
+    expect(order).toContain("q");
+  });
 });
