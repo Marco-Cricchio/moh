@@ -85,7 +85,25 @@ export class ToolRunner {
     if (!this.#parallel()) {
       for (const call of calls) await runOne(call);
     } else {
-      await Promise.allSettled(calls.map(runOne));
+      // Interactive tools (ask_user) serialize within a parallel batch
+      // (#223): one pending question at a time is a UI invariant, and the
+      // gate's rejection read as a fake user answer in the transcript.
+      // Non-interactive calls keep their concurrency; interactive ones
+      // chain in call order.
+      const interactive = calls.filter((call) => calls.length > 1 && this.#tools()[call.name]?.interactive);
+      if (interactive.length <= 1) {
+        await Promise.allSettled(calls.map(runOne));
+      } else {
+        let chain: Promise<unknown> = Promise.resolve();
+        await Promise.allSettled(calls.map((call) => {
+          const run = () => runOne(call);
+          if (this.#tools()[call.name]?.interactive) {
+            chain = chain.then(run);
+            return chain;
+          }
+          return run();
+        }));
+      }
     }
     return { outcome: signal.aborted ? "aborted" : "ok", parts };
   }

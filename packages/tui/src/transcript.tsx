@@ -124,7 +124,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
             blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [vibeDetail("fetch", event.args) ? `fetched a page · ${vibeDetail("fetch", event.args)}` : "fetched a page"], state });
             break;
           }
-          blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args), lines: result.output.split("\n").slice(0, 5).map(sanitizeLine), state: "fail" });
+          blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args), lines: result?.output.split("\n").slice(0, 5).map(sanitizeLine) ?? [], state: "fail" });
           break;
         }
         if (event.name === "ask_user") {
@@ -465,10 +465,12 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         return <React.Fragment key={index}>
           {wrapped.map((segment, s) => {
             const seg = segment.match(/^(.*?)(\s[✓✗◌])$/);
+            const kind = lineKind as string | undefined;
+            const isHeading = kind === "heading";
             return <Row key={s} width={width} bg={bg} indent={indent}>
               {seg
                 ? <><Text color={lineColor}>{seg[1]}</Text><Text color={seg[2]!.includes("✓") ? theme.ok : seg[2]!.includes("✗") ? theme.err : theme.accent}>{seg[2]}</Text></>
-                : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{segment}</Text>}
+                : <Text color={lineColor} bold={isHeading} italic={block.kind === "thinking"}>{segment}</Text>}
             </Row>;
           })}
         </React.Fragment>;
