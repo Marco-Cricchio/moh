@@ -17,10 +17,8 @@ jobs:
       - name: ink live render inside a pty
         run: |
           python3 - <<'PY'
-          import pty, os, sys, time, select
+          import pty, os, time, select, subprocess
           master, slave = pty.openpty()
-          proc = os.forkpty() if False else None
-          import subprocess
           p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color"))
           os.close(slave)
           buf = b""
@@ -34,5 +32,5 @@ jobs:
                   buf += c
           p.terminate()
           print("BYTES:", len(buf))
-          print(repr(buf[:2000]))
+          print(buf[:3000])
           PY
