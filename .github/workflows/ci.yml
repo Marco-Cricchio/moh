@@ -24,3 +24,6 @@ jobs:
         run: bun run typecheck
       - name: Test suite
         run: bun test
+      - name: Dump raw
+        if: always()
+        run: head -c 2500 /tmp/moh-pty-debug.bin 2>/dev/null | cat -v || echo "no dump" 
