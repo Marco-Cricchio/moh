@@ -33,26 +33,109 @@ const bashSchema = z.object({
   command: z.string().min(1),
   timeoutMs: z.number().int().positive().max(600_000).optional(),
 });
+
+/**
+ * Kills a spawned bash and, best-effort, its whole process tree (#237).
+ * `Bun.spawn` offers no process-group option, so when `setsid` is
+ * available the command runs as its own session leader and the tree dies
+ * with one group kill (`kill(-pid)`). Without it, descendants are killed
+ * recursively via `pgrep -P` — children first, then the parent, since
+ * killing the parent first re-parents the children to init, past our
+ * reach. Both paths are best-effort for descendants that escaped via a
+ * new session of their own.
+ */
+function killTree(proc: Bun.Subprocess): void {
+  try { process.kill(-proc.pid, "SIGKILL"); return; } catch { /* not a group leader */ }
+  Bun.spawn(
+    [
+      "bash",
+      "-c",
+      `kd() { for c in $(pgrep -P \"$1\"); do kd \"$c\"; done; kill -KILL \"$1\" 2>/dev/null; true; }; kd ${proc.pid}`,
+    ],
+    { stdout: "ignore", stderr: "ignore" },
+  );
+  try { proc.kill("SIGKILL"); } catch { /* already gone */ }
+}
+
+/** Cached probe: is util-linux `setsid` on PATH? (absent on stock macOS) */
+let setsid: boolean | null = null;
+function hasSetsid(): boolean {
+  if (setsid === null) {
+    setsid = Bun.spawnSync(["bash", "-c", "command -v setsid || true"]).stdout.toString().trim() !== "";
+  }
+  return setsid;
+}
+
 const bash: Tool<z.infer<typeof bashSchema>> = {
   name: "bash",
   description: "Run a shell command in the project root and capture its output.",
   inputSchema: bashSchema,
   async execute(args, ctx) {
-    const proc = Bun.spawn(["bash", "-c", args.command], {
-      cwd: ctx.cwd,
-      signal: ctx.signal,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
     const timeout = args.timeoutMs ?? 30_000;
-    const timer = setTimeout(() => proc.kill(), timeout);
+    // After the parent exits, background descendants may still hold the
+    // output pipes; the drain waits this long past exit before force-closing
+    // the streams and returning whatever output arrived.
+    const EXIT_GRACE_MS = 500;
+    const proc = Bun.spawn(
+      hasSetsid() ? ["setsid", "bash", "-c", args.command] : ["bash", "-c", args.command],
+      {
+        cwd: ctx.cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    // Why not `signal` on Bun.spawn: it only applies at spawn time — an abort
+    // after spawn never reaches the live process. Cancellation is handled
+    // here, explicitly.
+    let reason: "aborted" | "timeout" | "grace" | null = null;
+    let fireStop!: (r: "aborted" | "timeout" | "grace") => void;
+    const stopped = new Promise<"aborted" | "timeout" | "grace">((r) => { fireStop = r; });
+    const stop = (r: "aborted" | "timeout" | "grace"): void => {
+      if (reason) return;
+      reason = r;
+      if (r !== "grace") killTree(proc); // grace: the command itself is done; only the streams close
+      fireStop(r);
+    };
+    const timer = setTimeout(() => stop("timeout"), timeout);
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    // True once output drained and the parent exited: a late abort must not
+    // turn a completed command into a cancellation.
+    let finished = false;
+    const onAbort = () => { if (!finished) stop("aborted"); };
+    if (ctx.signal?.aborted) onAbort();
+    else ctx.signal?.addEventListener("abort", onAbort, { once: true });
+    // The parent exiting starts the grace clock for pipe-holding descendants.
+    void proc.exited.then(() => { graceTimer = setTimeout(() => stop("grace"), EXIT_GRACE_MS); });
+
+    const decoder = new TextDecoder();
+    const readAll = async (stream: ReadableStream<Uint8Array>): Promise<string> => {
+      const reader = stream.getReader();
+      let text = "";
+      for (;;) {
+        const read = await Promise.race([reader.read(), stopped.then(() => null)]);
+        if (read === null || read.done) {
+          reader.cancel().catch(() => {}); // drop our end of a pipe still held by a descendant
+          break;
+        }
+        text += decoder.decode(read.value, { stream: true });
+      }
+      return text + decoder.decode();
+    };
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      readAll(proc.stdout as ReadableStream<Uint8Array>),
+      readAll(proc.stderr as ReadableStream<Uint8Array>),
       proc.exited,
-    ]);
+    ]).then((r) => { finished = true; return r; });
     clearTimeout(timer);
+    if (graceTimer !== null) clearTimeout(graceTimer);
+    ctx.signal?.removeEventListener("abort", onAbort);
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+    if (reason === "aborted") {
+      throw new Error(`bash: turn cancelled before the command returned${output ? ` (partial output: ${truncate(output)})` : ""}`);
+    }
+    if (reason === "timeout") {
+      throw new Error(`bash: timed out after ${timeout}ms${output ? `: ${truncate(output)}` : ""}`);
+    }
     if (exitCode !== 0) {
       throw new Error(`exit code ${exitCode}: ${truncate(output || "(no output)")}`);
     }
