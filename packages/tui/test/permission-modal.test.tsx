@@ -39,7 +39,7 @@ const script = () => [
 function Harness({ session, gate }: { session: AgentSession; gate: PermissionGate }) {
   return (
     <Box flexDirection="column">
-      <Chat session={session} mode="dev" modelLabel="mock" />
+      <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />
       <PermissionModal gate={gate} mode="dev" />
     </Box>
   );
