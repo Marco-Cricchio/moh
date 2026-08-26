@@ -459,11 +459,18 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         const bodyBudget = Math.max(8, width - 1 - indent);
         const wrapped = wrapRenderedLines(line || " ", bodyBudget)
           .flatMap((row) => (row.length > bodyBudget ? (row.match(new RegExp(`.{1,${bodyBudget}}`, "g")) ?? [row]) : [row]));
+        if (wrapped.length === 1) return <Row key={index} width={width} bg={bg} indent={indent}>{body}</Row>;
+        // Multi-row: render our wrapped rows only — the full `line` would
+        // wrap again via ink and duplicate the tail (#213 regression).
         return <React.Fragment key={index}>
-          <Row width={width} bg={bg} indent={indent}>{body}</Row>
-          {wrapped.slice(1).map((segment, s) => (
-            <Row key={s} width={width} bg={bg} indent={indent}><Text color={lineColor}>{segment}</Text></Row>
-          ))}
+          {wrapped.map((segment, s) => {
+            const seg = segment.match(/^(.*?)(\s[✓✗◌])$/);
+            return <Row key={s} width={width} bg={bg} indent={indent}>
+              {seg
+                ? <><Text color={lineColor}>{seg[1]}</Text><Text color={seg[2]!.includes("✓") ? theme.ok : seg[2]!.includes("✗") ? theme.err : theme.accent}>{seg[2]}</Text></>
+                : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{segment}</Text>}
+            </Row>;
+          })}
         </React.Fragment>;
       })}
     </Box>
