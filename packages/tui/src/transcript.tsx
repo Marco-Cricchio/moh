@@ -374,12 +374,18 @@ export function closedPrefixLength(text: string): number {
     if (line.trim() === "") {
       const prev = lines[i - 1] ?? "";
       const next = lines[i + 1] ?? "";
-      if (LIST_ITEM.test(prev) && LIST_ITEM.test(next)) continue;
-      // A blank line as the last line closes the paragraph: the next delta
-      // will start a new one, so everything so far is final.
-      if (next.trim() === "") { closed = Math.min(text.length, at); segStart = closed; continue; }
+      // The final "" after a trailing \n is a split artifact, not a real
+      // blank line (#227): text that merely ends a line can still be
+      // extended into the same table/list by the next delta, and a promoted
+      // prefix must never grow after ink has printed it. A real blank
+      // (followed by another line) does close — GFM blocks cannot continue
+      // across one.
+      if (i + 1 >= lines.length) continue;
+      if (LIST_ITEM.test(prev) && LIST_ITEM.test(next)) continue; // loose list
+      // A blank after a list item with nothing after it yet may still turn
+      // out to be a loose-list separator — wait for the next line.
+      if (LIST_ITEM.test(prev) && next.trim() === "") continue;
       closed = Math.min(text.length, at);
-      segStart = closed;
       continue;
     }
     // Tight-list items are final one by one, in lockstep with
