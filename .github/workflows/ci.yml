@@ -1,9 +1,15 @@
+# CI (#236): the suite's health was invisible without bare metal — the
+# Linux test-failure report in #236 would have been caught here first.
+# PTY tests run too: python3 is present on ubuntu runners, and the
+# readiness-wait harness (#236) made their budgets host-independent.
 name: ci
+
 on:
   push:
     branches: [develop]
   pull_request:
     branches: [develop]
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,30 +18,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.19
+          bun-version: latest
       - run: bun install --frozen-lockfile
-      - name: ink live render inside a controlling pty
-        run: |
-          python3 - <<'PY'
-          import os, time, select, subprocess, fcntl, termios, signal
-          master, slave = pty_pair = os.openpty()
-          fcntl.ioctl(slave, termios.TIOCSWINSZ, b"\x2d\x00\xa0\x00\x00\x00\x00\x00")  # 45 rows, 160 cols
-          def make_ctty():
-              os.setsid()
-              fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave,
-                               preexec_fn=make_ctty, env=dict(os.environ, TERM="xterm-256color"))
-          os.close(slave)
-          buf = b""
-          end = time.time() + 4
-          while time.time() < end:
-              r, _, _ = select.select([master], [], [], 0.2)
-              if r:
-                  try: c = os.read(master, 65536)
-                  except OSError: break
-                  if not c: break
-                  buf += c
-          p.terminate()
-          print("BYTES:", len(buf))
-          print(buf[:1500])
-          PY
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test suite
+        run: bun test
