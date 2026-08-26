@@ -197,7 +197,7 @@ describe("home smoke", () => {
     let frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("first answer");
     expect(frame).not.toContain("100 in");
-    // dev: turns settled after the switch carry usage blocks
+    // dev: settled turns close with one model line, no usage line (#213)
     i.stdin.write("\x0f");
     await sleep(50);
     i.stdin.write("two");
@@ -206,7 +206,8 @@ describe("home smoke", () => {
     await sleep(300);
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("second answer");
-    expect(frame).toContain("200 in · 40 out");
+    expect(frame).toContain("─ model mock");
+    expect(frame).not.toContain("200 in");
     // back to vibe: the dev-printed block stays (native scrollback), but
     // the new turn settles without one
     i.stdin.write("\x0f");
@@ -217,8 +218,8 @@ describe("home smoke", () => {
     await sleep(300);
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("third answer");
-    expect(frame).toContain("200 in · 40 out"); // printed dev form persists
-    expect(frame).not.toContain("300 in"); // vibe suppressed the new one
+    expect(frame).toContain("─ model mock"); // printed dev form persists
+    expect(frame).not.toContain("300 in"); // vibe suppressed the new turn's
     i.unmount();
   });
 

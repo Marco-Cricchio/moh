@@ -34,7 +34,10 @@ describe("semantic transcript projection (#183)", () => {
     expect(vibe.some((block) => block.type === "session started" || block.type === "permission mode" || block.type === "model switched" || block.type === "memory updated" || block.type === "MCP started")).toBe(false);
     expect(vibe.some((block) => block.kind === "error" && block.type === "extension failed")).toBe(true);
     expect(vibe.some((block) => block.type === "cancelled")).toBe(true);
-    expect(projectTranscript(base, { mode: "dev" }).some((block) => block.type === "usage" && block.usage?.inputTokens === 100)).toBe(true);
+    // One `model` line closes the turn; no usage line and no per-call model blocks (#213).
+    const dev = projectTranscript(base, { mode: "dev" });
+    expect(dev.filter((block) => block.type === "model").map((block) => block.detail)).toEqual(["mock"]);
+    expect(dev.some((block) => block.type === "usage" || block.usage)).toBe(false);
   });
 
   test("vibe renders tool activity as plain language without command or output (#193)", () => {
@@ -87,7 +90,7 @@ describe("semantic transcript projection (#183)", () => {
     expect(blocks.some((block) => block.markdown?.includes("```diff") && block.markdown.includes("-old"))).toBe(true);
     expect(blocks.some((block) => block.type === "bash" && block.state === "ok" && block.lines[0] === "1 pass ✓")).toBe(true);
     expect(blocks.some((block) => block.type === "permission" && block.state === "ok")).toBe(true);
-    expect(blocks.some((block) => block.type === "usage" && block.usage?.inputTokens === 100)).toBe(true);
+    expect(blocks.some((block) => block.type === "model" && block.detail === "mock")).toBe(true);
     expect(blocks.some((block) => block.type === "model switched")).toBe(true);
     expect(blocks.some((block) => block.type === "memory updated")).toBe(true);
     expect(blocks.some((block) => block.type === "worker" && block.detail?.startsWith("done"))).toBe(true);
@@ -124,7 +127,8 @@ describe("semantic transcript projection (#183)", () => {
   });
 
   test("never drops done or non-preview tool output", () => {
-    expect(projectTranscript([{ type: "done" }])[0]?.type).toBe("done");
+    expect(projectTranscript([{ type: "done", models: ["m"] }])[0]?.type).toBe("model");
+    expect(projectTranscript([{ type: "done" }]).length).toBe(0);
     const tool = projectTranscript([
       { type: "tool_call", callId: "bash-1", name: "bash", args: { command: "echo ok" } },
       { type: "tool_result", callId: "bash-1", ok: true, output: "ok" },
@@ -175,6 +179,17 @@ describe("semantic transcript projection (#183)", () => {
     // body — never a `◆ moh` head row.
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame.startsWith("\n    second")).toBe(true);
+    ink.unmount();
+  });
+
+  test("wraps long head detail and body lines into their own rows (#213)", () => {
+    const long = "cmd-" + "x".repeat(100);
+    const blocks = projectTranscript([{ type: "tool_call", callId: "w1", name: "bash", args: { command: long } }], { mode: "dev" });
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={blocks[0]!} width={60} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    // The full command survives across rows; continuation rows are indented under the label.
+    expect(frame).toContain("bash cmd-");
+    expect(frame.split("\n").filter((line) => line.includes("xxxxx"))).toHaveLength(2);
     ink.unmount();
   });
 
