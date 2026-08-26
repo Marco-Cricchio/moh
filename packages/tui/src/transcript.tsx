@@ -76,6 +76,15 @@ const detailOf = (args: unknown): string => {
   return truncate(sanitizeLine(JSON.stringify(args)), 100);
 };
 
+/** Fetched pages are usually a wall of minified HTML/JSON where whole
+ * lines run thousands of columns: preview rows must respect the block
+ * width, so rows are column-capped and blank noise collapses (#217). */
+const fetchPreview = (output: string | undefined, maxLines: number): string[] => {
+  if (!output) return [];
+  const rows = output.split("\n").filter((line) => line.trim() !== "").map((line) => sanitizeLine(truncate(line, 100)));
+  return rows.length > maxLines ? [...rows.slice(0, maxLines), `… +${rows.length - maxLines} lines`] : rows;
+};
+
 /** Complete, deterministic projection of the append-only event log. Events
  * may be grouped (assistant deltas, tool call/result), but none disappear
  * without an intentional chrome representation.
@@ -139,7 +148,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           glyph: state === "ok" ? "✓" : state === "fail" ? "✗" : "◌",
           type: event.name,
           detail: detailOf(event.args),
-          lines: event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
+          lines: event.name === "fetch"
+            ? fetchPreview(result?.output, options.filePreview === "always" ? 15 : 5)
+            : event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
           state,
         });
         if (event.name === "read" && result?.ok && options.filePreview !== "none") {
