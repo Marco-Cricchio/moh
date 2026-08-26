@@ -19,6 +19,10 @@ export interface TranscriptBlock {
    * above: they render without their own head row so one reply reads as one
    * continuous output (#205). */
   continuation?: boolean;
+  /** True for a list-item segment that directly follows another list item
+   * (tight list): it renders without the inter-block blank row so a split
+   * list still reads as one list (#226). */
+  tight?: boolean;
   lineKinds?: Array<"body" | "heading" | "bullet" | "ask" | "answer">;
   state?: "run" | "ok" | "fail";
   usage?: { inputTokens: number; outputTokens: number };
@@ -102,6 +106,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "assistant_delta": {
         let text = event.text;
         while (events[i + 1]?.type === "assistant_delta") text += (events[++i] as Extract<AgentEvent, { type: "assistant_delta" }>).text;
+        let lastItemLine = "";
         // One reply, many append-only segments (#205): the terminal Markdown
         // renderer owns fences/tables/headings inline, but a whole reply as
         // ONE block would grow after Static promotion and ink never reprints
@@ -110,7 +115,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // segments render without a head row so the reply still reads as one
         // continuous output.
         for (const segment of assistantSegments(text)) {
-          blocks.push(proseBlock(`${key}-p${segment.start}`, segment.text, segment.start > 0 || !!options.proseContinuation));
+          const first = segment.text.split("\n")[0] ?? "";
+          const tight = tightItemBoundary(lastItemLine, first);
+          blocks.push(proseBlock(`${key}-p${segment.start}`, segment.text, segment.start > 0 || !!options.proseContinuation, tight));
+          lastItemLine = segment.text.trimEnd().split("\n").at(-1) ?? "";
         }
         break;
       }
@@ -259,7 +267,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
   return blocks;
 }
 
-function proseBlock(key: string, prose: string, continuation = false): TranscriptBlock {
+function proseBlock(key: string, prose: string, continuation = false, tight = false): TranscriptBlock {
   const raw = prose.split("\n");
   const lineKinds: Array<"body" | "heading" | "bullet"> = [];
   const lines = raw.map((line) => {
@@ -268,11 +276,18 @@ function proseBlock(key: string, prose: string, continuation = false): Transcrip
     lineKinds.push("body");
     return line;
   });
-  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds, markdown: prose, ...(continuation ? { continuation: true } : {}) };
+  return { key, kind: "moh", glyph: "◆", type: "moh", lines, lineKinds, markdown: prose, ...(continuation ? { continuation: true } : {}), ...(tight ? { tight: true } : {}) };
 }
 
 const LIST_ITEM = /^\s{0,3}(?:[-*+]|\d+[.)])\s+/;
 const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/;
+
+/** Tight-list item boundary (#226): consecutive list lines (no blank
+ * between) each close a segment, so streaming promotes item-by-item
+ * instead of holding the whole list volatile. Shared by the segment
+ * splitter and the settled boundary so promotion granularity always
+ * equals projection granularity. */
+const tightItemBoundary = (prev: string, line: string): boolean => LIST_ITEM.test(prev) && LIST_ITEM.test(line);
 
 /** Splits an assistant reply into promotable segments (#205). A segment
  * closes at a blank line outside code fences — but not between the items of
@@ -314,6 +329,13 @@ export function assistantSegments(text: string): Array<{ start: number; end: num
       if (i + 1 >= lines.length) break; // trailing blank: nothing new opens
       const end = Math.min(text.length, offsets[i + 1] ?? text.length);
       if (next.trim() === "" ) continue;
+      segments.push({ start: segStart, end, text: text.slice(segStart, end) });
+      segStart = end;
+      continue;
+    }
+    // Tight-list items close one by one (#226).
+    if (i > 0 && tightItemBoundary(lines[i - 1]!, line)) {
+      const end = offsets[i]!;
       segments.push({ start: segStart, end, text: text.slice(segStart, end) });
       segStart = end;
     }
@@ -358,7 +380,11 @@ export function closedPrefixLength(text: string): number {
       if (next.trim() === "") { closed = Math.min(text.length, at); segStart = closed; continue; }
       closed = Math.min(text.length, at);
       segStart = closed;
+      continue;
     }
+    // Tight-list items are final one by one, in lockstep with
+    // assistantSegments (#226).
+    if (i > 0 && tightItemBoundary(lines[i - 1]!, line)) closed = offset;
   }
   return closed;
 }
@@ -394,7 +420,7 @@ const sameKinds = (a: string[] | undefined, b: string[] | undefined): boolean =>
 };
 
 const sameBlock = (a: TranscriptBlock, b: TranscriptBlock): boolean =>
-  a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type && a.continuation === b.continuation
+  a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type && a.continuation === b.continuation && a.tight === b.tight
   && a.detail === b.detail && a.markdown === b.markdown && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
   && a.usage?.outputTokens === b.usage?.outputTokens
   && a.lines.length === b.lines.length && a.lines.every((line, i) => line === b.lines[i])
@@ -442,7 +468,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
           {/* Segments split exactly at blank lines (trimmed per segment),
               so restore the single GFM inter-block blank row here — heading
               and hr paragraphs get their spacing back without doubles. */}
-          {block.continuation ? <Box width={Math.max(1, width - 1)} backgroundColor={bg} flexShrink={0}><Text> </Text></Box> : null}
+          {block.continuation && !block.tight ? <Box width={Math.max(1, width - 1)} backgroundColor={bg} flexShrink={0}><Text> </Text></Box> : null}
           <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} />
         </>
       ) : block.lines.map((line, index) => {
