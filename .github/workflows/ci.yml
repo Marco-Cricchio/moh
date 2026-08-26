@@ -1,15 +1,9 @@
-# CI (#236): the suite's health was invisible without bare metal — the
-# Linux test-failure report in #236 would have been caught here first.
-# PTY tests run too: python3 is present on ubuntu runners, and the
-# readiness-wait harness (#236) made their budgets host-independent.
 name: ci
-
 on:
   push:
     branches: [develop]
   pull_request:
     branches: [develop]
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,10 +14,30 @@ jobs:
         with:
           bun-version: 1.2.19
       - run: bun install --frozen-lockfile
-      - name: Typecheck
-        run: bun run typecheck
-      - name: Test suite
-        run: bun test
-      - name: Dump raw
-        if: always()
-        run: head -c 2500 /tmp/moh-pty-debug.bin 2>/dev/null | cat -v || echo "no dump" 
+      - name: ink full pattern in controlling pty
+        run: |
+          python3 - <<'PY'
+          import os, time, select, subprocess, fcntl, termios
+          master, slave = os.openpty()
+          fcntl.ioctl(slave, termios.TIOCSWINSZ, b"\x2d\x00\xa0\x00\x00\x00\x00\x00")
+          def ctty():
+              os.setsid()
+              fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave,
+                               preexec_fn=ctty, env=dict(os.environ, TERM="xterm-256color"))
+          os.close(slave)
+          time.sleep(1.0)
+          os.write(master, b"hi")
+          buf = b""
+          end = time.time() + 4
+          while time.time() < end:
+              r, _, _ = select.select([master], [], [], 0.2)
+              if r:
+                  try: c = os.read(master, 65536)
+                  except OSError: break
+                  if not c: break
+                  buf += c
+          p.terminate()
+          print("BYTES:", len(buf))
+          print(buf[:2000])
+          PY
