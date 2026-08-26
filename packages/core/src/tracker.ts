@@ -48,7 +48,9 @@ function ghIssueToTracker(raw: any): TrackerIssue {
   return {
     id: String(raw.number ?? raw.id ?? ""),
     title: String(raw.title ?? ""),
-    state: raw.state === "closed" ? "closed" : "open",
+    // `gh --json` emits uppercase states (OPEN/CLOSED); normalize here so
+    // a closed issue can never project as open.
+    state: String(raw.state ?? "").toLowerCase() === "closed" ? "closed" : "open",
     labels: Array.isArray(raw.labels) ? raw.labels.map((l: any) => String(l?.name ?? l)) : [],
     assignees: Array.isArray(raw.assignees) ? raw.assignees.map((a: any) => String(a?.login ?? a)) : [],
     // gh has no dependency field: unknown → unblocked (flat frontier)
@@ -79,7 +81,9 @@ function gitlabIssueToTracker(raw: any): TrackerIssue {
   return {
     id: String(raw.iid ?? raw.id ?? ""),
     title: String(raw.title ?? ""),
-    state: raw.state === "closed" ? "closed" : "open",
+    // glab's JSON emits lowercase states, but normalize defensively —
+    // same contract as the gh mapper.
+    state: String(raw.state ?? "").toLowerCase() === "closed" ? "closed" : "open",
     labels: Array.isArray(raw.labels) ? raw.labels.map(String) : [],
     assignees: Array.isArray(raw.assignees) ? raw.assignees.map((a: any) => String(a?.username ?? a)) : [],
     blockedBy: [],
