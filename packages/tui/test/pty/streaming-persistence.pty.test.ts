@@ -64,8 +64,9 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("stream") },
           { wait: 0.2, send: encodeBase64("\r") },
-          // First paragraph is closed; the second delta is present; finish is delayed.
-          { wait: 1.0 },
+          // Readiness wait (#236): assert only once the second paragraph's
+          // tail has actually been streamed — fixed 1s cut it on slow hosts.
+          { wait: 4.0, until: "SECOND-STREAMING-TAIL" },
         ],
         tail: 40,
       });
@@ -87,7 +88,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 1.0 }],
+        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
         tail: 40,
       });
       const frame = lines.map((line) => line.text).join("\n");
@@ -109,7 +110,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 2.5 }],
+        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 6.0, until: "TAIL-119" }],
         tail: 40,
         rawDump,
       });
