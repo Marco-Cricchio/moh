@@ -72,8 +72,8 @@ describe("gh backend", () => {
         return {
           code: 0,
           stdout: JSON.stringify([
-            { number: 5, title: "Fix thing", state: "open", labels: [{ name: "bug" }], assignees: [] },
-            { number: 6, title: "Done", state: "closed", labels: [], assignees: [{ login: "bob" }] },
+            { number: 5, title: "Fix thing", state: "OPEN", labels: [{ name: "bug" }], assignees: [] },
+            { number: 6, title: "Done", state: "CLOSED", labels: [], assignees: [{ login: "bob" }] },
           ]),
         };
       }
@@ -82,6 +82,10 @@ describe("gh backend", () => {
     const t = ghTracker("owner/repo", run);
     const issues = await t.list();
     expect(issues[0]).toEqual({ id: "5", title: "Fix thing", state: "open", labels: ["bug"], assignees: [], blockedBy: [] });
+    // Regression: `gh --json` emits uppercase states — a CLOSED issue must
+    // project closed, never open (the bug that made every closed issue
+    // look open in tracker_list and the frontier panel).
+    expect(issues[1]).toEqual({ id: "6", title: "Done", state: "closed", labels: [], assignees: ["bob"], blockedBy: [] });
     await t.claim("5");
     expect(calls.at(-1)).toContain("--add-assignee");
     expect(calls.at(-1)).toContain("@me");
