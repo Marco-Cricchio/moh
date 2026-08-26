@@ -129,6 +129,21 @@ describe("semantic transcript projection (#183)", () => {
     expect(failed?.lines).toContain("HTTP 404");
   });
 
+  test("long body lines render once — no duplicated tail across wrap rows", () => {
+    const question = `Q6 — Le ~10 skill portate entrano nel circuito workflow-mode esistente, con ask-moh che resta comando base sempre disponibile e nothing else matters here to force wrap`;
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "q1", name: "ask_user", args: { question } },
+      { type: "tool_result", callId: "q1", ok: true, output: "sì" },
+    ];
+    const block = projectTranscript(events)[0]!;
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={block} width={70} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    const tail = "comando base sempre";
+    expect(frame.split(tail).length - 1).toBe(1);
+    expect(frame.split("↳ you: sì").length - 1).toBe(1);
+    ink.unmount();
+  });
+
   test("covers productive, permission, usage, subagent and chrome events", () => {
     const blocks = projectTranscript(base);
     expect(blocks.some((block) => block.glyph === "›" && block.type === "you")).toBe(true);
