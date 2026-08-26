@@ -174,7 +174,7 @@ describe("semantic transcript projection (#183)", () => {
     // Continuations open with the single GFM inter-block blank row, then the
     // body — never a `◆ moh` head row.
     const frame = stripAnsi(ink.lastFrame() ?? "");
-    expect(frame.startsWith("\n  second")).toBe(true);
+    expect(frame.startsWith("\n    second")).toBe(true);
     ink.unmount();
   });
 
@@ -184,7 +184,8 @@ describe("semantic transcript projection (#183)", () => {
     const raw = ink.lastFrame() ?? "";
     const clean = stripAnsi(raw);
     expect(clean).toContain("› you");
-    expect(clean).toContain("  select this cleanly");
+    // Head sits directly above its body, indented 4 under the type label (#211).
+    expect(clean).toContain("    select this cleanly");
     expect(clean).not.toMatch(/[┌┐└┘╭╮╰╯]/);
     expect(blockTint(block, THEMES["tokyo-night"])).not.toBe(THEMES["tokyo-night"].bg);
     expect(blockTint({ key: "cot", kind: "thinking", glyph: "⋯", type: "thinking", lines: ["inner"] }, THEMES["tokyo-night"])).toBeUndefined();
