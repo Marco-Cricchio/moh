@@ -168,6 +168,24 @@ describe("semantic transcript projection (#183)", () => {
     ink.unmount();
   });
 
+  test("a trailing blank line does not close a prefix that may still grow (#227)", () => {
+    // A delta ending in \n used to promote its segment immediately; the
+    // next table/list row then grew a Static-printed block — raw header
+    // printed, following rows lost forever.
+    expect(closedPrefixLength("| PR | Issue |\n")).toBe(0);
+    expect(closedPrefixLength("| PR | Issue |\n|---|---|---|\n")).toBe(0);
+    expect(closedPrefixLength("| PR | Issue |\n|---|---|---|\n| #212 | #211 | x |\n")).toBe(0);
+    // An internal blank (content follows) still closes — one delta later
+    // than before, when the next paragraph's first text arrives.
+    expect(closedPrefixLength("para\n\nnext")).toBe("para\n\n".length);
+    // A real blank line that ends the run closes too (the paragraph cannot
+    // be extended): promotion timing for paragraph-ending deltas is kept.
+    expect(closedPrefixLength("para\n\n")).toBe("para\n\n".length);
+    // …but a loose-list separator must not split a list that continues.
+    expect(closedPrefixLength("- uno\n\n")).toBe(0);
+    expect(closedPrefixLength("- uno\n\n- due")).toBe(0);
+  });
+
   test("covers productive, permission, usage, subagent and chrome events", () => {
     const blocks = projectTranscript(base);
     expect(blocks.some((block) => block.glyph === "›" && block.type === "you")).toBe(true);
