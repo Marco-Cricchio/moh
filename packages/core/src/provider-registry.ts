@@ -113,9 +113,10 @@ function resolveProfile(
   fallbacks: RouteTarget[],
 ): Provider {
   const apiKey = profile.apiKey ?? envApiKey(profile.name);
+  const route = (target: RouteTarget): Provider =>
+    createRoute(fallbacks.length ? { target, fallbacks } : { target });
   if (BUILTIN_KINDS.has(profile.type)) {
-    const target = routeTargetFor(profile, modelId, apiKey);
-    return createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}) });
+    return route(routeTargetFor(profile, modelId, apiKey));
   }
   if (profile.type === "openai-compat") {
     if (!profile.baseUrl) {
@@ -123,8 +124,7 @@ function resolveProfile(
     }
     // Local endpoints (Ollama, LM Studio, ...) ignore the key, but the
     // wire protocol wants one; a dummy default keeps zero-credential setups working.
-    const target = routeTargetFor(profile, modelId, apiKey ?? "ollama");
-    return createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}) });
+    return route(routeTargetFor(profile, modelId, apiKey ?? "ollama"));
   }
   const factory = registry.get(profile.type);
   if (!factory) {
@@ -247,7 +247,14 @@ export function resolveProviderRef(
   if (!resolvedModel) {
     throw new Error(`provider "${ref}": endpoint "${name}" has no defaultModel; use "${name}/<model-id>"`);
   }
-  return resolveProfile(profile, resolvedModel, registry, fallbackStopsFor(profile, endpoints, options.health));
+  return resolveProfile(
+    profile,
+    resolvedModel,
+    registry,
+    // Custom-factory providers cannot be route stops: skip the (discarded)
+    // chain construction for them.
+    isRouteCapable(profile) ? fallbackStopsFor(profile, endpoints, options.health) : [],
+  );
 }
 
 /**

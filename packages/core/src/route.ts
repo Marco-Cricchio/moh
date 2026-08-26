@@ -170,7 +170,17 @@ export function createRoute(config: RouteConfig): Route {
               if (backoff > 0) await Bun.sleep(backoff);
               continue;
             }
-            if (isFallbackWorthy(normalized) && i < chain.length - 1) break; // next target
+            if (isFallbackWorthy(normalized) && i < chain.length - 1) {
+              // ADR-0012: announce the stop — visible downstream (session
+              // log + TUI toast), never a silent model swap.
+              yield {
+                type: "fallback",
+                from: `${target.endpoint.name}/${target.modelId}`,
+                to: `${chain[i + 1]!.endpoint.name}/${chain[i + 1]!.modelId}`,
+                reason: normalized.kind,
+              };
+              break; // next target
+            }
             throw normalized;
           }
         }

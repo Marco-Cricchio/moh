@@ -230,6 +230,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "model switched", detail: `${event.from} → ${event.to} (next turn)`, lines: [] });
         break;
+      case "fallback":
+        // ADR-0012: a fallback stop is turn chrome — the toast is the
+        // timely notice; this block is the durable record for replay.
+        blocks.push({ key, kind: "chrome", glyph: "↻", type: "fallback", detail: `${event.from} → ${event.to}`, lines: [event.reason] });
+        break;
       case "memory_updated":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });

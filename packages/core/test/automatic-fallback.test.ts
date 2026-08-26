@@ -73,6 +73,16 @@ describe("automatic fallback chains (ADR-0012)", () => {
     expect(resolve("zai").chain[0]).toBe("zai/glm-5.3");
   });
 
+  test("switching the active endpoint rebuilds the chain around it (the /model path)", () => {
+    // session.switchModel re-runs resolveProviderRef for the new ref —
+    // the chain must re-center on the new active provider.
+    expect(resolve("openai/gpt-5.6-terra").chain).toEqual([
+      "openai/gpt-5.6-terra",
+      "zai/glm-5.3",
+      "google/gemini-3-pro",
+    ]);
+  });
+
   test("resolveProvider threads the chain through config resolution", () => {
     const route = resolveProvider({
       provider: "zai/glm-5.3",

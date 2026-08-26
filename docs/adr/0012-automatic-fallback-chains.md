@@ -28,6 +28,11 @@ declaration adds config surface for the same outcome.
 2. **Health-based ordering.** Chain order follows estimated provider health / remaining
    quota where retrievable (higher remaining quota first). Providers whose quota data
    cannot be retrieved go to the **end** of the chain; declaration order breaks ties.
+   **Scope note (implementation):** no builtin quota retrieval exists in moh today; the
+   ordering is delivered via an injectable `ProviderHealthEstimator` seam exercised by
+   tests, and real quota/health retrieval per provider kind is follow-up work (tracked
+   on #234). Until then production chains are declaration-ordered — which is exactly
+   the "data not retrievable" case of this rule.
 3. **Opt-out per provider.** An endpoint profile flag (`fallbackEligible`, default
    `true`) excludes a provider from being an automatic fallback stop. This is the minimal
    user control — no ordering hints, no per-route declarations.
@@ -37,8 +42,14 @@ declaration adds config surface for the same outcome.
    automatic chain compatible with ADR-0005: the fallback is explicit and visible to the
    user, never a silent model swap.
 5. **No model equivalence assumed.** The chain contains concrete `endpoint/model-id`
-   stops from configuration; moh never invents substitutions. Mid-stream failure restarts
-   the single-shot request on the next stop (existing engine behavior).
+   stops from configuration; moh never invents substitutions. Custom (registered-factory)
+   providers cannot be route stops and are skipped. Mid-stream failure restarts the
+   single-shot request on the next stop (existing engine behavior).
+6. **Engine-announced stops.** When a fallback fires, the route engine emits a
+   `fallback` event (`from`, `to`, `reason`) into the session log; the TUI turns it
+   into a toast ("quota exhausted on X → Y") and the transcript keeps a durable
+   chrome block for replay. Detection is event-driven, never inferred from
+   model-name changes.
 
 ## Consequences
 
