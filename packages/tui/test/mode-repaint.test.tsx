@@ -34,7 +34,8 @@ describe("mode switch repaints the transcript (#201)", () => {
     await sleep(150);
     const dev = stripAnsi(i.lastFrame() ?? "");
     expect(dev).toContain("answer one");
-    expect(dev).toContain("100 in · 10 out"); // reprinted in dev grammar
+    expect(dev).toContain("─ model mock"); // reprinted in dev grammar, no usage line (#213)
+    expect(dev).not.toContain("100 in");
     expect(dev).toContain("◉ dev");
 
     // a subsequent turn still settles in dev
@@ -44,7 +45,8 @@ describe("mode switch repaints the transcript (#201)", () => {
     await sleep(300);
     const after = stripAnsi(i.lastFrame() ?? "");
     expect(after).toContain("answer two");
-    expect(after).toContain("200 in · 20 out");
+    expect(after).toContain("─ model mock");
+    expect(after).not.toContain("200 in");
     i.unmount();
   });
 });
