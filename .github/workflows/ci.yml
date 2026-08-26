@@ -14,11 +14,25 @@ jobs:
         with:
           bun-version: 1.2.19
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - name: PTY debug
-        run: bun test packages/tui/test/pty/pty-layout.test.ts -t "wide terminal"
-      - name: Dump raw
-        if: always()
+      - name: ink live render inside a pty
         run: |
-          ls -la /tmp/moh-pty* 2>/dev/null || true
-          head -c 3000 /tmp/moh-pty-*.bin 2>/dev/null | cat -v || echo "no dump"
+          python3 - <<'PY'
+          import pty, os, sys, time, select
+          master, slave = pty.openpty()
+          proc = os.forkpty() if False else None
+          import subprocess
+          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color"))
+          os.close(slave)
+          buf = b""
+          end = time.time() + 5
+          while time.time() < end:
+              r, _, _ = select.select([master], [], [], 0.2)
+              if r:
+                  try: c = os.read(master, 65536)
+                  except OSError: break
+                  if not c: break
+                  buf += c
+          p.terminate()
+          print("BYTES:", len(buf))
+          print(repr(buf[:2000]))
+          PY
