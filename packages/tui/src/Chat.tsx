@@ -8,6 +8,7 @@ import { MultilineInput } from "./Input";
 import { BASE_COMMANDS } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { BottomBar, ThinkingSeparator, type ThinkingLevel } from "./BottomBar";
+import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
 
 export type Mode = "vibe" | "dev";
@@ -16,6 +17,8 @@ const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
 
 export interface ChatProps {
   session: AgentSession;
+  /** Working root (branch label + filesystem chrome read from here). */
+  cwd: string;
   mode: Mode;
   modelLabel: string;
   blocked?: boolean;
@@ -31,6 +34,8 @@ export interface ChatProps {
   thinkingLevel?: ThinkingLevel;
   livePhase?: string;
   notice?: string;
+  /** Git branch label override (tests); default: read from the session cwd. */
+  branch?: string | null;
   submitSignal?: number;
   /** Repaint settled history in the alternate-screen modal buffer. */
   replaySettled?: boolean;
@@ -44,6 +49,7 @@ export interface ChatProps {
  * frameless input. */
 export function Chat({
   session,
+  cwd,
   mode,
   modelLabel,
   blocked = false,
@@ -61,9 +67,11 @@ export function Chat({
   notice,
   submitSignal = 0,
   replaySettled = false,
+  branch,
   commands = BASE_COMMANDS.map((command) => `/${command.name}`),
 }: ChatProps) {
   const state = useSessionState(session);
+  const gitBranch = useGitBranch(cwd);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
   const compact = widthClass(viewport) === "compact";
@@ -215,6 +223,7 @@ export function Chat({
         memoryFresh={memoryFresh}
         phase={armed ? "esc again to stop" : livePhase}
         notice={notice}
+        branch={branch ?? gitBranch}
         focusedChip={focusedChip}
       />
     </Box>

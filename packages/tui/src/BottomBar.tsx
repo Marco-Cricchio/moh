@@ -63,6 +63,8 @@ interface StatusProps {
   memoryFresh?: boolean;
   phase?: string;
   notice?: string;
+  /** Current git branch, when the cwd is a repository (both modes). */
+  branch?: string | null;
 }
 
 function ContextBar({ tokens, width, theme }: { tokens: number; width: number; theme: Theme }) {
@@ -96,12 +98,15 @@ function StatusRow(props: StatusProps) {
     { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
     { text: model },
     { text: props.workflowOn ? "◈ wf" : "", optional: true },
+    // The branch is plain-language chrome: it shows in vibe and dev alike.
+    { text: props.branch ? `⎇ ${props.branch}` : "", optional: true },
     { text: props.mode === "dev" ? "◉ dev" : "○ vibe", optional: true },
   ].filter((item) => item.text), Math.max(1, props.width - left.length - (!vibe && props.tokens.contextIn ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0) - 5));
   const statusColor = (text: string): string => {
     if (text.startsWith("⊣")) return tokenColor;
     if (text === "◈ wf" || (text.startsWith("◆") && (props.level === "high" || props.level === "xhigh"))) return theme.purple;
     if (text.startsWith("◆")) return theme.fg;
+    if (text.startsWith("⎇")) return theme.ok;
     if (text === "◉ dev") return theme.accent;
     return theme.dim;
   };

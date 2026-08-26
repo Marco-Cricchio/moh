@@ -321,6 +321,7 @@ export function App({
   const chat = showChat ? (
     <Chat
       session={session}
+      cwd={cwd}
       mode={mode}
       modelLabel={modelLabel}
       blocked={blocked}

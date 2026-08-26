@@ -73,7 +73,7 @@ describe("overlay layout integrity over Chat", () => {
     }));
     const i = render(
       <Box flexDirection="column">
-        <Chat session={session} mode="dev" modelLabel="mock" />
+        <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />
         <AskUserModal gate={gate} />
       </Box>,
     );
@@ -107,7 +107,7 @@ describe("overlay layout integrity over Chat", () => {
     }));
     const i = render(
       <Box flexDirection="column">
-        <Chat session={session} mode="dev" modelLabel="mock" />
+        <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />
         <PermissionModal gate={gate} mode="dev" />
       </Box>,
     );

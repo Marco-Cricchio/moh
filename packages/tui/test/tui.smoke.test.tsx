@@ -20,7 +20,7 @@ describe("chat smoke (mock provider)", () => {
       { deltas: ["I keep a **diary** of it.\n\n", "- saved automatically\n", "- private"], finish: "stop" },
     ]);
     const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
-    const i = render(<Chat session={session} mode="vibe" modelLabel="mock" />);
+    const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("where do you keep our conversation?");
     await sleep(20);
@@ -39,7 +39,7 @@ describe("chat smoke (mock provider)", () => {
       { deltas: Array.from({ length: 20 }, () => "word "), finish: "stop", deltaDelayMs: 40 },
     ]);
     const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
-    const i = render(<Chat session={session} mode="dev" modelLabel="mock" />);
+    const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("go");
     await sleep(20);
@@ -64,7 +64,7 @@ describe("chat smoke (mock provider)", () => {
       { deltas: ["second answer"], finish: "stop" },
     ]);
     const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
-    const i = render(<Chat session={session} mode="vibe" modelLabel="mock" />);
+    const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("first");
     await sleep(20);
@@ -85,10 +85,10 @@ describe("chat smoke (mock provider)", () => {
   test("status row always shows model and current mode", async () => {
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
     const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
-    const i = render(<Chat session={session} mode="dev" modelLabel="mock" />);
+    const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◉ dev");
-    i.rerender(<Chat session={session} mode="vibe" modelLabel="mock" />);
+    i.rerender(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30); // the mode repaint fires in an effect
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
