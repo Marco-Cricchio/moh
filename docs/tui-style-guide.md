@@ -55,7 +55,7 @@ Thinking labels are `·`, `🌱`, `⚙️`, `🧠✨`, `🧠🔥`. VS16 emoji ma
 The first row combines current activity and session context:
 
 - left: spinner + phase/progress while live, otherwise ready/done and memory freshness;
-- right: context bar, token count, turns, model + thinking level, workflow, and mode. In vibe mode the metrics stay hidden (no context bar, token count, or turn counter — "plain language, no metrics", #193); the mode chip itself always shows (`○ vibe`/`◉ dev`).
+- right: context bar, token count, turns, model + thinking level, workflow, and mode. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229); the mode chip itself always shows (`○ vibe`/`◉ dev`).
 
 Context thresholds are `ok ≤ 60%`, `warn > 60%`, `err > 80%`. Optional segments drop before wrapping; if required content still exceeds the budget, the longest segment truncates. Status rows never wrap.
 

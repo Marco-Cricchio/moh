@@ -93,7 +93,7 @@ describe("native scrollback layout geometry", () => {
     expect(renderLevel("xhigh")).toBe("═".repeat(19));
   });
 
-  it("hides token/context/turn metrics in vibe, keeps them in dev (#193)", () => {
+  it("hides token/turn numbers in vibe, keeps the context bar and dev metrics (#193, #229)", () => {
     const props = { width: 120, pending: false, spinner: "⠸", model: "claude-sonnet-4", turns: 12, tokens: { contextIn: 170_000, totalOut: 4_000, calls: 2 }, level: "medium" as const, workflowOn: true, memoryFresh: true, focusedChip: null };
     const renderBar = (mode: "vibe" | "dev") => {
       const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar {...props} mode={mode} /></ThemeProvider>);
@@ -103,7 +103,7 @@ describe("native scrollback layout geometry", () => {
     };
     expect(renderBar("vibe")).not.toContain("⊣");
     expect(renderBar("vibe")).not.toContain("↻ 12");
-    expect(renderBar("vibe")).not.toContain("█");
+    expect(renderBar("vibe")).toContain("█"); // the wordless context bar renders in vibe too (#228)
     expect(renderBar("vibe")).toContain("○ vibe");
     expect(renderBar("dev")).toContain("↻ 12");
     expect(renderBar("dev")).toContain("◉ dev");
