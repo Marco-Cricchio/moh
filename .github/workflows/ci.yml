@@ -12,17 +12,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.2.19
       - run: bun install --frozen-lockfile
-      - name: ink live render inside a pty
+      - name: ink live render inside a controlling pty
         run: |
           python3 - <<'PY'
-          import pty, os, time, select, subprocess
-          master, slave = pty.openpty()
-          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color", COLUMNS="160", LINES="45"))
+          import os, time, select, subprocess, fcntl, termios, signal
+          master, slave = pty_pair = os.openpty()
+          fcntl.ioctl(slave, termios.TIOCSWINSZ, b"\x2d\x00\xa0\x00\x00\x00\x00\x00")  # 45 rows, 160 cols
+          def make_ctty():
+              os.setsid()
+              fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+          p = subprocess.Popen(["bun", "packages/tui/ink-hello.tsx"], stdin=slave, stdout=slave, stderr=slave,
+                               preexec_fn=make_ctty, env=dict(os.environ, TERM="xterm-256color"))
           os.close(slave)
           buf = b""
-          end = time.time() + 5
+          end = time.time() + 4
           while time.time() < end:
               r, _, _ = select.select([master], [], [], 0.2)
               if r:
@@ -32,5 +37,5 @@ jobs:
                   buf += c
           p.terminate()
           print("BYTES:", len(buf))
-          print(buf[:3000])
+          print(buf[:1500])
           PY
