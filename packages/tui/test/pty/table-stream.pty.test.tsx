@@ -59,7 +59,10 @@ describe.skipIf(!hasPython)("streamed table renders (#227)", () => {
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("riepiloga") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 4.0 },
+          // Readiness wait (#236): the turn is settled only once the closing
+          // prose lands — a fixed 4s budget cut the last rows on slow hosts.
+          { wait: 8.0, until: "Nessun CI configurato" },
+          { wait: 1.0 },
         ],
         tail: 60,
       });

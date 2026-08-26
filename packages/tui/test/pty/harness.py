@@ -193,12 +193,45 @@ def main() -> None:
                     buf.extend(chunk)
                     screen.feed_bytes(chunk)
 
+    def pump_until(seconds: float, needle: str, since: int) -> bool:
+        """#236: readiness wait — pump for up to `seconds`, returning as soon
+        as `needle` appears in the raw byte stream AFTER offset `since`
+        (the cumulative buffer also holds everything painted before this
+        step; matching it wholesale would return instantly on a stale
+        match). Fixed budgets tuned on one machine systematically fail on
+        slower hosts; waiting for the actual readiness signal makes timing
+        host-independent."""
+        target = needle.encode("utf-8", "replace")
+        end = time.time() + seconds
+        while time.time() < end:
+            if buf.find(target, since) != -1:
+                pump(0.2)  # let the frame finish painting
+                return True
+            ready, _, _ = select.select([master], [], [], 0.05)
+            if ready:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    return False
+                if chunk:
+                    buf.extend(chunk)
+                    screen.feed_bytes(chunk)
+        return buf.find(target, since) != -1
+
     def send(b64: str) -> None:
         os.write(master, base64.b64decode(b64))
 
     try:
         pump(2.5)  # boot: onboarding appears
         for step in spec.get("steps", []):
+            if step.get("until"):
+                # Readiness steps are send-only-free by contract: a step that
+                # both waits for readiness and sends would be ambiguous, so
+                # refuse it loudly instead of silently dropping the send.
+                if step.get("send"):
+                    raise ValueError("pty step: 'until' and 'send' are mutually exclusive")
+                pump_until(step.get("wait", 5.0), step["until"], since=len(buf))
+                continue
             if step.get("send"):
                 send(step["send"])
             pump(step.get("wait", 0.3))
@@ -210,6 +243,11 @@ def main() -> None:
             screen = Screen(resize["cols"], resize["rows"])  # Ink fully repaints after SIGWINCH
             pump(2.0)
     finally:
+        # aliveAtEnd (#236): sampled BEFORE the harness kills the process —
+        # `exited` alone can be false merely because the kill hasn't landed
+        # yet, which used to make the survival assertion pass for the wrong
+        # reason on slow hosts.
+        alive_at_end = proc.poll() is None
         try:
             os.kill(proc.pid, signal.SIGINT)
         except ProcessLookupError:
@@ -230,7 +268,7 @@ def main() -> None:
             f.write(bytes(buf))
     payload = out
     if spec.get("meta"):
-        payload = {"lines": out, "exited": proc.poll() is not None, "exitCode": proc.returncode}
+        payload = {"lines": out, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
     json.dump(payload, sys.stdout)
 
 

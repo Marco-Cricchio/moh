@@ -39,7 +39,10 @@ describe.skipIf(!hasPython)("ask_user modal with a large open turn (PTY regressi
             { wait: 2.0 },
             { wait: 0.3, send: B("hello") },
             { wait: 0.4, send: B("\r") },
-            { wait: 10.0 }, // tool chain + modal up
+            // Readiness wait (#236): return as soon as the modal renders its
+            // question — the fixed 10s budget outran the whole scripted tool
+            // chain on slow hosts, so the arrows arrived before any modal.
+            { wait: 15.0, until: "Q1 — which way?" },
             { wait: 0.3, send: DOWN },
             { wait: 1.5, send: DOWN },
             { wait: 4.0 },
@@ -47,7 +50,7 @@ describe.skipIf(!hasPython)("ask_user modal with a large open turn (PTY regressi
           tail: 40,
           rawDump: RAW,
         });
-        expect(meta.exited).toBe(false); // the real crash: SIGKILL ("killed")
+        expect(meta.aliveAtEnd).toBe(true); // the real crash: SIGKILL ("killed") — meaningful because sampled pre-kill (#236)
         const raw = readFileSync(RAW, "utf8");
         // The modal rendered its question…
         expect(raw).toContain("Q1 — which way?");
