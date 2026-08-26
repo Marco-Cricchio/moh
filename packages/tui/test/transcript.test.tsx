@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
-import { blockTint, projectTranscript, TranscriptBlockView } from "../src/transcript";
+import { blockTint, projectTranscript, assistantSegments, closedPrefixLength, TranscriptBlockView } from "../src/transcript";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -141,6 +141,30 @@ describe("semantic transcript projection (#183)", () => {
     const tail = "comando base sempre";
     expect(frame.split(tail).length - 1).toBe(1);
     expect(frame.split("↳ you: sì").length - 1).toBe(1);
+    ink.unmount();
+  });
+
+  test("tight lists split per item and promote while streaming; loose lists stay whole (#226)", () => {
+    const tight = "Riepilogo:\n\n1. primo punto\n2. secondo punto\n3. terzo punto";
+    const segments = assistantSegments(tight);
+    // intro paragraph + one segment per list item
+    expect(segments.length).toBe(4);
+    const partial = "Riepilogo:\n\n1. primo punto\n2. secondo";
+    // item 1 is final while item 2 still streams (settled boundary may promote it)
+    expect(closedPrefixLength(partial)).toBe("Riepilogo:\n\n1. primo punto\n".length);
+    // projection marks item continuations tight: no blank row between items
+    const blocks = projectTranscript([{ type: "assistant_delta", text: tight }]);
+    expect(blocks.filter((b) => b.tight).length).toBe(2);
+    expect(blocks.filter((b) => b.continuation && !b.tight).length).toBe(1);
+  });
+
+  test("split ordered lists keep their literal numbering when rendered (#226)", () => {
+    const text = "1. primo punto\n2. secondo punto\n3. terzo punto";
+    const blocks = projectTranscript([{ type: "assistant_delta", text }]);
+    expect(blocks.length).toBe(3);
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={blocks[2]!} width={80} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("3. terzo punto");
     ink.unmount();
   });
 

@@ -138,6 +138,28 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
         // destination rather than leaking Markdown source syntax.
         return token.text ? `${token.text} (${token.href})` : token.href;
       },
+      // Terminal lists must keep the source markers (#226): the default
+      // renderer renumbers every ordered list from 1, so a list split into
+      // per-item segments (streaming promotion) would print wrong numbers.
+      list(this: { listitem(item: unknown): string; tab?: number }, token: Tokens.List): string {
+        const start = token.ordered ? Number(token.start ?? 1) : 1;
+        const tab = " ".repeat(this.tab ?? 4);
+        const rows: string[] = [];
+        token.items.forEach((item, i) => {
+          const raw = this.listitem(item).replace(/^\n/, ""); // "* body"
+          const marker = token.ordered ? `${start + i}. ` : "* ";
+          const body = raw.startsWith("* ") ? raw.slice(2) : raw;
+          body.split("\n").forEach((line, j) => {
+            // Nested lists already carry their own tab from the recursive
+            // render — indent them one level deeper, don't realign to the marker.
+            rows.push(j > 0 && line.startsWith(tab) ? tab + line : tab + (j === 0 ? marker + line : " ".repeat(marker.length) + line));
+          });
+        });
+        // Same nested-list repair the default applies: a sub list glued to
+        // its parent item text moves to its own line.
+        const joined = rows.join("\n").replace(/(\S(?: |  )?)((?:\x20{4})+)((?:\*|\d+\.)(?:.*)+)$/gm, `$1\n${tab}$2$3`);
+        return `${joined}\n\n`;
+      },
       table(this: { parser: { parseInline(t: unknown): string } }, token: Tokens.Table): string {
         const nCols = Math.max(1, token.header.length);
         // Row budget: width minus the chat line's leading space and the nCols+1
