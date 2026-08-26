@@ -1,5 +1,28 @@
 import type { AgentEvent, Message, Tool, ToolContext, ToolCall } from "../types";
+import { CANCELLED_TOOL_OUTPUT } from "../types";
 import type { SessionConfig } from "./config";
+
+/**
+ * A synthetic failed result for a tool call still open when the turn is
+ * cancelled (#237): a tool whose promise never settles (e.g. bash with
+ * orphaned children holding the output pipes) must not leave an orphan
+ * tool_call in the log or the message list — every provider rejects the
+ * next request with `invalid_request: Tool result is missing`.
+ * Cancellation-aware tools get a short grace period to settle themselves
+ * (the subagent spawn tool, for one, resolves with its own cancelled
+ * result and emits `subagent_result` on abort); only tools still open
+ * after it get the synthetic result. Races the tool promise; the loser is
+ * discarded (its eventual settlement appends nothing — the call is already
+ * closed).
+ */
+const ABORT_GRACE_MS = 300;
+function cancelledResult(callId: string, signal: AbortSignal): Promise<{ callId: string; ok: boolean; output: string }> {
+  const cancelled = { callId, ok: false, output: CANCELLED_TOOL_OUTPUT };
+  if (signal.aborted) return new Promise((resolve) => setTimeout(() => resolve(cancelled), ABORT_GRACE_MS));
+  return new Promise((resolve) =>
+    signal.addEventListener("abort", () => setTimeout(() => resolve(cancelled), ABORT_GRACE_MS), { once: true }),
+  );
+}
 
 /** The gate surface ToolRunner needs — satisfied by PermissionGate (#90). */
 export interface GateCheck {
@@ -77,7 +100,10 @@ export class ToolRunner {
     // reflects completion order; collect parts in that same order.
     const parts: Message["parts"] = [];
     const runOne = async (call: ToolCall) => {
-      const result = await this.#execute(call, signal);
+      const result = await Promise.race([
+        this.#execute(call, signal),
+        cancelledResult(call.callId, signal),
+      ]);
       this.#append({ type: "tool_result", ...result });
       parts.push({ kind: "tool_result", ...result });
     };

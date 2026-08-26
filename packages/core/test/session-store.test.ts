@@ -169,6 +169,29 @@ describe("session store", () => {
     expect(store.load()).toEqual([{ type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" }]);
   });
 
+  test("replayMessages() repairs a tool_call whose tool_result never arrived (aborted turn) #237", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
+      { type: "user_message", text: "run" },
+      { type: "assistant_delta", text: "starting" },
+      { type: "tool_call", callId: "c9", name: "bash", args: { command: "sleep 99" } },
+      // turn aborted mid-tool: user_message + error, no tool_result for c9
+      { type: "user_message", text: "come procede?" },
+      { type: "error", reason: "invalid_request", message: "x" },
+    ];
+    const messages = replayMessages(events);
+    // The orphan tool_call must be followed by a failed synthetic
+    // tool_result so the replayed conversation satisfies the tool-use
+    // protocol every provider requires.
+    const idx = messages.findIndex(
+      (m) => m.parts.some((p) => p.kind === "tool_call" && p.callId === "c9"),
+    );
+    expect(idx).toBeGreaterThan(-1);
+    const follow = messages[idx + 1]!;
+    expect(follow.role).toBe("user");
+    expect(follow.parts[0]).toMatchObject({ kind: "tool_result", callId: "c9", ok: false });
+  });
+
   test("replayMessages() rebuilds the provider-facing conversation from the log", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },

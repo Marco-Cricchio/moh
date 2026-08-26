@@ -26,6 +26,51 @@ describe("built-in tools", () => {
     ).rejects.toThrow(/exit code 3/);
   });
 
+  // #237: helper so a hung tool fails the test instead of hanging the suite.
+  const withDeadline = <T>(p: PromiseLike<T>, ms = 4_000): Promise<T> =>
+    Promise.race([
+      Promise.resolve(p),
+      new Promise<T>((_, rej) => setTimeout(() => rej(new Error("test deadline exceeded — tool never settled")), ms)),
+    ]);
+
+  test("bash abort settles the tool promptly and kills the process tree (#237)", async () => {
+    const controller = new AbortController();
+    const abortCtx: ToolContext = { ...ctx, signal: controller.signal };
+    const MARKER = "moh-237-orphan-marker";
+    const pending = tools.bash.execute(
+      { command: `sleep 60 # ${MARKER}\nsleep 60 & # ${MARKER}\necho started` },
+      abortCtx,
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    controller.abort();
+    // Settles (rejects) promptly instead of hanging on pipes held by children.
+    await expect(withDeadline(pending, 3_000)).rejects.toThrow(/cancelled/);
+    // The children (foreground + background sleep) are dead shortly after.
+    let survivors = "";
+    for (let i = 0; i < 10 && survivors === ""; i++) {
+      await Bun.sleep(150);
+      survivors = Bun.spawnSync(["bash", "-c", `pgrep -f "sleep 60 # ${MARKER}" || true`]).stdout.toString().trim();
+    }
+    expect(survivors).toBe("");
+  });
+
+  test("bash resolves normally when a background child still holds the pipes (#237)", async () => {
+    const out = await withDeadline(
+      tools.bash.execute({ command: "sleep 60 & echo hi" }, ctx),
+      3_000,
+    );
+    expect(out.trim()).toBe("hi");
+  });
+
+  test("bash timeout rejects instead of hanging on pipe holders (#237)", async () => {
+    await expect(
+      withDeadline(
+        tools.bash.execute({ command: "sleep 60 & sleep 60", timeoutMs: 300 }, ctx),
+        3_000,
+      ),
+    ).rejects.toThrow(/timed out/);
+  });
+
   test("read returns file content; write then edit replace exactly", async () => {
     const path = join(cwd, "f.txt");
     await tools.write.execute({ path, content: "alpha beta gamma" }, ctx);
