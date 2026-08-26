@@ -127,6 +127,27 @@ describe("ToolRunner", () => {
     expect(parts).toEqual([{ kind: "tool_result", callId: "c-boom", ok: false, output: "kaput" }]);
   });
 
+  test("a tool that never settles is closed with a failed synthetic result on abort (#237)", async () => {
+    const controller = new AbortController();
+    const never = makeTool({
+      name: "never",
+      execute: () => new Promise<string>(() => {}), // hangs forever (orphaned children holding pipes)
+    });
+    const { runner, events } = harness({ tools: { never } });
+    const pending = runner.run([call("never")], controller.signal);
+    await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+    // Must settle promptly (not wait for the hung tool) with a failed
+    // tool_result for the open call, so the log and the in-memory message
+    // list never carry an orphan tool_call.
+    const { outcome, parts } = await pending;
+    expect(outcome).toBe("aborted");
+    expect(parts).toEqual([
+      { kind: "tool_result", callId: "c-never", ok: false, output: "turn cancelled before the tool returned" },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: "tool_result", callId: "c-never", ok: false });
+  });
+
   test("aborted signal → outcome 'aborted'", async () => {
     const controller = new AbortController();
     const tool = makeTool({

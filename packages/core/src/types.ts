@@ -3,6 +3,15 @@
  */
 export const SCHEMA_VERSION = 1;
 
+/**
+ * The single wording for a tool result synthesized because the turn was
+ * cancelled (or the process died) before the tool returned (#237). Both
+ * synthesizing sites — ToolRunner at abort time and replayMessages at
+ * resume time — must agree, or the replayed log drifts from what a live
+ * abort would have written.
+ */
+export const CANCELLED_TOOL_OUTPUT = "turn cancelled before the tool returned";
+
 import { z } from "zod";
 import type { PermissionRule } from "./permissions";
 
