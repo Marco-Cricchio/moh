@@ -2,6 +2,7 @@ import { Marked, type Tokens } from "marked";
 // marked-terminal ships no type declarations (documented subset used).
 // @ts-expect-error untyped module
 import { markedTerminal } from "marked-terminal";
+import { highlight as cliHighlight, supportsLanguage } from "cli-highlight";
 import { useMemo } from "react";
 import { Box, Text } from "ink";
 import Table from "cli-table3";
@@ -90,6 +91,61 @@ const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i +
 
 const fg = (hex: string) => `\x1b[38;2;${hexToRgb(hex)}m`;
 
+/** Common fence-language aliases models emit that highlight.js doesn't
+ * register (#237): normalized before any hljs lookup happens. */
+const LANG_ALIASES: Record<string, string> = {
+  jsonl: "json",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  md: "markdown",
+  ts: "typescript",
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  py: "python",
+  rb: "ruby",
+  yml: "yaml",
+  golang: "go",
+  "c++": "cpp",
+  "c#": "csharp",
+};
+
+/**
+ * Normalizes malformed GFM table separator rows (#237): a header with N
+ * columns followed by a delimiter row with M ≠ N groups is not a table per
+ * GFM, so marked renders the block as a plaintext paragraph — a pipe-soup
+ * line in the terminal. Padding/trimming the delimiters to the header's
+ * column count lets the normal table renderer take over. Runs as a marked
+ * `preprocess` hook inside `createMarkdownRenderer`, so every parse (live
+ * and streaming) passes through it.
+ */
+export function normalizeTableSeparators(text: string): string {
+  const lines = text.split("\n");
+  const headerCols = (line: string): number => {
+    const cells = line.split("|");
+    const lead = /^\s*\|/.test(line) ? 1 : 0;
+    const tail = /\|\s*$/.test(line) ? 1 : 0;
+    return cells.length - lead - tail;
+  };
+  const isSeparator = (line: string): boolean => {
+    const t = line.trim();
+    return t.includes("-") && /^[\s|:-]+$/.test(t);
+  };
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const header = lines[i]!;
+    if (!header.includes("|") || !isSeparator(lines[i + 1]!)) continue;
+    const cols = headerCols(header);
+    if (cols < 1) continue;
+    const sepCols = headerCols(lines[i + 1]!);
+    if (sepCols === cols) continue;
+    const lead = /^\s*\|/.test(lines[i + 1]!) ? "|" : "";
+    const tail = /\|\s*$/.test(lines[i + 1]!) ? "|" : "";
+    lines[i + 1] = `${lead}${Array.from({ length: cols }, () => " --- ").join("|")}${tail}`;
+  }
+  return lines.join("\n");
+}
+
 /**
  * The markdown renderer captures theme colors at construction, so it must be
  * regenerated per theme (docs/tui-style-guide.md §5, implementation lessons).
@@ -125,7 +181,36 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
   // (Text wrap="truncate-end"). Re-render tables with an even column budget
   // and wordWrap, so cli-table3 wraps cell text itself instead.
   marked.use({
+    hooks: {
+      preprocess: normalizeTableSeparators,
+    },
     renderer: {
+      // Code fences (#237): marked-terminal's own code path hands every
+      // fence language straight to cli-highlight, whose bundled highlight.js
+      // `console.warn`s on every lookup of an unregistered language — once
+      // per streaming re-render per fence. Normalizing aliases here and
+      // dropping unknown languages before the lookup keeps rendering
+      // warning-free while known languages (and aliases) still highlight.
+      code(token: Tokens.Code): string {
+        const raw = (token.lang ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+        const lang = raw ? (LANG_ALIASES[raw] ?? raw) : "";
+        let body = token.text.replace(/\n$/, "");
+        if (lang && supportsLanguage(lang)) {
+          try {
+            body = cliHighlight(token.text, { language: lang }).replace(/\n$/, "");
+          } catch {
+            body = `${fg(theme.accent)}${token.text.replace(/\n$/, "")}\x1b[39m`;
+          }
+        } else {
+          body = `${fg(theme.accent)}${token.text.replace(/\n$/, "")}\x1b[39m`;
+        }
+        // marked-terminal indents code blocks by its tab (4 spaces) and
+        // sections them with a trailing blank line — same shape here.
+        return `${body
+          .split("\n")
+          .map((l) => `    ${l}`)
+          .join("\n")}\n\n`;
+      },
       // Text tokens (e.g. inside loose list items) fall back to the raw
       // source in marked-terminal (`token.text`), leaking **bold** markers.
       // Parse the inline tokens instead, keeping span styling.

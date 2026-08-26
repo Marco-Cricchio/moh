@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { closeOpenFences, createMarkdownRenderer, wrapRenderedLines } from "../src/markdown";
 import { THEMES } from "../src/themes";
 
@@ -140,5 +141,65 @@ describe("createMarkdownRenderer", () => {
       .split("\n")
       .reduce((a, b) => (visible(b).length > visible(a).length ? b : a), "");
     expect(visible(longest).length).toBeLessThanOrEqual(40);
+  });
+
+  // #237 Bug 3: a GFM table whose separator row has fewer delimiter groups
+  // than the header has columns (a common model emission) must not collapse
+  // to a plaintext pipe soup — it renders as a real table.
+  test("malformed table (4-col header, 3 delimiters) still renders as a table", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 80);
+    const source = "| # | Bug | Dove | Effetto |\n|---|---|---|\n| 1 | bash | builtin-tools | hang |\n| 2 | resume | session-store | dead |";
+    const out = String(md.parse(source));
+    const visible = out.replace(/\u001b\[[0-9;]*m/g, "");
+    expect(visible).toMatch(/[─│┌├└]/); // rendered border, not raw pipes
+    expect(visible).toContain("session-store");
+    expect(visible).toContain("Effetto");
+  });
+
+  test("table separator rows with extra delimiters are trimmed to the header width", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 80);
+    const source = "| a | b |\n|---|---|---|---|\n| 1 | 2 |";
+    const out = String(md.parse(source));
+    const visible = out.replace(/\u001b\[[0-9;]*m/g, "");
+    expect(visible).toMatch(/[─│┌├└]/);
+    expect(visible).toContain("a");
+  });
+
+  // #237 Bug 3: unregistered fence languages (jsonl and friends) trigger a
+  // highlight.js console.warn on every streaming re-render — one warning per
+  // render pass per fence. Rendering must stay warning-free.
+  test("code fences with unknown/aliased languages render without console warnings", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 80);
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")); };
+    try {
+      const out1 = String(md.parse("```jsonl\n{\"a\": 1}\n```"));
+      const out2 = String(md.parse("```totally-not-a-language\nplain text\n```"));
+      const visible = (out1 + out2).replace(/\u001b\[[0-9;]*m/g, "");
+      expect(visible).toContain('"a": 1');
+      expect(visible).toContain("plain text");
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings).toEqual([]);
+  });
+
+  test("common language aliases still highlight: jsonl renders as json", async () => {
+    // cli-highlight colors through its own nested chalk copy, whose level
+    // is 0 outside a TTY and cached at import time — reachable neither via
+    // env set after load nor via the test's chalk instance (a different
+    // copy). Run the check in a fresh bun subprocess with color forced.
+    const mdPath = join(__dirname, "../src/markdown.tsx");
+    const themesPath = join(__dirname, "../src/themes.ts");
+    const fence = "\u0060\u0060\u0060";
+    const script =
+      `Promise.all([import(${JSON.stringify(mdPath)}), import(${JSON.stringify(themesPath)})]).then(([m, t]) => {\n` +
+      `  const out = String(m.createMarkdownRenderer(t.THEMES["tokyo-night"], 80).parse("${fence}jsonl\\n{\\\"key\\\": \\\"value\\\"}\\n${fence}"));\n` +
+      `  process.stdout.write(out.includes("\\u001b[") ? "colored" : "plain");\n` +
+      `});`;
+    const proc = Bun.spawnSync(["bun", "-e", script], { env: { ...process.env, FORCE_COLOR: "1" } });
+    expect(proc.stderr.toString()).toBe("");
+    expect(proc.stdout.toString()).toBe("colored");
   });
 });
