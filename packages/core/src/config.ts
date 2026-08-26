@@ -38,6 +38,8 @@ export const endpointProfileSchema = z.object({
   baseUrl: z.string().optional(),
   /** Model used when a route references the endpoint without one. */
   defaultModel: z.string().optional(),
+  /** ADR-0012 (#234): opt out of being an automatic fallback stop. Default true. */
+  fallbackEligible: z.boolean().optional(),
   /** Auth method (issue #132): absent = api-key, backward compatible. */
   auth: endpointAuthSchema.optional(),
   capabilities: capabilitiesSchema.optional(),

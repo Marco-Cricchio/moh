@@ -106,11 +106,16 @@ const BUILTIN_KINDS = new Set([
   "xai",
 ]);
 
-function resolveProfile(profile: EndpointProfile, modelId: string, registry: FrozenProviderRegistry): Provider {
+function resolveProfile(
+  profile: EndpointProfile,
+  modelId: string,
+  registry: FrozenProviderRegistry,
+  fallbacks: RouteTarget[],
+): Provider {
   const apiKey = profile.apiKey ?? envApiKey(profile.name);
   if (BUILTIN_KINDS.has(profile.type)) {
     const target = routeTargetFor(profile, modelId, apiKey);
-    return createRoute({ target });
+    return createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}) });
   }
   if (profile.type === "openai-compat") {
     if (!profile.baseUrl) {
@@ -119,7 +124,7 @@ function resolveProfile(profile: EndpointProfile, modelId: string, registry: Fro
     // Local endpoints (Ollama, LM Studio, ...) ignore the key, but the
     // wire protocol wants one; a dummy default keeps zero-credential setups working.
     const target = routeTargetFor(profile, modelId, apiKey ?? "ollama");
-    return createRoute({ target });
+    return createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}) });
   }
   const factory = registry.get(profile.type);
   if (!factory) {
@@ -162,6 +167,55 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
 }
 
 /**
+ * ADR-0012 (#234): estimates a provider's remaining health/quota on an
+ * abstract 0–100 scale (higher = more remaining). `undefined` = unknown —
+ * unknown providers sort after known ones in the automatic fallback
+ * chain. No builtin estimator exists yet; callers (tests, future quota
+ * retrieval) inject it via `RouteResolutionOptions.health`.
+ */
+export type ProviderHealthEstimator = (profile: EndpointProfile) => number | undefined;
+
+export interface RouteResolutionOptions {
+  health?: ProviderHealthEstimator;
+}
+
+function isRouteCapable(profile: EndpointProfile): boolean {
+  return BUILTIN_KINDS.has(profile.type) || profile.type === "openai-compat";
+}
+
+/**
+ * ADR-0012 (#234): the automatic fallback stops for an active provider —
+ * every other configured endpoint that is route-capable, fallback-eligible
+ * (default) and has a defaultModel. Order: known health descending first
+ * (fallbacks only — the active provider stays first regardless), unknown
+ * health last, declaration order as tiebreaker. Custom (factory) types
+ * cannot be route stops and are skipped.
+ */
+function fallbackStopsFor(
+  active: EndpointProfile,
+  endpoints: EndpointProfile[],
+  health: ProviderHealthEstimator | undefined,
+): RouteTarget[] {
+  const candidates = endpoints.filter(
+    (e) =>
+      e.name !== active.name &&
+      e.fallbackEligible !== false &&
+      e.defaultModel !== undefined &&
+      isRouteCapable(e),
+  );
+  const ranked = candidates
+    .map((e, index) => ({ e, index, h: health?.(e) }))
+    .sort((a, b) => {
+      if (a.h !== undefined && b.h !== undefined && a.h !== b.h) return b.h - a.h;
+      if (a.h !== undefined && b.h === undefined) return -1;
+      if (a.h === undefined && b.h !== undefined) return 1;
+      return a.index - b.index;
+    })
+    .map(({ e }) => routeTargetFor(e, e.defaultModel!, e.apiKey ?? envApiKey(e.name)));
+  return ranked;
+}
+
+/**
  * Resolves a provider reference against a frozen registry and the
  * configured endpoint profiles.
  *
@@ -169,11 +223,15 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
  * - "mock" (or any registered custom id) — the factory result
  * - "endpoint/model-id" — a route over the named profile
  * - "endpoint" — the profile's defaultModel
+ *
+ * Route-capable providers get the ADR-0012 automatic fallback chain:
+ * the other configured endpoints, health-ordered (unknown last).
  */
 export function resolveProviderRef(
   ref: string,
   registry: FrozenProviderRegistry,
   endpoints: EndpointProfile[],
+  options: RouteResolutionOptions = {},
 ): Provider {
   if (!ref) throw new Error("empty provider reference");
   const factory = registry.get(ref);
@@ -189,7 +247,7 @@ export function resolveProviderRef(
   if (!resolvedModel) {
     throw new Error(`provider "${ref}": endpoint "${name}" has no defaultModel; use "${name}/<model-id>"`);
   }
-  return resolveProfile(profile, resolvedModel, registry);
+  return resolveProfile(profile, resolvedModel, registry, fallbackStopsFor(profile, endpoints, options.health));
 }
 
 /**
@@ -199,6 +257,7 @@ export function resolveProviderRef(
 export function resolveProvider(
   config: MohConfig,
   registry: ProviderRegistry = defaultRegistry,
+  options: RouteResolutionOptions = {},
 ): Provider {
-  return resolveProviderRef(config.provider ?? "mock", registry.freeze(), config.endpoints ?? []);
+  return resolveProviderRef(config.provider ?? "mock", registry.freeze(), config.endpoints ?? [], options);
 }
