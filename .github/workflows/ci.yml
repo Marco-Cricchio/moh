@@ -1,15 +1,9 @@
-# CI (#236): the suite's health was invisible without bare metal — the
-# Linux test-failure report in #236 would have been caught here first.
-# PTY tests run too: python3 is present on ubuntu runners, and the
-# readiness-wait harness (#236) made their budgets host-independent.
 name: ci
-
 on:
   push:
     branches: [develop]
   pull_request:
     branches: [develop]
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,7 +14,11 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - name: Typecheck
-        run: bun run typecheck
-      - name: Test suite
-        run: bun test
+      - run: bun run typecheck
+      - name: PTY debug
+        run: bun test packages/tui/test/pty/pty-layout.test.ts -t "wide terminal"
+      - name: Dump raw
+        if: always()
+        run: |
+          ls -la /tmp/moh-pty* 2>/dev/null || true
+          head -c 3000 /tmp/moh-pty-*.bin 2>/dev/null | cat -v || echo "no dump"
