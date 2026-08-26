@@ -38,6 +38,7 @@ import { Frontier } from "./Frontier";
 import { WorkflowOffer } from "./WorkflowOffer";
 import { runSlashCommand, activeCommands } from "./commands";
 import { Toasts, useToasts } from "./Toasts";
+import { createFallbackWatcher } from "./fallback-notice";
 
 export interface AppProps {
   cwd: string;
@@ -175,6 +176,8 @@ export function App({
   useEffect(() => {
     if (!session) return;
     let stopped = false;
+    // ADR-0012: a fallback stop firing mid-turn is visible, not silent.
+    const watchFallback = createFallbackWatcher();
     const consume = async () => {
       try {
         for await (const event of session.events) {
@@ -183,6 +186,8 @@ export function App({
             setMemoryFresh(true);
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
+          const fallbackNotice = watchFallback(event);
+          if (fallbackNotice) push(fallbackNotice, "warn");
         }
       } catch {
         // closed iterator: nothing to do
