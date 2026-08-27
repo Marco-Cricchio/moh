@@ -139,10 +139,10 @@ function resolveProfile(
 /** #164: per-model catalog overrides for a route target — wire (copilot
  * claude vs gpt) and headers (copilot editor headers). Exported from the
  * defining module (ADR-0004) for direct testing. */
-export function catalogTargetOverrides(kind: string, modelId: string): { wire?: RouteTarget["wire"]; headers?: Record<string, string> } {
+export function catalogTargetOverrides(kind: string, modelId: string): { wire?: RouteTarget["wire"]; headers?: Record<string, string>; compat?: Record<string, unknown> } {
   if (!isOAuthBuiltinKind(kind)) return {};
   const entry = catalogEntryFor(kind, modelId);
-  return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}) };
+  return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}), ...(entry?.compat ? { compat: entry.compat } : {}) };
 }
 
 function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
