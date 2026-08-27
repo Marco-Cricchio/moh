@@ -92,6 +92,14 @@ export interface ToolSpec {
 
 /** Canonical thinking-level scale (#239 decision 8, #241). moh never
  * silently remaps one level to another: unsupported levels are not sent. */
+/** One declared thinking capability format (#256): which wire-native
+ * request shape a declared capability uses. */
+export type ThinkingFormat =
+  | "openai-effort"
+  | "openrouter-effort"
+  | "anthropic-effort"
+  | "google-thinking-level";
+
 export type ThinkingLevel = "off" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** The canonical level set in display order (#241): the one scale pickers

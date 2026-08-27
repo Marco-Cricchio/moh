@@ -4,7 +4,7 @@ import type { EndpointAuthContext } from "./auth/resolve";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
 import { aiSdkStreamFor, type AiSdkTransport } from "./providers/ai-sdk";
 import { resolveEndpointCredential } from "./auth/resolve";
-import type { EndpointCapabilities } from "./types";
+import type { EndpointCapabilities, ThinkingFormat } from "./types";
 import type { WireApi } from "./wire";
 
 /** What a provider implementation an Endpoint instantiates. */
@@ -85,6 +85,10 @@ export interface RouteTarget {
   /** Provider compat flags (#251): catalog `compat` metadata the wire
    * layer applies per model (e.g. openrouter `thinkingFormat`). */
   compat?: Record<string, unknown>;
+  /** #256: a config-declared thinking format for this target (per-model
+   * > endpoint-level declaration). The wire layer maps the canonical
+   * level through this format when present, instead of the wire. */
+  thinkingFormat?: ThinkingFormat;
 }
 
 export interface RouteConfig {
