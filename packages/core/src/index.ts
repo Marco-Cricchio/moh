@@ -70,6 +70,19 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { catalogEntryFor, subscriptionModelCatalog, type CatalogModel } from "./model-catalog";
+export {
+  clearThinkingPreference,
+  defaultThinkingLevel,
+  effectiveThinkingLevel,
+  readThinkingPreference,
+  readThinkingPreferences,
+  setThinkingPreference,
+  thinkingLevelStates,
+  THINKING_LEVELS,
+  type ThinkingLevelState,
+  type ThinkingPreferences,
+} from "./thinking-preferences";
+export { isThinkingLevel } from "./types";
 export { listOpenAiCompatModels } from "./endpoint-models";
 import {
   isSubscriptionKind,
