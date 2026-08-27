@@ -169,14 +169,23 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   let sawContent = false;
 
   const flushAssistant = () => {
-    if (!sawContent) return;
-    messages.push({ role: "assistant", parts: [...(text ? [{ kind: "text" as const, text }] : []), ...toolCalls] });
+    if (!sawContent) {
+      reasoningParts.length = 0; // #240: reasoning of a call that never
+      // produced assistant content (failed/interrupted) never forms a
+      // valid assistant message — the block stays in the log only.
+      return;
+    }
+    messages.push({ role: "assistant", parts: [...reasoningParts, ...(text ? [{ kind: "text" as const, text }] : []), ...toolCalls] });
     text = "";
     toolCalls.length = 0;
+    reasoningParts.length = 0;
     sawContent = false;
   };
 
   const results: Message["parts"] = [];
+  // #240: completed reasoning blocks of the calls whose deltas follow —
+  // attached to the assistant message built from those deltas.
+  const reasoningParts: Message["parts"] = [];
   // Call ids whose tool_result has already been folded into `results` —
   // used to spot orphan tool_calls (aborted turn, crash mid-tool) and
   // repair them at the next flush with a synthetic failed tool_result.
@@ -203,6 +212,14 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         flushResults();
         flushAssistant();
         messages.push({ role: "user", parts: [{ kind: "text", text: event.text }] });
+        break;
+      case "reasoning":
+        // #240: completed reasoning is logged after its call's deltas (it
+        // lands when the call flushes) — it attaches to those deltas.
+        // Pending tool results mark an iteration boundary: flush the
+        // previous call's message before opening the next call's reasoning.
+        flushResults();
+        reasoningParts.push({ kind: "reasoning", text: event.text, ...(event.continuation ? { continuation: event.continuation } : {}) });
         break;
       case "assistant_delta":
         flushResults();

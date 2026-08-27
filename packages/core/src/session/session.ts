@@ -183,6 +183,8 @@ export class AgentSession {
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
       append: (event) => this.#append(event),
+      // #240: the neutral thinking-level request (per-call option passthrough).
+      ...(config.thinking ? { thinking: () => config.thinking } : {}),
       ...(this.#memory ? { onTurnSettled: (result) => this.#maybeExtractMemory(result) } : {}),
     });
     this.#queue = new TurnQueue({

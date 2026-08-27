@@ -162,6 +162,22 @@ const assembled = sessionFromConfig({
 widen built-in defaults) and are recorded as `permission_rule_added`
 events, so they persist across resume of the same log.
 
+## Provider reasoning and thinking levels (#240)
+
+Reasoning-capable providers may emit neutral reasoning stream events
+(`reasoning_start` / `reasoning_delta` / `reasoning_end`). Completed
+reasoning is persisted as a `reasoning` `AgentEvent` (with the provider's
+opaque continuation artifacts, e.g. signatures) and is replayed into the
+provider context on resume — no SDK type ever crosses the core boundary.
+A custom provider can emit these events without importing anything from
+the AI SDK; providers that don't are untouched.
+
+A session configured with `thinking: { level }` (canonical levels `off`,
+`low`, `medium`, `high`, `xhigh`, `max`) passes a neutral
+`StreamOptions.thinking` request to every provider call; each
+`model_call` event audits the effective level actually sent. Levels a
+wire cannot express are not sent and not remapped.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

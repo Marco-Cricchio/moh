@@ -101,4 +101,8 @@ export interface SessionConfig {
    * disables everything (no writes, no section, no subagent runs).
    */
   memory?: MemoryOptions;
+  /** #240: neutral thinking-level request for every model call of this
+   * session. Wired to endpoint-scoped preferences in #241; absent = no
+   * thinking request is sent at all. */
+  thinking?: { level: import("../types").ThinkingLevel };
 }

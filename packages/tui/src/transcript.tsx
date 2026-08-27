@@ -263,6 +263,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "mcp_refused":
         blocks.push({ key, kind: "chrome", glyph: "⊘", type: "MCP refused", detail: `${event.server} · ${event.capability}`, lines: [] });
         break;
+      case "reasoning":
+        // #240: persisted provider reasoning — rendering is #242 (display is
+        // separate from persistence); until then the TUI stays silent.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
