@@ -4,6 +4,10 @@ import type {
   FinishReason,
   Message,
   Provider,
+  ReasoningPart,
+  StreamEvent,
+  StreamOptions,
+  ThinkingLevel,
   TokenUsage,
   Tool,
   ToolCall,
@@ -46,7 +50,7 @@ export interface AgentLoopOptions {
   append: (event: AgentEvent) => void;
   /** #240: the neutral thinking-level request, read once per model call
    * (session-level option; #241 wires endpoint preferences here). */
-  thinking?: () => { level: import("../types").ThinkingLevel } | undefined;
+  thinking?: () => { level: ThinkingLevel } | undefined;
   /** Fire-and-forget post-turn hook (memory trigger); never blocks the turn. */
   onTurnSettled?: (result: TurnResult) => void;
 }
@@ -69,7 +73,7 @@ export class AgentLoop {
   readonly #assemblePrompt: () => void;
   readonly #lastPrompt: () => AssembledPrompt | null;
   readonly #append: (event: AgentEvent) => void;
-  readonly #thinking: (() => { level: import("../types").ThinkingLevel } | undefined) | undefined;
+  readonly #thinking: (() => { level: ThinkingLevel } | undefined) | undefined;
   readonly #onTurnSettled: ((result: TurnResult) => void) | undefined;
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
   #usage = { inputTokens: 0, outputTokens: 0 };
@@ -79,8 +83,8 @@ export class AgentLoop {
   #pendingCall: {
     model: string;
     usage: TokenUsage;
-    thinkingLevel?: import("../types").ThinkingLevel;
-    reasoning: { text: string; continuation?: Record<string, unknown> } | null;
+    thinkingLevel?: ThinkingLevel;
+    reasoning: { text: string; continuation?: Record<string, unknown> }[];
   } | null = null;
   /** #83: turn rollup inputs — usage at turn start and models that served it. */
   #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -106,23 +110,33 @@ export class AgentLoop {
    * they ride the iteration's assistant message parts so later calls in
    * the same turn carry the provider's continuation artifacts. */
   #reasoningText = "";
-  #iterationReasoning: import("../types").ReasoningPart[] = [];
+  #iterationReasoning: ReasoningPart[] = [];
+
+  /** #240: opens the model-call buffer for a new stream announcement
+   * (shared by the main and wrap-up loops). */
+  #openCall(event: StreamEvent & { type: "model_call_start" }): void {
+    this.#flushModelCall();
+    this.#pendingCall = {
+      model: event.model,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
+      reasoning: [],
+    };
+  }
 
   /** #240: neutral reasoning stream bookkeeping, shared by the main and
-   * wrap-up consumption loops. */
-  #consumeReasoningEvent(event: import("../types").StreamEvent): void {
+   * wrap-up consumption loops. A call may emit several reasoning blocks;
+   * each completed block is kept (never overwritten). */
+  #consumeReasoningEvent(event: StreamEvent): void {
     if (event.type === "reasoning_start") {
       this.#reasoningText = "";
     } else if (event.type === "reasoning_delta") {
       this.#reasoningText += event.text;
     } else if (event.type === "reasoning_end") {
       if (this.#reasoningText) {
-        const part: import("../types").ReasoningPart =
-          event.continuation
-            ? { kind: "reasoning", text: this.#reasoningText, continuation: event.continuation }
-            : { kind: "reasoning", text: this.#reasoningText };
-        this.#iterationReasoning.push(part);
-        if (this.#pendingCall) this.#pendingCall.reasoning = { text: part.text, ...(event.continuation ? { continuation: event.continuation } : {}) };
+        const block = { text: this.#reasoningText, ...(event.continuation ? { continuation: event.continuation } : {}) };
+        this.#iterationReasoning.push({ kind: "reasoning", ...block });
+        this.#pendingCall?.reasoning.push(block);
       }
       this.#reasoningText = "";
     }
@@ -181,8 +195,7 @@ export class AgentLoop {
               wrapText += event.text;
               this.#append({ type: "assistant_delta", text: event.text });
             } else if (event.type === "model_call_start") {
-              this.#flushModelCall();
-              this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 }, ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}), reasoning: null };
+              this.#openCall(event);
             } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
               this.#consumeReasoningEvent(event);
             } else if (event.type === "fallback") {
@@ -242,8 +255,7 @@ export class AgentLoop {
             // A new call starts: record the previous one, then open a buffer
             // for this one (#83). Mid-stream fallbacks announce a second
             // call inside the same provider.stream — both get recorded.
-            this.#flushModelCall();
-            this.#pendingCall = { model: event.model, usage: { inputTokens: 0, outputTokens: 0 }, ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}), reasoning: null };
+            this.#openCall(event);
           } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
             this.#consumeReasoningEvent(event);
           } else if (event.type === "fallback") {
@@ -313,7 +325,7 @@ export class AgentLoop {
 
   /** #240: the neutral per-call stream options; undefined when no thinking
    * level is configured — providers then receive no invented field. */
-  #streamOptions(): import("../types").StreamOptions | undefined {
+  #streamOptions(): StreamOptions | undefined {
     const thinking = this.#thinking?.();
     return thinking ? { thinking } : undefined;
   }
@@ -328,8 +340,10 @@ export class AgentLoop {
     if (!call) return;
     this.#pendingCall = null;
     this.#turnModels.push(call.model);
-    if (call.reasoning) {
-      this.#append({ type: "reasoning", text: call.reasoning.text, ...(call.reasoning.continuation ? { continuation: call.reasoning.continuation } : {}) });
+    if (call.reasoning.length > 0) {
+      for (const block of call.reasoning) {
+        this.#append({ type: "reasoning", text: block.text, ...(block.continuation ? { continuation: block.continuation } : {}) });
+      }
     }
     this.#append({
       type: "model_call",
