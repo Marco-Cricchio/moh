@@ -56,6 +56,10 @@ class Screen:
         self.cols, self.rows = cols, rows
         self.grid = [[" "] * cols for _ in range(rows)]
         self.row = self.col = 0
+        # Alternate-screen state (DECSET 1049): `main_saved` holds the main
+        # buffer's grid + cursor while the alternate buffer is active.
+        self.alt_active = False
+        self.main_saved = None
         self.pending = ""  # partial escape sequence across writes
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
@@ -148,6 +152,21 @@ class Screen:
                     self.grid[self.row][c] = " "
                 for r in range(self.row + 1, self.rows):
                     self.grid[r] = [" "] * self.cols
+        elif final == "h" and seq.startswith("\x1b[?1049"):
+            # Alternate screen buffer (DECSET 1049): modal overlays render
+            # there (see App.tsx). The harness keeps both grids and swaps
+            # cursor + content on the switch, so assertions see the buffer
+            # the user actually sees after the modal closes.
+            if not self.alt_active:
+                self.main_saved = (self.grid, self.row, self.col)
+                self.alt_active = True
+                self.grid = [[" "] * self.cols for _ in range(self.rows)]
+                self.row = self.col = 0
+        elif final == "l" and seq.startswith("\x1b[?1049"):
+            if self.alt_active:
+                self.grid, self.row, self.col = self.main_saved
+                self.main_saved = None
+                self.alt_active = False
         # SGR (m), OSC and anything else: styling or unsupported → ignore
 
     def lines(self) -> list[str]:
