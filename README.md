@@ -70,6 +70,8 @@ saying why. Decisions are recorded, not implied: see `docs/adr/`.
 
 - `docs/extending/` — extending moh: writing extensions, embedding the
   core as a library, authoring skills
+- `docs/provider-reasoning.md` — provider reasoning privacy, persistence,
+  display controls, and thinking-level availability
 - `docs/spec/v1.md` — the consolidated v1 specification
 - `docs/principles.md` — the seven principles governing every change
 - `CONTEXT.md` — glossary of the domain model

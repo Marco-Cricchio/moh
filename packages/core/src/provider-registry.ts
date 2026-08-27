@@ -8,7 +8,7 @@ import { MockProvider } from "./mock-provider";
 import { EchoProvider } from "./echo-provider";
 import { Endpoint, createRoute, envApiKey, type ProviderKind, type RouteTarget } from "./route";
 import type { EndpointProfile, MohConfig } from "./config";
-import type { Provider } from "./types";
+import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
 import { catalogEntryFor } from "./model-catalog";
 
@@ -111,10 +111,11 @@ function resolveProfile(
   modelId: string,
   registry: FrozenProviderRegistry,
   fallbacks: RouteTarget[],
+  thinkingForTarget?: (target: RouteTarget) => StreamOptions["thinking"] | undefined,
 ): Provider {
   const apiKey = profile.apiKey ?? envApiKey(profile.name);
   const route = (target: RouteTarget): Provider =>
-    createRoute(fallbacks.length ? { target, fallbacks } : { target });
+    createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}), ...(thinkingForTarget ? { thinkingForTarget } : {}) });
   if (BUILTIN_KINDS.has(profile.type)) {
     return route(routeTargetFor(profile, modelId, apiKey));
   }
@@ -177,6 +178,8 @@ export type ProviderHealthEstimator = (profile: EndpointProfile) => number | und
 
 export interface RouteResolutionOptions {
   health?: ProviderHealthEstimator;
+  /** Endpoint preference seam resolved per target, including fallbacks. */
+  thinkingForTarget?: (target: RouteTarget) => StreamOptions["thinking"] | undefined;
 }
 
 function isRouteCapable(profile: EndpointProfile): boolean {
@@ -254,6 +257,7 @@ export function resolveProviderRef(
     // Custom-factory providers cannot be route stops: skip the (discarded)
     // chain construction for them.
     isRouteCapable(profile) ? fallbackStopsFor(profile, endpoints, options.health) : [],
+    options.thinkingForTarget,
   );
 }
 

@@ -142,7 +142,10 @@ export type AgentEvent =
   /** #83: one record per model call — which model served it and what it cost.
    * #240: `thinkingLevel` audits the effective level actually sent, if any
    * (#239 decision 9: switches, fallbacks, provider defaults accounted). */
-  | { type: "model_call"; model: string; usage: TokenUsage; thinkingLevel?: ThinkingLevel }
+  | { type: "model_call"; model: string; usage: TokenUsage; thinkingLevel?: ThinkingLevel; /** #243: the call did not finalize a provider message (interrupted,
+   * failed, or superseded by a retry/fallback stop). Its reasoning stays
+   * displayable, but replay must not treat its partial content as a valid
+   * assistant message. */ failed?: true }
   /** #240: completed provider reasoning of one model call — persisted in
    * the log (Principle 2), replayed into the assistant message context
    * with its opaque continuation artifacts. Emitted before the call's
@@ -169,9 +172,9 @@ export type AgentEvent =
    * replay shows the switch; the TUI toasts it (visible, not silent). */
   | { type: "fallback"; from: string; to: string; reason: string }
   /**
-   * Compaction marker (schema only, no implementation yet): replay uses
-   * `summary` in place of the events before index `upTo` (exclusive); the
-   * log itself is never truncated.
+   * Compaction marker: replay uses `summary` in place of the events before
+   * index `upTo` (exclusive), while retaining the recent tail; the log
+   * itself is never truncated.
    */
   | { type: "compaction"; summary: string; upTo: number }
   | { type: "extension_loaded"; name: string; version: string }

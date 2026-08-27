@@ -108,6 +108,7 @@ describe("reasoning display and controls (#242)", () => {
     expect(frame).toContain("provider-exposed reasoni"); // width-capped status projection
     expect(REASONING_PERSISTENCE_NOTICE).toContain("saved in the session log");
     expect(REASONING_PERSISTENCE_NOTICE).toContain("resume and fork");
+    expect(REASONING_PERSISTENCE_NOTICE).toContain("exports and backups");
     expect(calls).toBe(0); // notice precedes the first compatible call
     expect(loadUserConfig(join(home, ".moh", "config")).reasoningNoticeShown).toBe(true);
     ui.unmount();
