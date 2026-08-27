@@ -22,6 +22,11 @@ import type { UserConfig } from "./user-config";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 
+/** The user config file inside an already-resolved moh home — the one
+ * spelling of the path in this module (ADR-0006's `userConfigFile`
+ * derives from the *user* home; commands work from `ctx.mohHome`). */
+const mohConfigFile = (mohHome: string) => join(mohHome, "config");
+
 export interface SlashContext {
   cwd: string;
   /** User-level moh dir (`~/.moh`). */
@@ -229,7 +234,7 @@ const thinkingCommand: SlashCommand = {
       const display = (ctx.thinkingDisplay?.() ?? ctx.config.showReasoning) ? "on" : "off";
       // #256: an unsupported stored preference is visible here — kept
       // intact, resolved to the provider default, never silently dropped.
-      const preference = readThinkingPreference(join(ctx.mohHome, "config"), control?.endpointName ?? "");
+      const preference = readThinkingPreference(mohConfigFile(ctx.mohHome), control?.endpointName ?? "");
       const unsupported =
         preference && (!control || control.states[preference] === "provider-default") ? ` · provider default (preference ${preference} unsupported by ${ref})` : "";
       if (!ref || !control) {
@@ -244,7 +249,7 @@ const thinkingCommand: SlashCommand = {
     if (control.states[arg] === "provider-default") {
       return ctx.notify(`✗ ${ref} does not offer level "${arg}" — nothing changed (moh never remaps levels); /thinking lists what it offers`);
     }
-    setThinkingPreference(join(ctx.mohHome, "config"), control.endpointName, arg);
+    setThinkingPreference(mohConfigFile(ctx.mohHome), control.endpointName, arg);
     ctx.onThinkingLevelChanged?.();
     ctx.notify(`✓ thinking level ${arg} saved for endpoint ${control.endpointName} · effective from the next model call`);
   },

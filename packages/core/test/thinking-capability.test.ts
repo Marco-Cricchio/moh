@@ -16,15 +16,14 @@ import { catalogEntryFor, normalizeThinkingLevelMap } from "../src/model-catalog
 import { readUserConfigFile, updateUserConfigFile } from "../src/user-config";
 import type { EndpointProfile } from "../src/config";
 
+type ThinkingCap = NonNullable<EndpointProfile["capabilities"]>["thinking"];
+
 function tmpConfigFile(): string {
   return join(mkdtempSync(join(tmpdir(), "moh-thinking-256-")), "config");
 }
 
 /** openai-compat-style endpoint profile with a declared capability. */
-function compatProfile(
-  name: string,
-  thinking?: EndpointProfile["capabilities"] extends infer C ? (C extends { thinking?: infer T } ? T : never) : never,
-): EndpointProfile {
+function compatProfile(name: string, thinking?: ThinkingCap): EndpointProfile {
   return { name, type: "openai-compat", baseUrl: "https://example.test/v1", ...(thinking ? { capabilities: { thinking } } : {}) };
 }
 
@@ -96,6 +95,21 @@ describe("#256 thinkingStatesForRef resolution chain", () => {
   test("unknown endpoint or bare ref resolves to undefined", () => {
     expect(thinkingStatesForRef("nope/model", [{ name: "other", type: "openai" }])).toBeUndefined();
     expect(thinkingStatesForRef("mock", [])).toBeUndefined();
+  });
+
+  test("a per-model entry with no resolvable format is inert (catalog governs)", () => {
+    const endpoints: EndpointProfile[] = [
+      {
+        name: "openrouter",
+        type: "openrouter",
+        capabilities: { thinkingModels: { "openai/gpt-5.6-luna": { levels: ["low"] } } },
+      },
+    ];
+    // No own format, no endpoint-level declaration → falls through to the
+    // vendored map (xhigh/max), not the unusable declared levels.
+    const states = thinkingStatesForRef(luna, endpoints);
+    expect(states?.xhigh).toBe("supported");
+    expect(states?.low).toBe("provider-default");
   });
 });
 
