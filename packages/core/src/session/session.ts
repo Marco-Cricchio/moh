@@ -67,6 +67,9 @@ export class AgentSession {
   readonly #firstParty: "include" | "exclude";
   /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
   readonly #mcp: McpRuntime | undefined;
+  /** JSONL file the sink appends to (from-config path); undefined when
+   * the session was built without a file store. */
+  readonly #sessionFile: string | undefined;
   #promptVersion = "";
   readonly #messages: Message[];
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
@@ -118,6 +121,7 @@ export class AgentSession {
     });
     this.#onAskUser = config.onAskUser;
     this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    this.#sessionFile = config.sessionFile;
     this.#gate = new PermissionGate({
       permissions: this.#permissions,
       extensions: config.extensions,
@@ -411,6 +415,13 @@ export class AgentSession {
   /** Tools registered on this session, including connected MCP tools. */
   get tools(): Record<string, Tool> {
     return this.#allTools();
+  }
+
+  /** Path of the JSONL session file this session appends to (via the
+   * configured store sink). Read-only access for clients (e.g. the TUI
+   * /reload seam); sessions without a file store return undefined. */
+  get sessionFile(): string | undefined {
+    return this.#sessionFile;
   }
 
   /** MCP runtime owning external tool sources, when configured. */

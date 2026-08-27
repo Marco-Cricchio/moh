@@ -293,6 +293,37 @@ export function App({
     };
   }, [session]);
 
+  // `/reload` (#hot-reload): rebuild the session from a fresh moh.json +
+  // user-config read, appending to the same JSONL file. The old session
+  // is aborted and disposed first (memory flush, MCP shutdown, pending
+  // events settled) so nothing appends after the file is re-read; the
+  // fresh session resumes the full history from that file. A broken
+  // config keeps the old session alive (no silent fallback, ADR-0005).
+  const reload = async () => {
+    const current = session;
+    if (!current) return push("/reload needs an open session");
+    const file = current.sessionFile;
+    if (!file) return push("/reload: session file unknown — open a session first");
+    current.abort();
+    await current.dispose();
+    const result = makeSession({
+      cwd,
+      home,
+      provider,
+      workflow: configRef.current.workflow.enabled,
+      onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
+      onAskUser: askGate.ask,
+      permissionMode: configRef.current.permissionMode,
+      store: SessionStore.open(file),
+    });
+    if ("error" in result) {
+      return push(assemblyErrorToast(result.error) + " — keeping the current session");
+    }
+    setModelLabel(result.session.activeModel);
+    setSession(result.session);
+    push(`✓ config reloaded · model ${result.session.activeModel} · history preserved`);
+  };
+
   const cycleMode = () => {
     const next: Mode = mode === "vibe" ? "dev" : "vibe";
     setMode(next);
@@ -444,6 +475,7 @@ export function App({
         onThinkingLevelChanged: () => setThinkingPreferenceRevision((value) => value + 1),
         activeProviderType: () => session?.activeEndpointType,
         onModelSwitched: (model) => setModelLabel(model),
+        onReload: () => void reload(),
       })}
     />
   ) : null;
