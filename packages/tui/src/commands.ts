@@ -19,7 +19,7 @@ import {
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { UserConfig } from "./user-config";
-import { subscriptionModelCatalog, setThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
+import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 
 export interface SlashContext {
@@ -224,18 +224,23 @@ const thinkingCommand: SlashCommand = {
       return;
     }
     const ref = ctx.session?.activeModel;
-    const control = thinkingLevelControl(ref, ctx.activeProviderType?.());
+    const control = thinkingLevelControl(ref, ctx.session?.endpointProfiles, ctx.activeProviderType?.());
     if (!arg) {
       const display = (ctx.thinkingDisplay?.() ?? ctx.config.showReasoning) ? "on" : "off";
+      // #256: an unsupported stored preference is visible here — kept
+      // intact, resolved to the provider default, never silently dropped.
+      const preference = readThinkingPreference(join(ctx.mohHome, "config"), control?.endpointName ?? "");
+      const unsupported =
+        preference && (!control || control.states[preference] === "provider-default") ? ` · provider default (preference ${preference} unsupported by ${ref})` : "";
       if (!ref || !control) {
-        ctx.notify(`reasoning display ${display} · level selection not offered for ${ref ?? "no model"} (no level map)`);
+        ctx.notify(`reasoning display ${display} · level selection not offered for ${ref ?? "no model"} (no declared capability)${unsupported}`);
         return;
       }
-      ctx.notify(`reasoning display ${display} · levels offered by ${ref}: ${control.offered.join(", ")}`);
+      ctx.notify(`reasoning display ${display} · levels offered by ${ref}: ${control.offered.join(", ")}${unsupported}`);
       return;
     }
     if (!isThinkingLevel(arg)) return ctx.notify(`unknown level "${arg}" · canonical levels: ${THINKING_LEVELS.join(", ")}`);
-    if (!ref || !control) return ctx.notify(`level selection not offered: ${ref ?? "no active model"} declares no thinking level map`);
+    if (!ref || !control) return ctx.notify(`level selection not offered: ${ref ?? "no active model"} declares no thinking capability (catalog map or config declaration)`);
     if (control.states[arg] === "provider-default") {
       return ctx.notify(`✗ ${ref} does not offer level "${arg}" — nothing changed (moh never remaps levels); /thinking lists what it offers`);
     }

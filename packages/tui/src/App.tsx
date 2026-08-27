@@ -41,8 +41,10 @@ import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
 import {
   catalogEntryFor,
+  endpointThinkingStatus,
   resolveEndpointThinking,
   setThinkingPreference,
+  type ThinkingLevel,
 } from "@moh/core";
 import type { DisplayThinkingLevel } from "./BottomBar";
 import { thinkingLevelControl } from "./thinking-controls";
@@ -296,23 +298,26 @@ export function App({
     setMode(next);
     updateConfig({ mode: next });
   };
-  // #242: the effective level of the active model for the status bar.
-  // Resolved from the same seam the session uses per call, so the label
-  // always matches what was sent (provider default = no explicit level).
-  const thinkingLevel = useMemo<DisplayThinkingLevel>(() => {
-    if (!session) return "default";
-    return resolveEndpointThinking(session.activeModel, session.endpointProfiles, cfgFile)?.level ?? "default";
+  // #242/#256: the effective level of the active model for the status
+  // bar, plus the unsupported-preference marker ("provider default
+  // (preference X unsupported)"). Resolved from the same seam the
+  // session uses per call, so the label always matches what was sent.
+  const thinkingStatus = useMemo(() => {
+    if (!session) return {} as { level?: DisplayThinkingLevel; unsupported?: ThinkingLevel };
+    return endpointThinkingStatus(session.activeModel, session.endpointProfiles, cfgFile);
   }, [session, modelLabel, thinkingPreferenceRevision, cfgFile]);
+  const thinkingLevel: DisplayThinkingLevel = thinkingStatus.level ?? "default";
 
-  // #242: cycles among the levels the active model actually offers and
-  // persists immediately. Never a silent remap: unoffered levels are not
-  // part of the cycle, and models without a map get the explanation.
+  // #242/#256: cycles among the levels the active model actually offers
+  // (config declaration or catalog map) and persists immediately. Never
+  // a silent remap: unoffered levels are not part of the cycle, and
+  // models without a capability get the explanation.
   const cycleThinkingLevel = () => {
     if (!session) return;
     const ref = session.activeModel;
-    const control = thinkingLevelControl(ref, session.activeEndpointType);
+    const control = thinkingLevelControl(ref, session.endpointProfiles, session.activeEndpointType);
     if (!control || control.offered.length === 0) {
-      return push(`thinking levels not offered for ${ref} (no canonical level map) — /model to pick a reasoning model`);
+      return push(`thinking levels not offered for ${ref} (no declared capability) — /model to pick a reasoning model or declare one in config`);
     }
     const current = resolveEndpointThinking(ref, session.endpointProfiles, cfgFile)?.level;
     const idx = current ? control.offered.indexOf(current) : -1;
@@ -409,6 +414,7 @@ export function App({
       tokens={sidebar.tokens}
       workflowOn={workflowOn}
       thinkingLevel={thinkingLevel}
+      unsupportedThinkingLevel={thinkingStatus.unsupported}
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
       notice={toasts.at(-1)?.text}

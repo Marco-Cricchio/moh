@@ -71,6 +71,9 @@ interface StatusProps {
   turns: number;
   tokens: SidebarTokens;
   level: DisplayThinkingLevel;
+  /** #256: unsupported stored preference marker (dim ✗⚙ next to the
+   * model segment — visible, never a prompt). */
+  unsupportedLevel?: ThinkingLevel;
   workflowOn?: boolean;
   memoryFresh?: boolean;
   phase?: string;
@@ -109,6 +112,9 @@ function StatusRow(props: StatusProps) {
     { text: !vibe && props.tokens.contextIn > 0 ? `⊣ ${(props.tokens.contextIn / 1000).toFixed(1)}k` : "", optional: true },
     { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
     { text: model },
+    // #256: unsupported stored preference — kept intact, resolved to the
+    // provider default; shown as a dim marker so the mismatch is visible.
+    { text: props.unsupportedLevel ? `✗⚙ ${props.unsupportedLevel}` : "", optional: true },
     { text: props.workflowOn ? "◈ wf" : "", optional: true },
     // The branch is plain-language chrome: it shows in vibe and dev alike.
     { text: props.branch ? `⎇ ${props.branch}` : "", optional: true },
@@ -119,6 +125,7 @@ function StatusRow(props: StatusProps) {
     if (text === "◈ wf" || (text.startsWith("◆") && (props.level === "high" || props.level === "xhigh"))) return theme.purple;
     if (text.startsWith("◆")) return theme.fg;
     if (text.startsWith("⎇")) return theme.ok;
+    if (text.startsWith("✗⚙")) return theme.warn;
     if (text === "◉ dev") return theme.accent;
     return theme.dim;
   };

@@ -74,6 +74,18 @@ export const PI_API_TO_WIRE: Record<string, WireApi> = {
   "google-generative-ai": "google",
 };
 
+/** #256 minimal normalization: a provider-native `minimal` key counts as
+ * the canonical `low` (native value preserved) only when the map does not
+ * also carry `low`; when both are present `low` wins and `minimal` is
+ * dropped. This is data normalization of declared capabilities at the
+ * projection — not the runtime remapping spec decision 8 forbids. */
+export function normalizeThinkingLevelMap(map: Record<string, string | null>): Record<string, string | null> {
+  if (!("minimal" in map)) return map;
+  const { minimal: _minimal, ...rest } = map;
+  if (rest.low === undefined) rest.low = _minimal;
+  return rest;
+}
+
 function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
   const wire = PI_API_TO_WIRE[api];
   if (!wire) return undefined;
@@ -83,7 +95,7 @@ function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
     contextWindow: entry.contextWindow ?? 0,
     reasoning: entry.reasoning ?? false,
     wire,
-    ...(entry.thinkingLevelMap ? { thinkingLevelMap: entry.thinkingLevelMap } : {}),
+    ...(entry.thinkingLevelMap ? { thinkingLevelMap: normalizeThinkingLevelMap(entry.thinkingLevelMap) } : {}),
     ...(entry.headers ? { headers: entry.headers } : {}),
     ...(entry.compat ? { compat: entry.compat } : {}),
   };

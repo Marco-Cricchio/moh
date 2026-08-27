@@ -74,16 +74,22 @@ export {
   clearThinkingPreference,
   defaultThinkingLevel,
   effectiveThinkingLevel,
+  endpointThinkingStatus,
   readThinkingPreference,
   readThinkingPreferences,
   resolveEndpointThinking,
   setThinkingPreference,
   thinkingLevelStates,
+  thinkingStatesForRef,
   THINKING_LEVELS,
+  FORMAT_EXPRESSIBLE_LEVELS,
+  type ThinkingDeclaration,
+  type ThinkingEndpoint,
   type ThinkingLevelState,
+  type ThinkingModelDeclaration,
   type ThinkingPreferences,
 } from "./thinking-preferences";
-export { isThinkingLevel } from "./types";
+export { isThinkingLevel, type ThinkingFormat } from "./types";
 export { listOpenAiCompatModels } from "./endpoint-models";
 import {
   isSubscriptionKind,

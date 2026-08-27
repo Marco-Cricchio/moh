@@ -15,12 +15,35 @@ import { endpointAuthSchema } from "./auth/types";
 import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 import { subagentSpecSchema } from "./subagents";
 import { memoryConfigSchema } from "./memory";
+import { isThinkingLevel } from "./types";
+
+/** #256: a configuration-declared thinking capability — which format
+ * the endpoint/model speaks and which canonical levels it accepts. */
+const thinkingDeclarationSchema = z.object({
+  format: z.enum(["openai-effort", "openrouter-effort", "anthropic-effort", "google-thinking-level"]),
+  levels: z
+    .array(z.string())
+    .min(1)
+    .refine((levels) => levels.every((l) => isThinkingLevel(l)), "levels must be canonical thinking levels (off, low, medium, high, xhigh, max)"),
+});
+
+/** #256: per-model refinement — format inherits the endpoint-level
+ * declaration when omitted. */
+const thinkingModelDeclarationSchema = z.object({
+  format: z.enum(["openai-effort", "openrouter-effort", "anthropic-effort", "google-thinking-level"]).optional(),
+  levels: thinkingDeclarationSchema.shape.levels,
+});
 
 const capabilitiesSchema = z
   .object({
     caching: z.boolean(),
     parallelToolCalls: z.boolean(),
     multimodal: z.boolean(),
+    /** #256: endpoint-level thinking capability declaration (openai-compat
+     * and as the base for per-model overrides on catalog-backed endpoints). */
+    thinking: thinkingDeclarationSchema.optional(),
+    /** #256: per-model thinking capability overrides, keyed by model id. */
+    thinkingModels: z.record(z.string(), thinkingModelDeclarationSchema).optional(),
   })
   .partial();
 

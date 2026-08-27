@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, useInput, useStdout } from "ink";
-import type { AgentEvent, AgentSession } from "@moh/core";
+import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
@@ -32,6 +32,9 @@ export interface ChatProps {
   workflowOn?: boolean;
   memoryFresh?: boolean;
   thinkingLevel?: DisplayThinkingLevel;
+  /** #256: an unsupported stored preference — surfaced as a small dim
+   * marker next to the model ("✗⚙ <level>"), never a prompt. */
+  unsupportedThinkingLevel?: ThinkingLevel;
   /** #242: render provider reasoning blocks (projection-only toggle; a
    * change repaints the transcript so historical reasoning appears). */
   showReasoning?: boolean;
@@ -66,6 +69,7 @@ export function Chat({
   workflowOn = false,
   memoryFresh = false,
   thinkingLevel = "medium",
+  unsupportedThinkingLevel,
   showReasoning = false,
   livePhase,
   notice,
@@ -231,6 +235,7 @@ export function Chat({
         turns={state.turnCount}
         tokens={tokens}
         level={thinkingLevel}
+        unsupportedLevel={unsupportedThinkingLevel}
         workflowOn={workflowOn}
         memoryFresh={memoryFresh}
         phase={armed ? "esc again to stop" : livePhase}
