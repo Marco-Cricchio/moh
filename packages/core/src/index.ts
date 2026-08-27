@@ -23,7 +23,20 @@ import { type PermissionsConfig, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
-import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, SendOptions, SkillPrompt, Tool } from "./types";
+import type {
+  AgentEvent,
+  AskUserQuestion,
+  AskUserResult,
+  Message,
+  MessagePart,
+  Provider,
+  ReasoningPart,
+  SendOptions,
+  SkillPrompt,
+  StreamOptions,
+  ThinkingLevel,
+  Tool,
+} from "./types";
 import { SessionStore } from "./session-store";
 import {
   formatRule,
@@ -429,6 +442,11 @@ export {
   type TrackerIssue,
   type TrackerBackend,
   type AgentEvent,
+  type Message,
+  type MessagePart,
+  type ReasoningPart,
+  type StreamOptions,
+  type ThinkingLevel,
   type AskUserQuestion,
   type AskUserResult,
   type Provider,
