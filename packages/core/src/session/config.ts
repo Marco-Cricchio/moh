@@ -102,7 +102,9 @@ export interface SessionConfig {
    */
   memory?: MemoryOptions;
   /** #240: neutral thinking-level request for every model call of this
-   * session. Wired to endpoint-scoped preferences in #241; absent = no
-   * thinking request is sent at all. */
-  thinking?: { level: import("../types").ThinkingLevel };
+   * session. A static level, a per-call getter (#242: dynamic overrides),
+   * or absent — in which case the session resolves endpoint-scoped
+   * preferences from `~/.moh/config` when the active ref is a catalog
+   * model (#241/#242). Absent resolution = no thinking request at all. */
+  thinking?: { level: import("../types").ThinkingLevel } | (() => { level: import("../types").ThinkingLevel } | undefined);
 }

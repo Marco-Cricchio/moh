@@ -16,7 +16,7 @@
  *   survives through the guardian's read-modify-write.
  */
 import { readFileSync } from "node:fs";
-import type { CatalogModel } from "./model-catalog";
+import { catalogEntryFor, type CatalogModel } from "./model-catalog";
 import { isThinkingLevel, THINKING_LEVELS, type ThinkingLevel } from "./types";
 import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "./user-config";
 
@@ -160,3 +160,29 @@ export function clearThinkingPreference(file: string, endpoint: string, io: User
   }, io);
 }
 
+
+/**
+ * The per-call thinking request for the *active* provider ref (#242):
+ * `endpoint/model-id` resolved against the session's merged endpoint
+ * profiles and the vendored catalog, honoring the endpoint's stored
+ * preference. Re-read per call so a persisted preference change is
+ * effective on the very next call. `undefined` = send nothing (custom
+ * providers, non-catalog models, models without a level map, or a
+ * preference the model does not offer — never a silent remap).
+ */
+export function resolveEndpointThinking(
+  ref: string,
+  endpoints: ReadonlyArray<{ name: string; type: string }>,
+  userConfig: string,
+  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
+): { level: ThinkingLevel } | undefined {
+  const slash = ref.indexOf("/");
+  if (slash === -1) return undefined;
+  const endpointName = ref.slice(0, slash);
+  const endpoint = endpoints.find((e) => e.name === endpointName);
+  if (!endpoint) return undefined;
+  const model = catalogEntryFor(endpoint.type, ref.slice(slash + 1));
+  if (!model?.thinkingLevelMap) return undefined;
+  const level = effectiveThinkingLevel(model, readThinkingPreference(userConfig, endpointName, read));
+  return level === undefined ? undefined : { level };
+}

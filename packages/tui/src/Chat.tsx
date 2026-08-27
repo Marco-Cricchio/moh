@@ -7,7 +7,7 @@ import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
 import { BASE_COMMANDS } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
-import { BottomBar, ThinkingSeparator, type ThinkingLevel } from "./BottomBar";
+import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
 
@@ -31,7 +31,10 @@ export interface ChatProps {
   tokens?: SidebarTokens;
   workflowOn?: boolean;
   memoryFresh?: boolean;
-  thinkingLevel?: ThinkingLevel;
+  thinkingLevel?: DisplayThinkingLevel;
+  /** #242: render provider reasoning blocks (projection-only toggle; a
+   * change repaints the transcript so historical reasoning appears). */
+  showReasoning?: boolean;
   livePhase?: string;
   notice?: string;
   /** Git branch label override (tests); default: read from the session cwd. */
@@ -63,6 +66,7 @@ export function Chat({
   workflowOn = false,
   memoryFresh = false,
   thinkingLevel = "medium",
+  showReasoning = false,
   livePhase,
   notice,
   submitSignal = 0,
@@ -82,12 +86,12 @@ export function Chat({
   // segments list now exists only for the repaint reset — every mode
   // switch rebuilds it from zero in the new grammar and remounts Static,
   // so stale print indices cannot survive a switch.
-  interface Segment { base: number; mode: Mode }
+  interface Segment { base: number; mode: Mode; show: boolean }
   const sessionRef = useRef(session);
-  const segmentsRef = useRef<Segment[]>([{ base: 0, mode }]);
+  const segmentsRef = useRef<Segment[]>([{ base: 0, mode, show: showReasoning }]);
   if (sessionRef.current !== session) {
     sessionRef.current = session;
-    segmentsRef.current = [{ base: 0, mode }];
+    segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
   }
   const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
   // Mode switch repaints (#201): the printed grammar is no longer sealed —
@@ -102,15 +106,23 @@ export function Chat({
     modeRef.current = mode;
     repaintRef.current = true;
   }
+  // #242: display toggling is an immediate whole-transcript reprojection —
+  // already-promoted (Static) blocks were printed under the old setting,
+  // so enabling display repaints to surface historical reasoning.
+  const showRef = useRef(showReasoning);
+  if (showReasoning !== showRef.current) {
+    showRef.current = showReasoning;
+    repaintRef.current = true;
+  }
   useEffect(() => {
     if (!repaintRef.current || replaySettled || blocked) return;
     repaintRef.current = false;
-    segmentsRef.current = [{ base: 0, mode }];
+    segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     // Clear screen + scrollback, cursor home: the whole visible transcript
     // (including anything printed before moh) goes away by owner decision.
     stdout.write("\x1b[H\x1b[2J\x1b[3J");
     setRepaint((value) => value + 1);
-  }, [mode, replaySettled, blocked, stdout]);
+  }, [mode, showReasoning, replaySettled, blocked, stdout]);
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked
@@ -126,7 +138,7 @@ export function Chat({
       segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
     const settledBlocks = segments.flatMap((segment, index) => projectTranscript(
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
-      { filePreview, mode: segment.mode, keyBase: segment.base },
+      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show },
     ));
     const live = settledEnd < state.events.length ? state.events.slice(settledEnd) : [];
     // The live tail often begins mid-reply (the boundary closed a paragraph
@@ -135,9 +147,9 @@ export function Chat({
     const proseContinuation = settledEnd > 0 && state.events[settledEnd - 1]?.type === "assistant_delta";
     return {
       settledBlocks,
-      liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation }),
+      liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning }),
     };
-  }, [state.events, settledEnd, filePreview, mode, repaint]);
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],
@@ -262,12 +274,23 @@ export function settledBoundary(events: readonly AgentEvent[], pending: boolean)
       continue;
     }
     deltaRun = "";
-    if (event.type === "tool_call") { pendingCalls++; continue; }
+    if (event.type === "tool_call") {
+      // The call-level fallback/reasoning/model_call prefix immediately
+      // before a tool is immutable now; promote it without the unresolved
+      // tool_call whose ◌ state still mutates.
+      if (pendingCalls === 0) boundary = i;
+      pendingCalls++;
+      continue;
+    }
     // Clamp: a stray result without its call must not under-count and
     // over-promote a prefix.
     if (event.type === "tool_result" && pendingCalls > 0) pendingCalls--;
     if (pendingCalls > 0) continue;
-    if (event.type === "model_call") continue;
+    // #242: these events form one projection unit. Do not seal a reasoning
+    // block before its model label arrives, or a model_call before the next
+    // event proves whether it failed. Fallback also stays beside the failed
+    // call it announces instead of being sliced away from its error state.
+    if (event.type === "fallback" || event.type === "reasoning" || event.type === "model_call") continue;
     boundary = i + 1;
   }
   return boundary;

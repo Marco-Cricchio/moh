@@ -19,7 +19,8 @@ import {
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { UserConfig } from "./user-config";
-import { subscriptionModelCatalog } from "@moh/core";
+import { subscriptionModelCatalog, setThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
+import { thinkingLevelControl } from "./thinking-controls";
 
 export interface SlashContext {
   cwd: string;
@@ -44,6 +45,15 @@ export interface SlashContext {
   onModelSwitched?: (model: string) => void;
   /** Notified on a workflow toggle (App re-reads the tracker, #36). */
   onWorkflowToggle?: (enabled: boolean) => void;
+  /** #242: sets the session-level reasoning display override (immediate,
+   * projection-only). Absent (headless): /thinking show|hide still
+   * reports but cannot change the display. */
+  onThinkingDisplay?: (show: boolean) => void;
+  /** Effective display state (session override over global preference). */
+  thinkingDisplay?: () => boolean;
+  /** #242: notified after a level preference was persisted (App refreshes
+   * the status-bar level). */
+  onThinkingLevelChanged?: () => void;
 }
 
 export interface SlashCommand {
@@ -197,6 +207,45 @@ const modelCommand: SlashCommand = {
   },
 };
 
+/** #242: reasoning display + thinking-level selection. `show|hide` is
+ * the temporary session override (projection-only, immediate); a level
+ * argument persists the endpoint preference immediately through the
+ * guardian and explains unsupported levels instead of remapping them. */
+const thinkingCommand: SlashCommand = {
+  name: "thinking",
+  description: "reasoning display (show|hide) and thinking level (off…max)",
+  usage: "/thinking [show|hide | off|low|medium|high|xhigh|max]",
+  run(ctx, args) {
+    const arg = args.trim().toLowerCase();
+    if (arg === "show" || arg === "hide") {
+      if (!ctx.onThinkingDisplay) return ctx.notify(`reasoning display: ${ctx.config.showReasoning ? "on" : "off"} (no UI to change it here)`);
+      ctx.onThinkingDisplay(arg === "show");
+      ctx.notify(`reasoning display ${arg === "show" ? "on" : "off"} for this session · requests and saved history are unchanged`);
+      return;
+    }
+    const ref = ctx.session?.activeModel;
+    const control = thinkingLevelControl(ref, ctx.activeProviderType?.());
+    if (!arg) {
+      const display = (ctx.thinkingDisplay?.() ?? ctx.config.showReasoning) ? "on" : "off";
+      if (!ref || !control) {
+        ctx.notify(`reasoning display ${display} · level selection not offered for ${ref ?? "no model"} (no level map)`);
+        return;
+      }
+      ctx.notify(`reasoning display ${display} · levels offered by ${ref}: ${control.offered.join(", ")}`);
+      return;
+    }
+    if (!isThinkingLevel(arg)) return ctx.notify(`unknown level "${arg}" · canonical levels: ${THINKING_LEVELS.join(", ")}`);
+    if (!ref || !control) return ctx.notify(`level selection not offered: ${ref ?? "no active model"} declares no thinking level map`);
+    if (control.states[arg] === "provider-default") {
+      return ctx.notify(`✗ ${ref} does not offer level "${arg}" — nothing changed (moh never remaps levels); /thinking lists what it offers`);
+    }
+    setThinkingPreference(join(ctx.mohHome, "config"), control.endpointName, arg);
+    ctx.onThinkingLevelChanged?.();
+    ctx.notify(`✓ thinking level ${arg} saved for endpoint ${control.endpointName} · effective from the next model call`);
+  },
+};
+
+
 function readInstalled(mohHome: string, name: string): Record<string, string> {
   const dir = join(mohHome, "skills", name);
   const files: Record<string, string> = {};
@@ -246,7 +295,7 @@ function stripSkillFrontmatter(raw: string): string {
 }
 
 /** Commands available regardless of workflow mode. */
-export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, askMohCommand, modelCommand];
+export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, askMohCommand, modelCommand, thinkingCommand];
 
 /** Workflow-mode commands (thin skill aliases + frontier + skills). */
 export function workflowCommands(): SlashCommand[] {
