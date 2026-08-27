@@ -33,3 +33,12 @@ Run `/thinking` to see the active model's available canonical levels. The canoni
 Run `/thinking <level>` to persist the selection for the active endpoint. It applies from the next model call. A model switch resolves the newly active endpoint's preference, and every fallback stop resolves the serving endpoint's own preference. The effective level sent is recorded on each `model_call` event.
 
 Level availability is model-specific. moh offers only levels declared by the active model's catalog map; unsupported entries are disabled and explained. moh never silently substitutes one level for another. If a model has no level map, level selection is unavailable and the provider default is used. Reasoning display can still work whenever that provider emits reasoning.
+
+## Provider request formats
+
+How a level is requested depends on the backend's wire:
+
+- Anthropic-style wires send `effort` (or an explicit disable for `off`);
+- OpenAI wires send `reasoning_effort`;
+- Google sends `thinkingLevel` (and drops `xhigh`/`max`, which it cannot express — no silent remap);
+- OpenRouter models (catalog `compat.thinkingFormat: "openrouter"`) send the documented normalized `reasoning: { effort, exclude: false }` shape, and OpenRouter's streamed `reasoning_details` (including the legacy `reasoning` field) are translated into moh's neutral reasoning lifecycle. Opaque/encrypted detail entries are preserved verbatim as continuation metadata, never rendered.
