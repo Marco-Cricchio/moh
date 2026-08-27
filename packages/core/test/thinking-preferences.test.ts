@@ -12,7 +12,7 @@ import {
   thinkingLevelStates,
 } from "../src/thinking-preferences";
 import { catalogEntryFor, subscriptionModelCatalog } from "../src/model-catalog";
-import { readUserConfigFile } from "../src/user-config";
+import { readUserConfigFile, updateUserConfigFile } from "../src/user-config";
 
 function tmpFile(): string {
   return join(mkdtempSync(join(tmpdir(), "moh-thinking-")), "config");
@@ -92,6 +92,11 @@ describe("effectiveThinkingLevel (#241: switches/fallback resolve per call)", ()
     expect(effectiveThinkingLevel(wide, "max")).toBeUndefined();
   });
 
+  test("explicit off without a map entry also falls to provider default (no remap)", () => {
+    const noOff = { id: "m", name: "m", contextWindow: 1, reasoning: true, thinkingLevelMap: { medium: "medium" } };
+    expect(effectiveThinkingLevel(noOff, "off")).toBeUndefined();
+  });
+
   test("no preference: model default (medium when supported, else provider default)", () => {
     expect(effectiveThinkingLevel(wide, undefined)).toBe("medium");
     const fable = catalogEntryFor("anthropic", "claude-fable-5")!;
@@ -128,6 +133,15 @@ describe("endpoint preferences in ~/.moh/config (#241)", () => {
     expect(data.thinkingLevels).toEqual({ a: "low", "keep-out": "off" });
   });
 
+  test("a write preserves an invalid hand-written sibling verbatim (reads filter, writes never silently fix it)", () => {
+    const file = tmpFile();
+    updateUserConfigFile(file, (d) => {
+      d.thinkingLevels = { bad: "ultra", other: 42 };
+    });
+    setThinkingPreference(file, "a", "high");
+    expect(readUserConfigFile(file).thinkingLevels).toEqual({ bad: "ultra", other: 42, a: "high" });
+  });
+
   test("an invalid stored value reads as absent, never throws a session", () => {
     const read = () => JSON.stringify({ thinkingLevels: { a: "ultra" } });
     expect(readThinkingPreference("x", "a", read)).toBeUndefined();
@@ -150,6 +164,15 @@ describe("endpoint preferences in ~/.moh/config (#241)", () => {
     expect(readThinkingPreference(file, "b")).toBe("high");
     clearThinkingPreference(file, "missing");
     expect(readUserConfigFile(file).thinkingLevels).toEqual({ b: "high" });
+  });
+
+  test("clear removes an invalid hand-written entry too (raw section check, not filtered)", () => {
+    const file = tmpFile();
+    updateUserConfigFile(file, (d) => {
+      d.thinkingLevels = { bad: "ultra", ok: "low" };
+    });
+    clearThinkingPreference(file, "bad");
+    expect(readUserConfigFile(file).thinkingLevels).toEqual({ ok: "low" });
   });
 
   test("missing section/file reads as no preference", () => {
