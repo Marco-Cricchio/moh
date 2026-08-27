@@ -38,7 +38,7 @@ export interface UserConfig {
   telemetry: boolean;
   /** Permission mode for new sessions; bypass stays CLI-flag-only. */
   permissionMode: DefaultPermissionMode;
-  /** $EDITOR override for ctrl+e and permission "edit". */
+  /** $EDITOR override for the permission "edit" action. */
   editor?: string;
   /** Rows of the home recent-sessions list shown at once (3…10). */
   homeListMax: number;
