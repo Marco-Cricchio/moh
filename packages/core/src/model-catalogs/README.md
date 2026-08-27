@@ -17,7 +17,7 @@ and an auditable, versioned data surface.
   + compat flags)
 - `xai.json` — xAI grok models
 
-Source version at the last regeneration: **pi-ai 0.84.2**.
+Source version at the last regeneration: **pi-ai 0.84.3**.
 
 ## Regeneration
 

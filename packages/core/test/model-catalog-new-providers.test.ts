@@ -30,11 +30,12 @@ describe("new provider catalogs (#164)", () => {
     expect(k3.compat?.allowEmptySignature).toBe(true);
   });
 
-  test("xai catalog: grok models, responses wire for grok-4.5", () => {
+  test("xai catalog: grok models, responses wire for grok models", () => {
     const ids = subscriptionModelCatalog("xai").map((m) => m.id);
     expect(ids.some((id) => id.startsWith("grok-"))).toBe(true);
+    // pi-ai >= 0.84.3 serves all grok models over the responses API.
     expect(catalogEntryFor("xai", "grok-4.5")!.wire).toBe("openai-responses");
-    expect(catalogEntryFor("xai", "grok-4.6")!.wire).toBe("openai-chat");
+    expect(catalogEntryFor("xai", "grok-4.6")!.wire).toBe("openai-responses");
   });
 
   test("openrouter catalog: verbatim multi-vendor list", () => {
