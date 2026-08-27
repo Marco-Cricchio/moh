@@ -119,12 +119,25 @@ function languageModelFor(
     // #251: openrouter models marked `compat.thinkingFormat: "openrouter"`
     // travel the openai-chat wire but need OpenRouter's own reasoning
     // request/response shapes — applied at this wire/compat seam.
-    if (target.compat?.thinkingFormat === "openrouter" || target.thinkingFormat === "openrouter-effort") {
+    // The same wrapper serves generic openai-compat backends that
+    // declare a thinking capability (#262): the stock adapter strips
+    // their streamed reasoning (`reasoning_content` — DeepSeek/Z.AI
+    // lineage — or `reasoning_details`/`reasoning`), so the declared
+    // format opts the endpoint into the reasoning-aware wire. The
+    // request dialect follows the format: `openrouter-effort` rewrites
+    // to OpenRouter's `reasoning: { effort }`; `openai-effort` keeps
+    // the standard `reasoning_effort` field.
+    if (
+      target.compat?.thinkingFormat === "openrouter" ||
+      target.thinkingFormat === "openrouter-effort" ||
+      target.thinkingFormat === "openai-effort"
+    ) {
       return openRouterChatModel({
         modelId: target.modelId,
         apiKey,
         ...(baseUrl ? { baseUrl } : {}),
         ...(headers ? { headers } : {}),
+        ...(target.thinkingFormat === "openai-effort" ? { dialect: "openai-compat" } : {}),
       });
     }
     return openai.chat(target.modelId);
