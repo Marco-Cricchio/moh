@@ -17,7 +17,7 @@ const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, strin
     keys: [
       ["enter", "send"],
       ["ctrl+j / ⏥enter", "newline"],
-      ["ctrl+e", "edit draft in $EDITOR"],
+      ["ctrl+a/e", "line start / line end"],
       ["esc", "steer (type to redirect the running turn)"],
       ["esc esc", "stop the running turn"],
       ["ctrl+d", "toggle tool-call detail"],
