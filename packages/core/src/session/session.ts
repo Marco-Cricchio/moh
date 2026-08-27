@@ -19,6 +19,7 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost } from "../subagents";
 import { replayMessages } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
+import { resolveEndpointThinking } from "../thinking-preferences";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -183,8 +184,16 @@ export class AgentSession {
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
       append: (event) => this.#append(event),
-      // #240: the neutral thinking-level request (per-call option passthrough).
-      ...(config.thinking ? { thinking: () => config.thinking } : {}),
+      // #240/#242: the neutral thinking-level request. An explicit config
+      // (static or getter) wins; otherwise endpoint-scoped preferences are
+      // resolved per call against the *live* provider ref (model switches
+      // included), so a persisted preference change is immediate.
+      thinking: () => {
+        if (config.thinking !== undefined) {
+          return typeof config.thinking === "function" ? config.thinking() : config.thinking;
+        }
+        return resolveEndpointThinking(this.#provider.name, this.#endpoints, join(this.#mohHome, "config"));
+      },
       ...(this.#memory ? { onTurnSettled: (result) => this.#maybeExtractMemory(result) } : {}),
     });
     this.#queue = new TurnQueue({

@@ -12,8 +12,8 @@ import { fetchedToCatalog, filterCatalog, freeTextRow, modelRow } from "./model-
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
- * file preview, answer language, telemetry, default permission mode —
- * plus in-panel provider management (switch / add / remove endpoints in
+ * file preview, provider-reasoning display, answer language, telemetry,
+ * default permission mode — plus in-panel provider management (switch / add / remove endpoints in
  * moh.json). Changes persist to `~/.moh/config` immediately.
  */
 export interface SettingsPanelProps {
@@ -89,6 +89,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
+      { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
     ],
     [config, modelLabel, moh],
   );
@@ -148,6 +149,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         onChange({ icons: next });
         return;
       }
+      case "showReasoning":
+        return onChange({ showReasoning: !config.showReasoning });
       case "filePreview":
         return onChange({ filePreview: cycle<FilePreview>(["on-demand", "always", "none"], config.filePreview) });
       case "answerLanguage":

@@ -89,7 +89,8 @@ const detailOf = (args: unknown): string => {
  * activity collapses to one plain-language line (unresolved calls keep
  * `state: "run"` so the pending marker stays live), failures always show.
  * The log itself is never filtered: this is a projection option only. */
-export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean } = {}): TranscriptBlock[] {
+export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean; /** #242: render persisted provider reasoning blocks (display-only
+   * projection; the log is never filtered). Default: hidden. */ showReasoning?: boolean } = {}): TranscriptBlock[] {
   const vibe = options.mode === "vibe";
   const keyBase = options.keyBase ?? 0;
   const blocks: TranscriptBlock[] = [];
@@ -263,10 +264,49 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "mcp_refused":
         blocks.push({ key, kind: "chrome", glyph: "⊘", type: "MCP refused", detail: `${event.server} · ${event.capability}`, lines: [] });
         break;
-      case "reasoning":
-        // #240: persisted provider reasoning — rendering is #242 (display is
-        // separate from persistence); until then the TUI stays silent.
+      case "reasoning": {
+        // #242: completed provider reasoning of one model call, persisted
+        // just before its `model_call` (#240). Rendered only when display
+        // is on — toggling is projection-only, never a log change. The
+        // model label comes from the call's `model_call`; a call that
+        // failed keeps its block in error state.
+        if (!options.showReasoning) break;
+        // A provider call may persist several reasoning parts (#240). They
+        // share one display buffer and one model-labelled block: the 64 KiB
+        // limit is per call, not per persisted part.
+        const texts = [event.text];
+        let model = "model";
+        let modelCallIndex = -1;
+        for (let j = i + 1; j < events.length; j++) {
+          const next = events[j]!;
+          if (next.type === "reasoning") { texts.push(next.text); continue; }
+          if (next.type === "model_call") {
+            model = next.model;
+            modelCallIndex = j;
+          }
+          break;
+        }
+        const previous = events[i - 1];
+        const failed = modelCallIndex !== -1 && (
+          events[modelCallIndex + 1]?.type === "error"
+          || (previous?.type === "fallback" && previous.from === model)
+        );
+        blocks.push({
+          key,
+          kind: "thinking",
+          glyph: "⋯",
+          type: "thinking",
+          detail: `· ${model}${failed ? " · failed" : ""}`,
+          // Sanitize before enforcing the byte cap: tab expansion is part
+          // of the displayed buffer and must not push it beyond 64 KiB.
+          lines: capReasoningText(texts.join("\n\n").split("\n").map(sanitizeLine).join("\n")).split("\n"),
+          ...(failed ? { state: "fail" as const } : {}),
+        });
+        // The grouped reasoning events and model_call have no other visual
+        // projection; continue at the event after the call (usually error).
+        if (modelCallIndex !== -1) i = modelCallIndex;
         break;
+      }
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
@@ -274,6 +314,27 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
     }
   }
   return blocks;
+}
+
+/** #242: display buffer per reasoning call — 64 KiB. Projection-only:
+ * the persisted log keeps the full text forever. */
+export const REASONING_DISPLAY_CAP = 64 * 1024;
+
+/** Tail-caps one reasoning text to the display buffer with a visible
+ * truncation marker (#242 decision 7). The kept tail never exceeds the
+ * cap; oversized reasoning therefore cannot destabilize the transcript. */
+export function capReasoningText(text: string): string {
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(text);
+  if (encoded.byteLength <= REASONING_DISPLAY_CAP) return text;
+  const marker = `… reasoning truncated — showing the last ${Math.round(REASONING_DISPLAY_CAP / 1024)} KiB (full text stays in the session log) …\n`;
+  const markerBytes = encoder.encode(marker).byteLength;
+  const tailBudget = REASONING_DISPLAY_CAP - markerBytes;
+  let start = encoded.byteLength - tailBudget;
+  // Start on a UTF-8 code-point boundary: a replacement glyph could make
+  // the decoded display exceed the byte budget we just enforced.
+  while (start < encoded.byteLength && (encoded[start]! & 0xc0) === 0x80) start++;
+  return marker + new TextDecoder().decode(encoded.subarray(start));
 }
 
 function proseBlock(key: string, prose: string, continuation = false, tight = false): TranscriptBlock {

@@ -76,6 +76,7 @@ export {
   effectiveThinkingLevel,
   readThinkingPreference,
   readThinkingPreferences,
+  resolveEndpointThinking,
   setThinkingPreference,
   thinkingLevelStates,
   THINKING_LEVELS,

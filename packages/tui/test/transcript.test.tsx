@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
-import { blockTint, projectTranscript, assistantSegments, closedPrefixLength, TranscriptBlockView } from "../src/transcript";
+import { blockTint, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -310,5 +310,94 @@ describe("semantic transcript projection (#183)", () => {
     expect(blockTint(block, THEMES["tokyo-night"])).not.toBe(THEMES["tokyo-night"].bg);
     expect(blockTint({ key: "cot", kind: "thinking", glyph: "⋯", type: "thinking", lines: ["inner"] }, THEMES["tokyo-night"])).toBeUndefined();
     ink.unmount();
+  });
+});
+
+describe("provider reasoning projection (#242)", () => {
+  test("hidden by default; enabling display renders historical model-labelled reasoning", () => {
+    const events: AgentEvent[] = [
+      { type: "user_message", text: "why?" },
+      { type: "assistant_delta", text: "because" },
+      { type: "reasoning", text: "first premise" },
+      { type: "reasoning", text: "second premise" },
+      { type: "model_call", model: "anthropic/claude", usage: { inputTokens: 1, outputTokens: 2 }, thinkingLevel: "high" },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 2 }, models: ["anthropic/claude"] },
+    ];
+    expect(projectTranscript(events).some((block) => block.kind === "thinking")).toBe(false);
+
+    const thinking = projectTranscript(events, { showReasoning: true }).find((block) => block.kind === "thinking")!;
+    expect(thinking.glyph).toBe("⋯");
+    expect(thinking.detail).toBe("· anthropic/claude");
+    expect(thinking.lines).toEqual(["first premise", "", "second premise"]);
+    // Several persisted parts are one call-level display block.
+    expect(projectTranscript(events, { showReasoning: true }).filter((block) => block.kind === "thinking")).toHaveLength(1);
+  });
+
+  test("failed calls retain reasoning with an error state", () => {
+    const events: AgentEvent[] = [
+      { type: "reasoning", text: "diagnostic thought" },
+      { type: "model_call", model: "provider/model", usage: { inputTokens: 1, outputTokens: 0 } },
+      { type: "error", reason: "provider_failure", message: "boom" },
+    ];
+    const blocks = projectTranscript(events, { showReasoning: true });
+    expect(blocks[0]).toMatchObject({ kind: "thinking", state: "fail", detail: "· provider/model · failed" });
+    expect(blocks[1]).toMatchObject({ kind: "error", state: "fail" });
+  });
+
+  test("fallback call failures still mark their reasoning block failed", () => {
+    const blocks = projectTranscript([
+      { type: "fallback", from: "primary/model", to: "backup/model", reason: "overloaded" },
+      { type: "reasoning", text: "backup diagnostic" },
+      { type: "model_call", model: "backup/model", usage: { inputTokens: 1, outputTokens: 0 } },
+      { type: "error", reason: "provider_failure", message: "backup failed" },
+    ], { showReasoning: true });
+    expect(blocks.find((block) => block.kind === "thinking")).toMatchObject({ state: "fail", detail: "· backup/model · failed" });
+
+    const primary = projectTranscript([
+      { type: "fallback", from: "primary/model", to: "backup/model", reason: "overloaded" },
+      { type: "reasoning", text: "primary diagnostic" },
+      { type: "model_call", model: "primary/model", usage: { inputTokens: 1, outputTokens: 0 } },
+      { type: "assistant_delta", text: "backup succeeded" },
+    ], { showReasoning: true }).find((block) => block.kind === "thinking");
+    expect(primary).toMatchObject({ state: "fail", detail: "· primary/model · failed" });
+  });
+
+  test("64 KiB call buffer is tail-capped visibly without mutating logged data", () => {
+    const full = `discard-me-${"a".repeat(REASONING_DISPLAY_CAP)}TAIL`;
+    const event: AgentEvent = { type: "reasoning", text: full };
+    const capped = capReasoningText(full);
+    expect(new TextEncoder().encode(capped).byteLength).toBeLessThanOrEqual(REASONING_DISPLAY_CAP);
+    expect(capped).toStartWith("… reasoning truncated");
+    expect(capped).toEndWith("TAIL");
+    expect(event.text).toBe(full); // projection never truncates persisted/history data
+
+    const blocks = projectTranscript([
+      event,
+      { type: "model_call", model: "big/model", usage: { inputTokens: 0, outputTokens: 0 } },
+    ], { showReasoning: true });
+    expect(blocks[0]?.lines.join("\n")).toBe(capped);
+    expect(new TextEncoder().encode(capReasoningText("🧠".repeat(REASONING_DISPLAY_CAP))).byteLength).toBeLessThanOrEqual(REASONING_DISPLAY_CAP);
+
+    const tabs = "\t".repeat(REASONING_DISPLAY_CAP);
+    const tabBlock = projectTranscript([
+      { type: "reasoning", text: tabs },
+      { type: "model_call", model: "big/model", usage: { inputTokens: 0, outputTokens: 0 } },
+    ], { showReasoning: true })[0]!;
+    expect(new TextEncoder().encode(tabBlock.lines.join("\n")).byteLength).toBeLessThanOrEqual(REASONING_DISPLAY_CAP);
+  });
+
+  test("reasoning rendering obeys narrow width wrapping", () => {
+    const block = projectTranscript([
+      { type: "reasoning", text: "one two three four five six seven eight nine ten" },
+      { type: "model_call", model: "wide/provider-model-name", usage: { inputTokens: 0, outputTokens: 0 } },
+    ], { showReasoning: true })[0]!;
+    const rendered = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <TranscriptBlockView block={block} width={28} />
+      </ThemeProvider>,
+    );
+    const rows = stripAnsi(rendered.lastFrame() ?? "").split("\n");
+    expect(rows.every((row) => row.length <= 27)).toBe(true);
+    expect(rows.join("\n")).toContain("thinking");
   });
 });

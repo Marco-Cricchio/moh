@@ -174,9 +174,18 @@ the AI SDK; providers that don't are untouched.
 
 A session configured with `thinking: { level }` (canonical levels `off`,
 `low`, `medium`, `high`, `xhigh`, `max`) passes a neutral
-`StreamOptions.thinking` request to every provider call; each
-`model_call` event audits the effective level actually sent. Levels a
-wire cannot express are not sent and not remapped.
+`StreamOptions.thinking` request to every provider call; a per-call getter
+(`thinking: () => ({ level })`) may be used when an embedding client owns a
+dynamic override. Each `model_call` event audits the effective level actually
+sent. Levels a wire cannot express are not sent and not remapped.
+
+When `thinking` is absent, a configured `endpoint/model-id` session resolves
+the endpoint preference in `~/.moh/config` against that model's catalog map
+before every call; a newly persisted change therefore applies to the next
+call, including after a model switch. Embedding clients that need the same
+projection can call `resolveEndpointThinking(ref, endpoints, userConfigFile)`.
+It returns `{ level }` only for an offered canonical level; `undefined` means
+provider default/no explicit request, never a fallback mapping.
 
 ## What's intentionally not here
 
