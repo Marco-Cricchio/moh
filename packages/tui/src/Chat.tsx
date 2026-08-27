@@ -231,7 +231,7 @@ export function Chat({
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
-        placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+e editor)"}
+        placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+a/e line start/end)"}
         disabled={blocked}
         focused={inputFocused}
         onAskCommands={onOpenCommands}

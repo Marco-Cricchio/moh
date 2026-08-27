@@ -229,9 +229,9 @@ export function MultilineInput({
       return;
     }
     if (input === "\n" || input === "\x0a" || (key.ctrl && input === "j")) { insertText("\n"); return; }
-    if (key.ctrl && input === "e") { editInEditor(lines, setLines, setCursorLine); return; }
-
     const line = lines[cursorLine] ?? "";
+    if (key.ctrl && input === "a") { setCursorColumn(0); setPreferredColumn(null); return; }
+    if (key.ctrl && input === "e") { setCursorColumn(line.length); setPreferredColumn(null); return; }
     if (key.ctrl && key.leftArrow) { setCursorColumn(wordLeft(line, cursorColumn)); setPreferredColumn(null); return; }
     if (key.ctrl && key.rightArrow) { setCursorColumn(wordRight(line, cursorColumn)); setPreferredColumn(null); return; }
     if (input === "\x1bb") { setCursorColumn(wordLeft(line, cursorColumn)); setPreferredColumn(null); return; }
@@ -312,13 +312,3 @@ export function MultilineInput({
   );
 }
 
-function editInEditor(lines: string[], setLines: (fn: (ls: string[]) => string[]) => void, setCursorLine: (n: number) => void): void {
-  const file = join(tmpdir(), `moh-input-${Date.now()}.md`);
-  writeFileSync(file, lines.join("\n"));
-  try {
-    spawnSync(process.env.EDITOR || "vi", [file], { stdio: "inherit" });
-    const text = readFileSync(file, "utf8").replace(/\n$/, "");
-    const next = text === "" ? [""] : text.split("\n");
-    setLines(() => next); setCursorLine(next.length - 1);
-  } finally { try { unlinkSync(file); } catch { /* best effort */ } }
-}

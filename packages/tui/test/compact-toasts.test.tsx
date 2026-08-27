@@ -52,7 +52,7 @@ describe("compact mode (issue #33)", () => {
     const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("ctrl+j newline · ctrl+e editor");
+    expect(frame).toContain("ctrl+j newline · ctrl+a/e line start/end");
     expect(frame).not.toContain("ctrl+s settings");
     i.unmount();
   });

@@ -69,6 +69,25 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     i.unmount();
   });
 
+  test("ctrl+a/ctrl+e move the cursor to line start/end", async () => {
+    let submitted = "";
+    const i = await mount((text) => { submitted = text; });
+    i.stdin.write("cd");
+    await sleep(20);
+    i.stdin.write("\x01"); // ctrl+a → line start
+    await sleep(20);
+    i.stdin.write("ab"); // insert before "cd"
+    await sleep(20);
+    i.stdin.write("\x05"); // ctrl+e → line end
+    await sleep(20);
+    i.stdin.write("ef");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(submitted).toBe("abcdef");
+    i.unmount();
+  });
+
   test("left/right arrows move the insertion point instead of appending", async () => {
     let submitted = "";
     const i = await mount((text) => {
