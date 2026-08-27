@@ -45,15 +45,29 @@ export interface PtyMeta {
 
 export async function runPtyRaw(spec: PtySpec): Promise<PtyMeta> {
   if (!python3) throw new Error("python3 not found on PATH");
-  const result = Bun.spawnSync([python3, HARNESS, JSON.stringify({ ...spec, meta: true })], {
-    timeout: 45_000,
+  // #236: this MUST be asynchronous. Several PTY tests host their fake
+  // openai-compat SSE server via Bun.serve in the parent test process; a
+  // Bun.spawnSync wait blocks that process's event loop on Linux, so the
+  // child TUI's fetch never reaches the handler (model_call_start, then an
+  // infinite spinner; fake call count stays zero). Keeping the parent event
+  // loop alive lets those cross-process requests progress.
+  const proc = Bun.spawn([python3, HARNESS, JSON.stringify({ ...spec, meta: true })], {
     stdout: "pipe",
     stderr: "pipe",
   });
-  if (result.exitCode !== 0) {
-    throw new Error(`pty harness failed (${result.exitCode}): ${new TextDecoder().decode(result.stderr)}`);
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, 45_000);
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  clearTimeout(timer);
+  if (timedOut) throw new Error("pty harness timed out after 45000ms");
+  if (exitCode !== 0) {
+    throw new Error(`pty harness failed (${exitCode}): ${stderr}`);
   }
-  return JSON.parse(new TextDecoder().decode(result.stdout)) as PtyMeta;
+  return JSON.parse(stdout) as PtyMeta;
 }
 
 /** A session start with pinned settings: no onboarding/workflow overlays. */
