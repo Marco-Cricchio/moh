@@ -52,6 +52,36 @@ describe("reasoning persistence and replay (#240)", () => {
     });
   });
 
+  test("a call emitting several reasoning blocks persists all of them (no overwrite)", async () => {
+    const provider = {
+      name: "multi-block",
+      async *stream(_m: Message[], _s: AbortSignal): AsyncIterable<StreamEvent> {
+        yield { type: "model_call_start", model: "multi-block" };
+        yield { type: "reasoning_start" };
+        yield { type: "reasoning_delta", text: "first block" };
+        yield { type: "reasoning_end", continuation: { signature: "a" } };
+        yield { type: "reasoning_start" };
+        yield { type: "reasoning_delta", text: "second block" };
+        yield { type: "reasoning_end" };
+        yield { type: "text_delta", text: "answer" };
+        yield { type: "finish", reason: "stop" as const };
+      },
+    };
+    const session = createSession({ provider });
+    drain(session);
+    await session.send("hi");
+    const blocks = session.history().filter((e) => e.type === "reasoning");
+    expect(blocks).toEqual([
+      { type: "reasoning", text: "first block", continuation: { signature: "a" } },
+      { type: "reasoning", text: "second block" },
+    ]);
+    const last = replayMessages(session.history()).at(-1)!;
+    expect(last.parts.slice(0, 2)).toEqual([
+      { kind: "reasoning", text: "first block", continuation: { signature: "a" } },
+      { kind: "reasoning", text: "second block" },
+    ]);
+  });
+
   test("a live multi-iteration turn attaches each call's reasoning to its own assistant message", async () => {
     const provider = MockProvider.scripted([
       {
