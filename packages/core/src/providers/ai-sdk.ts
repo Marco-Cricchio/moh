@@ -20,6 +20,7 @@ export interface AiSdkTransport {
   wire?: WireApi;
 }
 import { normalizeProviderError } from "../provider-errors";
+import { FORMAT_EXPRESSIBLE_LEVELS } from "../thinking-preferences";
 import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, StreamOptions, ThinkingFormat, ThinkingLevel, ToolSpec } from "../types";
 
@@ -42,7 +43,7 @@ export function thinkingForWire(
       : { providerOptions: { anthropic: { effort: level } }, effective: level };
   }
   if (format === "google-thinking-level") {
-    if (level === "xhigh" || level === "max") return undefined;
+    if (!FORMAT_EXPRESSIBLE_LEVELS["google-thinking-level"].includes(level)) return undefined;
     return {
       providerOptions: { google: { thinkingConfig: level === "off" ? { thinkingLevel: null } : { thinkingLevel: level } } },
       effective: level,
@@ -58,7 +59,7 @@ export function thinkingForWire(
       : { providerOptions: { anthropic: { effort: level } }, effective: level };
   }
   if (wire === "google") {
-    if (level === "xhigh" || level === "max") return undefined;
+    if (!FORMAT_EXPRESSIBLE_LEVELS["google-thinking-level"].includes(level)) return undefined;
     // google: null disables; low/medium/high are native.
     return {
       providerOptions: { google: { thinkingConfig: level === "off" ? { thinkingLevel: null } : { thinkingLevel: level } } },

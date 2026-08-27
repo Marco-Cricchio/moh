@@ -15,12 +15,12 @@ import { endpointAuthSchema } from "./auth/types";
 import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 import { subagentSpecSchema } from "./subagents";
 import { memoryConfigSchema } from "./memory";
-import { isThinkingLevel } from "./types";
+import { isThinkingLevel, THINKING_FORMATS } from "./types";
 
 /** #256: a configuration-declared thinking capability — which format
  * the endpoint/model speaks and which canonical levels it accepts. */
 const thinkingDeclarationSchema = z.object({
-  format: z.enum(["openai-effort", "openrouter-effort", "anthropic-effort", "google-thinking-level"]),
+  format: z.enum(THINKING_FORMATS),
   levels: z
     .array(z.string())
     .min(1)
@@ -28,9 +28,11 @@ const thinkingDeclarationSchema = z.object({
 });
 
 /** #256: per-model refinement — format inherits the endpoint-level
- * declaration when omitted. */
+ * declaration when omitted. An entry with neither its own format nor an
+ * endpoint-level one is inert: `thinkingStatesForRef` falls through to
+ * the catalog map (pinned by test). */
 const thinkingModelDeclarationSchema = z.object({
-  format: z.enum(["openai-effort", "openrouter-effort", "anthropic-effort", "google-thinking-level"]).optional(),
+  format: z.enum(THINKING_FORMATS).optional(),
   levels: thinkingDeclarationSchema.shape.levels,
 });
 
