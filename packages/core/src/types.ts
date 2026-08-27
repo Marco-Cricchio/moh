@@ -90,9 +90,17 @@ export interface ToolSpec {
   parameters?: Record<string, unknown>;
 }
 
-/** Canonical thinking-level scale (#239 decision 8). moh never silently
- * remaps one level to another: unsupported levels are not sent. */
+/** Canonical thinking-level scale (#239 decision 8, #241). moh never
+ * silently remaps one level to another: unsupported levels are not sent. */
 export type ThinkingLevel = "off" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/** The canonical level set in display order (#241): the one scale pickers
+ * offer and preferences persist, whatever a provider calls its levels. */
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "low", "medium", "high", "xhigh", "max"];
+
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+}
 
 /** Neutral per-call stream request options (#240). Providers that do not
  * support thinking levels simply ignore them — no invented request fields. */
