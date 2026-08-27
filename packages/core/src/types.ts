@@ -53,6 +53,15 @@ export class ProviderError extends Error {
   }
 }
 
+/** #240/#253: provider reasoning stream lifecycle — neutral, SDK-free.
+ * Deltas stream live (also relayed to the session's live channel);
+ * the loop buffers them and persists the completed block as a single
+ * `reasoning` AgentEvent when the call completes. */
+export type ReasoningStreamEvent =
+  | { type: "reasoning_start" }
+  | { type: "reasoning_delta"; text: string }
+  | { type: "reasoning_end"; continuation?: Record<string, unknown> };
+
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_calls"; calls: { callId: string; name: string; args: unknown }[] }
@@ -63,12 +72,7 @@ export type StreamEvent =
    * provider actually sent (after per-wire capability mapping) — the
    * loop audits it on the `model_call` event. */
   | { type: "model_call_start"; model: string; thinkingLevel?: ThinkingLevel }
-  /** #240: provider reasoning stream lifecycle — neutral, SDK-free.
-   * Deltas stream live; the loop buffers them and persists the completed
-   * block as a single `reasoning` AgentEvent when the call completes. */
-  | { type: "reasoning_start" }
-  | { type: "reasoning_delta"; text: string }
-  | { type: "reasoning_end"; continuation?: Record<string, unknown> }
+  | ReasoningStreamEvent
   /** ADR-0012: the route engine announces a fallback stop: the active
    * target failed with `reason` (a ProviderError kind, e.g.
    * "quota_exhausted") and the request restarts on `to`. */

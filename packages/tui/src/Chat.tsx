@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
+import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
@@ -79,6 +80,10 @@ export function Chat({
   commands = BASE_COMMANDS.map((command) => `/${command.name}`),
 }: ChatProps) {
   const state = useSessionState(session);
+  // #253: live provider reasoning in the volatile area (display-gated in
+  // the projection below: head-only indicator when reasoning display is
+  // off — the text itself is never rendered then).
+  const liveReasoning = useLiveReasoning(session, state.pending);
   const gitBranch = useGitBranch(cwd);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
@@ -149,11 +154,24 @@ export function Chat({
     // inside a delta run): its first paragraph is a continuation of the
     // reply already printed above, not a new headed block (#205).
     const proseContinuation = settledEnd > 0 && state.events[settledEnd - 1]?.type === "assistant_delta";
+    // #253: the live reasoning block leads the volatile area while (or
+    // just after) the model thinks — frozen at reasoning_end until the
+    // settled, model-labelled block takes over from the log.
+    const liveReasoningBlock: TranscriptBlock[] = liveReasoning
+      ? [{
+          key: "live-reasoning",
+          kind: "thinking",
+          glyph: "⋯",
+          type: "thinking",
+          ...(liveReasoning.active ? { detail: "…", state: "run" as const } : {}),
+          lines: showReasoning ? liveReasoning.text.split("\n") : [],
+        }]
+      : [];
     return {
       settledBlocks,
-      liveBlocks: projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning }),
+      liveBlocks: [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning })],
     };
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint]);
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, liveReasoning]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],

@@ -193,6 +193,18 @@ for the user-visible privacy and display behavior.
 A custom provider can emit these events without importing anything from
 the AI SDK; providers that don't are untouched.
 
+### Live reasoning (#253)
+
+Reasoning deltas are delivered live, for every catalog provider that
+streams reasoning: the session exposes `onLiveEvent(listener)` (returns an
+unsubscribe function), which receives the neutral reasoning lifecycle
+(`ReasoningStreamEvent`) while the model thinks. The channel is ephemeral
+— nothing it carries is stored, sunk, or dispatched to extensions — and
+the completed block still lands in the append-only log as the `reasoning`
+AgentEvent at call settlement, so resume/fork/export semantics are
+unchanged. A TUI renders the live stream in a display-gated block and
+clears it when the settled block arrives.
+
 A session configured with `thinking: { level }` (canonical levels `off`,
 `low`, `medium`, `high`, `xhigh`, `max`) passes a neutral
 `StreamOptions.thinking` request to every provider call; a per-call getter
