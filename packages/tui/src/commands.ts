@@ -59,6 +59,10 @@ export interface SlashContext {
   /** #242: notified after a level preference was persisted (App refreshes
    * the status-bar level). */
   onThinkingLevelChanged?: () => void;
+  /** Hot config reload: rebuilds the session from a fresh moh.json/user
+   * config read, appending to the same session file (history kept).
+   * Absent (headless callers): /reload explains it needs the TUI. */
+  onReload?: () => void;
 }
 
 export interface SlashCommand {
@@ -304,8 +308,25 @@ function stripSkillFrontmatter(raw: string): string {
   return match ? raw.slice(match[0].length) : raw;
 }
 
+/** Hot config reload: moh.json + user config are re-read and the session
+ * is rebuilt through the same assembly path (`sessionFromConfig`),
+ * appending to the same JSONL file — history, memory and skills carry
+ * over; providers, MCP servers, permissions and extensions are picked
+ * up from the fresh config. A broken config keeps the old session
+ * alive (no silent fallback, ADR-0005). */
+const reloadCommand: SlashCommand = {
+  name: "reload",
+  description: "hot-reload moh.json and user config into the live session",
+  usage: "/reload",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/reload needs an open session");
+    if (!ctx.onReload) return ctx.notify("/reload needs the TUI session shell");
+    ctx.onReload();
+  },
+};
+
 /** Commands available regardless of workflow mode. */
-export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, askMohCommand, modelCommand, thinkingCommand];
+export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, askMohCommand, modelCommand, thinkingCommand, reloadCommand];
 
 /** Workflow-mode commands (thin skill aliases + frontier + skills). */
 export function workflowCommands(): SlashCommand[] {
