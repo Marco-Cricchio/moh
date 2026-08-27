@@ -1,4 +1,4 @@
-import type { AgentEvent } from "../types";
+import type { AgentEvent, ReasoningStreamEvent } from "../types";
 
 /** The dispatch surface EventLog needs from the extension runtime. */
 export interface EventDispatcher {
@@ -27,6 +27,10 @@ export class EventLog {
   readonly #sink: ((event: AgentEvent) => void) | undefined;
   readonly #extensions: EventDispatcher | undefined;
   readonly #listeners = new Set<(event: AgentEvent) => void>();
+  /** #253: live (ephemeral) reasoning listeners — notified without
+   * storage, sink, or extension dispatch. The completed block still
+   * lands as a persisted `reasoning` AgentEvent at call settlement. */
+  readonly #liveListeners = new Set<(event: ReasoningStreamEvent) => void>();
   /** Serial queue of events pending onEvent dispatch (never dropped). */
   readonly #queue: AgentEvent[] = [];
   /** Reentrancy guard: events appended while hooks dispatch are not re-dispatched. */
@@ -95,6 +99,17 @@ export class EventLog {
         };
       },
     };
+  }
+
+  /** Notifies live listeners only: no storage, sink, or hooks (#253). */
+  emitLive(event: ReasoningStreamEvent): void {
+    for (const listener of this.#liveListeners) listener(event);
+  }
+
+  /** Subscribes to live (ephemeral) events; returns an unsubscribe fn. */
+  onLive(listener: (event: ReasoningStreamEvent) => void): () => void {
+    this.#liveListeners.add(listener);
+    return () => this.#liveListeners.delete(listener);
   }
 
   /** Resolves when the dispatch queue is empty (no extensions: immediately). */

@@ -24,6 +24,16 @@ Display and persistence are independent. Hiding reasoning changes only the TUI p
 - Each call is rendered separately as `⋯ thinking · <model>`. Failed calls can retain a visible reasoning block.
 - Display is capped at 64 KiB of sanitized UTF-8 text per call, with visible truncation. Persisted data is not truncated by this display cap.
 
+## Live streaming (#253)
+
+Reasoning streams live for every catalog provider that emits it: while the
+model thinks, the TUI shows the reasoning text as it arrives (same display
+gating and 64 KiB display cap as settled blocks — with display off, only a
+static `⋯ thinking` indicator is shown, never the text). The live block is
+transient; when the call completes it is replaced by the settled,
+model-labelled block persisted in the session log. Nothing about the
+persistence semantics above changes.
+
 ## Thinking levels
 
 Run `/thinking` to see the active model's available canonical levels. The canonical scale is:
