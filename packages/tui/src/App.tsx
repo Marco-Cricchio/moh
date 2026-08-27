@@ -456,14 +456,57 @@ export function App({
   // session normally owns only its small native-scrollback live region.
   // Render modals in the terminal's alternate buffer: expanding there cannot
   // push the main buffer's transcript upward, and closing restores it byte-for-byte.
+  //
+  // The flip must respect ink's diff state: log-update tracks how many lines
+  // its current frame occupies *in whichever buffer is active*. A modal frame
+  // is fullscreen (~rows lines); if the first post-close paint ran in the
+  // main buffer with that stale count, its eraseLines(~rows) would clear the
+  // whole screen from the restored cursor and rewrite the short session
+  // frame from the top (the "chat jumps up" regression). So on close the
+  // native-grammar frame is committed first — ink repaints it into the dying
+  // alternate buffer, resyncing the line count to the session frame — and
+  // the buffer flip waits out ink's write throttle (maxFps 30 ⇒ ≤34ms) so
+  // the resync paint always precedes the flip.
+  const ALT_FLIP_DELAY_MS = 40;
+  const flipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTty = stdout.isTTY === true;
   useEffect(() => {
     if (overlayOpen === alternateScreen) return;
-    if (overlayOpen) stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
-    else stdout.write("\x1b[?1049l");
-    setAlternateScreen(overlayOpen);
-  }, [alternateScreen, overlayOpen, stdout]);
+    // The alternate-screen choreography only applies to real terminals:
+    // non-TTY hosts (test harnesses, pipes) see the plain buffer switch,
+    // where a blank write would only confuse frame-capture consumers.
+    if (overlayOpen) {
+      // A close flip may still be pending (rapid close→reopen): cancel it,
+      // or it would drop the terminal out of the alternate screen mid-modal.
+      if (flipTimerRef.current !== null) {
+        clearTimeout(flipTimerRef.current);
+        flipTimerRef.current = null;
+      }
+      if (isTty) stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
+      setAlternateScreen(true);
+      return;
+    }
+    setAlternateScreen(false);
+    if (!isTty) return;
+    // Blank the dying modal frame: the resync paint anchors at the top of
+    // the erased region, and a brief blank beats a wrongly-anchored flash.
+    stdout.write("\x1b[2J\x1b[H");
+    flipTimerRef.current = setTimeout(() => {
+      flipTimerRef.current = null;
+      stdout.write("\x1b[?1049l");
+    }, ALT_FLIP_DELAY_MS);
+  }, [alternateScreen, overlayOpen, isTty, stdout]);
+  // Unmount: a pending flip (close raced with exit) or an open overlay
+  // leaves the terminal in the alternate screen — drop it out either way.
   useEffect(() => () => {
-    if (alternateRef.current) stdout.write("\x1b[?1049l");
+    const timer = flipTimerRef.current;
+    if (timer !== null) {
+      clearTimeout(timer);
+      flipTimerRef.current = null;
+      stdout.write("\x1b[?1049l");
+    } else if (alternateRef.current) {
+      stdout.write("\x1b[?1049l");
+    }
   }, [stdout]);
   useEffect(() => { if (!showChat) setFocusedChip(null); }, [showChat]);
 
