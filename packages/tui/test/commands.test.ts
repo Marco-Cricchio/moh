@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, createSession } from "@moh/core";
+import { MockProvider, createSession, readThinkingPreference } from "@moh/core";
 import { activeCommands, runSlashCommand, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
@@ -76,7 +76,7 @@ describe("workflow slash command", () => {
 describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
-    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "ask-moh", "model"]);
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "ask-moh", "model", "thinking"]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
     for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "wayfinder", "frontier", "skills"]) {
@@ -216,5 +216,67 @@ describe("ask-moh slash command", () => {
     const ctx = makeCtx();
     expect(runSlashCommand("/ask-moh hi", ctx)).toBe(true);
     expect(ctx.notices()[0]).toContain("needs an open session");
+  });
+});
+
+describe("/thinking controls (#242)", () => {
+  test("show/hide is an immediate temporary display override only", () => {
+    let display = false;
+    const ctx = makeCtx({
+      onThinkingDisplay: (show) => { display = show; },
+      thinkingDisplay: () => display,
+    });
+    expect(runSlashCommand("/thinking show", ctx)).toBe(true);
+    expect(display).toBe(true);
+    expect(ctx.config.showReasoning).toBe(false); // global preference unchanged
+    expect(loadUserConfig(ctx.cfgFile).showReasoning).toBe(false);
+    expect(ctx.notices().at(-1)).toContain("requests and saved history are unchanged");
+
+    runSlashCommand("/thinking", ctx);
+    expect(ctx.notices().at(-1)).toContain("reasoning display on");
+    runSlashCommand("/thinking hide", ctx);
+    expect(display).toBe(false);
+  });
+
+  test("a supported level persists immediately for the active endpoint", () => {
+    let refreshed = 0;
+    const ctx = makeCtx({
+      session: { activeModel: "ep/claude-fable-5" } as any,
+      activeProviderType: () => "anthropic",
+      onThinkingLevelChanged: () => { refreshed++; },
+    });
+    runSlashCommand("/thinking xhigh", ctx);
+    expect(readThinkingPreference(ctx.cfgFile, "ep")).toBe("xhigh");
+    expect(refreshed).toBe(1);
+    expect(ctx.notices().at(-1)).toContain("effective from the next model call");
+  });
+
+  test("unsupported levels are explained and never silently mapped or persisted", () => {
+    const ctx = makeCtx({
+      session: { activeModel: "ep/claude-fable-5" } as any,
+      activeProviderType: () => "anthropic",
+    });
+    // fable offers off/xhigh/max, not medium.
+    runSlashCommand("/thinking medium", ctx);
+    expect(readThinkingPreference(ctx.cfgFile, "ep")).toBeUndefined();
+    expect(ctx.notices().at(-1)).toContain("nothing changed (moh never remaps levels)");
+
+    runSlashCommand("/thinking", ctx);
+    expect(ctx.notices().at(-1)).toContain("off, xhigh, max");
+  });
+
+  test("models without a declared level map disable selection with an explanation", () => {
+    const ctx = makeCtx({
+      session: { activeModel: "ep/claude-haiku-4-5" } as any,
+      activeProviderType: () => "anthropic",
+    });
+    runSlashCommand("/thinking high", ctx);
+    expect(readThinkingPreference(ctx.cfgFile, "ep")).toBeUndefined();
+    expect(ctx.notices().at(-1)).toContain("declares no thinking level map");
+  });
+
+  test("the command is always available outside workflow mode", () => {
+    const ctx = makeCtx();
+    expect(activeCommands(ctx).map((command) => command.name)).toContain("thinking");
   });
 });

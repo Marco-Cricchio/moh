@@ -20,7 +20,32 @@ export interface AiSdkTransport {
 }
 import { normalizeProviderError } from "../provider-errors";
 import type { RouteTarget } from "../route";
-import type { Message, StreamEvent, ToolSpec } from "../types";
+import type { Message, StreamEvent, StreamOptions, ThinkingLevel, ToolSpec } from "../types";
+
+/** #240: the effective thinking level a wire can actually send. Levels a
+ * wire cannot express are dropped (never silently remapped) — moh then
+ * sends nothing and audits no level for the call. */
+export function thinkingForWire(
+  wire: WireApi,
+  level: ThinkingLevel,
+): { providerOptions: Record<string, unknown>; effective: ThinkingLevel } | undefined {
+  if (wire === "anthropic-messages") {
+    // off = explicit disable; all five effort levels are native.
+    return level === "off"
+      ? { providerOptions: { anthropic: { thinking: { type: "disabled" } } }, effective: level }
+      : { providerOptions: { anthropic: { effort: level } }, effective: level };
+  }
+  if (wire === "google") {
+    if (level === "xhigh" || level === "max") return undefined;
+    // google: null disables; low/medium/high are native.
+    return {
+      providerOptions: { google: { thinkingConfig: level === "off" ? { thinkingLevel: null } : { thinkingLevel: level } } },
+      effective: level,
+    };
+  }
+  // openai-chat / openai-responses: reasoningEffort; "none" disables.
+  return { providerOptions: { openai: { reasoningEffort: level === "off" ? "none" : level } }, effective: level };
+}
 
 /**
  * Anthropic requires `anthropic-beta: claude-code-20250219,oauth-2025-04-20` on API calls made
@@ -101,6 +126,15 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
           toolName: part.name,
           input: part.args ?? {},
         });
+      } else if (part.kind === "reasoning") {
+        // #240: replayed provider reasoning rides back to the provider with
+        // its opaque continuation artifacts (e.g. the signature) — they
+        // preserve the exact completed provider context.
+        content.push({
+          type: "reasoning",
+          text: part.text,
+          ...(part.continuation ? { providerOptions: part.continuation } : {}),
+        });
       } else if (part.kind === "tool_result") {
         content.push({
           type: "tool-result",
@@ -145,7 +179,7 @@ export function aiSdkStreamFor(
   /** Test seam: internal module (not exported from @moh/core), so the SDK
    * type stays invisible to clients (ADR-0002). Production callers omit it. */
   modelOverride?: LanguageModel,
-): (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent> {
+): (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions) => AsyncIterable<StreamEvent> {
   const model = modelOverride ?? languageModelFor(target, apiKey, transport);
   // ChatGPT-backend invariant (#151 follow-up): the codex backend rejects
   // /responses calls without an explicit `store: false` (400 "Store must
@@ -157,13 +191,22 @@ export function aiSdkStreamFor(
     (transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind)) === "openai-responses"
       ? { providerOptions: { openai: { store: false } } }
       : {};
-  return (messages, signal, tools) => {
+  return (messages, signal, tools, options) => {
     return {
       async *[Symbol.asyncIterator]() {
+        const wire: WireApi = transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind);
+        // #240: the neutral thinking-level request, mapped per wire. Levels a
+        // wire cannot express are not sent (and not audited) — never remapped.
+        const thinking = options?.thinking ? thinkingForWire(wire, options.thinking.level) : undefined;
         // Announce the RouteTarget serving this call (#83) — `endpoint/model`
         // as moh resolved it. Providers (not routes) announce: one
         // announcement per actual stream, including fallback restarts.
-        yield { type: "model_call_start", model: `${target.endpoint.name}/${target.modelId}` };
+        // #240: the announcement carries the effective thinking level sent.
+        yield {
+          type: "model_call_start",
+          model: `${target.endpoint.name}/${target.modelId}`,
+          ...(thinking ? { thinkingLevel: thinking.effective } : {}),
+        };
         const { system, messages: aiMessages } = toAiMessages(messages);
         const aiTools = toAiTools(tools);
         const result = streamText({
@@ -172,12 +215,33 @@ export function aiSdkStreamFor(
           messages: aiMessages ?? [],
           abortSignal: signal,
           ...(aiTools ? { tools: aiTools, toolChoice: "auto" as const, stopWhen: stepCountIs(1) } : {}),
+          ...(thinking ? { providerOptions: thinking.providerOptions as never } : {}),
           ...responsesStoreFalse,
           onError: () => {}, // errors surface via fullStream error parts
         });
         for await (const part of result.fullStream) {
           if (signal.aborted) return;
           switch (part.type) {
+            case "reasoning-start":
+              yield { type: "reasoning_start" };
+              break;
+            case "reasoning-delta":
+              // fullStream carries `text`; raw model chunks use `delta` —
+              // accept both shapes so custom LanguageModels keep working.
+              yield {
+                type: "reasoning_delta",
+                text: (part as { text?: string; delta?: string }).text ?? (part as { delta?: string }).delta ?? "",
+              };
+              break;
+            case "reasoning-end":
+              // #240: the provider's continuation artifacts (e.g. the
+              // Anthropic signature) ride as opaque metadata — persisted,
+              // never rendered.
+              yield {
+                type: "reasoning_end",
+                ...(part.providerMetadata ? { continuation: part.providerMetadata as Record<string, unknown> } : {}),
+              };
+              break;
             case "text-delta":
               yield { type: "text_delta", text: part.text };
               break;

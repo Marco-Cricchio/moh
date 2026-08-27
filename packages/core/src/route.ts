@@ -1,4 +1,4 @@
-import type { Message, Provider, StreamEvent, ToolSpec } from "./types";
+import type { Message, Provider, StreamEvent, StreamOptions, ToolSpec } from "./types";
 import type { AuthMethodKind } from "./auth/types";
 import type { EndpointAuthContext } from "./auth/resolve";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
@@ -93,6 +93,10 @@ export interface RouteConfig {
   retries?: number;
   /** Backoff between retries, ms. Default 100. Tests use 0. */
   retryBackoffMs?: number;
+  /** #243: endpoint-scoped thinking preference resolved independently for
+   * every fallback target. When absent, the caller's neutral options pass
+   * through unchanged (explicit session options/custom providers). */
+  thinkingForTarget?: (target: RouteTarget) => StreamOptions["thinking"] | undefined;
   /**
    * Per-target stream factory override. Return a stream for targets you
    * handle; return undefined to use the default AI SDK factory. Tests
@@ -138,9 +142,13 @@ export function createRoute(config: RouteConfig): Route {
     name: `${config.target.endpoint.name}/${config.target.modelId}`,
     capabilities: config.target.endpoint.capabilities,
     chain: chain.map((t) => `${t.endpoint.name}/${t.modelId}`),
-    async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]): AsyncIterable<StreamEvent> {
+    async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions): AsyncIterable<StreamEvent> {
       for (let i = 0; i < chain.length; i++) {
         const target = chain[i]!;
+        const targetThinking = config.thinkingForTarget?.(target);
+        const targetOptions = config.thinkingForTarget
+          ? (targetThinking ? { thinking: targetThinking } : undefined)
+          : options;
         // #137: subscription credentials resolve (with proactive refresh)
         // once per target — before any stream call, never mid-stream, and
         // not re-resolved on retry (decision 6: no refresh retry loops).
@@ -158,7 +166,7 @@ export function createRoute(config: RouteConfig): Route {
         while (true) {
           try {
             const stream = streamFactory(target, credential, authContext) ?? defaultFactory(target, credential, authContext);
-            for await (const event of stream(messages, signal, tools)) {
+            for await (const event of stream(messages, signal, tools, targetOptions)) {
               yield event;
             }
             return;
@@ -190,7 +198,7 @@ export function createRoute(config: RouteConfig): Route {
   return provider;
 }
 
-type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[]) => AsyncIterable<StreamEvent>;
+type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions) => AsyncIterable<StreamEvent>;
 
 function defaultStreamFactory(): (
   target: RouteTarget,

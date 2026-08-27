@@ -3,14 +3,17 @@ import { Box, Text } from "ink";
 import { useTheme, type Theme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
 import { fitRow } from "./viewport";
+import type { ThinkingLevel } from "@moh/core";
 
-export type ThinkingLevel = "off" | "low" | "medium" | "high" | "xhigh";
-export type ChipAction = "send" | "stop" | "model" | "mode" | "theme" | "commands" | "settings" | "workflow" | "frontier";
+/** TUI chrome also names the absence of an explicit canonical request. */
+export type DisplayThinkingLevel = ThinkingLevel | "default";
+export type ChipAction = "send" | "stop" | "model" | "mode" | "theme" | "commands" | "settings" | "workflow" | "frontier" | "thinking";
 export interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
 
 const ALL_CHIPS: ChipSpec[] = [
   { key: "⏎", label: "send" }, { key: "esc", label: "stop" },
   { key: "^m", label: "model" }, { key: "^o", label: "mode" },
+  { key: "^y", label: "thinking" },
   { key: "^t", label: "theme" }, { key: "^k", label: "commands" },
   { key: "^s", label: "settings" }, { key: "^w", label: "workflow", color: "purple" },
   { key: "^f", label: "frontier", color: "purple" },
@@ -22,16 +25,25 @@ const compactChipWidth = (chip: ChipSpec) => 5 + chip.key.length + chip.label.le
 const graphicChipWidth = (chip: ChipSpec) => 5 + chip.key.length + chip.label.length;
 export function visibleChips(columns: number): { chips: ChipSpec[]; graphic: boolean } {
   const budget = Math.max(1, columns - 4);
-  const initial = widthClass183(columns) === "compact" ? ALL_CHIPS.slice(0, 4) : [...ALL_CHIPS];
+  const cls = widthClass183(columns);
+  const initial = cls === "compact" ? ALL_CHIPS.slice(0, 4) : [...ALL_CHIPS];
   const graphicWidth = initial.reduce((sum, chip) => sum + graphicChipWidth(chip) + 2, -2);
   if (graphicWidth <= budget) return { chips: initial, graphic: true };
+  // Wide terminals retain the bordered dashboard grammar and drop
+  // rightmost optional chips until it fits. This keeps the validated 140-col
+  // layout stable as new actions are added; ctrl shortcuts remain available.
+  if (cls === "wide") {
+    const chips = [...initial];
+    while (chips.length > 1 && chips.reduce((sum, chip) => sum + graphicChipWidth(chip) + 2, -2) > budget) chips.pop();
+    return { chips, graphic: true };
+  }
   const chips = [...initial];
   while (chips.length > 1 && chips.reduce((sum, chip) => sum + compactChipWidth(chip) + 1, -1) > budget) chips.pop();
   return { chips, graphic: false };
 }
 
 const RAINBOW = ["#ff0055", "#ff9500", "#ffd500", "#5dff5d", "#00c8ff", "#7a5cff", "#d94fff"];
-export function ThinkingSeparator({ level, width }: { level: ThinkingLevel; width: number }) {
+export function ThinkingSeparator({ level, width }: { level: DisplayThinkingLevel; width: number }) {
   const theme = useTheme();
   const [phase, setPhase] = useState(0);
   useEffect(() => {
@@ -41,13 +53,13 @@ export function ThinkingSeparator({ level, width }: { level: ThinkingLevel; widt
   }, [level]);
   const count = Math.max(1, width - 1);
   if (level === "xhigh") return <Text bold>{Array.from({ length: count }, (_, i) => <Text key={i} color={RAINBOW[(i + phase) % RAINBOW.length]}>═</Text>)}</Text>;
-  const single = level === "off" || level === "low";
+  const single = level === "default" || level === "off" || level === "low";
   const color = single ? theme.dim : level === "medium" ? theme.accent : theme.purple;
   return <Text color={color} bold={!single}>{(single ? "─" : "═").repeat(count)}</Text>;
 }
 
-export function thinkingEmoji(level: ThinkingLevel): string {
-  return ({ off: "·", low: "🌱", medium: "⚙️", high: "🧠✨", xhigh: "🧠🔥" } as const)[level];
+export function thinkingEmoji(level: DisplayThinkingLevel): string {
+  return ({ default: "·", off: "·", low: "🌱", medium: "⚙️", high: "🧠✨", xhigh: "🧠🔥", max: "🧠⚡" } as const)[level];
 }
 
 interface StatusProps {
@@ -58,7 +70,7 @@ interface StatusProps {
   model: string;
   turns: number;
   tokens: SidebarTokens;
-  level: ThinkingLevel;
+  level: DisplayThinkingLevel;
   workflowOn?: boolean;
   memoryFresh?: boolean;
   phase?: string;

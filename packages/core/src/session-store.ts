@@ -164,19 +164,60 @@ function readWholeFile(file: string): string {
  */
 export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   const messages: Message[] = [];
+  // The newest marker is the active compaction projection. Its summary
+  // replaces only the pointed-to prefix; the append-only log remains
+  // integral and the recent tail (including reasoning metadata) replays
+  // normally. Clamp corrupt pointers at the marker so they cannot erase
+  // events that were appended after compaction.
+  let compactionIndex = -1;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]!.type === "compaction") {
+      compactionIndex = i;
+      break;
+    }
+  }
+  let replayEvents = events;
+  if (compactionIndex >= 0) {
+    const compaction = events[compactionIndex] as Extract<AgentEvent, { type: "compaction" }>;
+    const upTo = Math.min(Math.max(0, compaction.upTo), compactionIndex);
+    messages.push({
+      role: "user",
+      parts: [{ kind: "text", text: `[Compaction summary]\n${compaction.summary}` }],
+    });
+    replayEvents = events.slice(upTo);
+  }
   let text = "";
   const toolCalls: Message["parts"] = [];
   let sawContent = false;
+  let completedCall = false;
 
   const flushAssistant = () => {
-    if (!sawContent) return;
-    messages.push({ role: "assistant", parts: [...(text ? [{ kind: "text" as const, text }] : []), ...toolCalls] });
+    if (!sawContent) {
+      reasoningParts.length = 0; // #240: reasoning of a call that never
+      // produced assistant content (failed/interrupted) never forms a
+      // valid assistant message — the block stays in the log only.
+      completedCall = false;
+      return;
+    }
+    messages.push({ role: "assistant", parts: [...reasoningParts, ...(text ? [{ kind: "text" as const, text }] : []), ...toolCalls] });
     text = "";
     toolCalls.length = 0;
+    reasoningParts.length = 0;
     sawContent = false;
+    completedCall = false;
   };
 
   const results: Message["parts"] = [];
+  // #240: completed reasoning blocks of the calls whose deltas follow —
+  // attached to the assistant message built from those deltas.
+  const reasoningParts: Message["parts"] = [];
+  const discardAssistant = () => {
+    text = "";
+    toolCalls.length = 0;
+    reasoningParts.length = 0;
+    sawContent = false;
+    completedCall = false;
+  };
   // Call ids whose tool_result has already been folded into `results` —
   // used to spot orphan tool_calls (aborted turn, crash mid-tool) and
   // repair them at the next flush with a synthetic failed tool_result.
@@ -197,12 +238,20 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
     messages.push({ role: "user", parts: all });
   };
 
-  for (const event of events) {
+  for (const event of replayEvents) {
     switch (event.type) {
       case "user_message":
         flushResults();
         flushAssistant();
         messages.push({ role: "user", parts: [{ kind: "text", text: event.text }] });
+        break;
+      case "reasoning":
+        // #240: completed reasoning is logged after its call's deltas (it
+        // lands when the call flushes) — it attaches to those deltas.
+        // Pending tool results mark an iteration boundary: flush the
+        // previous call's message before opening the next call's reasoning.
+        flushResults();
+        reasoningParts.push({ kind: "reasoning", text: event.text, ...(event.continuation ? { continuation: event.continuation } : {}) });
         break;
       case "assistant_delta":
         flushResults();
@@ -217,11 +266,41 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         settled.add(event.callId);
         results.push({ kind: "tool_result", callId: event.callId, ok: event.ok, output: event.output });
         break;
+      case "model_call":
+        if (event.failed) {
+          // #243: an unfinalized call (interrupted, failed, or superseded
+          // by a retry/fallback) is log-only — its partial reasoning/text
+          // never becomes provider context.
+          discardAssistant();
+        } else {
+          completedCall = true;
+        }
+        break;
+      case "fallback":
+        // The failed stop remains visible in the integral log (its
+        // reasoning + failed `model_call` follow this marker so the TUI can
+        // label the block), but none of its partial provider message
+        // becomes context for the successful stop or a later resume.
+        discardAssistant();
+        break;
       case "done":
-      case "error":
-      case "cancelled":
         flushResults();
         flushAssistant();
+        break;
+      case "error":
+        flushResults();
+        // A failed call never finalized a provider message: even deltas that
+        // streamed before the error are not a valid assistant reply.
+        discardAssistant();
+        break;
+      case "cancelled":
+        // Unlike error, an abort can land *after* a call finalized (deltas +
+        // model_call + finish, then the user pressed esc during tool wrap-up):
+        // that completed call stays valid context; only the unfinalized tail
+        // is dropped (#243).
+        flushResults();
+        if (completedCall) flushAssistant();
+        else discardAssistant();
         break;
       default:
         break; // session_start, permission_*, session_mode, compaction: not conversation content

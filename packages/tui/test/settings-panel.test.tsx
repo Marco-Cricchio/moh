@@ -76,6 +76,7 @@ describe("settings panel (issue #33)", () => {
       "Provider",
       "Add provider",
       "Remove provider",
+      "Provider reasoning",
     ]) {
       expect(frame).toContain(label);
     }
@@ -102,6 +103,16 @@ describe("settings panel (issue #33)", () => {
     expect(changes).toContainEqual({ theme: "catppuccin" });
     expect(changes).toContainEqual({ icons: false });
     expect(changes).toContainEqual({ telemetry: true });
+    i.unmount();
+  });
+
+  test("provider reasoning sets the persisted global display default", async () => {
+    const { i, changes } = mount(setupCwd());
+    await sleep(30);
+    await down(i, 11); // Provider reasoning (last row; stable old row indexes)
+    i.stdin.write("\r");
+    await sleep(10);
+    expect(changes).toContainEqual({ showReasoning: true });
     i.unmount();
   });
 

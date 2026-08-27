@@ -45,6 +45,11 @@ export interface UserConfig {
   workflow: WorkflowSettings;
   /** The first-run workflow offer was already shown (skip on later runs). */
   workflowOffered: boolean;
+  /** #242: render provider reasoning blocks in the transcript. Display is
+   * pure projection — the persisted log is never affected. */
+  showReasoning: boolean;
+  /** #242: the one-shot persistence notice was already shown. */
+  reasoningNoticeShown: boolean;
 }
 
 export const DEFAULT_USER_CONFIG: UserConfig = {
@@ -59,6 +64,8 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   homeListMax: HOME_LIST_DEFAULT,
   workflow: { ...DEFAULT_WORKFLOW },
   workflowOffered: false,
+  showReasoning: false,
+  reasoningNoticeShown: false,
 };
 
 /** `~/.moh/config` — the core guardian's path constant (re-exported). */
@@ -100,6 +107,8 @@ function coerce(raw: unknown): Partial<UserConfig> {
   if (typeof src.editor === "string" && src.editor.trim() !== "") out.editor = src.editor.trim();
   out.homeListMax = clampHomeListMax(src.homeListMax);
   if (typeof src.workflowOffered === "boolean") out.workflowOffered = src.workflowOffered;
+  if (typeof src.showReasoning === "boolean") out.showReasoning = src.showReasoning;
+  if (typeof src.reasoningNoticeShown === "boolean") out.reasoningNoticeShown = src.reasoningNoticeShown;
   if (typeof src.workflow === "object" && src.workflow !== null) {
     const w = src.workflow as Record<string, unknown>;
     out.workflow = {
