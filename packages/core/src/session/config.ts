@@ -58,6 +58,9 @@ export interface SessionConfig {
   onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
+  /** Path of the JSONL file the sink appends to (from `sessionFromConfig`).
+   * Informational only; sessions built without a file store omit it. */
+  sessionFile?: string;
   /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
   promptComposer?: PromptComposer;
   /** User-level moh dir for skill discovery. Default: `~/.moh`. */

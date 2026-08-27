@@ -186,6 +186,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       cwd: options.cwd,
       tools: o.tools ?? builtinTools(),
       mohHome,
+      sessionFile: store.file,
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),
       ...(servers.length
         ? {

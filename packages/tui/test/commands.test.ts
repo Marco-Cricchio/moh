@@ -76,7 +76,7 @@ describe("workflow slash command", () => {
 describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
-    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "ask-moh", "model", "thinking"]);
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "ask-moh", "model", "thinking", "reload"]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
     for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "wayfinder", "frontier", "skills"]) {
@@ -167,6 +167,37 @@ describe("/model slash command (#166)", () => {
     expect(runSlashCommand("/model", ctx)).toBe(true);
     expect(opened).toBe(1);
     expect((ctx as any).notices()).toHaveLength(0); // no text dump
+  });
+});
+
+describe("/reload slash command (hot config reload)", () => {
+  test("calls the UI reload seam when a session is open", () => {
+    let reloaded = 0;
+    const session = createSession({
+      provider: "alpha/one",
+      endpoints: [{ name: "alpha", type: "openai-compat", baseUrl: "http://localhost:9/v1", defaultModel: "one" }],
+    });
+    const ctx = makeCtx({ session, onReload: () => (reloaded += 1) });
+    expect(runSlashCommand("/reload", ctx)).toBe(true);
+    expect(reloaded).toBe(1);
+    expect(ctx.notices()).toHaveLength(0);
+  });
+
+  test("without a session or without a UI it explains instead", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/reload", ctx)).toBe(true);
+    expect(ctx.notices()[0]).toContain("needs an open session");
+    const session = createSession({
+      provider: "alpha/one",
+      endpoints: [{ name: "alpha", type: "openai-compat", baseUrl: "http://localhost:9/v1", defaultModel: "one" }],
+    });
+    const ctx2 = makeCtx({ session });
+    expect(runSlashCommand("/reload", ctx2)).toBe(true);
+    expect(ctx2.notices()[0]).toContain("needs the TUI");
+  });
+
+  test("is a base command: available with workflow mode off", () => {
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toContain("reload");
   });
 });
 
