@@ -49,7 +49,7 @@ describe("built-in tools", () => {
     let survivors = "";
     for (let i = 0; i < 10 && survivors === ""; i++) {
       await Bun.sleep(150);
-      survivors = Bun.spawnSync(["bash", "-c", `pgrep -f "sleep 60 # ${MARKER}" || true`]).stdout.toString().trim();
+      survivors = Bun.spawnSync(["bash", "-c", `pgrep -f "^sleep 60 # ${MARKER}" || true`]).stdout.toString().trim();
     }
     expect(survivors).toBe("");
   });
