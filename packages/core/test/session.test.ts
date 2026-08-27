@@ -254,11 +254,11 @@ describe("steering (mid-stream cancellation + re-send)", () => {
 
     const messages = replayMessages(session.history());
     const roles = messages.map((m) => m.role);
-    expect(roles).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(roles).toEqual(["user", "user", "assistant"]);
     const texts = messages.map((m) => (m.parts[0] as any).text);
-    expect(texts[0]).toBe("q1");
-    expect("partial answer!".startsWith(texts[1])).toBe(true); // aborted mid-stream prefix
-    expect(texts.slice(2)).toEqual(["q2", "final"]);
+    // The append-only log keeps q1's partial deltas for display/audit, but
+    // provider context resumes from the last finalized call (#243).
+    expect(texts).toEqual(["q1", "q2", "final"]);
   });
 
   test("steering during tool execution logs cancelled before the steering user_message", async () => {

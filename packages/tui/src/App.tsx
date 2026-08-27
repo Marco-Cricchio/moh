@@ -70,7 +70,7 @@ type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
 export const REASONING_PERSISTENCE_NOTICE =
-  "note: provider-exposed reasoning and continuity metadata are saved in the session log — they travel with resume and fork";
+  "note: provider-exposed reasoning and continuity metadata are saved in the session log — they travel with resume and fork and are included in session exports and backups";
 
 /**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,

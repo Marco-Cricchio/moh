@@ -287,8 +287,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           break;
         }
         const previous = events[i - 1];
+        const callEvent = modelCallIndex !== -1 ? events[modelCallIndex] : undefined;
         const failed = modelCallIndex !== -1 && (
-          events[modelCallIndex + 1]?.type === "error"
+          (callEvent?.type === "model_call" && callEvent.failed === true)
+          || events[modelCallIndex + 1]?.type === "error"
           || (previous?.type === "fallback" && previous.from === model)
         );
         blocks.push({

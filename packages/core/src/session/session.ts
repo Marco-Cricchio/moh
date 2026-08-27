@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent, Message, Provider, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import type { SessionConfig } from "./config";
-import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry } from "../provider-registry";
+import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
 import { persistMcpTrust } from "../config";
 import { McpRuntime } from "../mcp";
@@ -63,6 +63,7 @@ export class AgentSession {
   #skills: SkillIndexEntry[];
   #skillDirs: string[];
   readonly #mohHome: string;
+  readonly #routeResolutionOptions: RouteResolutionOptions;
   readonly #firstParty: "include" | "exclude";
   /** MCP tool sources (#15): lazy start, crash tracking, session-end shutdown. */
   readonly #mcp: McpRuntime | undefined;
@@ -78,9 +79,28 @@ export class AgentSession {
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
     this.#endpoints = config.endpoints ?? [];
+    this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
+    // Init-order note (#243): #mohHome must be assigned before
+    // #routeResolutionOptions — its thinkingForTarget lambda resolves
+    // endpoint preferences against <mohHome>/config on every target.
+    this.#routeResolutionOptions = config.thinking === undefined
+      ? {
+          thinkingForTarget: (target) =>
+            resolveEndpointThinking(
+              `${target.endpoint.name}/${target.modelId}`,
+              this.#endpoints,
+              join(this.#mohHome, "config"),
+            ),
+        }
+      : {};
     this.#provider =
       typeof config.provider === "string"
-        ? resolveProviderRef(config.provider, this.#registry ?? defaultRegistry.freeze(), this.#endpoints)
+        ? resolveProviderRef(
+            config.provider,
+            this.#registry ?? defaultRegistry.freeze(),
+            this.#endpoints,
+            this.#routeResolutionOptions,
+          )
         : config.provider;
     const maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.#tools = config.tools ?? {};
@@ -139,7 +159,6 @@ export class AgentSession {
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
     // Skills (#30): discovered from ~/.moh/skills + .moh/skills at creation;
     // an explicit config wins (tests, clients). No auto-triggering.
-    this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
     this.#firstParty = config.firstParty ?? "include";
     const discovered = discoverSkills({ mohHome: this.#mohHome, projectDir: this.#cwd, firstParty: this.#firstParty });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
@@ -363,7 +382,12 @@ export class AgentSession {
     const trimmed = ref.trim();
     if (!trimmed) return { ok: false, error: "empty model reference" };
     try {
-      const next = resolveProviderRef(trimmed, this.#registry ?? defaultRegistry.freeze(), this.#endpoints);
+      const next = resolveProviderRef(
+        trimmed,
+        this.#registry ?? defaultRegistry.freeze(),
+        this.#endpoints,
+        this.#routeResolutionOptions,
+      );
       const from = this.#provider.name;
       if (next.name === from) return { ok: true, model: from }; // no-op: same ref, no chrome
       this.#provider = next;

@@ -115,7 +115,9 @@ export class AgentLoop {
   /** #240: opens the model-call buffer for a new stream announcement
    * (shared by the main and wrap-up loops). */
   #openCall(event: StreamEvent & { type: "model_call_start" }): void {
-    this.#flushModelCall();
+    // A second announcement before the prior call produced `finish` means
+    // retry/fallback, not a finalized provider message.
+    if (this.#pendingCall) this.#flushFailedModelCall();
     this.#pendingCall = {
       model: event.model,
       usage: { inputTokens: 0, outputTokens: 0 },
@@ -187,6 +189,7 @@ export class AgentLoop {
         this.#messages.push({ role: "user", parts: [{ kind: "text", text: WRAP_UP }] });
         this.#assemblePrompt();
         let wrapText = "";
+        let wrapFinished = false;
         this.#iterationReasoning = [];
         try {
           for await (const event of provider.stream(this.#messages, controller.signal, [], this.#streamOptions())) {
@@ -200,6 +203,7 @@ export class AgentLoop {
               this.#consumeReasoningEvent(event);
             } else if (event.type === "fallback") {
               this.#append(event);
+              this.#flushFailedModelCall();
             } else if (event.type === "usage") {
               this.#usage.inputTokens += event.inputTokens;
               this.#usage.outputTokens += event.outputTokens;
@@ -207,13 +211,24 @@ export class AgentLoop {
                 this.#pendingCall.usage.inputTokens += event.inputTokens;
                 this.#pendingCall.usage.outputTokens += event.outputTokens;
               }
+            } else if (event.type === "finish") {
+              wrapFinished = true;
             }
           }
         } catch {
           // The wrap-up is best-effort: a failing final call degrades to the
-          // historical cap error rather than masking it.
+          // historical cap error rather than masking it. Its partial call is
+          // recorded as failed, never a resumable checkpoint (#243).
+          this.#flushFailedModelCall();
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
           return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
+        }
+        if (!wrapFinished) {
+          // #243: the wrap-up stream ended without a finalized provider
+          // message (abort or premature end) — nothing is checkpointed.
+          this.#discardPendingCall();
+          this.#append({ type: "cancelled" });
+          return { status: "cancelled" };
         }
         this.#flushModelCall();
         assistantText = wrapText;
@@ -260,8 +275,11 @@ export class AgentLoop {
             this.#consumeReasoningEvent(event);
           } else if (event.type === "fallback") {
             // ADR-0012: the stop is chrome the log keeps — replay and the
-            // TUI toast both key off it.
+            // TUI toast both key off it. The failed call's reasoning text
+            // remains displayable, but its continuation is not a completed
+            // provider message and cannot enter future context (#243).
             this.#append(event);
+            this.#flushFailedModelCall();
           } else if (event.type === "usage") {
             this.#usage.inputTokens += event.inputTokens;
             this.#usage.outputTokens += event.outputTokens;
@@ -275,21 +293,27 @@ export class AgentLoop {
         }
       } catch (err) {
         if (controller.signal.aborted) break;
-        // #240: the failed call keeps its completed reasoning block (error
-        // state) and its model_call record before the error lands.
-        this.#flushModelCall();
+        // #240: the failed call keeps its completed reasoning text (error
+        // state) and model_call audit before the error lands. Opaque
+        // continuation is not checkpointed without a finalized message.
+        this.#flushFailedModelCall();
         const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
         const message = err instanceof Error ? err.message : String(err);
         this.#append({ type: "error", reason, message });
         return { status: "error", reason, message };
       }
-      // The provider stream ended: this model call is complete — record
-      // it (usage is reported at finish, so the event can only close now).
-      this.#flushModelCall();
+      // The provider stream ended: only a finalized model call is recorded.
+      // An abort or an iterator ending after reasoning_end but before finish
+      // still leaves partial provider-message state; neither may become a
+      // resumable checkpoint (#243).
       if (finishReason === null) {
-        // Stream ended without a finish event (e.g. aborted mid-stream).
-        break;
+        this.#discardPendingCall();
+        if (controller.signal.aborted) break;
+        this.#append({ type: "cancelled" });
+        return { status: "cancelled" };
       }
+      if (controller.signal.aborted) this.#discardPendingCall();
+      else this.#flushModelCall();
       if (finishReason !== "stop") {
         this.#messages.push({
           role: "assistant",
@@ -323,6 +347,21 @@ export class AgentLoop {
     return { status: "done" };
   }
 
+  /** Drops an interrupted call without checkpointing resumable context: its
+   * completed reasoning text stays in the log for audit/display (no opaque
+   * continuation — the provider message was never finalized), marked by a
+   * failed `model_call` so replay discards its partial content (#243).
+   * Unlike #settleCall("failed"), an interrupted call did not complete a
+   * billable attempt, so it contributes nothing to the turn's model list. */
+  #discardPendingCall(): void {
+    const call = this.#pendingCall;
+    this.#pendingCall = null;
+    this.#reasoningText = "";
+    if (!call) return;
+    this.#settleReasoning(call.reasoning, false, true);
+    this.#append({ type: "model_call", model: call.model, usage: { ...call.usage }, failed: true });
+  }
+
   /** #240: the neutral per-call stream options; undefined when no thinking
    * level is configured — providers then receive no invented field. */
   #streamOptions(): StreamOptions | undefined {
@@ -330,26 +369,62 @@ export class AgentLoop {
     return thinking ? { thinking } : undefined;
   }
 
-  /** Append the completed model call to the log, if one is open (#83).
-   * #240: a completed reasoning block is persisted first — one `reasoning`
-   * event per call, before its `model_call`, with the opaque continuation
-   * artifacts. Failed calls keep theirs (error state); aborted calls never
-   * form a valid assistant message. */
-  #flushModelCall(): void {
+  /** Records a failed call for audit/display without treating its reasoning
+   * or opaque metadata as completed provider context. The failed marker on
+   * the `model_call` also lets replay drop same-target retry attempts whose
+   * partial content is not a valid provider message (#243). */
+  #flushFailedModelCall(): void {
+    this.#settleCall("failed");
+  }
+
+  /** The single call-settlement seam (#243): "ok" checkpoints reasoning with
+   * continuation and records the serving model; "failed" keeps displayable
+   * reasoning text without continuation, marked failed for replay. Shared
+   * reasoning bookkeeping lives here so the paths cannot diverge. */
+  #settleCall(outcome: "ok" | "failed"): void {
     const call = this.#pendingCall;
     if (!call) return;
     this.#pendingCall = null;
+    this.#reasoningText = "";
+    this.#settleReasoning(call.reasoning, outcome === "ok", outcome === "failed");
     this.#turnModels.push(call.model);
-    if (call.reasoning.length > 0) {
-      for (const block of call.reasoning) {
-        this.#append({ type: "reasoning", text: block.text, ...(block.continuation ? { continuation: block.continuation } : {}) });
-      }
-    }
     this.#append({
       type: "model_call",
       model: call.model,
       usage: { ...call.usage },
       ...(call.thinkingLevel ? { thinkingLevel: call.thinkingLevel } : {}),
+      ...(outcome === "failed" ? { failed: true } : {}),
     });
+  }
+
+  /** Appends a settled call's reasoning blocks; `removeFromIteration`
+   * (failed/discarded only) also drops them from the live turn message — a
+   * successful call keeps them there so the next in-turn call carries the
+   * provider its continuation artifacts. `withContinuation` is false unless
+   * the provider message finalized (#240 decision 11, #243). */
+  #settleReasoning(
+    reasoning: { text: string; continuation?: Record<string, unknown> }[],
+    withContinuation = false,
+    removeFromIteration = false,
+  ): void {
+    if (removeFromIteration && reasoning.length) {
+      this.#iterationReasoning.splice(-reasoning.length, reasoning.length);
+    }
+    for (const block of reasoning) {
+      this.#append({
+        type: "reasoning",
+        text: block.text,
+        ...(withContinuation && block.continuation ? { continuation: block.continuation } : {}),
+      });
+    }
+  }
+
+  /** Append the completed model call to the log, if one is open (#83).
+   * #240: a completed reasoning block is persisted first — one `reasoning`
+   * event per call, before its `model_call`, with opaque continuation only
+   * for a finalized provider message. Failed calls keep displayable text;
+   * aborted calls never form a valid assistant message. */
+  #flushModelCall(): void {
+    this.#settleCall("ok");
   }
 }

@@ -168,7 +168,15 @@ Reasoning-capable providers may emit neutral reasoning stream events
 (`reasoning_start` / `reasoning_delta` / `reasoning_end`). Completed
 reasoning is persisted as a `reasoning` `AgentEvent` (with the provider's
 opaque continuation artifacts, e.g. signatures) and is replayed into the
-provider context on resume — no SDK type ever crosses the core boundary.
+provider context on resume and fork — no SDK type ever crosses the core
+boundary. A call interrupted before its provider message is finalized is
+not checkpointed, even if its reasoning block ended first. Compaction
+replaces the pointed-to old prefix with its summary in provider context but
+keeps recent reasoning in the tail; the integral JSONL remains unchanged.
+Session exports and backups therefore contain retained reasoning and opaque
+metadata. See [Provider reasoning and thinking controls](../provider-reasoning.md)
+for the user-visible privacy and display behavior.
+
 A custom provider can emit these events without importing anything from
 the AI SDK; providers that don't are untouched.
 
