@@ -16,7 +16,7 @@
  *   survives through the guardian's read-modify-write.
  */
 import { readFileSync } from "node:fs";
-import { catalogEntryFor, subscriptionModelCatalog, type CatalogModel } from "./model-catalog";
+import type { CatalogModel } from "./model-catalog";
 import { isThinkingLevel, THINKING_LEVELS, type ThinkingLevel } from "./types";
 import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "./user-config";
 
@@ -117,8 +117,19 @@ export function readThinkingPreferences(
   return readSection(file, read);
 }
 
+/** The raw `thinkingLevels` section as a plain object, or undefined when
+ * absent/not an object. (`typeof null === "object"` — hence the null check.) */
+function asSection(raw: unknown): Record<string, unknown> | undefined {
+  if (raw === undefined || raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  return raw as Record<string, unknown>;
+}
+
 /** Persists one endpoint's level immediately through the guardian;
- * unrelated user config survives and moh.json is never touched. */
+ * unrelated user config survives and moh.json is never touched. The
+ * mutation reads `data` (the guardian's own read-modify-write view), not
+ * the disk, so a mocked `io.read` can never fork the two. Invalid
+ * hand-written sibling entries are preserved verbatim — reads filter
+ * them, writes must not silently "fix" the file. */
 export function setThinkingPreference(
   file: string,
   endpoint: string,
@@ -129,22 +140,23 @@ export function setThinkingPreference(
     throw new Error(`invalid thinking level "${String(level)}"; canonical levels: ${THINKING_LEVELS.join(", ")}`);
   }
   updateUserConfigFile(file, (data) => {
-    const existing = readSection(file, io.read);
+    const existing = { ...(asSection(data.thinkingLevels) ?? {}) };
     existing[endpoint] = level;
     data.thinkingLevels = existing;
   }, io);
 }
 
-/** Drops one endpoint's preference through the guardian; no-op when absent. */
+/** Drops one endpoint's preference through the guardian; no-op when
+ * absent. Checks the raw section, so clearing an invalid hand-written
+ * entry removes it instead of being filtered into a no-op. */
 export function clearThinkingPreference(file: string, endpoint: string, io: UserConfigIo = {}): void {
   updateUserConfigFile(file, (data) => {
-    if (data.thinkingLevels === undefined) return;
-    const existing = readSection(file, io.read);
-    if (!(endpoint in existing)) return;
-    delete existing[endpoint];
-    if (Object.keys(existing).length === 0) delete data.thinkingLevels;
-    else data.thinkingLevels = existing;
+    const existing = asSection(data.thinkingLevels);
+    if (!existing || !(endpoint in existing)) return;
+    const next = { ...existing };
+    delete next[endpoint];
+    if (Object.keys(next).length === 0) delete data.thinkingLevels;
+    else data.thinkingLevels = next;
   }, io);
 }
 
-export { catalogEntryFor, subscriptionModelCatalog };
