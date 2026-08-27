@@ -40,6 +40,39 @@ function isTextDetail(detail: unknown): detail is { type: string; text: string }
   return typeof d.type === "string" && d.type.startsWith("reasoning.text") && typeof d.text === "string";
 }
 
+/** Streaming reasoning fields, per wire dialect:
+ * - `reasoning_details` — OpenRouter's documented shape (list of typed
+ *   details; text details render, opaque ones ride as metadata);
+ * - `reasoning_content` — the DeepSeek/Z.AI lineage shape (plain string);
+ * - `reasoning` — OpenRouter's legacy string field. */
+function extractDeltaReasoning(
+  delta: Record<string, unknown>,
+  buffer: ReasoningBuffer,
+): boolean {
+  let changed = false;
+  if (Array.isArray(delta.reasoning_details)) {
+    for (const detail of delta.reasoning_details) {
+      buffer.details.push(detail);
+      if (isTextDetail(detail)) buffer.texts.push(detail.text);
+    }
+    delete delta.reasoning_details;
+    changed = true;
+  }
+  if (typeof delta.reasoning_content === "string") {
+    buffer.details.push({ type: "reasoning.text", text: delta.reasoning_content });
+    buffer.texts.push(delta.reasoning_content);
+    delete delta.reasoning_content;
+    changed = true;
+  }
+  if (typeof delta.reasoning === "string") {
+    buffer.details.push({ type: "reasoning.text", text: delta.reasoning });
+    buffer.texts.push(delta.reasoning);
+    delete delta.reasoning;
+    changed = true;
+  }
+  return changed;
+}
+
 /**
  * SSE line transform: for each complete `data: {json}` line, move
  * `delta.reasoning_details` / legacy `delta.reasoning` into the buffer
@@ -83,20 +116,7 @@ class ReasoningExtractor extends TransformStream<Uint8Array, Uint8Array> {
     for (const choice of choices) {
       const delta = (choice as { delta?: Record<string, unknown> }).delta;
       if (!delta || typeof delta !== "object") continue;
-      if (Array.isArray(delta.reasoning_details)) {
-        for (const detail of delta.reasoning_details) {
-          this.buffer.details.push(detail);
-          if (isTextDetail(detail)) this.buffer.texts.push(detail.text);
-        }
-        delete delta.reasoning_details;
-        changed = true;
-      }
-      if (typeof delta.reasoning === "string") {
-        this.buffer.details.push({ type: "reasoning.text", text: delta.reasoning });
-        this.buffer.texts.push(delta.reasoning);
-        delete delta.reasoning;
-        changed = true;
-      }
+      if (extractDeltaReasoning(delta, this.buffer)) changed = true;
       if (changed) this.buffer.onExtracted?.();
     }
     return changed ? `data: ${JSON.stringify(json)}` : line;
@@ -105,10 +125,19 @@ class ReasoningExtractor extends TransformStream<Uint8Array, Uint8Array> {
 
 /** OpenRouter's documented request shape:
  * https://openrouter.ai/docs — reasoning: { effort, exclude: false }
- * (never excluded: moh persists and displays provider reasoning). */
-function rewriteRequestBody(body: string, effort: string | undefined): string {
+ * (never excluded: moh persists and displays provider reasoning).
+ * The generic `reasoning_effort` field (OpenAI-compatible dialect,
+ * accepted natively by OpenAI/DeepSeek/Z.AI-style backends) is left as-is:
+ * only the openrouter dialect gets rewritten. */
+function rewriteRequestBody(body: string, effort: string | undefined, openRouterDialect: boolean): string {
   try {
     const json = JSON.parse(body) as Record<string, unknown> & { reasoning_effort?: unknown };
+    if (!openRouterDialect) {
+      // openai-compat dialect: reasoning_effort is already the right
+      // shape; only ensure it is present when a level was selected.
+      if (effort !== undefined && json.reasoning_effort === undefined) json.reasoning_effort = effort;
+      return JSON.stringify(json);
+    }
     delete json.reasoning_effort;
     if (effort !== undefined) {
       json.reasoning = { effort, exclude: false };
@@ -121,10 +150,10 @@ function rewriteRequestBody(body: string, effort: string | undefined): string {
 
 type BaseFetch = typeof fetch;
 
-function patchedFetch(baseFetch: BaseFetch, buffer: ReasoningBuffer, effort: string | undefined): BaseFetch {
+function patchedFetch(baseFetch: BaseFetch, buffer: ReasoningBuffer, effort: string | undefined, openRouterDialect: boolean): BaseFetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (typeof init?.body === "string" && init.body.startsWith("{")) {
-      init = { ...init, body: rewriteRequestBody(init.body, effort) };
+      init = { ...init, body: rewriteRequestBody(init.body, effort, openRouterDialect) };
     }
     const res = await baseFetch(input, init);
     const contentType = res.headers.get("content-type") ?? "";
@@ -268,12 +297,21 @@ export interface OpenRouterChatModelOptions {
   headers?: Record<string, string>;
   /** Base fetch for the wire; defaults to the global fetch (test seam). */
   fetch?: BaseFetch;
+  /** Request dialect: `openrouter` rewrites reasoning_effort into
+   * OpenRouter's `reasoning: { effort }` shape; the default leaves the
+   * standard OpenAI-compatible `reasoning_effort` untouched. Streaming
+   * extraction covers every dialect either way. */
+  dialect?: "openrouter" | "openai-compat";
 }
 
-/** Wraps the stock openai.chat model with the OpenRouter compat
- * translations (#251). Invisible to the Core: a plain LanguageModel. */
+/** Wraps the stock openai.chat model with the Chat Completions reasoning
+ * compat translations (#251 for OpenRouter; generic openai-compat
+ * backends join via declared thinking capability — DeepSeek/Z.AI's
+ * `reasoning_content` dialect). Invisible to the Core: a plain
+ * LanguageModel. */
 export function openRouterChatModel(options: OpenRouterChatModelOptions): LanguageModel {
   const baseFetch = options.fetch ?? (globalThis.fetch as BaseFetch);
+  const openRouterDialect = options.dialect !== "openai-compat";
   // One client factory for both the interface prototype and the
   // per-call inner model (the latter swaps in the patched fetch).
   const chatModel = (fetch?: BaseFetch) =>
@@ -295,7 +333,7 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
     const buffer: ReasoningBuffer = { texts: [], details: [] };
     const effort = effortFromProviderOptions(callOptions.providerOptions);
     const stripped = stripReasoningEffort(callOptions.providerOptions);
-    const inner = chatModel(patchedFetch(baseFetch, buffer, effort)) as unknown as Record<string, unknown>;
+    const inner = chatModel(patchedFetch(baseFetch, buffer, effort, openRouterDialect)) as unknown as Record<string, unknown>;
     return { buffer, inner, options: stripped !== callOptions.providerOptions ? { ...callOptions, providerOptions: stripped } : callOptions };
   };
   return {
@@ -305,17 +343,18 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
     supportedUrls: proto.supportedUrls as never,
     async doGenerate(callOptions: { providerOptions?: unknown; [key: string]: unknown }) {
       const { buffer, inner, options } = prepare(callOptions);
-      const result = await (inner.doGenerate as (o: unknown) => Promise<{ content: unknown[] }>)(options);
+      const result = await (inner.doGenerate as (o: unknown) => Promise<{ content: unknown[] }>)>(options);
       if (buffer.texts.length === 0) return result as never;
+      const body = result as unknown as { content: unknown[] };
       const content = [
         {
           type: "reasoning",
           text: buffer.texts.join(""),
           providerMetadata: { openrouter: { reasoningDetails: buffer.details } },
         },
-        ...result.content,
+        ...body.content,
       ];
-      return { ...result, content } as never;
+      return { ...(result as unknown as object), content } as never;
     },
     async doStream(callOptions: { providerOptions?: unknown; [key: string]: unknown }) {
       const { buffer, inner, options } = prepare(callOptions);
