@@ -10,6 +10,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { AuthMethodKind } from "../auth/types";
 import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
 import { wireForKind, type WireApi } from "../wire";
+import { openRouterChatModel } from "./openrouter-chat";
 
 /** Transport hints from the credential resolver (#151): ChatGPT-backend
  * URL, extra headers, and the wire protocol that backend speaks. */
@@ -93,6 +94,17 @@ function languageModelFor(
     return openai.responses(target.modelId);
   }
   if (wire === "openai-chat") {
+    // #251: openrouter models marked `compat.thinkingFormat: "openrouter"`
+    // travel the openai-chat wire but need OpenRouter's own reasoning
+    // request/response shapes — applied at this wire/compat seam.
+    if (target.compat?.thinkingFormat === "openrouter") {
+      return openRouterChatModel({
+        modelId: target.modelId,
+        apiKey,
+        ...(baseUrl ? { baseUrl } : {}),
+        ...(headers ? { headers } : {}),
+      });
+    }
     return openai.chat(target.modelId);
   }
   throw new Error(`endpoint "${name}": wire "${wire}" has no AI SDK model factory; provide createStream`);

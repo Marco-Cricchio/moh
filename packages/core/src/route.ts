@@ -82,6 +82,9 @@ export interface RouteTarget {
   /** Per-model headers (copilot editor headers, #160/#164). Sent in
    * addition to any auth-context headers. */
   headers?: Record<string, string>;
+  /** Provider compat flags (#251): catalog `compat` metadata the wire
+   * layer applies per model (e.g. openrouter `thinkingFormat`). */
+  compat?: Record<string, unknown>;
 }
 
 export interface RouteConfig {
