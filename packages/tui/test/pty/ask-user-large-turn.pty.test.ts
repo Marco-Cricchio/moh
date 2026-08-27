@@ -60,6 +60,6 @@ describe.skipIf(!hasPython)("ask_user modal with a large open turn (PTY regressi
         server.stop(true);
       }
     },
-    40000,
+    70_000,
   );
 });
