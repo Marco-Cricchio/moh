@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, Message, Provider, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
+import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
@@ -203,6 +203,8 @@ export class AgentSession {
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
       append: (event) => this.#append(event),
+      // #253: live reasoning relay (ephemeral — never stored or sunk).
+      emitLive: (event) => this.#eventLog.emitLive(event),
       // #240/#242: the neutral thinking-level request. An explicit config
       // (static or getter) wins; otherwise endpoint-scoped preferences are
       // resolved per call against the *live* provider ref (model switches
@@ -317,6 +319,14 @@ export class AgentSession {
   /** Replays the append-only log, then streams new events. */
   get events(): AsyncIterable<AgentEvent> {
     return this.#eventLog.events;
+  }
+
+  /** #253: live (ephemeral) reasoning lifecycle — delivered while the
+   * model thinks, never persisted (the completed block still lands in
+   * `events` as the `reasoning` AgentEvent at call settlement).
+   * Returns an unsubscribe function. */
+  onLiveEvent(listener: (event: ReasoningStreamEvent) => void): () => void {
+    return this.#eventLog.onLive(listener);
   }
 
   /** True while a turn is in flight (including one being steered away). */

@@ -197,3 +197,70 @@ describe("openrouter chat reasoning (#251)", () => {
     );
   });
 });
+
+describe("openrouter live reasoning streaming (#253)", () => {
+  /** #253: reasoning deltas must be observable downstream BEFORE the
+   * wire sends anything else — a gated SSE source proves incrementality:
+   * the text chunk is only enqueued after the consumer has seen the
+   * matching reasoning delta. A burst implementation deadlocks here
+   * and the race rejects. */
+  it("emits each reasoning delta as it is extracted, not in an end-of-stream burst", async () => {
+    const encoder = new TextEncoder();
+    const seen: string[] = [];
+    let releaseNext: (() => void) | null = null;
+    const waitFor = (text: string) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timed out waiting for "${text}" (got: ${seen.join("|")})`)), 2000);
+        const check = () => {
+          if (seen.includes(text)) {
+            clearTimeout(timer);
+            resolve();
+          } else setTimeout(check, 5);
+        };
+        check();
+      });
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode(chunk({ reasoning_details: [{ type: "reasoning.text", text: "live one. " }] })));
+        await waitFor("live one. ");
+        controller.enqueue(encoder.encode(chunk({ reasoning_details: [{ type: "reasoning.text", text: "live two." }] })));
+        await waitFor("live two.");
+        controller.enqueue(encoder.encode(chunk({ content: "the answer" })));
+        controller.enqueue(encoder.encode(chunk({}, { finish_reason: "stop", usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 } })));
+        controller.enqueue(encoder.encode(doneEvent));
+        controller.close();
+      },
+    });
+    const calls: FetchCall[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls.push({ url: "u", body: {} });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as unknown as typeof fetch;
+    const target = openRouterTarget();
+    const stream = aiSdkStreamFor(target, "k", undefined);
+    const events: StreamEvent[] = [];
+    try {
+      for await (const e of stream(userMsg, new AbortController().signal, undefined, { thinking: { level: "high" } })) {
+        if (e.type === "reasoning_delta") seen.push(e.text);
+        events.push(e);
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    // Order: both deltas before the answer text, metadata complete at end.
+    expect(events).toEqual([
+      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: "high" },
+      { type: "reasoning_start" },
+      { type: "reasoning_delta", text: "live one. " },
+      { type: "reasoning_delta", text: "live two." },
+      { type: "reasoning_end", continuation: { openrouter: { reasoningDetails: [
+        { type: "reasoning.text", text: "live one. " },
+        { type: "reasoning.text", text: "live two." },
+      ] } } },
+      { type: "text_delta", text: "the answer" },
+      { type: "usage", inputTokens: 3, outputTokens: 5 },
+      { type: "finish", reason: "stop" },
+    ]);
+  });
+});

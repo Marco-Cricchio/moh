@@ -13,9 +13,9 @@
  * delegates to the stock openai.chat model through a patched fetch that
  * rewrites the request body and extracts OpenRouter reasoning fields
  * from the SSE stream, then injects standard reasoning-* stream parts
- * in order (reasoning always precedes text in OpenRouter streams;
- * any remainder flushes at stream end, covering reasoning-only
- * streams). Opaque/encrypted details ride as providerMetadata —
+ * incrementally as they are extracted (#253: reasoning precedes text in
+ * OpenRouter streams; a remainder flushes at stream end, covering
+ * reasoning-only streams). Opaque/encrypted details ride as providerMetadata —
  * preserved verbatim for continuation, never rendered, and never
  * leaked as provider-specific stream-part types into the Core contract.
  */
@@ -28,7 +28,10 @@ interface ReasoningBuffer {
   texts: string[];
   /** Every raw detail entry, verbatim — continuation metadata. */
   details: unknown[];
-  flushed: boolean;
+  /** #253: live-emission hook, set by the merge pump while its output
+   * stream is active; the extractor calls it synchronously as each
+   * reasoning line is parsed off the wire. */
+  onExtracted?: () => void;
 }
 
 function isTextDetail(detail: unknown): detail is { type: string; text: string } {
@@ -94,6 +97,7 @@ class ReasoningExtractor extends TransformStream<Uint8Array, Uint8Array> {
         delete delta.reasoning;
         changed = true;
       }
+      if (changed) this.buffer.onExtracted?.();
     }
     return changed ? `data: ${JSON.stringify(json)}` : line;
   }
@@ -158,40 +162,103 @@ function stripReasoningEffort(providerOptions: unknown): unknown {
 type Part = Record<string, unknown> & { type: string };
 const REASONING_ID = "openrouter-reasoning";
 
-function flushReasoning(buffer: ReasoningBuffer, enqueue: (part: Part) => void): void {
-  if (buffer.flushed) return;
-  buffer.flushed = true;
-  if (buffer.texts.length === 0) return;
-  enqueue({ type: "reasoning-start", id: REASONING_ID });
-  for (const text of buffer.texts) enqueue({ type: "reasoning-delta", id: REASONING_ID, delta: text });
-  enqueue({
-    type: "reasoning-end",
-    id: REASONING_ID,
-    providerMetadata: { openrouter: { reasoningDetails: buffer.details } },
-  });
-}
-
-/** Injects the buffered reasoning into the inner model's part stream,
- * in order: flushed before the first text/tool part, or at stream end
- * for reasoning-only streams (SSE order guarantees all prior reasoning
- * chunks were extracted before the first text part arrives). */
-function mergeReasoning(inner: ReadableStream<Part>, buffer: ReasoningBuffer): ReadableStream<Part> {
-  return inner.pipeThrough(
-    new TransformStream<Part, Part>({
-      transform(part, controller) {
-        if (
-          !buffer.flushed &&
-          (part.type === "text-start" || part.type === "text-delta" || part.type === "tool-input-start")
-        ) {
-          flushReasoning(buffer, (p) => controller.enqueue(p));
+/** Injects the extracted reasoning into the inner model's part stream.
+ * #253: reasoning is delivered live — the extractor pushes each delta
+ * through `buffer.onExtracted` the moment its SSE line is parsed off the
+ * wire, so downstream consumers see deltas while the model still thinks
+ * instead of one pre-text burst. Two facts make the direct emission safe
+ * and ordered:
+ *
+ * 1. Extraction is driven eagerly: the inner adapter's early-error check
+ *    tees and drains the parsed SSE stream before any consumer part
+ *    exists, and without it reasoning-only chunks produce no part at all
+ *    (and are held back entirely until the first text chunk) — so part-
+ *    stream transforms alone cannot deliver incrementally.
+ * 2. Extraction is causally upstream of the parts it cleaned: a reasoning
+ *    line is parsed (and emitted) before the adapter can produce the part
+ *    of any later line, so interleaving in the output preserves wire
+ *    order without buffering.
+ *
+ * The pump below starts the inner part stream in the background and
+ * forwards its parts, ending the open reasoning block (with its complete
+ * continuation metadata) before the first text/tool part or, for
+ * reasoning-only streams, at stream end. The inner `doStream` promise is
+ * deliberately NOT awaited before the merged stream is handed back: the
+ * stock adapter's early-error gate holds the call unresolved until the
+ * first text-capable chunk, which would reintroduce the burst. */
+function mergeReasoning(inner: Promise<{ stream: ReadableStream<Part> }>, buffer: ReasoningBuffer): ReadableStream<Part> {
+  let emittedTexts = 0;
+  let emittedDetails = 0;
+  let open = false;
+  let ended = true;
+  let closed = false;
+  let emit: (part: Part) => void = () => {};
+  const drain = (): void => {
+    if (closed || emittedTexts >= buffer.texts.length) return;
+    if (ended) {
+      emit({ type: "reasoning-start", id: REASONING_ID });
+      open = true;
+      ended = false;
+    }
+    for (; emittedTexts < buffer.texts.length; emittedTexts++) {
+      emit({ type: "reasoning-delta", id: REASONING_ID, delta: buffer.texts[emittedTexts] });
+    }
+  };
+  const endBlock = (): void => {
+    if (!open) return;
+    const details = buffer.details.slice(emittedDetails);
+    emittedDetails = buffer.details.length;
+    emit({
+      type: "reasoning-end",
+      id: REASONING_ID,
+      providerMetadata: { openrouter: { reasoningDetails: details } },
+    });
+    open = false;
+    ended = true;
+  };
+  return new ReadableStream<Part>({
+    async start(controller) {
+      emit = (p) => {
+        if (!closed) controller.enqueue(p);
+      };
+      buffer.onExtracted = drain;
+      drain(); // anything extracted before the pump attached
+      try {
+        // The inner call runs concurrently from doStream (see below); its
+        // parts arrive only after the adapter's early-error gate releases
+        // at the first text-capable chunk — reasoning emitted until then
+        // comes exclusively from the extraction hook above.
+        const { stream } = await inner;
+        const reader = stream.getReader();
+        for (;;) {
+          const { value: part, done } = await reader.read();
+          if (done) break;
+          drain(); // ordering safety net (extraction precedes its parts)
+          if (part.type === "text-start" || part.type === "text-delta" || part.type === "tool-input-start") {
+            endBlock();
+          }
+          emit(part);
         }
-        controller.enqueue(part);
-      },
-      flush(controller) {
-        flushReasoning(buffer, (p) => controller.enqueue(p));
-      },
-    }),
-  ) as ReadableStream<Part>;
+      } catch (err) {
+        buffer.onExtracted = undefined;
+        drain();
+        endBlock();
+        closed = true;
+        controller.error(err);
+        return;
+      } finally {
+        buffer.onExtracted = undefined;
+      }
+      drain();
+      endBlock();
+      closed = true;
+      controller.close();
+    },
+    cancel() {
+      closed = true;
+      buffer.onExtracted = undefined;
+    },
+  });
 }
 
 export interface OpenRouterChatModelOptions {
@@ -225,7 +292,7 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
   // Per-call setup shared by doGenerate/doStream: the reasoning buffer,
   // the effort translation, the stripped options, the inner model.
   const prepare = (callOptions: { providerOptions?: unknown }) => {
-    const buffer: ReasoningBuffer = { texts: [], details: [], flushed: false };
+    const buffer: ReasoningBuffer = { texts: [], details: [] };
     const effort = effortFromProviderOptions(callOptions.providerOptions);
     const stripped = stripReasoningEffort(callOptions.providerOptions);
     const inner = chatModel(patchedFetch(baseFetch, buffer, effort)) as unknown as Record<string, unknown>;
@@ -252,8 +319,16 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
     },
     async doStream(callOptions: { providerOptions?: unknown; [key: string]: unknown }) {
       const { buffer, inner, options } = prepare(callOptions);
-      const result = await (inner.doStream as (o: unknown) => { stream: ReadableStream<Part> })(options);
-      return { ...result, stream: mergeReasoning(result.stream, buffer) } as never;
+      // #253: started immediately, NOT awaited here — the stock adapter's
+      // early-error gate keeps doStream unresolved until the first
+      // text-capable chunk, so awaiting would hold the merged stream (and
+      // its live reasoning) back to a burst again. The merged stream pumps
+      // the promise instead. Cost: the outer result carries no
+      // request/response metadata; wire metadata still reaches consumers
+      // via the `response-metadata` stream part.
+      const innerResult = (inner.doStream as (o: unknown) => Promise<{ stream: ReadableStream<Part> }>)(options);
+      void innerResult.catch(() => {}); // observed by the pump; no unhandled rejection
+      return { stream: mergeReasoning(innerResult, buffer) } as never;
     },
   } as unknown as LanguageModel;
 }

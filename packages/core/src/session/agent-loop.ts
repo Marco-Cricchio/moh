@@ -5,6 +5,7 @@ import type {
   Message,
   Provider,
   ReasoningPart,
+  ReasoningStreamEvent,
   StreamEvent,
   StreamOptions,
   ThinkingLevel,
@@ -48,6 +49,10 @@ export interface AgentLoopOptions {
   lastPrompt: () => AssembledPrompt | null;
   /** Log append callback — the loop owns its event emission. */
   append: (event: AgentEvent) => void;
+  /** #253: live (ephemeral) reasoning relay — the stream lifecycle is
+   * forwarded in real time while the model thinks, without touching the
+   * persisted log (the completed block still lands there). */
+  emitLive?: (event: ReasoningStreamEvent) => void;
   /** #240: the neutral thinking-level request, read once per model call
    * (session-level option; #241 wires endpoint preferences here). */
   thinking?: () => { level: ThinkingLevel } | undefined;
@@ -73,6 +78,7 @@ export class AgentLoop {
   readonly #assemblePrompt: () => void;
   readonly #lastPrompt: () => AssembledPrompt | null;
   readonly #append: (event: AgentEvent) => void;
+  readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
   readonly #thinking: (() => { level: ThinkingLevel } | undefined) | undefined;
   readonly #onTurnSettled: ((result: TurnResult) => void) | undefined;
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
@@ -101,6 +107,7 @@ export class AgentLoop {
     this.#assemblePrompt = options.assemblePrompt;
     this.#lastPrompt = options.lastPrompt;
     this.#append = options.append;
+    this.#emitLive = options.emitLive;
     this.#thinking = options.thinking;
     this.#onTurnSettled = options.onTurnSettled;
   }
@@ -128,8 +135,15 @@ export class AgentLoop {
 
   /** #240: neutral reasoning stream bookkeeping, shared by the main and
    * wrap-up consumption loops. A call may emit several reasoning blocks;
-   * each completed block is kept (never overwritten). */
+   * each completed block is kept (never overwritten). #253: the lifecycle
+   * is also relayed to the live channel as it arrives. */
   #consumeReasoningEvent(event: StreamEvent): void {
+    // Type guard, not a blind cast: the live channel carries exactly the
+    // reasoning lifecycle, and this keeps the invariant checked if
+    // StreamEvent ever grows other text-bearing variants.
+    if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
+      this.#emitLive?.(event);
+    }
     if (event.type === "reasoning_start") {
       this.#reasoningText = "";
     } else if (event.type === "reasoning_delta") {
