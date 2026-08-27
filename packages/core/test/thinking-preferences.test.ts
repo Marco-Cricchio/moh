@@ -18,18 +18,21 @@ function tmpFile(): string {
   return join(mkdtempSync(join(tmpdir(), "moh-thinking-")), "config");
 }
 
-describe("catalog thinkingLevelMap (#241)", () => {
-  test("the vendored catalog preserves thinkingLevelMap verbatim", () => {
+describe("catalog thinkingLevelMap (#241, #256 normalization)", () => {
+  test("canonical keys survive the seam; provider `minimal` normalizes to low (#256)", () => {
     // anthropic ships entries with explicit off/xhigh/max mappings.
     const fable = catalogEntryFor("anthropic", "claude-fable-5");
     expect(fable?.thinkingLevelMap).toEqual({ off: null, xhigh: "xhigh", max: "max" });
-    // non-canonical provider keys (e.g. "minimal") survive the seam too.
-    const minimalPreserved = ["openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai"].some((type) =>
-      subscriptionModelCatalog(type).some(
-        (m) => m.thinkingLevelMap && "minimal" in m.thinkingLevelMap,
+    // #256: provider-native "minimal" keys no longer ride the projection
+    // verbatim — they normalize into the canonical scale (minimal → low
+    // when low is absent; dropped when both are present). Raw data stays
+    // verbatim in the vendored JSON; the projection normalizes.
+    const noMinimal = ["openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai"].every((type) =>
+      subscriptionModelCatalog(type).every(
+        (m) => !m.thinkingLevelMap || !("minimal" in m.thinkingLevelMap),
       ),
     );
-    expect(minimalPreserved).toBe(true);
+    expect(noMinimal).toBe(true);
   });
 
   test("entries without a map stay without one (reasoning flag is not a map)", () => {

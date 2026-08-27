@@ -17,10 +17,86 @@
  */
 import { readFileSync } from "node:fs";
 import { catalogEntryFor, type CatalogModel } from "./model-catalog";
-import { isThinkingLevel, THINKING_LEVELS, type ThinkingLevel } from "./types";
+import { isThinkingLevel, THINKING_FORMATS, THINKING_LEVELS, type ThinkingFormat, type ThinkingLevel } from "./types";
 import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "./user-config";
 
 export { THINKING_LEVELS };
+
+/** #256: a configuration-declared thinking capability (the schema lives
+ * in config.ts; this is the core-side shape the capability calculation
+ * reads). */
+export interface ThinkingDeclaration {
+  format: ThinkingFormat;
+  levels: ThinkingLevel[];
+}
+
+export interface ThinkingModelDeclaration {
+  format?: ThinkingFormat;
+  levels: ThinkingLevel[];
+}
+
+/** The endpoint shape the capability calculation needs (#256): name,
+ * provider type, and any declared thinking capabilities. `EndpointProfile`
+ * satisfies this structurally. */
+export interface ThinkingEndpoint {
+  name: string;
+  type: string;
+  capabilities?: {
+    thinking?: ThinkingDeclaration;
+    thinkingModels?: Record<string, ThinkingModelDeclaration>;
+  };
+}
+
+/** #256: canonical levels each declared format can actually express on
+ * its wire — the single table `thinkingForWire` consults too (the google
+ * xhigh/max drop lives here, once). */
+export const FORMAT_EXPRESSIBLE_LEVELS: Record<ThinkingFormat, readonly ThinkingLevel[]> = {
+  "openai-effort": THINKING_LEVELS,
+  "openrouter-effort": THINKING_LEVELS,
+  "anthropic-effort": THINKING_LEVELS,
+  "google-thinking-level": ["off", "low", "medium", "high"],
+};
+
+/** #256: states from a declared capability — offered exactly where the
+ * declaration lists the level AND the format's wire can express it.
+ * Deliberate narrowing: config declarations have no `null` semantics,
+ * so the supported/disabled distinction of catalog maps collapses to
+ * supported vs provider-default here. */
+function declaredStates(declaration: ThinkingDeclaration): Record<ThinkingLevel, ThinkingLevelState> {
+  const expressible = FORMAT_EXPRESSIBLE_LEVELS[declaration.format];
+  const out = {} as Record<ThinkingLevel, ThinkingLevelState>;
+  for (const level of THINKING_LEVELS) {
+    out[level] = declaration.levels.includes(level) && expressible.includes(level) ? "supported" : "provider-default";
+  }
+  return out;
+}
+
+/** #256: the one capability calculation (per model ref). Resolution
+ * chain: per-model config declaration > endpoint-level declaration >
+ * normalized catalog map > none (`undefined` — level selection not
+ * offered). Capability is declared (catalog or config), never inferred
+ * from `reasoning` alone. A per-model entry whose format cannot be
+ * resolved (no own format, no endpoint-level declaration) is inert —
+ * the chain falls through to the catalog map (pinned by test). */
+export function thinkingStatesForRef(
+  ref: string,
+  endpoints: ReadonlyArray<ThinkingEndpoint>,
+): Record<ThinkingLevel, ThinkingLevelState> | undefined {
+  const slash = ref.indexOf("/");
+  if (slash === -1) return undefined;
+  const endpointName = ref.slice(0, slash);
+  const modelId = ref.slice(slash + 1);
+  const endpoint = endpoints.find((e) => e.name === endpointName);
+  if (!endpoint) return undefined;
+  const perModel = endpoint.capabilities?.thinkingModels?.[modelId];
+  const endpointLevel = endpoint.capabilities?.thinking;
+  if (perModel) {
+    const format = perModel.format ?? endpointLevel?.format;
+    if (format) return declaredStates({ format, levels: perModel.levels });
+  }
+  if (endpointLevel) return declaredStates(endpointLevel);
+  return thinkingLevelStates(catalogEntryFor(endpoint.type, modelId));
+}
 
 /** What a canonical level means for one model (#241). */
 export type ThinkingLevelState =
@@ -52,15 +128,29 @@ export function thinkingLevelStates(
   return out;
 }
 
-/**
- * The default level for a new endpoint (#239 decision 8): `medium` when
- * the model supports it; otherwise `undefined` = provider default (moh
- * sends no thinking request and audits no level).
- */
+/** #256: shared default rule (#239 decision 8, unchanged): `medium`
+ * when supported, else `undefined` = provider default. */
+function defaultForStates(states: Record<ThinkingLevel, ThinkingLevelState>): ThinkingLevel | undefined {
+  return states.medium === "supported" ? "medium" : undefined;
+}
+
+/** #256: shared effective rule (#239 decision 9): honor the preference
+ * only where offered; an unsupported preference is never remapped — the
+ * call falls to the provider default. */
+function effectiveForStates(
+  states: Record<ThinkingLevel, ThinkingLevelState>,
+  preference: ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
+  if (preference !== undefined) {
+    return states[preference] === "provider-default" ? undefined : preference;
+  }
+  return defaultForStates(states);
+}
+
 export function defaultThinkingLevel(model: CatalogModel | undefined): ThinkingLevel | undefined {
   const states = thinkingLevelStates(model);
   if (!states) return undefined;
-  return states.medium === "supported" ? "medium" : undefined;
+  return defaultForStates(states);
 }
 
 /**
@@ -78,10 +168,7 @@ export function effectiveThinkingLevel(
 ): ThinkingLevel | undefined {
   const states = thinkingLevelStates(model);
   if (!states) return undefined;
-  if (preference !== undefined) {
-    return states[preference] === "provider-default" ? undefined : preference;
-  }
-  return defaultThinkingLevel(model);
+  return effectiveForStates(states, preference);
 }
 
 /** The `thinkingLevels` section of `~/.moh/config`: endpoint name → level. */
@@ -167,22 +254,50 @@ export function clearThinkingPreference(file: string, endpoint: string, io: User
  * profiles and the vendored catalog, honoring the endpoint's stored
  * preference. Re-read per call so a persisted preference change is
  * effective on the very next call. `undefined` = send nothing (custom
- * providers, non-catalog models, models without a level map, or a
- * preference the model does not offer — never a silent remap).
+ * profiles and the unified capability calculation (#256: per-model
+ * config declaration > endpoint-level declaration > normalized catalog
+ * map), honoring the endpoint's stored preference. Re-read per call so
+ * a persisted preference change is effective on the very next call.
+ * `undefined` = send nothing (custom providers, no declared capability,
+ * or a preference not offered — never a silent remap).
  */
+/** #256: `endpoint/model-id` split — undefined when the ref is not a
+ * two-part route reference. Shared by the per-call and status seams. */
+function splitRef(ref: string): { endpointName: string } | undefined {
+  const slash = ref.indexOf("/");
+  return slash === -1 ? undefined : { endpointName: ref.slice(0, slash) };
+}
+
 export function resolveEndpointThinking(
   ref: string,
-  endpoints: ReadonlyArray<{ name: string; type: string }>,
+  endpoints: ReadonlyArray<ThinkingEndpoint>,
   userConfig: string,
   read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): { level: ThinkingLevel } | undefined {
-  const slash = ref.indexOf("/");
-  if (slash === -1) return undefined;
-  const endpointName = ref.slice(0, slash);
-  const endpoint = endpoints.find((e) => e.name === endpointName);
-  if (!endpoint) return undefined;
-  const model = catalogEntryFor(endpoint.type, ref.slice(slash + 1));
-  if (!model?.thinkingLevelMap) return undefined;
-  const level = effectiveThinkingLevel(model, readThinkingPreference(userConfig, endpointName, read));
+  const parts = splitRef(ref);
+  if (!parts) return undefined;
+  const states = thinkingStatesForRef(ref, endpoints);
+  if (!states) return undefined;
+  const level = effectiveForStates(states, readThinkingPreference(userConfig, parts.endpointName, read));
   return level === undefined ? undefined : { level };
+}
+
+/** #256: status resolution for display — the effective level plus the
+ * unsupported-preference marker ("provider default (preference X
+ * unsupported)" sources). The stored preference is never dropped; only
+ * the call-time resolution decides what to send. */
+export function endpointThinkingStatus(
+  ref: string,
+  endpoints: ReadonlyArray<ThinkingEndpoint>,
+  userConfig: string,
+  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
+): { level?: ThinkingLevel; unsupported?: ThinkingLevel } {
+  const parts = splitRef(ref);
+  if (!parts) return {};
+  const states = thinkingStatesForRef(ref, endpoints);
+  const preference = readThinkingPreference(userConfig, parts.endpointName, read);
+  if (!states) return { ...(preference ? { unsupported: preference } : {}) };
+  const level = effectiveForStates(states, preference);
+  const unsupported = preference !== undefined && states[preference] === "provider-default" ? preference : undefined;
+  return level === undefined ? { ...(unsupported ? { unsupported } : {}) } : { level, ...(unsupported ? { unsupported } : {}) };
 }

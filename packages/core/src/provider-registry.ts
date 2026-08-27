@@ -153,6 +153,11 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
   // New builtin kinds default their backend base URL when the profile
   // has none (subscription grants override it via the auth context).
   const baseUrl = profile.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind];
+  // #256: a config-declared thinking format rides the target — per-model
+  // declaration wins, inheriting the endpoint-level format when omitted.
+  const thinkingFormat =
+    profile.capabilities?.thinkingModels?.[modelId]?.format ??
+    profile.capabilities?.thinking?.format;
   return {
     endpoint: new Endpoint({
       name: profile.name,
@@ -164,6 +169,7 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
     }),
     modelId,
     ...catalogTargetOverrides(kind, modelId),
+    ...(thinkingFormat ? { thinkingFormat } : {}),
   };
 }
 

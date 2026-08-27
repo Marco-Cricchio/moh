@@ -75,6 +75,19 @@ vendored catalog: `listOpenAiCompatModels(baseUrl, apiKey?)` fetches
 `GET <baseUrl>/models` live (used by the model pickers; a failure falls
 back to free-text entry).
 
+**Thinking capability declarations (#256).** An endpoint profile may
+declare a thinking capability in `capabilities`: `thinking` (endpoint-
+level: `{ format, levels }`) and `thinkingModels` (per-model overrides,
+`{ levels }` with an optional `format` inheriting the endpoint-level one).
+`format` is one of `openai-effort`, `openrouter-effort`,
+`anthropic-effort`, `google-thinking-level`; `levels` lists canonical
+thinking levels (`off`…`max`) the backend accepts. This is the capability
+source for `openai-compat` models (which carry no catalog metadata) and an
+explicit per-model override on catalog-backed endpoints. Absent
+declaration, behavior is conservative: no level selection, no invented
+request fields. Declared levels are intersected with what the format's
+wire can express (e.g. `google-thinking-level` has no `xhigh`/`max`).
+
 ### 2. Consume the session through `events`
 
 The event log is the session: an append-only sequence of `AgentEvent`s
@@ -193,7 +206,13 @@ before every call; a newly persisted change therefore applies to the next
 call, including after a model switch. Embedding clients that need the same
 projection can call `resolveEndpointThinking(ref, endpoints, userConfigFile)`.
 It returns `{ level }` only for an offered canonical level; `undefined` means
-provider default/no explicit request, never a fallback mapping.
+provider default/no explicit request, never a fallback mapping. For status
+display, `endpointThinkingStatus(ref, endpoints, userConfigFile)` adds the
+`unsupported` marker — an intact stored preference the active model does not
+offer ("provider default (preference X unsupported)"). The capability
+calculation itself is `thinkingStatesForRef(ref, endpoints)`: per-model
+config declaration > endpoint-level declaration > normalized catalog map.
+Catalog `minimal` keys normalize into the canonical scale there (#256).
 
 ## What's intentionally not here
 
