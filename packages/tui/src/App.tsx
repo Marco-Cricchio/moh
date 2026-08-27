@@ -39,6 +39,13 @@ import { WorkflowOffer } from "./WorkflowOffer";
 import { runSlashCommand, activeCommands } from "./commands";
 import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
+import {
+  catalogEntryFor,
+  resolveEndpointThinking,
+  setThinkingPreference,
+} from "@moh/core";
+import type { DisplayThinkingLevel } from "./BottomBar";
+import { thinkingLevelControl } from "./thinking-controls";
 
 export interface AppProps {
   cwd: string;
@@ -59,6 +66,11 @@ export interface AppProps {
 }
 
 type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "model";
+
+/** #242: one-shot, non-blocking informed-consent copy. Exported so focused
+ * tests can verify the full message even when narrow status chrome clips it. */
+export const REASONING_PERSISTENCE_NOTICE =
+  "note: provider-exposed reasoning and continuity metadata are saved in the session log — they travel with resume and fork and are included in session exports and backups";
 
 /**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,
@@ -144,6 +156,10 @@ export function App({
     if (offerWorkflow) setOverlay("workflow-offer");
   }, [offerWorkflow]);
   const [wizardFromSettings, setWizardFromSettings] = useState(false);
+  // #242: temporary session-level reasoning display override (`/thinking
+  // show|hide`); null = use the persisted global preference.
+  const [reasoningOverride, setReasoningOverride] = useState<boolean | null>(null);
+  const [thinkingPreferenceRevision, setThinkingPreferenceRevision] = useState(0);
 
   const gateRef = useRef<PermissionGate | null>(null);
   if (gateRef.current === null) gateRef.current = new PermissionGate();
@@ -206,6 +222,9 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
+  // `/thinking show|hide` is session-temporary: replacing/resuming a
+  // session returns display control to the persisted global preference.
+  useEffect(() => { setReasoningOverride(null); }, [session]);
 
   // Workflow mode (#36): the frontier tracker and the background
   // upstream check exist only while enabled (and opted in).
@@ -226,6 +245,15 @@ export function App({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflowOn]);
+
+  const showReasoningPersistenceNotice = (candidate: AgentSession) => {
+    if (configRef.current.reasoningNoticeShown) return;
+    if (!modelReasoningCapable(candidate.activeModel, candidate.activeEndpointType)) return;
+    // updateConfig updates configRef synchronously before the durable write,
+    // preventing the session effect from duplicating this notice.
+    updateConfig({ reasoningNoticeShown: true });
+    push(REASONING_PERSISTENCE_NOTICE, "warn");
+  };
 
   const open = (resume: SessionSummary | null, initialPrompt?: string) => {
     const base = {
@@ -248,6 +276,9 @@ export function App({
       push(assemblyErrorToast(made.error));
       return;
     }
+    // Informed consent must precede an initial prompt's first provider
+    // call, not wait for the post-render session effect.
+    showReasoningPersistenceNotice(made.session);
     setSession(made.session);
     if (initialPrompt) void made.session.send(initialPrompt);
   };
@@ -265,6 +296,40 @@ export function App({
     setMode(next);
     updateConfig({ mode: next });
   };
+  // #242: the effective level of the active model for the status bar.
+  // Resolved from the same seam the session uses per call, so the label
+  // always matches what was sent (provider default = no explicit level).
+  const thinkingLevel = useMemo<DisplayThinkingLevel>(() => {
+    if (!session) return "default";
+    return resolveEndpointThinking(session.activeModel, session.endpointProfiles, cfgFile)?.level ?? "default";
+  }, [session, modelLabel, thinkingPreferenceRevision, cfgFile]);
+
+  // #242: cycles among the levels the active model actually offers and
+  // persists immediately. Never a silent remap: unoffered levels are not
+  // part of the cycle, and models without a map get the explanation.
+  const cycleThinkingLevel = () => {
+    if (!session) return;
+    const ref = session.activeModel;
+    const control = thinkingLevelControl(ref, session.activeEndpointType);
+    if (!control || control.offered.length === 0) {
+      return push(`thinking levels not offered for ${ref} (no canonical level map) — /model to pick a reasoning model`);
+    }
+    const current = resolveEndpointThinking(ref, session.endpointProfiles, cfgFile)?.level;
+    const idx = current ? control.offered.indexOf(current) : -1;
+    const next = control.offered[(idx + 1) % control.offered.length]!;
+    setThinkingPreference(cfgFile, control.endpointName, next);
+    setThinkingPreferenceRevision((value) => value + 1);
+    push(`thinking level ${next} · saved for endpoint ${control.endpointName}`);
+  };
+
+  // #242: informed consent — one-shot, non-blocking, before the first
+  // compatible call of a reasoning-capable model.
+  useEffect(() => {
+    if (!session) return;
+    showReasoningPersistenceNotice(session);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, modelLabel]);
+
   const cycleTheme = () => {
     const index = THEME_ORDER.indexOf(themeName);
     const next = THEME_ORDER[(index + 1) % THEME_ORDER.length]!;
@@ -283,6 +348,7 @@ export function App({
     if (action === "commands") return setOverlay("commands");
     if (action === "settings") return setOverlay("settings");
     if (action === "frontier") return workflowOn ? setOverlay("frontier") : push("wayfinder needs workflow on (/workflow on)");
+    if (action === "thinking") return cycleThinkingLevel();
     if (action === "workflow") {
       const enabled = !configRef.current.workflow.enabled;
       updateConfig({ workflow: { ...configRef.current.workflow, enabled } });
@@ -321,6 +387,7 @@ export function App({
     }
     if (key.ctrl && input === "o") return cycleMode();
     if (key.ctrl && input === "t") return cycleTheme();
+    if (key.ctrl && input === "y" && session) return cycleThinkingLevel();
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
@@ -341,6 +408,8 @@ export function App({
       focusedChip={focusedChip}
       tokens={sidebar.tokens}
       workflowOn={workflowOn}
+      thinkingLevel={thinkingLevel}
+      showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
       notice={toasts.at(-1)?.text}
       submitSignal={submitSignal}
@@ -364,6 +433,9 @@ export function App({
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
         onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+        onThinkingDisplay: (show) => setReasoningOverride(show),
+        thinkingDisplay: () => reasoningOverride ?? configRef.current.showReasoning,
+        onThinkingLevelChanged: () => setThinkingPreferenceRevision((value) => value + 1),
         activeProviderType: () => session?.activeEndpointType,
         onModelSwitched: (model) => setModelLabel(model),
       })}
@@ -535,6 +607,19 @@ function assemblyErrorToast(error: AssemblyError): string {
       ? " · re-run onboarding (ctrl+k → onboarding) or fix the provider in moh.json"
       : " · fix moh.json and retry";
   return `session error (${error.kind}): ${error.message}${hint}`;
+}
+
+/** #242: true when the active ref is a catalog model that can return
+ * provider reasoning (declared capability or a level map). */
+function modelReasoningCapable(ref: string | undefined, type: string | undefined): boolean {
+  if (!ref || ref === "mock") return false;
+  const slash = ref.indexOf("/");
+  // Custom/registered providers have no catalog contract that can prove
+  // they *won't* emit neutral reasoning. Informed consent is conservative:
+  // warn before their first call rather than after metadata was persisted.
+  if (!type || slash === -1) return true;
+  const model = catalogEntryFor(type, ref.slice(slash + 1));
+  return model ? model.reasoning || !!model.thinkingLevelMap : true;
 }
 
 /** A `provider` reference in the project's moh.json (invalid = not configured). */

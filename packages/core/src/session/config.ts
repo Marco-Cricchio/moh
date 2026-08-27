@@ -101,4 +101,10 @@ export interface SessionConfig {
    * disables everything (no writes, no section, no subagent runs).
    */
   memory?: MemoryOptions;
+  /** #240: neutral thinking-level request for every model call of this
+   * session. A static level, a per-call getter (#242: dynamic overrides),
+   * or absent — in which case the session resolves endpoint-scoped
+   * preferences from `~/.moh/config` when the active ref is a catalog
+   * model (#241/#242). Absent resolution = no thinking request at all. */
+  thinking?: { level: import("../types").ThinkingLevel } | (() => { level: import("../types").ThinkingLevel } | undefined);
 }

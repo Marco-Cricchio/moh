@@ -34,6 +34,13 @@ export interface CatalogModel {
   name: string;
   contextWindow: number;
   reasoning: boolean;
+  /** #241: the model's thinking-level map, preserved verbatim from the
+   * vendored catalog. Keys are level names (canonical moh ones plus any
+   * provider-specific extras like "minimal"); a non-null value is the
+   * provider-native expression, `null` is an explicit provider-native
+   * disable. Absent = the model declares no level map: level selection
+   * is not offered (#239 decision 10). */
+  thinkingLevelMap?: Record<string, string | null>;
   /** Wire the backend speaks for this model (#159 seam; the pi api name
    * mapped to WireApi). Absent = the kind's default wire. */
   wire?: WireApi;
@@ -52,6 +59,7 @@ interface PiAiEntry {
   name?: string;
   contextWindow?: number;
   reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string | null>;
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
 }
@@ -75,6 +83,7 @@ function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
     contextWindow: entry.contextWindow ?? 0,
     reasoning: entry.reasoning ?? false,
     wire,
+    ...(entry.thinkingLevelMap ? { thinkingLevelMap: entry.thinkingLevelMap } : {}),
     ...(entry.headers ? { headers: entry.headers } : {}),
     ...(entry.compat ? { compat: entry.compat } : {}),
   };

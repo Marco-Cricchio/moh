@@ -23,7 +23,17 @@ import { type PermissionsConfig, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
-import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, SendOptions, SkillPrompt, Tool } from "./types";
+import type {
+  AgentEvent,
+  AskUserQuestion,
+  AskUserResult,
+  Provider,
+  SendOptions,
+  SkillPrompt,
+  StreamOptions,
+  ThinkingLevel,
+  Tool,
+} from "./types";
 import { SessionStore } from "./session-store";
 import {
   formatRule,
@@ -60,6 +70,20 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { catalogEntryFor, subscriptionModelCatalog, type CatalogModel } from "./model-catalog";
+export {
+  clearThinkingPreference,
+  defaultThinkingLevel,
+  effectiveThinkingLevel,
+  readThinkingPreference,
+  readThinkingPreferences,
+  resolveEndpointThinking,
+  setThinkingPreference,
+  thinkingLevelStates,
+  THINKING_LEVELS,
+  type ThinkingLevelState,
+  type ThinkingPreferences,
+} from "./thinking-preferences";
+export { isThinkingLevel } from "./types";
 export { listOpenAiCompatModels } from "./endpoint-models";
 import {
   isSubscriptionKind,
@@ -429,6 +453,8 @@ export {
   type TrackerIssue,
   type TrackerBackend,
   type AgentEvent,
+  type StreamOptions,
+  type ThinkingLevel,
   type AskUserQuestion,
   type AskUserResult,
   type Provider,

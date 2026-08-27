@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { ProviderError } from "./types";
-import type { FinishReason, Message, Provider, ProviderErrorKind, StreamEvent } from "./types";
+import type { FinishReason, Message, Provider, ProviderErrorKind, StreamEvent, StreamOptions, ToolSpec } from "./types";
 
 export interface MockToolCall {
   callId?: string;
@@ -27,6 +27,8 @@ export interface MockTurnScript {
   error?: MockError;
   /** Usage tokens emitted before finish (subagent result events, #13). */
   usage?: { inputTokens: number; outputTokens: number };
+  /** #240: provider reasoning emitted before the text deltas. */
+  reasoning?: { deltas: string[]; continuation?: Record<string, unknown> };
 }
 
 export class MockProvider implements Provider {
@@ -67,11 +69,21 @@ export class MockProvider implements Provider {
     ]);
   }
 
-  async *stream(_messages: Message[], signal: AbortSignal): AsyncIterable<StreamEvent> {
+  async *stream(_messages: Message[], signal: AbortSignal, _tools?: readonly ToolSpec[], options?: StreamOptions): AsyncIterable<StreamEvent> {
     const turn = this.#turns[Math.min(this.#call, this.#turns.length - 1)];
     this.#call += 1;
-    // Announce the (notional) model serving this call (#83).
-    yield { type: "model_call_start", model: "mock" };
+    // Announce the (notional) model serving this call (#83) and echo the
+    // requested thinking level as the effective one (#240 audit).
+    yield { type: "model_call_start", model: "mock", ...(options?.thinking ? { thinkingLevel: options.thinking.level } : {}) };
+    if (turn.reasoning) {
+      yield { type: "reasoning_start" };
+      for (const text of turn.reasoning.deltas) {
+        if (signal.aborted) return;
+        if (turn.deltaDelayMs) await Bun.sleep(turn.deltaDelayMs);
+        yield { type: "reasoning_delta", text };
+      }
+      yield { type: "reasoning_end", ...(turn.reasoning.continuation ? { continuation: turn.reasoning.continuation } : {}) };
+    }
     let emitted = 0;
     const failAt = turn.error?.afterDeltas ?? 0;
     for (const text of turn.deltas) {
