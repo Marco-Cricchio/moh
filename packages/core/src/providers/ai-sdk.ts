@@ -20,16 +20,38 @@ export interface AiSdkTransport {
   wire?: WireApi;
 }
 import { normalizeProviderError } from "../provider-errors";
+import { FORMAT_EXPRESSIBLE_LEVELS } from "../thinking-preferences";
 import type { RouteTarget } from "../route";
-import type { Message, StreamEvent, StreamOptions, ThinkingLevel, ToolSpec } from "../types";
+import type { Message, StreamEvent, StreamOptions, ThinkingFormat, ThinkingLevel, ToolSpec } from "../types";
 
-/** #240: the effective thinking level a wire can actually send. Levels a
- * wire cannot express are dropped (never silently remapped) — moh then
- * sends nothing and audits no level for the call. */
+/** #240/#256: the effective thinking level a wire can actually send.
+ * A config-declared format (#256) overrides the wire-derived mapping —
+ * the declaration is the user's explicit statement of what the backend
+ * accepts. Levels the wire/format cannot express are dropped (never
+ * silently remapped) — moh then sends nothing and audits no level. */
 export function thinkingForWire(
   wire: WireApi,
   level: ThinkingLevel,
+  format?: ThinkingFormat,
 ): { providerOptions: Record<string, unknown>; effective: ThinkingLevel } | undefined {
+  // #256: declared formats map directly; they apply regardless of the
+  // wire the model travels (that is their point — openai-compat backends
+  // with non-OpenAI reasoning shapes).
+  if (format === "anthropic-effort") {
+    return level === "off"
+      ? { providerOptions: { anthropic: { thinking: { type: "disabled" } } }, effective: level }
+      : { providerOptions: { anthropic: { effort: level } }, effective: level };
+  }
+  if (format === "google-thinking-level") {
+    if (!FORMAT_EXPRESSIBLE_LEVELS["google-thinking-level"].includes(level)) return undefined;
+    return {
+      providerOptions: { google: { thinkingConfig: level === "off" ? { thinkingLevel: null } : { thinkingLevel: level } } },
+      effective: level,
+    };
+  }
+  if (format === "openai-effort" || format === "openrouter-effort") {
+    return { providerOptions: { openai: { reasoningEffort: level === "off" ? "none" : level } }, effective: level };
+  }
   if (wire === "anthropic-messages") {
     // off = explicit disable; all five effort levels are native.
     return level === "off"
@@ -37,7 +59,7 @@ export function thinkingForWire(
       : { providerOptions: { anthropic: { effort: level } }, effective: level };
   }
   if (wire === "google") {
-    if (level === "xhigh" || level === "max") return undefined;
+    if (!FORMAT_EXPRESSIBLE_LEVELS["google-thinking-level"].includes(level)) return undefined;
     // google: null disables; low/medium/high are native.
     return {
       providerOptions: { google: { thinkingConfig: level === "off" ? { thinkingLevel: null } : { thinkingLevel: level } } },
@@ -97,7 +119,7 @@ function languageModelFor(
     // #251: openrouter models marked `compat.thinkingFormat: "openrouter"`
     // travel the openai-chat wire but need OpenRouter's own reasoning
     // request/response shapes — applied at this wire/compat seam.
-    if (target.compat?.thinkingFormat === "openrouter") {
+    if (target.compat?.thinkingFormat === "openrouter" || target.thinkingFormat === "openrouter-effort") {
       return openRouterChatModel({
         modelId: target.modelId,
         apiKey,
@@ -207,9 +229,10 @@ export function aiSdkStreamFor(
     return {
       async *[Symbol.asyncIterator]() {
         const wire: WireApi = transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind);
-        // #240: the neutral thinking-level request, mapped per wire. Levels a
-        // wire cannot express are not sent (and not audited) — never remapped.
-        const thinking = options?.thinking ? thinkingForWire(wire, options.thinking.level) : undefined;
+        // #240/#256: the neutral thinking-level request, mapped per wire
+        // or per config-declared format. Levels the wire/format cannot
+        // express are not sent (and not audited) — never remapped.
+        const thinking = options?.thinking ? thinkingForWire(wire, options.thinking.level, target.thinkingFormat) : undefined;
         // Announce the RouteTarget serving this call (#83) — `endpoint/model`
         // as moh resolved it. Providers (not routes) announce: one
         // announcement per actual stream, including fallback restarts.

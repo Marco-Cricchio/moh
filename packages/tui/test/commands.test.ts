@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, createSession, readThinkingPreference } from "@moh/core";
+import { MockProvider, createSession, readThinkingPreference, setThinkingPreference } from "@moh/core";
 import { activeCommands, runSlashCommand, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
@@ -272,7 +272,39 @@ describe("/thinking controls (#242)", () => {
     });
     runSlashCommand("/thinking high", ctx);
     expect(readThinkingPreference(ctx.cfgFile, "ep")).toBeUndefined();
-    expect(ctx.notices().at(-1)).toContain("declares no thinking level map");
+    expect(ctx.notices().at(-1)).toContain("declares no thinking capability");
+  });
+
+  test("#256: a config-declared capability offers exactly its declared levels (openai-compat)", () => {
+    const ctx = makeCtx({
+      session: {
+        activeModel: "local/qwen3",
+        endpointProfiles: [{
+          name: "local",
+          type: "openai-compat",
+          baseUrl: "https://example.test/v1",
+          capabilities: { thinking: { format: "openai-effort", levels: ["low", "medium", "high"] } },
+        }],
+      } as any,
+    });
+    runSlashCommand("/thinking", ctx);
+    expect(ctx.notices().at(-1)).toContain("levels offered by local/qwen3: low, medium, high");
+    runSlashCommand("/thinking high", ctx);
+    expect(readThinkingPreference(ctx.cfgFile, "local")).toBe("high");
+    runSlashCommand("/thinking xhigh", ctx);
+    expect(readThinkingPreference(ctx.cfgFile, "local")).toBe("high"); // unchanged — never remapped
+    expect(ctx.notices().at(-1)).toContain("does not offer level \"xhigh\"");
+  });
+
+  test("#256: an unsupported stored preference is visible as provider default, never dropped", () => {
+    const ctx = makeCtx({
+      session: { activeModel: "ep/claude-fable-5" } as any,
+      activeProviderType: () => "anthropic",
+    });
+    setThinkingPreference(ctx.cfgFile, "ep", "medium");
+    runSlashCommand("/thinking", ctx);
+    expect(ctx.notices().at(-1)).toContain("provider default (preference medium unsupported by ep/claude-fable-5)");
+    expect(readThinkingPreference(ctx.cfgFile, "ep")).toBe("medium"); // still intact
   });
 
   test("the command is always available outside workflow mode", () => {
