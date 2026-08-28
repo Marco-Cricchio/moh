@@ -12,7 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
@@ -66,6 +66,50 @@ describe("onboarding wizard — cursor race", () => {
       i.stdin.write("\r"); // must land on the manual-entry row
       await sleep(60);
       expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+      i.unmount();
+    }
+  });
+
+  test("down+enter before the input handler re-registers selects the highlighted save-scope row (#275)", async () => {
+    for (let round = 0; round < 3; round++) {
+      const cwd = tempCwd();
+      const home = tempHome();
+      const done: (string | null)[] = [];
+      const i = render(
+        <Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={(ref) => done.push(ref)} subscriptionLogin={async (io) => scriptedLogin(io)} />,
+      );
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      const waitFor = async (substr: string, ms = 2000) => {
+        for (let t = 0; t < ms / 10 && !frame().includes(substr); t++) await sleep(10);
+        expect(frame()).toContain(substr);
+      };
+      await waitFor("Pick a provider type");
+      for (let d = 0; d < 3; d++) {
+        i.stdin.write("\x1b[B");
+        await sleep(10);
+      } // openai-compat
+      await sleep(50);
+      i.stdin.write("\r");
+      await waitFor("Default model");
+      i.stdin.write("qwen3");
+      await sleep(10);
+      i.stdin.write("\r");
+      await waitFor("API key");
+      i.stdin.write("\r"); // empty key → env/local
+      await waitFor("Base URL");
+      i.stdin.write("http://localhost:11434/v1");
+      await sleep(10);
+      i.stdin.write("\r");
+      await waitFor("Where should");
+      // down+enter with no settling window: enter must read the cursor the
+      // down produced even if ink re-registers the input handler only in a
+      // deferred passive effect.
+      i.stdin.write("\x1b[B");
+      i.stdin.write("\r");
+      await sleep(100);
+      expect(done).toEqual(["openai-compat/qwen3"]);
+      const config = JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8"));
+      expect(config.provider).toBe("openai-compat/qwen3"); // project save — not user-level
       i.unmount();
     }
   });
