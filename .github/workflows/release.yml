@@ -71,6 +71,7 @@ jobs:
     permissions:
       contents: write # create the GitHub Release
     steps:
+      - uses: actions/checkout@v4 # CHANGELOG.md at the tagged commit
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -81,11 +82,27 @@ jobs:
           sha256sum moh-* > checksums.txt
           cat checksums.txt
           sha256sum -c checksums.txt
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          BODY=$(awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$(printf %s "$BODY" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no [${VERSION}] section (or it is empty) at tag $TAG"
+            exit 1
+          fi
+          printf %s "$BODY" > release-notes.md
+          head -5 release-notes.md
       - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             dist/moh-*
             dist/checksums.txt
