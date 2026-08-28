@@ -8,6 +8,7 @@ import {
   checkUpstreamUpdates,
   diffSkillFiles,
   firstPartySkillSources,
+  embeddedSkillSources,
   hashSkillFiles,
   installFirstPartySkills,
   loadFirstPartyManifest,
@@ -224,6 +225,63 @@ describe("upstream updates", () => {
     const diff = diffSkillFiles({ "a.md": "x" }, { "b.md": "y" });
     expect(diff).toContain("--- a/a.md");
     expect(diff).toContain("+++ b/b.md");
+  });
+});
+
+describe("embedded skills bundle (binary run, #267)", () => {
+  const GLOBAL_KEY = "__MOH_EMBEDDED_SKILLS__" as const;
+
+  /** Writes skill files to a temp "extracted assets" dir and returns the registry. */
+  function extractedBundle(skills: FirstPartySkillSource[]): Record<string, string> {
+    const dir = mkdtempSync(join(tmpdir(), "moh-emb-"));
+    const registry: Record<string, string> = {};
+    for (const s of skills) {
+      mkdirSync(join(dir, s.name), { recursive: true });
+      for (const [rel, content] of Object.entries(s.files)) {
+        writeFileSync(join(dir, s.name, rel), content);
+        registry[`${s.name}/${rel}`] = join(dir, s.name, rel);
+      }
+    }
+    return registry;
+  }
+
+  test("embeddedSkillSources reads skills from the extracted-asset registry", () => {
+    const sources = embeddedSkillSources(extractedBundle([skill("plan", "body"), skill("review", "body")]));
+    expect(sources.map((s) => s.name)).toEqual(["plan", "review"]);
+    expect(sources[0]!.files["SKILL.md"]).toContain("body");
+  });
+
+  test("install uses the embedded registry when present, disk bundle otherwise", () => {
+    const g = globalThis as Record<string, unknown>;
+    const prev = g[GLOBAL_KEY];
+    const home = freshHome();
+    try {
+      g[GLOBAL_KEY] = extractedBundle([skill("plan", "embedded")]);
+      const report = install({ mohHome: home });
+      expect(report.installed).toEqual(["plan"]);
+      expect(readFileSync(join(home, "skills", "plan", "SKILL.md"), "utf8")).toContain("embedded");
+    } finally {
+      if (prev === undefined) delete g[GLOBAL_KEY];
+      else g[GLOBAL_KEY] = prev;
+    }
+  });
+
+  test("embedded upgrade-in-place keeps hash-manifest semantics", () => {
+    const g = globalThis as Record<string, unknown>;
+    const prev = g[GLOBAL_KEY];
+    const home = freshHome();
+    try {
+      g[GLOBAL_KEY] = extractedBundle([skill("plan", "v1")]);
+      install({ mohHome: home });
+      writeFileSync(join(home, "skills", "plan", "SKILL.md"), "user edit");
+      g[GLOBAL_KEY] = extractedBundle([skill("plan", "v2")]);
+      const report = install({ mohHome: home });
+      expect(report.skippedModified).toEqual(["plan"]);
+      expect(readFileSync(join(home, "skills", "plan", "SKILL.md"), "utf8")).toBe("user edit");
+    } finally {
+      if (prev === undefined) delete g[GLOBAL_KEY];
+      else g[GLOBAL_KEY] = prev;
+    }
   });
 });
 

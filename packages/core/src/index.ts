@@ -111,6 +111,8 @@ import {
 import {
   MOH_VERSION,
   installFirstPartySkills,
+  embeddedSkillSources,
+  bundledSkillSources,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
   loadFirstPartyManifest,
