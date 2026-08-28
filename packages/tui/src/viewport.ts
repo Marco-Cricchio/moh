@@ -30,8 +30,18 @@ export const HOME_LIST_DEFAULT = 5;
 export const HOME_LIST_MAX = 10;
 /** Small-screen floor: the home list never shrinks below this. */
 export const HOME_LIST_MIN_VISIBLE = 3;
-/** Rough row budget consumed by the home chrome (logo, search box, footer). */
+/** Rough row budget consumed by the home chrome (inline logo, search box,
+ * footer). The big banner only appears at ≥30 rows where space is not
+ * scarce, so it never adds to this budget. */
 const HOME_CHROME_ROWS = 14;
+/** Minimum terminal height for the big ASCII banner (#292); below it the
+ * home falls back to the one-line `moh > — My Own Harness` logo. */
+export const HOME_BANNER_MIN_ROWS = 30;
+
+/** Whether the home shows the big ASCII banner (tall, non-compact terminals). */
+export function homeBannerFits(v: Viewport): boolean {
+  return widthClass(v) !== "compact" && v.rows >= HOME_BANNER_MIN_ROWS;
+}
 
 /** Coerces a raw config value into a valid home-list height (3…10, default 5). */
 export function clampHomeListMax(raw: unknown): number {

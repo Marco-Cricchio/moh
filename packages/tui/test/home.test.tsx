@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore, createSession, MockProvider } from "@moh/core";
 import { Home } from "../src/Home";
+import { homeBannerFits } from "../src/viewport";
 import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -108,6 +109,24 @@ describe("home chrome (#292)", () => {
     const frame = stripAnsi(lastFrame() ?? "");
     expect(frame).toContain("v0.1.0");
     expect(frame).not.toContain("moh v0.1.0");
+  });
+
+  test("short terminals (test viewport 100×24) use the inline logo and move the version to the footer", async () => {
+    const { lastFrame } = render(
+      <Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
+    );
+    await sleep(30);
+    const frame = stripAnsi(lastFrame() ?? "");
+    expect(frame).toContain("moh > — My Own Harness");
+    expect(frame).toContain("v0.1.0 · "); // footer prefix in fallback mode
+  });
+});
+
+describe("home banner decision (#292)", () => {
+  test("the banner fits only on tall, non-compact terminals", () => {
+    expect(homeBannerFits({ columns: 100, rows: 40 })).toBe(true);
+    expect(homeBannerFits({ columns: 100, rows: 24 })).toBe(false);
+    expect(homeBannerFits({ columns: 60, rows: 60 })).toBe(false); // compact
   });
 });
 

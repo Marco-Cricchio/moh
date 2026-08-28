@@ -55,13 +55,30 @@ export function sanitizeLine(s: string): string {
     .replace(/\t/g, "  ");
 }
 
-/** moh logo, bold+underline accent */
-export function Logo() {
+/** figlet-Slant banner for the home screen (#292). */
+export const LOGO_BANNER = [
+  "    ____ ___  ____  / /_ ",
+  "   / __ `__ \\/ __ \\/ __ \\",
+  "  / / / / / / /_/ / / / /",
+  " /_/ /_/ /_/\\____/_/ /_/ ",
+];
+
+/** moh logo (#292): the figlet-Slant banner with the "My Own Harness"
+ * acronym on tall non-compact terminals; a one-liner everywhere else. */
+export function Logo({ banner = true }: { banner?: boolean }) {
   const theme = useTheme();
+  if (!banner) {
+    return (
+      <Text bold color={theme.accent}>
+        moh &gt; <Dim>— My Own Harness</Dim>
+      </Text>
+    );
+  }
   return (
-    <Text bold underline color={theme.accent}>
-      moh &gt;
-    </Text>
+    <Box flexDirection="column" alignItems="center">
+      <Text color={theme.accent}>{LOGO_BANNER.join("\n")}</Text>
+      <Dim>My Own Harness</Dim>
+    </Box>
   );
 }
 

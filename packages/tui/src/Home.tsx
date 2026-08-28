@@ -5,6 +5,7 @@ import { ic } from "./icons";
 import { Accent, Dim, Footer, Logo, truncate } from "./ui";
 import {
   HOME_LIST_DEFAULT,
+  homeBannerFits,
   visibleListHeight,
   windowing,
   widthClass,
@@ -51,6 +52,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
+  // Big ASCII banner only on tall non-compact terminals (#292); the version
+  // moves from under the acronym into the footer in fallback mode.
+  const banner = homeBannerFits(viewport);
   // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
   const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
@@ -88,8 +92,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
-      <Logo />
-      <Dim>{`v${version}`}</Dim>
+      <Logo banner={banner} />
+      {banner ? <Dim>{`v${version}`}</Dim> : null}
       <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
@@ -119,9 +123,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       <Footer
         keys={
-          compact
+          (banner ? "" : `v${version} · `) +
+          (compact
             ? `${theme.label} · ctrl+t theme · ctrl+o mode · ctrl+c ×2 quit`
-            : `${theme.label} · ctrl+t theme · ctrl+o mode · new (n) · settings (s) · keys (?) · ctrl+c ×2 quit`
+            : `${theme.label} · ctrl+t theme · ctrl+o mode · new (n) · settings (s) · keys (?) · ctrl+c ×2 quit`)
         }
       />
     </Box>
