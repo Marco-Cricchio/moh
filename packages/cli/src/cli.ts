@@ -18,12 +18,12 @@ With no command, moh opens the interactive TUI (resume from the home
 screen; the mock provider works without credentials).
 
 commands:
-  tui    interactive session (same as bare moh)
-  run    non-interactive session (see: moh run --help)
-  mcp    manage MCP tool servers (see: moh mcp --help)
-  init   scaffold agent docs (docs/agents/* + AGENTS.md)
+  tui      interactive session (same as bare moh)
+  run      non-interactive session (see: moh run --help)
+  mcp      manage MCP tool servers (see: moh mcp --help)
+  init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
-  update  self-update the binary to the latest stable release
+  update   self-update the binary to the latest stable release
 
 options:
   --version  print version and exit

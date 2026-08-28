@@ -39,6 +39,9 @@ lives in the headless core; every client is thin.**
 
 ## Install
 
+Requirements: none — the binary is self-contained (Bun runtime embedded);
+no Node, no Bun, no npm.
+
 One command, from the latest GitHub Release (macOS arm64/x64, Linux x64):
 
 ```sh
