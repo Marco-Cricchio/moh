@@ -7,6 +7,8 @@
 # release job assembles checksums.txt and opens a draft GitHub Release with
 # the 3 binaries + checksums. Release binaries are reproducible from CI
 # only (invariant 4): no manual binary is ever attached.
+# The Homebrew tap (Marco-Cricchio/homebrew-moh) follows published releases
+# automatically via its own update-tap workflow — nothing to do here. (#270)
 name: release
 
 on:
