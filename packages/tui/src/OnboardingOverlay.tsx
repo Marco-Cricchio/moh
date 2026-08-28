@@ -93,6 +93,33 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   );
   const [wizard, setWizard] = useState<Partial<EndpointProfile>>({ name: "", type: "anthropic" });
 
+  // ink re-registers the useInput handler in a deferred passive effect AND
+  // React may defer the commit itself, so a keypress arriving right after a
+  // previous one can observe state that predates it (e.g. down+enter
+  // selecting the pre-down row — #275). All key-driven transitions go
+  // through applyPhase/patchPhase, which mirror the next state into a ref
+  // at event time; render re-asserts the same value after commit.
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  const wizardRef = useRef(wizard);
+  wizardRef.current = wizard;
+  const applyPhase = (next: Phase): void => {
+    phaseRef.current = next;
+    setPhase(next);
+  };
+  const patchPhase = (patch: (p: Phase) => Phase): void => applyPhase(patch(phaseRef.current));
+  const applyWizard = (next: Partial<EndpointProfile>): void => {
+    wizardRef.current = next;
+    setWizard(next);
+  };
+  // sub-login free-text: same event-time mirror (#156 paste codes are typed fast).
+  const askValueRef = useRef(askValue);
+  askValueRef.current = askValue;
+  const patchAskValue = (patch: (v: string) => string): void => {
+    askValueRef.current = patch(askValueRef.current);
+    setAskValue(askValueRef.current);
+  };
+
   // Height-aware lists (#64): intro, skip row, footer and borders ≈ 10 rows.
   const budget = Math.max(3, viewport.rows - 10);
   const detectWin = windowing(candidates.length + 1, phase.kind === "detect" ? phase.cursor : 0, budget);
@@ -196,21 +223,24 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   // drops one when the first render of a tall list is still in flight (see
   // test/onboarding-cursor-race.test.tsx).
   const move = (max: number, delta: number) =>
-    setPhase((p) => ("cursor" in p ? { ...p, cursor: Math.max(0, Math.min(max, p.cursor + delta)) } : p));
+    patchPhase((p) => ("cursor" in p ? { ...p, cursor: Math.max(0, Math.min(max, p.cursor + delta)) } : p));
 
   useInput((input, key) => {
+    // #275: live state, immune to the deferred-handler staleness above.
+    const phase = phaseRef.current;
+    const wizard = wizardRef.current;
     switch (phase.kind) {
       case "detect": {
         const rows = candidates.length + 1; // + skip
         if (key.upArrow) return move(rows - 1, -1);
         if (key.downArrow) return move(rows - 1, 1);
         if (input === "s") return onDone(null);
-        if (input === "w") return setPhase({ kind: "wizard-type", cursor: 0 });
+        if (input === "w") return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.return || input === "\n") {
           if (phase.cursor === candidates.length) return onDone(null);
           const candidate = candidates[phase.cursor]!;
-          setWizard({ name: candidate.type, type: candidate.type });
-          setPhase({
+          applyWizard({ name: candidate.type, type: candidate.type });
+          applyPhase({
             kind: "test",
             envCandidate: candidate,
             profile: { name: candidate.type, type: candidate.type, defaultModel: candidate.defaultModel },
@@ -224,32 +254,32 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
-          setWizard({ name: type, type });
+          applyWizard({ name: type, type });
           // openai-compat has no subscription grant — the auth-method step
           // is never shown (byte-identical path, issue #149).
           if (type === "openai-compat") {
             setAuthKind("api-key");
-            return setPhase({ kind: "wizard-text", field: "model", value: "" });
+            return applyPhase({ kind: "wizard-text", field: "model", value: "" });
           }
-          setPhase({ kind: "wizard-auth", cursor: 0 });
+          applyPhase({ kind: "wizard-auth", cursor: 0 });
         }
         return;
       }
       case "wizard-auth": {
-        if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
+        if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.upArrow) return move(1, -1);
         if (key.downArrow) return move(1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           const kind = phase.cursor === 0 ? "api-key" : "subscription";
           setAuthKind(kind);
-          return setPhase(kind === "subscription" ? { kind: "tos" } : { kind: "wizard-text", field: "model", value: "" });
+          return applyPhase(kind === "subscription" ? { kind: "tos" } : { kind: "wizard-text", field: "model", value: "" });
         }
         return;
       }
       case "tos": {
-        if (key.escape || input === "n") return setPhase({ kind: "wizard-auth", cursor: 1 });
-        if (key.return || input === "y") return setPhase({ kind: "sub-login" });
+        if (key.escape || input === "n") return applyPhase({ kind: "wizard-auth", cursor: 1 });
+        if (key.return || input === "y") return applyPhase({ kind: "sub-login" });
         return;
       }
       case "sub-login": {
@@ -264,14 +294,14 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (io?.pendingPrompt) {
           if (key.escape) {
             io.answer(""); // empty line terminates a multi-line paste
-            return setAskValue("");
+            return patchAskValue(() => "");
           }
-          if (key.backspace || key.delete) return setAskValue(askValue.slice(0, -1));
+          if (key.backspace || key.delete) return patchAskValue((v) => v.slice(0, -1));
           if (key.return || input === "\n") {
-            io.answer(askValue);
-            return setAskValue("");
+            io.answer(askValueRef.current);
+            return patchAskValue(() => "");
           }
-          if (input && !key.ctrl && !key.meta) return setAskValue(askValue + input);
+          if (input && !key.ctrl && !key.meta) return patchAskValue((v) => v + input);
         }
         return;
       }
@@ -282,12 +312,12 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           if (phase.cursor === catalog.length) {
-            setWizard({ ...wizard, defaultModel: undefined });
-            return setPhase({ kind: "wizard-text", field: "model", value: "" });
+            applyWizard({ ...wizard, defaultModel: undefined });
+            return applyPhase({ kind: "wizard-text", field: "model", value: "" });
           }
           const model = catalog[phase.cursor]!;
-          setWizard({ ...wizard, defaultModel: model.id });
-          return setPhase({
+          applyWizard({ ...wizard, defaultModel: model.id });
+          return applyPhase({
             kind: "test",
             profile: {
               name: wizard.name || wizard.type || "endpoint",
@@ -300,16 +330,17 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         return;
       }
       case "wizard-text": {
-        if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
-        if (key.backspace || key.delete) return setPhase({ ...phase, value: phase.value.slice(0, -1) });
-        if (key.return || input === "\n") return submitField(phase, wizard, setWizard, setPhase, authKind);
-        if (input && !key.ctrl && !key.meta) setPhase({ ...phase, value: phase.value + input });
+        if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
+        if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
+        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind);
+        if (input && !key.ctrl && !key.meta)
+          patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value + input } : p));
         return;
       }
       case "test": {
         if (phase.result && !phase.result.ok) {
-          if (input === "r") return setPhase({ kind: "test", profile: phase.profile, envCandidate: phase.envCandidate });
-          if (input === "w") return setPhase({ kind: "wizard-type", cursor: 0 });
+          if (input === "r") return applyPhase({ kind: "test", profile: phase.profile, envCandidate: phase.envCandidate });
+          if (input === "w") return applyPhase({ kind: "wizard-type", cursor: 0 });
           if (input === "s") return onDone(null);
         }
         return;
@@ -332,7 +363,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "duplicate": {
         if (input === "u") return onDone(setRef(phase.existing)); // use the existing endpoint
-        if (input === "a") return setPhase({ kind: "save-scope", profile: phase.profile, cursor: hasProject ? 1 : 0 });
+        if (input === "a") return applyPhase({ kind: "save-scope", profile: phase.profile, cursor: hasProject ? 1 : 0 });
         if (input === "s") return onDone(null);
         return;
       }
