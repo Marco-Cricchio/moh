@@ -121,6 +121,14 @@ import {
   type UpstreamUpdate,
 } from "./workflow";
 import {
+  checkForUpdate,
+  isDevRun,
+  readUpdateCache,
+  updateDue,
+  updateNoticeFor,
+  type UpdateNotice,
+} from "./update-check";
+import {
   trackerTools,
   projectFrontier,
   resolveTrackerSync,
@@ -404,6 +412,12 @@ export {
   diffSkillFiles,
   readBundledSkill,
   MOH_VERSION,
+  checkForUpdate,
+  isDevRun,
+  readUpdateCache,
+  updateDue,
+  updateNoticeFor,
+  UpdateNotice,
   trackerTools,
   projectFrontier,
   resolveTrackerSync,

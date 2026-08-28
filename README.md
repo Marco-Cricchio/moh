@@ -31,6 +31,11 @@ lives in the headless core; every client is thin.**
 - **Skills, subagents, memory, MCP.** Progressive-disclosure skills, in-process
   subagents with strict tool inheritance, cross-session per-project memory
   consolidated by a maintenance subagent, lazy MCP servers.
+- **Update check** (ADR-0014): at TUI startup the binary queries GitHub's
+  `releases/latest` API at most once every 24h and surfaces a notice plus the
+  `moh update` remedy. The check carries no identifiers, is skipped in dev
+  runs, and can be disabled with `"updateCheck": false` in `~/.moh/config`.
+  Network failures are always silent — it never delays startup.
 
 ## Use moh
 
