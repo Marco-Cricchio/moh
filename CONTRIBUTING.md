@@ -33,6 +33,7 @@ No API keys are required to develop or test: the mock and echo providers cover t
 2. Issues live in GitHub Issues; work is tracked against triaged tickets (`ready-for-agent` / `ready-for-human`).
 3. Ensure `bun run typecheck` and `bun test` pass before requesting review.
 4. Commit messages: conventional commits (`feat(core): ...`, `fix(cli): ...`, `docs: ...`).
+5. Changelog: a PR that closes a user-facing ticket adds a bullet under `## [Unreleased]` in `CHANGELOG.md`. At tag time the release pipeline extracts the matching `## [x.y.z]` section as the GitHub Release body; a tag without its section fails CI.
 
 ## Extending moh
 
