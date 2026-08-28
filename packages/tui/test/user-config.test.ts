@@ -79,3 +79,17 @@ describe("user config", () => {
     expect(userConfigFile("/tmp/h").endsWith(join(".moh", "config"))).toBe(true);
   });
 });
+
+describe("updateCheck (#273)", () => {
+  test("defaults on, opt-out roundtrips", () => {
+    expect(DEFAULT_USER_CONFIG.updateCheck).toBe(true);
+    const file = join(mkdtempSync(join(tmpdir(), "moh-uc-")), "config");
+    saveUserConfig(withSetting(DEFAULT_USER_CONFIG, "updateCheck", false), file);
+    expect(loadUserConfig(file).updateCheck).toBe(false);
+  });
+
+  test("absent flag stays default (no surprise opt-out)", () => {
+    const cfg = loadUserConfig("ignored", () => JSON.stringify({ mode: "dev" }));
+    expect(cfg.updateCheck).toBe(true);
+  });
+});

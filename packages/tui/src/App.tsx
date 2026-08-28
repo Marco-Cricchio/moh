@@ -7,17 +7,24 @@ import { loadMohConfig } from "@moh/core";
 import {
   installFirstPartySkills,
   checkUpstreamUpdates,
+  checkForUpdate,
+  isDevRun,
+  readUpdateCache,
+  updateDue,
+  updateNoticeFor,
+  MOH_VERSION,
   resolveTrackerSync,
   readUserProviderConfig,
   type AgentSession,
   type AssemblyError,
   type Provider,
   type TrackerBackend,
+  type UpdateNotice,
 } from "@moh/core";
 import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
-import { Home } from "./Home";
+import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { Chat, type Mode } from "./Chat";
 import { makeSession, providerLabel } from "./factory";
@@ -177,6 +184,9 @@ export function App({
 
   const { toasts, push } = useToasts();
   const [memoryFresh, setMemoryFresh] = useState(false);
+  // `~/.moh` — computed once; the single spelling inside App (the core
+  // guardian owns the config-file path constant itself).
+  const mohHome = join(home ?? homedir(), ".moh");
 
   // Right-sidebar feed (#118): a coalesced event subscription (separate from
   // Chat's) serves the header token label and the Activity/Tokens sections.
@@ -224,6 +234,39 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
+
+  // Update check (#273 / ADR-0014): notice from the 24h cache (works
+  // offline once checked once) + one-shot toast; a stale cache triggers a
+  // silent background refresh that never delays startup. Opt-out via the
+  // `updateCheck` user-config flag; skipped entirely in dev runs.
+  const [updateNotice, setUpdateNotice] = useState<UpdateNotice | null>(null);
+  useEffect(() => {
+    if (!configRef.current.updateCheck || isDevRun()) return;
+    let live = true;
+    const shown = new Set<string>(); // one-shot toast: never repeat a notice
+    const show = (notice: UpdateNotice | null) => {
+      if (!live || !notice) return;
+      const key = `${notice.kind}:${notice.latestVersion}`;
+      if (shown.has(key)) {
+        setUpdateNotice(notice);
+        return;
+      }
+      shown.add(key);
+      setUpdateNotice(notice);
+      push(updateNoticeText(notice));
+    };
+    const cache = readUpdateCache(mohHome);
+    show(updateNoticeFor(MOH_VERSION, cache?.latestVersion));
+    if (updateDue(cache)) {
+      void checkForUpdate({ mohHome }).then((latest) => {
+        if (latest) show(updateNoticeFor(MOH_VERSION, latest));
+      });
+    }
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // `/thinking show|hide` is session-temporary: replacing/resuming a
   // session returns display control to the persisted global preference.
   useEffect(() => { setReasoningOverride(null); }, [session]);
@@ -237,7 +280,7 @@ export function App({
   useEffect(() => {
     if (!workflowOn || !config.workflow.upstreamCheck) return;
     let live = true;
-    void checkUpstreamUpdates({ mohHome: join(home ?? homedir(), ".moh") }).then((updates) => {
+    void checkUpstreamUpdates({ mohHome }).then((updates) => {
       if (live && updates.length > 0) {
         push(`${updates.length} skill update${updates.length > 1 ? "s" : ""} available (/skills update)`);
       }
@@ -462,7 +505,7 @@ export function App({
       onOpenCommands={() => setOverlay("commands")}
       onCommand={(text) => runSlashCommand(text, {
         cwd,
-        mohHome: join(home ?? homedir(), ".moh"),
+        mohHome,
         config,
         updateConfig,
         session,
@@ -565,6 +608,7 @@ export function App({
             onOpenCommands={() => setOverlay("commands")}
             blocked={overlayOpen}
             listMax={config.homeListMax}
+            updateNotice={updateNotice}
           />
         )}
         </Box>
@@ -634,7 +678,7 @@ export function App({
               updateConfig({ workflowOffered: true });
               if (enable) {
                 updateConfig({ workflow: { ...configRef.current.workflow, enabled: true } });
-                const report = installFirstPartySkills({ mohHome: join(home ?? homedir(), ".moh") });
+                const report = installFirstPartySkills({ mohHome });
                 push(`workflow on · ${report.installed.length} first-party skills installed`);
               } else {
                 push("workflow off · /workflow on to enable");

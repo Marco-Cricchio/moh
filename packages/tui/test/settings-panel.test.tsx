@@ -240,6 +240,8 @@ describe("merged provider endpoints (#129)", () => {
     await down(i, 7);
     i.stdin.write("\r");
     await sleep(30);
+    await down(i, 3); // zai sits below the fold (one row shorter since #273)
+    await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("zai (user)");
     i.unmount();
