@@ -64,7 +64,7 @@ function serveBody(body: string, checksumOf: string = body) {
 
 function runScript(extraEnv: Record<string, string> = {}) {
   return Bun.spawnSync(["sh", SCRIPT], {
-    env: { ...process.env, HOME: home, MOH_DOWNLOAD_BASE: `http://localhost:${server.port}`, ...extraEnv },
+    env: { ...process.env, HOME: home, MOH_DOWNLOAD_BASE: `http://127.0.0.1:${server.port}`, ...extraEnv },
   });
 }
 
@@ -111,7 +111,7 @@ describe("install.sh (#269)", () => {
 
   test("download failure (no asset) aborts with the asset URL", () => {
     const r = runScript({
-      MOH_DOWNLOAD_BASE: `http://localhost:${server.port}/missing`,
+      MOH_DOWNLOAD_BASE: `http://127.0.0.1:${server.port}/missing`,
     });
     expect(r.exitCode).not.toBe(0);
     expect(text(r.stderr)).toContain("download failed");
