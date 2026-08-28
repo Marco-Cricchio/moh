@@ -12,12 +12,21 @@ import { join } from "node:path";
 import { sha256File } from "./build";
 
 const SCRIPT = join(import.meta.dir, "install.sh");
-const PLATFORM = `${process.platform === "darwin" ? "darwin" : "linux"}-${
-  process.arch === "arm64" ? "arm64" : "x64"
-}`;
+
+/** Same platform mapping as scripts/install.sh — refuses to guess (no linux-arm64 → x64 fallback). */
+function detectPlatform(): string {
+  const os = process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : null;
+  const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : null;
+  if (!os || !arch || `${os}-${arch}` === "linux-arm64") {
+    throw new Error(`test host platform unsupported: ${process.platform}/${process.arch}`);
+  }
+  return `${os}-${arch}`;
+}
+const PLATFORM = detectPlatform();
 
 let home = "";
 let installDir = "";
+let servedBody = "";
 let servedChecksum = "";
 const binaryBody = `#!/bin/sh\necho "moh 0.1.0"\n`;
 const badBody = `#!/bin/sh\necho "moh tampered"\n`;
@@ -28,7 +37,7 @@ const server = Bun.serve({
     const path = new URL(req.url).pathname;
     const name = path.slice(1);
     if (name === "checksums.txt") return new Response(servedChecksum + "\n");
-    if (name === `moh-${PLATFORM}`) return new Response(binaryBody);
+    if (name === `moh-${PLATFORM}`) return new Response(servedBody);
     return new Response("not found", { status: 404 });
   },
 });
@@ -38,13 +47,19 @@ afterAll(() => server.stop());
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "moh-install-test-"));
   installDir = join(home, ".local/bin");
-  servedChecksum = `${sha256Of(binaryBody)}  moh-${PLATFORM}`;
+  serveBody(binaryBody);
 });
 
 function sha256Of(body: string): string {
   const p = join(home, "body");
   writeFileSync(p, body);
   return sha256File(p);
+}
+
+/** Serve `body` as the platform asset with its checksum line (or a mismatching one). */
+function serveBody(body: string, checksumOf: string = body) {
+  servedBody = body;
+  servedChecksum = `${sha256Of(checksumOf)}  moh-${PLATFORM}`;
 }
 
 function runScript(extraEnv: Record<string, string> = {}) {
@@ -79,7 +94,7 @@ describe("install.sh (#269)", () => {
   });
 
   test("checksum mismatch aborts with a clear error and installs nothing", () => {
-    servedChecksum = `${sha256Of(badBody)}  moh-${PLATFORM}`;
+    serveBody(binaryBody, badBody);
     const r = runScript({ MOH_INSTALL_DIR: installDir });
     expect(r.exitCode).not.toBe(0);
     expect(text(r.stderr)).toContain("checksum mismatch");
@@ -87,6 +102,7 @@ describe("install.sh (#269)", () => {
   });
 
   test("missing checksum line for the platform aborts", () => {
+    servedBody = binaryBody;
     servedChecksum = `${sha256Of(binaryBody)}  moh-other-platform`;
     const r = runScript({ MOH_INSTALL_DIR: installDir });
     expect(r.exitCode).not.toBe(0);
