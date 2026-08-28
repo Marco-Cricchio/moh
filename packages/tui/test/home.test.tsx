@@ -80,6 +80,27 @@ describe("home session list — configurable cap", () => {
   });
 });
 
+describe("home chrome (#292)", () => {
+  test("no static hint line; the footer carries new/settings/keys", async () => {
+    const { lastFrame } = render(<Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} />);
+    await sleep(30);
+    const frame = stripAnsi(lastFrame() ?? "");
+    expect(frame).not.toContain("type to filter or start new");
+    expect(frame).not.toContain("n new session");
+    expect(frame).toContain("new (n) · settings (s) · keys (?)");
+  });
+
+  test("active-query hint appears while filtering", async () => {
+    const i = render(<Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} />);
+    await sleep(30);
+    i.stdin.write("x");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("enter open · esc clear · ↑↓ select");
+    i.unmount();
+  });
+});
+
 describe("home update notice (#273)", () => {
   test("shows the fixed line when a newer stable is cached", async () => {
     const { lastFrame } = render(

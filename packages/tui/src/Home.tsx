@@ -109,15 +109,15 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         <Text> </Text>
-        <Dim>{query ? "enter open · esc clear · ↑↓ select" : "type to filter or start new · n new session · s settings · ? keys"}</Dim>
       </Box>
+      {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       <Footer
         keys={
           compact
             ? `${theme.label} · ctrl+t theme · ctrl+o mode · ctrl+c ×2 quit`
-            : `${theme.label} · ctrl+t theme · ctrl+o mode · s settings · ? keys · ctrl+c ×2 quit`
+            : `${theme.label} · ctrl+t theme · ctrl+o mode · new (n) · settings (s) · keys (?) · ctrl+c ×2 quit`
         }
       />
     </Box>
