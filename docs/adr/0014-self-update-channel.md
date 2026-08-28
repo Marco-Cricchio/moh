@@ -27,6 +27,10 @@ privacy posture as the existing skills upstream check (opt-out, background, sile
    running executable atomically (download to a temp file, rename over the current binary).
    It always targets the latest stable — including a downgrade from a non-stable build, which
    asks for confirmation first. In dev runs it refuses and points to git.
+   Prerelease-suffixed builds (e.g. `0.2.0-rc.1`) count as non-stable and follow the same
+   confirmation path. Non-interactive runs (no confirm callback, no `--yes`) decline the
+   downgrade and exit non-zero. The `MOH_RELEASES_URL` env var overrides the endpoint — it
+   exists for the e2e harness (`npm run e2e:update`) and is not a user-facing knob.
 
 ## Consequences
 
