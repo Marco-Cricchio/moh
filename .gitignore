@@ -4,3 +4,6 @@ node_modules/
 *.tsbuildinfo
 moh.json
 dist/
+
+# Private vision notes (never commit to the official repository)
+docs/vision/
