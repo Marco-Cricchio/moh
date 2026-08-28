@@ -128,6 +128,19 @@ import {
   updateNoticeFor,
   type UpdateNotice,
 } from "./update-check";
+export {
+  UPDATE_PLATFORMS,
+  assetUrl,
+  checksumFor,
+  detectUpdatePlatform,
+  isPrerelease,
+  performSelfUpdate,
+  releasesUrl,
+  type SelfUpdateIo,
+  type SelfUpdateResult,
+  type SelfUpdateStatus,
+  type UpdatePlatform,
+} from "./self-update";
 import {
   trackerTools,
   projectFrontier,
