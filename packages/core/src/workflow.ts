@@ -28,6 +28,62 @@ export function defaultBundleDir(): string {
   return join(import.meta.dir, "..", "assets", "skills");
 }
 
+/**
+ * Embedded skills registry set by the compiled binary's generated entry
+ * (scripts/build.ts): relative path within the skills bundle → absolute path
+ * of the extracted embedded asset. Absent in dev runs (repo checkout).
+ */
+export const EMBEDDED_SKILLS_KEY = "__MOH_EMBEDDED_SKILLS__";
+
+function embeddedRegistry(): Record<string, string> | null {
+  const reg = (globalThis as Record<string, unknown>)[EMBEDDED_SKILLS_KEY];
+  return typeof reg === "object" && reg !== null ? (reg as Record<string, string>) : null;
+}
+
+/**
+ * Reads first-party skills from the embedded-assets registry (binary run,
+ * #267). Keys are `<skill>/<file>` paths; values are absolute paths of the
+ * files Bun extracted from the binary. Grouped and parsed exactly like the
+ * on-disk bundle.
+ */
+export function embeddedSkillSources(registry: Record<string, string>): FirstPartySkillSource[] {
+  const bySkill = new Map<string, Map<string, string>>();
+  for (const [rel, abs] of Object.entries(registry)) {
+    const slash = rel.indexOf("/");
+    if (slash <= 0) continue;
+    const name = rel.slice(0, slash);
+    const file = rel.slice(slash + 1);
+    if (!bySkill.has(name)) bySkill.set(name, new Map());
+    bySkill.get(name)!.set(file, abs);
+  }
+  const sources: FirstPartySkillSource[] = [];
+  for (const [name, files] of bySkill) {
+    const skillAbs = files.get("SKILL.md");
+    if (!skillAbs) continue;
+    const raw = readFileSync(skillAbs, "utf8");
+    const parsed = parseSkillFrontmatter(raw);
+    if (!parsed) continue;
+    const contents: Record<string, string> = { "SKILL.md": raw };
+    for (const [file, abs] of files) {
+      if (file !== "SKILL.md") contents[file] = readFileSync(abs, "utf8");
+    }
+    const minMohVersion = /^minMohVersion:\s?(.+)$/m.exec(raw)?.[1]?.trim();
+    sources.push({ ...parsed, ...(minMohVersion ? { minMohVersion } : {}), files: contents });
+  }
+  return sources.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The skills the running moh ships with: the binary's embedded assets when
+ * the registry is present (invariant 2: no repo-relative reads), otherwise
+ * the on-disk bundle (repo-checkout dev run, unchanged).
+ */
+export function bundledSkillSources(): FirstPartySkillSource[] {
+  const registry = embeddedRegistry();
+  if (registry) return embeddedSkillSources(registry);
+  return firstPartySkillSources();
+}
+
 /** One first-party skill as bundled (or fetched from upstream). */
 export interface FirstPartySkillSource {
   name: string;
@@ -115,9 +171,9 @@ export function versionSatisfied(need: string, have: string): boolean {
  * Returns null when the skill is not in the bundle. */
 export function readBundledSkill(
   name: string,
-  bundleDir: string = defaultBundleDir(),
+  bundleDir?: string,
 ): FirstPartySkillSource | null {
-  return firstPartySkillSources(bundleDir).find((s) => s.name === name) ?? null;
+  return (bundleDir ? firstPartySkillSources(bundleDir) : bundledSkillSources()).find((s) => s.name === name) ?? null;
 }
 
 export interface SkillInstallReport {
@@ -148,7 +204,7 @@ export interface InstallFirstPartySkillsOptions {
  * min-version-gated skills are skipped entirely.
  */
 export function installFirstPartySkills(options: InstallFirstPartySkillsOptions): SkillInstallReport {
-  const sources = options.sources ?? firstPartySkillSources();
+  const sources = options.sources ?? bundledSkillSources();
   const manifest = loadFirstPartyManifest(options.mohHome);
   const report: SkillInstallReport = {
     installed: [],
