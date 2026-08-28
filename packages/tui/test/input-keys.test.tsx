@@ -6,6 +6,17 @@ import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Polls until the frame matches (bounded); runner-speed-proof replacement
+ * for fixed sleeps around keystroke effects. */
+async function untilFrame(getFrame: () => string, predicate: (frame: string) => boolean, ms = 2000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (predicate(getFrame())) return;
+    if (Date.now() > deadline) throw new Error(`untilFrame timed out; last frame: ${JSON.stringify(getFrame())}`);
+    await sleep(20);
+  }
+}
+
 /** Renders the input in isolation and returns a frame prober. */
 async function mount(onSubmit: (text: string) => void, commands: readonly string[] = []) {
   const i = render(<MultilineInput placeholder="p" focused commands={commands} onSubmit={onSubmit} />);
@@ -230,9 +241,9 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("/ask-moh");
     i.stdin.write("\t");
-    await sleep(20);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.split("\n")[0]?.trim() === "/ask-moh");
     i.stdin.write("\r");
-    await sleep(30);
+    await untilFrame(() => "", () => submitted === "/ask-moh");
     expect(submitted).toBe("/ask-moh");
     i.unmount();
   });
@@ -249,12 +260,12 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     );
     await sleep(30);
     i.stdin.write("/t");
-    await sleep(20);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("/tdd"));
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("/tdd");
     i.stdin.write("\t");
-    await sleep(20);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.split("\n")[0]?.trim() === "/tdd");
     i.stdin.write("\r");
-    await sleep(30);
+    await untilFrame(() => "", () => submitted === "/tdd");
     expect(submitted).toBe("/tdd");
     i.unmount();
   });
