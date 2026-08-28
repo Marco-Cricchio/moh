@@ -7,6 +7,13 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-28
+
+### Fixed
+
+- TUI: thinking separators are now rendered on a single line.
+- TUI: no rainbow coloring of thinking separators at `xhigh` verbosity (#287).
+
 ## [0.1.0] - 2026-08-28
 
 First public release: a provider-agnostic, headless-first coding agent as a
@@ -28,5 +35,6 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.1.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.1.1...develop
+[0.1.1]: https://github.com/Marco-Cricchio/moh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Marco-Cricchio/moh/releases/tag/v0.1.0
