@@ -15,7 +15,8 @@ on:
   push:
     tags: ["v*"]
 
-permissions: {}
+permissions:
+  contents: read # default token must clone the (private) repo; release job elevates to write
 
 jobs:
   build:
