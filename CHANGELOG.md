@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-28
+
 ### Changed
 
 - Home screen polish: the terminal is cleared once at startup; a figlet-Slant
@@ -43,6 +45,7 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.1.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.2.0...develop
+[0.2.0]: https://github.com/Marco-Cricchio/moh/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Marco-Cricchio/moh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Marco-Cricchio/moh/releases/tag/v0.1.0
