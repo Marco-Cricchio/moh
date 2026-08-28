@@ -7,6 +7,7 @@ import { runCommand, RUN_USAGE } from "./run";
 import { mcpCommand, MCP_USAGE } from "./mcp";
 import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
+import { updateCommand, UPDATE_USAGE } from "./update";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -22,6 +23,7 @@ commands:
   mcp    manage MCP tool servers (see: moh mcp --help)
   init   scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
+  update  self-update the binary to the latest stable release
 
 options:
   --version  print version and exit
@@ -86,6 +88,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return 0;
     }
     return providerCommand({ argv: rest, cwd: process.cwd() });
+  }
+  if (command === "update") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(UPDATE_USAGE + "\n");
+      return 0;
+    }
+    return updateCommand({ argv: rest });
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;

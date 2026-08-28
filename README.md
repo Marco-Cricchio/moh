@@ -51,6 +51,16 @@ verifies its sha256 against `checksums.txt`, and installs it to
 your `PATH`, the script prints the line to add. Set `MOH_INSTALL_DIR` to
 install elsewhere.
 
+On macOS (or Linux) with Homebrew:
+
+```sh
+brew install Marco-Cricchio/moh/moh
+```
+
+The tap formula ([Marco-Cricchio/homebrew-moh](https://github.com/Marco-Cricchio/homebrew-moh))
+installs the same checksummed release binary and is updated automatically
+after each published release.
+
 ## Use moh
 
 Run the TUI client and complete guided provider onboarding:
