@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Box, Text } from "ink";
 import { useTheme, type Theme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
@@ -42,20 +42,12 @@ export function visibleChips(columns: number): { chips: ChipSpec[]; graphic: boo
   return { chips, graphic: false };
 }
 
-const RAINBOW = ["#ff0055", "#ff9500", "#ffd500", "#5dff5d", "#00c8ff", "#7a5cff", "#d94fff"];
 export function ThinkingSeparator({ level, width }: { level: DisplayThinkingLevel; width: number }) {
   const theme = useTheme();
-  const [phase, setPhase] = useState(0);
-  useEffect(() => {
-    if (level !== "xhigh") return;
-    const timer = setInterval(() => setPhase((value) => value + 1), 120);
-    return () => clearInterval(timer);
-  }, [level]);
   const count = Math.max(1, width - 1);
-  if (level === "xhigh") return <Text bold>{Array.from({ length: count }, (_, i) => <Text key={i} color={RAINBOW[(i + phase) % RAINBOW.length]}>═</Text>)}</Text>;
   const single = level === "default" || level === "off" || level === "low";
   const color = single ? theme.dim : level === "medium" ? theme.accent : theme.purple;
-  return <Text color={color} bold={!single}>{(single ? "─" : "═").repeat(count)}</Text>;
+  return <Text color={color} bold={!single}>{"─".repeat(count)}</Text>;
 }
 
 export function thinkingEmoji(level: DisplayThinkingLevel): string {

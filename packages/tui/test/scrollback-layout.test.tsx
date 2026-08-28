@@ -88,9 +88,9 @@ describe("native scrollback layout geometry", () => {
     };
     expect(renderLevel("off")).toBe("─".repeat(19));
     expect(renderLevel("low")).toBe("─".repeat(19));
-    expect(renderLevel("medium")).toBe("═".repeat(19));
-    expect(renderLevel("high")).toBe("═".repeat(19));
-    expect(renderLevel("xhigh")).toBe("═".repeat(19));
+    expect(renderLevel("medium")).toBe("─".repeat(19));
+    expect(renderLevel("high")).toBe("─".repeat(19));
+    expect(renderLevel("xhigh")).toBe("─".repeat(19));
   });
 
   it("hides token/turn numbers in vibe, keeps the context bar and dev metrics (#193, #229)", () => {
