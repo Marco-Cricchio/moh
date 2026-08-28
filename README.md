@@ -37,12 +37,26 @@ lives in the headless core; every client is thin.**
   runs, and can be disabled with `"updateCheck": false` in `~/.moh/config`.
   Network failures are always silent — it never delays startup.
 
+## Install
+
+One command, from the latest GitHub Release (macOS arm64/x64, Linux x64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/develop/scripts/install.sh | sh
+```
+
+The script detects your platform, downloads the self-contained binary,
+verifies its sha256 against `checksums.txt`, and installs it to
+`~/.local/bin` (upgrade-over-itself on re-run). If that directory is not on
+your `PATH`, the script prints the line to add. Set `MOH_INSTALL_DIR` to
+install elsewhere.
+
 ## Use moh
 
 Run the TUI client and complete guided provider onboarding:
 
 ```sh
-bun packages/cli/src/cli.ts
+moh
 ```
 
 Headless, scripted sessions never prompt — unpermitted tools fail fast:
