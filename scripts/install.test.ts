@@ -62,59 +62,67 @@ function serveBody(body: string, checksumOf: string = body) {
   servedChecksum = `${sha256Of(checksumOf)}  moh-${PLATFORM}`;
 }
 
-function runScript(extraEnv: Record<string, string> = {}) {
-  return Bun.spawnSync(["sh", SCRIPT], {
+/**
+ * Async on purpose: Bun.spawnSync would block the event loop and deadlock
+ * against the Bun.serve fake release in this same process (seen on Linux CI).
+ */
+async function runScript(extraEnv: Record<string, string> = {}) {
+  const proc = Bun.spawn(["sh", SCRIPT], {
     env: { ...process.env, HOME: home, MOH_DOWNLOAD_BASE: `http://127.0.0.1:${server.port}`, ...extraEnv },
+    stdout: "pipe",
+    stderr: "pipe",
   });
-}
-
-function text(buf: Buffer | string): string {
-  return typeof buf === "string" ? buf : buf.toString();
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { stdout, stderr, exitCode };
 }
 
 describe("install.sh (#269)", () => {
-  test("installs the verified binary to MOH_INSTALL_DIR and runs --version", () => {
-    const r = runScript({ MOH_INSTALL_DIR: installDir });
+  test("installs the verified binary to MOH_INSTALL_DIR and runs --version", async () => {
+    const r = await runScript({ MOH_INSTALL_DIR: installDir });
     expect(r.exitCode).toBe(0);
-    expect(text(r.stdout)).toContain("checksum verified");
-    expect(text(r.stdout)).toContain(`installed moh → ${installDir}/moh`);
-    expect(text(r.stdout)).toContain("moh 0.1.0");
-    expect(text(r.stdout)).toContain("not on your PATH");
+    expect(r.stdout).toContain("checksum verified");
+    expect(r.stdout).toContain(`installed moh → ${installDir}/moh`);
+    expect(r.stdout).toContain("moh 0.1.0");
+    expect(r.stdout).toContain("not on your PATH");
   });
 
-  test("upgrade-over-itself: re-running replaces the binary in place", () => {
+  test("upgrade-over-itself: re-running replaces the binary in place", async () => {
     mkdirSync(installDir, { recursive: true });
     const old = join(installDir, "moh");
     writeFileSync(old, "#!/bin/sh\necho 'moh 0.0.1'\n");
     chmodSync(old, 0o755);
-    const r = runScript({ MOH_INSTALL_DIR: installDir });
+    const r = await runScript({ MOH_INSTALL_DIR: installDir });
     expect(r.exitCode).toBe(0);
     const out = Bun.spawnSync([old, "--version"], {});
-    expect(text(out.stdout).trim()).toBe("moh 0.1.0");
+    expect(String(out.stdout).trim()).toBe("moh 0.1.0");
   });
 
-  test("checksum mismatch aborts with a clear error and installs nothing", () => {
+  test("checksum mismatch aborts with a clear error and installs nothing", async () => {
     serveBody(binaryBody, badBody);
-    const r = runScript({ MOH_INSTALL_DIR: installDir });
+    const r = await runScript({ MOH_INSTALL_DIR: installDir });
     expect(r.exitCode).not.toBe(0);
-    expect(text(r.stderr)).toContain("checksum mismatch");
+    expect(r.stderr).toContain("checksum mismatch");
     expect(existsSync(join(installDir, "moh"))).toBe(false);
   });
 
-  test("missing checksum line for the platform aborts", () => {
+  test("missing checksum line for the platform aborts", async () => {
     servedBody = binaryBody;
     servedChecksum = `${sha256Of(binaryBody)}  moh-other-platform`;
-    const r = runScript({ MOH_INSTALL_DIR: installDir });
+    const r = await runScript({ MOH_INSTALL_DIR: installDir });
     expect(r.exitCode).not.toBe(0);
-    expect(text(r.stderr)).toContain("no checksum found");
+    expect(r.stderr).toContain("no checksum found");
   });
 
-  test("download failure (no asset) aborts with the asset URL", () => {
-    const r = runScript({
+  test("download failure (no asset) aborts with the asset URL", async () => {
+    const r = await runScript({
       MOH_DOWNLOAD_BASE: `http://127.0.0.1:${server.port}/missing`,
     });
     expect(r.exitCode).not.toBe(0);
-    expect(text(r.stderr)).toContain("download failed");
-    expect(text(r.stderr)).toContain(`moh-${PLATFORM}`);
+    expect(r.stderr).toContain("download failed");
+    expect(r.stderr).toContain(`moh-${PLATFORM}`);
   });
 });
