@@ -92,8 +92,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
-      <Logo banner={banner} />
-      {banner ? <Dim>{`v${version}`}</Dim> : null}
+      <Logo banner={banner} version={banner ? version : undefined} />
       <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>

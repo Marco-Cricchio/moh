@@ -64,8 +64,10 @@ export const LOGO_BANNER = [
 ];
 
 /** moh logo (#292): the figlet-Slant banner with the "My Own Harness"
- * acronym on tall non-compact terminals; a one-liner everywhere else. */
-export function Logo({ banner = true }: { banner?: boolean }) {
+ * acronym and the version number on tall non-compact terminals; a one-liner
+ * everywhere else. Acronym and version share the banner's centered column
+ * so they stay aligned to each other. */
+export function Logo({ banner = true, version }: { banner?: boolean; version?: string }) {
   const theme = useTheme();
   if (!banner) {
     return (
@@ -78,6 +80,7 @@ export function Logo({ banner = true }: { banner?: boolean }) {
     <Box flexDirection="column" alignItems="center">
       <Text color={theme.accent}>{LOGO_BANNER.join("\n")}</Text>
       <Dim>My Own Harness</Dim>
+      {version ? <Dim>{`v${version}`}</Dim> : null}
     </Box>
   );
 }
