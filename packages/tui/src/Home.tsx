@@ -12,6 +12,14 @@ import {
 } from "./viewport";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
 import type { Mode } from "./Chat";
+import type { UpdateNotice } from "@moh/core";
+
+/** The fixed home line / one-shot toast text (#273 / ADR-0014). */
+export function updateNoticeText(notice: UpdateNotice): string {
+  return notice.kind === "available"
+    ? `moh ${notice.latestVersion} available — run \`moh update\``
+    : `non-stable (dev) version — run \`moh update\``;
+}
 
 export interface HomeProps {
   cwd: string;
@@ -25,6 +33,8 @@ export interface HomeProps {
   blocked?: boolean;
   /** Visible rows of the recent-sessions list (user setting `homeListMax`). */
   listMax?: number;
+  /** Update notice driven by the cached check result (#273). */
+  updateNotice?: UpdateNotice | null;
 }
 
 /**
@@ -34,7 +44,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -102,6 +112,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         <Dim>{query ? "enter open · esc clear · ↑↓ select" : "type to filter or start new · n new session · s settings · ? keys"}</Dim>
       </Box>
       <Text> </Text>
+      {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       <Footer
         keys={
           compact

@@ -90,6 +90,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
+      { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
     ],
     [config, modelLabel, moh],
   );
@@ -157,6 +158,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onChange({ answerLanguage: cycle<AnswerLanguage>(["auto", "en", "it"], config.answerLanguage) });
       case "telemetry":
         return onChange({ telemetry: !config.telemetry });
+      case "updateCheck":
+        return onChange({ updateCheck: !config.updateCheck });
       case "permissionMode":
         return onChange({
           permissionMode: cycle<DefaultPermissionMode>(["normal", "auto-accept"], config.permissionMode),

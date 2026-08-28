@@ -25,6 +25,9 @@ export interface WorkflowSettings {
 
 export const DEFAULT_WORKFLOW: WorkflowSettings = { enabled: false, upstreamCheck: true };
 
+/** Opt out of the update check (ADR-0014): on by default, independent of workflow mode. */
+export const DEFAULT_UPDATE_CHECK = true;
+
 export interface UserConfig {
   /** First-run onboarding completed (skip or connect both count). */
   onboarded: boolean;
@@ -50,6 +53,8 @@ export interface UserConfig {
   showReasoning: boolean;
   /** #242: the one-shot persistence notice was already shown. */
   reasoningNoticeShown: boolean;
+  /** Opt out of the background update check (#273 / ADR-0014). Default on. */
+  updateCheck: boolean;
 }
 
 export const DEFAULT_USER_CONFIG: UserConfig = {
@@ -66,6 +71,7 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   workflowOffered: false,
   showReasoning: false,
   reasoningNoticeShown: false,
+  updateCheck: DEFAULT_UPDATE_CHECK,
 };
 
 /** `~/.moh/config` — the core guardian's path constant (re-exported). */
@@ -109,6 +115,7 @@ function coerce(raw: unknown): Partial<UserConfig> {
   if (typeof src.workflowOffered === "boolean") out.workflowOffered = src.workflowOffered;
   if (typeof src.showReasoning === "boolean") out.showReasoning = src.showReasoning;
   if (typeof src.reasoningNoticeShown === "boolean") out.reasoningNoticeShown = src.reasoningNoticeShown;
+  if (typeof src.updateCheck === "boolean") out.updateCheck = src.updateCheck;
   if (typeof src.workflow === "object" && src.workflow !== null) {
     const w = src.workflow as Record<string, unknown>;
     out.workflow = {
