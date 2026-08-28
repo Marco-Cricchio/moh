@@ -93,6 +93,36 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   );
   const [wizard, setWizard] = useState<Partial<EndpointProfile>>({ name: "", type: "anthropic" });
 
+  // ink re-registers the useInput handler in a deferred passive effect AND
+  // React may defer the commit itself, so a keypress arriving right after a
+  // previous one can observe state that predates it (e.g. down+enter
+  // selecting the pre-down row — #275). All key-driven transitions go
+  // through applyPhase/patchPhase, which mirror the next state into a ref
+  // at event time; render re-asserts the same value after commit.
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  const wizardRef = useRef(wizard);
+  wizardRef.current = wizard;
+  const applyPhase = (next: Phase): void => {
+    phaseRef.current = next;
+    setPhase(next);
+  };
+  // Async transitions (connection test, subscription login) MUST go through
+  // applyPhase too: a bare setPhase leaves phaseRef stale until the commit,
+  // and a keypress in that window would act on pre-transition state (#275).
+  const patchPhase = (patch: (p: Phase) => Phase): void => applyPhase(patch(phaseRef.current));
+  const applyWizard = (next: Partial<EndpointProfile>): void => {
+    wizardRef.current = next;
+    setWizard(next);
+  };
+  // sub-login free-text: same event-time mirror (#156 paste codes are typed fast).
+  const askValueRef = useRef(askValue);
+  askValueRef.current = askValue;
+  const patchAskValue = (patch: (v: string) => string): void => {
+    askValueRef.current = patch(askValueRef.current);
+    setAskValue(askValueRef.current);
+  };
+
   // Height-aware lists (#64): intro, skip row, footer and borders ≈ 10 rows.
   const budget = Math.max(3, viewport.rows - 10);
   const detectWin = windowing(candidates.length + 1, phase.kind === "detect" ? phase.cursor : 0, budget);
@@ -138,11 +168,11 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         // Wizard save semantics (#129 decision 7).
         const plan = wizardSavePlan(phase.profile, userEndpoints, hasProject);
         if (plan.kind === "reuse") return onDone(setRef(plan.existing));
-        if (plan.kind === "new") return setPhase({ kind: "save-scope", profile: phase.profile, cursor: plan.defaultScope === "user" ? 0 : 1 });
-        if (plan.kind === "key-conflict") return setPhase({ kind: "conflict", profile: phase.profile, existing: plan.existing });
-        return setPhase({ kind: "duplicate", profile: phase.profile, existing: plan.existing });
+        if (plan.kind === "new") return applyPhase({ kind: "save-scope", profile: phase.profile, cursor: plan.defaultScope === "user" ? 0 : 1 });
+        if (plan.kind === "key-conflict") return applyPhase({ kind: "conflict", profile: phase.profile, existing: plan.existing });
+        return applyPhase({ kind: "duplicate", profile: phase.profile, existing: plan.existing });
       } else {
-        setPhase({ ...phase, result });
+        applyPhase({ ...phase, result });
       }
     });
     return () => {
@@ -174,7 +204,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         upsertUserEndpoint(userFile, { name, type, auth: { kind: "subscription" } });
         // #156: post-login model list (free-text stays the advanced
         // fallback — the manual row at the bottom of the list).
-        setPhase(
+        applyPhase(
           catalog.length
             ? { kind: "wizard-model-list", cursor: 0 }
             : { kind: "wizard-text", field: "model", value: "" },
@@ -182,7 +212,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       })
       .catch((err: unknown) => {
         if (!live) return;
-        setPhase({ kind: "sub-login", error: err instanceof Error ? err.message : String(err) });
+        applyPhase({ kind: "sub-login", error: err instanceof Error ? err.message : String(err) });
       });
     return () => {
       live = false;
@@ -196,21 +226,24 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   // drops one when the first render of a tall list is still in flight (see
   // test/onboarding-cursor-race.test.tsx).
   const move = (max: number, delta: number) =>
-    setPhase((p) => ("cursor" in p ? { ...p, cursor: Math.max(0, Math.min(max, p.cursor + delta)) } : p));
+    patchPhase((p) => ("cursor" in p ? { ...p, cursor: Math.max(0, Math.min(max, p.cursor + delta)) } : p));
 
   useInput((input, key) => {
+    // #275: live state, immune to the deferred-handler staleness above.
+    const phase = phaseRef.current;
+    const wizard = wizardRef.current;
     switch (phase.kind) {
       case "detect": {
         const rows = candidates.length + 1; // + skip
         if (key.upArrow) return move(rows - 1, -1);
         if (key.downArrow) return move(rows - 1, 1);
         if (input === "s") return onDone(null);
-        if (input === "w") return setPhase({ kind: "wizard-type", cursor: 0 });
+        if (input === "w") return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.return || input === "\n") {
           if (phase.cursor === candidates.length) return onDone(null);
           const candidate = candidates[phase.cursor]!;
-          setWizard({ name: candidate.type, type: candidate.type });
-          setPhase({
+          applyWizard({ name: candidate.type, type: candidate.type });
+          applyPhase({
             kind: "test",
             envCandidate: candidate,
             profile: { name: candidate.type, type: candidate.type, defaultModel: candidate.defaultModel },
@@ -224,38 +257,38 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
-          setWizard({ name: type, type });
+          applyWizard({ name: type, type });
           // openai-compat has no subscription grant — the auth-method step
           // is never shown (byte-identical path, issue #149).
           if (type === "openai-compat") {
             setAuthKind("api-key");
-            return setPhase({ kind: "wizard-text", field: "model", value: "" });
+            return applyPhase({ kind: "wizard-text", field: "model", value: "" });
           }
-          setPhase({ kind: "wizard-auth", cursor: 0 });
+          applyPhase({ kind: "wizard-auth", cursor: 0 });
         }
         return;
       }
       case "wizard-auth": {
-        if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
+        if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.upArrow) return move(1, -1);
         if (key.downArrow) return move(1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           const kind = phase.cursor === 0 ? "api-key" : "subscription";
           setAuthKind(kind);
-          return setPhase(kind === "subscription" ? { kind: "tos" } : { kind: "wizard-text", field: "model", value: "" });
+          return applyPhase(kind === "subscription" ? { kind: "tos" } : { kind: "wizard-text", field: "model", value: "" });
         }
         return;
       }
       case "tos": {
-        if (key.escape || input === "n") return setPhase({ kind: "wizard-auth", cursor: 1 });
-        if (key.return || input === "y") return setPhase({ kind: "sub-login" });
+        if (key.escape || input === "n") return applyPhase({ kind: "wizard-auth", cursor: 1 });
+        if (key.return || input === "y") return applyPhase({ kind: "sub-login" });
         return;
       }
       case "sub-login": {
         if (phase.error) {
-          if (input === "r") return setPhase({ kind: "sub-login" });
-          if (input === "w") return setPhase({ kind: "wizard-auth", cursor: 1 });
+          if (input === "r") return applyPhase({ kind: "sub-login" });
+          if (input === "w") return applyPhase({ kind: "wizard-auth", cursor: 1 });
           if (input === "s") return onDone(null);
           return;
         }
@@ -264,14 +297,14 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (io?.pendingPrompt) {
           if (key.escape) {
             io.answer(""); // empty line terminates a multi-line paste
-            return setAskValue("");
+            return patchAskValue(() => "");
           }
-          if (key.backspace || key.delete) return setAskValue(askValue.slice(0, -1));
+          if (key.backspace || key.delete) return patchAskValue((v) => v.slice(0, -1));
           if (key.return || input === "\n") {
-            io.answer(askValue);
-            return setAskValue("");
+            io.answer(askValueRef.current);
+            return patchAskValue(() => "");
           }
-          if (input && !key.ctrl && !key.meta) return setAskValue(askValue + input);
+          if (input && !key.ctrl && !key.meta) return patchAskValue((v) => v + input);
         }
         return;
       }
@@ -282,12 +315,12 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           if (phase.cursor === catalog.length) {
-            setWizard({ ...wizard, defaultModel: undefined });
-            return setPhase({ kind: "wizard-text", field: "model", value: "" });
+            applyWizard({ ...wizard, defaultModel: undefined });
+            return applyPhase({ kind: "wizard-text", field: "model", value: "" });
           }
           const model = catalog[phase.cursor]!;
-          setWizard({ ...wizard, defaultModel: model.id });
-          return setPhase({
+          applyWizard({ ...wizard, defaultModel: model.id });
+          return applyPhase({
             kind: "test",
             profile: {
               name: wizard.name || wizard.type || "endpoint",
@@ -300,16 +333,17 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         return;
       }
       case "wizard-text": {
-        if (key.escape) return setPhase({ kind: "wizard-type", cursor: 0 });
-        if (key.backspace || key.delete) return setPhase({ ...phase, value: phase.value.slice(0, -1) });
-        if (key.return || input === "\n") return submitField(phase, wizard, setWizard, setPhase, authKind);
-        if (input && !key.ctrl && !key.meta) setPhase({ ...phase, value: phase.value + input });
+        if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
+        if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
+        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind);
+        if (input && !key.ctrl && !key.meta)
+          patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value + input } : p));
         return;
       }
       case "test": {
         if (phase.result && !phase.result.ok) {
-          if (input === "r") return setPhase({ kind: "test", profile: phase.profile, envCandidate: phase.envCandidate });
-          if (input === "w") return setPhase({ kind: "wizard-type", cursor: 0 });
+          if (input === "r") return applyPhase({ kind: "test", profile: phase.profile, envCandidate: phase.envCandidate });
+          if (input === "w") return applyPhase({ kind: "wizard-type", cursor: 0 });
           if (input === "s") return onDone(null);
         }
         return;
@@ -332,7 +366,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "duplicate": {
         if (input === "u") return onDone(setRef(phase.existing)); // use the existing endpoint
-        if (input === "a") return setPhase({ kind: "save-scope", profile: phase.profile, cursor: hasProject ? 1 : 0 });
+        if (input === "a") return applyPhase({ kind: "save-scope", profile: phase.profile, cursor: hasProject ? 1 : 0 });
         if (input === "s") return onDone(null);
         return;
       }
@@ -536,19 +570,19 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
 function submitField(
   phase: Extract<Phase, { kind: "wizard-text" }>,
   wizard: Partial<EndpointProfile>,
-  setWizard: (w: Partial<EndpointProfile>) => void,
-  setPhase: (p: Phase) => void,
+  applyWizard: (w: Partial<EndpointProfile>) => void,
+  applyPhase: (p: Phase) => void,
   authKind: "api-key" | "subscription",
 ): void {
   const value = phase.value.trim();
   if (phase.field === "model") {
     if (!value) return; // a model is required
-    setWizard({ ...wizard, defaultModel: value });
+    applyWizard({ ...wizard, defaultModel: value });
     // Subscription never asks for a key (tokens are already stored) nor a
     // base URL (the grant fixes the endpoints) — model, then the test.
     // openai-compat keeps its byte-identical model → key → base URL path.
     if (authKind === "subscription") {
-      return setPhase({
+      return applyPhase({
         kind: "test",
         profile: {
           name: wizard.name || wizard.type || "endpoint",
@@ -558,11 +592,11 @@ function submitField(
         },
       });
     }
-    return setPhase({ kind: "wizard-text", field: "apiKey", value: "" });
+    return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
   }
   if (phase.field === "apiKey") {
-    setWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
-    return setPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
+    applyWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
+    return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl
   if (wizard.type === "openai-compat" && !value) return; // required for compat
@@ -574,5 +608,5 @@ function submitField(
     ...(value ? { baseUrl: value } : {}),
     defaultModel: wizard.defaultModel!,
   };
-  setPhase({ kind: "test", profile });
+  applyPhase({ kind: "test", profile });
 }
