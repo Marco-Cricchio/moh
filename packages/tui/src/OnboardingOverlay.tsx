@@ -107,6 +107,9 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
     phaseRef.current = next;
     setPhase(next);
   };
+  // Async transitions (connection test, subscription login) MUST go through
+  // applyPhase too: a bare setPhase leaves phaseRef stale until the commit,
+  // and a keypress in that window would act on pre-transition state (#275).
   const patchPhase = (patch: (p: Phase) => Phase): void => applyPhase(patch(phaseRef.current));
   const applyWizard = (next: Partial<EndpointProfile>): void => {
     wizardRef.current = next;
@@ -165,11 +168,11 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         // Wizard save semantics (#129 decision 7).
         const plan = wizardSavePlan(phase.profile, userEndpoints, hasProject);
         if (plan.kind === "reuse") return onDone(setRef(plan.existing));
-        if (plan.kind === "new") return setPhase({ kind: "save-scope", profile: phase.profile, cursor: plan.defaultScope === "user" ? 0 : 1 });
-        if (plan.kind === "key-conflict") return setPhase({ kind: "conflict", profile: phase.profile, existing: plan.existing });
-        return setPhase({ kind: "duplicate", profile: phase.profile, existing: plan.existing });
+        if (plan.kind === "new") return applyPhase({ kind: "save-scope", profile: phase.profile, cursor: plan.defaultScope === "user" ? 0 : 1 });
+        if (plan.kind === "key-conflict") return applyPhase({ kind: "conflict", profile: phase.profile, existing: plan.existing });
+        return applyPhase({ kind: "duplicate", profile: phase.profile, existing: plan.existing });
       } else {
-        setPhase({ ...phase, result });
+        applyPhase({ ...phase, result });
       }
     });
     return () => {
@@ -201,7 +204,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         upsertUserEndpoint(userFile, { name, type, auth: { kind: "subscription" } });
         // #156: post-login model list (free-text stays the advanced
         // fallback — the manual row at the bottom of the list).
-        setPhase(
+        applyPhase(
           catalog.length
             ? { kind: "wizard-model-list", cursor: 0 }
             : { kind: "wizard-text", field: "model", value: "" },
@@ -209,7 +212,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       })
       .catch((err: unknown) => {
         if (!live) return;
-        setPhase({ kind: "sub-login", error: err instanceof Error ? err.message : String(err) });
+        applyPhase({ kind: "sub-login", error: err instanceof Error ? err.message : String(err) });
       });
     return () => {
       live = false;
@@ -284,8 +287,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "sub-login": {
         if (phase.error) {
-          if (input === "r") return setPhase({ kind: "sub-login" });
-          if (input === "w") return setPhase({ kind: "wizard-auth", cursor: 1 });
+          if (input === "r") return applyPhase({ kind: "sub-login" });
+          if (input === "w") return applyPhase({ kind: "wizard-auth", cursor: 1 });
           if (input === "s") return onDone(null);
           return;
         }
@@ -567,19 +570,19 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
 function submitField(
   phase: Extract<Phase, { kind: "wizard-text" }>,
   wizard: Partial<EndpointProfile>,
-  setWizard: (w: Partial<EndpointProfile>) => void,
-  setPhase: (p: Phase) => void,
+  applyWizard: (w: Partial<EndpointProfile>) => void,
+  applyPhase: (p: Phase) => void,
   authKind: "api-key" | "subscription",
 ): void {
   const value = phase.value.trim();
   if (phase.field === "model") {
     if (!value) return; // a model is required
-    setWizard({ ...wizard, defaultModel: value });
+    applyWizard({ ...wizard, defaultModel: value });
     // Subscription never asks for a key (tokens are already stored) nor a
     // base URL (the grant fixes the endpoints) — model, then the test.
     // openai-compat keeps its byte-identical model → key → base URL path.
     if (authKind === "subscription") {
-      return setPhase({
+      return applyPhase({
         kind: "test",
         profile: {
           name: wizard.name || wizard.type || "endpoint",
@@ -589,11 +592,11 @@ function submitField(
         },
       });
     }
-    return setPhase({ kind: "wizard-text", field: "apiKey", value: "" });
+    return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
   }
   if (phase.field === "apiKey") {
-    setWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
-    return setPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
+    applyWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
+    return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl
   if (wizard.type === "openai-compat" && !value) return; // required for compat
@@ -605,5 +608,5 @@ function submitField(
     ...(value ? { baseUrl: value } : {}),
     defaultModel: wizard.defaultModel!,
   };
-  setPhase({ kind: "test", profile });
+  applyPhase({ kind: "test", profile });
 }
