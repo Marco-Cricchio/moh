@@ -9,6 +9,7 @@ import {
   diffSkillFiles,
   firstPartySkillSources,
   embeddedSkillSources,
+  EMBEDDED_SKILLS_KEY,
   hashSkillFiles,
   installFirstPartySkills,
   loadFirstPartyManifest,
@@ -229,7 +230,7 @@ describe("upstream updates", () => {
 });
 
 describe("embedded skills bundle (binary run, #267)", () => {
-  const GLOBAL_KEY = "__MOH_EMBEDDED_SKILLS__" as const;
+  const GLOBAL_KEY = EMBEDDED_SKILLS_KEY;
 
   /** Writes skill files to a temp "extracted assets" dir and returns the registry. */
   function extractedBundle(skills: FirstPartySkillSource[]): Record<string, string> {
@@ -246,9 +247,12 @@ describe("embedded skills bundle (binary run, #267)", () => {
   }
 
   test("embeddedSkillSources reads skills from the extracted-asset registry", () => {
-    const sources = embeddedSkillSources(extractedBundle([skill("plan", "body"), skill("review", "body")]));
+    const registry = extractedBundle([skill("plan", "body"), skill("review", "body")]);
+    registry["plan/nested/extra.md"] = "ignored"; // nested keys: disk reader is flat, embedded must match
+    const sources = embeddedSkillSources(registry);
     expect(sources.map((s) => s.name)).toEqual(["plan", "review"]);
     expect(sources[0]!.files["SKILL.md"]).toContain("body");
+    expect(Object.keys(sources[0]!.files)).toEqual(["SKILL.md"]);
   });
 
   test("install uses the embedded registry when present, disk bundle otherwise", () => {
