@@ -5,5 +5,15 @@ node_modules/
 moh.json
 dist/
 
+# Internal-only artifacts (never publish)
+prototype/
+research/
+CONTEXT.md
+AGENTS.md
+docs/adr/
+docs/agents/
+docs/spec/
+docs/research/
+
 # Private vision notes (never commit to the official repository)
 docs/vision/
