@@ -14,6 +14,7 @@ moh is started with `bun packages/cli/src/cli.ts` inside the repo. For public di
 4. **Version:** first public release is `0.1.0`, stamped into the binary at build time and surfaced by `moh --version`.
 5. **First-party skills:** bundled as embedded assets in the binary and copied lazily on first run into `~/.moh/skills/` via the existing hash-manifest mechanism (`workflow.ts`, injectable `bundleDir`). No postinstall step exists or is needed; "zero friction at install" is delivered by first-run lazy copy. Unmodified skills upgrade in place; modified ones are left alone (existing behavior, unchanged).
 6. **CI:** GitHub Actions workflow triggered by `v*` tags — build the three targets, smoke-test each binary (`moh --version`, plus a headless smoke), attach with checksums to the GitHub Release.
+7. **Update channel** (ADR-0014): the binary learns about new versions by querying GitHub's `releases/latest` API at TUI startup, at most once per 24h (cache: `~/.moh/update-check.json`). Default on, opt-out via the `updateCheck` user-config flag, skipped in dev runs. A newer stable (or a running non-stable build) surfaces as a one-shot toast plus a fixed line on the TUI home inviting `moh update`. `moh update` downloads the platform asset from the latest release, verifies it against `checksums.txt`, and replaces the running executable atomically — downgrades from non-stable builds ask for confirmation. Failures are silent and never degrade startup.
 
 ## Invariants
 
