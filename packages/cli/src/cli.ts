@@ -7,6 +7,7 @@ import { runCommand, RUN_USAGE } from "./run";
 import { mcpCommand, MCP_USAGE } from "./mcp";
 import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
+import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
 
@@ -21,6 +22,10 @@ commands:
   mcp    manage MCP tool servers (see: moh mcp --help)
   init   scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
+
+options:
+  --version  print version and exit
+  --help     show this help
 `;
 
 /** Bare `moh` / `moh tui`: open the interactive TUI (#32). */
@@ -31,8 +36,16 @@ async function tuiCommand(): Promise<number> {
   return 0;
 }
 
-async function main(): Promise<number> {
-  const [command, ...rest] = process.argv.slice(2);
+export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+  const [command, ...rest] = argv;
+  if (command === "--version" || command === "-v") {
+    if (rest.length) {
+      process.stderr.write("moh --version takes no arguments\n");
+      return 2;
+    }
+    process.stdout.write(CLI_VERSION + "\n");
+    return 0;
+  }
   if (!command || command === "help" || command === "--help") {
     if (!command) return tuiCommand();
     process.stdout.write(HELP);
@@ -78,4 +91,14 @@ async function main(): Promise<number> {
   return 2;
 }
 
-process.exit(await main());
+/** Runs the CLI and flushes pending output before returning the exit code. */
+export async function runCli(): Promise<number> {
+  const code = await main();
+  // Await pending stdout/stderr flushes before exiting — without this,
+  // short-lived runs lose piped output in compiled binaries.
+  await new Promise<void>((res) => process.stdout.write("", () => res()));
+  await new Promise<void>((res) => process.stderr.write("", () => res()));
+  return code;
+}
+
+if (import.meta.main) process.exitCode = await runCli();

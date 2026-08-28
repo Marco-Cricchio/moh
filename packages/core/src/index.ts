@@ -109,6 +109,7 @@ import {
   type AuthEndpointFetch,
 } from "./auth/lifecycle";
 import {
+  MOH_VERSION,
   installFirstPartySkills,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
@@ -400,6 +401,7 @@ export {
   loadFirstPartyManifest,
   diffSkillFiles,
   readBundledSkill,
+  MOH_VERSION,
   trackerTools,
   projectFrontier,
   resolveTrackerSync,
