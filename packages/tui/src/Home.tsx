@@ -11,6 +11,7 @@ import {
   useViewport,
 } from "./viewport";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
+import { MOH_VERSION } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 
@@ -35,6 +36,8 @@ export interface HomeProps {
   listMax?: number;
   /** Update notice driven by the cached check result (#273). */
   updateNotice?: UpdateNotice | null;
+  /** Version shown under the logo (#292; defaults to MOH_VERSION). */
+  version?: string;
 }
 
 /**
@@ -44,7 +47,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, version = MOH_VERSION }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -86,6 +89,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
       <Logo />
+      <Dim>{`v${version}`}</Dim>
       <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>

@@ -99,6 +99,16 @@ describe("home chrome (#292)", () => {
     expect(frame).toContain("enter open · esc clear · ↑↓ select");
     i.unmount();
   });
+
+  test("shows the version (number only) under the logo", async () => {
+    const { lastFrame } = render(
+      <Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
+    );
+    await sleep(30);
+    const frame = stripAnsi(lastFrame() ?? "");
+    expect(frame).toContain("v0.1.0");
+    expect(frame).not.toContain("moh v0.1.0");
+  });
 });
 
 describe("home update notice (#273)", () => {
