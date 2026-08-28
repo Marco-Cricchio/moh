@@ -5,12 +5,14 @@ import { ic } from "./icons";
 import { Accent, Dim, Footer, Logo, truncate } from "./ui";
 import {
   HOME_LIST_DEFAULT,
+  homeBannerFits,
   visibleListHeight,
   windowing,
   widthClass,
   useViewport,
 } from "./viewport";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
+import { MOH_VERSION } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 
@@ -35,6 +37,8 @@ export interface HomeProps {
   listMax?: number;
   /** Update notice driven by the cached check result (#273). */
   updateNotice?: UpdateNotice | null;
+  /** Version shown under the logo (#292; defaults to MOH_VERSION). */
+  version?: string;
 }
 
 /**
@@ -44,10 +48,13 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, version = MOH_VERSION }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
+  // Big ASCII banner only on tall non-compact terminals (#292); the version
+  // moves from under the acronym into the footer in fallback mode.
+  const banner = homeBannerFits(viewport);
   // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
   const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
@@ -85,7 +92,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
-      <Logo />
+      <Logo banner={banner} version={banner ? version : undefined} />
       <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
@@ -109,15 +116,16 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         <Text> </Text>
-        <Dim>{query ? "enter open · esc clear · ↑↓ select" : "type to filter or start new · n new session · s settings · ? keys"}</Dim>
       </Box>
+      {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       <Footer
         keys={
-          compact
+          (banner ? "" : `v${version} · `) +
+          (compact
             ? `${theme.label} · ctrl+t theme · ctrl+o mode · ctrl+c ×2 quit`
-            : `${theme.label} · ctrl+t theme · ctrl+o mode · s settings · ? keys · ctrl+c ×2 quit`
+            : `${theme.label} · ctrl+t theme · ctrl+o mode · new (n) · settings (s) · keys (?) · ctrl+c ×2 quit`)
         }
       />
     </Box>

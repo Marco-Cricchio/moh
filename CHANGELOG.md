@@ -7,6 +7,14 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- Home screen polish: the terminal is cleared once at startup; a figlet-Slant
+  "moh" banner with the "My Own Harness" acronym and the version number
+  replaces the wordmark on tall terminals (one-line fallback elsewhere); the
+  static hint line is gone and the footer now carries new (n), settings (s)
+  and keys (?) (#292).
+
 ## [0.1.1] - 2026-08-28
 
 ### Fixed

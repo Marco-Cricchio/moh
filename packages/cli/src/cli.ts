@@ -33,7 +33,8 @@ options:
 /** Bare `moh` / `moh tui`: open the interactive TUI (#32). */
 async function tuiCommand(): Promise<number> {
   const { renderTui } = await import("@moh/tui");
-  const instance = renderTui({ cwd: process.cwd() });
+  const { CLI_VERSION } = await import("./version");
+  const instance = renderTui({ cwd: process.cwd(), version: CLI_VERSION });
   await instance.waitUntilExit?.();
   return 0;
 }

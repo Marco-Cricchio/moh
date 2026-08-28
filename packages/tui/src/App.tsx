@@ -72,6 +72,9 @@ export interface AppProps {
    * provider keys in the environment makes every "first run" test see the
    * detect list, regardless of the injected home dir). */
   env?: Record<string, string | undefined>;
+  /** Version shown on the home screen (default: MOH_VERSION; the binary
+   * stamps the build's git tag via cli → renderTui → Home, #292). */
+  version?: string;
 }
 
 type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "model";
@@ -96,6 +99,7 @@ export function App({
   initialTheme,
   skipOnboarding,
   env,
+  version,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -609,6 +613,7 @@ export function App({
             blocked={overlayOpen}
             listMax={config.homeListMax}
             updateNotice={updateNotice}
+            version={version ?? MOH_VERSION}
           />
         )}
         </Box>
