@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
@@ -37,21 +37,26 @@ describe("built-in tools", () => {
     // #297: on macOS (no setsid) killTree raced — the parent was SIGKILLed
     // before the async killer enumerated its children, so re-parented
     // descendants survived the timeout as orphans.
-    const MARKER = "moh-297-orphan-marker";
+    // The child reports its own pid: `pgrep -f` self-matches its checking
+    // wrapper on Linux, so it cannot be used as the survival probe.
+    const dir = mkdtempSync(join(tmpdir(), "moh-297-"));
+    const pidFile = join(dir, "child.pid");
     const pending = tools.bash.execute(
       {
-        command: `bun -e 'const t=setInterval(()=>{},1000); setTimeout(()=>clearInterval(t),60000)' # ${MARKER}\nwait`,
+        command: `bun -e 'const t=setInterval(()=>{},1000); setTimeout(()=>clearInterval(t),60000)' & echo $! > ${pidFile}; wait`,
         timeoutMs: 400,
       },
-      ctx,
+      { ...ctx, cwd: dir },
     );
     await expect(withDeadline(Promise.resolve(pending), 4_000)).rejects.toThrow(/timed out/);
-    let survivors = "";
-    for (let i = 0; i < 10 && survivors === ""; i++) {
+    const childPid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10);
+    expect(Number.isInteger(childPid)).toBe(true);
+    let alive = true;
+    for (let i = 0; i < 10 && alive; i++) {
       await Bun.sleep(150);
-      survivors = Bun.spawnSync(["bash", "-c", `pgrep -f "${MARKER}" || true`]).stdout.toString().trim();
+      try { process.kill(childPid, 0); } catch { alive = false; }
     }
-    expect(survivors).toBe("");
+    expect(alive).toBe(false); // the descendant died with the timed-out command
   });
 
   test("bash abort settles the tool promptly and kills the process tree (#237)", async () => {
