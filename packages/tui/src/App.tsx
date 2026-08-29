@@ -268,10 +268,10 @@ export function App({
       push(updateNoticeText(notice));
     };
     const cache = readUpdateCache(mohHome);
-    show(updateNoticeFor(MOH_VERSION, cache?.latestVersion));
+    show(updateNoticeFor(version ?? MOH_VERSION, cache?.latestVersion));
     if (updateDue(cache)) {
       void checkForUpdate({ mohHome }).then((latest) => {
-        if (latest) show(updateNoticeFor(MOH_VERSION, latest));
+        if (latest) show(updateNoticeFor(version ?? MOH_VERSION, latest));
       });
     }
     return () => {

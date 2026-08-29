@@ -9,6 +9,12 @@ matching section here at tag time.
 
 ### Fixed
 
+- Linux Kitty startup no longer lets a delayed keyboard-capability response
+  enter the Home search field; update notices now compare against the
+  binary's actual build version (#315).
+
+### Fixed
+
 - TUI: Markdown inline-code URLs inside tables retain literal `:` characters
   instead of leaking marked-terminal's internal colon placeholder (#296).
 
