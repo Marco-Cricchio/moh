@@ -94,7 +94,20 @@ export class ToolRunner {
   ): Promise<{ outcome: "ok" | "aborted"; parts: Message["parts"] }> {
     if (calls.length === 0) return { outcome: "ok", parts: [] };
     for (const call of calls) {
-      this.#append({ type: "tool_call", callId: call.callId, name: call.name, args: call.args });
+      // #300: stamp the tool's effective timeout (resolved by the tool
+      // itself, defaults included) so clients can render a live limit
+      // without duplicating per-tool defaults. Resolved before schema
+      // validation: an invalid arg never reaches execute, but the event
+      // still records what the limit would have been. Sanitized by the
+      // resolver contract; a non-finite value is dropped, not trusted.
+      const resolved = this.#tools()[call.name]?.timeoutMs?.(call.args);
+      this.#append({
+        type: "tool_call",
+        callId: call.callId,
+        name: call.name,
+        args: call.args,
+        ...(typeof resolved === "number" && Number.isFinite(resolved) ? { timeoutMs: resolved } : {}),
+      });
     }
     // Append each tool_result the moment its promise settles, so the log
     // reflects completion order; collect parts in that same order.

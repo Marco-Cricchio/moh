@@ -46,7 +46,10 @@ const bashSchema = z.object({
  */
 function killTree(proc: Bun.Subprocess): void {
   try { process.kill(-proc.pid, "SIGKILL"); return; } catch { /* not a group leader */ }
-  Bun.spawn(
+  // #297: the enumeration+kill MUST complete before the parent dies —
+  // killing the parent first re-parents the descendants to init (PPID 1),
+  // and a later `pgrep -P` finds nothing to kill. Synchronous on purpose.
+  Bun.spawnSync(
     [
       "bash",
       "-c",
@@ -66,12 +69,23 @@ function hasSetsid(): boolean {
   return setsid;
 }
 
+/** #300: bash's effective timeout — the valid arg, else the default.
+ * The tool applies it at execution and the runner stamps the same value
+ * on the `tool_call` event before validation, so both paths must resolve
+ * identically or a rendered limit would lie about the real one. */
+const BASH_TIMEOUT_MS = 30_000;
+const bashTimeoutMs = (args: unknown): number => {
+  const raw = (args as { timeoutMs?: unknown } | null | undefined)?.timeoutMs;
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : BASH_TIMEOUT_MS;
+};
+
 const bash: Tool<z.infer<typeof bashSchema>> = {
   name: "bash",
   description: "Run a shell command in the project root and capture its output.",
   inputSchema: bashSchema,
+  timeoutMs: bashTimeoutMs,
   async execute(args, ctx) {
-    const timeout = args.timeoutMs ?? 30_000;
+    const timeout = bashTimeoutMs(args);
     // After the parent exits, background descendants may still hold the
     // output pipes; the drain waits this long past exit before force-closing
     // the streams and returning whatever output arrived.

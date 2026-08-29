@@ -16,6 +16,25 @@ matching section here at tag time.
   TUI adds a pick-list phase that prefills the still-editable base URL field
   (#295).
 
+## [0.3.0] - 2026-08-29
+
+### Added
+
+- Live tool blocks show a running timer on the right of the block head:
+  elapsed time and the command's effective timeout (`⏱ 12s · 30s`) while a
+  tool runs — elapsed only for tools without a timeout — and the final
+  duration (`✓ bash · 18s`) once the call settles. The effective timeout is
+  stamped on the `tool_call` event by the core (`timeoutMs`, resolved by the
+  tool itself, defaults included), so clients never duplicate per-tool
+  defaults (#300).
+
+## [0.2.1] - 2026-08-29
+
+### Fixed
+
+- Fixed: bash tool timeout/cancellation no longer leaks orphaned child
+  processes on macOS (killed in the correct order; #297).
+
 ## [0.2.0] - 2026-08-28
 
 ### Changed
@@ -54,7 +73,9 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.2.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...develop
+[0.3.0]: https://github.com/Marco-Cricchio/moh/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/Marco-Cricchio/moh/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Marco-Cricchio/moh/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Marco-Cricchio/moh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Marco-Cricchio/moh/releases/tag/v0.1.0

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
@@ -32,6 +32,32 @@ describe("built-in tools", () => {
       Promise.resolve(p),
       new Promise<T>((_, rej) => setTimeout(() => rej(new Error("test deadline exceeded — tool never settled")), ms)),
     ]);
+
+  test("bash timeout kills a fast-reaping parent's descendants (#297)", async () => {
+    // #297: on macOS (no setsid) killTree raced — the parent was SIGKILLed
+    // before the async killer enumerated its children, so re-parented
+    // descendants survived the timeout as orphans.
+    // The child reports its own pid: `pgrep -f` self-matches its checking
+    // wrapper on Linux, so it cannot be used as the survival probe.
+    const dir = mkdtempSync(join(tmpdir(), "moh-297-"));
+    const pidFile = join(dir, "child.pid");
+    const pending = tools.bash.execute(
+      {
+        command: `bun -e 'const t=setInterval(()=>{},1000); setTimeout(()=>clearInterval(t),60000)' & echo $! > ${pidFile}; wait`,
+        timeoutMs: 400,
+      },
+      { ...ctx, cwd: dir },
+    );
+    await expect(withDeadline(Promise.resolve(pending), 4_000)).rejects.toThrow(/timed out/);
+    const childPid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10);
+    expect(Number.isInteger(childPid)).toBe(true);
+    let alive = true;
+    for (let i = 0; i < 10 && alive; i++) {
+      await Bun.sleep(150);
+      try { process.kill(childPid, 0); } catch { alive = false; }
+    }
+    expect(alive).toBe(false); // the descendant died with the timed-out command
+  });
 
   test("bash abort settles the tool promptly and kills the process tree (#237)", async () => {
     const controller = new AbortController();
@@ -130,5 +156,22 @@ describe("built-in tools", () => {
       ctx,
     );
     expect(out).toContain("hello-fetch");
+  });
+});
+
+describe("bash effective timeout (#300)", () => {
+  test("resolver returns the valid arg, the default, and never a bogus value", () => {
+    const resolve = tools.bash.timeoutMs as (args: unknown) => number;
+    expect(resolve({ command: "sleep 1", timeoutMs: 120_000 })).toBe(120_000);
+    expect(resolve({ command: "sleep 1" })).toBe(30_000);
+    expect(resolve({ command: "sleep 1", timeoutMs: "soon" })).toBe(30_000);
+    expect(resolve(null)).toBe(30_000);
+  });
+
+  test("execute applies the same resolution as the stamped event (invalid arg falls back to the default)", async () => {
+    // A schema-invalid timeout must fail validation with 30000 as the
+    // stamped limit, not the bogus value — resolver and execute agree.
+    const resolve = tools.bash.timeoutMs as (args: unknown) => number;
+    expect(resolve({ command: "ls", timeoutMs: -5 })).toBe(30_000);
   });
 });
