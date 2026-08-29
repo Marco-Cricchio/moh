@@ -221,4 +221,25 @@ describe("ToolRunner", () => {
     expect(order).toContain("w");
     expect(order).toContain("q");
   });
+
+  test("stamps the tool's effective timeoutMs on tool_call, absent when the tool has none (#300)", async () => {
+    const timed = makeTool({ name: "timed", timeoutMs: () => 5_000, execute: () => "ok" });
+    const untimed = makeTool({ name: "untimed", execute: () => "ok" });
+    const { runner, events } = harness({ tools: { timed, untimed } });
+    await runner.run([call("timed"), call("untimed")], new AbortController().signal);
+    const first = events[0] as { type: string; timeoutMs?: number };
+    const second = events[1] as { type: string; timeoutMs?: number };
+    expect(first.type).toBe("tool_call");
+    expect(first.timeoutMs).toBe(5_000);
+    expect(second.type).toBe("tool_call");
+    expect("timeoutMs" in second).toBe(false);
+  });
+
+  test("a resolver returning a non-finite value yields no timeoutMs — never trust the model's args (#300)", async () => {
+    const weird = makeTool({ name: "weird", timeoutMs: () => Number.NaN, execute: () => "ok" });
+    const { runner, events } = harness({ tools: { weird } });
+    await runner.run([call("weird", { timeoutMs: "soon" })], new AbortController().signal);
+    const event = events[0] as { timeoutMs?: number };
+    expect("timeoutMs" in event).toBe(false);
+  });
 });

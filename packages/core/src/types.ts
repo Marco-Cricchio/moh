@@ -153,7 +153,13 @@ export type AgentEvent =
   | { type: "session_start"; schemaVersion: number; promptVersion: string }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
-  | ({ type: "tool_call" } & ToolCall)
+  | ({ type: "tool_call" } & ToolCall & {
+      /** #300: the effective timeout (ms) this call runs under, resolved
+       * by the tool itself (defaults included — e.g. bash's 30s). Absent
+       * when the tool declares no timeout; the runner stamps it from
+       * `Tool.timeoutMs` at call time so clients can render a live timer. */
+      timeoutMs?: number;
+    })
   | { type: "tool_result"; callId: string; ok: boolean; output: string }
   /** #83: one record per model call — which model served it and what it cost.
    * #240: `thinkingLevel` audits the effective level actually sent, if any
@@ -265,6 +271,11 @@ export interface Tool<A = any> {
    * serialize within a parallel batch — one pending question at a
    * time is a UI invariant (#223). */
   interactive?: boolean;
+  /** #300: the effective timeout (ms) for one call, resolved from the
+   * raw model args (defaults included). The tool runner stamps the value
+   * on the `tool_call` event; a tool without a timeout concept simply
+   * omits this. Must be self-sanitizing: never trust the raw arg shape. */
+  timeoutMs?: (args: unknown) => number | undefined;
   execute(args: A, ctx: ToolContext): Promise<string> | string;
 }
 
