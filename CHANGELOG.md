@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-29
+
 ### Added
 
 - TUI: subagent activity renders as one dedicated transcript block —
@@ -29,14 +31,9 @@ matching section here at tag time.
   window rolls back, so the turns stay eligible for a later run); the exit
   path uses a 2s budget.
 
-### Fixed
-
 - Linux Kitty startup no longer lets a delayed keyboard-capability response
   enter the Home search field; update notices now compare against the
   binary's actual build version (#315).
-
-### Fixed
-
 - TUI: Markdown inline-code URLs inside tables retain literal `:` characters
   instead of leaking marked-terminal's internal colon placeholder (#296).
 
@@ -156,7 +153,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.6.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.7.0...develop
+[0.7.0]: https://github.com/Marco-Cricchio/moh/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Marco-Cricchio/moh/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Marco-Cricchio/moh/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...v0.4.0
