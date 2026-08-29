@@ -15,7 +15,7 @@ import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
-import { subscriptionModelCatalog } from "./model-catalog";
+import { knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
@@ -175,7 +175,20 @@ export async function runProviderAdd(
     }
   }
 
-  let profile: EndpointProfile = { name, type, ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}), ...(apiKey ? { apiKey } : {}), ...(baseUrl ? { baseUrl } : {}), defaultModel };
+  const profileFor = (url: string, model: string): EndpointProfile => {
+    const metadata = type === "openai-compat" ? knownCompatEndpointMetadata(url) : undefined;
+    const capabilities = metadata ? { thinking: metadata.thinking } : undefined;
+    return {
+      name,
+      type,
+      ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      ...(url ? { baseUrl: url } : {}),
+      ...(capabilities ? { capabilities } : {}),
+      defaultModel: model,
+    };
+  };
+  let profile = profileFor(baseUrl, defaultModel);
 
   // Mandatory connection test: the flow only completes on success.
   while (true) {
@@ -192,7 +205,7 @@ export async function runProviderAdd(
     if (nextBaseUrl) baseUrl = nextBaseUrl;
     const nextModel = (await io.ask(`Default model [${defaultModel}]: `)).trim();
     if (nextModel) defaultModel = nextModel;
-    profile = { ...profile, ...(baseUrl ? { baseUrl } : {}), defaultModel };
+    profile = profileFor(baseUrl, defaultModel);
   }
 }
 

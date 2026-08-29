@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { subscriptionModelCatalog } from "../src/model-catalog";
+import { endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog } from "../src/model-catalog";
 
 describe("subscriptionModelCatalog (#156)", () => {
   test("anthropic / openai / google each expose a non-empty list", () => {
@@ -28,5 +28,29 @@ describe("subscriptionModelCatalog (#156)", () => {
   test("unknown types (openai-compat, custom) get an empty list — free-text fallback", () => {
     expect(subscriptionModelCatalog("openai-compat")).toEqual([]);
     expect(subscriptionModelCatalog("custom-thing")).toEqual([]);
+  });
+
+  test("a Z.ai openai-compat endpoint gets pi-ai model metadata by host", () => {
+    for (const baseUrl of [
+      "https://api.z.ai/api/paas/v4",
+      "https://api.z.ai/api/coding/paas/v4",
+    ]) {
+      const glm = endpointModelCatalog("openai-compat", baseUrl).find((model) => model.id === "glm-5.3");
+      expect(glm?.contextWindow).toBe(1_000_000);
+      expect(glm?.reasoning).toBe(true);
+    }
+  });
+
+  test("recognized Z.ai metadata also names the safe reasoning declaration", () => {
+    expect(knownCompatEndpointMetadata("https://api.z.ai/api/coding/paas/v4")).toEqual({
+      catalog: "zai",
+      thinking: { format: "openai-effort", levels: ["off", "low", "high", "max"] },
+    });
+  });
+
+  test("other openai-compat hosts remain catalog-less", () => {
+    expect(endpointModelCatalog("openai-compat", "https://api.deepseek.com/v1")).toEqual([]);
+    expect(knownCompatEndpointMetadata("https://api.deepseek.com/v1")).toBeUndefined();
+    expect(endpointModelCatalog("openai-compat", "not a url")).toEqual([]);
   });
 });

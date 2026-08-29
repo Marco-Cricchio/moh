@@ -3,7 +3,8 @@ import React from "react";
 import { render } from "ink-testing-library";
 import { createSession, listOpenAiCompatModels, subscriptionModelCatalog, type CatalogModel } from "@moh/core";
 import { ModelPickerModal, type ModelPickerModalProps } from "../src/ModelPickerModal";
-import { filterCatalog, type EndpointPick } from "../src/model-picker";
+import { contextWindowForLabel, filterCatalog, type EndpointPick } from "../src/model-picker";
+import { contextFraction } from "../src/sidebar";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -273,5 +274,29 @@ describe("/model modal against a live session (#181 shared semantics)", () => {
     expect(session.activeModel).toBe("alpha/custom-model");
     expect(events).toContain("model_switched");
     i.unmount();
+  });
+});
+
+describe("contextWindowForLabel (note 11: catalog-derived context bar)", () => {
+  const picks: EndpointPick[] = [
+    { name: "alpha", type: "anthropic", catalog: [{ id: "opus-5", name: "Opus 5", contextWindow: 1_000_000, reasoning: true }] },
+    { name: "compat", type: "openai-compat", catalog: [] },
+  ];
+
+  test("resolves the active model's declared window (endpoint/modelId label)", () => {
+    expect(contextWindowForLabel(picks, "alpha/opus-5")).toBe(1_000_000);
+  });
+
+  test("openai-compat backends without a catalog return 0 (caller keeps the default)", () => {
+    expect(contextWindowForLabel(picks, "compat/glm-5.3")).toBe(0);
+  });
+
+  test("unknown endpoint or bare labels return 0", () => {
+    expect(contextWindowForLabel(picks, "nope/opus-5")).toBe(0);
+    expect(contextWindowForLabel(picks, "opus-5")).toBe(0);
+  });
+
+  test("fraction of a 1M-window model no longer reads as near-full at 200k", () => {
+    expect(contextFraction(180_000, contextWindowForLabel(picks, "alpha/opus-5"))).toBeLessThan(0.25);
   });
 });

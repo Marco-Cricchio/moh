@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
+  knownCompatEndpointMetadata,
   TOS_WARNING,
   minimalConnectionTest,
   readAuthSection,
@@ -520,7 +521,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           {endpointWin.above > 0 && <Dim>{` ↑ ${endpointWin.above} more`}</Dim>}
           {KNOWN_COMPAT_ENDPOINTS.slice(endpointWin.start, endpointWin.start + endpointWin.count).map((entry, i) => {
             const index = endpointWin.start + i;
-            const label = `${entry.name}${entry.local ? " (local)" : ""}${entry.url ? ` — ${entry.url}` : ""}`;
+            const metadata = knownCompatEndpointMetadata(entry.url);
+            const label = `${entry.name}${entry.local ? " (local)" : ""}${entry.url ? ` — ${entry.url}` : ""}${metadata ? " · reasoning enabled" : ""}`;
             return (
               <Text key={entry.name} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
                 {` ${index === phase.cursor ? "›" : " "} ${label}${index === phase.cursor ? " " : ""}`}
@@ -639,12 +641,15 @@ function submitField(
   }
   // baseUrl
   if (wizard.type === "openai-compat" && !value) return; // required for compat
+  const metadata = wizard.type === "openai-compat" ? knownCompatEndpointMetadata(value) : undefined;
+  const capabilities = metadata ? { thinking: metadata.thinking } : undefined;
   const profile: EndpointProfile = {
     name: wizard.name || wizard.type || "endpoint",
     type: (wizard.type ?? "anthropic") as string,
     ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}),
     ...(wizard.apiKey ? { apiKey: wizard.apiKey } : {}),
     ...(value ? { baseUrl: value } : {}),
+    ...(capabilities ? { capabilities } : {}),
     defaultModel: wizard.defaultModel!,
   };
   applyPhase({ kind: "test", profile });

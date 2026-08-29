@@ -70,10 +70,14 @@ headless-safe OAuth). After a successful login the wizard offers the
 provider's model list from the vendored catalogs
 (`subscriptionModelCatalog` in `@moh/core` — verbatim pi-ai data, see
 `src/model-catalogs/README.md` for attribution and regeneration); free-text
-entry stays as the advanced fallback. openai-compat endpoints have no
+entry stays as the advanced fallback. Most openai-compat endpoints have no
 vendored catalog: `listOpenAiCompatModels(baseUrl, apiKey?)` fetches
 `GET <baseUrl>/models` live (used by the model pickers; a failure falls
-back to free-text entry).
+back to free-text entry). The recognized `api.z.ai` host is an exception:
+moh ships pi-ai's Z.ai GLM catalog, so its picker and context bar use the
+published model metadata (including context windows) without a live fetch.
+Onboarding a Z.ai URL automatically records the corresponding explicit
+thinking capability declaration.
 
 **Thinking capability declarations (#256).** An endpoint profile may
 declare a thinking capability in `capabilities`: `thinking` (endpoint-
@@ -82,8 +86,11 @@ level: `{ format, levels }`) and `thinkingModels` (per-model overrides,
 `format` is one of `openai-effort`, `openrouter-effort`,
 `anthropic-effort`, `google-thinking-level`; `levels` lists canonical
 thinking levels (`off`…`max`) the backend accepts. This is the capability
-source for `openai-compat` models (which carry no catalog metadata) and an
-explicit per-model override on catalog-backed endpoints. Absent
+source for ordinary `openai-compat` models (which carry no catalog metadata)
+and an explicit per-model override on catalog-backed endpoints. The Z.ai URL
+recognized by onboarding receives `{ format: "openai-effort", levels:
+["off", "low", "high", "max"] }` automatically; custom compat hosts stay
+conservative unless the user adds their own declaration. Absent
 declaration, behavior is conservative: no level selection, no invented
 request fields. Declared levels are intersected with what the format's
 wire can express (e.g. `google-thinking-level` has no `xhigh`/`max`).

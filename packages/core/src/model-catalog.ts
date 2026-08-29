@@ -24,7 +24,9 @@ import githubCopilotJson from "./model-catalogs/github-copilot.json";
 import openrouterJson from "./model-catalogs/openrouter.json";
 import kimiCodingJson from "./model-catalogs/kimi-coding.json";
 import xaiJson from "./model-catalogs/xai.json";
+import zaiJson from "./model-catalogs/zai.json";
 import type { WireApi } from "./wire";
+import type { ThinkingFormat, ThinkingLevel } from "./types";
 
 /** One selectable model in a subscription catalog. */
 export interface CatalogModel {
@@ -127,6 +129,7 @@ const CATALOGS = {
   openrouter: collect(openrouterJson),
   "kimi-coding": collect(kimiCodingJson),
   xai: collect(xaiJson),
+  zai: collect(zaiJson),
 } as const satisfies Record<string, CatalogModel[]>;
 
 /** Providers that have a vendored subscription catalog. */
@@ -144,6 +147,7 @@ export function vendoredApiNames(): string[] {
     ...Object.keys(openrouterJson),
     ...Object.keys(kimiCodingJson),
     ...Object.keys(xaiJson),
+    ...Object.keys(zaiJson),
   ].filter((api, i, all) => all.indexOf(api) === i);
 }
 
@@ -158,6 +162,7 @@ export function vendoredBaseUrls(type: string): Set<string> {
     openrouter: openrouterJson,
     "kimi-coding": kimiCodingJson,
     xai: xaiJson,
+    zai: zaiJson,
   };
   const file = files[type] ?? {};
   return new Set(Object.values(file).flatMap((models) => Object.values(models).map((e) => e.baseUrl).filter((b): b is string => typeof b === "string")));
@@ -171,6 +176,40 @@ export function vendoredBaseUrls(type: string): Set<string> {
  */
 export function subscriptionModelCatalog(type: string): CatalogModel[] {
   return (CATALOGS as Record<string, CatalogModel[]>)[type] ?? [];
+}
+
+/** Metadata that moh can safely attach while onboarding a recognized
+ * openai-compat host. It is deliberately data-only: no provider runtime is
+ * added for that host. */
+export interface KnownCompatEndpointMetadata {
+  catalog: CatalogProviderType;
+  thinking: { format: ThinkingFormat; levels: ThinkingLevel[] };
+}
+
+/** Recognizes compat hosts with shipped model metadata. Keeping recognition
+ * here makes picker metadata and onboarding capabilities one coherent
+ * contract. Both Z.ai API paths deliberately match by hostname. */
+export function knownCompatEndpointMetadata(baseUrl?: string): KnownCompatEndpointMetadata | undefined {
+  try {
+    if (baseUrl && new URL(baseUrl).hostname.toLowerCase() === "api.z.ai") {
+      return {
+        catalog: "zai",
+        thinking: { format: "openai-effort", levels: ["off", "low", "high", "max"] },
+      };
+    }
+  } catch {
+    // Invalid/custom URLs remain unrecognized; config validation owns errors.
+  }
+  return undefined;
+}
+
+/** Catalog for one configured endpoint. Most endpoints resolve directly by
+ * type; recognized openai-compat hosts opt into vendored metadata without
+ * becoming provider implementations. */
+export function endpointModelCatalog(type: string, baseUrl?: string): CatalogModel[] {
+  if (type !== "openai-compat") return subscriptionModelCatalog(type);
+  const metadata = knownCompatEndpointMetadata(baseUrl);
+  return metadata ? subscriptionModelCatalog(metadata.catalog) : [];
 }
 
 /**

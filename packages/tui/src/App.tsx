@@ -40,7 +40,8 @@ import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
 import { ModelPickerModal } from "./ModelPickerModal";
-import { subscriptionModelCatalog } from "@moh/core";
+import { endpointModelCatalog } from "@moh/core";
+import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { WorkflowOffer } from "./WorkflowOffer";
 import { runSlashCommand, commandEntries } from "./commands";
@@ -392,6 +393,22 @@ export function App({
     return endpointThinkingStatus(session.activeModel, session.endpointProfiles, cfgFile);
   }, [session, modelLabel, thinkingPreferenceRevision, cfgFile]);
   const thinkingLevel: DisplayThinkingLevel = thinkingStatus.level ?? "default";
+  // Note 11: the context bar's denominator is the active model's declared
+  // window (vendored catalog via the endpoint profiles), not the fixed
+  // 200k default — the default remains the fallback for catalog-less
+  // backends (openai-compat) and unknown models.
+  const contextLimit = useMemo(() => {
+    if (!session) return undefined;
+    const picks = session.endpointProfiles.map((e) => ({
+      name: e.name,
+      type: e.type,
+      defaultModel: e.defaultModel,
+      baseUrl: e.baseUrl,
+      apiKey: e.apiKey,
+      catalog: endpointModelCatalog(e.type, e.baseUrl),
+    }));
+    return contextWindowForLabel(picks, session.activeModel) || undefined;
+  }, [session, modelLabel]);
 
   // #242/#256: cycles among the levels the active model actually offers
   // (config declaration or catalog map) and persists immediately. Never
@@ -498,6 +515,7 @@ export function App({
       inputFocused={focusedChip === null}
       focusedChip={focusedChip}
       tokens={sidebar.tokens}
+      contextLimit={contextLimit}
       workflowOn={workflowOn}
       thinkingLevel={thinkingLevel}
       unsupportedThinkingLevel={thinkingStatus.unsupported}
@@ -682,7 +700,7 @@ export function App({
               defaultModel: e.defaultModel,
               baseUrl: e.baseUrl,
               apiKey: e.apiKey,
-              catalog: subscriptionModelCatalog(e.type),
+              catalog: endpointModelCatalog(e.type, e.baseUrl),
             }))}
             onSwitch={(ref) => session.switchModel(ref)}
             onSwitched={(model) => setModelLabel(model)}

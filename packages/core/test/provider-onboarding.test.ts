@@ -114,6 +114,19 @@ describe("known compat endpoints (#295)", () => {
     expect(profile.baseUrl).toBe("https://api.deepseek.com/v1");
   });
 
+  test("a Z.ai URL persists its explicit reasoning capability declaration", async () => {
+    const io = ioWith(["openai-compat", "", "", "4", "glm-5.3"]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile.baseUrl).toBe("https://api.z.ai/api/paas/v4");
+    expect(profile.capabilities?.thinking).toEqual({ format: "openai-effort", levels: ["off", "low", "high", "max"] });
+  });
+
+  test("a manually entered Z.ai coding URL gets the same declaration", async () => {
+    const io = ioWith(["openai-compat", "", "", "https://api.z.ai/api/coding/paas/v4", "glm-5.3"]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile.capabilities?.thinking).toEqual({ format: "openai-effort", levels: ["off", "low", "high", "max"] });
+  });
+
   test("non-compat providers keep the plain Base URL prompt (no numbered list)", async () => {
     // anthropic asks the auth-method question first (it has a subscription
     // grant) — the third answer is the auth choice.
