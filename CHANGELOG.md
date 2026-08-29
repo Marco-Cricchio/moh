@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-29
+
 ### Added
 
 - TUI: recognized Z.ai openai-compat endpoints now use the vendored pi-ai GLM
@@ -121,7 +123,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.5.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.6.0...develop
+[0.6.0]: https://github.com/Marco-Cricchio/moh/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Marco-Cricchio/moh/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Marco-Cricchio/moh/compare/v0.2.1...v0.3.0
