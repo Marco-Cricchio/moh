@@ -115,7 +115,9 @@ describe("known compat endpoints (#295)", () => {
   });
 
   test("non-compat providers keep the plain Base URL prompt (no numbered list)", async () => {
-    const io = ioWith(["anthropic", "", "sk-x", "", "claude-sonnet-4-5"]);
+    // anthropic asks the auth-method question first (it has a subscription
+    // grant) — the third answer is the auth choice.
+    const io = ioWith(["anthropic", "", "api-key", "sk-x", "", "claude-sonnet-4-5"]);
     await runProviderAdd(io, okTest());
     expect(io.said.join("\n")).not.toContain("1) Ollama");
     expect(io.said).toContain("Base URL (empty for default): ");
