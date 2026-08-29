@@ -7,6 +7,14 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- TUI: subagent activity renders as one dedicated transcript block —
+  name/preset head, live `running` state while the child works, final
+  status with token totals, and a short preview of the child's output
+  (persisted on the `subagent_result` event, visible on replay too). Vibe
+  mode keeps it as a plain-language line, failures excepted (#320).
+
 ### Changed
 
 - CI: GitHub Actions bumped off the deprecated Node 20 runtime —

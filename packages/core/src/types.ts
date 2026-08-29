@@ -222,6 +222,10 @@ export type AgentEvent =
       status: "done" | "error" | "cancelled";
       usage: { inputTokens: number; outputTokens: number };
       log: string;
+      /** #320: first lines of the child's output (bounded), so the
+       * transcript block and replay show a preview without re-reading the
+       * child log. Absent when the child produced no output. */
+      preview?: string;
     };
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */

@@ -332,17 +332,18 @@ export function settledBoundary(events: readonly AgentEvent[], pending: boolean)
       continue;
     }
     deltaRun = "";
-    if (event.type === "tool_call") {
+    if (event.type === "tool_call" || event.type === "subagent_spawn") {
       // The call-level fallback/reasoning/model_call prefix immediately
       // before a tool is immutable now; promote it without the unresolved
-      // tool_call whose ◌ state still mutates.
+      // tool_call whose ◌ state still mutates. A pending subagent_spawn
+      // mutates the same way (running → final, #320).
       if (pendingCalls === 0) boundary = i;
       pendingCalls++;
       continue;
     }
     // Clamp: a stray result without its call must not under-count and
     // over-promote a prefix.
-    if (event.type === "tool_result" && pendingCalls > 0) pendingCalls--;
+    if ((event.type === "tool_result" || event.type === "subagent_result") && pendingCalls > 0) pendingCalls--;
     if (pendingCalls > 0) continue;
     // #242: these events form one projection unit. Do not seal a reasoning
     // block before its model label arrives, or a model_call before the next
