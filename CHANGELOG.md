@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- Subagent preset defaults no longer get erased when a tool-calling model
+  serializes omitted inline fields as empty values. In particular, the
+  `research` preset retains its read-only tool allow-list (#323).
+
 ## [0.7.0] - 2026-08-29
 
 ### Added

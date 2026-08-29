@@ -72,6 +72,54 @@ describe("subagents (#13)", () => {
     expect(parsed).toEqual({ status: "done", output: "the answer is 42" });
   });
 
+  test("empty model-generated fields do not erase a preset's tools (#323)", async () => {
+    const home = tmpHome();
+    const read = recordingTool("read");
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: {
+          preset: "research", task: "read the principles",
+          // Some tool-calling models serialize absent optional fields this way.
+          systemPrompt: "", allowedTools: [], model: "", provider: "", context: "",
+        } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { ...builtinTools(), read },
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home,
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "read", args: { path: "docs/principles.md" } }] },
+          { deltas: ["child summary"], finish: "stop" },
+        ]),
+      },
+    });
+
+    await parent.send("go");
+    expect(read.calls).toHaveLength(1);
+  });
+
+  test("an empty tool list remains valid for an inline spawn (#323)", async () => {
+    const home = tmpHome();
+    const read = recordingTool("read");
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { name: "no-tools", task: "do not read", allowedTools: [] } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { ...builtinTools(), read },
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home,
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "read", args: { path: "docs/principles.md" } }] },
+          { deltas: ["child summary"], finish: "stop" },
+        ]),
+      },
+    });
+
+    await parent.send("go");
+    expect(read.calls).toHaveLength(0);
+  });
+
   test("inline spec spawn works and the child has its own JSONL log with usage tokens", async () => {
     const events: AgentEvent[] = [];
     const home = tmpHome();
