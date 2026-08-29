@@ -222,7 +222,18 @@ export class SubagentHost {
     if (preset && !base) {
       return resultJson({ status: "error", output: "", error: `unknown subagent preset: ${preset}` });
     }
-    const spec: SubagentSpec = { name: "subagent", ...(base ?? {}), ...stripUndefined(inline) };
+    const overrides = stripUndefined(inline);
+    // Tool-calling models frequently serialize omitted optional fields as
+    // empty strings/arrays. For a preset those are placeholders, not a
+    // request to erase its role or its tool allow-list (#323). Inline-only
+    // specs retain an explicit [] as the useful "no tools" declaration.
+    if (base) {
+      for (const key of ["description", "systemPrompt", "model", "provider", "context"] as const) {
+        if (overrides[key] === "") delete overrides[key];
+      }
+      if (overrides.allowedTools?.length === 0) delete overrides.allowedTools;
+    }
+    const spec: SubagentSpec = { name: "subagent", ...(base ?? {}), ...overrides };
     const spawnId = `subagent-${randomUUID().slice(0, 8)}`;
 
     const acquired = await this.#semaphore.acquire(ctx.signal);
