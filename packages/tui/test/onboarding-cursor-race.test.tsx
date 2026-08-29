@@ -96,10 +96,11 @@ describe("onboarding wizard — cursor race", () => {
       i.stdin.write("\r");
       await waitFor("API key");
       i.stdin.write("\r"); // empty key → env/local
+      await waitFor("Pick an API endpoint"); // known-endpoint list (#295)
+      i.stdin.write("\r"); // Ollama (first entry) prefills the base URL
       await waitFor("Base URL");
-      i.stdin.write("http://localhost:11434/v1");
-      await sleep(10);
-      i.stdin.write("\r");
+      await waitFor("http://localhost:11434/v1");
+      i.stdin.write("\r"); // accept the prefilled URL
       await waitFor("Where should");
       // down+enter with no settling window: enter must read the cursor the
       // down produced even if ink re-registers the input handler only in a

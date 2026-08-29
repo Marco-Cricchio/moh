@@ -3,6 +3,7 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import {
   BUILTIN_PROVIDER_TYPES,
+  KNOWN_COMPAT_ENDPOINTS,
   TOS_WARNING,
   minimalConnectionTest,
   readAuthSection,
@@ -39,6 +40,7 @@ type Phase =
   | { kind: "tos" }
   | { kind: "sub-login"; error?: string }
   | { kind: "wizard-model-list"; cursor: number }
+  | { kind: "wizard-endpoint-list"; cursor: number }
   | { kind: "wizard-text"; field: "model" | "apiKey" | "baseUrl"; value: string }
   | { kind: "test"; profile: EndpointProfile; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
   | { kind: "save-scope"; profile: EndpointProfile; cursor: number }
@@ -130,6 +132,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   // #156: post-login subscription catalog (may be empty → free-text only).
   const catalog = useMemo(() => subscriptionModelCatalog(wizard.type ?? ""), [wizard.type]);
   const modelWin = windowing(catalog.length + 1, phase.kind === "wizard-model-list" ? phase.cursor : 0, budget);
+  // #295: known-endpoint pick-list for openai-compat (before the base URL).
+  const endpointWin = windowing(KNOWN_COMPAT_ENDPOINTS.length, phase.kind === "wizard-endpoint-list" ? phase.cursor : 0, budget);
 
   // Where the default provider ref lands after a wizard save/reuse (#129):
   // project moh.json when one exists, user config otherwise.
@@ -332,6 +336,18 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         }
         return;
       }
+      case "wizard-endpoint-list": {
+        if (key.escape) return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
+        if (key.upArrow) return move(KNOWN_COMPAT_ENDPOINTS.length - 1, -1);
+        if (key.downArrow) return move(KNOWN_COMPAT_ENDPOINTS.length - 1, 1);
+        if (input === "s") return onDone(null);
+        if (key.return || input === "\n") {
+          // Prefill the (still editable) base URL field; Custom… opens it empty.
+          const url = KNOWN_COMPAT_ENDPOINTS[phase.cursor]!.url;
+          return applyPhase({ kind: "wizard-text", field: "baseUrl", value: url });
+        }
+        return;
+      }
       case "wizard-text": {
         if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
@@ -497,6 +513,25 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           <Dim>enter select · s skip</Dim>
         </>
       )}
+      {phase.kind === "wizard-endpoint-list" && (
+        <>
+          <Text>Pick an API endpoint:</Text>
+          <Text> </Text>
+          {endpointWin.above > 0 && <Dim>{` ↑ ${endpointWin.above} more`}</Dim>}
+          {KNOWN_COMPAT_ENDPOINTS.slice(endpointWin.start, endpointWin.start + endpointWin.count).map((entry, i) => {
+            const index = endpointWin.start + i;
+            const label = `${entry.name}${entry.local ? " (local)" : ""}${entry.url ? ` — ${entry.url}` : ""}`;
+            return (
+              <Text key={entry.name} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+                {` ${index === phase.cursor ? "›" : " "} ${label}${index === phase.cursor ? " " : ""}`}
+              </Text>
+            );
+          })}
+          {endpointWin.below > 0 && <Dim>{` ↓ ${endpointWin.below} more`}</Dim>}
+          <Text> </Text>
+          <Dim>enter select · esc back · s skip</Dim>
+        </>
+      )}
       {phase.kind === "wizard-text" && (
         <>
           {phase.field === "model" && authKind === "subscription" && (
@@ -596,6 +631,10 @@ function submitField(
   }
   if (phase.field === "apiKey") {
     applyWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
+    // #295: openai-compat picks the base URL from the known-endpoint list
+    // (selection prefills the still-editable text field); other providers
+    // keep the plain base URL text step.
+    if (wizard.type === "openai-compat") return applyPhase({ kind: "wizard-endpoint-list", cursor: 0 });
     return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl

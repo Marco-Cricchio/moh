@@ -7,6 +7,15 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- Add-provider wizard: the openai-compat Base URL step now offers a curated,
+  selectable list of known API endpoints — locals first (Ollama, LM Studio,
+  Omniroute), then cloud providers (z.ai, DeepSeek, Mistral, Groq, Together)
+  and a `Custom…` free-text entry. The CLI shows it as a numbered prompt; the
+  TUI adds a pick-list phase that prefills the still-editable base URL field
+  (#295).
+
 ## [0.3.0] - 2026-08-29
 
 ### Added
