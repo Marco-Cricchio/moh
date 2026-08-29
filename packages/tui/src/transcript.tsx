@@ -552,7 +552,10 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   // ink drops the fg color on wrapped continuation lines of a Text (#213):
   // wrap the head detail ourselves and render each line as its own row.
   const headLabel = `${block.glyph} ${block.type}`;
-  const detailBudget = Math.max(10, width - 2 - headLabel.length - 1);
+  // #300: the timer claims the head row's right side; keep the first
+  // detail line clear of it (timer + two spaces of margin).
+  const timerReserve = blockTimerLabel(block, liveMeta).length + 2;
+  const detailBudget = Math.max(10, width - 2 - headLabel.length - (timerReserve > 2 ? timerReserve : 1));
   // wrapRenderedLines never splits a word; an overlong unbroken token
   // (path, URL) would still overflow and hit ink's color-dropping wrap —
   // hard-chunk such words so every row is ours (#213).
@@ -561,6 +564,10 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         line.length > detailBudget ? (line.match(new RegExp(`.{1,${detailBudget}}`, "g")) ?? [line]) : [line])
     : [];
   const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
+  // #300: the right-aligned timer shares the head row with the label.
+  // Without a timer the head renders exactly as before; with one, the
+  // detail budget shrinks so the label never crowds the timer.
+  const timerLabel = blockTimerLabel(block, liveMeta);
   return (
     <Box flexDirection="column">
       {/* One blank row separates blocks (not head from body): a block opens
@@ -568,9 +575,16 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
       {block.continuation ? null : <Text> </Text>}
       {block.continuation ? null : (
         <>
-          <Row width={width} bg={bg}><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
+          {timerLabel ? (
+            <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={1} paddingRight={1} justifyContent="space-between" flexShrink={0}>
+              <Text><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Text>
+              <Text color={theme.dim}>{timerLabel}</Text>
+            </Box>
+          ) : (
+            <Row width={width} bg={bg}><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
+          )}
           {detailLines.slice(1).map((line, index) => (
-            <Row key={`detail-${index}`} width={width} bg={bg} indent={headLabel.length + 1}><Text color={theme.dim}>{line}</Text></Row>
+            <Row key={`detail-${index}`} width={width} bg={bg} indent={timerLabel ? 2 : headLabel.length + 1}><Text color={theme.dim}>{line}</Text></Row>
           ))}
         </>
       )}
@@ -614,4 +628,5 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
       })}
     </Box>
   );
-}, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block));
+}, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block)
+  && prev.liveMeta?.elapsedMs === next.liveMeta?.elapsedMs && prev.liveMeta?.timeoutMs === next.liveMeta?.timeoutMs);

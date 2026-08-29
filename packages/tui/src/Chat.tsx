@@ -8,6 +8,7 @@ import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
 import { BASE_COMMANDS } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { scanToolTimings, mergeToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
@@ -103,6 +104,16 @@ export function Chat({
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
   }
   const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
+  // #300: wall-clock ledger for tool calls — arrival time per live call,
+  // final call→result duration once the result lands. Presentation-only
+  // (never merged into the log); rebuilt by rescanning the live window
+  // and merging so completed calls keep their recorded duration.
+  const toolTimingsRef = useRef<ToolTimings>(new Map());
+  const liveStart = Math.max(0, settledEnd - 200);
+  if (state.events.length > liveStart) {
+    toolTimingsRef.current = mergeToolTimings(toolTimingsRef.current, scanToolTimings(state.events.slice(liveStart)));
+  }
+  const toolTimings = toolTimingsRef.current;
   // Mode switch repaints (#201): the printed grammar is no longer sealed —
   // the visible transcript is cleared and reprinted whole in the new mode.
   // A pending repaint waits while a modal owns the alternate screen; it
@@ -147,7 +158,7 @@ export function Chat({
       segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
     const settledBlocks = segments.flatMap((segment, index) => projectTranscript(
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
-      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show },
+      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
     ));
     const live = settledEnd < state.events.length ? state.events.slice(settledEnd) : [];
     // The live tail often begins mid-reply (the boundary closed a paragraph
@@ -169,9 +180,9 @@ export function Chat({
       : [];
     return {
       settledBlocks,
-      liveBlocks: [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning })],
+      liveBlocks: [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning, toolTimings })],
     };
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, liveReasoning]);
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, liveReasoning, toolTimings]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],
@@ -227,7 +238,16 @@ export function Chat({
       {replaySettled && replayBlocks.map((block) => (
         <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
       ))}
-      {state.pending && <Box flexDirection="column">{liveTail.map((block) => <TranscriptBlockView key={`live-${block.key}`} block={block} width={cols} />)}</Box>}
+      {state.pending && <Box flexDirection="column">{liveTail.map((block) => (
+        <TranscriptBlockView
+          key={`live-${block.key}`}
+          block={block}
+          width={cols}
+          {...(block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
+            ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
+            : {})}
+        />
+      ))}</Box>}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
