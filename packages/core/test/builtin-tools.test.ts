@@ -158,3 +158,20 @@ describe("built-in tools", () => {
     expect(out).toContain("hello-fetch");
   });
 });
+
+describe("bash effective timeout (#300)", () => {
+  test("resolver returns the valid arg, the default, and never a bogus value", () => {
+    const resolve = tools.bash.timeoutMs as (args: unknown) => number;
+    expect(resolve({ command: "sleep 1", timeoutMs: 120_000 })).toBe(120_000);
+    expect(resolve({ command: "sleep 1" })).toBe(30_000);
+    expect(resolve({ command: "sleep 1", timeoutMs: "soon" })).toBe(30_000);
+    expect(resolve(null)).toBe(30_000);
+  });
+
+  test("execute applies the same resolution as the stamped event (invalid arg falls back to the default)", async () => {
+    // A schema-invalid timeout must fail validation with 30000 as the
+    // stamped limit, not the bogus value — resolver and execute agree.
+    const resolve = tools.bash.timeoutMs as (args: unknown) => number;
+    expect(resolve({ command: "ls", timeoutMs: -5 })).toBe(30_000);
+  });
+});

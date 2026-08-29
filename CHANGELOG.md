@@ -7,6 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- Live tool blocks show a running timer on the right of the block head:
+  elapsed time and the command's effective timeout (`⏱ 12s · 30s`) while a
+  tool runs — elapsed only for tools without a timeout — and the final
+  duration (`✓ bash · 18s`) once the call settles. The effective timeout is
+  stamped on the `tool_call` event by the core (`timeoutMs`, resolved by the
+  tool itself, defaults included), so clients never duplicate per-tool
+  defaults (#300).
+
 ## [0.2.1] - 2026-08-29
 
 ### Fixed

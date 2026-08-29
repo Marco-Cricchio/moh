@@ -93,7 +93,9 @@ wire can express (e.g. `google-thinking-level` has no `xhigh`/`max`).
 The event log is the session: an append-only sequence of `AgentEvent`s
 (`session_start`, `user_message`, `assistant_delta`, `tool_call`,
 `tool_result`, `model_call`, `done`, `error`, `cancelled`, …). Consume it
-as an async iterable while turns run:
+as an async iterable while turns run. A `tool_call` may carry the call's
+effective `timeoutMs` (resolved by the tool, defaults included) — clients
+can render a live limit from it without duplicating per-tool defaults.
 
 ```ts
 async function watch() {

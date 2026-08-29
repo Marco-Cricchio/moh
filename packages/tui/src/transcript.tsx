@@ -5,6 +5,8 @@ import type { Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
 import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown";
+import { formatDuration, formatTimeout } from "./tool-timing";
+import type { ToolTimings } from "./tool-timing";
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking";
 export interface TranscriptBlock {
   key: string;
@@ -26,6 +28,13 @@ export interface TranscriptBlock {
   lineKinds?: Array<"body" | "heading" | "bullet" | "ask" | "answer">;
   state?: "run" | "ok" | "fail";
   usage?: { inputTokens: number; outputTokens: number };
+  /** #300: timing metadata for tool blocks — the callId pairing the block
+   * with the live ledger, the event's effective `timeoutMs` limit, and
+   * (once a result exists in this window) the call→result duration. Pure
+   * data: rendering decides what to show. */
+  callId?: string;
+  timeoutMs?: number;
+  durationMs?: number;
 }
 
 /** Vibe phrasing for a tool call (#193): plain language, no raw command. */
@@ -90,7 +99,8 @@ const detailOf = (args: unknown): string => {
  * `state: "run"` so the pending marker stays live), failures always show.
  * The log itself is never filtered: this is a projection option only. */
 export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean; /** #242: render persisted provider reasoning blocks (display-only
-   * projection; the log is never filtered). Default: hidden. */ showReasoning?: boolean } = {}): TranscriptBlock[] {
+   * projection; the log is never filtered). Default: hidden. */ showReasoning?: boolean; /** #300: wall-clock ledger for tool timing (limit + final duration);
+   * presentation-only, never part of the log. */ toolTimings?: ToolTimings } = {}): TranscriptBlock[] {
   const vibe = options.mode === "vibe";
   const keyBase = options.keyBase ?? 0;
   const blocks: TranscriptBlock[] = [];
@@ -126,6 +136,15 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "tool_call": {
         const result = results.get(event.callId);
         const state = result ? (result.ok ? "ok" : "fail") : "run";
+        // #300 timing metadata: the callId links the block to the live
+        // ledger; the limit rides the event; the duration exists once the
+        // result is visible in this projection window.
+        const timing = options.toolTimings?.get(event.callId);
+        const timingFields = {
+          callId: event.callId,
+          ...(typeof event.timeoutMs === "number" && Number.isFinite(event.timeoutMs) ? { timeoutMs: event.timeoutMs } : {}),
+          ...(timing?.durationMs !== undefined ? { durationMs: timing.durationMs } : {}),
+        };
         // Fetch output is page-sized minified noise in any mode: vibe's
         // plain-language collapse (URL only, no body) applies to dev too (#219).
         if (event.name === "fetch") {
@@ -139,14 +158,14 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (event.name === "ask_user") {
           const question = event.args && typeof event.args === "object" && "question" in event.args ? String((event.args as { question: unknown }).question) : detailOf(event.args);
           const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
-          blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state });
+          blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state, ...timingFields });
           break;
         }
         if (vibe) {
           if (state !== "fail") {
             const action = TOOL_ACTION[event.name] ?? `used ${event.name}`;
             const target = event.name === "bash" ? vibeCommandHint(event.args) : vibeDetail(event.name, event.args);
-            blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [target ? `${action} · ${target}` : action], state });
+            blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [target ? `${action} · ${target}` : action], state, ...timingFields });
             break;
           }
           blocks.push({ key, kind: "error", glyph: "✗", type: event.name, detail: detailOf(event.args), lines: result?.ok === false ? result.output.split("\n").slice(0, 5).map(sanitizeLine) : [], state: "fail" });
@@ -160,6 +179,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           detail: detailOf(event.args),
           lines: event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
           state,
+          ...timingFields,
         });
         if (event.name === "read" && result?.ok && options.filePreview !== "none") {
           const start = event.args && typeof event.args === "object" && typeof (event.args as { offset?: unknown }).offset === "number" ? (event.args as { offset: number }).offset : 1;
@@ -500,17 +520,30 @@ const sameKinds = (a: string[] | undefined, b: string[] | undefined): boolean =>
 const sameBlock = (a: TranscriptBlock, b: TranscriptBlock): boolean =>
   a.key === b.key && a.kind === b.kind && a.glyph === b.glyph && a.type === b.type && a.continuation === b.continuation && a.tight === b.tight
   && a.detail === b.detail && a.markdown === b.markdown && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
-  && a.usage?.outputTokens === b.usage?.outputTokens
+  && a.usage?.outputTokens === b.usage?.outputTokens && a.callId === b.callId && a.timeoutMs === b.timeoutMs && a.durationMs === b.durationMs
   && a.lines.length === b.lines.length && a.lines.every((line, i) => line === b.lines[i])
   && sameKinds(a.lineKinds, b.lineKinds);
+
+/** Right-aligned timer on the tool-block head (#300). `⏱ elapsed · limit`
+ * while the call runs (decision 2 format); the limit drops when the tool
+ * declares none. Settled blocks show the deterministic call→result
+ * duration instead (`✓ bash · 18s`, decision 3) — the volatile elapsed
+ * never crosses into Static (determinism #194). */
+function blockTimerLabel(block: TranscriptBlock, live: { elapsedMs: number; timeoutMs?: number } | undefined): string {
+  if (live) return `⏱ ${formatDuration(live.elapsedMs)}${live.timeoutMs !== undefined ? ` · ${formatTimeout(live.timeoutMs)}` : ""}`;
+  return block.durationMs !== undefined ? `· ${formatDuration(block.durationMs)}` : "";
+}
 
 /**
  * Content-compared memo: projection rebuilds every block object per event
  * (ref equality is useless), but unchanged blocks must not re-render —
  * each re-render repaints its rows, which at streaming rates is O(n²)
  * output and froze the UI (session 20260825T062108113Z regression).
+ * `liveMeta` participates in the comparator: it exists only on live
+ * blocks (never inside Static) and the settled memo path never sees it,
+ * so `React.memo` on settled blocks stays intact (#300).
  */
-export const TranscriptBlockView = React.memo(function TranscriptBlockView({ block, width }: { block: TranscriptBlock; width: number }) {
+export const TranscriptBlockView = React.memo(function TranscriptBlockView({ block, width, liveMeta }: { block: TranscriptBlock; width: number; liveMeta?: { elapsedMs: number; timeoutMs?: number } }) {
   const theme = useTheme();
   const color = blockColor(block, theme);
   const bg = blockTint(block, theme);
@@ -519,7 +552,10 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   // ink drops the fg color on wrapped continuation lines of a Text (#213):
   // wrap the head detail ourselves and render each line as its own row.
   const headLabel = `${block.glyph} ${block.type}`;
-  const detailBudget = Math.max(10, width - 2 - headLabel.length - 1);
+  // #300: the timer claims the head row's right side; keep the first
+  // detail line clear of it (timer + two spaces of margin).
+  const timerReserve = blockTimerLabel(block, liveMeta).length + 2;
+  const detailBudget = Math.max(10, width - 2 - headLabel.length - (timerReserve > 2 ? timerReserve : 1));
   // wrapRenderedLines never splits a word; an overlong unbroken token
   // (path, URL) would still overflow and hit ink's color-dropping wrap —
   // hard-chunk such words so every row is ours (#213).
@@ -528,6 +564,10 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         line.length > detailBudget ? (line.match(new RegExp(`.{1,${detailBudget}}`, "g")) ?? [line]) : [line])
     : [];
   const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
+  // #300: the right-aligned timer shares the head row with the label.
+  // Without a timer the head renders exactly as before; with one, the
+  // detail budget shrinks so the label never crowds the timer.
+  const timerLabel = blockTimerLabel(block, liveMeta);
   return (
     <Box flexDirection="column">
       {/* One blank row separates blocks (not head from body): a block opens
@@ -535,9 +575,16 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
       {block.continuation ? null : <Text> </Text>}
       {block.continuation ? null : (
         <>
-          <Row width={width} bg={bg}><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
+          {timerLabel ? (
+            <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={1} paddingRight={1} justifyContent="space-between" flexShrink={0}>
+              <Text><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Text>
+              <Text color={theme.dim}>{timerLabel}</Text>
+            </Box>
+          ) : (
+            <Row width={width} bg={bg}><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
+          )}
           {detailLines.slice(1).map((line, index) => (
-            <Row key={`detail-${index}`} width={width} bg={bg} indent={headLabel.length + 1}><Text color={theme.dim}>{line}</Text></Row>
+            <Row key={`detail-${index}`} width={width} bg={bg} indent={timerLabel ? 2 : headLabel.length + 1}><Text color={theme.dim}>{line}</Text></Row>
           ))}
         </>
       )}
@@ -581,4 +628,5 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
       })}
     </Box>
   );
-}, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block));
+}, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block)
+  && prev.liveMeta?.elapsedMs === next.liveMeta?.elapsedMs && prev.liveMeta?.timeoutMs === next.liveMeta?.timeoutMs);
