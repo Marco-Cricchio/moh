@@ -211,6 +211,15 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
           .map((l) => `    ${l}`)
           .join("\n")}\n\n`;
       },
+      // Codespan is overridden instead of delegating to marked-terminal:
+      // its renderer temporarily replaces `:` with a private sentinel while
+      // it splits table cells, then restores only through its block-level
+      // transform. Our custom table renderer parses cells directly, so that
+      // sentinel would leak. Rendering the original token directly avoids
+      // any post-parse replacement that could alter user content (#296).
+      codespan(token: Tokens.Codespan): string {
+        return `${fg(theme.accent)}${token.text}\x1b[39m`;
+      },
       // Text tokens (e.g. inside loose list items) fall back to the raw
       // source in marked-terminal (`token.text`), leaking **bold** markers.
       // Parse the inline tokens instead, keeping span styling.

@@ -203,3 +203,20 @@ describe("createMarkdownRenderer", () => {
     expect(proc.stdout.toString()).toBe("colored");
   });
 });
+
+describe("colon placeholder never leaks (#296)", () => {
+  test("codespans inside table cells restore their colons (custom table renderer bypasses undoColon)", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 76);
+    const out = String(md.parse("| name | url |\n| --- | --- |\n| local | `http://localhost:1234/v1` |"));
+    expect(out).not.toContain("*#COLON|*");
+    expect(out).toContain("http://localhost:1234/v1");
+  });
+
+  test("standard inline code restores the placeholder outside tables", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 60);
+    const out = String(md.parse("Run `http://localhost:1234/` in `bash:sh -c 'x:y'`"));
+    expect(out).not.toContain("*#COLON|*");
+    expect(out).toContain("http://localhost:1234/");
+    expect(out).toContain("bash:sh -c 'x:y'");
+  });
+});
