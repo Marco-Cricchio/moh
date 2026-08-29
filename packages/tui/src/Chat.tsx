@@ -8,7 +8,7 @@ import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
 import { BASE_COMMANDS } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
-import { scanToolTimings, mergeToolTimings, type ToolTimings } from "./tool-timing";
+import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
@@ -106,12 +106,15 @@ export function Chat({
   const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
   // #300: wall-clock ledger for tool calls — arrival time per live call,
   // final call→result duration once the result lands. Presentation-only
-  // (never merged into the log); rebuilt by rescanning the live window
-  // and merging so completed calls keep their recorded duration.
+  // (never merged into the log); advanced incrementally from the cursor
+  // so an open call keeps its original arrival and durations measure the
+  // real batch gap.
   const toolTimingsRef = useRef<ToolTimings>(new Map());
-  const liveStart = Math.max(0, settledEnd - 200);
-  if (state.events.length > liveStart) {
-    toolTimingsRef.current = mergeToolTimings(toolTimingsRef.current, scanToolTimings(state.events.slice(liveStart)));
+  const toolTimingsCursor = useRef(0);
+  if (state.events.length > toolTimingsCursor.current) {
+    const advanced = updateToolTimings(toolTimingsRef.current, state.events, toolTimingsCursor.current);
+    toolTimingsRef.current = advanced.timings;
+    toolTimingsCursor.current = advanced.scanned;
   }
   const toolTimings = toolTimingsRef.current;
   // Mode switch repaints (#201): the printed grammar is no longer sealed —

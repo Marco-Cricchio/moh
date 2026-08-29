@@ -4,7 +4,7 @@ import { render } from "ink-testing-library";
 import { createSession, builtinTools, type AgentEvent } from "@moh/core";
 import { Chat } from "../src/Chat";
 import { projectTranscript, TranscriptBlockView } from "../src/transcript";
-import { scanToolTimings, mergeToolTimings, formatDuration, formatTimeout } from "../src/tool-timing";
+import { updateToolTimings, formatDuration, formatTimeout } from "../src/tool-timing";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -25,35 +25,32 @@ describe("tool timing formats (#300 decision 2)", () => {
 });
 
 describe("tool timing ledger", () => {
-  test("scanToolTimings timestamps calls and closes durations on results", () => {
+  test("a call's arrival is stamped once and never reset by later batches", () => {
     const events = [
       { type: "tool_call", callId: "a" },
-      { type: "tool_call", callId: "b" },
-      { type: "tool_result", callId: "a" },
     ];
-    const timings = scanToolTimings(events);
-    expect(timings.get("a")?.durationMs).toBeDefined();
-    expect(timings.get("b")?.durationMs).toBeUndefined();
-    expect(timings.get("b")?.at).toBeGreaterThan(0);
+    const first = updateToolTimings(new Map(), events, 0);
+    const at = first.timings.get("a")!.at;
+    // A later batch (deltas appended after the call) must not re-stamp it:
+    // the elapsed clock would jump back to zero on every flush.
+    const second = updateToolTimings(first.timings, [...events, { type: "assistant_delta" } as { type: string }], first.scanned);
+    expect(second.timings.get("a")!.at).toBe(at);
+    expect(second.scanned).toBe(2);
+  });
+
+  test("the duration measures the batch gap between call and result", async () => {
+    const call = [{ type: "tool_call", callId: "a" }];
+    const first = updateToolTimings(new Map(), call, 0);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const second = updateToolTimings(first.timings, [...call, { type: "tool_result", callId: "a" }], first.scanned);
+    const duration = second.timings.get("a")!.durationMs;
+    expect(duration).toBeDefined();
+    expect(duration!).toBeGreaterThanOrEqual(25);
   });
 
   test("a stray result without its call is ignored", () => {
-    const timings = scanToolTimings([{ type: "tool_result", callId: "ghost" }]);
+    const { timings } = updateToolTimings(new Map(), [{ type: "tool_result", callId: "ghost" }], 0);
     expect(timings.size).toBe(0);
-  });
-
-  test("mergeToolTimings keeps completed durations as the window grows", () => {
-    const prior = new Map([["a", { at: 1, durationMs: 1_500 }]]);
-    // Later rescan without a's call in the window (scrolled past): keep it.
-    const fresh = new Map([["b", { at: 2 }]]);
-    const merged = mergeToolTimings(prior, fresh);
-    expect(merged.get("a")?.durationMs).toBe(1_500);
-    expect(merged.has("b")).toBe(true);
-    // A still-open call seen again must not regress to a shorter recorded
-    // duration when the fresh scan carries the completed value.
-    const priorOpen = new Map([["b", { at: 2 }]]);
-    const freshDone = new Map([["b", { at: 2, durationMs: 800 }]]);
-    expect(mergeToolTimings(priorOpen, freshDone).get("b")?.durationMs).toBe(800);
   });
 });
 
@@ -63,7 +60,7 @@ describe("tool timing projection (#300)", () => {
       { type: "tool_call", callId: "c1", name: "bash", args: { command: "bun test" }, timeoutMs: 30_000 },
       { type: "tool_result", callId: "c1", ok: true, output: "1 pass" },
     ];
-    const timings = scanToolTimings(events);
+    const timings = updateToolTimings(new Map(), events, 0).timings;
     timings.set("c1", { at: timings.get("c1")!.at, durationMs: 18_000 });
     const [block] = projectTranscript(events, { mode: "dev", toolTimings: timings });
     expect(block).toMatchObject({ callId: "c1", timeoutMs: 30_000, durationMs: 18_000 });
@@ -74,7 +71,7 @@ describe("tool timing projection (#300)", () => {
       { type: "tool_call", callId: "c1", name: "bash", args: { command: "bun test" }, timeoutMs: 120_000 },
       { type: "tool_result", callId: "c1", ok: true, output: "ok" },
     ];
-    const [block] = projectTranscript(events, { mode: "vibe", toolTimings: scanToolTimings(events) });
+    const [block] = projectTranscript(events, { mode: "vibe", toolTimings: updateToolTimings(new Map(), events, 0).timings });
     expect(block.callId).toBe("c1");
     expect(block.timeoutMs).toBe(120_000);
   });
@@ -116,7 +113,7 @@ describe("tool timer rendering (#300)", () => {
       { type: "tool_call", callId: "t1", name: "bash", args: { command: "bun test" }, timeoutMs: 30_000 },
       { type: "tool_result", callId: "t1", ok: true, output: "1 pass" },
     ];
-    const timings = scanToolTimings(events);
+    const timings = updateToolTimings(new Map(), events, 0).timings;
     timings.set("t1", { at: timings.get("t1")!.at, durationMs: 18_000 });
     const block = projectTranscript(events, { mode: "dev", toolTimings: timings })[0]!;
     const out = frame(
@@ -191,10 +188,9 @@ describe("live tool timer in Chat (#300 integration)", () => {
       <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="gated" width={80} />,
     );
     const done = session.send("run it");
-    await nap(600);
+    await nap(1200);
     const midTurn = stripAnsi(ui.lastFrame() ?? "");
-    expect(midTurn).toContain("⏱ ");
-    expect(midTurn).toContain("· 2m");
+    expect(midTurn).toContain("⏱ 1s · 2m");
     release!();
     await done;
     await nap(150);

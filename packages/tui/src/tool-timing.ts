@@ -2,10 +2,10 @@
  * core's timing decisions: elapsed comes from when the call's block
  * appeared live, final duration from the call→result ledger here. The
  * event log stays the sole source of truth (Principle 2) — this ledger is
- * presentation-only state, rebuilt from the live event stream, and never
+ * presentation-only state, keyed to the live event stream, and never
  * persisted or merged into it. */
 export interface ToolTiming {
-  /** Wall-clock ms at the moment the tool_call event arrived. */
+  /** Wall-clock ms at the moment the tool_call event first appeared. */
   at: number;
   /** Final call→result duration in ms, once the tool_result arrived. */
   durationMs?: number;
@@ -14,13 +14,22 @@ export interface ToolTiming {
 /** Ledger state: one entry per callId seen in the live stream. */
 export type ToolTimings = Map<string, ToolTiming>;
 
-/** Ledger scan: one Date.now() sample before the loop, timestamps per
- * event, duration when a result pairs with its call. A stray result
- * without its call is ignored (nothing to time). */
-export function scanToolTimings(events: ReadonlyArray<{ type: string; callId?: string }>): ToolTimings {
-  const timings: ToolTimings = new Map();
+/**
+ * Incremental ledger advance: processes only the events appended since
+ * the last scan (`from`), so an open call keeps its original arrival
+ * (a rescan would otherwise reset the elapsed clock to zero) and a
+ * duration is measured between the batches that carried the call and
+ * its result. One Date.now() sample per batch — display granularity is
+ * seconds, the coalesced event flush is ~33ms (#194-safe wall clock).
+ */
+export function updateToolTimings(
+  prior: ToolTimings,
+  events: ReadonlyArray<{ type: string; callId?: string }>,
+  from: number,
+): { timings: ToolTimings; scanned: number } {
+  const timings: ToolTimings = new Map(prior);
   const now = Date.now();
-  for (let i = 0; i < events.length; i++) {
+  for (let i = Math.max(0, from); i < events.length; i++) {
     const event = events[i]!;
     if (event.type === "tool_call" && typeof event.callId === "string") {
       if (!timings.has(event.callId)) timings.set(event.callId, { at: now });
@@ -31,20 +40,7 @@ export function scanToolTimings(events: ReadonlyArray<{ type: string; callId?: s
       if (timing && timing.durationMs === undefined) timing.durationMs = Math.max(0, now - timing.at);
     }
   }
-  return timings;
-}
-
-/** Merge step for incremental rescans: carries prior timings over so a
- * completed call keeps its recorded duration even as the live window
- * grows. Unmatched prior entries (a result without a call in this window)
- * keep their duration and original arrival. */
-export function mergeToolTimings(prior: ToolTimings, fresh: ToolTimings): ToolTimings {
-  const merged: ToolTimings = new Map(prior);
-  for (const [callId, timing] of fresh) {
-    const old = merged.get(callId);
-    merged.set(callId, old && old.durationMs !== undefined && timing.durationMs === undefined ? old : timing);
-  }
-  return merged;
+  return { timings, scanned: events.length };
 }
 
 /**
