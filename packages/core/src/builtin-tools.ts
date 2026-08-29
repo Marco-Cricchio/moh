@@ -46,7 +46,10 @@ const bashSchema = z.object({
  */
 function killTree(proc: Bun.Subprocess): void {
   try { process.kill(-proc.pid, "SIGKILL"); return; } catch { /* not a group leader */ }
-  Bun.spawn(
+  // #297: the enumeration+kill MUST complete before the parent dies —
+  // killing the parent first re-parents the descendants to init (PPID 1),
+  // and a later `pgrep -P` finds nothing to kill. Synchronous on purpose.
+  Bun.spawnSync(
     [
       "bash",
       "-c",
