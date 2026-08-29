@@ -14,20 +14,13 @@ matching section here at tag time.
   windows of GLM-5.2/5.3; onboarding also records Z.ai's declared reasoning
   capability automatically (#309, #310).
 
-## [0.4.0] - 2026-08-29
+## [0.5.0] - 2026-08-29
 
 ### Added
 
-- bash tool, feedback loop against redundant suite re-runs (#304): successful
-  runs of 10s+ save their full output to a file (pointer appended to the
-  result) so the model can grep it instead of re-running with a different
-  pipe; an identical suite-like re-run against an unchanged git tree within
-  10 minutes is short-circuited with a pointer to the saved output. Guards
-  protect every legitimate re-run (failures, cheap commands, non-suite
-  commands, tree changes, no-git trees); `# fresh` forces a real run.
 - TUI: slash completion popup under the textarea — typing `/` opens an
-  alphabetical list capped at five visible rows (↑↓ scroll, filtering as
-  you type). Enter and Tab both accept the selection: the command lands
+  alphabetical list capped at five visible rows (↑↓ scroll, filtering as you
+  type). Enter and Tab both accept the selection: the command lands
   in the textarea followed by a space (ready for the prompt; focus never
   moves to the send chip). Each row reads
   `/command - [s]: description` — `[s]` built into moh, `[u]`
@@ -49,6 +42,21 @@ matching section here at tag time.
   document shift+enter.
 - TUI: the footer no longer shows the `theme` and `thinking` chips; ctrl+t /
   ctrl+y and `/theme` / `/thinking` remain the controls.
+
+## [0.4.0] - 2026-08-29
+
+### Added
+
+- bash tool, feedback loop against redundant suite re-runs (#304): successful
+  runs of 10s+ save their full output to a file (pointer appended to the
+  result) so the model can grep it instead of re-running with a different
+  pipe; an identical suite-like re-run against an unchanged git tree within
+  10 minutes is short-circuited with a pointer to the saved output. Guards
+  protect every legitimate re-run (failures, cheap commands, non-suite
+  commands, tree changes, no-git trees); `# fresh` forces a real run.
+
+### Changed
+
 - Add-provider wizard: the openai-compat Base URL step now offers a curated,
   selectable list of known API endpoints — locals first (Ollama, LM Studio,
   Omniroute), then cloud providers (z.ai, DeepSeek, Mistral, Groq, Together)
@@ -113,7 +121,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.4.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.5.0...develop
+[0.5.0]: https://github.com/Marco-Cricchio/moh/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Marco-Cricchio/moh/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Marco-Cricchio/moh/compare/v0.2.0...v0.2.1
