@@ -94,10 +94,10 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     expect(frame).not.toContain("/settings");
     expect(frame).toContain("↓ 5 more");
     // the first row is selected, in the /command - [s]: description grammar
-    expect(frame).toContain("▶ /ask-moh - [s]:");
+    expect(frame).toMatch(/▶ \/ask-moh\s+- \[s\]:/);
     // the selection scrolls the window: ↓×5 selects the sixth entry
     for (let k = 0; k < 5; k++) { i.stdin.write("\x1b[B"); await sleep(30); }
-    expect(i.frame()).toContain("▶ /settings - [s]:");
+    expect(i.frame()).toMatch(/▶ \/settings\s+- \[s\]:/);
     expect(i.frame()).toContain("↑ 1 more");
     i.unmount();
   });
@@ -176,7 +176,7 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     await sleep(60);
     const frame = i.frame();
     // built-ins render [s], the user-defined one [u]; both show — description
-    expect(frame).toContain("/ask-moh - [s]: which skill or flow fits?");
+    expect(frame).toMatch(/\/ask-moh\s+- \[s\]: which skill or flow fits\?/);
     // alphabetical: /my-own sits between /mode and /reload… scroll there
     i.stdin.write("my");
     await sleep(60);

@@ -397,20 +397,26 @@ export function MultilineInput({
       {suggestions.length > 0 && (
         <Box flexDirection="column">
           {win.above > 0 && <Text color={theme.dim}>{`  ↑ ${win.above} more`}</Text>}
-          {suggestions.slice(win.start, win.start + win.count).map((command, index) => {
-            const selected = win.start + index === suggestionIndex;
-            // Row grammar: `/command - [s]/[u]: description`, truncated
-            // with … when the terminal is too narrow to fit it whole.
-            const marker = command.custom ? "u" : "s";
-            const full = `${command.name} - [${marker}]: ${command.description}`;
-            const budget = viewport.columns - 4;
-            const row = full.length > budget ? `${full.slice(0, Math.max(command.name.length + 8, budget - 1))}…` : full;
-            return (
-              <Text key={command.name} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
-                {selected ? " ▶ " : "   "}{row}
-              </Text>
-            );
-          })}
+          {(() => {
+            // Column alignment: every command name pads to the widest name
+            // in the filtered list, so markers and descriptions all start
+            // on the same columns.
+            const nameWidth = Math.max(...suggestions.map((command) => command.name.length));
+            return suggestions.slice(win.start, win.start + win.count).map((command, index) => {
+              const selected = win.start + index === suggestionIndex;
+              // Row grammar: `/command - [s]/[u]: description`, truncated
+              // with … when the terminal is too narrow to fit it whole.
+              const marker = command.custom ? "u" : "s";
+              const full = `${command.name.padEnd(nameWidth)} - [${marker}]: ${command.description}`;
+              const budget = viewport.columns - 4;
+              const row = full.length > budget ? `${full.slice(0, Math.max(command.name.length + 8, budget - 1))}…` : full;
+              return (
+                <Text key={command.name} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
+                  {selected ? " ▶ " : "   "}{row}
+                </Text>
+              );
+            });
+          })()}
           {win.below > 0 && <Text color={theme.dim}>{`  ↓ ${win.below} more (↑↓ scroll)`}</Text>}
         </Box>
       )}
