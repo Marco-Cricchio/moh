@@ -7,14 +7,13 @@ import type { ThinkingLevel } from "@moh/core";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
-export type ChipAction = "send" | "stop" | "model" | "mode" | "theme" | "commands" | "settings" | "workflow" | "frontier" | "thinking";
+export type ChipAction = "send" | "stop" | "model" | "mode" | "commands" | "settings" | "workflow" | "frontier";
 export interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
 
 const ALL_CHIPS: ChipSpec[] = [
   { key: "⏎", label: "send" }, { key: "esc", label: "stop" },
   { key: "^m", label: "model" }, { key: "^o", label: "mode" },
-  { key: "^y", label: "thinking" },
-  { key: "^t", label: "theme" }, { key: "^k", label: "commands" },
+  { key: "^k", label: "commands" },
   { key: "^s", label: "settings" }, { key: "^w", label: "workflow", color: "purple" },
   { key: "^f", label: "frontier", color: "purple" },
 ];
@@ -72,6 +71,10 @@ interface StatusProps {
   notice?: string;
   /** Current git branch, when the cwd is a repository (both modes). */
   branch?: string | null;
+  /** Session working directory: shown in both modes, middle-elided when it
+   * exceeds the class-aware budget so the start and — above all — the end
+   * (the project dir) stay visible. */
+  cwd?: string;
 }
 
 function ContextBar({ tokens, width, theme }: { tokens: number; width: number; theme: Theme }) {
@@ -85,6 +88,17 @@ function ContextBar({ tokens, width, theme }: { tokens: number; width: number; t
 /** Prototype-compatible segment fitting: optional segments drop from the
  * end; if required content still overflows, the longest segment truncates. */
 export const fitStatusSegments = fitRow;
+
+/** Middle-elision for the cwd label: keeps the head and — more importantly —
+ * the tail (the project directory) visible, collapsing the middle to `…`.
+ * Only applied once the label exceeds `max`. */
+export function middleElide(value: string, max: number): string {
+  if (value.length <= max) return value;
+  const keep = Math.max(1, max - 1);
+  const head = Math.ceil(keep / 2);
+  const tail = keep - head;
+  return `${value.slice(0, head)}…${value.slice(value.length - tail)}`;
+}
 
 function StatusRow(props: StatusProps) {
   const theme = useTheme();
@@ -100,7 +114,9 @@ function StatusRow(props: StatusProps) {
   // (#193), but the context bar renders in both modes (#229) — a wordless
   // fill gauge needs no numbers to be read.
   const vibe = props.mode === "vibe";
-  const right = fitStatusSegments([
+  // ── Row 1: the turn/model state. Spinner or notice on the left, context
+  // gauge plus dev-only numbers and the model on the right.
+  const row1 = fitStatusSegments([
     { text: !vibe && props.tokens.contextIn > 0 ? `⊣ ${(props.tokens.contextIn / 1000).toFixed(1)}k` : "", optional: true },
     { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
     { text: model },
@@ -109,23 +125,45 @@ function StatusRow(props: StatusProps) {
     // (the full wording lives in /thinking; segments stay short).
     { text: props.unsupportedLevel ? `default·✗⚙ ${props.unsupportedLevel}` : "", optional: true },
     { text: props.workflowOn ? "◈ wf" : "", optional: true },
-    // The branch is plain-language chrome: it shows in vibe and dev alike.
-    { text: props.branch ? `⎇ ${props.branch}` : "", optional: true },
-    { text: props.mode === "dev" ? "◉ dev" : "○ vibe", optional: true },
   ].filter((item) => item.text), Math.max(1, props.width - left.length - (!vibe && props.tokens.contextIn ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0) - 5));
-  const statusColor = (text: string): string => {
+  const row1Color = (text: string): string => {
     if (text.startsWith("⊣")) return tokenColor;
     if (text === "◈ wf" || (text.startsWith("◆") && (props.level === "high" || props.level === "xhigh"))) return theme.purple;
     if (text.startsWith("◆")) return theme.fg;
-    if (text.startsWith("⎇")) return theme.ok;
     if (text.startsWith("default·✗⚙")) return theme.warn;
+    return theme.dim;
+  };
+  // ── Row 2: where you are — cwd, branch, mode. The cwd leads and is
+  // middle-elided to its class budget so head and (above all) the tail —
+  // the project directory — stay readable; the branch truncates from the
+  // end only in the rare overflow; the mode chip is never dropped.
+  // Segments are space-joined explicitly: ink's `gap` is unreliable on a
+  // right-aligned nested row (segments render glued).
+  const cwdBudget = cls === "compact" ? 18 : cls === "wide" ? 44 : 30;
+  const row2 = fitStatusSegments([
+    { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
+    { text: props.branch ? `⎇ ${props.branch}` : "" },
+    { text: props.mode === "dev" ? "◉ dev" : "○ vibe" },
+  ].filter((item) => item.text), Math.max(1, props.width - 4));
+  const row2Color = (text: string): string => {
+    if (text.startsWith("▣")) return theme.dim;
+    if (text.startsWith("⎇")) return theme.ok;
     if (text === "◉ dev") return theme.accent;
     return theme.dim;
   };
-  return <Box width={Math.max(1, props.width - 1)} justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-    <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}</Box>
-    <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} width={props.width} theme={theme} />}{right.map((text, index) => <Text key={index} color={statusColor(text)}>{text}</Text>)}</Box>
-  </Box>;
+  return (
+    <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
+      <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
+        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}</Box>
+        <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
+      </Box>
+      {row2 && (
+        <Box justifyContent="flex-end" flexWrap="nowrap" paddingX={1}>
+          <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
+        </Box>
+      )}
+    </Box>
+  );
 }
 
 function KeyRow({ width, focused }: { width: number; focused: number | null }) {

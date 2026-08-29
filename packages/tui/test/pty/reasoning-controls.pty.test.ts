@@ -25,7 +25,11 @@ describe.skipIf(!hasPython)("reasoning controls PTY (#242)", () => {
     });
     const frame = lines.map((line) => line.text).join("\n");
     expect(frame).toContain("reasoning display"); // narrow status intentionally clips the tail
-    expect(lines.every((line) => line.lead + line.width <= 64)).toBe(true);
+    // `width` is the whole rstripped line (leading spaces included): the
+    // guard is "the line fits the terminal". The old `lead + width` form
+    // double-counted indentation and broke on the right-aligned
+    // where-you-are row (2A status layout).
+    expect(lines.every((line) => line.width <= 64)).toBe(true);
     // The command is non-blocking: the input remains available.
     expect(frame).toContain("type…");
   }, 15_000);
@@ -48,6 +52,6 @@ describe.skipIf(!hasPython)("reasoning controls PTY (#242)", () => {
     const frame = lines.map((line) => line.text).join("\n");
     expect(frame).toContain("thinking levels not offered fo"); // width-capped status projection
     const status = lines.find((line) => line.text.includes("thinking levels not offered"));
-    expect(status && status.lead + status.width <= 100).toBe(true);
+    expect(status && status.width <= 100).toBe(true);
   }, 15_000);
 });

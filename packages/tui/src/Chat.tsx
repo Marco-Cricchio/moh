@@ -254,7 +254,7 @@ export function Chat({
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
-        placeholder={compact ? "type…" : "type… (ctrl+j newline · ctrl+a/e line start/end)"}
+        placeholder={compact ? "type…" : "type… (shift+enter newline · ctrl+a/e line start/end)"}
         disabled={blocked}
         focused={inputFocused}
         onAskCommands={onOpenCommands}
@@ -282,6 +282,7 @@ export function Chat({
         phase={armed ? "esc again to stop" : livePhase}
         notice={notice}
         branch={branch ?? gitBranch}
+        cwd={cwd}
         focusedChip={focusedChip}
       />
     </Box>

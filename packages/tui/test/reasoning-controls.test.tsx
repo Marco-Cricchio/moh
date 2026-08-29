@@ -66,9 +66,16 @@ describe("reasoning display and controls (#242)", () => {
     expect(settledBoundary(events, true)).toBe(3);
   });
 
-  test("normal/wide bottom-bar focus exposes the thinking level chip", () => {
-    expect(visibleChips(140).chips.map((chip) => chip.label)).toContain("thinking");
-    expect(visibleChips(200).chips.map((chip) => chip.label)).toContain("thinking");
+  test("the footer exposes no thinking or theme chip (removed; ctrl+y/ctrl+t and /thinking //theme remain the controls)", () => {
+    const labels = (columns: number) => visibleChips(columns).chips.map((chip) => chip.label);
+    expect(labels(140)).not.toContain("thinking");
+    expect(labels(140)).not.toContain("theme");
+    expect(labels(200)).not.toContain("thinking");
+    expect(labels(200)).not.toContain("theme");
+    // the remaining chips are unchanged
+    for (const label of ["send", "stop", "model", "mode", "commands", "settings", "workflow", "frontier"] as const) {
+      expect(labels(140)).toContain(label);
+    }
   });
 
   test("unknown custom providers get conservative pre-call consent", async () => {

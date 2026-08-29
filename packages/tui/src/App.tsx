@@ -427,11 +427,9 @@ export function App({
     if (action === "stop") return session?.abort();
     if (action === "model") return setOverlay("model");
     if (action === "mode") return cycleMode();
-    if (action === "theme") return cycleTheme();
     if (action === "commands") return setOverlay("commands");
     if (action === "settings") return setOverlay("settings");
     if (action === "frontier") return workflowOn ? setOverlay("frontier") : push("wayfinder needs workflow on (/workflow on)");
-    if (action === "thinking") return cycleThinkingLevel();
     if (action === "workflow") {
       const enabled = !configRef.current.workflow.enabled;
       updateConfig({ workflow: { ...configRef.current.workflow, enabled } });
@@ -516,6 +514,10 @@ export function App({
         notify: push,
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
+        onOpenCommands: () => setOverlay("commands"),
+        onOpenSettings: () => setOverlay("settings"),
+        onCycleMode: cycleMode,
+        onCycleTheme: cycleTheme,
         onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
         onThinkingDisplay: (show) => setReasoningOverride(show),
         thinkingDisplay: () => reasoningOverride ?? configRef.current.showReasoning,

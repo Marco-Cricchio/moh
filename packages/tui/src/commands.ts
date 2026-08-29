@@ -63,6 +63,15 @@ export interface SlashContext {
    * config read, appending to the same session file (history kept).
    * Absent (headless callers): /reload explains it needs the TUI. */
   onReload?: () => void;
+  /** Opens the all-commands panel (`/commands`, `?`). */
+  onOpenCommands?: () => void;
+  /** Cycles vibe ↔ dev (`/mode`). Absent (headless): the command explains
+   * it needs the TUI. */
+  onCycleMode?: () => void;
+  /** Cycles the theme (`/theme`). Absent (headless): same explanation. */
+  onCycleTheme?: () => void;
+  /** Opens the settings panel (`/settings`). */
+  onOpenSettings?: () => void;
 }
 
 export interface SlashCommand {
@@ -80,7 +89,6 @@ const ALIASES: { name: string; skill: string }[] = [
   { name: "diagnosing-bugs", skill: "diagnosing-bugs" },
   { name: "grilling", skill: "grilling" },
   { name: "domain-modeling", skill: "domain-modeling" },
-  { name: "wayfinder", skill: "wayfinder" },
   { name: "to-spec", skill: "to-spec" },
   { name: "to-tickets", skill: "to-tickets" },
   { name: "triage", skill: "triage" },
@@ -124,14 +132,6 @@ const workflowCommand: SlashCommand = {
       return;
     }
     ctx.notify(`workflow is ${ctx.config.workflow.enabled ? "on" : "off"} · usage: /workflow on|off`);
-  },
-};
-
-const frontierCommand: SlashCommand = {
-  name: "frontier",
-  description: "open the tracker frontier panel",
-  run(ctx) {
-    ctx.onOpenFrontier?.();
   },
 };
 
@@ -325,8 +325,71 @@ const reloadCommand: SlashCommand = {
   },
 };
 
+/** Commands available regardless of workflow mode, alphabetical (the
+ * completion popup lists exactly this order: ask-moh, commands, mode,
+ * model, reload, settings, theme, thinking, wayfinder, workflow). */
+const commandsCommand: SlashCommand = {
+  name: "commands",
+  description: "open the all-commands panel",
+  usage: "/commands",
+  run(ctx) {
+    ctx.onOpenCommands?.();
+  },
+};
+
+const modeCommand: SlashCommand = {
+  name: "mode",
+  description: "switch vibe / dev mode",
+  usage: "/mode",
+  run(ctx) {
+    if (!ctx.onCycleMode) return ctx.notify("/mode needs the TUI (ctrl+o cycles from chat)");
+    ctx.onCycleMode();
+  },
+};
+
+const themeCommand: SlashCommand = {
+  name: "theme",
+  description: "cycle the color theme",
+  usage: "/theme",
+  run(ctx) {
+    if (!ctx.onCycleTheme) return ctx.notify("/theme needs the TUI (themes live in settings)");
+    ctx.onCycleTheme();
+  },
+};
+
+const settingsCommand: SlashCommand = {
+  name: "settings",
+  description: "open the settings panel",
+  usage: "/settings",
+  run(ctx) {
+    ctx.onOpenSettings?.();
+  },
+};
+
+/** #wayfinder: opens the frontier panel directly (workflow-gated). */
+const wayfinderCommand: SlashCommand = {
+  name: "wayfinder",
+  description: "open the wayfinder frontier panel (workflow on)",
+  usage: "/wayfinder",
+  run(ctx) {
+    if (!ctx.config.workflow.enabled) return ctx.notify("wayfinder needs workflow on (/workflow on)");
+    ctx.onOpenFrontier?.();
+  },
+};
+
 /** Commands available regardless of workflow mode. */
-export const BASE_COMMANDS: SlashCommand[] = [workflowCommand, askMohCommand, modelCommand, thinkingCommand, reloadCommand];
+export const BASE_COMMANDS: SlashCommand[] = [
+  askMohCommand,
+  commandsCommand,
+  modeCommand,
+  modelCommand,
+  reloadCommand,
+  settingsCommand,
+  themeCommand,
+  thinkingCommand,
+  wayfinderCommand,
+  workflowCommand,
+];
 
 /** Workflow-mode commands (thin skill aliases + frontier + skills). */
 export function workflowCommands(): SlashCommand[] {
@@ -342,7 +405,6 @@ export function workflowCommands(): SlashCommand[] {
         );
       },
     })),
-    frontierCommand,
     skillsCommand,
   ];
 }

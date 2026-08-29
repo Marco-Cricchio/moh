@@ -16,9 +16,26 @@ matching section here at tag time.
   10 minutes is short-circuited with a pointer to the saved output. Guards
   protect every legitimate re-run (failures, cheap commands, non-suite
   commands, tree changes, no-git trees); `# fresh` forces a real run.
+- TUI: slash completion popup under the textarea — typing `/` opens an
+  alphabetical, scrolling list (↑↓ to move, filtering as you type); Enter
+  runs the selected command, Tab completes it into the draft without moving
+  focus to the send chip.
+- TUI: blinking block cursor in the input (snaps visible on every keypress).
+- TUI: where-you-are row in the status bar — cwd (`▣`, middle-elided so the
+  start and the project-directory tail stay readable), git branch, and mode
+  chip, right-aligned under the session-state row.
+- Slash commands: `/commands`, `/mode`, `/settings`, `/theme` and `/wayfinder`
+  join the base registry, always available, listed alphabetically in the
+  popup (workflow skill aliases follow when workflow mode is on).
 
 ### Changed
 
+- TUI: newline in the input is shift+enter (kitty keyboard protocol —
+  negotiated where the terminal supports it); option+enter and ctrl+j remain
+  the legacy-terminal fallbacks. The placeholder and the commands panel now
+  document shift+enter.
+- TUI: the footer no longer shows the `theme` and `thinking` chips; ctrl+t /
+  ctrl+y and `/theme` / `/thinking` remain the controls.
 - Add-provider wizard: the openai-compat Base URL step now offers a curated,
   selectable list of known API endpoints — locals first (Ollama, LM Studio,
   Omniroute), then cloud providers (z.ai, DeepSeek, Mistral, Groq, Together)

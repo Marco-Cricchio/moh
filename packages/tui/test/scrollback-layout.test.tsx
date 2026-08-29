@@ -111,9 +111,10 @@ describe("native scrollback layout geometry", () => {
 
   it("renders status and chips without wrapping at representative 35–140 widths", () => {
     for (const width of [35, 45, 69, 70, 90, 109, 110, 140]) {
-      const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar width={width} pending spinner="⠸" mode="dev" model="claude-sonnet-4" turns={12} tokens={{ contextIn: 170_000, totalOut: 4_000, calls: 2 }} level="xhigh" workflowOn memoryFresh focusedChip={null} /></ThemeProvider>);
+      const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar width={width} pending spinner="⠸" mode="dev" model="claude-sonnet-4" turns={12} tokens={{ contextIn: 170_000, totalOut: 4_000, calls: 2 }} level="xhigh" workflowOn memoryFresh cwd="/Users/mc/Documents/AI_Projects/moh" branch="develop" focusedChip={null} /></ThemeProvider>);
       const lines = stripAnsi(ink.lastFrame() ?? "").split("\n").filter(Boolean);
-      expect(lines.length).toBeLessThanOrEqual(4);
+      // 2A status layout: state row + where-you-are row (cwd/branch/mode) + chips.
+      expect(lines.length).toBeLessThanOrEqual(5);
       for (const line of lines) expect(terminalWidth(line)).toBeLessThanOrEqual(width - 1);
       ink.unmount();
     }

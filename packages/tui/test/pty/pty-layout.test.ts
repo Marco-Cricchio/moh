@@ -119,7 +119,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const lines = await runPty({
         cols: 80,
         rows: 18,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("?") }, { wait: 0.8, send: DOWN.repeat(30) }],
+        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("?") }, { wait: 0.8, send: DOWN.repeat(60) }],
         tail: 18,
       });
       expect(lines.some((l) => l.text.includes("Modals"))).toBe(true);
