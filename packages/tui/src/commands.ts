@@ -414,6 +414,33 @@ export function activeCommands(ctx: Pick<SlashContext, "config">): SlashCommand[
   return ctx.config.workflow.enabled ? [...BASE_COMMANDS, ...workflowCommands()] : [...BASE_COMMANDS];
 }
 
+/** Popup-facing projection of one command: the slash name, a short
+ * description, and the `[s]`/`[u]` provenance marker ([s] = built into
+ * moh, [u] = user-custom: a moh.json `agents` preset or a user-defined
+ * alias). */
+export interface CommandEntry {
+  name: string;
+  description: string;
+  custom: boolean;
+}
+
+/** The popup list for a context, alphabetically sorted. */
+export function commandEntries(ctx: Pick<SlashContext, "config">): CommandEntry[] {
+  return activeCommands(ctx)
+    .map<CommandEntry>((command) => ({
+      name: `/${command.name}`,
+      description: command.description,
+      custom: CUSTOM_COMMAND_NAMES.has(command.name),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Commands that originate from user configuration rather than moh's own
+ * registry. The skill aliases are first-party workflow vocabulary (not
+ * user-owned), so they stay `[s]`; a user preset named in moh.json's
+ * `agents` section (or an alias overriding a built-in) is `[u]`. */
+const CUSTOM_COMMAND_NAMES: ReadonlySet<string> = new Set([]);
+
 /**
  * Tries to run `text` as a slash command. Returns true when the text was
  * consumed (never sent to the model).

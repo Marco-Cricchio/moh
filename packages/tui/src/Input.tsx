@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { useViewport, windowing } from "./viewport";
+import type { CommandEntry } from "./commands";
 
 export interface InputProps {
   placeholder?: string;
@@ -10,10 +11,16 @@ export interface InputProps {
   focused?: boolean;
   /** Incremented by the focused send chip to submit the current draft. */
   submitSignal?: number;
-  /** Slash commands active for this context (`/`-prefixed, workflow-aware).
-   * The completion popup and its Tab/enter acceptance consult only these;
-   * anything missing here is undiscoverable, runnable or not. */
-  commands?: readonly string[];
+  /** Slash commands active for this context (workflow-aware), with the
+   * popup-facing description and the `[s]`/`[u]` provenance marker
+   * (`[s]` built into moh, `[u]` user-defined). The completion popup and
+   * its Tab/enter acceptance consult only these; anything missing here is
+   * undiscoverable, runnable or not. */
+  commands?: readonly CommandEntry[];
+  /** Notified on every render with whether the completion popup is open
+   * (a slash draft with candidates): the app-level Tab handler defers to
+   * the popup so Tab completes instead of focusing the chips. */
+  onSuggestionsOpen?: (open: boolean) => void;
   onSubmit(text: string): void;
 }
 
@@ -25,8 +32,9 @@ interface EditorSnapshot {
 
 const HISTORY_LIMIT = 100;
 /** Cursor blink cadence (ms) — two phase steps per cycle, in sync with the
- * `visible` toggle so on/off each last BLINK_MS. */
-const BLINK_MS = 265;
+ * `visible` toggle so on/off each last BLINK_MS. Slightly slower than a
+ * classic terminal (~530ms full cycle) per owner preference. */
+const BLINK_MS = 400;
 
 function graphemes(value: string): Intl.SegmentData[] {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
@@ -57,13 +65,13 @@ function wordRight(value: string, column: number): number {
 
 /** The completion candidates for a draft: only a single-line `/`-prefix
  * qualifies, and the popup stays open on the exact match so Enter can run
- * it straight from the list. */
-export function slashSuggestions(query: string, commands: readonly string[]): string[] {
+ * it straight from the list. Matching is prefix and case-insensitive;
+ * results keep the caller's (alphabetical) order. */
+export function slashSuggestions(query: string, commands: readonly CommandEntry[]): CommandEntry[] {
   if (!query.startsWith("/") || query.includes(" ")) return [];
   const lower = query.toLowerCase();
   return commands
-    .filter((command) => command.toLowerCase().startsWith(lower))
-    .sort((a, b) => a.localeCompare(b))
+    .filter((command) => command.name.toLowerCase().startsWith(lower))
     .slice(0, 50);
 }
 
@@ -81,6 +89,7 @@ export function MultilineInput({
   focused = true,
   submitSignal = 0,
   commands = [],
+  onSuggestionsOpen,
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -268,13 +277,13 @@ export function MultilineInput({
       return;
     }
     if (availableSuggestions.length > 0 && key.tab) {
-      replaceText(availableSuggestions[suggestionIndex] ?? availableSuggestions[0]!);
+      replaceText(availableSuggestions[suggestionIndex]?.name ?? availableSuggestions[0]!.name);
       setSuggestionIndex(0);
       return;
     }
     if (key.return || input === "\r") {
       if (availableSuggestions.length > 0) {
-        submitFrom(availableSuggestions[Math.min(suggestionIndex, availableSuggestions.length - 1)]!);
+        submitFrom(availableSuggestions[Math.min(suggestionIndex, availableSuggestions.length - 1)]!.name);
         return;
       }
       // Shift+enter (kitty protocol reports it as name "return" + shift) and
@@ -361,10 +370,14 @@ export function MultilineInput({
 
   const query = lines.length === 1 ? lines[0] ?? "" : "";
   const suggestions = slashSuggestions(query, commands);
+  // Popup-open state travels to the app (effect, not render): its Tab
+  // handler must not race the state update that Tab itself triggers.
+  const popupOpen = suggestions.length > 0 && focused && !disabled;
+  useEffect(() => { onSuggestionsOpen?.(popupOpen); }, [popupOpen, onSuggestionsOpen]);
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
   // The popup scrolls with the selection instead of capping the list.
-  const popupRows = Math.max(4, Math.min(suggestions.length, viewport.rows - 8));
+  const popupRows = Math.min(4, suggestions.length);
   const win = windowing(suggestions.length, Math.min(suggestionIndex, Math.max(0, suggestions.length - 1)), popupRows);
 
   return (
@@ -380,9 +393,9 @@ export function MultilineInput({
           <Text>
             <Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text>
             {focused && !disabled && cursorVisible
-              ? <Text inverse>{placeholder?.[0] ?? " "}</Text>
+              ? <Text inverse color={theme.dim}>{placeholder?.[0] ?? " "}</Text>
               : null}
-            {placeholder ? (focused && !disabled && cursorVisible ? placeholder.slice(1) : placeholder) : ""}
+            {placeholder ? <Text color={theme.dim}>{focused && !disabled && cursorVisible ? placeholder.slice(1) : placeholder}</Text> : null}
           </Text>
         )}
       </Box>
@@ -392,8 +405,8 @@ export function MultilineInput({
           {suggestions.slice(win.start, win.start + win.count).map((command, index) => {
             const selected = win.start + index === suggestionIndex;
             return (
-              <Text key={command} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
-                {selected ? " ▶ " : "   "}{command}
+              <Text key={command.name} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
+                {selected ? " ▶ " : "   "}[{command.custom ? "u" : "s"}] {command.name} — {command.description}
               </Text>
             );
           })}

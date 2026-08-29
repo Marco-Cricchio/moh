@@ -6,7 +6,7 @@ import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { MultilineInput } from "./Input";
-import { BASE_COMMANDS } from "./commands";
+import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
@@ -26,6 +26,9 @@ export interface ChatProps {
   blocked?: boolean;
   filePreview?: "always" | "on-demand" | "none";
   onOpenCommands?: () => void;
+  /** Popup-open signal from the input (#: Tab defers to the completion
+   * popup instead of cycling the footer chips). */
+  onSuggestionsOpen?: (open: boolean) => void;
   onCommand?: (text: string) => boolean;
   width?: number;
   inputFocused?: boolean;
@@ -47,9 +50,10 @@ export interface ChatProps {
   submitSignal?: number;
   /** Repaint settled history in the alternate-screen modal buffer. */
   replaySettled?: boolean;
-  /** Slash commands active for this context (workflow-aware completion).
-   * Standalone mounts default to the base list from the registry. */
-  commands?: readonly string[];
+  /** Slash commands active for this context (workflow-aware completion)
+   * with popup-facing descriptions and provenance markers. Standalone
+   * mounts default to the base list from the registry. */
+  commands?: readonly CommandEntry[];
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -63,6 +67,7 @@ export function Chat({
   blocked = false,
   filePreview = "on-demand",
   onOpenCommands,
+  onSuggestionsOpen,
   onCommand,
   width,
   inputFocused = true,
@@ -78,7 +83,7 @@ export function Chat({
   submitSignal = 0,
   replaySettled = false,
   branch,
-  commands = BASE_COMMANDS.map((command) => `/${command.name}`),
+  commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
   // #253: live provider reasoning in the volatile area (display-gated in
@@ -259,6 +264,7 @@ export function Chat({
         focused={inputFocused}
         onAskCommands={onOpenCommands}
         commands={commands}
+        onSuggestionsOpen={onSuggestionsOpen}
         submitSignal={submitSignal}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;

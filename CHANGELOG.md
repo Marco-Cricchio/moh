@@ -17,10 +17,13 @@ matching section here at tag time.
   protect every legitimate re-run (failures, cheap commands, non-suite
   commands, tree changes, no-git trees); `# fresh` forces a real run.
 - TUI: slash completion popup under the textarea — typing `/` opens an
-  alphabetical, scrolling list (↑↓ to move, filtering as you type); Enter
-  runs the selected command, Tab completes it into the draft without moving
-  focus to the send chip.
-- TUI: blinking block cursor in the input (snaps visible on every keypress).
+  alphabetical list capped at four visible rows (↑↓ scroll, filtering as
+  you type); Enter runs the selected command, Tab completes it into the
+  draft without moving focus to the send chip. Each row shows a short
+  description and a provenance marker: `[s]` for commands built into moh,
+  `[u]` for user-defined ones.
+- TUI: blinking block cursor in the input (slow cadence ~800ms full cycle;
+  snaps visible on every keypress).
 - TUI: where-you-are row in the status bar — cwd (`▣`, middle-elided so the
   start and the project-directory tail stay readable), git branch, and mode
   chip, right-aligned under the session-state row.
