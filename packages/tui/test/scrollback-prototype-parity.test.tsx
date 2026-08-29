@@ -32,7 +32,10 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
     expect(frame).toContain("mock");
     expect(frame).toContain("model");
     expect(frame).toContain("mode");
-    expect(frame).toContain("theme");
+    // the theme and thinking chips are gone (kept: ctrl+t/ctrl+y, /theme,
+    // /thinking); the where-you-are row shows the cwd (2A layout).
+    expect(frame).not.toContain("theme");
+    expect(frame).toContain("▣");
     expect(frame).not.toContain("tab chips · ctrl+k commands · esc stop");
     ink.unmount();
   });

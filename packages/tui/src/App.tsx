@@ -43,7 +43,7 @@ import { ModelPickerModal } from "./ModelPickerModal";
 import { subscriptionModelCatalog } from "@moh/core";
 import { Frontier } from "./Frontier";
 import { WorkflowOffer } from "./WorkflowOffer";
-import { runSlashCommand, activeCommands } from "./commands";
+import { runSlashCommand, commandEntries } from "./commands";
 import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
 import {
@@ -198,6 +198,13 @@ export function App({
   // Native-scrollback focus model (#183): null = textarea, otherwise the
   // index of the visible bottom-bar chip.
   const [focusedChip, setFocusedChip] = useState<number | null>(null);
+  // The input's completion popup owns Tab while open (a slash draft with
+  // candidates): the chip-cycle Tab handler defers to it, so completing a
+  // command never moves focus to the send chip.
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const completionOpenRef = useRef(completionOpen);
+  completionOpenRef.current = completionOpen;
+  const handleSuggestionsOpen = useCallback((open: boolean) => setCompletionOpen(open), []);
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
     const count = visibleChips(viewport.columns).chips.length;
@@ -427,11 +434,9 @@ export function App({
     if (action === "stop") return session?.abort();
     if (action === "model") return setOverlay("model");
     if (action === "mode") return cycleMode();
-    if (action === "theme") return cycleTheme();
     if (action === "commands") return setOverlay("commands");
     if (action === "settings") return setOverlay("settings");
     if (action === "frontier") return workflowOn ? setOverlay("frontier") : push("wayfinder needs workflow on (/workflow on)");
-    if (action === "thinking") return cycleThinkingLevel();
     if (action === "workflow") {
       const enabled = !configRef.current.workflow.enabled;
       updateConfig({ workflow: { ...configRef.current.workflow, enabled } });
@@ -452,7 +457,10 @@ export function App({
     }
     if (session && !blocked) {
       const chips = visibleChips(viewport.columns).chips;
-      if (key.tab) {
+      // While the input's completion popup owns the Tab key (a slash draft
+      // with candidates), the textarea keeps focus: Tab completes the
+      // command instead of cycling the chips.
+      if (key.tab && !completionOpenRef.current) {
         setFocusedChip((current) => key.shift
           ? current === null ? chips.length - 1 : current === 0 ? null : current - 1
           : current === null ? 0 : current + 1 >= chips.length ? null : current + 1);
@@ -498,7 +506,7 @@ export function App({
       notice={toasts.at(-1)?.text}
       submitSignal={submitSignal}
       replaySettled={alternateScreen}
-      commands={activeCommands({ config }).map((command) => `/${command.name}`)}
+      commands={commandEntries({ config })}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
         if (!item) return undefined;
@@ -507,6 +515,7 @@ export function App({
         return undefined;
       })()}
       onOpenCommands={() => setOverlay("commands")}
+      onSuggestionsOpen={handleSuggestionsOpen}
       onCommand={(text) => runSlashCommand(text, {
         cwd,
         mohHome,
@@ -516,6 +525,10 @@ export function App({
         notify: push,
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
+        onOpenCommands: () => setOverlay("commands"),
+        onOpenSettings: () => setOverlay("settings"),
+        onCycleMode: cycleMode,
+        onCycleTheme: cycleTheme,
         onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
         onThinkingDisplay: (show) => setReasoningOverride(show),
         thinkingDisplay: () => reasoningOverride ?? configRef.current.showReasoning,

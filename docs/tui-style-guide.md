@@ -52,14 +52,14 @@ Thinking labels are `·`, `🌱`, `⚙️`, `🧠✨`, `🧠🔥`. VS16 emoji ma
 
 ## 4. Bottom bar
 
-The first row combines current activity and session context:
+The status area is two logical rows (2A layout):
 
-- left: spinner + phase/progress while live, otherwise ready/done and memory freshness;
-- right: context bar, token count, turns, model + thinking level, workflow, git branch, and mode. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229); the git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached) and the mode chip itself always show (`○ vibe`/`◉ dev`).
+- **Row 1 — session state**: left spinner + phase/progress while live, otherwise ready/done and memory freshness; right context bar, token count, turns, model + thinking level, workflow flag. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229).
+- **Row 2 — where you are**: cwd (`▣ <path>`), git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached), mode chip (`○ vibe`/`◉ dev`), in that order, right-aligned. The cwd is middle-elided to a width-class budget (18/30/44) so the head and — above all — the tail (the project directory) stay readable; the branch truncates only in rare overflow and the mode chip is never dropped.
 
-Context thresholds are `ok ≤ 60%`, `warn > 60%`, `err > 80%`. Optional segments drop before wrapping; if required content still exceeds the budget, the longest segment truncates. Status rows never wrap.
+Context thresholds are `ok ≤ 60%`, `warn > 60%`, `err > 80%`. Optional segments drop before wrapping; if required content still exceeds the budget, the longest segment truncates. Status rows never wrap. Segments on the right-aligned row 2 are space-joined explicitly: ink's flex `gap` is unreliable on nested right-aligned rows (segments render glued).
 
-The second logical row contains centered key chips (graphic round chips occupy three terminal rows) in this priority order: send, stop, model, mode, theme, commands, settings, workflow, frontier. Chips degrade graphic → compact → dropped as width shrinks; compact terminals prioritize the first four before measured dropping.
+The third logical row contains centered key chips (graphic round chips occupy three terminal rows) in this priority order: send, stop, model, mode, commands, settings, workflow, frontier. The theme and thinking chips were removed: `/theme` + ctrl+t and `/thinking` + ctrl+y remain the controls. Chips degrade graphic → compact → dropped as width shrinks; compact terminals prioritize the first four before measured dropping.
 
 Tab/Shift+Tab cycles textarea and visible chips. Left/Right moves between chips, Enter activates, Escape returns to the textarea. Chip key labels are compact mnemonics; `^m` is activated through chip focus because terminal Ctrl+M is indistinguishable from Enter. A focused chip dims the textarea and owns ordinary key input.
 

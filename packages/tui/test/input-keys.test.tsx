@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { MultilineInput } from "../src/Input";
+import type { CommandEntry } from "../src/commands";
 import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -18,7 +19,7 @@ async function untilFrame(getFrame: () => string, predicate: (frame: string) => 
 }
 
 /** Renders the input in isolation and returns a frame prober. */
-async function mount(onSubmit: (text: string) => void, commands: readonly string[] = []) {
+async function mount(onSubmit: (text: string) => void, commands: readonly CommandEntry[] = []) {
   const i = render(<MultilineInput placeholder="p" focused commands={commands} onSubmit={onSubmit} />);
   await sleep(30);
   return {
@@ -210,15 +211,19 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     i.unmount();
   });
 
-  test("slash completion accepts a matching command with Tab", async () => {
+  test("slash completion accepts a matching command with Tab (trailing space, Enter then sends)", async () => {
     let submitted = "";
-    const i = await mount((text) => { submitted = text; }, ["/workflow"]);
+    const i = await mount((text) => { submitted = text; }, [{ name: "/workflow", description: "toggle workflow", custom: false }]);
     i.stdin.write("/work");
     await sleep(20);
     i.stdin.write("\t");
     await sleep(20);
+    // Tab completes into the draft (trailing space); nothing is sent yet
+    expect(submitted).toBe("");
+    expect(i.frame().split("\n")[0]?.trim()).toBe("/workflow");
     i.stdin.write("\r");
     await sleep(30);
+    // submit trims: the command text (without the completion space) is sent
     expect(submitted).toBe("/workflow");
     i.unmount();
   });
@@ -231,7 +236,7 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
       <MultilineInput
         placeholder="p"
         focused
-        commands={["/workflow", "/ask-moh", "/model"]}
+        commands={[{ name: "/workflow", description: "toggle workflow", custom: false }, { name: "/ask-moh", description: "router", custom: false }, { name: "/model", description: "pick model", custom: false }]}
         onSubmit={(text) => { submitted = text; }}
       />,
     );
@@ -254,7 +259,7 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
       <MultilineInput
         placeholder="p"
         focused
-        commands={["/workflow", "/ask-moh", "/model", "/implement", "/tdd"]}
+        commands={[{ name: "/workflow", description: "toggle workflow", custom: false }, { name: "/ask-moh", description: "router", custom: false }, { name: "/model", description: "pick model", custom: false }, { name: "/implement", description: "run implement", custom: false }, { name: "/tdd", description: "run tdd", custom: false }]}
         onSubmit={(text) => { submitted = text; }}
       />,
     );

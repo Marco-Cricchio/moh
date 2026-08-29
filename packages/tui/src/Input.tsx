@@ -1,11 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { useTheme } from "./themes";
-import { useViewport } from "./viewport";
+import { useViewport, windowing } from "./viewport";
+import type { CommandEntry } from "./commands";
 
 export interface InputProps {
   placeholder?: string;
@@ -14,10 +11,16 @@ export interface InputProps {
   focused?: boolean;
   /** Incremented by the focused send chip to submit the current draft. */
   submitSignal?: number;
-  /** Slash commands active for this context (`/`-prefixed, workflow-aware).
-   * The completion list and its Tab/enter acceptance consult only these;
-   * anything missing here is undiscoverable, runnable or not. */
-  commands?: readonly string[];
+  /** Slash commands active for this context (workflow-aware), with the
+   * popup-facing description and the `[s]`/`[u]` provenance marker
+   * (`[s]` built into moh, `[u]` user-defined). The completion popup and
+   * its Tab/enter acceptance consult only these; anything missing here is
+   * undiscoverable, runnable or not. */
+  commands?: readonly CommandEntry[];
+  /** Notified on every render with whether the completion popup is open
+   * (a slash draft with candidates): the app-level Tab handler defers to
+   * the popup so Tab completes instead of focusing the chips. */
+  onSuggestionsOpen?: (open: boolean) => void;
   onSubmit(text: string): void;
 }
 
@@ -28,6 +31,10 @@ interface EditorSnapshot {
 }
 
 const HISTORY_LIMIT = 100;
+/** Cursor blink cadence (ms) — two phase steps per cycle, in sync with the
+ * `visible` toggle so on/off each last BLINK_MS. Slightly slower than a
+ * classic terminal (~530ms full cycle) per owner preference. */
+const BLINK_MS = 400;
 
 function graphemes(value: string): Intl.SegmentData[] {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
@@ -51,15 +58,29 @@ function wordLeft(value: string, column: number): number {
 
 function wordRight(value: string, column: number): number {
   let i = Math.min(value.length, column);
-  while (i < value.length && /\s/.test(value[i]!)) i++;
-  while (i < value.length && !/\s/.test(value[i]!)) i++;
+  while (i < value.length && /\s/.test(value[i])) i++;
+  while (i < value.length && !/\s/.test(value[i])) i++;
   return i;
+}
+
+/** The completion candidates for a draft: only a single-line `/`-prefix
+ * qualifies, and the popup stays open on the exact match so Enter can run
+ * it straight from the list. Matching is prefix and case-insensitive;
+ * results keep the caller's (alphabetical) order. */
+export function slashSuggestions(query: string, commands: readonly CommandEntry[]): CommandEntry[] {
+  if (!query.startsWith("/") || query.includes(" ")) return [];
+  const lower = query.toLowerCase();
+  return commands
+    .filter((command) => command.name.toLowerCase().startsWith(lower))
+    .slice(0, 50);
 }
 
 /**
  * Pi-like terminal editor: logical lines, visual wrapping, prompt history,
- * undo/redo, grapheme-aware navigation, bracketed paste, and a small slash
- * command completion list. Kill-ring behavior is intentionally not included.
+ * undo/redo, grapheme-aware navigation, bracketed paste, a blinking block
+ * cursor, and a scrolling slash-command completion popup (arrows to move,
+ * Tab to complete into the draft, Enter to run). Kill-ring behavior is
+ * intentionally not included.
  */
 export function MultilineInput({
   placeholder,
@@ -68,6 +89,7 @@ export function MultilineInput({
   focused = true,
   submitSignal = 0,
   commands = [],
+  onSuggestionsOpen,
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -85,7 +107,20 @@ export function MultilineInput({
   const [inPaste, setInPaste] = useState(false);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [cursorVisible, setCursorVisible] = useState(true);
   const previousSubmitSignal = useRef(submitSignal);
+
+  // Blinking block cursor: visible/invisible alternate on a fixed cadence.
+  // Any keystroke (handled below through the ref) snaps the phase back to
+  // visible, like a terminal editor.
+  const cursorVisibleRef = useRef(true);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      cursorVisibleRef.current = !cursorVisibleRef.current;
+      setCursorVisible(cursorVisibleRef.current);
+    }, BLINK_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const snapshot = (): EditorSnapshot => ({ lines: [...lines], line: cursorLine, column: cursorColumn });
   const setEditor = (next: EditorSnapshot) => {
@@ -97,6 +132,10 @@ export function MultilineInput({
   const record = () => {
     setUndo((stack) => [...stack.slice(-(HISTORY_LIMIT - 1)), snapshot()]);
     setRedo([]);
+  };
+  const wakeCursor = () => {
+    cursorVisibleRef.current = true;
+    setCursorVisible(true);
   };
 
   const wrapWidth = Math.max(10, viewport.columns - 8);
@@ -162,6 +201,7 @@ export function MultilineInput({
     setHistoryDraft(null);
     setLines([""]); setCursorLine(0); setCursorColumn(0); setScrollOffset(0);
     setUndo([]); setRedo([]);
+    setSuggestionIndex(0);
     onSubmit(text);
   };
   useEffect(() => {
@@ -172,8 +212,23 @@ export function MultilineInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submitSignal]);
 
-  useInput((input, key) => {
+  // Stable keypress subscription: the handler closure is recreated every
+  // render (state reads, and the blink timer re-renders ~4×/s), and Ink's
+  // useInput re-subscribes its stdin listener whenever the callback identity
+  // changes — a keystroke arriving inside that churn window would be dropped
+  // for good. Routing through a ref keeps one subscription for the mount.
+  type KeyHand = Parameters<Parameters<typeof useInput>[0]>[1];
+  const handlerRef = useRef<(input: string, key: KeyHand) => void>(() => {});
+  handlerRef.current = handleKey;
+  const stableHandler = useCallback((input: string, key: KeyHand) => handlerRef.current(input, key), []);
+  useInput(stableHandler, { isActive: focused && !disabled });
+
+  /** One keypress: routing, the completion popup, and every editor motion.
+   * Lives inside the component (state closures); `stableHandler` above is
+   * what Ink actually subscribes. */
+  function handleKey(input: string, key: KeyHand) {
     if (disabled) return;
+    wakeCursor();
     if (key.escape) return;
     if (input === "?" && lines.join("") === "" && onAskCommands) return onAskCommands();
 
@@ -211,21 +266,37 @@ export function MultilineInput({
       const next = redo.at(-1); if (!next) return;
       setUndo((stack) => [...stack, snapshot()]); setRedo((stack) => stack.slice(0, -1)); setEditor(next); return;
     }
+    // The completion popup owns the arrow keys while it is open: ↑/↓ move
+    // the selection, Tab completes it into the draft (focus stays in the
+    // textarea — the input consumes the keypress), and Enter accepts the
+    // selection exactly like Tab: the command lands in the textarea
+    // followed by a space (the space ends the slash prefix, closing the
+    // popup), so the user types the prompt and the next Enter sends it.
+    // Escape closes.
     const queryBeforeKeys = lines.length === 1 ? lines[0] ?? "" : "";
-    const availableSuggestions = queryBeforeKeys.startsWith("/") ? commands.filter((command) => command.startsWith(queryBeforeKeys)).slice(0, 5) : [];
+    const availableSuggestions = slashSuggestions(queryBeforeKeys, commands);
     if (availableSuggestions.length > 0 && (key.upArrow || key.downArrow)) {
       setSuggestionIndex((index) => (index + (key.downArrow ? 1 : -1) + availableSuggestions.length) % availableSuggestions.length);
       return;
     }
+    const acceptSuggestion = () => {
+      const chosen = availableSuggestions[Math.min(suggestionIndex, availableSuggestions.length - 1)]?.name ?? availableSuggestions[0]!.name;
+      replaceText(`${chosen} `);
+      setSuggestionIndex(0);
+    };
     if (availableSuggestions.length > 0 && key.tab) {
-      const completion = availableSuggestions[suggestionIndex] ?? availableSuggestions[0]!;
-      replaceText(completion);
+      acceptSuggestion();
       return;
     }
     if (key.return || input === "\r") {
-      if (availableSuggestions.length > 0 && suggestionIndex > 0) {
-        replaceText(availableSuggestions[suggestionIndex]!);
-      } else if (key.shift || key.meta) insertText("\n"); else submit();
+      if (availableSuggestions.length > 0) {
+        acceptSuggestion();
+        return;
+      }
+      // Shift+enter (kitty protocol reports it as name "return" + shift) and
+      // option+enter (meta) insert a newline instead of submitting — the
+      // documented newline key on terminals without the kitty protocol.
+      if (key.shift || key.meta) insertText("\n"); else submit();
       return;
     }
     if (input === "\n" || input === "\x0a" || (key.ctrl && input === "j")) { insertText("\n"); return; }
@@ -290,12 +361,19 @@ export function MultilineInput({
       setPreferredColumn(target); setCursorLine(nextLine); setCursorColumn(Math.min(target, (lines[nextLine] ?? "").length)); return;
     }
     if (input && !key.ctrl && !key.meta) { setSuggestionIndex(0); insertText(input); }
-  }, { isActive: focused && !disabled });
+  }
 
   const query = lines.length === 1 ? lines[0] ?? "" : "";
-  const suggestions = query.startsWith("/") ? commands.filter((command) => command.startsWith(query)).slice(0, 5) : [];
+  const suggestions = slashSuggestions(query, commands);
+  // Popup-open state travels to the app (effect, not render): its Tab
+  // handler must not race the state update that Tab itself triggers.
+  const popupOpen = suggestions.length > 0 && focused && !disabled;
+  useEffect(() => { onSuggestionsOpen?.(popupOpen); }, [popupOpen, onSuggestionsOpen]);
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
+  // The popup scrolls with the selection instead of capping the list.
+  const popupRows = Math.min(5, suggestions.length);
+  const win = windowing(suggestions.length, Math.min(suggestionIndex, Math.max(0, suggestions.length - 1)), popupRows);
 
   return (
     <Box flexDirection="column" width="100%" paddingX={1}>
@@ -303,12 +381,45 @@ export function MultilineInput({
         {!(lines.length === 1 && lines[0] === "") && shown.map((item, index) => {
           const active = focused && item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length;
           const column = active ? cursorColumn - item.start : -1;
-          return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{item.text.slice(0, column)}{column >= 0 ? <Text inverse>{column < item.text.length ? item.text[column] : " "}</Text> : null}{item.text.slice(column + 1)}</> : <>{"  "}{item.text}</>}</Text>;
+          const cursor = active && cursorVisible && !disabled;
+          return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{column >= 0 ? <>{item.text.slice(0, column)}{cursor ? <Text inverse bold>{item.text[column] ?? " "}</Text> : <Text color={focused ? theme.accent : theme.dim}>{item.text[column] ?? " "}</Text>}{item.text.slice(column + 1)}</> : item.text}</> : <>{"  "}{item.text}</>}</Text>;
         })}
-        {lines.length === 1 && lines[0] === "" && <Text><Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text><Text color={theme.dim}>{placeholder ?? "type…"}</Text></Text>}
+        {lines.length === 1 && lines[0] === "" && (
+          <Text>
+            <Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text>
+            {focused && !disabled && cursorVisible
+              ? <Text inverse color={theme.dim}>{placeholder?.[0] ?? " "}</Text>
+              : null}
+            {placeholder ? <Text color={theme.dim}>{focused && !disabled && cursorVisible ? placeholder.slice(1) : placeholder}</Text> : null}
+          </Text>
+        )}
       </Box>
-      {suggestions.length > 0 && <Text color={theme.dim}>{suggestions.join("  ")}</Text>}
+      {suggestions.length > 0 && (
+        <Box flexDirection="column">
+          {win.above > 0 && <Text color={theme.dim}>{`  ↑ ${win.above} more`}</Text>}
+          {(() => {
+            // Column alignment: every command name pads to the widest name
+            // in the filtered list, so markers and descriptions all start
+            // on the same columns.
+            const nameWidth = Math.max(...suggestions.map((command) => command.name.length));
+            return suggestions.slice(win.start, win.start + win.count).map((command, index) => {
+              const selected = win.start + index === suggestionIndex;
+              // Row grammar: `/command - [s]/[u]: description`, truncated
+              // with … when the terminal is too narrow to fit it whole.
+              const marker = command.custom ? "u" : "s";
+              const full = `${command.name.padEnd(nameWidth)} - [${marker}]: ${command.description}`;
+              const budget = viewport.columns - 4;
+              const row = full.length > budget ? `${full.slice(0, Math.max(command.name.length + 8, budget - 1))}…` : full;
+              return (
+                <Text key={command.name} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
+                  {selected ? " ▶ " : "   "}{row}
+                </Text>
+              );
+            });
+          })()}
+          {win.below > 0 && <Text color={theme.dim}>{`  ↓ ${win.below} more (↑↓ scroll)`}</Text>}
+        </Box>
+      )}
     </Box>
   );
 }
-

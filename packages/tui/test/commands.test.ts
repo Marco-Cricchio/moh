@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, createSession, readThinkingPreference, setThinkingPreference } from "@moh/core";
-import { activeCommands, runSlashCommand, type SlashContext } from "../src/commands";
+import { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
 /** The test-side enrichment of SlashContext: the notices channel and config file. */
@@ -30,6 +30,56 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
   Object.defineProperty(ctx, "config", { get: () => config });
   return Object.assign(ctx, { notices: () => notices, cfgFile }) as TestSlashContext;
 }
+
+describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
+  test("BASE_COMMANDS lists the ten base commands alphabetically", () => {
+    const names = BASE_COMMANDS.map((c) => c.name);
+    expect(names).toEqual(["ask-moh", "commands", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow"]);
+    expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
+  });
+
+  test("/commands, /settings open their panels; /mode and /theme call their seams", () => {
+    const opened: string[] = [];
+    const ctx = makeCtx({
+      onOpenCommands: () => opened.push("commands"),
+      onOpenSettings: () => opened.push("settings"),
+      onCycleMode: () => opened.push("mode"),
+      onCycleTheme: () => opened.push("theme"),
+    });
+    expect(runSlashCommand("/commands", ctx)).toBe(true);
+    expect(runSlashCommand("/settings", ctx)).toBe(true);
+    expect(runSlashCommand("/mode", ctx)).toBe(true);
+    expect(runSlashCommand("/theme", ctx)).toBe(true);
+    expect(opened).toEqual(["commands", "settings", "mode", "theme"]);
+    expect(ctx.notices()).toHaveLength(0);
+  });
+
+  test("without the TUI seams /mode and /theme explain instead of failing", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/mode", ctx)).toBe(true);
+    expect(ctx.notices()[0]).toContain("needs the TUI");
+    expect(runSlashCommand("/theme", ctx)).toBe(true);
+    expect(ctx.notices()[1]).toContain("needs the TUI");
+  });
+
+  test("/wayfinder opens the frontier panel only with workflow on", () => {
+    let opened = 0;
+    const ctx = makeCtx({ onOpenFrontier: () => (opened += 1) });
+    expect(runSlashCommand("/wayfinder", ctx)).toBe(true);
+    expect(opened).toBe(0);
+    expect(ctx.notices()[0]).toContain("workflow on");
+    runSlashCommand("/workflow on", ctx);
+    expect(runSlashCommand("/wayfinder", ctx)).toBe(true);
+    expect(opened).toBe(1);
+  });
+
+  test("the workflow alias list no longer contains wayfinder (the base command owns it)", () => {
+    const names = workflowCommands().map((c) => c.name);
+    expect(names).not.toContain("wayfinder");
+    expect(names).not.toContain("frontier");
+    expect(names).toContain("skills");
+  });
+});
 
 describe("workflow slash command", () => {
   test("/workflow on installs first-party skills and persists the toggle", () => {
@@ -76,10 +126,12 @@ describe("workflow slash command", () => {
 describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
-    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual(["workflow", "ask-moh", "model", "thinking", "reload"]);
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
+      "ask-moh", "commands", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow",
+    ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
-    for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "wayfinder", "frontier", "skills"]) {
+    for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "to-spec", "to-tickets", "triage", "skills"]) {
       expect(names).toContain(n);
     }
   });
