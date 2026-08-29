@@ -33,6 +33,27 @@ describe("built-in tools", () => {
       new Promise<T>((_, rej) => setTimeout(() => rej(new Error("test deadline exceeded — tool never settled")), ms)),
     ]);
 
+  test("bash timeout kills a fast-reaping parent's descendants (#297)", async () => {
+    // #297: on macOS (no setsid) killTree raced — the parent was SIGKILLed
+    // before the async killer enumerated its children, so re-parented
+    // descendants survived the timeout as orphans.
+    const MARKER = "moh-297-orphan-marker";
+    const pending = tools.bash.execute(
+      {
+        command: `bun -e 'const t=setInterval(()=>{},1000); setTimeout(()=>clearInterval(t),60000)' # ${MARKER}\nwait`,
+        timeoutMs: 400,
+      },
+      ctx,
+    );
+    await expect(withDeadline(Promise.resolve(pending), 4_000)).rejects.toThrow(/timed out/);
+    let survivors = "";
+    for (let i = 0; i < 10 && survivors === ""; i++) {
+      await Bun.sleep(150);
+      survivors = Bun.spawnSync(["bash", "-c", `pgrep -f "${MARKER}" || true`]).stdout.toString().trim();
+    }
+    expect(survivors).toBe("");
+  });
+
   test("bash abort settles the tool promptly and kills the process tree (#237)", async () => {
     const controller = new AbortController();
     const abortCtx: ToolContext = { ...ctx, signal: controller.signal };
