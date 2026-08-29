@@ -15,6 +15,14 @@ matching section here at tag time.
 
 ### Fixed
 
+- Exiting the TUI (double ctrl+c) no longer stalls for seconds while a
+  background memory extraction is in flight: session dispose accepts a
+  `timeoutMs` budget that aborts the pending maintenance run (the transcript
+  window rolls back, so the turns stay eligible for a later run); the exit
+  path uses a 2s budget.
+
+### Fixed
+
 - Linux Kitty startup no longer lets a delayed keyboard-capability response
   enter the Home search field; update notices now compare against the
   binary's actual build version (#315).

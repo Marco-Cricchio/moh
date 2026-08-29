@@ -344,7 +344,7 @@ export function App({
   // end: when the active session is replaced or the app unmounts (#15).
   useEffect(() => {
     return () => {
-      void session?.dispose();
+      void session?.dispose({ timeoutMs: 2000 });
     };
   }, [session]);
 

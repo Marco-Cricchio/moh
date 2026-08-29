@@ -45,6 +45,11 @@ export interface MemoryExtractorInput {
   topics: string[];
   /** Current memory excerpt (so covered facts are not re-suggested). */
   memory: string;
+  /** Aborted when the host stops waiting (dispose budget): the run rolls
+   * back its transcript window and the turns stay eligible for a later
+   * run — an aborted extraction is lost for this trigger, never skipped
+   * forever. */
+  signal?: AbortSignal;
 }
 
 /** Extracts durable facts from a transcript. Runs fail-silent in the core. */
@@ -424,6 +429,7 @@ export function createMaintenanceExtractor(provider: Provider, cwd: string): Mem
       cwd,
       promptComposer: new PromptComposer({ projectDir: cwd, basePrompt: MAINTENANCE_PROMPT }),
     });
+    input.signal?.addEventListener("abort", () => child.abort(), { once: true });
     try {
       const user = [
         "# Existing memory",
@@ -481,6 +487,7 @@ export class MemoryRunner {
   #lastIdx = 0;
   #busy = false;
   #pending: Promise<void> | null = null;
+  #controller: AbortController | null = null;
 
   constructor(opts: MemoryRunnerOptions) {
     this.#store = opts.store;
@@ -495,6 +502,12 @@ export class MemoryRunner {
   /** A pending background run, if any (awaited by session dispose). */
   get pending(): Promise<void> | null {
     return this.#pending;
+  }
+
+  /** Aborts a pending run (dispose budget): the extractor's error path
+   * rolls the transcript window back, so nothing is lost forever. */
+  cancel(): void {
+    this.#controller?.abort();
   }
 
   /** The memory excerpt for the system prompt, `undefined` when empty. */
@@ -515,6 +528,8 @@ export class MemoryRunner {
     if (!transcript.trim()) return;
     const store = this.#store;
     const extractor = this.#extractor;
+    const controller = new AbortController();
+    this.#controller = controller;
     this.#busy = true;
     const run = (async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -523,6 +538,7 @@ export class MemoryRunner {
             transcript,
             topics: store.topics(),
             memory: store.read(this.#budgetChars),
+            signal: controller.signal,
           });
           if (entries.length === 0) return;
           await store.append(entries, this.#sessionId);
@@ -553,6 +569,7 @@ export class MemoryRunner {
     })();
     this.#pending = run.finally(() => {
       this.#busy = false;
+      this.#controller = null;
     });
   }
 }
