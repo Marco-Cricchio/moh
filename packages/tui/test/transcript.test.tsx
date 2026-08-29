@@ -401,3 +401,56 @@ describe("provider reasoning projection (#242)", () => {
     expect(rows.join("\n")).toContain("thinking");
   });
 });
+
+describe("subagent block (#320)", () => {
+  test("spawn + result project as ONE block with final state, tokens and preview", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", preset: "research", log: "/tmp/log" },
+      { type: "subagent_result", callId: "s1", name: "worker", status: "done", usage: { inputTokens: 3000, outputTokens: 9000 }, log: "/tmp/log", preview: "found the seam\napplied the fix" },
+    ];
+    const blocks = projectTranscript(events);
+    const sub = blocks.filter((b) => b.kind === "subagent");
+    expect(sub).toHaveLength(1);
+    expect(sub[0]!.type).toBe("worker");
+    expect(sub[0]!.detail).toContain("research");
+    expect(sub[0]!.detail).toContain("done");
+    expect(sub[0]!.detail).toContain("12.0k tok");
+    expect(sub[0]!.lines).toContain("found the seam");
+    expect(sub[0]!.state).toBe("ok");
+  });
+
+  test("a spawned-but-unfinished subagent renders running (volatile, never settled)", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+    ];
+    const blocks = projectTranscript(events);
+    const sub = blocks.find((b) => b.kind === "subagent");
+    expect(sub?.state).toBe("run");
+    expect(sub?.detail).toContain("running");
+  });
+
+  test("a failed subagent keeps its error visible in both modes", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+      { type: "subagent_result", callId: "s1", name: "worker", status: "error", usage: { inputTokens: 1, outputTokens: 1 }, log: "/tmp/log" },
+    ];
+    for (const mode of ["vibe", "dev"] as const) {
+      const sub = projectTranscript(events, { mode }).find((b) => b.kind === "subagent");
+      expect(sub?.state).toBe("fail");
+    }
+  });
+
+  test("vibe shows subagent runs as a single plain-language line, failures excepted", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+      { type: "subagent_result", callId: "s1", name: "worker", status: "done", usage: { inputTokens: 3, outputTokens: 4 }, log: "/tmp/log", preview: "summary line" },
+    ];
+    const sub = projectTranscript(events, { mode: "vibe" }).find((b) => b.kind === "subagent");
+    expect(sub?.lines.join(" ")).toContain("worker");
+    expect(sub?.state).toBe("ok");
+  });
+});

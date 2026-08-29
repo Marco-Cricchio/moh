@@ -7,7 +7,7 @@ import { sanitizeLine, truncate } from "./ui";
 import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import type { ToolTimings } from "./tool-timing";
-export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking";
+export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent";
 export interface TranscriptBlock {
   key: string;
   kind: BlockKind;
@@ -106,6 +106,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
   const blocks: TranscriptBlock[] = [];
   const results = new Map<string, Extract<AgentEvent, { type: "tool_result" }>>();
   for (const event of events) if (event.type === "tool_result") results.set(event.callId, event);
+  // #320: subagent results link to their spawn by callId (same pair
+  // pattern as tool calls) so one block projects with its final state —
+  // never mutating after Static promotion (#194).
+  const subagentResults = new Map<string, Extract<AgentEvent, { type: "subagent_result" }>>();
+  for (const event of events) if (event.type === "subagent_result") subagentResults.set(event.callId, event);
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i]!;
@@ -227,13 +232,27 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "cancelled":
         blocks.push({ key, kind: "chrome", glyph: "◌", type: "cancelled", detail: "steering · turn interrupted", lines: [] });
         break;
-      case "subagent_spawn":
-        blocks.push({ key, kind: "chrome", glyph: "◇", type: event.name, detail: `spawn${event.preset ? ` · ${event.preset}` : ""}`, lines: [] });
+      case "subagent_spawn": {
+        const result = subagentResults.get(event.callId);
+        const state = result ? (result.status === "done" ? "ok" : "fail") : "run";
+        const tokens = result ? `${((result.usage.inputTokens + result.usage.outputTokens) / 1000).toFixed(1)}k tok` : "running";
+        if (vibe && state !== "fail") {
+          blocks.push({ key, kind: "subagent", glyph: "◇", type: event.name, lines: [`ran a subagent · ${event.name}${event.preset ? ` (${event.preset})` : ""}`], state });
+          break;
+        }
+        blocks.push({
+          key,
+          kind: "subagent",
+          glyph: state === "ok" ? "✓" : state === "fail" ? "✗" : "◇",
+          type: event.name,
+          detail: `${event.preset ? `${event.preset} · ` : ""}${result ? result.status : "running"} · ${tokens}`,
+          lines: result?.preview ? result.preview.split("\n").map(sanitizeLine) : [],
+          state,
+        });
         break;
+      }
       case "subagent_result":
-        blocks.push(vibe
-          ? { key, kind: event.status === "error" ? "error" : "chrome", glyph: event.status === "done" ? "✓" : event.status === "error" ? "✗" : "◌", type: event.name, detail: event.status === "error" ? "failed" : event.status, lines: [] }
-          : { key, kind: event.status === "error" ? "error" : "chrome", glyph: event.status === "done" ? "✓" : event.status === "error" ? "✗" : "◌", type: event.name, detail: `${event.status} · ${event.usage.inputTokens + event.usage.outputTokens} tok`, lines: [] });
+        // Projects through its spawn block (#320) — nothing of its own.
         break;
       case "session_start":
         if (vibe) break;
@@ -498,14 +517,14 @@ function blockColor(block: TranscriptBlock, theme: Theme): string {
   if (block.state === "ok") return theme.ok;
   if (block.kind === "user") return theme.warn;
   if (block.kind === "code" || block.kind === "diff") return theme.purple;
-  if (block.kind === "chrome" || block.kind === "thinking") return theme.dim;
+  if (block.kind === "chrome" || block.kind === "thinking" || block.kind === "subagent") return theme.dim;
   return theme.accent;
 }
 
 export function blockTint(block: TranscriptBlock, theme: Theme): string | undefined {
   if (block.kind === "thinking") return undefined;
-  const semantic = block.kind === "user" ? theme.warn : block.kind === "moh" ? theme.accent : block.kind === "code" || block.kind === "diff" ? theme.purple : block.kind === "error" ? theme.err : theme.dim;
-  return mix(semantic, theme.bg, block.kind === "error" ? 0.2 : block.kind === "chrome" ? 0.07 : 0.14);
+  const semantic = block.kind === "user" ? theme.warn : block.kind === "moh" ? theme.accent : block.kind === "code" || block.kind === "diff" ? theme.purple : block.kind === "error" ? theme.err : block.kind === "subagent" ? theme.accent : theme.dim;
+  return mix(semantic, theme.bg, block.kind === "error" ? 0.2 : block.kind === "chrome" || block.kind === "subagent" ? 0.07 : 0.14);
 }
 
 function Row({ width, bg, indent = 0, children }: { width: number; bg?: string; indent?: number; children: React.ReactNode }) {
@@ -598,7 +617,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         </>
       ) : block.lines.map((line, index) => {
         const lineKind = block.lineKinds?.[index];
-        const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
+        const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" || block.kind === "subagent" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
         const stateGlyph = block.kind === "tool" ? line.match(/^(.*?)(\s[✓✗◌])$/) : null;
         const body = stateGlyph
           ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={stateGlyph[2]!.includes("✓") ? theme.ok : stateGlyph[2]!.includes("✗") ? theme.err : theme.accent}>{stateGlyph[2]}</Text></>

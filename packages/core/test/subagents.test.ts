@@ -7,7 +7,7 @@ function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "moh-subagents-"));
 }
 import { builtinTools, createSession, MockProvider, type AgentEvent, type Tool } from "../src/index";
-import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, type SubagentResult } from "../src/subagents";
+import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, subagentPreview, type SubagentResult } from "../src/subagents";
 
 /** Collects parent events into an array for assertions. */
 function tap(session: { events: AsyncIterable<AgentEvent> }): AgentEvent[] {
@@ -64,6 +64,7 @@ describe("subagents (#13)", () => {
 
     const done = events.find((e) => e.type === "subagent_result") as any;
     expect(done.status).toBe("done");
+    expect(done.preview).toBe("the answer is 42"); // #320: transcript preview
 
     // The tool_result the parent model sees carries the SubagentResult.
     const toolResult = events.find((e) => e.type === "tool_result") as any;
@@ -398,5 +399,19 @@ describe("subagents (#13)", () => {
     expect(asked).toEqual(["write"]);
     const res = tapped.find((e) => e.type === "subagent_result") as any;
     expect(res.status).toBe("done");
+  });
+});
+
+describe("subagent_result preview (#320)", () => {
+  test("a done result carries a bounded preview of the child's output", async () => {
+    // scripted via the exported preview helper + event shape; the runner
+    // path is covered by the spawn/result integration above.
+    const long = ["line one", "line two", "line three", "line four"].join("\n");
+    const preview = subagentPreview(long);
+    expect(preview).toBe("line one\nline two\nline three");
+  });
+
+  test("preview is omitted when the child produced no output", () => {
+    expect(subagentPreview("")).toBeUndefined();
   });
 });
