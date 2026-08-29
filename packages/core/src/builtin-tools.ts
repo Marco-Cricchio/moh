@@ -107,11 +107,19 @@ const normalizeCommand = (command: string): string => command.trim().split(/\s+/
  * `grep bun test` must not count.
  */
 const SUITE_PREFIXES = ["bun", "npm", "pnpm", "yarn", "npx", "jest", "vitest", "pytest", "cargo", "go", "make", "mvn", "gradle", "composer", "dotnet"];
-function isSuiteLike(command: string): boolean {
+export function isSuiteLike(command: string): boolean {
   const tokens = normalizeCommand(command).split(" ");
-  // Walk past env assignments and leading cd/PATH segments (`cd pkg && …`).
+  // Walk past the wrappers the model actually writes: env assignments,
+  // `cd pkg &&`, `;`, `timeout N`, `env X=y`, `command`/`exec`. The head
+  // found after them decides; anything on a pipe after it is output
+  // shaping and doesn't matter.
   let i = 0;
-  while (i < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]!) || tokens[i] === "cd" || tokens[i] === "&&" || tokens[i] === ";")) i++;
+  while (i < tokens.length) {
+    const token = tokens[i]!;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token) || token === "&&" || token === ";" || token === "(" || token === "{") { i++; continue; }
+    if (token === "cd" || token === "env" || token === "timeout" || token === "command" || token === "exec") { i += 2; continue; }
+    break;
+  }
   const head = tokens[i]?.split("/").pop() ?? "";
   const second = tokens[i + 1] ?? "";
   if (SUITE_PREFIXES.includes(head)) {
@@ -185,7 +193,7 @@ const bashTool = (ledger: RunLedger): Tool<z.infer<typeof bashSchema>> => ({
     // the streams and returning whatever output arrived.
     const EXIT_GRACE_MS = 500;
     const proc = Bun.spawn(
-      hasSetsid() ? ["setsid", "bash", "-c", args.command] : ["bash", "-c", args.command],
+      hasSetsid() ? ["setsid", "bash", "-c", rawCommand] : ["bash", "-c", rawCommand],
       {
         cwd: ctx.cwd,
         stdout: "pipe",

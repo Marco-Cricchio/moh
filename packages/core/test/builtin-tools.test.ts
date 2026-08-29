@@ -3,6 +3,8 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
+// #304: classification unit-tested directly.
+import { isSuiteLike } from "../src/builtin-tools";
 import type { ToolContext } from "../src/types";
 
 const cwd = mkdtempSync(join(tmpdir(), "moh-tools-"));
@@ -261,4 +263,31 @@ describe("bash re-run guard (#304)", () => {
     expect(out).toContain("tree-green");
     expect(out).not.toContain("not re-executed");
   }, 40_000);
+});
+
+describe("suite-like classification (#304)", () => {
+  // The walk must cross the wrappers the model really uses (session
+  // 20260829T043600309Z): cd && timeout pipes were the norm.
+  const cases: Array<[string, boolean]> = [
+    ["bun test", true],
+    ["cd packages/tui && timeout 400 bun test 2>&1 | tail -4", true],
+    ["cd packages/core && timeout 300 bun test > /tmp/x.log 2>&1; echo exit=$?", true],
+    ["FOO=1 npm test", true],
+    ["timeout 420 bun test", true],
+    ["yarn jest", true], // yarn-family head: suite-like
+    ["make test", true],
+    ["make build", false],
+    ["go build ./...", false],
+    ["cargo test", true],
+    ["grep bun test file.txt", false],
+    ["gh api repos/x/y --jq .name", false],
+    ["curl -s http://localhost:9", false],
+    ["echo bun test", false],
+    ["git status --porcelain", false],
+  ];
+  for (const [command, expected] of cases) {
+    test(`"${command.slice(0, 48)}" → ${expected}`, () => {
+      expect(isSuiteLike(command)).toBe(expected);
+    });
+  }
 });
