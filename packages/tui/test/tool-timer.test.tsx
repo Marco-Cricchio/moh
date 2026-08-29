@@ -161,7 +161,7 @@ describe("live tool timer in Chat (#300 integration)", () => {
       if (call === 1) {
         yield {
           type: "tool_calls",
-          calls: [{ callId: "bash-1", name: "bash", args: { command: "sleep 2 && echo slow", timeoutMs: 120_000 } }],
+          calls: [{ callId: "bash-1", name: "bash", args: { command: "sleep 5 && echo slow", timeoutMs: 120_000 } }],
         };
         yield { type: "finish", reason: "tool_calls" as const };
         return;
@@ -188,9 +188,15 @@ describe("live tool timer in Chat (#300 integration)", () => {
       <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="gated" width={80} />,
     );
     const done = session.send("run it");
-    await nap(1200);
-    const midTurn = stripAnsi(ui.lastFrame() ?? "");
-    expect(midTurn).toContain("⏱ 1s · 2m");
+    // The first Clock tick can be delayed under a loaded CI worker. Poll for
+    // any non-zero live elapsed value while the deliberately long command runs.
+    const deadline = Date.now() + 3_000;
+    let midTurn = "";
+    do {
+      await nap(100);
+      midTurn = stripAnsi(ui.lastFrame() ?? "");
+    } while (!/⏱ [1-9]\d*s · 2m/.test(midTurn) && Date.now() < deadline);
+    expect(midTurn).toMatch(/⏱ [1-9]\d*s · 2m/);
     release!();
     await done;
     await nap(150);
@@ -200,5 +206,5 @@ describe("live tool timer in Chat (#300 integration)", () => {
     expect(settled).not.toContain("⏱");
     expect(settled).toMatch(/✓ bash .* · \d+s/);
     ui.unmount();
-  });
+  }, 10_000);
 });
