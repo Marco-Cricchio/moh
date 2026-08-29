@@ -13,6 +13,14 @@ export function startupClear(out: { isTTY?: boolean; write: (s: string) => unkno
   return true;
 }
 
+/** Kitty identifies itself with KITTY_WINDOW_ID, so no capability query is
+ * needed. Avoiding Ink's auto-mode query prevents a late CSI ? u reply from
+ * reaching the first Home input frame on Linux (#315). Other terminals keep
+ * Ink's conservative auto-negotiation. */
+export function kittyKeyboardOptions(env: Record<string, string | undefined> = process.env) {
+  return { mode: env.KITTY_WINDOW_ID ? "enabled" as const : "auto" as const };
+}
+
 /** Renders the TUI. Returns Ink's instance (with `unmount()`).
  *
  * `kittyKeyboard: auto` negotiates the kitty keyboard protocol on supporting
@@ -26,6 +34,6 @@ export function renderTui(options: AppProps) {
     // Exit is the deliberate double ctrl+c handled in App: a single stray
     // ctrl+c only arms ("press ctrl+c again") and never kills the session.
     exitOnCtrlC: false,
-    kittyKeyboard: { mode: "auto" },
+    kittyKeyboard: kittyKeyboardOptions(),
   });
 }

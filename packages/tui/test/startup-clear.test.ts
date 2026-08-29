@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { startupClear } from "../src/main";
+import { kittyKeyboardOptions, startupClear } from "../src/main";
 
 function fakeStream(isTTY: boolean) {
   const writes: string[] = [];
@@ -17,5 +17,15 @@ describe("startup clear (#292)", () => {
     const { stream, writes } = fakeStream(false);
     expect(startupClear(stream)).toBe(false);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("kitty keyboard negotiation (#315)", () => {
+  test("kitty enables directly without a capability query", () => {
+    expect(kittyKeyboardOptions({ KITTY_WINDOW_ID: "42" })).toEqual({ mode: "enabled" });
+  });
+
+  test("other terminals retain conservative auto-negotiation", () => {
+    expect(kittyKeyboardOptions({ TERM_PROGRAM: "xterm" })).toEqual({ mode: "auto" });
   });
 });
