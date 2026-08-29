@@ -362,3 +362,43 @@ describe("moh.json memory config", () => {
     expect(memoryConfigSchema.safeParse({ intervalTurns: 0 }).success).toBe(false);
   });
 });
+
+describe("dispose budget (#exit-latency, vision note 14)", () => {
+  function newBudgetSession(dir: string, extractor: (input: MemoryExtractorInput) => Promise<MemoryEntry[]>) {
+    return new AgentSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" as const }]),
+      cwd: dir,
+      memory: { dir: join(dir, "memory"), intervalTurns: 1, extractor },
+    });
+  }
+  test("dispose({timeoutMs}) stops waiting a slow memory flush and aborts the extractor", async () => {
+    const dir = tmpDir("dispose-budget");
+    let aborted = false;
+    const session = newBudgetSession(dir, (input) =>
+      new Promise((_resolve, reject) => {
+        input.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("aborted"));
+        });
+      }));
+    await session.send("trigger extraction");
+    const t0 = performance.now();
+    await session.dispose({ timeoutMs: 150 });
+    const elapsed = performance.now() - t0;
+    expect(aborted).toBe(true);
+    expect(elapsed).toBeLessThan(1500); // returned at the budget, not at the extractor's mercy
+  });
+
+  test("default dispose still waits for the pending run (no behavior change without a budget)", async () => {
+    const dir = tmpDir("dispose-wait");
+    let done = false;
+    const session = newBudgetSession(dir, async () => {
+      await new Promise((r) => setTimeout(r, 150));
+      done = true;
+      return [];
+    });
+    await session.send("trigger extraction");
+    await session.dispose();
+    expect(done).toBe(true);
+  });
+});

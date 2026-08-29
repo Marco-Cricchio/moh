@@ -487,11 +487,31 @@ export class AgentSession {
     this.#eventLog.append(event);
   }
 
-  /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent. */
-  async dispose(): Promise<void> {
+  /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent.
+   * `timeoutMs` budgets the memory flush only (vision note 14): a slow
+   * extraction is aborted — the log is append-only and safe, and the
+   * extractor rolls its window back — instead of keeping the process alive
+   * after the UI has exited. Everything else (MCP, hooks, idle drain) is
+   * fast in practice and still awaited. */
+  async dispose(options: { timeoutMs?: number } = {}): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
-    await this.#memory?.pending?.catch(() => {});
+    if (this.#memory?.pending) {
+      const flush = this.#memory.pending.catch(() => {});
+      if (options.timeoutMs === undefined) {
+        await flush;
+      } else {
+        await Promise.race([
+          flush,
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              this.#memory?.cancel();
+              resolve();
+            }, options.timeoutMs).unref?.();
+          }),
+        ]);
+      }
+    }
     await this.#mcp?.shutdown();
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
