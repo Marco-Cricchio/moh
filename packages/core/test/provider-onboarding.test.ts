@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { minimalConnectionTest, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
 import {
   addProviderToFile,
+  KNOWN_COMPAT_ENDPOINTS,
   OnboardingAborted,
   runProviderAdd,
   type OnboardingIo,
@@ -72,6 +73,52 @@ describe("runProviderAdd (guided flow)", () => {
   test("openai-compat without a base URL aborts; invalid type is re-asked", async () => {
     const io = ioWith(["openai-compat", "", "", ""]);
     await expect(runProviderAdd(io, okTest())).rejects.toThrow("base URL");
+  });
+});
+
+describe("known compat endpoints (#295)", () => {
+  test("KNOWN_COMPAT_ENDPOINTS: locals first, then cloud, then Custom (empty url)", async () => {
+    // Expected literals verified against each provider's official docs (see
+    // KNOWN_COMPAT_ENDPOINTS doc comment for the sources).
+    expect(KNOWN_COMPAT_ENDPOINTS).toEqual([
+      { name: "Ollama", local: true, url: "http://localhost:11434/v1" },
+      { name: "LM Studio", local: true, url: "http://localhost:1234/v1" },
+      { name: "Omniroute", local: true, url: "http://localhost:PORT/v1" },
+      { name: "z.ai", local: false, url: "https://api.z.ai/api/paas/v4" },
+      { name: "DeepSeek", local: false, url: "https://api.deepseek.com/v1" },
+      { name: "Mistral", local: false, url: "https://api.mistral.ai/v1" },
+      { name: "Groq", local: false, url: "https://api.groq.com/openai/v1" },
+      { name: "Together", local: false, url: "https://api.together.ai/v1" },
+      { name: "Custom…", local: false, url: "" },
+    ]);
+  });
+
+  test("the baseUrl prompt for openai-compat is a numbered list; a digit selects", async () => {
+    const io = ioWith(["openai-compat", "", "", "2", "qwen3"]);
+    await runProviderAdd(io, okTest());
+    const lines = io.said.join("\n");
+    expect(lines).toContain("1) Ollama (local) — http://localhost:11434/v1");
+    expect(lines).toContain("9) Custom…");
+    expect(io.said).toContain("Base URL (1-9 or a URL): ");
+  });
+
+  test("a non-numeric answer is used as the typed URL as today", async () => {
+    const io = ioWith(["openai-compat", "", "", "http://my-host:8000/v1", "qwen3"]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile.baseUrl).toBe("http://my-host:8000/v1");
+  });
+
+  test("selecting a numbered endpoint prefills that exact URL", async () => {
+    const io = ioWith(["openai-compat", "", "", "5", "deepseek-chat"]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile.baseUrl).toBe("https://api.deepseek.com/v1");
+  });
+
+  test("non-compat providers keep the plain Base URL prompt (no numbered list)", async () => {
+    const io = ioWith(["anthropic", "", "sk-x", "", "claude-sonnet-4-5"]);
+    await runProviderAdd(io, okTest());
+    expect(io.said.join("\n")).not.toContain("1) Ollama");
+    expect(io.said).toContain("Base URL (empty for default): ");
   });
 });
 

@@ -33,6 +33,45 @@ export const BUILTIN_PROVIDER_TYPES = [
 export type BuiltinProviderType = (typeof BUILTIN_PROVIDER_TYPES)[number];
 
 /**
+ * Curated base URLs for the openai-compat wizard's endpoint pick-list
+ * (#295): locals first, then well-known cloud providers, then the
+ * free-text `Custom…` entry (empty url — the field opens blank). Shared
+ * by the TUI pick-list and the CLI numbered prompt.
+ *
+ * URLs verified against each provider's official docs:
+ * - Ollama — https://ollama.com/blog/openai-compatibility
+ * - LM Studio — https://lmstudio.ai/docs/app/api/endpoints/openai
+ * - Omniroute — placeholder port by design (user must edit)
+ * - z.ai — https://docs.z.ai/guides/llm (international endpoint only)
+ * - DeepSeek — https://api-docs.deepseek.com (`/v1` documented alias)
+ * - Mistral — https://docs.mistral.ai/api/
+ * - Groq — https://console.groq.com/docs/openai
+ * - Together — https://docs.together.ai/docs/openai-api-compatibility
+ *   (`api.together.xyz` is the legacy alias; the current documented host
+ *   is `api.together.ai` — owner decision on #295)
+ */
+export interface KnownCompatEndpoint {
+  /** Display name in the pick-list. */
+  name: string;
+  /** Local runtime (shown with a "(local)" suffix in the list). */
+  local: boolean;
+  /** Base URL; empty for the `Custom…` free-text entry. */
+  url: string;
+}
+
+export const KNOWN_COMPAT_ENDPOINTS: readonly KnownCompatEndpoint[] = [
+  { name: "Ollama", local: true, url: "http://localhost:11434/v1" },
+  { name: "LM Studio", local: true, url: "http://localhost:1234/v1" },
+  { name: "Omniroute", local: true, url: "http://localhost:PORT/v1" },
+  { name: "z.ai", local: false, url: "https://api.z.ai/api/paas/v4" },
+  { name: "DeepSeek", local: false, url: "https://api.deepseek.com/v1" },
+  { name: "Mistral", local: false, url: "https://api.mistral.ai/v1" },
+  { name: "Groq", local: false, url: "https://api.groq.com/openai/v1" },
+  { name: "Together", local: false, url: "https://api.together.ai/v1" },
+  { name: "Custom…", local: false, url: "" },
+];
+
+/**
  * Question/answer seam. `ask` returns the trimmed user answer.
  * `openUrl` (issue #133) is best-effort browser opening for OAuth flows —
  * it may be absent or fail on headless boxes; subscription flows always
@@ -126,7 +165,7 @@ export async function runProviderAdd(
     // fixes the base URL (and there is no key), so neither is asked.
     defaultModel = await askSubscriptionModel(io, type);
   } else {
-    baseUrl = (await io.ask(type === "openai-compat" ? "Base URL (e.g. http://localhost:11434/v1): " : "Base URL (empty for default): ")).trim();
+    baseUrl = type === "openai-compat" ? await askKnownCompatEndpoint(io) : (await io.ask("Base URL (empty for default): ")).trim();
     if (type === "openai-compat" && baseUrl === "") {
       throw new OnboardingAborted("openai-compat endpoints require a base URL");
     }
@@ -193,6 +232,23 @@ async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<str
     }
     return answer; // free-text fallback (advanced)
   }
+}
+
+/**
+ * The openai-compat Base URL step (#295): the known-endpoint list as a
+ * numbered prompt. A digit selects the entry's URL; anything else is
+ * used as a typed URL as before (empty still aborts via the caller).
+ */
+async function askKnownCompatEndpoint(io: OnboardingIo): Promise<string> {
+  for (const [i, entry] of KNOWN_COMPAT_ENDPOINTS.entries()) {
+    await io.info(`  ${i + 1}) ${entry.name}${entry.local ? " (local)" : ""}${entry.url ? ` — ${entry.url}` : ""}`);
+  }
+  const answer = (await io.ask(`Base URL (1-${KNOWN_COMPAT_ENDPOINTS.length} or a URL): `)).trim();
+  if (/^\d+$/.test(answer)) {
+    const n = Number(answer);
+    if (n >= 1 && n <= KNOWN_COMPAT_ENDPOINTS.length) return KNOWN_COMPAT_ENDPOINTS[n - 1]!.url;
+  }
+  return answer;
 }
 
 /**

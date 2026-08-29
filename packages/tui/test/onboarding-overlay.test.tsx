@@ -70,9 +70,11 @@ describe("onboarding overlay (issue #33)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("API key");
     i.stdin.write("\r"); // empty key → env/local
     await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Base URL");
-    typeInto(i, "http://localhost:11434/v1");
-    await sleep(10);
+    // Endpoint pick-list (#295): select Ollama (first entry), then accept
+    // the prefilled base URL.
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Ollama (local)");
+    i.stdin.write("\r");
+    await sleep(30);
     i.stdin.write("\r");
     await sleep(100);
 
@@ -161,10 +163,117 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\r"); // empty key
     await sleep(30);
+    for (let k = 0; k < 8; k++) {
+      i.stdin.write("\x1b[B"); // last entry: Custom…
+      await sleep(10);
+    }
+    i.stdin.write("\r"); // Custom… → empty baseUrl field
+    await sleep(30);
     i.stdin.write("\r"); // empty base URL → stays
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Base URL");
     expect(existsSync(join(cwd, "moh.json"))).toBe(false);
+    i.unmount();
+  });
+});
+
+describe("onboarding overlay — known endpoint pick-list (#295)", () => {
+  test("openai-compat shows the endpoint list after the key; selecting one prefills the base URL", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const done: (string | null)[] = [];
+    const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={(ref) => done.push(ref)} />);
+    await sleep(30);
+    i.stdin.write("\x1b[B"); // openai-compat
+    await sleep(10);
+    i.stdin.write("\x1b[B");
+    await sleep(10);
+    i.stdin.write("\x1b[B");
+    await sleep(10);
+    i.stdin.write("\r");
+    await sleep(30);
+    typeInto(i, "qwen3");
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("\r"); // empty key
+    await sleep(30);
+
+    // Endpoint pick-list (#295): locals first, then cloud, then Custom.
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Ollama (local)");
+    expect(frame).toContain("http://localhost:11434/v1");
+    expect(frame).toContain("z.ai");
+    expect(frame).toContain("Custom…");
+    i.stdin.write("\r"); // first entry: Ollama
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Base URL");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("http://localhost:11434/v1");
+    i.stdin.write("\r"); // accept the prefilled URL
+    await sleep(100);
+
+    // Save-scope chooser: brand-new endpoint → user default; choose project.
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Where should");
+    i.stdin.write("\x1b[B");
+    await sleep(10);
+    i.stdin.write("\r");
+    await sleep(100);
+
+    expect(done).toEqual(["openai-compat/qwen3"]);
+    const config = loadMohConfig(join(cwd, "moh.json"));
+    expect(config.endpoints![0]).toMatchObject({ baseUrl: "http://localhost:11434/v1" });
+    i.unmount();
+  });
+
+  test("selecting Custom… opens the base URL field empty", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={() => {}} />);
+    await sleep(30);
+    for (let k = 0; k < 3; k++) {
+      i.stdin.write("\x1b[B"); // openai-compat
+      await sleep(10);
+    }
+    i.stdin.write("\r");
+    await sleep(30);
+    typeInto(i, "qwen3");
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("\r"); // empty key
+    await sleep(30);
+    // cursor starts at 0; move to the last row (Custom…) and select.
+    for (let k = 0; k < 8; k++) {
+      i.stdin.write("\x1b[B");
+      await sleep(10);
+    }
+    i.stdin.write("\r");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Base URL");
+    // the field shows the cursor with no prefilled value: "› " + caret
+    expect(frame).toContain("› ▊");
+    i.unmount();
+  });
+
+  test("esc from the endpoint list goes back to the api key field", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={() => {}} />);
+    await sleep(30);
+    for (let k = 0; k < 3; k++) {
+      i.stdin.write("\x1b[B"); // openai-compat
+      await sleep(10);
+    }
+    i.stdin.write("\r");
+    await sleep(30);
+    typeInto(i, "qwen3");
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("\r"); // empty key
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Ollama (local)");
+    i.stdin.write("\x1b"); // esc back
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("API key");
     i.unmount();
   });
 });
@@ -193,9 +302,9 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     await sleep(20);
     i.stdin.write("\r"); // empty key
     await sleep(20);
-    typeInto(i, "http://localhost:11434/v1");
-    await sleep(10);
-    i.stdin.write("\r");
+    i.stdin.write("\r"); // endpoint list (#295): first entry — Ollama
+    await sleep(20);
+    i.stdin.write("\r"); // accept the prefilled base URL
     await sleep(100);
     return { i, done };
   }
