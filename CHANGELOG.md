@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-29
+
 ### Added
 
 - bash tool, feedback loop against redundant suite re-runs (#304): successful
@@ -83,7 +85,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.4.0...develop
+[0.4.0]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Marco-Cricchio/moh/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Marco-Cricchio/moh/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Marco-Cricchio/moh/compare/v0.1.1...v0.2.0
