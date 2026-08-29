@@ -72,7 +72,7 @@ import {
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-export { catalogEntryFor, subscriptionModelCatalog, type CatalogModel } from "./model-catalog";
+export { catalogEntryFor, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
 export {
   clearThinkingPreference,
   defaultThinkingLevel,

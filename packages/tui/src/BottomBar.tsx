@@ -61,6 +61,9 @@ interface StatusProps {
   model: string;
   turns: number;
   tokens: SidebarTokens;
+  /** Denominator of the context bar: the active model's declared window
+   * from the vendored catalog, or CONTEXT_WINDOW_DEFAULT when unknown. */
+  contextLimit?: number;
   level: DisplayThinkingLevel;
   /** #256: unsupported stored preference marker (dim ✗⚙ next to the
    * model segment — visible, never a prompt). */
@@ -77,8 +80,8 @@ interface StatusProps {
   cwd?: string;
 }
 
-function ContextBar({ tokens, width, theme }: { tokens: number; width: number; theme: Theme }) {
-  const fraction = contextFraction(tokens);
+function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: number; width: number; theme: Theme }) {
+  const fraction = contextFraction(tokens, limit);
   const cells = widthClass183(width) === "compact" ? 8 : widthClass183(width) === "wide" ? 16 : 12;
   const filled = Math.round(fraction * cells);
   const color = fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.ok;
@@ -103,7 +106,8 @@ export function middleElide(value: string, max: number): string {
 function StatusRow(props: StatusProps) {
   const theme = useTheme();
   const cls = widthClass183(props.width);
-  const fraction = contextFraction(props.tokens.contextIn);
+  const contextLimit = props.contextLimit ?? CONTEXT_WINDOW_DEFAULT;
+  const fraction = contextFraction(props.tokens.contextIn, contextLimit);
   const tokenColor = fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.dim;
   const rawLeft = props.pending
     ? `${props.spinner}${cls === "compact" ? "" : ` ${props.phase ?? (props.mode === "vibe" ? "thinking" : "streaming")}`}`
@@ -155,7 +159,7 @@ function StatusRow(props: StatusProps) {
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
         <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}</Box>
-        <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
+        <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
         <Box justifyContent="flex-end" flexWrap="nowrap" paddingX={1}>

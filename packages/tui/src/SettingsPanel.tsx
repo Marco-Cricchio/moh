@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { loadMohConfig, loadMergedConfig, listOpenAiCompatModels, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, subscriptionModelCatalog, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
@@ -57,7 +57,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // are display-only here) and switches the default `provider` ref.
   type Sub =
     | { kind: "endpoint"; cursor: number }
-    | { kind: "model"; name: string; type: string; current?: string; userOwned: boolean; cursor: number; query: string }
+    | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; cursor: number; query: string }
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
     | { kind: "remove"; options: string[]; cursor: number };
   const [sub, setSub] = useState<Sub | null>(null);
@@ -116,7 +116,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return ["mock", ...(moh.endpoints ?? []).map((e) => (projectNames.has(e.name) ? e.name : `${e.name} (user)`))];
     if (sub.kind === "model") {
       // Vendored catalog when one exists; otherwise the fetched list.
-      const vendored = subscriptionModelCatalog(sub.type);
+      const vendored = endpointModelCatalog(sub.type, sub.baseUrl);
       const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
       const rows = filterCatalog(list, sub.query).map((m) => modelRow(m, m.id === sub.current));
       rows.push(sub.query.trim() ? freeTextRow(sub.query) : "+ other… (type a model id)");
@@ -253,17 +253,17 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
           if (!endpoint) return;
           const userOwned = !projectNames.has(name);
-          const catalog = subscriptionModelCatalog(endpoint.type);
+          const catalog = endpointModelCatalog(endpoint.type, endpoint.baseUrl);
           if (catalog.length === 0 && !endpoint.baseUrl) {
             // Unknown types without a base URL (custom): free text only,
             // as in the wizard (acceptance).
             return setSub({ kind: "model-free", name, userOwned, value: endpoint.defaultModel ?? "" });
           }
           if (catalog.length === 0) fetchRemoteModels(endpoint);
-          return setSub({ kind: "model", name, type: endpoint.type, current: endpoint.defaultModel, userOwned, cursor: 0, query: "" });
+          return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current: endpoint.defaultModel, userOwned, cursor: 0, query: "" });
         }
         if (sub.kind === "model") {
-          const vendored = subscriptionModelCatalog(sub.type);
+          const vendored = endpointModelCatalog(sub.type, sub.baseUrl);
           const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
           const catalog = filterCatalog(list, sub.query);
           if (index < catalog.length) {
@@ -353,10 +353,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 );
               })}
               {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
-              {sub.kind === "model" && subscriptionModelCatalog(sub.type).length === 0 && remote[sub.name] === "loading" && (
+              {sub.kind === "model" && endpointModelCatalog(sub.type, sub.baseUrl).length === 0 && remote[sub.name] === "loading" && (
                 <Dim> fetching models…</Dim>
               )}
-              {sub.kind === "model" && subscriptionModelCatalog(sub.type).length === 0 && remote[sub.name] === "error" && (
+              {sub.kind === "model" && endpointModelCatalog(sub.type, sub.baseUrl).length === 0 && remote[sub.name] === "error" && (
                 <Dim> no list from this endpoint — free text works</Dim>
               )}
             </>

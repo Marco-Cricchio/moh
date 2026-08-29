@@ -34,6 +34,9 @@ export interface ChatProps {
   inputFocused?: boolean;
   focusedChip?: number | null;
   tokens?: SidebarTokens;
+  /** Context-bar denominator (note 11): the active model's catalog window,
+   * already defaulting to CONTEXT_WINDOW_DEFAULT at the caller. */
+  contextLimit?: number;
   workflowOn?: boolean;
   memoryFresh?: boolean;
   thinkingLevel?: DisplayThinkingLevel;
@@ -73,6 +76,7 @@ export function Chat({
   inputFocused = true,
   focusedChip = null,
   tokens = EMPTY_TOKENS,
+  contextLimit,
   workflowOn = false,
   memoryFresh = false,
   thinkingLevel = "medium",
@@ -281,6 +285,7 @@ export function Chat({
         model={modelLabel}
         turns={state.turnCount}
         tokens={tokens}
+        contextLimit={contextLimit}
         level={thinkingLevel}
         unsupportedLevel={unsupportedThinkingLevel}
         workflowOn={workflowOn}

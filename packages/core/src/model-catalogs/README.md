@@ -1,6 +1,6 @@
 # Vendored model catalogs
 
-These three JSON files are verbatim copies of the auto-generated model
+These JSON files are copied from or generated from the model catalogs of the auto-generated model
 catalogs of [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai)
 (MIT license, © Earendil Works), vendored per the decision recorded on
 issue #156: no runtime dependency on pi-ai (principle 3 — SDKs invisible),
@@ -16,6 +16,7 @@ and an auditable, versioned data surface.
 - `kimi-coding.json` — Kimi Code models (k3 family; anthropic-messages wire
   + compat flags)
 - `xai.json` — xAI grok models
+- `zai.json` — Z.ai GLM models (generated from pi-ai's `ZAI_MODELS` provider module; Z.ai speaks openai-compat in moh)
 
 Source version at the last regeneration: **pi-ai 0.84.3**.
 
@@ -28,6 +29,6 @@ bun run packages/core/scripts/regen-model-catalogs.ts \
   node_modules/@earendil-works/pi-ai
 ```
 
-The script copies `providers/data/{anthropic,openai-codex,google}.json`
-from pi-ai's `dist/` (or source root) into this directory verbatim, then
-prints the pi-ai version so this README can be updated.
+The script copies the `providers/data/*.json` catalogs from pi-ai's `dist/`
+(or source root) and generates `zai.json` from pi-ai's `ZAI_MODELS` provider
+module, then prints the pi-ai version so this README can be updated.

@@ -2,8 +2,8 @@
  * Shared model-picker plumbing (#181): the incremental filter and row
  * formatting used by both pickers — the `/model` modal (in-session,
  * ephemeral) and the Settings panel's per-endpoint default-model picker
- * (persistent, moh.json). Both read the same `subscriptionModelCatalog`
- * (#156/#164) — one list story.
+ * (persistent, moh.json). Both receive an endpoint-aware catalog — one
+ * list story for builtin and recognized openai-compat providers.
  */
 import type { CatalogModel } from "@moh/core";
 
@@ -54,9 +54,9 @@ export function freeTextRow(query: string): string {
 }
 
 /** One endpoint in a picker: its profile plus the model list to show —
- * the vendored `subscriptionModelCatalog` when one exists, the live
- * `GET /models` fetch for openai-compat backends (#181 follow-up), or
- * nothing (free text only). */
+ * a vendored catalog for builtin providers and recognized compat hosts
+ * (e.g. Z.ai), a live `GET /models` fetch for other openai-compat
+ * backends (#181 follow-up), or nothing (free text only). */
 export interface EndpointPick {
   name: string;
   type: string;
@@ -70,4 +70,18 @@ export interface EndpointPick {
 /** Fetched model ids → picker rows (name = id, no metadata available). */
 export function fetchedToCatalog(ids: string[]): CatalogModel[] {
   return ids.map((id) => ({ id, name: id, contextWindow: 0, reasoning: false }));
+}
+
+/** Context window for an active-model label (`endpointName/modelId`,
+ * the `session.activeModel` / `model_call_start.model` shape) from the
+ * endpoints' catalogs. 0 when the endpoint or model is unknown —
+ * openai-compat backends have no vendored catalog, so callers treat 0
+ * as "use the default". */
+export function contextWindowForLabel(picks: EndpointPick[], modelLabel: string): number {
+  const slash = modelLabel.indexOf("/");
+  if (slash < 0) return 0;
+  const name = modelLabel.slice(0, slash);
+  const modelId = modelLabel.slice(slash + 1);
+  const pick = picks.find((p) => p.name === name);
+  return pick?.catalog.find((m) => m.id === modelId)?.contextWindow ?? 0;
 }

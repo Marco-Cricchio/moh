@@ -7,6 +7,13 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- TUI: recognized Z.ai openai-compat endpoints now use the vendored pi-ai GLM
+  catalog for model selection and the context bar, including the 1M-token
+  windows of GLM-5.2/5.3; onboarding also records Z.ai's declared reasoning
+  capability automatically (#309, #310).
+
 ## [0.4.0] - 2026-08-29
 
 ### Added
