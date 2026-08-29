@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- CI: GitHub Actions bumped off the deprecated Node 20 runtime —
+  `actions/checkout` to v7 and `actions/upload-artifact` to v5 in the CI and
+  release workflows (#317).
+
 ### Fixed
 
 - Linux Kitty startup no longer lets a delayed keyboard-capability response
