@@ -89,15 +89,15 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     i.stdin.write("/");
     await sleep(60);
     const frame = i.frame();
-    // the popup window shows the first four commands in alphabetical order
-    for (const name of asNames(BASE.slice(0, 4))) expect(frame).toContain(name);
+    // the popup window shows the first five commands in alphabetical order
+    for (const name of asNames(BASE.slice(0, 5))) expect(frame).toContain(name);
     expect(frame).not.toContain("/settings");
-    expect(frame).toContain("↓ 6 more");
-    // the first row is selected
-    expect(frame).toContain("▶ [s] /ask-moh");
-    // the selection scrolls the window: ↓×4 brings /reload into view
-    for (let k = 0; k < 4; k++) { i.stdin.write("\x1b[B"); await sleep(30); }
-    expect(i.frame()).toContain("▶ [s] /reload");
+    expect(frame).toContain("↓ 5 more");
+    // the first row is selected, in the /command - [s]: description grammar
+    expect(frame).toContain("▶ /ask-moh - [s]:");
+    // the selection scrolls the window: ↓×5 selects the sixth entry
+    for (let k = 0; k < 5; k++) { i.stdin.write("\x1b[B"); await sleep(30); }
+    expect(i.frame()).toContain("▶ /settings - [s]:");
     expect(i.frame()).toContain("↑ 1 more");
     i.unmount();
   });
@@ -113,17 +113,26 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     i.unmount();
   });
 
-  test("arrow keys move the popup selection and Enter runs the command", async () => {
+  test("arrow keys move the popup selection and Enter completes like Tab (with trailing space)", async () => {
     let submitted = "";
     const i = await mount((t) => { submitted = t; }, [{ name: "/mode", description: "switch mode", custom: false }, { name: "/model", description: "pick model", custom: false }]);
     i.stdin.write("/mo");
     await sleep(60);
     i.stdin.write("\x1b[B"); // down → /model
     await sleep(60);
-    expect(i.frame()).toContain("▶ [s] /model");
+    expect(i.frame()).toContain("▶ /model - [s]:");
+    i.stdin.write("\r"); // Enter accepts: completes into the draft, does NOT send
+    await sleep(60);
+    expect(submitted).toBe(""); // nothing was submitted
+    // the popup is closed (the trailing space ends the slash prefix) and the
+    // typed prompt follows the command on the same draft
+    i.stdin.write("pick a bigger one");
+    await sleep(60);
+    expect(i.frame()).toContain("/model pick a bigger one");
+    expect(i.frame()).not.toContain("▶");
+    // the next Enter is the send
     i.stdin.write("\r");
-    await untilFrame(() => "", () => submitted === "/model", 3000);
-    expect(submitted).toBe("/model");
+    await untilFrame(() => "", () => submitted === "/model pick a bigger one", 3000);
     i.unmount();
   });
 
@@ -137,7 +146,7 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     // focus is still the textarea: typing continues to edit the draft
     i.stdin.write("d");
     await sleep(60);
-    expect(i.frame().split("\n")[0]?.trim()).toBe("/moded");
+    expect(i.frame().split("\n")[0]?.trim()).toBe("/mode d");
     // the popup still follows the (now non-matching) draft — it closed
     expect(i.frame()).not.toContain("▶");
     i.unmount();
@@ -167,23 +176,26 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     await sleep(60);
     const frame = i.frame();
     // built-ins render [s], the user-defined one [u]; both show — description
-    expect(frame).toContain("[s] /ask-moh — which skill or flow fits?");
+    expect(frame).toContain("/ask-moh - [s]: which skill or flow fits?");
     // alphabetical: /my-own sits between /mode and /reload… scroll there
     i.stdin.write("my");
     await sleep(60);
-    expect(i.frame()).toContain("▶ [u] /my-own — a user-defined command");
+    expect(i.frame()).toContain("▶ /my-own - [u]: a user-defined command");
     i.unmount();
   });
 
-  test("Enter on the exact match runs the command straight from the popup", async () => {
+  test("Enter on the exact match completes like Tab (never sends the bare command)", async () => {
     let submitted = "";
     const i = await mount((t) => { submitted = t; }, BASE);
     i.stdin.write("/model");
     await sleep(60);
     expect(i.frame()).toContain("/model");
     i.stdin.write("\r");
-    await untilFrame(() => "", () => submitted === "/model", 3000);
-    expect(submitted).toBe("/model");
+    await sleep(60);
+    expect(submitted).toBe("");
+    // the draft holds the command (trailing space closes the popup)
+    expect(i.frame().split("\n")[0]?.trim()).toBe("/model");
+    expect(i.frame()).not.toContain("▶");
     i.unmount();
   });
 });
@@ -203,11 +215,12 @@ describe("slash popup at App level (Tab defers to the popup)", () => {
     const frame = stripAnsi(i.lastFrame() ?? "");
     // the command completed into the textarea…
     expect(frame.split("\n").some((l) => l.trim() === "/commands")).toBe(true);
-    // …and typing still edits the draft (focus never left the textarea)
+    // …and typing still edits the draft (focus never left the textarea);
+    // the trailing completion space separates command and typed text
     i.stdin.write("x");
     await sleep(80);
     const after = stripAnsi(i.lastFrame() ?? "");
-    expect(after.split("\n").some((l) => l.trim() === "/commandsx")).toBe(true);
+    expect(after.split("\n").some((l) => l.trim() === "/commands x")).toBe(true);
     i.unmount();
   });
 });

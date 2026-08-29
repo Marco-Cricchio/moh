@@ -268,22 +268,29 @@ export function MultilineInput({
     }
     // The completion popup owns the arrow keys while it is open: ↑/↓ move
     // the selection, Tab completes it into the draft (focus stays in the
-    // textarea — the input consumes the keypress), Enter accepts the
-    // selected command as a submit, Escape closes.
+    // textarea — the input consumes the keypress), and Enter accepts the
+    // selection exactly like Tab: the command lands in the textarea
+    // followed by a space (the space ends the slash prefix, closing the
+    // popup), so the user types the prompt and the next Enter sends it.
+    // Escape closes.
     const queryBeforeKeys = lines.length === 1 ? lines[0] ?? "" : "";
     const availableSuggestions = slashSuggestions(queryBeforeKeys, commands);
     if (availableSuggestions.length > 0 && (key.upArrow || key.downArrow)) {
       setSuggestionIndex((index) => (index + (key.downArrow ? 1 : -1) + availableSuggestions.length) % availableSuggestions.length);
       return;
     }
-    if (availableSuggestions.length > 0 && key.tab) {
-      replaceText(availableSuggestions[suggestionIndex]?.name ?? availableSuggestions[0]!.name);
+    const acceptSuggestion = () => {
+      const chosen = availableSuggestions[Math.min(suggestionIndex, availableSuggestions.length - 1)]?.name ?? availableSuggestions[0]!.name;
+      replaceText(`${chosen} `);
       setSuggestionIndex(0);
+    };
+    if (availableSuggestions.length > 0 && key.tab) {
+      acceptSuggestion();
       return;
     }
     if (key.return || input === "\r") {
       if (availableSuggestions.length > 0) {
-        submitFrom(availableSuggestions[Math.min(suggestionIndex, availableSuggestions.length - 1)]!.name);
+        acceptSuggestion();
         return;
       }
       // Shift+enter (kitty protocol reports it as name "return" + shift) and
@@ -356,18 +363,6 @@ export function MultilineInput({
     if (input && !key.ctrl && !key.meta) { setSuggestionIndex(0); insertText(input); }
   }
 
-  /** Accepts a popup selection: the completed command replaces the draft
-   * (even when only a prefix was typed) and submits immediately. */
-  const submitFrom = (completion: string) => {
-    setHistory((items) => [completion, ...items.filter((item) => item !== completion)].slice(0, HISTORY_LIMIT));
-    setHistoryIndex(-1);
-    setHistoryDraft(null);
-    setLines([""]); setCursorLine(0); setCursorColumn(0); setScrollOffset(0);
-    setUndo([]); setRedo([]);
-    setSuggestionIndex(0);
-    onSubmit(completion);
-  };
-
   const query = lines.length === 1 ? lines[0] ?? "" : "";
   const suggestions = slashSuggestions(query, commands);
   // Popup-open state travels to the app (effect, not render): its Tab
@@ -377,7 +372,7 @@ export function MultilineInput({
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
   // The popup scrolls with the selection instead of capping the list.
-  const popupRows = Math.min(4, suggestions.length);
+  const popupRows = Math.min(5, suggestions.length);
   const win = windowing(suggestions.length, Math.min(suggestionIndex, Math.max(0, suggestions.length - 1)), popupRows);
 
   return (
@@ -404,9 +399,15 @@ export function MultilineInput({
           {win.above > 0 && <Text color={theme.dim}>{`  ↑ ${win.above} more`}</Text>}
           {suggestions.slice(win.start, win.start + win.count).map((command, index) => {
             const selected = win.start + index === suggestionIndex;
+            // Row grammar: `/command - [s]/[u]: description`, truncated
+            // with … when the terminal is too narrow to fit it whole.
+            const marker = command.custom ? "u" : "s";
+            const full = `${command.name} - [${marker}]: ${command.description}`;
+            const budget = viewport.columns - 4;
+            const row = full.length > budget ? `${full.slice(0, Math.max(command.name.length + 8, budget - 1))}…` : full;
             return (
               <Text key={command.name} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
-                {selected ? " ▶ " : "   "}[{command.custom ? "u" : "s"}] {command.name} — {command.description}
+                {selected ? " ▶ " : "   "}{row}
               </Text>
             );
           })}

@@ -211,15 +211,19 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     i.unmount();
   });
 
-  test("slash completion accepts a matching command with Tab", async () => {
+  test("slash completion accepts a matching command with Tab (trailing space, Enter then sends)", async () => {
     let submitted = "";
     const i = await mount((text) => { submitted = text; }, [{ name: "/workflow", description: "toggle workflow", custom: false }]);
     i.stdin.write("/work");
     await sleep(20);
     i.stdin.write("\t");
     await sleep(20);
+    // Tab completes into the draft (trailing space); nothing is sent yet
+    expect(submitted).toBe("");
+    expect(i.frame().split("\n")[0]?.trim()).toBe("/workflow");
     i.stdin.write("\r");
     await sleep(30);
+    // submit trims: the command text (without the completion space) is sent
     expect(submitted).toBe("/workflow");
     i.unmount();
   });
