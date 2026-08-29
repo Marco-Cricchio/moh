@@ -7,6 +7,11 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- TUI: Markdown inline-code URLs inside tables retain literal `:` characters
+  instead of leaking marked-terminal's internal colon placeholder (#296).
+
 ## [0.6.0] - 2026-08-29
 
 ### Added
