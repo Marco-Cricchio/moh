@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Tool } from "./types";
-import { resolve, isAbsolute, relative } from "node:path";
+import { resolve, isAbsolute, relative, join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 /**
  * All built-in tools, keyed by name. Pure contract: name, description,
@@ -79,12 +81,104 @@ const bashTimeoutMs = (args: unknown): number => {
   return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : BASH_TIMEOUT_MS;
 };
 
-const bash: Tool<z.infer<typeof bashSchema>> = {
+/**
+ * #304: redundant re-run ledger, per session. Expensive *successful*
+ * suite-like runs record their full output to a temp file; an identical
+ * re-run against an unchanged tree inside the window is short-circuited
+ * with a pointer to that file. Every guard exists to protect legitimate
+ * re-runs (false positives are worse than the waste they cause).
+ */
+const RERUN_MIN_MS = 10_000;
+const RERUN_WINDOW_MS = 10 * 60_000;
+const FRESH_MARK = "# fresh";
+/** Escape hatch: a trailing `# fresh` always forces a real run. */
+function splitFresh(command: string): { command: string; fresh: boolean } {
+  const trimmed = command.trimEnd();
+  if (!trimmed.endsWith(FRESH_MARK)) return { command, fresh: false };
+  return { command: trimmed.slice(0, trimmed.length - FRESH_MARK.length).trimEnd(), fresh: true };
+}
+/** Whitespace-normalized command identity: same tokens, any spacing. */
+const normalizeCommand = (command: string): string => command.trim().split(/\s+/).join(" ");
+
+/**
+ * Suite-like commands (#304): the only class the interception considers —
+ * deterministic over the working tree, no external state. Anything else
+ * (`gh api`, `curl`, watchers) always runs. Token match, not substring:
+ * `grep bun test` must not count.
+ */
+const SUITE_PREFIXES = ["bun", "npm", "pnpm", "yarn", "npx", "jest", "vitest", "pytest", "cargo", "go", "make", "mvn", "gradle", "composer", "dotnet"];
+function isSuiteLike(command: string): boolean {
+  const tokens = normalizeCommand(command).split(" ");
+  // Walk past env assignments and leading cd/PATH segments (`cd pkg && …`).
+  let i = 0;
+  while (i < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]!) || tokens[i] === "cd" || tokens[i] === "&&" || tokens[i] === ";")) i++;
+  const head = tokens[i]?.split("/").pop() ?? "";
+  const second = tokens[i + 1] ?? "";
+  if (SUITE_PREFIXES.includes(head)) {
+    if (head === "make" || head === "cargo" || head === "go" || head === "composer" || head === "dotnet") return ["test", "check", "t"].includes(second);
+    return true; // bun/npm/pnpm/yarn/npx/jest/vitest/pytest/mvn/gradle: test-shaped by default
+  }
+  return false;
+}
+
+interface RecordedRun {
+  /** Normalized command identity. */
+  command: string;
+  /** Wall-clock duration of the recorded run. */
+  durationMs: number;
+  /** Output file holding the full, untruncated capture. */
+  file: string;
+  at: number;
+  /** `rev-parse HEAD` + `status --porcelain` at record time. */
+  gitState: string;
+}
+type RunLedger = Map<string, RecordedRun>;
+
+/** Best-effort git snapshot; null when not a repo or git fails → never intercept. */
+function gitSnapshot(cwd: string): string | null {
+  try {
+    const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "ignore" });
+    if (head.exitCode !== 0) return null;
+    const status = Bun.spawnSync(["git", "status", "--porcelain"], { cwd, stdout: "pipe", stderr: "ignore" });
+    if (status.exitCode !== 0) return null;
+    return `${head.stdout.toString().trim()}|${status.stdout.toString().trim()}`;
+  } catch {
+    return null;
+  }
+}
+
+const bashTool = (ledger: RunLedger): Tool<z.infer<typeof bashSchema>> => ({
   name: "bash",
-  description: "Run a shell command in the project root and capture its output.",
+  description:
+    "Run a shell command in the project root and capture its output. " +
+    "Successful runs of 10s+ save their full output to a file (pointer appended); " +
+    "grep that file instead of re-running. An identical suite-like re-run on an unchanged " +
+    "tree within 10 minutes is short-circuited with a pointer to the saved output — " +
+    `append "${FRESH_MARK}" to the command to force a real run.`,
   inputSchema: bashSchema,
   timeoutMs: bashTimeoutMs,
   async execute(args, ctx) {
+    const { command: rawCommand, fresh } = splitFresh(args.command);
+    const normalized = normalizeCommand(rawCommand);
+    const started = Date.now();
+    // #304 interception: only identical, suite-like commands on an
+    // unchanged git tree, within the window, never after #fresh. Missing
+    // ledger info (no git, different duration) → run for real.
+    const recorded = ledger.get(normalized);
+    if (
+      !fresh &&
+      recorded &&
+      isSuiteLike(normalized) &&
+      Date.now() - recorded.at <= RERUN_WINDOW_MS &&
+      gitSnapshot(ctx.cwd) === recorded.gitState
+    ) {
+      const age = Math.round((Date.now() - recorded.at) / 1000);
+      return [
+        `bash: identical suite-like command already run ${age}s ago (${Math.round(recorded.durationMs / 1000)}s, exit 0, tree unchanged) — not re-executed.`,
+        `Full output saved at: ${recorded.file}`,
+        `Grep/read that file instead of re-running. Append "${FRESH_MARK}" to this command to force a real run.`,
+      ].join("\n");
+    }
     const timeout = bashTimeoutMs(args);
     // After the parent exits, background descendants may still hold the
     // output pipes; the drain waits this long past exit before force-closing
@@ -153,9 +247,30 @@ const bash: Tool<z.infer<typeof bashSchema>> = {
     if (exitCode !== 0) {
       throw new Error(`exit code ${exitCode}: ${truncate(output || "(no output)")}`);
     }
-    return truncate(output);
+    const durationMs = Date.now() - started;
+    // #304: capture the full output of expensive successful suite-like
+    // runs and record them for interception. Failures/aborts/cheap runs
+    // never record — the ledger only ever short-circuits a proven-green
+    // expensive rerun.
+    let pointer = "";
+    if (durationMs >= RERUN_MIN_MS && isSuiteLike(rawCommand)) {
+      try {
+        const dir = join(tmpdir(), `moh-bash-${process.pid}`);
+        mkdirSync(dir, { recursive: true });
+        const file = join(dir, `run-${started}.log`);
+        writeFileSync(file, `$ ${rawCommand}\n\n${output}\n`);
+        const gitState = gitSnapshot(ctx.cwd);
+        if (gitState !== null) {
+          ledger.set(normalized, { command: normalized, durationMs, file, at: started, gitState });
+        }
+        pointer = `\n[full output saved: ${file}]`;
+      } catch {
+        // Capture is best-effort; a failure never affects the run result.
+      }
+    }
+    return truncate(output) + pointer;
   },
-};
+});
 
 const readSchema = z.object({
   path: z.string().min(1),
@@ -401,9 +516,10 @@ function joinSafe(root: string, rel: string): string {
 }
 
 export function builtinTools(): Record<string, Tool> {
-  // Per-session read ledger: shared by the read tool instances of this
-  // session only (#196).
+  // Per-session ledgers: the read tool's re-read nudge (#196) and the bash
+  // tool's re-run interception (#304) share this session scope only.
   const readLedger = new Map<string, ServedRead>();
-  const all = [bash, readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
+  const runLedger: RunLedger = new Map();
+  const all = [bashTool(runLedger), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));
 }

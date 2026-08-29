@@ -175,3 +175,90 @@ describe("bash effective timeout (#300)", () => {
     expect(resolve({ command: "ls", timeoutMs: -5 })).toBe(30_000);
   });
 });
+
+describe("bash re-run guard (#304)", () => {
+  // A git repo cwd: the guard requires a stable git snapshot. A fake
+  // Makefile makes `make test` (allowlisted suite head) slow-and-green
+  // without running a real test framework.
+  const repo = mkdtempSync(join(tmpdir(), "moh-304-"));
+  const repoCtx: ToolContext = { ...ctx, cwd: repo };
+  Bun.spawnSync(["git", "init", "-q"], { cwd: repo });
+  Bun.spawnSync(["git", "config", "user.email", "t@t"], { cwd: repo });
+  Bun.spawnSync(["git", "config", "user.name", "t"], { cwd: repo });
+  writeFileSync(join(repo, "a.txt"), "v1");
+  const fakeSuite = (target: string, body: string) =>
+    writeFileSync(join(repo, "Makefile"), `\n${target}:\n\t${body}\n`);
+  const commit = (msg: string) => {
+    Bun.spawnSync(["git", "add", "-A"], { cwd: repo });
+    Bun.spawnSync(["git", "commit", "-qm", msg], { cwd: repo });
+  };
+  commit("init");
+
+  const guardTools = builtinTools();
+
+  test("an expensive successful suite-like run saves full output and intercepts the identical re-run", async () => {
+    fakeSuite("test", "sleep 11 && echo '(pass) one'");
+    const out = await guardTools.bash.execute({ command: "make test" }, repoCtx);
+    expect(out).toContain("(pass) one");
+    expect(out).toMatch(/\[full output saved: .+\]/);
+    const again = await guardTools.bash.execute({ command: "make   test" }, repoCtx); // whitespace-normalized identity
+    expect(again).toContain("not re-executed");
+    expect(again).toMatch(/Full output saved at: .+/);
+  }, 30_000);
+
+  test("# fresh forces a real run and refreshes the saved output", async () => {
+    fakeSuite("fresh", "sleep 11 && echo fresh-green");
+    await guardTools.bash.execute({ command: "make fresh" }, repoCtx);
+    const fresh = await guardTools.bash.execute({ command: "make fresh # fresh" }, repoCtx);
+    expect(fresh).toContain("fresh-green");
+    expect(fresh).not.toContain("not re-executed");
+  }, 30_000);
+
+  test("a different command runs for real even in the interception class", async () => {
+    fakeSuite("other", "sleep 11 && echo other-green");
+    await guardTools.bash.execute({ command: "make other" }, repoCtx);
+    fakeSuite("other", "sleep 11 && echo other-green-2");
+    commit("tweak");
+    const out = await guardTools.bash.execute({ command: "make other" }, repoCtx);
+    expect(out).toContain("other-green-2");
+    expect(out).not.toContain("not re-executed");
+  }, 30_000);
+
+  test("no git repo: capture still helps, but nothing is ever intercepted", async () => {
+    const plain = mkdtempSync(join(tmpdir(), "moh-304-nogit-"));
+    const plainCtx: ToolContext = { ...ctx, cwd: plain };
+    writeFileSync(join(plain, "Makefile"), "\ntest:\n\tsleep 11 && echo nogit\n");
+    const out = await guardTools.bash.execute({ command: "make test" }, plainCtx);
+    expect(out).toContain("nogit");
+    const again = await guardTools.bash.execute({ command: "make test" }, plainCtx);
+    expect(again).toContain("nogit");
+    expect(again).not.toContain("not re-executed");
+  }, 30_000);
+
+  test("cheap commands never capture and never intercept", async () => {
+    fakeSuite("cheap", "echo cheap-target");
+    const out = await guardTools.bash.execute({ command: "make cheap" }, repoCtx);
+    expect(out).not.toMatch(/\[full output saved/);
+    const again = await guardTools.bash.execute({ command: "make cheap" }, repoCtx);
+    expect(again).toContain("cheap-target");
+    expect(again).not.toContain("not re-executed");
+  });
+
+  test("failed runs never record — the retry after red runs for real", async () => {
+    fakeSuite("red", "sleep 11 && echo oops >&2 && exit 1");
+    await expect(guardTools.bash.execute({ command: "make red" }, repoCtx)).rejects.toThrow(/exit code/);
+    fakeSuite("red", "sleep 11 && echo now-green");
+    const out = await guardTools.bash.execute({ command: "make red", timeoutMs: 20_000 }, repoCtx);
+    expect(out).toContain("now-green");
+    expect(out).not.toContain("not re-executed");
+  }, 40_000);
+
+  test("a tree change defeats interception — the re-run is legitimate", async () => {
+    fakeSuite("tree", "sleep 11 && echo tree-green");
+    await guardTools.bash.execute({ command: "make tree" }, repoCtx);
+    writeFileSync(join(repo, "c.txt"), "uncommitted change");
+    const out = await guardTools.bash.execute({ command: "make tree" }, repoCtx);
+    expect(out).toContain("tree-green");
+    expect(out).not.toContain("not re-executed");
+  }, 40_000);
+});

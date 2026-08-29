@@ -7,6 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- bash tool, feedback loop against redundant suite re-runs (#304): successful
+  runs of 10s+ save their full output to a file (pointer appended to the
+  result) so the model can grep it instead of re-running with a different
+  pipe; an identical suite-like re-run against an unchanged git tree within
+  10 minutes is short-circuited with a pointer to the saved output. Guards
+  protect every legitimate re-run (failures, cheap commands, non-suite
+  commands, tree changes, no-git trees); `# fresh` forces a real run.
+
 ### Changed
 
 - Add-provider wizard: the openai-compat Base URL step now offers a curated,
