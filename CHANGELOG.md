@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- Model catalogs regenerated from pi-ai 0.84.4: 113 additional OpenRouter
+  thinking-level maps (unmapped `reasoning:true` models drop 212 → 99) plus
+  copilot/zai data refresh (#338).
+
 ## [0.7.2] - 2026-08-30
 
 ### Fixed
