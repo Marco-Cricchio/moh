@@ -34,6 +34,7 @@ import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from 
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
 import { useViewport } from "./viewport";
+import { trackExitWork } from "./exit";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
 import { AskUserModal } from "./AskUserModal";
@@ -361,7 +362,10 @@ export function App({
   // end: when the active session is replaced or the app unmounts (#15).
   useEffect(() => {
     return () => {
-      void session?.dispose({ timeoutMs: 2000 });
+      // Tracked (#341) so the CLI entry point can bound this cleanup and
+      // terminate the process even when lingering handles (Bun HTTP
+      // keep-alive sockets) would otherwise hold the shell prompt.
+      trackExitWork(session?.dispose({ timeoutMs: 2000 }).catch(() => {}) ?? Promise.resolve());
     };
   }, [session]);
 

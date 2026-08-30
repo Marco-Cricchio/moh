@@ -7,6 +7,13 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- Double `Ctrl+C` exit no longer holds the shell prompt for ~3s after the
+  UI disappears: the CLI now bounds tracked session cleanup (2.5s budget) and
+  terminates explicitly, so lingering event-loop handles — Bun HTTP keep-alive
+  sockets from provider traffic — cannot delay a deliberate exit (#341).
+
 ### Changed
 
 - Model catalogs regenerated from pi-ai 0.84.4: 113 additional OpenRouter

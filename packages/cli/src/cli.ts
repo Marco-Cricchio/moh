@@ -36,7 +36,13 @@ async function tuiCommand(): Promise<number> {
   const { CLI_VERSION } = await import("./version");
   const instance = renderTui({ cwd: process.cwd(), version: CLI_VERSION });
   await instance.waitUntilExit?.();
-  return 0;
+  // #341: exit is deliberate, so it must be bounded — tracked session
+  // disposal gets a budget, then the process terminates explicitly.
+  // Without this, Bun HTTP keep-alive sockets (provider traffic) hold the
+  // event loop for seconds after the UI is gone and the shell prompt only
+  // returns when they time out.
+  const { finishExit } = await import("@moh/tui");
+  return finishExit(2500, 0);
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
