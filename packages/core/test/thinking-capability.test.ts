@@ -55,7 +55,9 @@ describe("#256 thinkingStatesForRef resolution chain", () => {
     const endpoints = [{ name: "openrouter", type: "openrouter" }];
     const states = thinkingStatesForRef(luna, endpoints);
     expect(states?.xhigh).toBe("supported");
-    expect(states?.low).toBe("provider-default");
+    // pi-ai 0.84.4 maps low explicitly (0.84.3 left it unmapped);
+    // minimal is not a canonical level (normalized away upstream).
+    expect(states?.low).toBe("supported");
   });
 
   test("endpoint-level declaration supplies capability where no catalog exists", () => {
@@ -109,7 +111,7 @@ describe("#256 thinkingStatesForRef resolution chain", () => {
     // vendored map (xhigh/max), not the unusable declared levels.
     const states = thinkingStatesForRef(luna, endpoints);
     expect(states?.xhigh).toBe("supported");
-    expect(states?.low).toBe("provider-default");
+    expect(states?.low).toBe("supported");
   });
 });
 
