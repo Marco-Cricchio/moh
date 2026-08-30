@@ -129,12 +129,15 @@ export type AuthOverrides = z.infer<typeof authOverridesSchema>;
 
 /**
  * The `auth` section of `~/.moh/config`: tokens keyed by endpoint name,
- * plus provider overrides for client_id / issuer URLs.
+ * provider overrides for client_id / issuer URLs, and — SEC-06 — api keys
+ * the wizard would otherwise persist inline in moh.json.
  * This section is **never a merge candidate** (issue #129 seam): the
  * provider merge reads only `provider`/`endpoints`.
  */
 export const authSectionSchema = z.object({
   tokens: z.record(z.string(), authTokenSchema),
+  /** SEC-06: api keys keyed by endpoint name (wizard-stored, 0600). */
+  apiKeys: z.record(z.string(), z.string()).optional(),
   overrides: authOverridesSchema.optional(),
 });
 export type AuthSection = z.infer<typeof authSectionSchema>;

@@ -171,6 +171,13 @@ export function splitCommandSegments(command: string): string[][] {
       i += isDouble ? 2 : 1;
       continue;
     }
+    // A bare newline terminates a shell command just like `;`; treating it
+    // as whitespace would let `bash:git status` cover `git status\nrm -rf /`.
+    if (c === "\n" || c === "\r") {
+      pushSegment();
+      i += 1;
+      continue;
+    }
     if (/\s/.test(c)) {
       pushWord();
       i += 1;
@@ -188,6 +195,35 @@ export function splitCommandSegments(command: string): string[][] {
 function isTokenPrefix(prefix: string[], tokens: string[]): boolean {
   if (prefix.length === 0 || prefix.length > tokens.length) return false;
   return prefix.every((t, i) => t === tokens[i]);
+}
+
+/**
+ * SEC-04: true when the command contains shell metacharacters that a
+ * token-prefix allow rule cannot see — unquoted `$(`, backticks,
+ * process substitution `<(` or redirection `>`/`>>` (single-quoted text
+ * is literal and excluded; double quotes are not, since they still
+ * expand). Such commands are forced to "ask" even when a token-prefix
+ * rule matches: the covered tokens describe the command, but the
+ * metacharacters smuggle side effects the rule never saw.
+ */
+export function hasUncoveredShellMetachars(command: string): boolean {
+  let i = 0;
+  while (i < command.length) {
+    const c = command[i]!;
+    if (c === "'") {
+      // Single-quoted span: literal, skip to the closing quote.
+      i += 1;
+      while (i < command.length && command[i] !== "'") i += 1;
+      i += 1;
+      continue;
+    }
+    if (c === "$" && command[i + 1] === "(") return true;
+    if (c === "`") return true;
+    if (c === "<" && command[i + 1] === "(") return true;
+    if (c === ">") return true; // > and >> (any redirection, 2> included)
+    i += 1;
+  }
+  return false;
 }
 
 function ruleSpecificity(rule: PermissionRule): number {
@@ -214,6 +250,8 @@ export class PermissionResolver {
   readonly mode: SessionMode;
   readonly cwd: string;
   readonly #rules: PermissionRule[];
+  /** Bare tool-level "allow" rule for bash (no token matcher) exists. */
+  #hasBareAllow = false;
 
   constructor(opts: PermissionResolverOptions) {
     this.mode = opts.mode ?? "normal";
@@ -236,6 +274,7 @@ export class PermissionResolver {
     for (const path of ov.pathDeny ?? []) rules.push({ tier: "config", tool: "*", effect: "deny", path });
     for (const rule of opts.runtimeRules ?? []) rules.push({ ...rule, tier: "runtime" });
     this.#rules = rules;
+    this.#hasBareAllow = rules.some((r) => r.tool === "bash" && r.effect === "allow" && !r.tokens && !r.path);
   }
 
   /** All active rules (snapshot), e.g. for debugging or replay. */
@@ -247,6 +286,9 @@ export class PermissionResolver {
   addRuntimeRule(rule: Omit<PermissionRule, "tier"> & Partial<Pick<PermissionRule, "tier">>): void {
     const { tier: _ignored, ...rest } = rule;
     this.#rules.push({ ...rest, tier: "runtime" });
+    if (rest.tool === "bash" && rest.effect === "allow" && !rest.tokens && !rest.path) {
+      this.#hasBareAllow = true;
+    }
   }
 
   /**
@@ -258,12 +300,23 @@ export class PermissionResolver {
       const segments = splitCommandSegments(args.command);
       if (segments.length === 0) return "ask";
       let uncovered = false;
+      let prefixMatchedOnly = false;
       for (const tokens of segments) {
         const decision = this.#best(toolName, tokens, undefined);
         if (decision === "deny") return "deny";
         if (decision !== "allow") uncovered = true;
+        else {
+          // Which rule won? A bare `bash: allow` (tool-level) covers the
+          // whole command semantics by user intent; only token-prefix
+          // rules need the SEC-04 metacharacter guard.
+          if (!this.#hasBareAllow) prefixMatchedOnly = true;
+        }
       }
-      return uncovered ? "ask" : "allow";
+      if (uncovered) return "ask";
+      // SEC-04: when coverage comes only from token-prefix rules, any
+      // unquoted shell metacharacter in the command forces an ask.
+      if (prefixMatchedOnly && hasUncoveredShellMetachars(args.command)) return "ask";
+      return "allow";
     }
     if (typeof args?.path === "string") {
       const rel = this.relativeInRoot(args.path);
@@ -282,7 +335,15 @@ export class PermissionResolver {
   /** Builds a runtime rule from an "always" answer for the given invocation. */
   runtimeRuleFor(toolName: string, args: any): Omit<PermissionRule, "tier"> | null {
     if (toolName === "bash" && typeof args?.command === "string") {
-      const tokens = splitCommandSegments(args.command).flat();
+      // SEC-04: a compound command cannot become one flat token prefix —
+      // flattening yields a never-matching list ("git status && rm x" →
+      // ["git","status","rm","x"] covers nothing). One segment: one rule.
+      // Compounds: refuse — the "always" answer applies to this session's
+      // runtime rule set only via explicit per-segment rules, so the user
+      // re-approves each segment the first time it runs.
+      const segments = splitCommandSegments(args.command);
+      if (segments.length !== 1) return null;
+      const tokens = segments[0]!;
       if (tokens.length === 0) return null;
       return { tool: "bash", effect: "allow", tokens };
     }

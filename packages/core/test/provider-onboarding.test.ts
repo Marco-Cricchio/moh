@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { minimalConnectionTest, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
 import {
   addProviderToFile,
@@ -341,7 +343,8 @@ describe("runProviderAdd (subscription branch)", () => {
     }
   });
 
-  test("api-key choice keeps the byte-identical key prompt path", async () => {
+  test("api-key choice stores the key in the guardian auth store, never moh.json (SEC-06)", async () => {
+    const authFile = join(mkdtempSync(join(tmpdir(), "moh-key-store-")), "config");
     const io = ioWith([
       "anthropic",
       "",
@@ -350,9 +353,12 @@ describe("runProviderAdd (subscription branch)", () => {
       "",
       "claude-sonnet-4-5",
     ]);
-    const profile = await runProviderAdd(io, okTest());
+    const profile = await runProviderAdd(io, okTest(), { authFile });
     expect(profile.auth).toBeUndefined();
-    expect(profile.apiKey).toBe("sk-live");
+    expect(profile.apiKey).toBeUndefined();
+    const stored = JSON.parse(readFileSync(authFile, "utf8"));
+    expect(stored.auth.apiKeys.anthropic).toBe("sk-live");
+    expect(Bun.file(authFile).size).toBeGreaterThan(0);
   });
 
   test("openai-compat never asks for an auth method (no subscription grant)", async () => {

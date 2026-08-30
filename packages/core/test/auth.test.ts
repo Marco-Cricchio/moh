@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authSectionSchema, authMethodKindSchema, authTokenSchema, endpointAuthSchema } from "../src/auth/types";
-import { clearTokens, getStoredToken, readStoredTokens, saveTokens } from "../src/auth/store";
+import { clearStoredApiKey, clearTokens, getStoredApiKey, getStoredToken, readStoredTokens, saveStoredApiKey, saveTokens } from "../src/auth/store";
 import { loadMergedConfig, upsertUserEndpoint } from "../src/provider-config";
 import { updateUserConfigFile, userConfigFile } from "../src/user-config";
 
@@ -39,8 +39,9 @@ describe("auth schemas", () => {
     expect(authTokenSchema.parse(token)).toEqual(token);
   });
 
-  test("authSectionSchema: tokens keyed by endpoint name", () => {
+  test("authSectionSchema: tokens and optional wizard-stored api keys keyed by endpoint name", () => {
     expect(authSectionSchema.parse({ tokens: { myend: token } })).toEqual({ tokens: { myend: token } });
+    expect(authSectionSchema.parse({ tokens: {}, apiKeys: { myend: "sk-live" } }).apiKeys).toEqual({ myend: "sk-live" });
     expect(authSectionSchema.safeParse({ tokens: { x: { accessToken: "a" } } }).success).toBe(false);
   });
 });
@@ -59,6 +60,18 @@ describe("auth store", () => {
     const raw = JSON.parse(readFileSync(file, "utf8"));
     expect(raw.mode).toBe("dev");
     expect(raw.endpoints).toHaveLength(1);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test("stored api key roundtrip is guardian-owned and does not disturb tokens (SEC-06)", () => {
+    const file = tmpFile();
+    saveTokens(file, "claude", token);
+    saveStoredApiKey(file, "openai", "sk-live");
+    expect(getStoredApiKey(file, "openai")).toBe("sk-live");
+    expect(getStoredToken(file, "claude")).toEqual(token);
+    clearStoredApiKey(file, "openai");
+    expect(getStoredApiKey(file, "openai")).toBeUndefined();
+    expect(getStoredToken(file, "claude")).toEqual(token);
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 

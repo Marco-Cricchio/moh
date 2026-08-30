@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
@@ -140,6 +140,51 @@ describe("built-in tools", () => {
     expect(none.trim()).toBe("");
   });
 
+  // SEC-03 regression: symlink escape at execution time.
+  test("write through an in-root symlink pointing outside is rejected (SEC-03)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-outside-"));
+    const link = join(cwd, "evil-link");
+    // A directory symlink makes `link/f.txt` a genuine valid write outside
+    // the project without the execution-time resolved-path guard.
+    try { symlinkSync(outside, link); } catch { return; } // no symlink permission → skip
+    await expect(
+      tools.write.execute({ path: join(cwd, "evil-link", "f.txt"), content: "x" }, ctx),
+    ).rejects.toThrow(/outside project root/);
+    await expect(
+      tools.read.execute({ path: "evil-link/f.txt" }, ctx),
+    ).rejects.toThrow(/outside project root/);
+    expect(Bun.file(join(outside, "f.txt")).size).toBe(0);
+  });
+
+  test("plain in-root writes still work, including new nested dirs (SEC-03)", async () => {
+    await tools.write.execute({ path: join(cwd, "new-dir", "sub", "f.txt"), content: "ok" }, ctx);
+    expect(await tools.read.execute({ path: join(cwd, "new-dir", "sub", "f.txt") }, ctx)).toBe("ok");
+  });
+
+  // SEC-07 regression: glob pattern escape.
+  test("glob rejects patterns escaping the root (SEC-07)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-outside2-"));
+    writeFileSync(join(outside, "secret.txt"), "x");
+    await expect(tools.glob.execute({ pattern: "../out/**" }, ctx)).rejects.toThrow(/escapes the project root/);
+    await expect(tools.glob.execute({ pattern: outside + "/**" }, ctx)).rejects.toThrow(/escapes the project root/);
+  });
+
+  test("glob filters symlinked matches pointing outside the root (SEC-07)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-outside3-"));
+    writeFileSync(join(outside, "leak.txt"), "x");
+    try { symlinkSync(join(outside, "leak.txt"), join(cwd, "leak-link.txt")); } catch { return; }
+    const out = await tools.glob.execute({ pattern: "leak*" }, ctx);
+    expect(out).not.toContain("leak-link.txt");
+  });
+
+  test("grep does not read an in-root symlink pointing outside (SEC-03)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-outside-grep-"));
+    const secret = join(outside, "secret.txt");
+    writeFileSync(secret, "SECRETMARKER");
+    try { symlinkSync(secret, join(cwd, "grep-leak.txt")); } catch { return; }
+    expect(await tools.grep.execute({ pattern: "SECRETMARKER" }, ctx)).not.toContain("SECRETMARKER");
+  });
+
   test("todo stores and returns the task list", async () => {
     const todos = [{ content: "first", status: "pending" as const }, { content: "second", status: "in_progress" as const }];
     const out = await tools.todo.execute({ todos }, ctx);
@@ -154,10 +199,36 @@ describe("built-in tools", () => {
 
   test("fetch retrieves a URL body", async () => {
     const out = await tools.fetch.execute(
-      { url: "data:text/plain,hello-fetch" },
+      { url: "https://example.com/" },
       ctx,
     );
-    expect(out).toContain("hello-fetch");
+    expect(out).toContain("Example Domain");
+  });
+
+  // SEC-05 regression suite.
+  test("fetch rejects non-http schemes (file:, data:)", async () => {
+    await expect(tools.fetch.execute({ url: "file:///etc/hosts" }, ctx)).rejects.toThrow(/only http\/https/);
+    await expect(tools.fetch.execute({ url: "data:text/plain,x" }, ctx)).rejects.toThrow(/only http\/https/);
+  });
+
+  test("fetch blocks private/loopback hosts by default (SEC-05)", async () => {
+    await expect(tools.fetch.execute({ url: "http://localhost:1/" }, ctx)).rejects.toThrow(/private\/loopback/);
+    await expect(tools.fetch.execute({ url: "http://169.254.169.254/latest/meta-data" }, ctx)).rejects.toThrow(/private\/loopback/);
+    await expect(tools.fetch.execute({ url: "http://10.0.0.5/x" }, ctx)).rejects.toThrow(/private\/loopback/);
+    await expect(tools.fetch.execute({ url: "http://[fe80::1]/" }, ctx)).rejects.toThrow(/private\/loopback/);
+  });
+
+  test("fetch re-checks redirects (SEC-05): a hop to a private target is blocked", async () => {
+    // A local listener that answers with a redirect to the metadata IP.
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response(null, { status: 302, headers: { location: "http://169.254.169.254/x" } }),
+    });
+    try {
+      await expect(tools.fetch.execute({ url: `http://localhost:${server.port}/redir` }, ctx)).rejects.toThrow();
+    } finally {
+      server.stop(true);
+    }
   });
 });
 

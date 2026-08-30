@@ -25,11 +25,13 @@ export interface PermissionRequestView {
 export function describePermissionRequest(tool: string, args: unknown): PermissionRequestView {
   const a = (args ?? {}) as Record<string, unknown>;
   if (tool === "bash" && typeof a.command === "string") {
-    // Mirrors the core's runtimeRuleFor("always"): one flat token prefix
-    // over the whole (compound) command — the preview is exactly the rule
-    // "always" writes, in the canonical grammar.
-    const tokens = splitCommandSegments(a.command).flat();
-    const rule = tokens.length > 0 ? formatRule({ tier: "runtime", tool: "bash", effect: "allow", tokens }) : null;
+    // Mirrors the core's runtimeRuleFor("always") (SEC-04): one rule for a
+    // single-segment command only — compounds are never flattened into a
+    // never-matching token list, so "always" offers no preview there.
+    const segments = splitCommandSegments(a.command);
+    const rule = segments.length === 1 && segments[0]!.length > 0
+      ? formatRule({ tier: "runtime", tool: "bash", effect: "allow", tokens: segments[0]! })
+      : null;
     return { tool, args, detail: [`command: ${a.command}`], rulePreview: rule };
   }
   if (typeof a.path === "string") {

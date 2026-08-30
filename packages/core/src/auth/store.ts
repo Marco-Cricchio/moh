@@ -36,7 +36,7 @@ export function readAuthSection(
     const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
     throw new Error(`invalid ${file} auth section: ${issues}`);
   }
-  return parsed.data;
+  return { ...parsed.data, apiKeys: parsed.data.apiKeys ?? {} };
 }
 
 /** Tokens for one endpoint, or undefined when none are stored. */
@@ -80,6 +80,48 @@ export function clearTokens(file: string, endpoint: string, io: UserConfigIo = {
       const tokens = { ...(existing.tokens ?? {}) };
       delete tokens[endpoint];
       data.auth = { ...(data.auth as Record<string, unknown>), tokens };
+    },
+    io,
+  );
+}
+
+/** SEC-06: reads an api key the wizard stored for one endpoint. */
+export function getStoredApiKey(
+  file: string,
+  endpoint: string,
+  read: (file: string) => string = (f) => readFileSync(file, "utf8"),
+): string | undefined {
+  return readAuthSection(file, read).apiKeys?.[endpoint];
+}
+
+/** SEC-06: stores/replaces one endpoint's api key in the auth store. */
+export function saveStoredApiKey(
+  file: string,
+  endpoint: string,
+  key: string,
+  io: UserConfigIo = {},
+): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      if (data.auth === undefined || typeof data.auth !== "object") data.auth = { tokens: {} };
+      const auth = data.auth as { tokens?: unknown; apiKeys?: Record<string, string> };
+      data.auth = { ...auth, apiKeys: { ...(auth.apiKeys ?? {}), [endpoint]: key } };
+    },
+    io,
+  );
+}
+
+/** SEC-06: drops one endpoint's stored api key through the guardian. */
+export function clearStoredApiKey(file: string, endpoint: string, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      if (data.auth === undefined || typeof data.auth !== "object") return;
+      const auth = data.auth as { apiKeys?: Record<string, string> };
+      const apiKeys = { ...(auth.apiKeys ?? {}) };
+      delete apiKeys[endpoint];
+      data.auth = { ...(data.auth as Record<string, unknown>), apiKeys };
     },
     io,
   );

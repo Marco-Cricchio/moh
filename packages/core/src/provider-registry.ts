@@ -11,6 +11,8 @@ import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
 import { catalogEntryFor } from "./model-catalog";
+import { getStoredApiKey } from "./auth/store";
+import { userConfigFile } from "./user-config";
 
 /** Options a custom provider factory receives from an endpoint profile. */
 export interface ProviderFactoryOptions {
@@ -113,7 +115,7 @@ function resolveProfile(
   fallbacks: RouteTarget[],
   thinkingForTarget?: (target: RouteTarget) => StreamOptions["thinking"] | undefined,
 ): Provider {
-  const apiKey = profile.apiKey ?? envApiKey(profile.name);
+  const apiKey = profile.apiKey ?? envApiKey(profile.name) ?? getStoredApiKey(userConfigFile(), profile.name);
   const route = (target: RouteTarget): Provider =>
     createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}), ...(thinkingForTarget ? { thinkingForTarget } : {}) });
   if (BUILTIN_KINDS.has(profile.type)) {
@@ -220,7 +222,7 @@ function fallbackStopsFor(
       if (a.h === undefined && b.h !== undefined) return 1;
       return a.index - b.index;
     })
-    .map(({ e }) => routeTargetFor(e, e.defaultModel!, e.apiKey ?? envApiKey(e.name)));
+    .map(({ e }) => routeTargetFor(e, e.defaultModel!, e.apiKey ?? envApiKey(e.name) ?? getStoredApiKey(userConfigFile(), e.name)));
   return ranked;
 }
 
