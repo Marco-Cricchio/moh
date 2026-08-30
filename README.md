@@ -31,11 +31,17 @@ lives in the headless core; every client is thin.**
 - **Skills, subagents, memory, MCP.** Progressive-disclosure skills, in-process
   subagents with strict tool inheritance, cross-session per-project memory
   consolidated by a maintenance subagent, lazy MCP servers.
-- **Update check** (ADR-0014): at TUI startup the binary queries GitHub's
-  `releases/latest` API at most once every 24h and surfaces a notice plus the
-  `moh update` remedy. The check carries no identifiers, is skipped in dev
-  runs, and can be disabled with `"updateCheck": false` in `~/.moh/config`.
-  Network failures are always silent — it never delays startup.
+- **Update check** (ADR-0014): while a TUI session is open, moh polls for
+  updates every 30 minutes — the binary against GitHub's `releases/latest`
+  API, and the first-party skills against the skills upstream index — and
+  surfaces a notice on the status bar (plus the `moh update` / `/skills
+  update` remedies). The checks carry no identifiers, the binary check is
+  skipped in dev runs, and both can be disabled with
+  `"updateCheck": false` in `~/.moh/config` (the former
+  `workflow.upstreamCheck` gate is deprecated — see ADR-0014). Network
+  failures are always silent — they never delay startup, and polling never
+  installs anything: skill updates always require the explicit
+  `/skills update apply` consent.
 
 ## Install
 

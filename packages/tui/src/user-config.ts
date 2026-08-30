@@ -19,7 +19,9 @@ export type DefaultPermissionMode = "normal" | "auto-accept";
 /** Workflow mode settings (#36): off by default — base behavior untouched. */
 export interface WorkflowSettings {
   enabled: boolean;
-  /** Opt-out of the background first-party skill update check. */
+  /** Deprecated (#348): controlled nothing anymore — the skill upstream
+   * check moved to the shared `updateCheck` opt-out (ADR-0014). Kept
+   * only so existing config files keep parsing; see ADR-0014. */
   upstreamCheck: boolean;
 }
 

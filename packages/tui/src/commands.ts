@@ -73,6 +73,15 @@ export interface SlashContext {
   onCycleTheme?: () => void;
   /** Opens the settings panel (`/settings`). */
   onOpenSettings?: () => void;
+  /** #348: reports the result of an explicit `/skills update` check so
+   * the status-row skill notice can synchronise without another network
+   * call. Called without a result after apply, when the App must recheck
+   * because modified skills may have been skipped. */
+  onSkillUpdatesChanged?: (result?: UpstreamCheckResult) => void;
+  /** #348: injectable upstream check (default: the core
+   * `checkUpstreamUpdates`) — tests substitute it; production callers
+   * never pass it. */
+  skillsCheck?: typeof checkUpstreamUpdates;
 }
 
 export interface SlashCommand {
@@ -157,11 +166,18 @@ const skillsCommand: SlashCommand = {
       ctx.notify(names.length ? `first-party skills: ${names.join(", ")}` : "no first-party skills installed (/workflow on)");
       return;
     }
-    void checkUpstreamUpdates({ mohHome: ctx.mohHome })
+    void (ctx.skillsCheck ?? checkUpstreamUpdates)({ mohHome: ctx.mohHome })
       .then((result) => {
-        if (!result.ok) return ctx.notify(upstreamCheckMessage(result));
+        // #348: an explicit refresh owns fresh knowledge too; project it
+        // immediately, rather than leave the persistent row-2 count stale.
+        ctx.onSkillUpdatesChanged?.(result);
+        if (!result.ok) {
+          return ctx.notify(upstreamCheckMessage(result));
+        }
         const updates = result.updates;
-        if (updates.length === 0) return ctx.notify(upstreamCheckMessage(result));
+        if (updates.length === 0) {
+          return ctx.notify(upstreamCheckMessage(result));
+        }
         if (confirm !== "apply") {
           // Show every diff in full first; consent is the separate
           // `/skills update apply` invocation (hashes re-verified there).
@@ -183,6 +199,9 @@ const skillsCommand: SlashCommand = {
           pendingUpdates = null;
           ctx.notify(`skills updated: ${report.applied.join(", ") || "none"}${report.skippedModified.length ? ` · modified, skipped: ${report.skippedModified.join(", ")}` : ""}`);
           ctx.session?.refreshSkills();
+          // Application can skip locally modified skills, so recheck rather
+          // than pretending the earlier plan is now empty.
+          ctx.onSkillUpdatesChanged?.();
         });
       })
       .catch(() => ctx.notify("skills update check failed"));

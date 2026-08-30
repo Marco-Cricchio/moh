@@ -396,6 +396,50 @@ describe("/thinking controls (#242)", () => {
   });
 });
 
+describe("/skills update notice sync (#348)", () => {
+  function fakeCheck(result: import("@moh/core").UpstreamCheckResult) {
+    return async () => result;
+  }
+
+  // `/skills` is workflow vocabulary: enable workflow mode for these.
+  function skillsCtx(over: Partial<SlashContext> = {}): TestSlashContext {
+    const ctx = makeCtx(over);
+    ctx.updateConfig({ workflow: { enabled: true, upstreamCheck: true } });
+    return ctx;
+  }
+
+  test("an explicit check notifies the skill-notice owner even with no updates", async () => {
+    let syncs = 0;
+    const ctx = skillsCtx({ skillsCheck: fakeCheck({ ok: true, updates: [] }), onSkillUpdatesChanged: () => { syncs++; } });
+    runSlashCommand("/skills update", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(syncs).toBe(1);
+    expect(ctx.notices().at(-1)).toBe("skills up to date");
+  });
+
+  test("a failed explicit check still notifies (the notice may be stale)", async () => {
+    let syncs = 0;
+    const ctx = skillsCtx({ skillsCheck: fakeCheck({ ok: false, reason: "http 404" }), onSkillUpdatesChanged: () => { syncs++; } });
+    runSlashCommand("/skills update", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(syncs).toBe(1);
+  });
+
+  test("apply notifies after installing", async () => {
+    let syncs = 0;
+    const ctx = skillsCtx({
+      skillsCheck: fakeCheck({ ok: true, updates: [{ name: "tdd", currentHash: "a", upstreamHash: "b", files: {} }] }),
+      onSkillUpdatesChanged: () => { syncs++; },
+    });
+    runSlashCommand("/skills update", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    const before = syncs;
+    runSlashCommand("/skills update apply", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(syncs).toBeGreaterThan(before);
+  });
+});
+
 describe("/skills update result mapping (#344)", () => {
   test("an unreachable upstream names the reason, never 'up to date'", () => {
     expect(upstreamCheckMessage({ ok: false, reason: "http 404" })).toBe("skills update check failed (http 404)");
