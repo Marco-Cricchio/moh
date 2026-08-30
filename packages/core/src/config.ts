@@ -5,7 +5,7 @@
  * OpenAI-compatible endpoint (Ollama, LM Studio, DeepSeek, Kimi, GLM,
  * Qwen, Grok, OpenRouter) without writing code.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 
 // Defined in auth/types.ts (issue #132); reused here because auth/types
@@ -147,12 +147,38 @@ export function loadMohConfig(
     const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
     throw new Error(`invalid ${file}: ${issues}`);
   }
+  warnIfLoose(file, parsed.data);
   return parsed.data;
+}
+
+/** True when the config carries at least one inline api key. */
+function configHasApiKey(config: MohConfig): boolean {
+  return (config.endpoints ?? []).some((e) => typeof e.apiKey === "string" && e.apiKey !== "");
+}
+
+/** Warns (stderr) when a key-bearing moh.json is readable by group/other (SEC-06). */
+function warnIfLoose(file: string, config: MohConfig): void {
+  if (!configHasApiKey(config)) return;
+  try {
+    const mode = statSync(file).mode & 0o777;
+    if (mode & 0o077) {
+      process.stderr.write(
+        `warning: ${file} contains an inline API key and is mode ${mode.toString(8)} (group/other readable); run \`chmod 600 ${file}\` — better: remove inline keys and use env vars or \`moh provider login\`\n`,
+      );
+    }
+  } catch { /* stat failure: the write path surfaces real errors */ }
 }
 
 /** Pretty-prints and writes the full config back to moh.json. */
 export function writeMohConfig(file: string, config: MohConfig): void {
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  // SEC-06: a key-bearing moh.json is forced to 0600 — plaintext keys must
+  // not land world-readable by umask default.
+  if (configHasApiKey(config)) {
+    try {
+      chmodSync(file, 0o600);
+    } catch { /* best-effort: some filesystems reject chmod */ }
+  }
 }
 
 /** Adds or replaces an endpoint profile by name (guided onboarding target). */

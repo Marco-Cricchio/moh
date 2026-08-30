@@ -10,7 +10,7 @@ import { defaultRegistry, resolveProvider, type ProviderRegistry } from "./provi
 import { envApiKey, endpointEnvVarName } from "./route";
 import { userConfigFile } from "./user-config";
 import { runSubscriptionLogin, isSubscriptionKind } from "./auth/lifecycle";
-import { getStoredToken, readAuthSection, saveTokens } from "./auth/store";
+import { getStoredToken, getStoredApiKey, readAuthSection, saveStoredApiKey, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
@@ -154,6 +154,14 @@ export async function runProviderAdd(
     }
   } else {
     apiKey = (await io.ask(`API key (empty to use MOH_ENDPOINT_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY${type === "openai-compat" ? "; local endpoints need none" : ""}): `)).trim();
+    if (apiKey) {
+      // SEC-06: an inline key never lands in the project moh.json (typically
+      // world-readable). It goes to the guardian-owned auth store under
+      // `auth.apiKeys[<endpoint>]` (~/.moh/config, 0600), keyed like tokens.
+      saveStoredApiKey(options.authFile ?? userConfigFile(), name, apiKey);
+      await io.info(`API key stored securely in ${options.authFile ?? userConfigFile()} (not moh.json)`);
+      apiKey = ""; // the profile below stays key-free
+    }
   }
 
   let baseUrl = "";
@@ -182,7 +190,6 @@ export async function runProviderAdd(
       name,
       type,
       ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}),
-      ...(apiKey ? { apiKey } : {}),
       ...(url ? { baseUrl: url } : {}),
       ...(capabilities ? { capabilities } : {}),
       defaultModel: model,
@@ -323,10 +330,9 @@ export async function minimalConnectionTest(
     nativeContext = openaiNative ? openaiNativeAuthContext(token) : undefined;
   } else {
     // Inline key first (an empty/whitespace string counts as absent — the
-    // wizard may persist "" when the field is left blank); otherwise the
-    // endpoint's env var — same lookup an instantiated Endpoint performs at
-    // stream time (route.ts envApiKey).
-    apiKey = profile.apiKey?.trim() ? profile.apiKey : envApiKey(profile.name, env);
+    // wizard may persist "" when the field is left blank); then the env
+    // var; then — SEC-06 — a wizard-stored key from the auth store.
+    apiKey = profile.apiKey?.trim() ? profile.apiKey : envApiKey(profile.name, env) ?? getStoredApiKey(authFile, profile.name);
   }
   if (!apiKey && profile.type !== "openai-compat") {
     // Fail fast rather than send an unauthenticated request (local

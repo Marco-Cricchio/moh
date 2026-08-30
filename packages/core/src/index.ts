@@ -188,9 +188,12 @@ import {
 } from "./auth/types";
 import {
   clearTokens,
+  clearStoredApiKey,
+  getStoredApiKey,
   getStoredToken,
   readAuthSection,
   readStoredTokens,
+  saveStoredApiKey,
   saveTokens,
 } from "./auth/store";
 import {
@@ -309,9 +312,12 @@ export {
   type AuthSection,
   type AuthToken,
   clearTokens,
+  clearStoredApiKey,
+  getStoredApiKey,
   getStoredToken,
   readAuthSection,
   readStoredTokens,
+  saveStoredApiKey,
   saveTokens,
   TOS_WARNING,
   base64url,

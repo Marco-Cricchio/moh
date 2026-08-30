@@ -2,10 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { describePermissionRequest, PermissionGate } from "../src/permission-gate";
 
 describe("describePermissionRequest", () => {
-  test("bash shows the full command and the runtime rule it would write", () => {
+  test("bash shows the full command; compounds have no unsafe flattened runtime rule", () => {
     const view = describePermissionRequest("bash", { command: "git status --short && echo done" });
     expect(view.detail).toEqual(["command: git status --short && echo done"]);
-    expect(view.rulePreview).toBe("bash:git status --short echo done");
+    expect(view.rulePreview).toBeNull();
+  });
+
+  test("bash previews a runtime rule for a single command segment", () => {
+    const view = describePermissionRequest("bash", { command: "git status --short" });
+    expect(view.rulePreview).toBe("bash:git status --short");
   });
 
   test("path tools show the path and a rule preview", () => {

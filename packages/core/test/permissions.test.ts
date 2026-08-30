@@ -43,6 +43,15 @@ describe("PermissionResolver: most-specific-wins across 3 tiers", () => {
     expect(r.resolve("bash", { command: "git push" })).toBe("ask");
   });
 
+  test("newline terminates a command segment; a prefix rule cannot cover a second command", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { bashAllow: [["git", "status"]] },
+      cwd: root,
+    });
+    expect(r.resolve("bash", { command: "git status\nrm -rf /" })).toBe("ask");
+  });
+
   test("runtime deny [git,push] beats config allow [git] (token prefix covers git push)", () => {
     const r = new PermissionResolver({
       defaults: DEFAULT_TOOL_PERMISSIONS,
@@ -451,5 +460,42 @@ describe("overridesFromFlags (CLI seam over the core grammar)", () => {
     expect(overrides.tools).toEqual({ bash: "allow" });
     expect(overrides.bashAllow).toEqual([["git", "status"]]);
     expect(overrides.pathDeny).toEqual(["secrets/**"]);
+  });
+});
+
+describe("SEC-04: bash token-prefix rules vs shell metacharacters", () => {
+  const resolver = (opts: { bashAllow?: string[][]; tools?: Record<string, "allow" | "ask" | "deny"> } = {}) =>
+    new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { bashAllow: opts.bashAllow, tools: opts.tools },
+      cwd: root,
+    });
+
+  test("prefix-covered commands with unquoted metacharacters force ask", () => {
+    const r = resolver({ bashAllow: [["git", "status"]] });
+    expect(r.resolve("bash", { command: "git status" })).toBe("allow");
+    expect(r.resolve("bash", { command: "git status $(rm -rf ~)" })).toBe("ask");
+    expect(r.resolve("bash", { command: "git status `curl evil`" })).toBe("ask");
+    expect(r.resolve("bash", { command: "git status > ~/.zshenv" })).toBe("ask");
+    expect(r.resolve("bash", { command: "git status >> ~/.zshenv" })).toBe("ask");
+    expect(r.resolve("bash", { command: "git diff <(curl evil)" })).toBe("ask");
+  });
+
+  test("single-quoted metacharacters are literal and stay allowed", () => {
+    const r = resolver({ bashAllow: [["git", "status"]] });
+    expect(r.resolve("bash", { command: "git status '$(safe)'" })).toBe("allow");
+    expect(r.resolve("bash", { command: "git status 'a > b'" })).toBe("allow");
+  });
+
+  test("a bare tool-level bash allow covers the whole command (no metachar downgrade)", () => {
+    const r = resolver({ tools: { bash: "allow" } });
+    expect(r.resolve("bash", { command: "git status > out.txt" })).toBe("allow");
+  });
+
+  test("runtimeRuleFor never flattens compound commands", () => {
+    const r = resolver();
+    expect(r.runtimeRuleFor("bash", { command: "git status" })).toEqual({ tool: "bash", effect: "allow", tokens: ["git", "status"] });
+    expect(r.runtimeRuleFor("bash", { command: "git status && rm x" })).toBeNull();
+    expect(r.runtimeRuleFor("bash", { command: "a | b" })).toBeNull();
   });
 });

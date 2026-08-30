@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Tool } from "./types";
-import { resolve, isAbsolute, relative, join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve, isAbsolute, relative, join, dirname } from "node:path";
+import { mkdirSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 /**
@@ -16,17 +16,73 @@ function truncate(text: string): string {
   return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n… [truncated]` : text;
 }
 
+/**
+ * Resolves `path` against the project root and asserts the *resolved*
+ * location is inside it (SEC-03): the nearest existing ancestor is
+ * realpath'd, so a lexical in-root path that traverses a symlink pointing
+ * outside (e.g. `link/file` with `root/link -> /outside`) is rejected —
+ * the tool's view matches the permission resolver's. New files resolve
+ * through their deepest existing directory, and a tail containing `..`
+ * can never land inside by accident (the realpath of the ancestor already
+ * absorbed it).
+ */
+export function resolvedInRoot(path: string, root: string): string {
+  const abs = isAbsolute(path) ? path : resolve(root, path);
+  let real: string;
+  try {
+    // Existing final paths must be realpath'd too: otherwise `root/file`
+    // could itself be a symlink to an outside file.
+    real = realpathSync(abs);
+  } catch {
+    // For a new path, walk up to the deepest existing ancestor, realpath
+    // it, then reattach the non-existing tail (starting at the filename).
+    let dir = dirname(abs);
+    const tail: string[] = [abs.slice(dir.length + 1)];
+    while (true) {
+      try {
+        dir = realpathSync(dir);
+        break;
+      } catch {
+        const parent = dirname(dir);
+        if (parent === dir) throw new Error(`path outside project root: ${path}`);
+        tail.unshift(dir.slice(parent.length + 1));
+        dir = parent;
+      }
+    }
+    real = join(dir, ...tail);
+  }
+  const rel = relative(realpathish(root), real);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`path outside project root: ${path}`);
+  }
+  return real;
+}
+
+/** realpath of the root when it exists, the lexical root otherwise. */
+function realpathish(root: string): string {
+  try {
+    return realpathSync(root);
+  } catch {
+    return root;
+  }
+}
+
 /** Resolves a user-supplied path inside the session cwd; throws on escapes. */
 function inRoot(path: string, cwd: string): string {
-  return inAnyRoot(path, [cwd]);
+  return resolvedInRoot(path, cwd);
 }
 
 /** Like inRoot, but the path may fall inside any of the given roots. */
 function inAnyRoot(path: string, roots: readonly string[]): string {
   const abs = isAbsolute(path) ? path : resolve(roots[0]!, path);
   for (const root of roots) {
-    const rel = relative(root, abs);
-    if (!rel.startsWith("..") && !isAbsolute(rel)) return abs;
+    try {
+      const resolved = resolvedInRoot(abs, root);
+      const rel = relative(realpathish(root), resolved);
+      if (!rel.startsWith("..") && !isAbsolute(rel)) return resolved;
+    } catch {
+      // A read may be outside cwd but inside a declared skill directory.
+    }
   }
   throw new Error(`path outside project root: ${path}`);
 }
@@ -394,9 +450,23 @@ const glob: Tool<z.infer<typeof globSchema>> = {
   description: "List files matching a glob pattern inside the project root.",
   inputSchema: globSchema,
   async execute(args, ctx) {
+    // SEC-07: patterns must stay lexically inside the root — absolute
+    // patterns and any `..` segment are rejected up front (Bun's glob
+    // honors `..`, which would enumerate outside the project).
+    if (isAbsolute(args.pattern.replace(/^!+/, "")) || args.pattern.split(/[/\\]/).includes("..")) {
+      throw new Error(`glob pattern escapes the project root: ${args.pattern}`);
+    }
     const globber = new Bun.Glob(args.pattern);
     const matches: string[] = [];
+    // Defense in depth: results are re-checked for containment (resolved
+    // through the SEC-03 helper) so a matched symlink target outside the
+    // root never leaks an outside listing.
     for await (const path of globber.scan({ cwd: ctx.cwd, onlyFiles: true })) {
+      try {
+        resolvedInRoot(path, ctx.cwd);
+      } catch {
+        continue;
+      }
       matches.push(path);
     }
     return truncate(matches.sort().join("\n"));
@@ -417,7 +487,15 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
     const out: string[] = [];
     const globber = new Bun.Glob("**/*");
     outer: for await (const rel of globber.scan({ cwd: root, onlyFiles: true })) {
-      const file = Bun.file(joinSafe(root, rel));
+      let abs: string;
+      try {
+        // SEC-03: grep is a read primitive too — never follow an in-root
+        // symlink to content outside its selected root.
+        abs = resolvedInRoot(rel, root);
+      } catch {
+        continue;
+      }
+      const file = Bun.file(abs);
       if (!(await file.exists())) continue;
       const text = await file.text();
       const lines = text.split("\n");
@@ -434,12 +512,99 @@ const fetchSchema = z.object({
   url: z.string().url(),
   maxLength: z.number().int().positive().optional(),
 });
+
+/** SEC-05: maximum followed redirects. */
+const FETCH_MAX_REDIRECTS = 3;
+
+/**
+ * SEC-05: private/loopback/link-local hostnames and address literals —
+ * blocked for fetch unless `MOH_FETCH_ALLOW_PRIVATE` is set (explicit
+ * opt-in for local endpoints).
+ */
+export function isPrivateHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal") || h === "0.0.0.0") return true;
+  // IPv4 literal (incl. IPv4-mapped IPv6 tail).
+  const v4 = h.includes(":") ? (h.match(/(?<=:)(\d+\.\d+\.\d+\.\d+)$/) ?? [])[1] : h;
+  if (v4) {
+    const parts = v4.split(".").map(Number);
+    if (parts.length === 4 && parts.every((p) => Number.isInteger(p) && p >= 0 && p <= 255)) {
+      const [a, b] = parts as [number, number, number, number];
+      return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 255;
+    }
+  }
+  // IPv6 literal: loopback, unspecified, unique-local (fc00::/7), link-local (fe80::/10).
+  if (h.includes(":")) {
+    const first = Number.parseInt(h.split(":")[0] || "0", 16);
+    if (h === "::" || h === "::1") return true;
+    if (!Number.isNaN(first)) return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80;
+  }
+  return false;
+}
+
+/** True when the operator explicitly allowed private-network fetches. */
+const fetchAllowsPrivate = (): boolean =>
+  ["1", "true", "yes"].includes((process.env.MOH_FETCH_ALLOW_PRIVATE ?? "").toLowerCase());
+
+/** SEC-05: scheme + network checks on one URL (throws on violation). */
+async function assertFetchable(rawUrl: string): Promise<URL> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`fetch: invalid URL: ${rawUrl}`);
+  }
+  // file:// and data:// would turn fetch into a local-file read primitive
+  // that bypasses the read tool's root containment.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`fetch: only http/https URLs are supported (got "${url.protocol}")`);
+  }
+  if (fetchAllowsPrivate()) return url;
+  const host = url.hostname;
+  if (isPrivateHost(host)) {
+    throw new Error(`fetch: private/loopback address "${host}" is blocked by default; set MOH_FETCH_ALLOW_PRIVATE=1 to allow it`);
+  }
+  // DNS-rebinding style SSRF: a public hostname that resolves private.
+  const { lookup } = await import("node:dns/promises");
+  try {
+    const addresses = await lookup(host, { all: true });
+    const bad = addresses.find((a) => isPrivateHost(a.address));
+    if (bad) {
+      throw new Error(`fetch: "${host}" resolves to private address ${bad.address}; blocked by default (set MOH_FETCH_ALLOW_PRIVATE=1 to allow)`);
+    }
+  } catch (err) {
+    if (err instanceof Error && !err.message.startsWith("fetch:")) {
+      // Unresolvable here: let the request itself surface the real error.
+    } else {
+      throw err;
+    }
+  }
+  return url;
+}
+
 const fetchTool: Tool<z.infer<typeof fetchSchema>> = {
   name: "fetch",
-  description: "Fetch a URL and return the response body as text.",
+  description:
+    "Fetch an http/https URL and return the response body as text. " +
+    "Private/loopback targets are blocked unless MOH_FETCH_ALLOW_PRIVATE=1 is set.",
   inputSchema: fetchSchema,
   async execute(args, ctx) {
-    const res = await globalThis.fetch(args.url, { signal: ctx.signal });
+    let url = await assertFetchable(args.url);
+    // SEC-05: redirects are followed manually (capped) so every hop
+    // re-passes the scheme/private-network checks — a public URL can't
+    // bounce the fetch into 169.254.169.254 or file://.
+    let res = await globalThis.fetch(url, { signal: ctx.signal, redirect: "manual" });
+    for (let hop = 0; hop < FETCH_MAX_REDIRECTS && [301, 302, 303, 307, 308].includes(res.status); hop++) {
+      const location = res.headers.get("location");
+      res.body?.cancel().catch(() => {});
+      if (!location) break;
+      url = await assertFetchable(new URL(location, url).toString());
+      res = await globalThis.fetch(url, { signal: ctx.signal, redirect: "manual" });
+    }
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      throw new Error(`fetch: too many redirects (> ${FETCH_MAX_REDIRECTS}) for ${args.url}`);
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${args.url}`);
     return truncate((await res.text()).slice(0, args.maxLength ?? MAX_OUTPUT));
   },
