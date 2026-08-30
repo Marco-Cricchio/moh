@@ -20,6 +20,12 @@ describe("describePermissionRequest", () => {
     expect(view.detail[0]!.length).toBeLessThanOrEqual(200);
     expect(view.detail[0]!.endsWith("…")).toBe(true);
   });
+
+  test("tracker claims show the issue, never raw JSON", () => {
+    const view = describePermissionRequest("tracker_claim", { id: "357" });
+    expect(view.detail).toEqual(["issue: #357"]);
+    expect(view.rulePreview).toBe("tracker_claim");
+  });
 });
 
 describe("PermissionGate", () => {
@@ -44,6 +50,21 @@ describe("PermissionGate", () => {
     expect(second).toBe("no");
     gate.resolve("no");
     expect(await first).toBe("no");
+  });
+
+  test("an \"always\" answer persists for the session: later asks never prompt", async () => {
+    const gate = new PermissionGate();
+    const first = gate.ask("tracker_claim", { id: "1" });
+    gate.resolve("always");
+    expect(await first).toBe("always");
+    // Same tool, different args: the bare runtime rule covers it.
+    expect(gate.current).toBeNull();
+    expect(await gate.ask("tracker_claim", { id: "2" })).toBe("yes");
+    // A different tool still prompts.
+    const other = gate.ask("tracker_unclaim", { id: "2" });
+    expect(gate.current?.tool).toBe("tracker_unclaim");
+    gate.resolve("no");
+    expect(await other).toBe("no");
   });
 
   test("subscribers are notified on ask and resolve", async () => {
