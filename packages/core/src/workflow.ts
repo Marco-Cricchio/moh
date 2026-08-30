@@ -14,7 +14,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST, firstPartySkillNames } from "./skills";
 
 /** The moh version skills compare their `minMohVersion` against. */
@@ -130,6 +130,43 @@ export function firstPartySkillSources(bundleDir: string = defaultBundleDir()): 
   return sources.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Strict skill-name pattern (#352/SEC-02): one plain segment — no path
+ * separators, no `..`, cannot start with a dot or dash. Anything the
+ * network (or a bundle) tries to use as a directory name must match. */
+const SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Validates one skill entry (name + file keys) before anything is hashed,
+ * planned or written (#352/SEC-02). File keys must be a single shallow
+ * segment (`SKILL.md`), never a path, never `..`. Returns null when valid,
+ * a reason string when the entry is malformed/malicious.
+ */
+export function validateSkillEntry(name: string, files: Record<string, string>): string | null {
+  if (typeof name !== "string" || !SKILL_NAME_RE.test(name)) return `invalid skill name "${String(name)}"`;
+  for (const key of Object.keys(files ?? {})) {
+    if (key === "" || key === "." || key === ".." || key.includes("/") || key.includes("\\")) {
+      return `invalid file key "${key}" for skill "${name}"`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Containment-checked write of a skill's files under `<mohHome>/skills/<name>`
+ * (#352/SEC-02). Validation above should already have rejected anything
+ * hostile; this is the independent belt-and-braces check — every resolved
+ * write target must have the skill directory as its direct parent.
+ */
+function writeSkillFiles(mohHome: string, name: string, files: Record<string, string>): void {
+  const dir = resolve(mohHome, "skills", name);
+  mkdirSync(dir, { recursive: true });
+  for (const [path, content] of Object.entries(files)) {
+    const target = resolve(dir, path);
+    if (dirname(target) !== dir) throw new Error(`skill file "${path}" escapes the skills directory`);
+    writeFileSync(target, content);
+  }
+}
+
 /** Content hash of a skill's files (path-sorted, stable). */
 export function hashSkillFiles(files: Record<string, string>): string {
   const hash = createHash("sha256");
@@ -203,6 +240,8 @@ export interface SkillInstallReport {
   skippedMinVersion: string[];
   /** Stale moh-owned skills no longer bundled, unmodified — removed (#74). */
   pruned: string[];
+  /** Malformed entries (bad name/file key) rejected by validation — never written (#352). */
+  skippedInvalid: string[];
 }
 
 export interface InstallFirstPartySkillsOptions {
@@ -227,6 +266,7 @@ export function installFirstPartySkills(options: InstallFirstPartySkillsOptions)
     skippedModified: [],
     skippedMinVersion: [],
     pruned: [],
+    skippedInvalid: [],
   };
   // Prune stale moh-owned skills (#74): bundle entries no longer shipped.
   // Unmodified copies are deleted; user-modified ones stay on disk but lose
@@ -244,6 +284,10 @@ export function installFirstPartySkills(options: InstallFirstPartySkillsOptions)
     delete manifest.skills[name];
   }
   for (const source of sources) {
+    if (validateSkillEntry(source.name, source.files)) {
+      report.skippedInvalid.push(source.name);
+      continue;
+    }
     if (source.minMohVersion && !versionSatisfied(source.minMohVersion, MOH_VERSION)) {
       report.skippedMinVersion.push(source.name);
       continue;
@@ -263,11 +307,7 @@ export function installFirstPartySkills(options: InstallFirstPartySkillsOptions)
     } else {
       report.updated.push(source.name);
     }
-    const dir = join(options.mohHome, "skills", source.name);
-    mkdirSync(dir, { recursive: true });
-    for (const [path, content] of Object.entries(source.files)) {
-      writeFileSync(join(dir, path), content);
-    }
+    writeSkillFiles(options.mohHome, source.name, source.files);
     manifest.skills[source.name] = { hash: targetHash, installedAt: new Date().toISOString() };
   }
   saveFirstPartyManifest(options.mohHome, manifest);
@@ -346,7 +386,11 @@ export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promi
   const manifest = loadFirstPartyManifest(options.mohHome);
   const updates: UpstreamUpdate[] = [];
   for (const skill of index.skills) {
-    if (typeof skill?.name !== "string" || !skill.files) continue;
+    if (typeof skill?.name !== "string" || typeof skill.files !== "object" || skill.files === null) continue;
+    // #352/SEC-02: a traversal-bearing entry makes the whole index hostile,
+    // not drifted — reject the check instead of planning those updates.
+    const invalid = validateSkillEntry(skill.name, skill.files);
+    if (invalid) return { ok: false, reason: `invalid index entry: ${invalid}` };
     if (skill.minMohVersion && !versionSatisfied(skill.minMohVersion, MOH_VERSION)) continue;
     const upstreamHash = hashSkillFiles(skill.files);
     const recorded = manifest.skills[skill.name]?.hash;
@@ -399,6 +443,8 @@ export interface ApplyUpstreamReport {
   declined: string[];
   /** Re-check found the local copy modified since the plan was built. */
   skippedModified: string[];
+  /** Malformed updates (bad name/file key) rejected by validation — never written (#352). */
+  skippedInvalid: string[];
 }
 
 /**
@@ -423,14 +469,14 @@ export async function applyUpstreamUpdates(options: ApplyUpstreamOptions): Promi
     });
   const writeInstalled =
     options.writeInstalled ??
-    ((mohHome: string, name: string, files: Record<string, string>) => {
-      const dir = join(mohHome, "skills", name);
-      mkdirSync(dir, { recursive: true });
-      for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content);
-    });
+    ((mohHome: string, name: string, files: Record<string, string>) => writeSkillFiles(mohHome, name, files));
   const manifest = loadFirstPartyManifest(options.mohHome);
-  const report: ApplyUpstreamReport = { applied: [], declined: [], skippedModified: [] };
+  const report: ApplyUpstreamReport = { applied: [], declined: [], skippedModified: [], skippedInvalid: [] };
   for (const update of options.updates) {
+    if (validateSkillEntry(update.name, update.files)) {
+      report.skippedInvalid.push(update.name);
+      continue;
+    }
     const currentFiles = readInstalled(options.mohHome, update.name);
     if (hashSkillFiles(currentFiles) !== update.currentHash) {
       report.skippedModified.push(update.name);

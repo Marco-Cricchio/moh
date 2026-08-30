@@ -6,7 +6,7 @@ import { SCHEMA_VERSION } from "../types";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
-import { persistMcpTrust } from "../config";
+import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
@@ -195,7 +195,7 @@ export class AgentSession {
         ...config.mcp,
         cwd: this.#cwd,
         onEvent: (event) => this.#append(event),
-        onTrust: config.mcp.onTrust ?? ((server) => persistMcpTrust(join(this.#cwd, "moh.json"), server)),
+        onTrust: config.mcp.onTrust ?? ((server) => persistProjectMcpTrust(join(this.#mohHome, "config"), this.#cwd, server)),
         // Trusted servers (user scope or persisted "always") never ask again.
         onTrustedTools: (toolNames) => {
           for (const tool of toolNames) this.#permissions.addRuntimeRule({ tool, effect: "allow" });

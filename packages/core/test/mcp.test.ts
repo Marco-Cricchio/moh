@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { rmSync, mkdtempSync, readFileSync } from "node:fs";
+import { rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSession, McpRuntime, MockProvider, type AgentEvent, type DeclaredMcpServer } from "../src/index";
+import { createSession, McpRuntime, MockProvider, sessionFromConfig, type AgentEvent, type DeclaredMcpServer } from "../src/index";
 import { McpError } from "../src/mcp";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");
@@ -92,6 +92,43 @@ describe("McpRuntime (stdio)", () => {
     const runtime = makeRuntime([stdioServer("ok")], [], { onTrustedTools: (t) => trustedTools.push(t) });
     await runtime.ensureStarted();
     expect(trustedTools).toEqual([["mcp__srv__echo"]]);
+    await runtime.shutdown();
+  });
+
+  test("legacy `trusted: true` in a project declaration is ignored: consent is still asked (#352/SEC-01)", async () => {
+    const events: AgentEvent[] = [];
+    const asked: string[] = [];
+    // The repo shipped `trusted: true` inside the project moh.json entry.
+    // After #352 the transport field is dead: only moh-recorded user-config
+    // trust (DeclaredMcpServer.trusted) can skip consent.
+    const runtime = makeRuntime(
+      [{ name: "p", scope: "project", transport: { type: "stdio", command: process.execPath, args: [SERVER, "ok"], trusted: true } }],
+      events,
+      {
+        onConsent: (s) => {
+          asked.push(s);
+          return "no";
+        },
+      },
+    );
+    await runtime.ensureStarted();
+    expect(asked).toEqual(["p"]);
+    expect(runtime.status()[0]!.state).toBe("denied");
+    expect(Object.keys(runtime.tools)).toHaveLength(0);
+  });
+
+  test("moh-recorded trust (user config `mcpTrust`) skips consent and auto-allows tools (#352)", async () => {
+    const events: AgentEvent[] = [];
+    const trustedTools: string[][] = [];
+    const runtime = makeRuntime([{ name: "p", scope: "project", trusted: true, transport: stdioServer("ok", "p").transport }], events, {
+      onConsent: () => {
+        throw new Error("consent must not be asked for a trusted project server");
+      },
+      onTrustedTools: (t) => trustedTools.push(t),
+    });
+    await runtime.ensureStarted();
+    expect(runtime.status()[0]!.state).toBe("running");
+    expect(trustedTools).toEqual([["mcp__p__echo"]]);
     await runtime.shutdown();
   });
 
@@ -257,6 +294,65 @@ describe("AgentSession MCP integration", () => {
     // session-end shutdown
     await session.dispose();
     expect(session.history().some((e) => e.type === "mcp_server_stopped")).toBe(true);
+  });
+
+  test("server-level 'always' persists trust in the user config mcpTrust section, keyed by project (#352/SEC-01)", async () => {
+    const cwd = tmpCwd();
+    const home = join(cwd, "home");
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    // The project declares the server — with a forged `trusted: true`, which
+    // must be ignored: consent is still asked the first time.
+    writeFileSync(
+      join(cwd, "moh.json"),
+      JSON.stringify({ mcpServers: { srv: { type: "stdio", command: process.execPath, args: [SERVER, "ok"], trusted: true } } }),
+    );
+    const asked: string[] = [];
+    const first = sessionFromConfig({
+      cwd,
+      home,
+      provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
+      consent: { onMcpTrust: (s) => { asked.push(s); return "always"; } },
+    });
+    if ("error" in first) throw new Error(first.error.message);
+    await first.session.send("hi");
+    await first.session.dispose();
+    expect(asked).toEqual(["srv"]); // the forged flag did not skip consent
+    expect(first.session.history().some((e) => e.type === "mcp_server_started")).toBe(true);
+    // Trust was persisted to the user config — not to the repo's moh.json.
+    const userConfig = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
+    expect(userConfig.mcpTrust[cwd]).toEqual(["srv"]);
+    expect(JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8")).mcpServers.srv.trusted).toBe(true); // untouched
+    // Next session for the same project: no consent asked, server starts.
+    const second = sessionFromConfig({
+      cwd,
+      home,
+      provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
+      consent: { onMcpTrust: () => { throw new Error("must not ask"); } },
+    });
+    if ("error" in second) throw new Error(second.error.message);
+    await second.session.send("hi");
+    expect(second.session.history().some((e) => e.type === "mcp_server_started")).toBe(true);
+    await second.session.dispose();
+    // A different project declaring the same server name still asks.
+    const other = tmpCwd();
+    const otherHome = join(other, "home");
+    mkdirSync(join(otherHome, ".moh"), { recursive: true });
+    writeFileSync(
+      join(other, "moh.json"),
+      JSON.stringify({ mcpServers: { srv: { type: "stdio", command: process.execPath, args: [SERVER, "ok"] } } }),
+    );
+    const otherAsked: string[] = [];
+    const third = sessionFromConfig({
+      cwd: other,
+      home: otherHome,
+      provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
+      consent: { onMcpTrust: (s) => { otherAsked.push(s); return "no"; } },
+    });
+    if ("error" in third) throw new Error(third.error.message);
+    await third.session.send("hi");
+    expect(otherAsked).toEqual(["srv"]);
+    expect(third.session.history().some((e) => e.type === "mcp_server_started")).toBe(false);
+    await third.session.dispose();
   });
 
   test("duplicate server names throw at session creation (startup validation error)", () => {

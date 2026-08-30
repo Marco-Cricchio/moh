@@ -48,7 +48,7 @@ import {
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { type SubagentOptions } from "./subagents";
-import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
+import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
   writeMohConfig,
@@ -117,6 +117,7 @@ import {
   bundledSkillSources,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
+  validateSkillEntry,
   loadFirstPartyManifest,
   diffSkillFiles,
   readBundledSkill,
@@ -418,6 +419,8 @@ export {
   upsertMcpServer,
   declaredMcpServers,
   declaredUserMcpServers,
+  isProjectServerTrusted,
+  persistProjectMcpTrust,
   minimalConnectionTest,
   addProviderToFile,
   runProviderAdd,
@@ -427,6 +430,7 @@ export {
   installFirstPartySkills,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
+  validateSkillEntry,
   loadFirstPartyManifest,
   diffSkillFiles,
   readBundledSkill,

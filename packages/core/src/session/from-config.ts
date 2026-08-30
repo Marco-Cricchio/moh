@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
-import { declaredUserMcpServers, type McpConsentAnswer } from "../mcp";
+import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";
 import type { PermissionOverrides } from "../permissions";
@@ -142,8 +142,13 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
 
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
   // Computed before the store exists so a throwing read leaves no orphan
-  // session file behind.
-  const servers = [...declaredMcpServers(config), ...declaredUserMcpServers(userConfigFile(home))];
+  // session file behind. Project trust is resolved from the user config's
+  // `mcpTrust` section (#352/SEC-01): the repo's own `trusted` field is ignored.
+  const userFile = userConfigFile(home);
+  const servers = [
+    ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, options.cwd, s.name) ? { ...s, trusted: true } : s)),
+    ...declaredUserMcpServers(userFile),
+  ];
 
   const store = o.store ?? SessionStore.create(options.cwd, home);
   let resumeEvents = o.resumeEvents;

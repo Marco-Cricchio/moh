@@ -19,7 +19,7 @@ export interface McpRuntimeOptions {
    * first start. Without it (headless) the server is denied and skipped.
    */
   onConsent?: (server: string) => Promise<McpConsentAnswer> | McpConsentAnswer;
-  /** "always" at server level: persist trust (moh.json `mcpServers.<name>.trusted`). */
+  /** "always" at server level: persist trust (user config `mcpTrust`, #352). */
   onTrust?: (server: string) => void;
   /** Tools of trusted (user-scope or trusted) servers; the session allow-lists them. */
   onTrustedTools?: (toolNames: string[]) => void;
@@ -101,7 +101,7 @@ export class McpRuntime {
     for (const server of this.#servers) {
       const state = this.#state.get(server.name);
       if (state !== "stopped") continue;
-      if (server.scope === "project" && !server.transport.trusted && !(await this.#consent(server.name))) continue;
+      if (server.scope === "project" && !server.trusted && !(await this.#consent(server.name))) continue;
       await this.#connect(server);
     }
   }
@@ -179,8 +179,8 @@ export class McpRuntime {
       this.#running.set(server.name, run);
       this.#state.set(server.name, "running");
       this.#onEvent({ type: "mcp_server_started", server: server.name, tools: run.tools });
-      // Trusted servers (user scope or persisted "always") never ask again.
-      if (server.scope === "user" || server.transport.trusted) this.#onTrustedTools?.(run.tools);
+      // Trusted servers (user scope or moh-recorded "always") never ask again.
+      if (server.scope === "user" || server.trusted) this.#onTrustedTools?.(run.tools);
     } catch (err) {
       const kind = err instanceof McpError ? err.kind : "start_failed";
       this.#state.set(server.name, "failed");
