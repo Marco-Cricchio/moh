@@ -11,7 +11,7 @@
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CryptoHasher } from "bun";
-import { RELEASES_LATEST_URL, compareSemver } from "./update-check";
+import { RELEASES_LATEST_URL, compareSemver, writeUpdateCache } from "./update-check";
 
 /** Platform vocabulary shared with scripts/build.ts (ADR-0013). */
 export const UPDATE_PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-x64"] as const;
@@ -36,6 +36,9 @@ export interface SelfUpdateIo {
   writeExecutable?: (path: string, data: Uint8Array) => void;
   rename?: (from: string, to: string) => void;
   remove?: (path: string) => void;
+  /** Refresh the update-check cache after a successful update (#328);
+   * silent on failure — an update that succeeded is never reported failed. */
+  writeUpdateCache?: (mohHome: string, latestVersion: string) => void;
 }
 
 export type SelfUpdateStatus =
@@ -130,6 +133,9 @@ export async function performSelfUpdate(options: {
   /** Ask about downgrading to latest stable; default callback returns true. */
   confirmDowngrade?: (latestVersion: string) => Promise<boolean> | boolean;
   url?: string;
+  /** moh home dir; when set, a successful update refreshes the
+   * update-check cache so it agrees with the freshly installed binary (#328). */
+  mohHome?: string;
   io?: SelfUpdateIo;
 }): Promise<SelfUpdateResult> {
   const io = {
@@ -143,6 +149,7 @@ export async function performSelfUpdate(options: {
         // best-effort cleanup
       }
     },
+    writeUpdateCache,
     ...options.io,
   };
   return runUpdate(options, io);
@@ -151,7 +158,7 @@ export async function performSelfUpdate(options: {
 /** Shared implementation once IO is resolved. */
 async function runUpdate(
   options: Parameters<typeof performSelfUpdate>[0],
-  io: { sha256: (data: Uint8Array) => string; writeExecutable: (path: string, data: Uint8Array) => void; rename: (from: string, to: string) => void; remove: (path: string) => void },
+  io: { sha256: (data: Uint8Array) => string; writeExecutable: (path: string, data: Uint8Array) => void; rename: (from: string, to: string) => void; remove: (path: string) => void; writeUpdateCache: (mohHome: string, latestVersion: string) => void },
 ): Promise<SelfUpdateResult> {
   const fetchImpl = options.io?.fetch ?? (globalThis.fetch as unknown as UpdateFetch);
   let platform: UpdatePlatform;
@@ -235,6 +242,17 @@ async function runUpdate(
   } catch (e) {
     io.remove(tmp);
     return { status: "error", message: `could not replace ${options.execPath}: ${(e as Error).message}` };
+  }
+  // #328: the cache must agree with the freshly installed binary — the
+  // download always targeted `releases/latest`, so the installed version
+  // is the latest stable (or the version the user just confirmed downgrading
+  // to; either way the cache must not keep advertising something else).
+  if (options.mohHome) {
+    try {
+      io.writeUpdateCache(options.mohHome, latest);
+    } catch {
+      // best-effort: a succeeded update is never reported failed (#328)
+    }
   }
   return { status: "updated", message: `updated moh ${options.currentVersion} → ${latest}` };
 }

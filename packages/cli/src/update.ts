@@ -6,6 +6,8 @@
  * non-stable builds ask for confirmation.
  */
 import { createInterface } from "node:readline/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { performSelfUpdate, isDevRun } from "@moh/core";
 import type { SelfUpdateIo, SelfUpdateResult } from "@moh/core";
 import { CLI_VERSION } from "./version";
@@ -51,6 +53,9 @@ export async function updateCommand(options: {
   currentVersion?: string;
   /** Injectable platform (test seam). */
   platform?: "darwin-arm64" | "darwin-x64" | "linux-x64";
+  /** moh home dir (test seam; default ~/.moh) — a successful update
+   * refreshes the update-check cache there (#328). */
+  mohHome?: string;
 }): Promise<number> {
   const argv = options.argv.filter((a) => a !== "--yes" && a !== "--help" && a !== "-h");
   if (options.argv.includes("--help") || options.argv.includes("-h")) {
@@ -89,6 +94,7 @@ export async function updateCommand(options: {
     assumeYes: options.argv.includes("--yes"),
     confirmDowngrade: confirm,
     io: options.fetch ? { fetch: options.fetch } : undefined,
+    mohHome: options.mohHome ?? join(homedir(), ".moh"),
   });
   const out = result.status === "updated" ? options.stdout ?? process.stdout : options.stderr ?? process.stderr;
   out.write(result.message + "\n");

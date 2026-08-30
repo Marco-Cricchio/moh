@@ -249,3 +249,44 @@ describe("performSelfUpdate", () => {
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
+
+describe("performSelfUpdate update-check cache refresh (#328)", () => {
+  test("updated → cache refreshed with the installed version", async () => {
+    const writes: [string, string][] = [];
+    const r = await performSelfUpdate(baseOptions({
+      mohHome: "/tmp/moh-home-328",
+      io: { fetch: fetchMap(fakeReleaseUrls()), writeUpdateCache: (home: string, v: string) => writes.push([home, v]) },
+    }));
+    expect(r.status).toBe("updated");
+    expect(writes).toEqual([["/tmp/moh-home-328", "0.2.0"]]);
+  });
+  test("cache write failure stays silent — still updated", async () => {
+    const execPath = keep(fakeBin());
+    const r = await performSelfUpdate(baseOptions({
+      execPath,
+      mohHome: "/tmp/moh-home-328",
+      io: { fetch: fetchMap(fakeReleaseUrls()), writeUpdateCache: () => { throw new Error("no disk"); } },
+    }));
+    expect(r.status).toBe("updated");
+    expect(readFileSync(execPath, "utf8")).toContain("new moh 0.2.0");
+  });
+  test("non-updated outcomes leave the cache untouched", async () => {
+    const noWrite = (): never => { throw new Error("must not write"); };
+    const cases = await Promise.all([
+      performSelfUpdate(baseOptions({ currentVersion: "0.2.0", mohHome: "/tmp/x", io: { fetch: fetchMap(fakeReleaseUrls()), writeUpdateCache: noWrite } })), // up-to-date
+      performSelfUpdate(baseOptions({ currentVersion: "0.3.0", mohHome: "/tmp/x", io: { fetch: fetchMap(fakeReleaseUrls()), writeUpdateCache: noWrite } })), // confirm-declined (no callback)
+    ]);
+    expect(cases.map((r) => r.status)).toEqual(["up-to-date", "confirm-declined"]);
+    const mismatch = await performSelfUpdate(baseOptions({
+      mohHome: "/tmp/x",
+      io: { fetch: fetchMap(fakeReleaseUrls(NEW_BINARY, "0".repeat(64))), writeUpdateCache: noWrite },
+    }));
+    expect(mismatch.status).toBe("checksum-mismatch");
+  });
+  test("no mohHome → no cache write", async () => {
+    const r = await performSelfUpdate(baseOptions({
+      io: { fetch: fetchMap(fakeReleaseUrls()), writeUpdateCache: () => { throw new Error("must not write"); } },
+    }));
+    expect(r.status).toBe("updated");
+  });
+});

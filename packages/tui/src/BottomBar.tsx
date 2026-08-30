@@ -78,6 +78,9 @@ interface StatusProps {
    * exceeds the class-aware budget so the start and — above all — the end
    * (the project dir) stay visible. */
   cwd?: string;
+  /** #328: active update notice — left-aligned on row 2; the right-aligned
+   * cwd/branch/mode tail is never displaced or dropped (the notice elides). */
+  updateMessage?: string;
 }
 
 function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: number; width: number; theme: Theme }) {
@@ -155,6 +158,15 @@ function StatusRow(props: StatusProps) {
     if (text === "◉ dev") return theme.accent;
     return theme.dim;
   };
+  // #328: an active update notice leads row 2, left-aligned; the tail keeps
+  // the full row budget and the notice elides to whatever remains.
+  const row2Text = row2.join(" ");
+  const noticeBudget = Math.max(0, props.width - 4 - row2Text.length - 1);
+  const noticeText = props.updateMessage && noticeBudget >= 4
+    ? props.updateMessage.length <= noticeBudget
+      ? props.updateMessage
+      : `${props.updateMessage.slice(0, noticeBudget - 1)}…`
+    : null;
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
@@ -162,8 +174,11 @@ function StatusRow(props: StatusProps) {
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
-        <Box justifyContent="flex-end" flexWrap="nowrap" paddingX={1}>
-          <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
+        <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
+          {noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
+          <Box justifyContent="flex-end" flexWrap="nowrap">
+            <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
+          </Box>
         </Box>
       )}
     </Box>

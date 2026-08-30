@@ -108,8 +108,26 @@ export function updateDue(cache: UpdateCache | null, now: number = Date.now()): 
   return !cache || now - cache.lastCheckedAt >= UPDATE_CHECK_INTERVAL_MS;
 }
 
+/** Writes the cache atomically (temp file + rename); silent on failure. */
+export function writeUpdateCache(mohHome: string, latestVersion: string, io: UpdateCheckIo = {}): void {
+  const cache: UpdateCache = { lastCheckedAt: io.now?.() ?? Date.now(), latestVersion };
+  const file = updateCacheFile(mohHome);
+  const data = `${JSON.stringify(cache, null, 2)}\n`;
+  try {
+    if (io.write) io.write(file, data);
+    else {
+      mkdirSync(dirname(file), { recursive: true });
+      const tmp = `${file}.tmp-${process.pid}`;
+      writeFileSync(tmp, data);
+      renameSync(tmp, file);
+    }
+  } catch {
+    // cache write failure is as silent as a network failure
+  }
+}
+
 /**
- * Queries `releases/latest` and refreshes the cache. Returns the latest
+ * Queries `releases/latest` and refreshes cache + returns the latest
  * stable version, or null on any failure — network error, non-2xx,
  * malformed body, non-semver tag — never throws, never blocks longer
  * than the timeout.
@@ -138,19 +156,6 @@ export async function checkForUpdate(options: {
     clearTimeout(timer);
   }
   if (latest === null) return null;
-  const cache: UpdateCache = { lastCheckedAt: io.now?.() ?? Date.now(), latestVersion: latest };
-  const file = updateCacheFile(options.mohHome);
-  const data = `${JSON.stringify(cache, null, 2)}\n`;
-  try {
-    if (io.write) io.write(file, data);
-    else {
-      mkdirSync(dirname(file), { recursive: true });
-      const tmp = `${file}.tmp-${process.pid}`;
-      writeFileSync(tmp, data);
-      renameSync(tmp, file);
-    }
-  } catch {
-    // cache write failure is as silent as a network failure
-  }
+  writeUpdateCache(options.mohHome, latest, io);
   return latest;
 }
