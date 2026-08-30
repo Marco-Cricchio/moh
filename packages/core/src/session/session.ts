@@ -140,8 +140,13 @@ export class AgentSession {
       append: (event) => this.#append(event),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
-    // Depth 1 by construction — children are created without this option.
-    if (config.subagents) {
+    // Depth 1 by construction — children are created with `subagents: null`.
+    // #339: registered by default — the built-in presets (research/implement)
+    // need zero configuration; hiding spawn behind the mere existence of an
+    // `agents` key made subagents undiscoverable. moh.json `agents` now only
+    // overrides presets/provider/concurrency.
+    const subagents = config.subagents ?? {};
+    if (config.subagents !== null) {
       const host = new SubagentHost({
         cwd: this.#cwd,
         parentTools: () => this.#allTools(),
@@ -150,10 +155,11 @@ export class AgentSession {
         runtimeRules: () => this.#permissions.rules,
         onPermissionRequest: config.onPermissionRequest,
         registry: config.registry,
-        defaultProvider: config.subagents.provider ?? (() => this.#provider),
-        presets: config.subagents.presets,
-        maxConcurrency: config.subagents.maxConcurrency,
-        home: config.subagents.home,
+        endpoints: this.#endpoints,
+        defaultProvider: subagents.provider ?? (() => this.#provider),
+        presets: subagents.presets,
+        maxConcurrency: subagents.maxConcurrency,
+        home: subagents.home,
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }

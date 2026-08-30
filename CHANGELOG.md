@@ -12,6 +12,11 @@ matching section here at tag time.
 - Model catalogs regenerated from pi-ai 0.84.4: 113 additional OpenRouter
   thinking-level maps (unmapped `reasoning:true` models drop 212 → 99) plus
   copilot/zai data refresh (#338).
+- The `spawn` subagent tool is now registered by default — the built-in
+  presets (`research`, `implement`) work with zero configuration; a moh.json
+  `agents` section now only overrides presets/provider/concurrency. Inline
+  `provider`/`model` refs are validated before any child session is created:
+  a hallucinated ref fails fast with a clear error instead of wasting turns (#339).
 
 ## [0.7.2] - 2026-08-30
 

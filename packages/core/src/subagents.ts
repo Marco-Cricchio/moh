@@ -6,7 +6,8 @@ import type { PermissionsConfig, SessionConfig } from "./session/config";
 import { AgentSession } from "./session/session";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
-import { resolveProviderRef, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
+import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
+import type { EndpointProfile } from "./config";
 
 /**
  * Subagents (#13): the `spawn` tool creates in-process child AgentSessions.
@@ -108,6 +109,8 @@ export interface SubagentHostOptions {
   onPermissionRequest?: SessionConfig["onPermissionRequest"];
   /** Registry used to resolve string provider refs for children. */
   registry?: ProviderRegistry;
+  /** Configured endpoint profiles — used to pre-validate string refs (#339). */
+  endpoints?: EndpointProfile[];
   /** Default provider for children without their own ref. */
   defaultProvider: Provider | string | (() => Provider | string);
   presets?: Record<string, SubagentSpec>;
@@ -180,7 +183,10 @@ export class SubagentHost {
     return {
       name: "spawn",
       description:
-        `Spawn a subagent that runs the task in its own session and returns its final reply.\n` +
+        `Spawn a subagent that runs the task in its own session and returns its final reply.
+` +
+        `Call with preset + task only; set provider/model only when the user explicitly asks for a different model.
+` +
         `Presets:\n${this.#presetDocs()}\n` +
         `Inline spec fields override the preset. Children get a strict subset of this session's tools (MCP tools are never inherited) and cannot spawn further subagents.`,
       inputSchema: spawnInputSchema,
@@ -245,12 +251,31 @@ export class SubagentHost {
     const firstMessage = spec.context ? `# Context\n\n${spec.context}\n\n# Task\n\n${task}` : task;
     let child: AgentSession | null = null;
     try {
+      // #339: resolve a string ref BEFORE any child setup — a hallucinated
+      // provider/model fails fast with a didactic error and zero side
+      // effects (no store file, no child session).
+      const childProviderRef = this.#resolveChildProvider(spec);
+      if (typeof childProviderRef === "string") {
+        try {
+          resolveProviderRef(
+            childProviderRef,
+            (this.#options.registry ?? defaultRegistry).freeze(),
+            this.#options.endpoints ?? [],
+          );
+        } catch (err) {
+          return resultJson({
+            status: "error",
+            output: "",
+            error: `${err instanceof Error ? err.message : String(err)} — use a preset or omit provider/model`,
+          });
+        }
+      }
       const store = SessionStore.create(this.#options.cwd, this.#options.home ?? homedir());
       const perms = this.#options.permissions ?? {};
-      const childProvider = this.#resolveChildProvider(spec);
       child = new AgentSession({
-        provider: childProvider,
-        ...(typeof childProvider === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
+        provider: childProviderRef,
+        ...(typeof childProviderRef === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
+        subagents: null, // depth 1 (#339): children never see the spawn tool
         tools: this.#childTools(spec),
         cwd: this.#options.cwd,
         maxIterations: spec.maxIterations,

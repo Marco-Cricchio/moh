@@ -427,6 +427,7 @@ export function createMaintenanceExtractor(provider: Provider, cwd: string): Mem
       provider,
       tools: {},
       cwd,
+      subagents: null, // depth discipline (#339): the extractor never spawns
       promptComposer: new PromptComposer({ projectDir: cwd, basePrompt: MAINTENANCE_PROMPT }),
     });
     input.signal?.addEventListener("abort", () => child.abort(), { once: true });
