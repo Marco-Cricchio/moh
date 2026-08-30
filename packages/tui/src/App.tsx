@@ -12,7 +12,6 @@ import {
   isDevRun,
   readUpdateCache,
   updateNoticeFor,
-  UPDATE_CHECK_INTERVAL_MS,
   MOH_VERSION,
   resolveTrackerSync,
   readUserProviderConfig,
@@ -22,6 +21,8 @@ import {
   type TrackerBackend,
   type UpdateNotice,
 } from "@moh/core";
+import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
+import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
 import { SessionStore } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
@@ -249,15 +250,32 @@ export function App({
   }, [session]);
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
 
-  // Update check (#273 / ADR-0014): notice from the 24h cache (works
-  // offline once checked once) + one-shot toast. The network check runs on
-  // every launch and re-fires whenever the cache goes stale again (#328),
-  // so a long-running session learns in-session about a new release; the
-  // 24h cache stays as offline fallback and storage. Opt-out via the
-  // `updateCheck` user-config flag; skipped entirely in dev runs.
+  // #347: AI SDK warnings are routed through moh's sink (installed at
+  // render entry) and surface as one-line warn toasts — never raw
+  // `process.emitWarning` output corrupting the transcript.
+  useEffect(() => subscribeAiSdkWarnings((message) => push(message, "warn")), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update polling (#348 / ADR-0014): one 30-minute scheduler drives both
+  // the binary-release check and the first-party skill upstream check,
+  // both behind the single `updateCheck` opt-out — independent of workflow
+  // mode and of the deprecated `workflow.upstreamCheck`. Binary notice from
+  // the 24h cache (works offline once checked once) + one-shot toast; the
+  // skill notice is persistent state feeding status row 2 and Home. The
+  // #328 cache hardening applies to the binary projection; the binary check
+  // is still skipped in dev runs, the skill check is not.
   const [updateNotice, setUpdateNotice] = useState<UpdateNotice | null>(null);
+  const [skillUpdateCount, setSkillUpdateCount] = useState(0);
+  const recheckSkillsRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (!configRef.current.updateCheck || isDevRun()) return;
+    const enabled = config.updateCheck;
+    if (!enabled) {
+      // The shared opt-out applies immediately in a live TUI too: stop any
+      // existing poller and remove discoveries that are no longer refreshed.
+      setUpdateNotice(null);
+      setSkillUpdateCount(0);
+      recheckSkillsRef.current = () => {};
+      return;
+    }
     let live = true;
     const shown = new Set<string>(); // one-shot toast: never repeat a notice
     const show = (notice: UpdateNotice | null) => {
@@ -281,45 +299,56 @@ export function App({
       }
       return notice;
     };
-    const check = () => {
-      void checkForUpdate({ mohHome }).then((latest) => {
-        if (!live || !latest) return;
-        show(fromCache(latest, Date.now()));
-      });
+    const checkBinary = async () => {
+      if (isDevRun()) return; // ADR-0014: no release check from a repo checkout
+      const latest = await checkForUpdate({ mohHome });
+      if (!live || !latest) return;
+      show(fromCache(latest, Date.now()));
     };
+    // Skill discovery: persistent state + a toast only on a rising count
+    // (every 30-minute re-discovery must not re-toast the same updates).
+    let skillInFlight = false;
+    let lastCount = -1;
+    const checkSkills = async () => {
+      if (skillInFlight) return; // #348: never overlap requests
+      skillInFlight = true;
+      try {
+        const result = await checkUpstreamUpdates({ mohHome });
+        if (!live || !result.ok) return; // background failure stays silent
+        setSkillUpdateCount(result.updates.length);
+        if (result.updates.length > 0 && result.updates.length > lastCount) {
+          push(skillUpdateNoticeText(result.updates.length));
+        }
+        lastCount = result.updates.length;
+      } catch {
+        // background failure stays silent
+      } finally {
+        skillInFlight = false;
+      }
+    };
+    const checkEverything = () => Promise.all([checkBinary(), checkSkills()]).then(() => {});
+    recheckSkillsRef.current = () => { void checkSkills(); };
     const cache = readUpdateCache(mohHome);
     show(fromCache(cache?.latestVersion, cache?.lastCheckedAt));
-    check(); // per-launch, even when the cache is fresh (#328)
-    const timer = setInterval(check, UPDATE_CHECK_INTERVAL_MS); // re-fire when the cache goes stale mid-session
+    void checkEverything(); // per-launch, even when the cache is fresh (#328)
+    const stopPoll = startUpdatePoll({ fire: checkEverything });
     return () => {
       live = false;
-      clearInterval(timer);
+      stopPoll();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // `updateCheck` is intentionally a dependency: changing the shared
+    // opt-out in Settings starts/stops both call-homes immediately.
+  }, [config.updateCheck, mohHome, version]);
   // `/thinking show|hide` is session-temporary: replacing/resuming a
   // session returns display control to the persisted global preference.
   useEffect(() => { setReasoningOverride(null); }, [session]);
 
-  // Workflow mode (#36): the frontier tracker and the background
-  // upstream check exist only while enabled (and opted in).
+  // Workflow mode (#36): the frontier tracker exists only while enabled;
+  // the skill upstream check has moved to the shared update poll (#348).
   const workflowOn = config.workflow.enabled;
   const [tracker, setTracker] = useState<TrackerBackend | null>(() =>
     workflowOn ? resolveTrackerSync({ cwd }) : null,
   );
-  useEffect(() => {
-    if (!workflowOn || !config.workflow.upstreamCheck) return;
-    let live = true;
-    void checkUpstreamUpdates({ mohHome }).then((result) => {
-      if (live && result.ok && result.updates.length > 0) {
-        push(`${result.updates.length} skill update${result.updates.length > 1 ? "s" : ""} available (/skills update)`);
-      }
-    });
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflowOn]);
 
   const showReasoningPersistenceNotice = (candidate: AgentSession) => {
     if (configRef.current.reasoningNoticeShown) return;
@@ -551,7 +580,7 @@ export function App({
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
       notice={toasts.at(-1)?.text}
-      updateMessage={updateNotice ? updateNoticeText(updateNotice) : undefined}
+      updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}
       replaySettled={alternateScreen}
       bufferFlipPending={bufferFlipPending}
@@ -579,6 +608,10 @@ export function App({
         onCycleMode: cycleMode,
         onCycleTheme: cycleTheme,
         onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
+        onSkillUpdatesChanged: (result) => {
+          if (result?.ok) setSkillUpdateCount(result.updates.length);
+          else if (result === undefined) recheckSkillsRef.current();
+        },
         onThinkingDisplay: (show) => setReasoningOverride(show),
         thinkingDisplay: () => reasoningOverride ?? configRef.current.showReasoning,
         onThinkingLevelChanged: () => setThinkingPreferenceRevision((value) => value + 1),
@@ -680,6 +713,7 @@ export function App({
             blocked={overlayOpen}
             listMax={config.homeListMax}
             updateNotice={updateNotice}
+            skillUpdateCount={skillUpdateCount}
             version={version ?? MOH_VERSION}
           />
         )}

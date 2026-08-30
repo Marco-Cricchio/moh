@@ -15,6 +15,7 @@ import { listSessionSummaries, type SessionSummary } from "./sessions";
 import { MOH_VERSION } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
+import { skillUpdateNoticeText } from "./update-poll";
 
 /** The fixed home line / one-shot toast text (#273 / ADR-0014). */
 export function updateNoticeText(notice: UpdateNotice): string {
@@ -37,6 +38,8 @@ export interface HomeProps {
   listMax?: number;
   /** Update notice driven by the cached check result (#273). */
   updateNotice?: UpdateNotice | null;
+  /** #348: discovered skill updates — persistent notice line. */
+  skillUpdateCount?: number;
   /** Version shown under the logo (#292; defaults to MOH_VERSION). */
   version?: string;
 }
@@ -48,7 +51,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, version = MOH_VERSION }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -120,6 +123,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
+      {skillUpdateCount > 0 ? <Text color={theme.warn}>{skillUpdateNoticeText(skillUpdateCount)}</Text> : null}
       <Footer
         keys={
           (banner ? "" : `v${version} · `) +

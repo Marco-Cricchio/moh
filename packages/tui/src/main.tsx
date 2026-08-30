@@ -1,6 +1,7 @@
 import React from "react";
 import { render } from "ink";
 import { App, type AppProps } from "./App";
+import { installAiSdkWarningSink } from "./ai-sdk-warnings";
 
 /** Clears the terminal once before the first frame (#292): the home screen
  * opens on a clean viewport instead of below the shell's scrollback. Plain
@@ -29,6 +30,10 @@ export function kittyKeyboardOptions(env: Record<string, string | undefined> = p
  * input's shift+enter newline). On every other terminal nothing changes —
  * ctrl+j remains the newline fallback everywhere. */
 export function renderTui(options: AppProps) {
+  // #347: capture AI SDK warnings before the first provider call can
+  // print them — the sink routes them to the App's toast channel instead
+  // of the SDK's raw `process.emitWarning` output.
+  installAiSdkWarningSink();
   startupClear(process.stdout);
   return render(React.createElement(App, options), {
     // Exit is the deliberate double ctrl+c handled in App: a single stray
