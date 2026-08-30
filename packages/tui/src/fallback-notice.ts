@@ -22,6 +22,11 @@ export function fallbackToastText(from: string, to: string, reason: string): str
 }
 
 export function createFallbackWatcher(): FallbackWatcher {
-  return (event) =>
-    event.type === "fallback" ? fallbackToastText(event.from, event.to, event.reason) : null;
+  return (event) => {
+    if (event.type !== "route_serving") return null;
+    const recovering = event.serving === event.selected;
+    return recovering
+      ? `recovered ${event.selected}`
+      : `using fallback ${event.serving} · selected ${event.selected}`;
+  };
 }

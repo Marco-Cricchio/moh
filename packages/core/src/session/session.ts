@@ -364,9 +364,23 @@ export class AgentSession {
     return this.#registry;
   }
 
-  /** The active model ref (`endpoint/model-id`, or a provider name). #166. */
+  /** The user-selected model ref (`endpoint/model-id`, or a provider name). #166/#363. */
   get activeModel(): string {
     return this.#provider.name;
+  }
+
+  /** #363: selected route stays user-owned while a fallback may serve calls. */
+  get selectedModel(): string {
+    return "selected" in this.#provider && typeof this.#provider.selected === "string"
+      ? this.#provider.selected
+      : this.#provider.name;
+  }
+
+  /** #363: latest successful route used for later model calls. */
+  get servingModel(): string {
+    return "serving" in this.#provider && typeof this.#provider.serving === "string"
+      ? this.#provider.serving
+      : this.#provider.name;
   }
 
   /** The provider type of the active endpoint (#166): feeds /model's

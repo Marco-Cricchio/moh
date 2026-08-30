@@ -238,6 +238,7 @@ export function App({
             setMemoryFresh(true);
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
+          if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);
           const fallbackNotice = watchFallback(event);
           if (fallbackNotice) push(fallbackNotice, "warn");
         }

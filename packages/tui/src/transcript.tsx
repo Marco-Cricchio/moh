@@ -282,6 +282,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // timely notice; this block is the durable record for replay.
         blocks.push({ key, kind: "chrome", glyph: "↻", type: "fallback", detail: `${event.from} → ${event.to}`, lines: [event.reason] });
         break;
+      case "route_serving":
+        // #363: selected and serving routes are distinct session state.
+        blocks.push({ key, kind: "chrome", glyph: "↻", type: "serving route", detail: `${event.selected} · ${event.serving}`, lines: [] });
+        break;
       case "memory_updated":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });

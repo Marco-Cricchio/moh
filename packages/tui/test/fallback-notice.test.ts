@@ -9,12 +9,13 @@ function fallback(from: string, to: string, reason = "quota_exhausted"): AgentEv
 }
 
 describe("createFallbackWatcher", () => {
-  test("fallback events produce an informative toast: reason on from → to", () => {
+  test("only serving transitions produce fallback and recovery notices", () => {
     const watch = createFallbackWatcher();
-    expect(watch(fallback("zai/glm-5.3", "openai/gpt-5.6-terra")))
-      .toBe("quota exhausted on zai/glm-5.3 → openai/gpt-5.6-terra");
-    expect(watch(fallback("a/x", "b/y", "rate_limited"))).toBe("rate limited on a/x → b/y");
-    expect(watch(fallback("a/x", "b/y", "network"))).toBe("network error on a/x → b/y");
+    expect(watch(fallback("zai/glm-5.3", "openai/gpt-5.6-terra"))).toBeNull();
+    expect(watch({ type: "route_serving", selected: "zai/glm-5.3", previous: "zai/glm-5.3", serving: "openai/gpt-5.6-terra" }))
+      .toBe("using fallback openai/gpt-5.6-terra · selected zai/glm-5.3");
+    expect(watch({ type: "route_serving", selected: "zai/glm-5.3", previous: "openai/gpt-5.6-terra", serving: "zai/glm-5.3" }))
+      .toBe("recovered zai/glm-5.3");
   });
 
   test("every other event passes through silently", () => {

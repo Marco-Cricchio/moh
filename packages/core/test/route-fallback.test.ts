@@ -109,8 +109,91 @@ describe("Route fallback chains", () => {
     expect(text).toBe("partial recovery"); // primary's emitted delta stays, fallback restarts single-shot
     // ADR-0012: the stop is announced — visible downstream, never silent.
     expect(events).toContainEqual({ type: "fallback", from: "ep0/m0", to: "ep1/m1", reason: "quota_exhausted" });
-    expect(events.at(-1)).toEqual({ type: "finish", reason: "stop" });
+    expect(events).toContainEqual({ type: "route_serving", selected: "ep0/m0", previous: "ep0/m0", serving: "ep1/m1" });
   });
+  test("uses the successful fallback for later calls and probes selected once per new turn", async () => {
+    let clock = 0;
+    const targets = [mockTarget("a"), mockTarget("b"), mockTarget("c")];
+    const calls: string[] = [];
+    const scripted = new Map<string, Provider>([
+      ["a", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }, { deltas: ["recovered"], finish: "stop" }])],
+      ["b", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])],
+      ["c", MockProvider.scripted([{ deltas: ["served"], finish: "stop" }])],
+    ]);
+    const route = createRoute({
+      target: targets[0]!, fallbacks: targets.slice(1), retries: 0, now: () => clock,
+      createStream: (target) => {
+        calls.push(target.endpoint.name);
+        const provider = scripted.get(target.endpoint.name)!;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+    const message: Message[] = [{ role: "user", parts: [{ kind: "text", text: "hi" }] }];
+    for await (const _ of route.stream(message, new AbortController().signal)) { /* first call reaches c */ }
+    expect(calls).toEqual(["a", "b", "c"]);
+    for await (const _ of route.stream(message, new AbortController().signal)) { /* same turn skips a and b */ }
+    expect(calls).toEqual(["a", "b", "c", "c"]);
+    clock = 15 * 60_000;
+    route.beginTurn();
+    for await (const _ of route.stream(message, new AbortController().signal)) { /* recovery probes a */ }
+    expect(calls).toEqual(["a", "b", "c", "c", "a"]);
+    expect(route.serving).toBe("a/model-a");
+  });
+
+  test("a failed recovery probe resumes the serving target without probing other fallbacks", async () => {
+    let clock = 0;
+    const targets = [mockTarget("a"), mockTarget("b"), mockTarget("c")];
+    const calls: string[] = [];
+    const providers = new Map<string, Provider>([
+      ["a", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])],
+      ["b", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])],
+      ["c", MockProvider.scripted([{ deltas: ["served"], finish: "stop" }])],
+    ]);
+    const route = createRoute({
+      target: targets[0]!, fallbacks: targets.slice(1), retries: 0, now: () => clock,
+      createStream: (target) => {
+        calls.push(target.endpoint.name);
+        const provider = providers.get(target.endpoint.name)!;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+    const message: Message[] = [{ role: "user", parts: [{ kind: "text", text: "hi" }] }];
+    for await (const _ of route.stream(message, new AbortController().signal)) { /* c becomes serving */ }
+    clock = 15 * 60_000;
+    route.beginTurn();
+    for await (const _ of route.stream(message, new AbortController().signal)) { /* a probe then c */ }
+    expect(calls).toEqual(["a", "b", "c", "a", "c"]);
+  });
+
+  test("AgentSession keeps the serving fallback after tool execution", async () => {
+    const targets = [mockTarget("a"), mockTarget("b")];
+    const calls: string[] = [];
+    const providers = new Map<string, Provider>([
+      ["a", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])],
+      ["b", MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "probe", args: {} }] },
+        { deltas: ["done"], finish: "stop" },
+      ])],
+    ]);
+    const route = createRoute({
+      target: targets[0]!, fallbacks: [targets[1]!], retries: 0,
+      createStream: (target) => {
+        calls.push(target.endpoint.name);
+        const provider = providers.get(target.endpoint.name)!;
+        return (messages, signal, tools, options) => provider.stream(messages, signal, tools, options);
+      },
+    });
+    const session = createSession({
+      provider: route,
+      tools: { probe: { name: "probe", description: "probe", inputSchema: undefined, async execute() { return "ok"; } } },
+      permissions: { mode: "auto-accept" },
+    });
+    await session.send("go");
+    expect(calls).toEqual(["a", "b", "b"]);
+    expect(session.selectedModel).toBe("a/model-a");
+    expect(session.servingModel).toBe("b/model-b");
+  });
+
   test("rate_limited retries then falls back after retries exhausted", async () => {
     const primary = MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "rate_limited", message: "429" } }]);
     const secondary = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
