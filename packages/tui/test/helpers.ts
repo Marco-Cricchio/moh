@@ -8,6 +8,22 @@ export async function waitForCondition(
   if (!condition()) throw new Error(`Timed out waiting: ${describe()}`);
 }
 
+export async function actUntilFrame(
+  action: () => void,
+  frame: () => string,
+  expected: string,
+  options: { timeoutMs?: number; intervalMs?: number; absent?: boolean } = {},
+): Promise<void> {
+  const { timeoutMs = 2_000, intervalMs = 10, absent = false } = options;
+  const matches = () => frame().includes(expected) !== absent;
+  const deadline = Date.now() + timeoutMs;
+  while (!matches() && Date.now() < deadline) {
+    action();
+    await Bun.sleep(intervalMs);
+  }
+  await waitForFrame(frame, expected, { timeoutMs: 0, intervalMs, absent });
+}
+
 export async function waitForFrame(
   frame: () => string,
   expected: string,

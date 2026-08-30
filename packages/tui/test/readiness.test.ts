@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { waitForCondition, waitForFrame } from "./helpers";
+import { actUntilFrame, waitForCondition, waitForFrame } from "./helpers";
 
 describe("waitForFrame", () => {
   test("waits until the observable frame reaches the expected state", async () => {
@@ -10,6 +10,11 @@ describe("waitForFrame", () => {
 
 
 
+  test("retries an action until its observable frame appears", async () => {
+    let actions = 0;
+    await actUntilFrame(() => { actions++; }, () => actions === 3 ? "ready" : "loading", "ready", { intervalMs: 1 });
+    expect(actions).toBe(3);
+  });
   test("waits until an overlay is absent", async () => {
     let frame = "workflow mode";
     setTimeout(() => { frame = "home"; }, 15);

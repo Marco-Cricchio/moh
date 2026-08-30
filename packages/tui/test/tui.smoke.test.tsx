@@ -9,7 +9,7 @@ import { Home } from "../src/Home";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { MockProvider, createSession, SessionStore } from "@moh/core";
-import { stripAnsi, unwrap, waitForFrame } from "./helpers";
+import { actUntilFrame, stripAnsi, unwrap, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-smoke-"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -159,25 +159,23 @@ describe("home smoke", () => {
     // A rendered Ink dialog can precede its useInput registration. Retry the
     // dismissal until its *observable* overlay is gone instead of assuming a
     // fixed registration budget.
-    const deadline = Date.now() + 2_000;
-    while (frameText().includes("workflow mode") && Date.now() < deadline) {
-      i.stdin.write("n");
-      await Bun.sleep(10);
-    }
-    await waitForFrame(frameText, "workflow mode", { absent: true, timeoutMs: 10 });
+    await actUntilFrame(
+      () => i.stdin.write("n"),
+      frameText,
+      "workflow mode",
+      { absent: true },
+    );
     await waitForFrame(frameText, "fix the login page");
-    const selectionDeadline = Date.now() + 2_000;
-    while (!frameText().includes("› fix the login page") && Date.now() < selectionDeadline) {
-      i.stdin.write("\x1b[B"); // move from New session to the persisted session
-      await Bun.sleep(10);
-    }
-    await waitForFrame(frameText, "› fix the login page", { timeoutMs: 10 });
-    const chatDeadline = Date.now() + 2_000;
-    while (!frameText().includes("type…") && Date.now() < chatDeadline) {
-      i.stdin.write("\r"); // select the only persisted session once Home accepts input
-      await Bun.sleep(10);
-    }
-    await waitForFrame(frameText, "type…", { timeoutMs: 10 });
+    await actUntilFrame(
+      () => i.stdin.write("\x1b[B"),
+      frameText,
+      "› fix the login page",
+    );
+    await actUntilFrame(
+      () => i.stdin.write("\r"),
+      frameText,
+      "type…",
+    );
     await waitForFrame(frameText, "fix the login page");
     const frame = frameText;
     expect(frame()).toContain("fix the login page"); // resumed history visible
