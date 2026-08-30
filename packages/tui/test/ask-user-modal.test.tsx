@@ -10,7 +10,7 @@ import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { projectTurns } from "../src/turns";
 import { toolArgSummary } from "../src/permission-gate";
-import { stripAnsi, unwrap } from "./helpers";
+import { stripAnsi, unwrap, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -121,21 +121,20 @@ describe("ask_user overlay (issue #70)", () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = render(<AskUserModal gate={gate} />);
-    await sleep(30);
+    await sleep(30); // deliberate: Ink's input handler is not frame-observable
     i.stdin.write("Mon");
-    await sleep(20);
+    await sleep(20); // deliberate: the text input re-registers after a keystroke
     i.stdin.write("go");
-    await sleep(20);
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("Mongo");
-    expect(frame).toContain("enter send"); // text-mode footer
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Mongo");
+    expect(frame()).toContain("Mongo");
+    expect(frame()).toContain("enter send"); // text-mode footer
     i.stdin.write("\x7f"); // backspace
-    await sleep(20);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Mong");
+    await waitForFrame(frame, "Mong");
+    expect(frame()).toContain("Mong");
     i.stdin.write("o");
-    await sleep(20);
+    await waitForFrame(frame, "Mongo");
     i.stdin.write("\r");
-    await sleep(20);
     expect(await pending).toEqual({ text: "Mongo" });
     i.unmount();
   });

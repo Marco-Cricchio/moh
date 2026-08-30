@@ -9,7 +9,7 @@ import { Home } from "../src/Home";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { MockProvider, createSession, SessionStore } from "@moh/core";
-import { stripAnsi, unwrap } from "./helpers";
+import { actUntilFrame, stripAnsi, unwrap, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-smoke-"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -154,16 +154,31 @@ describe("home smoke", () => {
 
     const provider = MockProvider.scripted([{ deltas: ["done!"], finish: "stop" }]);
     const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} />);
-    await sleep(30);
-    i.stdin.write("\r"); // enter on the (only) session row
-    await sleep(300);
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("fix the login page"); // resumed history visible
-    i.stdin.write("and now?");
-    await sleep(20);
-    i.stdin.write("\r");
-    await sleep(300);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("done!");
+    const frameText = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frameText, "workflow mode");
+    // A rendered Ink dialog can precede its useInput registration. Retry the
+    // dismissal until its *observable* overlay is gone instead of assuming a
+    // fixed registration budget.
+    await actUntilFrame(
+      () => i.stdin.write("n"),
+      frameText,
+      "workflow mode",
+      { absent: true },
+    );
+    await waitForFrame(frameText, "fix the login page");
+    await actUntilFrame(
+      () => i.stdin.write("\x1b[B"),
+      frameText,
+      "› fix the login page",
+    );
+    await actUntilFrame(
+      () => i.stdin.write("\r"),
+      frameText,
+      "type…",
+    );
+    await waitForFrame(frameText, "fix the login page");
+    const frame = frameText;
+    expect(frame()).toContain("fix the login page"); // resumed history visible
     i.unmount();
   });
 

@@ -1,4 +1,42 @@
-/** ANSI escape stripper for frame assertions. */
+export async function waitForCondition(
+  condition: () => boolean,
+  describe: () => string,
+  { timeoutMs = 2_000, intervalMs = 10 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) await Bun.sleep(intervalMs);
+  if (!condition()) throw new Error(`Timed out waiting: ${describe()}`);
+}
+
+export async function actUntilFrame(
+  action: () => void,
+  frame: () => string,
+  expected: string,
+  options: { timeoutMs?: number; intervalMs?: number; absent?: boolean } = {},
+): Promise<void> {
+  const { timeoutMs = 2_000, intervalMs = 10, absent = false } = options;
+  const matches = () => frame().includes(expected) !== absent;
+  const deadline = Date.now() + timeoutMs;
+  while (!matches() && Date.now() < deadline) {
+    action();
+    await Bun.sleep(intervalMs);
+  }
+  await waitForFrame(frame, expected, { timeoutMs: 0, intervalMs, absent });
+}
+
+export async function waitForFrame(
+  frame: () => string,
+  expected: string,
+  { timeoutMs = 2_000, intervalMs = 10, absent = false }: { timeoutMs?: number; intervalMs?: number; absent?: boolean } = {},
+): Promise<void> {
+  await waitForCondition(
+    () => frame().includes(expected) !== absent,
+    () => `for frame ${absent ? "without" : "containing"} ${JSON.stringify(expected)}. Last frame:\n${frame()}`,
+    { timeoutMs, intervalMs },
+  );
+  return;
+}
+
 export function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");

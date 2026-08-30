@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, ms)));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-arrow-home-"));
@@ -44,28 +44,31 @@ describe("onboarding wizard — cursor race", () => {
           onDone={() => {}}
         />,
       );
-      await sleep(60);
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      await waitForFrame(frame, "Pick a provider type");
       i.stdin.write("\r"); // anthropic
-      await sleep(60);
+      await waitForFrame(frame, "How does anthropic authenticate?");
       i.stdin.write("\x1b[B"); // subscription
-      await sleep(60);
+      await waitForFrame(frame, "› subscription");
       i.stdin.write("\r");
-      await sleep(60);
+      await waitForFrame(frame, "Terms of service");
       i.stdin.write("y"); // ToS
-      await sleep(80);
+      await waitForFrame(frame, "Paste code here");
       i.stdin.write("CODE-123");
-      await sleep(60);
+      await waitForFrame(frame, "********");
       i.stdin.write("\r");
-      await sleep(300); // settled: the model list is mounted and idle
-      expect(stripAnsi(i.lastFrame() ?? "")).toContain("Pick your default model");
+      await waitForFrame(frame, "Pick your default model");
+      expect(frame()).toContain("Pick your default model");
       const down = subscriptionModelCatalog("anthropic").length;
+      // Intentional rapid-key race: preserve a short inter-key delay to keep
+      // multiple arrows inside the model-list mounting/render window.
       for (let d = 0; d < down; d++) {
         i.stdin.write("\x1b[B");
         await sleep(10);
       }
       i.stdin.write("\r"); // must land on the manual-entry row
-      await sleep(60);
-      expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+      await waitForFrame(frame, "Default model");
+      expect(frame()).toContain("Default model");
       i.unmount();
     }
   });
@@ -79,35 +82,33 @@ describe("onboarding wizard — cursor race", () => {
         <Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={(ref) => done.push(ref)} subscriptionLogin={async (io) => scriptedLogin(io)} />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      const waitFor = async (substr: string, ms = 2000) => {
-        for (let t = 0; t < ms / 10 && !frame().includes(substr); t++) await sleep(10);
-        expect(frame()).toContain(substr);
-      };
-      await waitFor("Pick a provider type");
-      for (let d = 0; d < 3; d++) {
+      await waitForFrame(frame, "Pick a provider type");
+      for (const type of ["openai", "google", "openai-compat"]) {
         i.stdin.write("\x1b[B");
-        await sleep(10);
-      } // openai-compat
-      await sleep(50);
+        await waitForFrame(frame, `› ${type}`);
+      }
       i.stdin.write("\r");
-      await waitFor("Default model");
+      await waitForFrame(frame, "Default model");
       i.stdin.write("qwen3");
-      await sleep(10);
+      await waitForFrame(frame, "› qwen3");
       i.stdin.write("\r");
-      await waitFor("API key");
+      await waitForFrame(frame, "API key");
       i.stdin.write("\r"); // empty key → env/local
-      await waitFor("Pick an API endpoint"); // known-endpoint list (#295)
+      await waitForFrame(frame, "Pick an API endpoint"); // known-endpoint list (#295)
       i.stdin.write("\r"); // Ollama (first entry) prefills the base URL
-      await waitFor("Base URL");
-      await waitFor("http://localhost:11434/v1");
+      await waitForFrame(frame, "Base URL");
+      await waitForFrame(frame, "http://localhost:11434/v1");
       i.stdin.write("\r"); // accept the prefilled URL
-      await waitFor("Where should");
+      await waitForFrame(frame, "Where should");
       // down+enter with no settling window: enter must read the cursor the
       // down produced even if ink re-registers the input handler only in a
       // deferred passive effect.
       i.stdin.write("\x1b[B");
       i.stdin.write("\r");
-      await sleep(100);
+      await waitForCondition(
+        () => done.length > 0,
+        () => `onDone was not called; received: ${JSON.stringify(done)}`,
+      );
       expect(done).toEqual(["openai-compat/qwen3"]);
       const config = JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8"));
       expect(config.provider).toBe("openai-compat/qwen3"); // project save — not user-level
