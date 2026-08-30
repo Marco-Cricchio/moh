@@ -121,6 +121,7 @@ import {
   diffSkillFiles,
   readBundledSkill,
   type UpstreamUpdate,
+  type UpstreamCheckResult,
 } from "./workflow";
 import {
   checkForUpdate,
@@ -493,6 +494,7 @@ export {
   type UsageFetch,
   type AuthEndpointFetch,
   type UpstreamUpdate,
+  type UpstreamCheckResult,
   type UserConfigData,
   type TrackerIssue,
   type TrackerBackend,

@@ -15,6 +15,7 @@ import {
   trackerTools,
   type AgentSession,
   type UpstreamUpdate,
+  type UpstreamCheckResult,
 } from "@moh/core";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -135,6 +136,15 @@ const workflowCommand: SlashCommand = {
   },
 };
 
+/** Message for an explicit `/skills update` check (#344): failures name
+ * the reason (HTTP status where safe) — never "up to date" when the channel
+ * was unreachable. Exported pure for tests. */
+export function upstreamCheckMessage(result: UpstreamCheckResult): string {
+  if (!result.ok) return `skills update check failed (${result.reason})`;
+  if (result.updates.length === 0) return "skills up to date";
+  return "updates available";
+}
+
 const skillsCommand: SlashCommand = {
   name: "skills",
   description: "first-party skills: list, or check/apply upstream updates",
@@ -148,8 +158,10 @@ const skillsCommand: SlashCommand = {
       return;
     }
     void checkUpstreamUpdates({ mohHome: ctx.mohHome })
-      .then((updates) => {
-        if (updates.length === 0) return ctx.notify("skills up to date");
+      .then((result) => {
+        if (!result.ok) return ctx.notify(upstreamCheckMessage(result));
+        const updates = result.updates;
+        if (updates.length === 0) return ctx.notify(upstreamCheckMessage(result));
         if (confirm !== "apply") {
           // Show every diff in full first; consent is the separate
           // `/skills update apply` invocation (hashes re-verified there).

@@ -310,9 +310,9 @@ export function App({
   useEffect(() => {
     if (!workflowOn || !config.workflow.upstreamCheck) return;
     let live = true;
-    void checkUpstreamUpdates({ mohHome }).then((updates) => {
-      if (live && updates.length > 0) {
-        push(`${updates.length} skill update${updates.length > 1 ? "s" : ""} available (/skills update)`);
+    void checkUpstreamUpdates({ mohHome }).then((result) => {
+      if (live && result.ok && result.updates.length > 0) {
+        push(`${result.updates.length} skill update${result.updates.length > 1 ? "s" : ""} available (/skills update)`);
       }
     });
     return () => {

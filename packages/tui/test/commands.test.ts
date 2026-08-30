@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, createSession, readThinkingPreference, setThinkingPreference } from "@moh/core";
-import { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, type SlashContext } from "../src/commands";
+import { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, upstreamCheckMessage, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
 /** The test-side enrichment of SlashContext: the notices channel and config file. */
@@ -393,5 +393,16 @@ describe("/thinking controls (#242)", () => {
   test("the command is always available outside workflow mode", () => {
     const ctx = makeCtx();
     expect(activeCommands(ctx).map((command) => command.name)).toContain("thinking");
+  });
+});
+
+describe("/skills update result mapping (#344)", () => {
+  test("an unreachable upstream names the reason, never 'up to date'", () => {
+    expect(upstreamCheckMessage({ ok: false, reason: "http 404" })).toBe("skills update check failed (http 404)");
+    expect(upstreamCheckMessage({ ok: false, reason: "malformed index" })).toBe("skills update check failed (malformed index)");
+  });
+
+  test("a checked empty channel is a genuine up-to-date", () => {
+    expect(upstreamCheckMessage({ ok: true, updates: [] })).toBe("skills up to date");
   });
 });
