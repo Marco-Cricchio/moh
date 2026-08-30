@@ -122,12 +122,20 @@ export interface RouteConfig {
    * api-key endpoints short-circuit to their inline/env key.
    */
   credentialResolver?: (target: RouteTarget) => Promise<string | EndpointAuthContext | undefined>;
+  /** Clock seam for deterministic session-health cooldown tests. */
+  now?: () => number;
 }
 
 export interface Route extends Provider {
+  /** User-selected target. It stays stable while a fallback serves calls. */
+  readonly selected: string;
+  /** Latest successful target, used directly on later model calls. */
+  readonly serving: string;
   readonly ref: string;
   readonly capabilities: EndpointCapabilities;
   readonly chain: string[];
+  /** Starts a user turn: allows one expired-selected recovery probe. */
+  beginTurn(): void;
 }
 
 /**
@@ -144,13 +152,43 @@ export function createRoute(config: RouteConfig): Route {
   const streamFactory = config.createStream ?? (() => undefined);
   const resolveCredential = config.credentialResolver ?? resolveEndpointCredential;
   const defaultFactory = defaultStreamFactory();
+  const refFor = (target: RouteTarget) => `${target.endpoint.name}/${target.modelId}`;
+  const now = config.now ?? Date.now;
+  const selected = refFor(config.target);
+  let servingIndex = 0;
+  let selectedRecoveryDue = false;
+  const failures = new Map<number, { kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network"; count: number; until: number }>();
+  const cooldownMs = (kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network", count: number) => {
+    if (kind === "quota_exhausted") return 15 * 60_000;
+    const initial = kind === "rate_limited" ? 60_000 : kind === "overloaded" ? 30_000 : 15_000;
+    const cap = kind === "rate_limited" ? 15 * 60_000 : kind === "overloaded" ? 5 * 60_000 : 2 * 60_000;
+    return Math.min(initial * 2 ** (count - 1), cap);
+  };
+  const recordFailure = (index: number, kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network") => {
+    const prior = failures.get(index);
+    const count = prior?.kind === kind ? prior.count + 1 : 1;
+    failures.set(index, { kind, count, until: now() + cooldownMs(kind, count) });
+  };
   const provider: Route = {
-    ref: `${config.target.endpoint.name}/${config.target.modelId}`,
-    name: `${config.target.endpoint.name}/${config.target.modelId}`,
+    get selected() { return selected; },
+    get serving() { return refFor(chain[servingIndex]!); },
+    ref: selected,
+    name: selected,
     capabilities: config.target.endpoint.capabilities,
-    chain: chain.map((t) => `${t.endpoint.name}/${t.modelId}`),
+    chain: chain.map(refFor),
+    beginTurn() {
+      selectedRecoveryDue = servingIndex !== 0 && (failures.get(0)?.until ?? Infinity) <= now();
+    },
     async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions): AsyncIterable<StreamEvent> {
-      for (let i = 0; i < chain.length; i++) {
+      const recoveryProbe = selectedRecoveryDue;
+      selectedRecoveryDue = false;
+      // Recovery probes go selected → existing serving target directly;
+      // ordinary calls start from serving and then try viable alternatives.
+      const order = recoveryProbe
+        ? [0, servingIndex, ...chain.map((_target, index) => index).filter((index) => index !== 0 && index !== servingIndex)]
+        : chain.map((_target, offset) => (servingIndex + offset) % chain.length);
+      for (const i of order) {
+        if (i !== order[0] && (failures.get(i)?.until ?? 0) > now()) continue;
         const target = chain[i]!;
         const targetThinking = config.thinkingForTarget?.(target);
         const targetOptions = config.thinkingForTarget
@@ -176,6 +214,12 @@ export function createRoute(config: RouteConfig): Route {
             for await (const event of stream(messages, signal, tools, targetOptions)) {
               yield event;
             }
+            const previous = servingIndex;
+            servingIndex = i;
+            failures.delete(i);
+            if (previous !== i) {
+              yield { type: "route_serving", selected, serving: refFor(target), previous: refFor(chain[previous]!) };
+            }
             return;
           } catch (err) {
             if (signal.aborted) return;
@@ -185,16 +229,21 @@ export function createRoute(config: RouteConfig): Route {
               if (backoff > 0) await Bun.sleep(backoff);
               continue;
             }
-            if (isFallbackWorthy(normalized) && i < chain.length - 1) {
-              // ADR-0012: announce the stop — visible downstream (session
-              // log + TUI toast), never a silent model swap.
-              yield {
-                type: "fallback",
-                from: `${target.endpoint.name}/${target.modelId}`,
-                to: `${chain[i + 1]!.endpoint.name}/${chain[i + 1]!.modelId}`,
-                reason: normalized.kind,
-              };
-              break; // next target
+            if (isFallbackWorthy(normalized)) {
+              recordFailure(i, normalized.kind as "quota_exhausted" | "rate_limited" | "overloaded" | "network");
+              // A selected-route recovery is one probe only: after it
+              // fails, resume the already-serving target directly rather
+              // than walking other cooled-down fallback stops.
+              const position = order.indexOf(i);
+              const next = order.slice(position + 1).find((index) =>
+                (failures.get(index)?.until ?? 0) <= now(),
+              );
+              if (next !== undefined) {
+                // The detailed record stays in the log; the route_serving
+                // event after success is the only user-visible transition.
+                yield { type: "fallback", from: refFor(target), to: refFor(chain[next]!), reason: normalized.kind };
+                break;
+              }
             }
             throw normalized;
           }

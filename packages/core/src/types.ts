@@ -76,7 +76,9 @@ export type StreamEvent =
   /** ADR-0012: the route engine announces a fallback stop: the active
    * target failed with `reason` (a ProviderError kind, e.g.
    * "quota_exhausted") and the request restarts on `to`. */
-  | { type: "fallback"; from: string; to: string; reason: string };
+  | { type: "fallback"; from: string; to: string; reason: string }
+  /** Session route health selected a new target after a completed call. */
+  | { type: "route_serving"; selected: string; serving: string; previous: string };
 
 export type FinishReason = "stop" | "tool_calls";
 
@@ -193,6 +195,10 @@ export type AgentEvent =
   /** ADR-0012: a fallback stop fired mid-call (route engine). Chrome —
    * replay shows the switch; the TUI toasts it (visible, not silent). */
   | { type: "fallback"; from: string; to: string; reason: string }
+  /** #363: session route health changed the target serving future calls.
+   * Chrome: `selected` stays the user's choice while `serving` may be a
+   * fallback. Emitted only for fallback/recovery transitions. */
+  | { type: "route_serving"; selected: string; serving: string; previous: string }
   /**
    * Compaction marker: replay uses `summary` in place of the events before
    * index `upTo` (exclusive), while retaining the recent tail; the log

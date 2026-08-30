@@ -179,6 +179,9 @@ export class AgentLoop {
     // (AgentSession.switchModel) takes effect from the next turn, never
     // mid-stream.
     const provider = this.#provider();
+    // #363: a Route may probe its selected target once at a user-turn
+    // boundary. Follow-up calls after tools keep the serving target.
+    if ("beginTurn" in provider && typeof provider.beginTurn === "function") provider.beginTurn();
     this.#append({ type: "user_message", text });
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
@@ -218,6 +221,8 @@ export class AgentLoop {
             } else if (event.type === "fallback") {
               this.#append(event);
               this.#flushFailedModelCall();
+            } else if (event.type === "route_serving") {
+              this.#append(event);
             } else if (event.type === "usage") {
               this.#usage.inputTokens += event.inputTokens;
               this.#usage.outputTokens += event.outputTokens;
@@ -288,12 +293,12 @@ export class AgentLoop {
           } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
             this.#consumeReasoningEvent(event);
           } else if (event.type === "fallback") {
-            // ADR-0012: the stop is chrome the log keeps — replay and the
-            // TUI toast both key off it. The failed call's reasoning text
-            // remains displayable, but its continuation is not a completed
-            // provider message and cannot enter future context (#243).
+            // Detailed durable fallback record; route_serving below is the
+            // user-visible transition once a fallback actually succeeds.
             this.#append(event);
             this.#flushFailedModelCall();
+          } else if (event.type === "route_serving") {
+            this.#append(event);
           } else if (event.type === "usage") {
             this.#usage.inputTokens += event.inputTokens;
             this.#usage.outputTokens += event.outputTokens;
