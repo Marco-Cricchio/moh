@@ -21,18 +21,20 @@ export interface FrontierProps {
 n   * PermissionGate modal used for `tracker_claim` tool calls.
    */
   requestClaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
+  /** Permission seam for unclaim: same contract as requestClaim. */
+  requestUnclaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
   /** Called only after the backend has confirmed the mutation. */
   onClaimed?: (issue: TrackerIssue) => void;
 }
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; issues: TrackerIssue[] };
 
-export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }: FrontierProps) {
+export function Frontier({ backend, onToast, onClose, requestClaim, requestUnclaim, onClaimed }: FrontierProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [cursor, setCursor] = useState(0);
-  const [claiming, setClaiming] = useState(false);
+  const [claiming, setClaiming] = useState(false); // guards claim and unclaim alike
 
   const reload = useCallback(() => {
     if (!backend) {
@@ -93,6 +95,25 @@ export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }:
         }
       })();
     }
+    if (input === "u" && current && !claiming) {
+      if (current.assignees.length === 0) return onToast(`#${current.id} not claimed`);
+      setClaiming(true);
+      void (async () => {
+        try {
+          if (requestUnclaim && !(await requestUnclaim(current))) {
+            onToast(`unclaim of #${current.id} denied`);
+            return;
+          }
+          await backend?.unclaim(current.id);
+          onToast(`unclaimed #${current.id}`);
+          reload();
+        } catch (err: unknown) {
+          onToast(`unclaim failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          setClaiming(false);
+        }
+      })();
+    }
   });
 
   return (
@@ -118,7 +139,8 @@ export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }:
         })}
       {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
-      <Dim>↑↓ move · c claim · esc close{frontier && !frontier.deps ? " · no dependency data: flat list" : ""}</Dim>
+      {frontier && !frontier.deps && <Dim>no dependency data — flat list</Dim>}
+      <Dim>↑↓ move · c claim · u unclaim · esc close</Dim>
     </Dialog>
   );
 }
