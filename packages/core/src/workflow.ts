@@ -20,8 +20,14 @@ import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST, firstPartySkillNames } fro
 /** The moh version skills compare their `minMohVersion` against. */
 export const MOH_VERSION = "0.1.0";
 
-/** Default upstream index for first-party skills (opt-out, background). */
-export const DEFAULT_UPSTREAM_URL = "https://raw.githubusercontent.com/moh-workflow/skills/main/index.json";
+/** Default upstream index for first-party skills (opt-out, background).
+ * Served raw from the moh repo's main branch (skills update with released
+ * versions; `minMohVersion` gates applicability): the first-party bundle
+ * lives at `packages/core/assets/skills` and `index.json` there is generated
+ * by `scripts/gen-skills-index.ts` (#344 — the old `moh-workflow/skills`
+ * org URL never existed). */
+export const DEFAULT_UPSTREAM_URL =
+  "https://raw.githubusercontent.com/Marco-Cricchio/moh/main/packages/core/assets/skills/index.json";
 
 /** Where the bundled first-party skills ship inside the package. */
 export function defaultBundleDir(): string {
@@ -289,18 +295,28 @@ export interface CheckUpstreamOptions {
   /** Upstream index URL. Default: DEFAULT_UPSTREAM_URL. */
   upstream?: string;
   /** Fetch implementation (tests). Default: global fetch. */
-  fetchImpl?: (url: string) => Promise<{ ok: boolean; text: () => Promise<string> }>;
+  fetchImpl?: (url: string) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
   /** Timeout applied to the default fetch. Default: 5s. */
   timeoutMs?: number;
 }
 
+/** Result of the upstream check (#344): a checked-but-empty channel is
+ * `ok` with no updates; an unreachable, non-OK, malformed, or invalid
+ * upstream is an explicit failure. Callers decide fail-silence — the
+ * background startup check ignores failures, explicit commands surface
+ * them; "no updates" must always mean "checked and current". */
+export type UpstreamCheckResult =
+  | { ok: true; updates: UpstreamUpdate[] }
+  | { ok: false; reason: string };
+
 /**
- * Background update check (#36): fetches the upstream index and returns
+ * Upstream update check (#36, #344): fetches the upstream index and returns
  * the updates applicable to *unmodified* local copies. Modified skills
  * are skipped by the hash check; min-version-gated ones are skipped.
- * Any failure yields an empty list — the check is fail-silent.
+ * Upstream failures are explicit (`{ ok: false, reason }`); callers decide
+ * whether to stay silent (background check) or surface them (`/skills update`).
  */
-export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promise<UpstreamUpdate[]> {
+export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promise<UpstreamCheckResult> {
   const fetchImpl =
     options.fetchImpl ??
     (async (url: string) => {
@@ -312,15 +328,21 @@ export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promi
         clearTimeout(timer);
       }
     });
-  let index: UpstreamIndex;
+  let raw: string;
   try {
     const res = await fetchImpl(options.upstream ?? DEFAULT_UPSTREAM_URL);
-    if (!res.ok) return [];
-    index = JSON.parse(await res.text());
-  } catch {
-    return [];
+    if (!res.ok) return { ok: false, reason: `http ${res.status}` };
+    raw = await res.text();
+  } catch (e) {
+    return { ok: false, reason: `unreachable: ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (!index || !Array.isArray(index.skills)) return [];
+  let index: UpstreamIndex;
+  try {
+    index = JSON.parse(raw) as UpstreamIndex;
+  } catch {
+    return { ok: false, reason: "malformed index" };
+  }
+  if (!index || !Array.isArray(index.skills)) return { ok: false, reason: "invalid index" };
   const manifest = loadFirstPartyManifest(options.mohHome);
   const updates: UpstreamUpdate[] = [];
   for (const skill of index.skills) {
@@ -334,7 +356,7 @@ export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promi
     if (current === upstreamHash) continue; // already current
     updates.push({ name: skill.name, currentHash: current, upstreamHash, files: skill.files });
   }
-  return updates;
+  return { ok: true, updates };
 }
 
 /** Unified diff between two file sets, `path` by sorted path. */

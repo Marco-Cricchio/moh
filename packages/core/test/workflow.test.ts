@@ -157,6 +157,7 @@ describe("workflow skill discovery", () => {
 describe("upstream updates", () => {
   const fetchWith = (index: unknown) => async () => ({
     ok: true,
+    status: 200,
     text: async () => JSON.stringify(index),
   });
 
@@ -167,22 +168,59 @@ describe("upstream updates", () => {
       join(home, "skills", "review", "SKILL.md"),
       readFileSync(join(home, "skills", "review", "SKILL.md"), "utf8").replace("v1", "hacked"),
     );
-    const updates = await checkUpstreamUpdates({
+    const result = await checkUpstreamUpdates({
       mohHome: home,
       fetchImpl: fetchWith({ skills: [skill("plan", "v2"), skill("review", "v2"), skill("unknown", "v2")] }) as any,
     });
-    expect(updates.map((u) => u.name)).toEqual(["plan"]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.updates.map((u) => u.name)).toEqual(["plan"]);
   });
 
-  test("network failures are fail-silent (empty)", async () => {
+  test("a non-OK upstream response is an explicit failure, not 'up to date' (#344)", async () => {
     const home = freshHome();
-    const updates = await checkUpstreamUpdates({
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      fetchImpl: async () => ({ ok: false, status: 404, text: async () => "" }) as any,
+    });
+    expect(result).toEqual({ ok: false, reason: "http 404" });
+  });
+
+  test("network failures are explicit failures (callers decide fail-silence)", async () => {
+    const home = freshHome();
+    const result = await checkUpstreamUpdates({
       mohHome: home,
       fetchImpl: async () => {
         throw new Error("offline");
       },
     });
-    expect(updates).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain("offline");
+  });
+
+  test("malformed JSON is an explicit failure", async () => {
+    const home = freshHome();
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      fetchImpl: async () => ({ ok: true, status: 200, text: async () => "not json{" }) as any,
+    });
+    expect(result).toEqual({ ok: false, reason: "malformed index" });
+  });
+
+  test("a shape-invalid index is an explicit failure", async () => {
+    const home = freshHome();
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      fetchImpl: fetchWith({ nope: true }) as any,
+    });
+    expect(result).toEqual({ ok: false, reason: "invalid index" });
+  });
+
+  test("an empty-but-valid index is a successful no-updates check", async () => {
+    const home = freshHome();
+    const result = await checkUpstreamUpdates({ mohHome: home, fetchImpl: fetchWith({ skills: [] }) as any });
+    expect(result).toEqual({ ok: true, updates: [] });
   });
 
   test("apply respects consent and skips modified copies", async () => {
