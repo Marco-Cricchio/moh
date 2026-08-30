@@ -57,7 +57,7 @@ jobs:
           cd "$RUNNER_TEMP/smoke-project"
           out="$("$GITHUB_WORKSPACE/dist/moh-${{ matrix.platform }}" run --provider mock "say hi")"
           echo "$out" | grep -q '"type":"done"' || { echo 'headless smoke: no done event'; exit 1; }
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: moh-${{ matrix.platform }}
           path: dist/moh-${{ matrix.platform }}
@@ -72,7 +72,7 @@ jobs:
       contents: write # create the GitHub Release
     steps:
       - uses: actions/checkout@v7 # CHANGELOG.md at the tagged commit
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

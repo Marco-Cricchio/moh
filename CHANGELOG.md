@@ -7,6 +7,11 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Internal
+
+- Release pipeline: bump `upload-artifact` v5→v7 and `download-artifact` v4→v8
+  (Node 20 deprecation warnings).
+
 ## [0.7.2] - 2026-08-30
 
 ### Fixed
