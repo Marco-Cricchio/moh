@@ -15,7 +15,6 @@ import { TOS_WARNING, getStoredToken, readUserConfigFile, subscriptionModelCatal
 import { Onboarding } from "../src/OnboardingOverlay";
 import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
-const sleep = (ms: number) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, ms)));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-sub-"));
 const okTester = async () => ({ ok: true as const, modelId: "tested" });
@@ -36,23 +35,22 @@ const scriptedLogin = async (io: AuthorizationIo, code = "CODE-123"): Promise<Au
 describe("onboarding wizard — subscription branch (#149)", () => {
   test("auth-method step appears for anthropic but never for openai-compat", async () => {
     const i1 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
-    await sleep(60);
+    const frame1 = () => stripAnsi(i1.lastFrame() ?? "");
+    await waitForFrame(frame1, "Pick a provider type");
     i1.stdin.write("\r"); // anthropic
-    await sleep(60);
-    expect(stripAnsi(i1.lastFrame() ?? "")).toContain("How does anthropic authenticate?");
+    await waitForFrame(frame1, "How does anthropic authenticate?");
     i1.unmount();
 
     const i2 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
-    await sleep(60);
-    for (let d = 0; d < 3; d++) {
+    const frame2 = () => stripAnsi(i2.lastFrame() ?? "");
+    await waitForFrame(frame2, "Pick a provider type");
+    for (const type of ["openai", "google", "openai-compat"]) {
       i2.stdin.write("\x1b[B");
-      await sleep(10);
+      await waitForFrame(frame2, `› ${type}`);
     }
     i2.stdin.write("\r"); // openai-compat → model directly (byte-identical path)
-    await sleep(60);
-    const frame = stripAnsi(i2.lastFrame() ?? "");
-    expect(frame).toContain("Default model");
-    expect(frame).not.toContain("authenticate?");
+    await waitForFrame(frame2, "Default model");
+    expect(frame2()).not.toContain("authenticate?");
     i2.unmount();
   });
 
@@ -80,49 +78,49 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         onDone={(ref) => done.push(ref)}
       />,
     );
-    await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick a provider type");
     i.stdin.write("\r"); // anthropic
-    await sleep(60);
+    await waitForFrame(frame, "How does anthropic authenticate?");
     i.stdin.write("\x1b[B"); // down → subscription
-    await sleep(60);
+    await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
-    await sleep(60);
 
     // ToS screen first (spec invariant 4) — same text as the CLI.
-    const tos = stripAnsi(i.lastFrame() ?? "");
-    expect(tos).toContain("Terms of service");
+    await waitForFrame(frame, "Terms of service");
+    const tos = frame();
     expect(tos).toContain(TOS_WARNING.slice(0, 40));
     i.stdin.write("y");
-    await sleep(80);
 
     // Login screen: manual URL visible, browser opened via the seam.
-    const loginFrame = stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Paste code here");
+    const loginFrame = frame();
     expect(loginFrame).toContain("https://provider.example/oauth/manual");
     expect(opened).toEqual(["https://provider.example/oauth/auto"]);
-    expect(loginFrame).toContain("Paste code here");
 
     // Pasted code is masked on screen (redaction).
     i.stdin.write("CODE-123");
-    await sleep(60);
-    const masked = stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "********");
+    const masked = frame();
     expect(masked).not.toContain("CODE-123");
-    expect(masked).toContain("********");
     i.stdin.write("\r");
-    await sleep(80);
 
     // Completion (#156): post-login model list — no typing required. The
     // catalog names are shown, with a manual free-text row at the bottom.
-    const modelFrame = stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick your default model");
+    const modelFrame = frame();
     expect(modelFrame).toContain("tokens stored in");
     expect(modelFrame).toContain("Pick your default model");
     expect(modelFrame).toContain("enter a model id manually");
     const first = subscriptionModelCatalog("anthropic")[0]!;
     expect(modelFrame).toContain(first.id);
     i.stdin.write("\r"); // select the first catalog entry
-    await sleep(60);
     // Selection goes straight to the connection test (no key, no base URL).
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Testing connection");
-    await sleep(150);
+    await waitForFrame(frame, "Testing connection");
+    await waitForCondition(
+      () => done.length > 0,
+      () => `onDone was not called; received: ${JSON.stringify(done)}`,
+    );
 
     expect(done).toEqual([`anthropic/${first.id}`]);
     expect(logins).toBe(1);
@@ -161,26 +159,27 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         onDone={() => {}}
       />,
     );
-    await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick a provider type");
     i.stdin.write("\r");
-    await sleep(60);
+    await waitForFrame(frame, "How does anthropic authenticate?");
     i.stdin.write("\x1b[B");
-    await sleep(60);
+    await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
-    await sleep(60);
+    await waitForFrame(frame, "Terms of service");
     i.stdin.write("y");
-    await sleep(80);
+    await waitForFrame(frame, "Paste code here");
     i.stdin.write("CODE-123");
-    await sleep(60);
+    await waitForFrame(frame, "********");
     i.stdin.write("\r");
-    await sleep(80);
+    await waitForFrame(frame, "Pick your default model");
 
     // Right after login: stub + tokens are on disk even though the wizard
     // is still at the model prompt.
     const user = readUserConfigFile(userFile);
     expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "anthropic")).toMatchObject({ auth: { kind: "subscription" } });
     expect(getStoredToken(userFile, "anthropic")).toBeDefined();
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Pick your default model");
+    expect(frame()).toContain("Pick your default model");
     i.unmount();
   });
 
@@ -197,33 +196,34 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         onDone={(ref) => done.push(ref)}
       />,
     );
-    await sleep(60);
-    i.stdin.write("\r"); // anthropic
-    await sleep(60);
-    i.stdin.write("\x1b[B"); // subscription
-    await sleep(60);
-    i.stdin.write("\r");
-    await sleep(60);
-    i.stdin.write("y"); // ToS
-    await sleep(80);
-    i.stdin.write("CODE-123");
-    await sleep(60);
-    i.stdin.write("\r");
     const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick a provider type");
+    i.stdin.write("\r"); // anthropic
+    await waitForFrame(frame, "How does anthropic authenticate?");
+    i.stdin.write("\x1b[B"); // subscription
+    await waitForFrame(frame, "› subscription");
+    i.stdin.write("\r");
+    await waitForFrame(frame, "Terms of service");
+    i.stdin.write("y"); // ToS
+    await waitForFrame(frame, "Paste code here");
+    i.stdin.write("CODE-123");
+    await waitForFrame(frame, "********");
+    i.stdin.write("\r");
     await waitForFrame(frame, "Pick your default model");
     // Bottom row = free-text fallback (advanced).
     const list = frame();
     expect(list).toContain("Pick your default model");
-    const down = subscriptionModelCatalog("anthropic").length;
-    for (let d = 0; d < down; d++) {
+    for (const model of subscriptionModelCatalog("anthropic").slice(1)) {
       i.stdin.write("\x1b[B");
-      await sleep(10);
+      await waitForFrame(frame, `› ${model.name}`);
     }
+    i.stdin.write("\x1b[B");
+    await waitForFrame(frame, "› enter a model id manually");
     i.stdin.write("\r"); // manual entry
     await waitForFrame(frame, "Default model");
     expect(frame()).toContain("Default model");
     i.stdin.write("claude-sonnet-4-5");
-    await sleep(60);
+    await waitForFrame(frame, "› claude-sonnet-4-5");
     i.stdin.write("\r");
     await waitForCondition(
       () => done.length > 0,
@@ -249,23 +249,22 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         onDone={(ref) => done.push(ref)}
       />,
     );
-    await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick a provider type");
     i.stdin.write("\r"); // anthropic
-    await sleep(60);
+    await waitForFrame(frame, "How does anthropic authenticate?");
     i.stdin.write("\x1b[B"); // subscription
-    await sleep(60);
+    await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
-    await sleep(60);
+    await waitForFrame(frame, "Terms of service");
     i.stdin.write("n"); // decline
-    await sleep(60);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("How does anthropic authenticate?");
+    await waitForFrame(frame, "How does anthropic authenticate?");
     expect(logins).toBe(0);
     // Cursor remembers the declined choice; switching to api-key works.
     i.stdin.write("\x1b[A"); // up → api-key
-    await sleep(60);
+    await waitForFrame(frame, "› api-key");
     i.stdin.write("\r"); // api-key
-    await sleep(60);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+    await waitForFrame(frame, "Default model");
     i.unmount();
   });
 
@@ -286,30 +285,29 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         onDone={(ref) => done.push(ref)}
       />,
     );
-    await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick a provider type");
     i.stdin.write("\r");
-    await sleep(60);
+    await waitForFrame(frame, "How does anthropic authenticate?");
     i.stdin.write("\x1b[B");
-    await sleep(60);
+    await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
-    await sleep(60);
+    await waitForFrame(frame, "Terms of service");
     i.stdin.write("y");
-    await sleep(80);
+    await waitForFrame(frame, "Paste code here");
     i.stdin.write("CODE-123");
-    await sleep(60);
+    await waitForFrame(frame, "********");
     i.stdin.write("\r");
-    await sleep(80);
 
-    const failed = stripAnsi(i.lastFrame() ?? "");
-    expect(failed).toContain("Login failed: authorization failed: invalid code");
+    await waitForFrame(frame, "Login failed: authorization failed: invalid code");
+    const failed = frame();
     expect(failed).toContain("r retry");
     i.stdin.write("r");
-    await sleep(80);
+    await waitForFrame(frame, "Paste code here");
     i.stdin.write("CODE-123");
-    await sleep(60);
+    await waitForFrame(frame, "********");
     i.stdin.write("\r");
-    await sleep(80);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Pick your default model");
+    await waitForFrame(frame, "Pick your default model");
     expect(attempts).toBe(2);
     i.unmount();
   });
