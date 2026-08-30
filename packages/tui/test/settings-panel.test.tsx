@@ -8,7 +8,7 @@ import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -236,14 +236,18 @@ describe("merged provider endpoints (#129)", () => {
       apiKey: "key",
     });
     const { i } = mount(cwd, { home });
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
     await sleep(30);
     await down(i, 7);
     i.stdin.write("\r");
-    await sleep(30);
-    await down(i, 3); // zai sits below the fold (one row shorter since #273)
-    await sleep(30);
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("zai (user)");
+    await waitForFrame(frame, "switch endpoint");
+    // Wait for each React commit before the next key: under suite load a
+    // fixed 30ms pause can drop one arrow and leave the cursor on openai.
+    for (const endpoint of ["anthropic", "openai", "zai (user)"]) {
+      i.stdin.write("\x1b[B");
+      await waitForFrame(frame, `› ${endpoint}`);
+    }
+    expect(frame()).toContain("zai (user)");
     i.unmount();
   });
 
