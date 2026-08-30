@@ -129,7 +129,7 @@ export function Chat({
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
   }
-  const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
+  const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning }), [state.events, state.pending, showReasoning]);
   // #300: wall-clock ledger for tool calls — arrival time per live call,
   // final call→result duration once the result lands. Presentation-only
   // (never merged into the log); advanced incrementally from the cursor
@@ -548,8 +548,21 @@ export function spliceReasoningChunks(
  * scrollback as soon as it closes, keeping the volatile region
  * viewport-small (#188 stays flat). Monotonic while pending: appended
  * events can only close prefixes, never reopen one. */
-export function settledBoundary(events: readonly AgentEvent[], pending: boolean): number {
+export function settledBoundary(
+  events: readonly AgentEvent[],
+  pending: boolean,
+  options: { /** #326: hold an open assistant reply volatile until its call's
+   * reasoning/model_call group seals. Required when reasoning display is on:
+   * the projection renders the group ABOVE the reply, so the reply's
+   * paragraphs must not promote into Static before the group exists —
+   * otherwise the thinking block would be inserted before already-printed
+   * items, which ink's forward-only Static would silently skip. With the
+   * hold, run + group settle together (append-only), and the reply promotes
+   * at call end (or at the tool call that follows) instead of
+   * paragraph-by-paragraph. */ holdReplyForReasoning?: boolean } = {},
+): number {
   if (!pending) return events.length;
+  const hold = options.holdReplyForReasoning === true;
   let turnStart = events.length;
   for (let i = events.length - 1; i >= 0; i--) {
     if (events[i]!.type === "user_message") { turnStart = i; break; }
@@ -566,7 +579,9 @@ export function settledBoundary(events: readonly AgentEvent[], pending: boolean)
     const event = events[i]!;
     if (event.type === "assistant_delta") {
       deltaRun += event.text;
-      if (closedPrefixLength(deltaRun) === deltaRun.length) boundary = i + 1;
+      // #326: with the hold, a streaming reply never promotes mid-run —
+      // only whole, at the event that seals its call's group (see above).
+      if (!hold && closedPrefixLength(deltaRun) === deltaRun.length) boundary = i + 1;
       continue;
     }
     deltaRun = "";

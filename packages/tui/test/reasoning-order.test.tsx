@@ -39,6 +39,8 @@ function expectReasoningAboveReply(blocks: ReturnType<typeof projectTranscript>)
  *    switch) keeps historical reasoning above the reply.
  */
 describe("reasoning above the reply (#326)", () => {
+  // Real log order (#240 flush): the call's deltas precede its
+  // reasoning+model_call group; the projection reorders the group above.
   test("settled projection: the reasoning block precedes the reply's prose blocks", () => {
     const events: AgentEvent[] = [
       { type: "user_message", text: "why?" },
@@ -47,51 +49,81 @@ describe("reasoning above the reply (#326)", () => {
       { type: "assistant_delta", text: "first paragraph.\n\nsecond paragraph." },
       { type: "done", usage: { inputTokens: 1, outputTokens: 2 }, models: ["provider/model"] },
     ];
-    const blocks = projectTranscript(events, { showReasoning: true });
+    const idealized = projectTranscript(events, { showReasoning: true });
+    expectReasoningAboveReply(idealized);
+
+    // Flush order (what the agent loop actually persists): deltas first.
+    const flushed: AgentEvent[] = [
+      { type: "user_message", text: "why?" },
+      { type: "assistant_delta", text: "first paragraph.\n\nsecond paragraph." },
+      { type: "reasoning", text: "premise one\npremise two" },
+      { type: "model_call", model: "provider/model", usage: { inputTokens: 1, outputTokens: 2 } },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 2 }, models: ["provider/model"] },
+    ];
+    const blocks = projectTranscript(flushed, { showReasoning: true });
     expectReasoningAboveReply(blocks);
     // The reply's paragraphs are separate prose blocks, all after the block.
     expect(blocks.filter((block) => block.kind === "moh" && block.markdown).length).toBe(2);
+    // Failed calls keep their position: the error-state block stays in log
+    // order beside its error, not reordered above the partial reply.
+    const failed = projectTranscript([
+      { type: "user_message", text: "try" },
+      { type: "assistant_delta", text: "partial text" },
+      { type: "reasoning", text: "doomed thought" },
+      { type: "model_call", model: "provider/model", usage: { inputTokens: 1, outputTokens: 0 }, failed: true },
+      { type: "error", reason: "provider_failure", message: "boom" },
+    ], { showReasoning: true });
+    expect(failed.map((block) => block.kind)).toEqual(["user", "moh", "thinking", "error"]);
   });
 
   test("multi-call fallback chain: each call's reasoning stays above the reply in log order", () => {
+    // Real flush order: the failed call failed before any text; the backup
+    // call's group flushes after its answer deltas and reorders above them.
     const events: AgentEvent[] = [
       { type: "user_message", text: "try twice" },
       { type: "reasoning", text: "primary attempt thought" },
       { type: "model_call", model: "primary/model", usage: { inputTokens: 1, outputTokens: 0 }, failed: true },
       { type: "fallback", from: "primary/model", to: "backup/model", reason: "overloaded" },
+      { type: "assistant_delta", text: "the answer" },
       { type: "reasoning", text: "backup attempt thought" },
       { type: "model_call", model: "backup/model", usage: { inputTokens: 1, outputTokens: 5 } },
-      { type: "assistant_delta", text: "the answer" },
       { type: "done", usage: { inputTokens: 1, outputTokens: 5 }, models: ["backup/model"] },
     ];
     const blocks = projectTranscript(events, { showReasoning: true });
     expectReasoningAboveReply(blocks);
-    // Both calls' reasoning blocks project, in log order, above the prose.
+    // Both calls' reasoning blocks project, in call order, above the prose.
     const thinking = blocks.filter((block) => block.kind === "thinking");
     expect(thinking.map((block) => block.lines[0])).toEqual(["primary attempt thought", "backup attempt thought"]);
     expect(blocks.findIndex((block) => block.markdown === "the answer")).toBeGreaterThan(blocks.map((block) => block.kind).lastIndexOf("thinking"));
   });
 
   test("promotion boundary: the sealed reasoning unit promotes into Static above the reply paragraphs that promote later", () => {
-    // Mid-turn: reasoning + model_call sealed, first paragraph closed and
-    // promoted, second paragraph still streaming in the volatile area.
-    const events: AgentEvent[] = [
+    // Real flush order, mid-turn with the reply still streaming: the hold
+    // (#326) keeps the whole open reply volatile — nothing of the call may
+    // promote before its reasoning group exists.
+    const streaming: AgentEvent[] = [
       { type: "user_message", text: "stream me an answer" },
+      { type: "assistant_delta", text: "promoted paragraph.\n\nstill streaming" },
+    ];
+    expect(settledBoundary(streaming, true, { holdReplyForReasoning: true })).toBe(1);
+
+    // The call seals (group flushed, tool call follows): run + group settle
+    // together, and the settled projection puts the reasoning above the prose.
+    const events: AgentEvent[] = [
+      ...streaming,
       { type: "reasoning", text: "settled thought" },
       { type: "model_call", model: "provider/model", usage: { inputTokens: 1, outputTokens: 0 } },
-      { type: "assistant_delta", text: "promoted paragraph.\n\n" },
-      { type: "assistant_delta", text: "still streaming" },
+      { type: "tool_call", callId: "c1", name: "bash", args: { command: "ls" } },
     ];
-    const boundary = settledBoundary(events, true);
-    // The sealed unit + closed first paragraph are settled (Static); the
-    // open second paragraph stays volatile.
+    const boundary = settledBoundary(events, true, { holdReplyForReasoning: true });
+    expect(boundary).toBe(4); // through the group, before the pending tool call
     const settled = projectTranscript(events.slice(0, boundary), { showReasoning: true });
-    const volatile = projectTranscript(events.slice(boundary), { showReasoning: true, proseContinuation: true });
+    const volatile = projectTranscript(events.slice(boundary), { showReasoning: true });
     expect(settled.some((block) => block.kind === "thinking")).toBe(true);
     expect(settled.some((block) => block.kind === "moh")).toBe(true);
-    expect(volatile.some((block) => block.kind === "moh")).toBe(true);
+    expect(volatile.some((block) => block.kind === "tool")).toBe(true);
     // Assembled (Static above volatile), reasoning is above all prose —
-    // and inside Static it sealed above the first promoted paragraph.
+    // and inside Static it sealed above the reply's paragraphs.
     expectReasoningAboveReply([...settled, ...volatile]);
     expect(settled.map((block) => block.kind).lastIndexOf("thinking")).toBeLessThan(settled.findIndex((block) => block.kind === "moh"));
   });
@@ -132,14 +164,9 @@ describe("reasoning above the reply (#326)", () => {
     ui.unmount();
   });
 
-  // KNOWN DEVIATION (reported on #326, 2026-09-04): for a text-only turn the
-  // agent loop flushes `reasoning` + `model_call` AFTER the assistant deltas
-  // (agent-loop.ts flushes at stream end), so the settled transcript projects
-  // the reasoning block BELOW the reply — contradicting the issue's verified
-  // claim of `reasoning` → `model_call` → prose log order. Per the issue's
-  // instructions this is NOT fixed here; marked failing so it pins the
-  // deviation and passes once the owner decides the fix.
-  test.failing("settled tail: the model-labelled reasoning block stays above the reply once the turn settles", async () => {
+  // Owner decision (b) on #326: the projection reorders the flushed group
+  // above the reply, so the settled transcript keeps the reasoning on top.
+  test("settled tail: the model-labelled reasoning block stays above the reply once the turn settles", async () => {
     const stream = async function* () {
       yield { type: "model_call_start", model: "reasoner" };
       yield { type: "reasoning_start" };
@@ -163,11 +190,9 @@ describe("reasoning above the reply (#326)", () => {
     ui.unmount();
   });
 
-  // KNOWN DEVIATION (see the live-tail test above and the #326 comment):
-  // once the turn settles, the persisted `reasoning` event lands after the
-  // assistant deltas, so a whole-transcript rebuild places the historical
-  // reasoning below the reply.
-  test.failing("reprojection: whole-transcript rebuilds keep historical reasoning above the reply", async () => {
+  // A whole-transcript rebuild (display toggle, mode switch) must keep the
+  // historical reasoning above the reply (#242 repaint semantics).
+  test("reprojection: whole-transcript rebuilds keep historical reasoning above the reply", async () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["historical reasoning text"] }, deltas: ["the settled answer"], finish: "stop" },
     ]);
@@ -183,17 +208,20 @@ describe("reasoning above the reply (#326)", () => {
       <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="mock" width={80} showReasoning />,
     );
     await nap(60);
+    // The test renderer keeps the pre-toggle Static output above the
+    // repainted transcript (clear-screen escapes don't strip frames), so
+    // compare against the LAST copy of the reply in the repainted portion.
     let frame = stripAnsi(ui.lastFrame() ?? "");
     expect(frame.indexOf("historical reasoning text")).toBeGreaterThanOrEqual(0);
-    expect(frame.indexOf("historical reasoning text")).toBeLessThan(frame.indexOf("the settled answer"));
+    expect(frame.indexOf("historical reasoning text")).toBeLessThan(frame.lastIndexOf("the settled answer"));
     // Mode switch rebuilds the transcript too — ordering holds in vibe.
     ui.rerender(
       <Chat session={session} cwd={process.cwd()} mode="vibe" modelLabel="mock" width={80} showReasoning />,
     );
     await nap(60);
     frame = stripAnsi(ui.lastFrame() ?? "");
-    expect(frame.indexOf("historical reasoning text")).toBeGreaterThanOrEqual(0);
-    expect(frame.indexOf("historical reasoning text")).toBeLessThan(frame.indexOf("the settled answer"));
+    expect(frame.lastIndexOf("historical reasoning text")).toBeGreaterThanOrEqual(0);
+    expect(frame.lastIndexOf("historical reasoning text")).toBeLessThan(frame.lastIndexOf("the settled answer"));
     ui.unmount();
   });
 });

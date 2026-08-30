@@ -111,17 +111,24 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
   // never mutating after Static promotion (#194).
   const subagentResults = new Map<string, Extract<AgentEvent, { type: "subagent_result" }>>();
   for (const event of events) if (event.type === "subagent_result") subagentResults.set(event.callId, event);
+  // #326: the log persists a completed call's reasoning at flush time —
+  // after that call's text deltas — but the reasoning block must render
+  // ABOVE the reply. The projection reorders each call's group above the
+  // delta run that precedes it (pure display order; the log is never
+  // rewritten, and block keys keep the original log index so #329 sealed
+  // heads still match).
+  const ordered = orderReasoningAboveReply(events);
 
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i]!;
-    const key = `${keyBase + i}-${event.type}`;
+  for (let i = 0; i < ordered.length; i++) {
+    const { event, index } = ordered[i]!;
+    const key = `${keyBase + index}-${event.type}`;
     switch (event.type) {
       case "user_message":
         blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: event.text.split("\n") });
         break;
       case "assistant_delta": {
         let text = event.text;
-        while (events[i + 1]?.type === "assistant_delta") text += (events[++i] as Extract<AgentEvent, { type: "assistant_delta" }>).text;
+        while (ordered[i + 1]?.event.type === "assistant_delta") text += (ordered[++i] as { event: Extract<AgentEvent, { type: "assistant_delta" }> }).event.text;
         let lastItemLine = "";
         // One reply, many append-only segments (#205): the terminal Markdown
         // renderer owns fences/tables/headings inline, but a whole reply as
@@ -194,7 +201,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         break;
       }
       case "tool_result":
-        if (!events.some((candidate) => candidate.type === "tool_call" && candidate.callId === event.callId)) {
+        if (!ordered.some((candidate) => candidate.event.type === "tool_call" && candidate.event.callId === event.callId)) {
           blocks.push({ key, kind: "tool", glyph: event.ok ? "✓" : "✗", type: "tool result", detail: event.callId, lines: event.output.split("\n").map(sanitizeLine), state: event.ok ? "ok" : "fail" });
         }
         break;
@@ -316,8 +323,8 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         const texts = [event.text];
         let model = "model";
         let modelCallIndex = -1;
-        for (let j = i + 1; j < events.length; j++) {
-          const next = events[j]!;
+        for (let j = i + 1; j < ordered.length; j++) {
+          const next = ordered[j]!.event;
           if (next.type === "reasoning") { texts.push(next.text); continue; }
           if (next.type === "model_call") {
             model = next.model;
@@ -325,11 +332,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           }
           break;
         }
-        const previous = events[i - 1];
-        const callEvent = modelCallIndex !== -1 ? events[modelCallIndex] : undefined;
+        const previous = ordered[i - 1]?.event;
+        const callEvent = modelCallIndex !== -1 ? ordered[modelCallIndex]!.event : undefined;
         const failed = modelCallIndex !== -1 && (
           (callEvent?.type === "model_call" && callEvent.failed === true)
-          || events[modelCallIndex + 1]?.type === "error"
+          || ordered[modelCallIndex + 1]?.event.type === "error"
           || (previous?.type === "fallback" && previous.from === model)
         );
         blocks.push({
@@ -355,6 +362,51 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
     }
   }
   return blocks;
+}
+
+/** #326: display-order pass — a completed call's reasoning group
+ * (`reasoning` events + their `model_call`) is moved above the contiguous
+ * `assistant_delta` run immediately preceding it in the log, so the thinking
+ * block renders above the reply it produced. Pure projection: the log is
+ * never rewritten, and each event keeps its original index so projection
+ * keys (and #329 sealed heads keyed `${index}-reasoning`) stay stable.
+ * Failed calls keep their position: their block renders in error state
+ * beside the error/fallback that announces it (#242), below the partial
+ * reply text it followed in the log. */
+export function orderReasoningAboveReply(events: ReadonlyArray<AgentEvent>): Array<{ event: AgentEvent; index: number }> {
+  const out: Array<{ event: AgentEvent; index: number }> = [];
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]!;
+    if (event.type !== "reasoning") {
+      out.push({ event, index: i });
+      continue;
+    }
+    // The call's unit: consecutive reasoning parts, then its model_call.
+    const group: Array<{ event: AgentEvent; index: number }> = [{ event, index: i }];
+    let j = i + 1;
+    while (events[j]?.type === "reasoning") {
+      group.push({ event: events[j]!, index: j });
+      j++;
+    }
+    const call = events[j]?.type === "model_call" ? events[j] : undefined;
+    if (call) {
+      group.push({ event: call, index: j });
+      j++;
+    }
+    const failedCall = call && call.type === "model_call" && call.failed === true;
+    const errorFollows = events[j]?.type === "error";
+    const movable = !failedCall && !errorFollows && out.at(-1)?.event.type === "assistant_delta";
+    if (movable) {
+      // Splice above the whole contiguous delta run of this call.
+      let runStart = out.length;
+      while (runStart > 0 && out[runStart - 1]!.event.type === "assistant_delta") runStart--;
+      out.splice(runStart, 0, ...group);
+    } else {
+      out.push(...group);
+    }
+    i = j - 1;
+  }
+  return out;
 }
 
 /** #242: display buffer per reasoning call — 64 KiB. Projection-only:
