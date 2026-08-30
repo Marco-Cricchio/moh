@@ -52,5 +52,8 @@ stay verbatim except for:
 English rewrite of the local custom skill, paths under
 `~/.moh/projects/<slug>/`, reconciled with moh's memory topics (durable
 facts live in memory, current-effort state in session notes).
+- `moh-implementation-flow` is a moh-native companion skill (not an upstream
+port; #366): it keeps moh's implementation execution discipline separate
+from the upstream `implement` workflow.
 - `pr-review` was considered and dropped (#79): upstream `code-review`
   covers inbound PR review; no upstream pr-review text exists to port.

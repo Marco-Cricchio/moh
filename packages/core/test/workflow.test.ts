@@ -9,6 +9,7 @@ import {
   diffSkillFiles,
   firstPartySkillSources,
   embeddedSkillSources,
+  defaultBundleDir,
   EMBEDDED_SKILLS_KEY,
   hashSkillFiles,
   installFirstPartySkills,
@@ -87,6 +88,7 @@ describe("first-party skill install", () => {
       "domain-modeling",
       "grilling",
       "implement",
+      "moh-implementation-flow",
       "session-memory",
       "tdd",
       "to-spec",
@@ -96,6 +98,56 @@ describe("first-party skill install", () => {
       "wizard",
       "writing-for-agents",
     ]);
+  });
+
+  test("bundled implement skill references its companion flow with installable policy", () => {
+    const byName = new Map(firstPartySkillSources().map((source) => [source.name, source]));
+    const implement = byName.get("implement")!;
+    const flow = byName.get("moh-implementation-flow")!;
+
+    expect(implement.files["SKILL.md"]).toContain("moh-implementation-flow");
+    expect(flow.description).toContain("non-trivial implementation work");
+    expect(flow.files["SKILL.md"]).toContain("dedicated branch **before exploration**");
+    expect(flow.files["SKILL.md"]).toContain("parallel");
+    expect(flow.files["SKILL.md"]).toContain("verified vertical slices");
+    expect(flow.files["SKILL.md"]).toContain("atomic intermediate commit");
+    expect(flow.files["SKILL.md"]).toContain("Creating a PR and merging a branch require an explicit owner request");
+
+    const home = freshHome();
+    const report = install({ mohHome: home, sources: [implement, flow] });
+    expect(report.installed.sort()).toEqual(["implement", "moh-implementation-flow"]);
+    expect(readFileSync(join(home, "skills", "moh-implementation-flow", "SKILL.md"), "utf8")).toContain(
+      "verified vertical slices",
+    );
+  });
+
+  test("companion flow updates unmodified copies and preserves modified copies", () => {
+    const flow = firstPartySkillSources().find((source) => source.name === "moh-implementation-flow")!;
+    const updated: FirstPartySkillSource = {
+      ...flow,
+      files: { "SKILL.md": flow.files["SKILL.md"]!.replace("# Moh Implementation Flow", "# Updated Moh Implementation Flow") },
+    };
+
+    const unmodifiedHome = freshHome();
+    install({ mohHome: unmodifiedHome, sources: [flow] });
+    expect(install({ mohHome: unmodifiedHome, sources: [updated] }).updated).toEqual(["moh-implementation-flow"]);
+
+    const modifiedHome = freshHome();
+    install({ mohHome: modifiedHome, sources: [flow] });
+    const file = join(modifiedHome, "skills", "moh-implementation-flow", "SKILL.md");
+    writeFileSync(file, `${readFileSync(file, "utf8")}\nLocal policy note.\n`);
+    expect(install({ mohHome: modifiedHome, sources: [updated] }).skippedModified).toEqual(["moh-implementation-flow"]);
+    expect(readFileSync(file, "utf8")).toContain("Local policy note.");
+  });
+
+  test("generated index exposes the same bundled implement and companion sources", () => {
+    const index = JSON.parse(readFileSync(join(defaultBundleDir(), "index.json"), "utf8"));
+    const byName = new Map<string, Pick<FirstPartySkillSource, "name" | "files">>(
+      index.skills.map((source: FirstPartySkillSource) => [source.name, source]),
+    );
+
+    expect(byName.get("implement")?.files["SKILL.md"]).toContain("moh-implementation-flow");
+    expect(byName.get("moh-implementation-flow")?.files["SKILL.md"]).toContain("verified vertical slices");
   });
 
   test("install prunes stale moh-owned skills no longer bundled (#74)", () => {
