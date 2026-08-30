@@ -7,6 +7,17 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- The reasoning block now stays above the model's reply in the settled
+  transcript (and in whole-transcript repaints), matching the streaming
+  view. The agent loop persists a completed call's reasoning after that
+  call's text deltas; the transcript projection now reorders each call's
+  reasoning group above its reply (display-only — the session log is never
+  rewritten), and with reasoning display enabled an open reply promotes
+  into scrollback at call end instead of paragraph-by-paragraph so the
+  reasoning never lands below already-printed text (#326).
+
 ## [0.7.1] - 2026-08-30
 
 ### Fixed
