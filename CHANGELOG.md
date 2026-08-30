@@ -9,6 +9,13 @@ matching section here at tag time.
 
 ### Fixed
 
+- No more false "non-stable (dev) version" notice after `moh update`: a successful
+  self-update now refreshes the update-check cache so it agrees with the freshly
+  installed binary. The TUI also runs the update check on every launch (the 24h
+  cache stays as offline fallback), re-fires it while a session stays open past
+  the 24h window, suppresses the nonstable notice when the cache predates the
+  running binary, and surfaces an active update notice left-aligned on the
+  second row of the status bar — the cwd/branch/mode tail stays in place (#328).
 - The reasoning block now stays above the model's reply in the settled
   transcript (and in whole-transcript repaints), matching the streaming
   view. The agent loop persists a completed call's reasoning after that
