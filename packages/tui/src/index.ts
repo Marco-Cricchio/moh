@@ -1,5 +1,6 @@
 export { App, type AppProps } from "./App";
 export { renderTui } from "./main";
+export { trackExitWork, awaitExitWork, finishExit } from "./exit";
 export { Chat, type Mode } from "./Chat";
 export { Home } from "./Home";
 export { MultilineInput } from "./Input";
