@@ -480,7 +480,9 @@ describe("#339 spawn by default + child ref pre-validation", () => {
     const events = tap(parent);
     const result = await parent.send("go");
     expect(result.status).toBe("done");
-    // B2: the model hallucinated a ref — fast structured error, parent turn safe.
+    // B2: the model hallucinated a ref — fast structured error, parent turn safe,
+    // and no child ever started (no spawn event = no store/session side effects).
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
     const toolResult = events.find((e) => e.type === "tool_result");
     expect(toolResult).toBeDefined();
     const payload = JSON.parse((toolResult as any).output) as SubagentResult;
@@ -505,5 +507,24 @@ describe("#339 spawn by default + child ref pre-validation", () => {
     expect(result.status).toBe("done");
     expect(events.find((e) => e.type === "subagent_spawn")).toBeDefined();
     expect(events.find((e) => e.type === "subagent_result")).toBeDefined();
+  });
+});
+
+describe("#339 agents-{} equivalence (from-config presets merge)", () => {
+  test("empty presets (moh.json agents:{}) resolve the built-in research preset", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "find it" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home, presets: {} }, // what from-config produces for agents:{}
+    });
+    const events = tap(parent);
+    await parent.send("go");
+    const spawned = events.find((e) => e.type === "subagent_spawn") as any;
+    expect(spawned?.name).toBe("research");
   });
 });
