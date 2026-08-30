@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile } from "../user-config";
+import { resolve } from "node:path";
 
 /** Handshake budget. A server that does not answer `initialize` in time fails. */
 export const MCP_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -86,19 +87,26 @@ export const MCP_TRUST_SECTION = "mcpTrust";
 export function isProjectServerTrusted(file: string, projectPath: string, server: string): boolean {
   const section = readUserConfigFile(file)[MCP_TRUST_SECTION];
   if (typeof section !== "object" || section === null || Array.isArray(section)) return false;
-  const names = (section as Record<string, unknown>)[projectPath];
+  const names = (section as Record<string, unknown>)[trustKey(projectPath)];
   return Array.isArray(names) && names.includes(server);
 }
 
 /** Persists an "always" consent (project path + server name) via the guardian. */
 export function persistProjectMcpTrust(file: string, projectPath: string, server: string): void {
+  const key = trustKey(projectPath);
   updateUserConfigFile(file, (data) => {
     const current = data[MCP_TRUST_SECTION];
     const section =
       typeof current === "object" && current !== null && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
-    const names = Array.isArray(section[projectPath]) ? [...(section[projectPath] as string[])] : [];
+    const names = Array.isArray(section[key]) ? [...(section[key] as string[])] : [];
     if (!names.includes(server)) names.push(server);
-    section[projectPath] = names;
+    section[key] = names;
     data[MCP_TRUST_SECTION] = section;
   });
+}
+
+/** Trust keys are absolute, resolved project paths: a relative or symlinked
+ * cwd must not split one project into two trust keys (consent loops). */
+function trustKey(projectPath: string): string {
+  return resolve(projectPath);
 }
