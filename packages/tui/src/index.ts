@@ -25,6 +25,7 @@ export {
 export { detectEnvProviders, DEFAULT_MODELS, saveDetectedProvider, saveWizardProvider, type EnvCandidate } from "./onboarding";
 export { PermissionGate, describePermissionRequest, type PermissionAnswer, type PermissionRequestView } from "./permission-gate";
 export { Frontier } from "./Frontier";
+export { SkillChooser } from "./SkillChooser";
 export { WorkflowOffer } from "./WorkflowOffer";
 export { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, type SlashCommand, type SlashContext } from "./commands";
 export { DEFAULT_WORKFLOW, type WorkflowSettings } from "./user-config";

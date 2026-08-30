@@ -82,6 +82,26 @@ describe("Frontier panel", () => {
     i.unmount();
   });
 
+  test("claims before handing the claimed issue to the chooser", async () => {
+    const backend = backendOf([issue("1", { labels: ["enhancement"] })]);
+    const handedOff: string[] = [];
+    const i = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <Frontier
+          backend={backend}
+          onToast={() => {}}
+          onClose={() => {}}
+          onClaimed={(claimed) => handedOff.push(`${claimed.id}:${backend.claimed.join(",")}`)}
+        />
+      </ThemeProvider>,
+    );
+    await sleep(50);
+    i.stdin.write("c");
+    await sleep(50);
+    expect(handedOff).toEqual(["1:1"]);
+    i.unmount();
+  });
+
   test("already-claimed issues are not re-claimable", async () => {
     const toasts: string[] = [];
     const i = mount(backendOf([issue("1", { assignees: ["bob"] })]), (t) => toasts.push(t));
@@ -113,6 +133,25 @@ describe("Frontier panel", () => {
     await sleep(30);
     expect(asked).toEqual(["1"]);
     expect(backend.claimed).toEqual([]); // denied: no mutation
+    i.unmount();
+  });
+
+  test("a failed claim does not hand off to the chooser", async () => {
+    let handedOff = 0;
+    const i = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <Frontier
+          backend={{ kind: "gh", list: async () => [issue("1")], claim: async () => { throw new Error("race"); } }}
+          onToast={() => {}}
+          onClose={() => {}}
+          onClaimed={() => handedOff++}
+        />
+      </ThemeProvider>,
+    );
+    await sleep(50);
+    i.stdin.write("c");
+    await sleep(50);
+    expect(handedOff).toBe(0);
     i.unmount();
   });
 

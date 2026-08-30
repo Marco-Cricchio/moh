@@ -20,6 +20,12 @@ matching section here at tag time.
   apply path skips malformed updates without writing, and the bundled
   first-party installer routes through the same containment-checked write.
 
+### Added
+
+- Frontier claims now open a label-guided workflow chooser. Selecting a route
+  pre-fills (but never sends) the minimal slash command and issue reference;
+  projects can extend or override label routes through `moh.json` (#357).
+
 ## [0.8.0] - 2026-08-30
 
 ### Fixed

@@ -11,6 +11,8 @@ export interface InputProps {
   focused?: boolean;
   /** Incremented by the focused send chip to submit the current draft. */
   submitSignal?: number;
+  /** An external, unsent composer prefill (for example a claimed-issue route). */
+  prefill?: string;
   /** Slash commands active for this context (workflow-aware), with the
    * popup-facing description and the `[s]`/`[u]` provenance marker
    * (`[s]` built into moh, `[u]` user-defined). The completion popup and
@@ -88,6 +90,7 @@ export function MultilineInput({
   onAskCommands,
   focused = true,
   submitSignal = 0,
+  prefill,
   commands = [],
   onSuggestionsOpen,
   onSubmit,
@@ -109,6 +112,7 @@ export function MultilineInput({
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [cursorVisible, setCursorVisible] = useState(true);
   const previousSubmitSignal = useRef(submitSignal);
+  const previousPrefill = useRef<string | undefined>(prefill);
 
   // Blinking block cursor: visible/invisible alternate on a fixed cadence.
   // Any keystroke (handled below through the ref) snaps the phase back to
@@ -175,6 +179,16 @@ export function MultilineInput({
     setCursorColumn(position === "start" ? 0 : (next[line] ?? "").length);
     setPreferredColumn(null);
   };
+
+  useEffect(() => {
+    if (prefill === undefined || prefill === previousPrefill.current) return;
+    previousPrefill.current = prefill;
+    replaceText(prefill);
+    // A prefill is an external editor command, not user undo history.
+    setUndo([]); setRedo([]); setSuggestionIndex(0);
+    // replaceText is intentionally read at the prefill edge.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill]);
 
   const insertText = (text: string) => {
     if (!text) return;

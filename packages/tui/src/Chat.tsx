@@ -56,6 +56,8 @@ export interface ChatProps {
   /** Git branch label override (tests); default: read from the session cwd. */
   branch?: string | null;
   submitSignal?: number;
+  /** Unsent external composer draft. */
+  prefill?: string;
   /** Repaint settled history in the alternate-screen modal buffer. */
   replaySettled?: boolean;
   /** #330: an alternate→main buffer flip is in flight (modal just closed,
@@ -96,6 +98,7 @@ export function Chat({
   notice,
   updateMessage,
   submitSignal = 0,
+  prefill,
   replaySettled = false,
   bufferFlipPending = false,
   branch,
@@ -419,6 +422,7 @@ export function Chat({
         commands={commands}
         onSuggestionsOpen={onSuggestionsOpen}
         submitSignal={submitSignal}
+        prefill={prefill}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;
           void session.send(text);
