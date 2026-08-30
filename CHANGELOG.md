@@ -25,6 +25,11 @@ matching section here at tag time.
   `provider`/`model` refs are validated before any child session is created:
   a hallucinated ref fails fast with a clear error instead of wasting turns (#339).
 
+### Internal
+
+- Release pipeline: bump `upload-artifact` v5→v7 and `download-artifact` v4→v8
+  (Node 20 deprecation warnings).
+
 ## [0.7.2] - 2026-08-30
 
 ### Fixed
