@@ -95,6 +95,16 @@ declaration, behavior is conservative: no level selection, no invented
 request fields. Declared levels are intersected with what the format's
 wire can express (e.g. `google-thinking-level` has no `xhigh`/`max`).
 
+**Catalog gaps and the declaration as escape hatch (#338).** Some
+catalog-backed models are flagged `reasoning` upstream without a thinking
+level map, so `/thinking` and Ctrl+Y offer no level control for them. The
+regeneration script (`packages/core/scripts/regen-model-catalogs.ts`)
+fills what it can by exact model-id match across pi-ai's catalogs; the
+residual is genuinely unlabelled upstream. For those models, an explicit
+`capabilities.thinkingModels` declaration on the endpoint profile (same
+mechanism as above) enables level control without waiting for upstream
+data.
+
 ### 2. Consume the session through `events`
 
 The event log is the session: an append-only sequence of `AgentEvent`s
