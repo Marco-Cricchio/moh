@@ -265,6 +265,56 @@ describe("upstream updates", () => {
     expect(diff).toContain("--- a/a.md");
     expect(diff).toContain("+++ b/b.md");
   });
+
+  test("#352/SEC-02: a traversal-bearing index entry makes the check fail explicitly", async () => {
+    const home = freshHome();
+    install({ mohHome: home, sources: [skill("plan", "v1")] });
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      fetchImpl: fetchWith({ skills: [{ name: "../../traversed", files: { pwned: "x" } }] }) as any,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain("invalid");
+    // file-key traversal is rejected too
+    const keyResult = await checkUpstreamUpdates({
+      mohHome: home,
+      fetchImpl: fetchWith({ skills: [{ name: "plan", files: { "../pwned": "x" } }] }) as any,
+    });
+    expect(keyResult.ok).toBe(false);
+  });
+
+  test("#352/SEC-02: apply skips malformed updates without writing outside the skills root", async () => {
+    const home = freshHome();
+    install({ mohHome: home, sources: [skill("plan", "v1")] });
+    const report = await applyUpstreamUpdates({
+      mohHome: home,
+      updates: [
+        { name: "../../traversed", currentHash: hashSkillFiles({}), upstreamHash: hashSkillFiles({ pwned: "x" }), files: { pwned: "x" } },
+        { name: "plan", currentHash: hashSkillFiles({}), upstreamHash: hashSkillFiles({ "../pwned": "x" }), files: { "../pwned": "x" } },
+      ],
+      consent: () => true,
+    });
+    expect(report.skippedInvalid.sort()).toEqual(["../../traversed", "plan"]);
+    expect(report.applied).toEqual([]);
+    // Nothing escaped the skills root: no `traversed` dir one level above moh home.
+    expect(existsSync(join(home, "traversed"))).toBe(false);
+    expect(existsSync(join(home, "skills", "pwned"))).toBe(false);
+    expect(existsSync(join(home, "pwned"))).toBe(false);
+  });
+
+  test("#352/SEC-02: the bundled installer rejects malformed sources too (defense in depth)", () => {
+    const home = freshHome();
+    const evil: FirstPartySkillSource = {
+      name: "../escape",
+      description: "x",
+      files: { "SKILL.md": "---\nname: escape\ndescription: x\n---\n" },
+    };
+    const report = install({ mohHome: home, sources: [evil, skill("plan")] });
+    expect(report.skippedInvalid).toEqual(["../escape"]);
+    expect(existsSync(join(home, "skills", "escape"))).toBe(false);
+    expect(report.installed).toEqual(["plan"]);
+  });
 });
 
 describe("embedded skills bundle (binary run, #267)", () => {

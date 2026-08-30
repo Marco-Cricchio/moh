@@ -182,10 +182,7 @@ export function persistToolAllow(file: string, tool: string): void {
   writeMohConfig(file, { ...config, permissions: { ...config.permissions, overrides } });
 }
 
-/** Persists server-level trust ("always" consent) for a project MCP server. */
-export function persistMcpTrust(file: string, server: string): void {
-  const config = loadMohConfig(file);
-  const entry = config.mcpServers?.[server];
-  if (!entry) return; // only project-declared servers can be persisted
-  writeMohConfig(file, upsertMcpServer(config, server, { ...entry, trusted: true }));
-}
+// Server-level trust ("always" consent for project MCP servers) is NOT
+// persisted here anymore (#352/SEC-01): the repo-controlled moh.json must
+// not be able to self-declare trust. See persistProjectMcpTrust in
+// mcp/types.ts — it writes the `mcpTrust` section of ~/.moh/config.

@@ -49,7 +49,7 @@ import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProvide
 import { type MemoryOptions } from "./memory";
 import { type SubagentOptions } from "./subagents";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
-import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
+import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
   writeMohConfig,
@@ -118,6 +118,7 @@ import {
   bundledSkillSources,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
+  validateSkillEntry,
   loadFirstPartyManifest,
   diffSkillFiles,
   readBundledSkill,
@@ -419,6 +420,8 @@ export {
   upsertMcpServer,
   declaredMcpServers,
   declaredUserMcpServers,
+  isProjectServerTrusted,
+  persistProjectMcpTrust,
   minimalConnectionTest,
   addProviderToFile,
   runProviderAdd,
@@ -428,6 +431,7 @@ export {
   installFirstPartySkills,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
+  validateSkillEntry,
   loadFirstPartyManifest,
   diffSkillFiles,
   readBundledSkill,

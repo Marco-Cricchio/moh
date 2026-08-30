@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- Security (audit SEC-01, #352): a project `moh.json` can no longer
+  self-declare an MCP server as `trusted` — the field is ignored on read.
+  Persisted "always" consent for project servers now lives in the user
+  config (`~/.moh/config` `mcpTrust` section, keyed by project path), so a
+  cloned repo never skips the consent gate (ADR-0016).
+- Security (audit SEC-02, #352): upstream skills updates validate the
+  network-supplied skill name and file keys before writing. A
+  traversal-bearing index entry fails the upstream check explicitly, the
+  apply path skips malformed updates without writing, and the bundled
+  first-party installer routes through the same containment-checked write.
+
 ### Added
 
 - Frontier claims now open a label-guided workflow chooser. Selecting a route

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { readUserConfigFile, userConfigFile } from "../user-config";
+import { readUserConfigFile, updateUserConfigFile, userConfigFile } from "../user-config";
+import { resolve } from "node:path";
 
 /** Handshake budget. A server that does not answer `initialize` in time fails. */
 export const MCP_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -13,7 +14,8 @@ export const mcpServerEntrySchema = z.discriminatedUnion("type", [
     command: z.string().min(1),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
-    /** Project servers only: consent already given and persisted ("always"). */
+    /** Legacy pre-#352 field. Tolerated on parse (old configs load), but
+     * ignored: project trust lives in the user config `mcpTrust` section. */
     trusted: z.boolean().optional(),
   }),
   z.object({
@@ -32,6 +34,14 @@ export interface DeclaredMcpServer {
   /** "project" servers ask consent on first use; "user" servers never ask. */
   scope: "project" | "user";
   transport: McpServerEntry;
+  /**
+   * Resolved trust for project servers: a persisted "always" consent,
+   * recorded by moh itself in the user config (`mcpTrust`, #352/SEC-01).
+   * This is deliberately *not* the repo-controlled `trusted` field of the
+   * project `moh.json` entry — that field is tolerated on parse but never
+   * read; the repository cannot self-declare trust.
+   */
+  trusted?: boolean;
 }
 
 /** Server lifecycle states visible to clients (e.g. `moh mcp list`). */
@@ -62,4 +72,41 @@ export function loadUserMcpServers(file = userConfigFile()): Record<string, McpS
 /** User-scope servers as trusted declarations (they never ask for consent). */
 export function declaredUserMcpServers(file?: string): DeclaredMcpServer[] {
   return Object.entries(loadUserMcpServers(file)).map(([name, transport]) => ({ name, scope: "user" as const, transport }));
+}
+
+/**
+ * User-config section recording persisted "always" consent for *project*
+ * MCP servers (#352 / audit SEC-01), keyed by absolute project path →
+ * server names. It lives in `~/.moh/config` precisely because the
+ * repository cannot write there: a `trusted: true` shipped in the
+ * project's `moh.json` is ignored.
+ */
+export const MCP_TRUST_SECTION = "mcpTrust";
+
+/** Whether the user already consented "always" to this project server. */
+export function isProjectServerTrusted(file: string, projectPath: string, server: string): boolean {
+  const section = readUserConfigFile(file)[MCP_TRUST_SECTION];
+  if (typeof section !== "object" || section === null || Array.isArray(section)) return false;
+  const names = (section as Record<string, unknown>)[trustKey(projectPath)];
+  return Array.isArray(names) && names.includes(server);
+}
+
+/** Persists an "always" consent (project path + server name) via the guardian. */
+export function persistProjectMcpTrust(file: string, projectPath: string, server: string): void {
+  const key = trustKey(projectPath);
+  updateUserConfigFile(file, (data) => {
+    const current = data[MCP_TRUST_SECTION];
+    const section =
+      typeof current === "object" && current !== null && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
+    const names = Array.isArray(section[key]) ? [...(section[key] as string[])] : [];
+    if (!names.includes(server)) names.push(server);
+    section[key] = names;
+    data[MCP_TRUST_SECTION] = section;
+  });
+}
+
+/** Trust keys are absolute, resolved project paths: a relative or symlinked
+ * cwd must not split one project into two trust keys (consent loops). */
+function trustKey(projectPath: string): string {
+  return resolve(projectPath);
 }
