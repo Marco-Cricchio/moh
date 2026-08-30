@@ -53,6 +53,11 @@ export interface ChatProps {
   submitSignal?: number;
   /** Repaint settled history in the alternate-screen modal buffer. */
   replaySettled?: boolean;
+  /** #330: an alternate→main buffer flip is in flight (modal just closed,
+  * flip timer pending). A deferred whole-transcript repaint must wait it
+  * out — firing concurrently lands its Static re-emission in the dying
+  * alternate buffer and blanks the chat. */
+  bufferFlipPending?: boolean;
   /** Slash commands active for this context (workflow-aware completion)
    * with popup-facing descriptions and provenance markers. Standalone
    * mounts default to the base list from the registry. */
@@ -86,6 +91,7 @@ export function Chat({
   notice,
   submitSignal = 0,
   replaySettled = false,
+  bufferFlipPending = false,
   branch,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
@@ -128,8 +134,10 @@ export function Chat({
   const toolTimings = toolTimingsRef.current;
   // Mode switch repaints (#201): the printed grammar is no longer sealed —
   // the visible transcript is cleared and reprinted whole in the new mode.
-  // A pending repaint waits while a modal owns the alternate screen; it
-  // fires on close, before anything else settles into scrollback.
+  // A pending repaint waits while a modal owns the alternate screen; on
+  // close it also waits out the buffer flip (#330) so the re-emission
+  // lands in the main buffer, before anything else settles into
+  // scrollback.
   const { stdout } = useStdout();
   const [repaint, setRepaint] = useState(0);
   const modeRef = useRef(mode);
@@ -147,14 +155,14 @@ export function Chat({
     repaintRef.current = true;
   }
   useEffect(() => {
-    if (!repaintRef.current || replaySettled || blocked) return;
+    if (!repaintRef.current || replaySettled || blocked || bufferFlipPending) return;
     repaintRef.current = false;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     // Clear screen + scrollback, cursor home: the whole visible transcript
     // (including anything printed before moh) goes away by owner decision.
     stdout.write("\x1b[H\x1b[2J\x1b[3J");
     setRepaint((value) => value + 1);
-  }, [mode, showReasoning, replaySettled, blocked, stdout]);
+  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout]);
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked

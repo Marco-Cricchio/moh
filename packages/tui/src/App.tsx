@@ -504,6 +504,14 @@ export function App({
   });
 
   const showChat = session !== null;
+  const overlayOpen = overlay !== null || pending !== null || asking !== null;
+  // #330: a flip back to the main buffer is pending from the moment the
+  // overlay closes (render-phase: covers the first post-close commit,
+  // before the flip effect runs) until the delayed 1049l fires. Chat
+  // holds any deferred whole-transcript repaint until then, or its Static
+  // re-emission lands in the dying alternate buffer and blanks the chat.
+  const [flipPending, setFlipPending] = useState(false);
+  const bufferFlipPending = (!overlayOpen && alternateScreen) || flipPending;
   const chat = showChat ? (
     <Chat
       session={session}
@@ -524,6 +532,7 @@ export function App({
       notice={toasts.at(-1)?.text}
       submitSignal={submitSignal}
       replaySettled={alternateScreen}
+      bufferFlipPending={bufferFlipPending}
       commands={commandEntries({ config })}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
@@ -558,7 +567,6 @@ export function App({
     />
   ) : null;
 
-  const overlayOpen = overlay !== null || pending !== null || asking !== null;
   const alternateRef = useRef(false);
   alternateRef.current = alternateScreen;
 
@@ -591,6 +599,7 @@ export function App({
       if (flipTimerRef.current !== null) {
         clearTimeout(flipTimerRef.current);
         flipTimerRef.current = null;
+        setFlipPending(false);
       }
       if (isTty) stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
       setAlternateScreen(true);
@@ -601,9 +610,14 @@ export function App({
     // Blank the dying modal frame: the resync paint anchors at the top of
     // the erased region, and a brief blank beats a wrongly-anchored flash.
     stdout.write("\x1b[2J\x1b[H");
+    setFlipPending(true);
     flipTimerRef.current = setTimeout(() => {
       flipTimerRef.current = null;
       stdout.write("\x1b[?1049l");
+      // Flip completed first (same task, before any repaint render fires)
+      // so a deferred whole-transcript repaint re-emits into the main
+      // buffer, not the dying alternate one (#330).
+      setFlipPending(false);
     }, ALT_FLIP_DELAY_MS);
   }, [alternateScreen, overlayOpen, isTty, stdout]);
   // Unmount: a pending flip (close raced with exit) or an open overlay
