@@ -18,7 +18,7 @@ and an auditable, versioned data surface.
 - `xai.json` — xAI grok models
 - `zai.json` — Z.ai GLM models (generated from pi-ai's `ZAI_MODELS` provider module; Z.ai speaks openai-compat in moh)
 
-Source version at the last regeneration: **pi-ai 0.84.3**.
+Source version at the last regeneration: **pi-ai 0.84.4**.
 
 ## Regeneration
 

@@ -7,6 +7,24 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- Double `Ctrl+C` exit no longer holds the shell prompt for ~3s after the
+  UI disappears: the CLI now bounds tracked session cleanup (2.5s budget) and
+  terminates explicitly, so lingering event-loop handles — Bun HTTP keep-alive
+  sockets from provider traffic — cannot delay a deliberate exit (#341).
+
+### Changed
+
+- Model catalogs regenerated from pi-ai 0.84.4: 113 additional OpenRouter
+  thinking-level maps (unmapped `reasoning:true` models drop 212 → 99) plus
+  copilot/zai data refresh (#338).
+- The `spawn` subagent tool is now registered by default — the built-in
+  presets (`research`, `implement`) work with zero configuration; a moh.json
+  `agents` section now only overrides presets/provider/concurrency. Inline
+  `provider`/`model` refs are validated before any child session is created:
+  a hallucinated ref fails fast with a clear error instead of wasting turns (#339).
+
 ### Internal
 
 - Release pipeline: bump `upload-artifact` v5→v7 and `download-artifact` v4→v8
