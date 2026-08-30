@@ -76,6 +76,24 @@ describe("reasoning above the reply (#326)", () => {
     expect(failed.map((block) => block.kind)).toEqual(["user", "moh", "thinking", "error"]);
   });
 
+  test("a same-model retry after fallback is not stained failed by the reorder", () => {
+    // After the reorder the retry's group sits beside the fallback event:
+    // the failed-detection must use the ORIGINAL log neighbor, so a retry
+    // (even on the same model) stays clean when its call succeeded.
+    const blocks = projectTranscript([
+      { type: "user_message", text: "retry" },
+      { type: "fallback", from: "provider/model", to: "provider/model", reason: "overloaded" },
+      { type: "assistant_delta", text: "retry answer" },
+      { type: "reasoning", text: "retry thought" },
+      { type: "model_call", model: "provider/model", usage: { inputTokens: 1, outputTokens: 3 } },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 3 }, models: ["provider/model"] },
+    ], { showReasoning: true });
+    const retry = blocks.find((block) => block.kind === "thinking")!;
+    expect(retry.state).not.toBe("fail");
+    expect(retry.detail).toBe("· provider/model");
+    expectReasoningAboveReply(blocks);
+  });
+
   test("multi-call fallback chain: each call's reasoning stays above the reply in log order", () => {
     // Real flush order: the failed call failed before any text; the backup
     // call's group flushes after its answer deltas and reorders above them.

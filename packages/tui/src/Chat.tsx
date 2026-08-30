@@ -129,6 +129,10 @@ export function Chat({
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
   }
+  // #326: the hold shrinks settledEnd while paragraphs already promoted
+  // under display-off would sit before the reasoning group — safe because a
+  // showReasoning toggle always forces the whole-transcript repaint below
+  // (clear + remount), which reprints everything in the new order.
   const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning }), [state.events, state.pending, showReasoning]);
   // #300: wall-clock ledger for tool calls — arrival time per live call,
   // final call→result duration once the result lands. Presentation-only

@@ -332,13 +332,16 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           }
           break;
         }
-        const previous = ordered[i - 1]?.event;
+        const previous = events[index - 1];
         const callEvent = modelCallIndex !== -1 ? ordered[modelCallIndex]!.event : undefined;
         const failed = modelCallIndex !== -1 && (
           (callEvent?.type === "model_call" && callEvent.failed === true)
           || ordered[modelCallIndex + 1]?.event.type === "error"
           || (previous?.type === "fallback" && previous.from === model)
         );
+        // `previous` above is the ORIGINAL log neighbor (not the reordered
+        // one): after the reorder a moved group can sit beside a fallback
+        // event, and a same-model fallback must not stain it failed.
         blocks.push({
           key,
           kind: "thinking",
