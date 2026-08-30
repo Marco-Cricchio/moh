@@ -29,6 +29,20 @@ async function mount(onSubmit: (text: string) => void, commands: readonly Comman
   };
 }
 
+describe("multiline input external prefill", () => {
+  test("replaces the draft without submitting it", async () => {
+    const submitted: string[] = [];
+    const i = render(<MultilineInput placeholder="p" focused onSubmit={(text) => submitted.push(text)} />);
+    await sleep(30);
+    i.stdin.write("draft");
+    await sleep(30);
+    i.rerender(<MultilineInput placeholder="p" focused prefill="/implement #123" onSubmit={(text) => submitted.push(text)} />);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (frame) => frame.includes("/implement #123"));
+    expect(submitted).toEqual([]);
+    i.unmount();
+  });
+});
+
 describe("multiline input newline/submit keys (raw bytes through Ink's parser)", () => {
   test("ctrl+j byte (\\n) inserts a newline, never submits", async () => {
     let submitted = 0;

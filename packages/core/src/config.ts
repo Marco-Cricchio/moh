@@ -16,6 +16,7 @@ import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 import { subagentSpecSchema } from "./subagents";
 import { memoryConfigSchema } from "./memory";
 import { isThinkingLevel, THINKING_FORMATS } from "./types";
+import type { SkillRoutingConfig } from "./skill-routing";
 
 /** #256: a configuration-declared thinking capability — which format
  * the endpoint/model speaks and which canonical levels it accepts. */
@@ -70,6 +71,17 @@ export const endpointProfileSchema = z.object({
   capabilities: capabilitiesSchema.optional(),
 });
 
+const skillRouteOverrideSchema = z.object({
+  command: z.string().regex(/^\//, "command must start with a slash").optional(),
+  priority: z.number().finite().optional(),
+  disabled: z.boolean().optional(),
+  suffix: z.string().trim().min(1).max(160).optional(),
+}).refine((route) => route.command !== undefined || route.priority !== undefined || route.disabled !== undefined || route.suffix !== undefined, "route override must change something");
+
+const skillRoutingSchema: z.ZodType<SkillRoutingConfig> = z.object({
+  labels: z.record(z.string().min(1), skillRouteOverrideSchema).optional(),
+});
+
 const permissionOverridesSchema = z.object({
   tools: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),
   bashAllow: z.array(z.array(z.string())).optional(),
@@ -99,6 +111,8 @@ export const mohConfigSchema = z.object({
   agents: z.record(z.string(), subagentSpecSchema).optional(),
   /** Cross-session memory (#38); `enabled: false` disables everything. */
   memory: memoryConfigSchema.optional(),
+  /** Project label → workflow-command suggestions after a Frontier claim (#357). */
+  skillRouting: skillRoutingSchema.optional(),
   /** Per-turn tool-call iteration cap (#190). Default 50; the cap triggers
    * a final no-tools wrap-up call instead of dropping the turn. */
   maxIterations: z.number().int().positive().optional(),

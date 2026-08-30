@@ -48,6 +48,7 @@ import {
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { type SubagentOptions } from "./subagents";
+import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
@@ -474,6 +475,11 @@ export {
   type McpRuntimeOptions,
   type EndpointProfile,
   type MohConfig,
+  skillRecommendations,
+  formatSkillCommand,
+  type SkillRecommendation,
+  type SkillRoutingConfig,
+  type SkillRouteOverride,
   type BuiltinProviderType,
   type KnownCompatEndpoint,
   type ConnectionTestResult,

@@ -21,11 +21,13 @@ export interface FrontierProps {
 n   * PermissionGate modal used for `tracker_claim` tool calls.
    */
   requestClaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
+  /** Called only after the backend has confirmed the mutation. */
+  onClaimed?: (issue: TrackerIssue) => void;
 }
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; issues: TrackerIssue[] };
 
-export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierProps) {
+export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }: FrontierProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
@@ -82,6 +84,7 @@ export function Frontier({ backend, onToast, onClose, requestClaim }: FrontierPr
           }
           await backend?.claim(current.id);
           onToast(`claimed #${current.id}`);
+          onClaimed?.(current);
           reload();
         } catch (err: unknown) {
           onToast(`claim failed: ${err instanceof Error ? err.message : String(err)}`);
