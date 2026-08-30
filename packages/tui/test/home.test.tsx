@@ -131,9 +131,12 @@ describe("home banner decision (#292)", () => {
 });
 
 describe("home update notice (#273)", () => {
+  // Isolated home: the negative assertion below must not see real user
+  // session titles (any live project can contain "moh update" in one).
+  const home = mkdtempSync(join(tmpdir(), "moh-tui-home-notice-"));
   test("shows the fixed line when a newer stable is cached", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "available", latestVersion: "0.2.0" }} />,
+      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "available", latestVersion: "0.2.0" }} />,
     );
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).toContain("moh 0.2.0 available — run `moh update`");
@@ -141,14 +144,14 @@ describe("home update notice (#273)", () => {
 
   test("nonstable build shows the dev notice", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "nonstable", latestVersion: "0.2.0" }} />,
+      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "nonstable", latestVersion: "0.2.0" }} />,
     );
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).toContain("non-stable (dev) version");
   });
 
   test("no line without a notice", async () => {
-    const { lastFrame } = render(<Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} />);
+    const { lastFrame } = render(<Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).not.toContain("moh update");
   });

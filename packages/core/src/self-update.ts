@@ -56,6 +56,18 @@ export interface SelfUpdateResult {
   message: string;
 }
 
+/** Coarse phases of a self-update, in order (#351 progress reporting). */
+export type SelfUpdatePhase = "checking" | "downloading" | "verifying" | "installing";
+
+/** Progress notification emitted at phase transitions. `downloading` fires
+ * twice: at start (`receivedBytes: 0`) and when the body is fully received
+ * (`receivedBytes: <size>`) — the CLI's spinner animates between the two. */
+export type SelfUpdateProgress =
+  | { phase: "checking" }
+  | { phase: "downloading"; receivedBytes: number }
+  | { phase: "verifying" }
+  | { phase: "installing" };
+
 /** Maps a (process.platform, process.arch) pair onto the release vocabulary. */
 export function detectUpdatePlatform(platform: NodeJS.Platform = process.platform, arch: string = process.arch): UpdatePlatform {
   if (platform === "darwin") return arch === "x64" ? "darwin-x64" : arch === "arm64" ? "darwin-arm64" : unsupported(arch);
@@ -136,6 +148,9 @@ export async function performSelfUpdate(options: {
   /** moh home dir; when set, a successful update refreshes the
    * update-check cache so it agrees with the freshly installed binary (#328). */
   mohHome?: string;
+  /** Progress notifications at phase transitions (#351). Optional: no
+   * callback means silent operation (tests, background callers). */
+  onProgress?: (progress: SelfUpdateProgress) => void;
   io?: SelfUpdateIo;
 }): Promise<SelfUpdateResult> {
   const io = {
@@ -161,6 +176,7 @@ async function runUpdate(
   io: { sha256: (data: Uint8Array) => string; writeExecutable: (path: string, data: Uint8Array) => void; rename: (from: string, to: string) => void; remove: (path: string) => void; writeUpdateCache: (mohHome: string, latestVersion: string) => void },
 ): Promise<SelfUpdateResult> {
   const fetchImpl = options.io?.fetch ?? (globalThis.fetch as unknown as UpdateFetch);
+  const notify = options.onProgress ?? (() => {});
   let platform: UpdatePlatform;
   try {
     platform = options.platform ?? detectUpdatePlatform();
@@ -169,6 +185,7 @@ async function runUpdate(
   }
 
   // 1. Latest stable release metadata.
+  notify({ phase: "checking" });
   let release: unknown;
   try {
     const res = await fetchImpl(options.url ?? releasesUrl());
@@ -211,6 +228,7 @@ async function runUpdate(
   }
 
   // 4. Download asset + checksums.
+  notify({ phase: "downloading", receivedBytes: 0 });
   let assetBytes: ArrayBuffer;
   let checksumsText: string;
   try {
@@ -223,8 +241,10 @@ async function runUpdate(
   } catch {
     return { status: "error", message: "network error while downloading the update — try again later" };
   }
+  notify({ phase: "downloading", receivedBytes: assetBytes.byteLength });
 
   // 5. Verify sha256 against checksums.txt before touching anything.
+  notify({ phase: "verifying" });
   const expected = checksumFor(checksumsText, assetName);
   const actual = io.sha256(new Uint8Array(assetBytes));
   if (!expected || expected !== actual) {
@@ -235,6 +255,7 @@ async function runUpdate(
   }
 
   // 6. Atomic replace: temp file next to the binary, then rename over it.
+  notify({ phase: "installing" });
   const tmp = join(dirname(options.execPath), `.${assetName}.update-${process.pid}`);
   try {
     io.writeExecutable(tmp, new Uint8Array(assetBytes));
