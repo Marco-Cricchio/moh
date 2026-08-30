@@ -7,7 +7,7 @@ Status: current · Session layout superseded by issue #183
 The session screen is a single native-scrollback column. It never renders the former dashboard, sidebars, or a fixed-height transcript window.
 
 1. Settled transcript blocks are emitted through Ink `<Static>` so terminal scrollback owns history and mouse selection.
-2. The open turn is volatile above the input and is promoted to `<Static>` only when it settles.
+2. The open turn is volatile above the input and is promoted to `<Static>` only when it settles — with one deliberate exception (#329): while a provider reasoning block streams, everything except the last few lines (`REASONING_TAIL_LINES`) is promoted into `<Static>` incrementally as immutable continuation chunks, pi-style, so the volatile region ink fully rewrites each frame stays tiny. The settled, model-labelled block deduplicates the promoted lines when it seals, so the text lands in scrollback exactly once.
 3. Transcript content has no frame glyphs. Input has no side borders; full-width horizontal separators delimit it.
 4. Home and dialogs may still use `MEASURE` and framed chrome. Dialogs are blocking interaction surfaces, so round borders are appropriate there.
 5. Theme switches remount the session tree; already printed scrollback remains above the new tree.
@@ -69,7 +69,7 @@ Tab/Shift+Tab cycles textarea and visible chips. Left/Right moves between chips,
 - regular: `70–109`;
 - wide: `≥ 110`.
 
-Status and chip rows must fit from 35 through 140 columns without wrapping. Transcript prose may wrap naturally inside its full-width tinted block. Ink boxes use at most `columns - 1`: exact terminal width can trigger character-by-character wrapping. Native scrollback rows retain the width at which they were printed after resize; this is expected terminal behavior.
+Status and chip rows must fit from 35 through 140 columns without wrapping. Transcript prose may wrap naturally inside its full-width tinted block. Ink boxes use at most `columns - 1`: exact terminal width can trigger character-by-character wrapping. On a real terminal resize (SIGWINCH) that changes the width, the session rebuilds (#329): screen and scrollback are cleared and the whole transcript is reprinted at the new width (debounced; height-only resizes never trigger; the scroll position resets — accepted cost, no content loss).
 
 ## 6. Themes
 
