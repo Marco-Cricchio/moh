@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, ms)));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-arrow-home-"));
@@ -56,16 +56,17 @@ describe("onboarding wizard — cursor race", () => {
       i.stdin.write("CODE-123");
       await sleep(60);
       i.stdin.write("\r");
-      await sleep(300); // settled: the model list is mounted and idle
-      expect(stripAnsi(i.lastFrame() ?? "")).toContain("Pick your default model");
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      await waitForFrame(frame, "Pick your default model");
+      expect(frame()).toContain("Pick your default model");
       const down = subscriptionModelCatalog("anthropic").length;
       for (let d = 0; d < down; d++) {
         i.stdin.write("\x1b[B");
         await sleep(10);
       }
       i.stdin.write("\r"); // must land on the manual-entry row
-      await sleep(60);
-      expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+      await waitForFrame(frame, "Default model");
+      expect(frame()).toContain("Default model");
       i.unmount();
     }
   });

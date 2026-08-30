@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TOS_WARNING, getStoredToken, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, ms)));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
@@ -209,9 +209,10 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     i.stdin.write("CODE-123");
     await sleep(60);
     i.stdin.write("\r");
-    await sleep(80);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "Pick your default model");
     // Bottom row = free-text fallback (advanced).
-    const list = stripAnsi(i.lastFrame() ?? "");
+    const list = frame();
     expect(list).toContain("Pick your default model");
     const down = subscriptionModelCatalog("anthropic").length;
     for (let d = 0; d < down; d++) {
@@ -219,12 +220,15 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       await sleep(10);
     }
     i.stdin.write("\r"); // manual entry
-    await sleep(60);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+    await waitForFrame(frame, "Default model");
+    expect(frame()).toContain("Default model");
     i.stdin.write("claude-sonnet-4-5");
     await sleep(60);
     i.stdin.write("\r");
-    await sleep(150);
+    await waitForCondition(
+      () => done.length > 0,
+      () => `onDone was not called; received: ${JSON.stringify(done)}`,
+    );
     expect(done).toEqual(["anthropic/claude-sonnet-4-5"]);
     i.unmount();
   });
