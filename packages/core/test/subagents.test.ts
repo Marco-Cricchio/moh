@@ -463,3 +463,47 @@ describe("subagent_result preview (#320)", () => {
     expect(subagentPreview("")).toBeUndefined();
   });
 });
+
+describe("#339 spawn by default + child ref pre-validation", () => {
+  test("spawn is registered with no subagents config at all; an invalid inline ref fails fast with a didactic error and no side effects", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { name: "t", task: "x", provider: "bogus-endpoint/model" } }] },
+        { deltas: ["recovered"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      // NOTE: no `subagents` option at all — zero-config registration (#339 A1);
+      // the B2 fail-fast below keeps this side-effect-free (no child store).
+    });
+    const events = tap(parent);
+    const result = await parent.send("go");
+    expect(result.status).toBe("done");
+    // B2: the model hallucinated a ref — fast structured error, parent turn safe.
+    const toolResult = events.find((e) => e.type === "tool_result");
+    expect(toolResult).toBeDefined();
+    const payload = JSON.parse((toolResult as any).output) as SubagentResult;
+    expect(payload.status).toBe("error");
+    expect(payload.error).toContain('unknown provider "bogus-endpoint/model"');
+    expect(payload.error).toContain("use a preset or omit provider/model");
+  });
+
+  test("a valid inline ref (registered id) proceeds exactly as today", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { name: "t", task: "x", provider: "mock" } }] },
+        { deltas: ["ok"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home },
+    });
+    const events = tap(parent);
+    const result = await parent.send("go");
+    expect(result.status).toBe("done");
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeDefined();
+    expect(events.find((e) => e.type === "subagent_result")).toBeDefined();
+  });
+});

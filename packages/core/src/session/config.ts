@@ -96,8 +96,10 @@ export interface SessionConfig {
    * Subagents (#13): registers the `spawn` tool. Children are in-process
    * AgentSessions with their own JSONL logs, a strict subset of this
    * session's non-MCP tools, and depth 1 (they cannot spawn).
+   * `null` = explicitly off (how SubagentHost keeps children depth-1 now
+   * that the tool is registered by default, #339).
    */
-  subagents?: SubagentOptions;
+  subagents?: SubagentOptions | null;
   /**
    * Cross-session memory (#38): post-turn extraction via the maintenance
    * subagent, injected as a system-prompt section. `enabled: false`
