@@ -15,6 +15,8 @@ import type { SidebarTokens } from "./sidebar";
 
 export type Mode = "vibe" | "dev";
 const ESC_WINDOW_MS = 1500;
+/** #329: debounce for the width-change transcript rebuild. */
+const RESIZE_REBUILD_DELAY_MS = 150;
 const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
 
 export interface ChatProps {
@@ -112,11 +114,20 @@ export function Chat({
   // switch rebuilds it from zero in the new grammar and remounts Static,
   // so stale print indices cannot survive a switch.
   interface Segment { base: number; mode: Mode; show: boolean }
+  // #329: incremental Static promotion state for the live-reasoning head
+  // (see the state machine further down and nextReasoningHead).
+  const reasoningChainRef = useRef<ReasoningHeadChain | null>(null);
+  const reasoningHeadsRef = useRef(new Map<string, SealedReasoningHead>());
+  const assembledCountRef = useRef(0);
   const sessionRef = useRef(session);
   const segmentsRef = useRef<Segment[]>([{ base: 0, mode, show: showReasoning }]);
   if (sessionRef.current !== session) {
     sessionRef.current = session;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
+    // #329: head chains belong to the previous session's event log; their
+    // `${index}-reasoning` keys would collide with the new projection.
+    reasoningChainRef.current = null;
+    reasoningHeadsRef.current.clear();
   }
   const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending), [state.events, state.pending]);
   // #300: wall-clock ledger for tool calls — arrival time per live call,
@@ -154,15 +165,64 @@ export function Chat({
     showRef.current = showReasoning;
     repaintRef.current = true;
   }
+  // #329: incremental Static promotion of the live-reasoning head — the
+  // chain state machine further down promotes everything except the last
+  // REASONING_TAIL_LINES lines of the streaming thinking block into Static
+  // as immutable chunks (pi-style: lines past the screen scroll into
+  // scrollback once), so the volatile region ink fully rewrites each frame
+  // stays tiny. Promotion is render-side chunking of the same live text —
+  // the projection stays a pure function of the log (#194): when the
+  // settled, model-labelled block seals, its promoted lines are deduplicated
+  // (`reasoningHeadsRef`, declared above) so Static prints only the remainder.
+  const [widthTick, setWidthTick] = useState(0);
+  const colsRef = useRef<number | null>(null);
+  // Only real terminal resizes (SIGWINCH → stdout "resize") trigger the
+  // rebuild: hosts that poke `columns` without an event (test stubs) keep
+  // the old behavior.
+  const sawResizeRef = useRef(false);
+  const [resizeTick, setResizeTick] = useState(0);
+  useEffect(() => {
+    const onResize = () => {
+      sawResizeRef.current = true;
+      setResizeTick((value) => value + 1);
+    };
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+    };
+  }, [stdout]);
+  useEffect(() => {
+    if (colsRef.current === null) {
+      colsRef.current = cols;
+      return;
+    }
+    if (colsRef.current === cols || !sawResizeRef.current) return;
+    // #329: a width change re-wraps every printed row, so the transcript
+    // is rebuilt rather than patched: debounced (height-only resizes never
+    // pass the columns check), the screen + scrollback are cleared and the
+    // chat tree remounts so Static reprints the whole transcript at the new
+    // width. Accepted cost: the scroll position resets (rare,
+    // user-initiated; no content loss — everything is reprinted from the
+    // projection).
+    const timer = setTimeout(() => {
+      sawResizeRef.current = false;
+      colsRef.current = cols;
+      repaintRef.current = true;
+      setWidthTick((value) => value + 1);
+    }, RESIZE_REBUILD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [cols, resizeTick]);
   useEffect(() => {
     if (!repaintRef.current || replaySettled || blocked || bufferFlipPending) return;
     repaintRef.current = false;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
+    reasoningChainRef.current = null;
+    reasoningHeadsRef.current.clear();
     // Clear screen + scrollback, cursor home: the whole visible transcript
     // (including anything printed before moh) goes away by owner decision.
     stdout.write("\x1b[H\x1b[2J\x1b[3J");
     setRepaint((value) => value + 1);
-  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout]);
+  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout, widthTick]);
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked
@@ -173,13 +233,12 @@ export function Chat({
     return () => clearInterval(timer);
   }, [blocked, state.pending]);
 
-  const { settledBlocks, liveBlocks } = useMemo((): { settledBlocks: readonly TranscriptBlock[]; liveBlocks: readonly TranscriptBlock[] } => {
-    const segments = segmentsRef.current.filter((segment, index) =>
-      segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
-    const settledBlocks = segments.flatMap((segment, index) => projectTranscript(
-      state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
-      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
-    ));
+  // ── Settled + live projection with #329 head promotion ────────────────
+  // The raw live projection comes first (untrimmed): the head chain state
+  // machine below must see the full thinking block before anything trims
+  // it, and the settled memo must observe the chain's seal decisions made
+  // in this same render.
+  const rawLiveBlocks = useMemo((): readonly TranscriptBlock[] => {
     const live = settledEnd < state.events.length ? state.events.slice(settledEnd) : [];
     // The live tail often begins mid-reply (the boundary closed a paragraph
     // inside a delta run): its first paragraph is a continuation of the
@@ -198,11 +257,74 @@ export function Chat({
           lines: showReasoning ? liveReasoning.text.split("\n") : [],
         }]
       : [];
-    return {
-      settledBlocks,
-      liveBlocks: [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning, toolTimings })],
-    };
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, liveReasoning, toolTimings]);
+    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning, toolTimings })];
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings]);
+  // Head chain state machine (#329): track the leading thinking block —
+  // the chain follows it across the live→log handover (same text, new
+  // key) and promotes its head line-by-line into Static chunks. Promotion
+  // pauses while a modal owns the alternate screen (frozen Static cannot
+  // print the chunks; the viewport tail cap bounds the region meanwhile).
+  {
+    const thinkingBlocks = rawLiveBlocks.filter((block) => block.kind === "thinking" && block.lines.length > 0);
+    const chain = reasoningChainRef.current;
+    const tracked = chain ? thinkingBlocks.find((block) => block.key === chain.key) : undefined;
+    const thinking = tracked ?? thinkingBlocks.at(-1) ?? null;
+    if (thinking) {
+      const previous = reasoningChainRef.current;
+      const advanced = nextReasoningHead(previous, thinking.key, thinking.lines);
+      // The chunks' Static insertion index is captured when the FIRST chunk
+      // is promoted, at the settled length of the previous render: every
+      // already-printed block stays before the chunks and later-settling
+      // blocks append after them, so chunk indices never shift (ink's
+      // Static counter only moves forward — an item pushed past it would
+      // be reprinted, one duplication per seal).
+      if (advanced.chunks.length > 0 && (previous?.chunks.length ?? 0) === 0) {
+        advanced.startIndex = assembledCountRef.current;
+      }
+      reasoningChainRef.current = replaySettled
+        ? (previous ?? advanced)
+        : advanced;
+    } else if (chain) {
+      // The tracked thinking block left the volatile area. A log-keyed
+      // chain seals against its settled block (dedup). A live channel
+      // chain maps onto the newest persisted reasoning event so the
+      // settled block still dedups the printed chunks — but the bridge
+      // state can lag the live channel (the live block clears before the
+      // `reasoning` event reaches state.events), so while the turn is
+      // still pending the chain is HELD until the log catches up: the
+      // handover or this seal then sees the event. If the turn ends
+      // without persisting (abort), the chunks simply stay printed.
+      let sealedKey: string | null = null;
+      if (chain.key !== "live-reasoning") {
+        sealedKey = chain.key;
+      } else {
+        for (let i = Math.min(settledEnd, state.events.length) - 1; i >= 0; i--) {
+          if (state.events[i]!.type !== "reasoning") continue;
+          const key = `${i}-reasoning`;
+          if (!reasoningHeadsRef.current.has(key)) sealedKey = key;
+          break;
+        }
+      }
+      if (sealedKey !== null) {
+        reasoningHeadsRef.current.set(sealedKey, { chunks: chain.chunks, lines: chain.lines, startIndex: chain.startIndex });
+      }
+      if (sealedKey !== null || !state.pending) reasoningChainRef.current = null;
+    }
+  }
+  const activeChain = reasoningChainRef.current;
+  const liveBlocks: readonly TranscriptBlock[] = activeChain && activeChain.lines > 0
+    ? rawLiveBlocks.map((block) => block.key === activeChain.key
+      ? { ...block, lines: block.lines.slice(activeChain.lines), continuation: true }
+      : block)
+    : rawLiveBlocks;
+  const settledBlocks = useMemo((): readonly TranscriptBlock[] => {
+    const segments = segmentsRef.current.filter((segment, index) =>
+      segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
+    return embedReasoningHeads(segments.flatMap((segment, index) => projectTranscript(
+      state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
+      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
+    )), reasoningHeadsRef.current);
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
     [replaySettled, settledBlocks, cols, viewport.rows],
@@ -216,6 +338,17 @@ export function Chat({
     () => transcriptTail(liveBlocks, cols, Math.max(1, viewport.rows - 9)),
     [liveBlocks, cols, viewport.rows],
   );
+  // #329: the head chunks (open chain and sealed chains) ride the Static
+  // items at their recorded insertion indices — never through the settled
+  // projection — so their positions never shift and ink's forward-only
+  // Static counter sees only genuinely new items at the end. Whole-
+  // transcript reprints still read chronologically: each chunk group sits
+  // right after the blocks that were settled when it started streaming.
+  const assembledSettled: readonly TranscriptBlock[] = spliceReasoningChunks(
+    settledBlocks,
+    [...reasoningHeadsRef.current.values(), ...(activeChain ? [activeChain] : [])],
+  );
+  assembledCountRef.current = assembledSettled.length;
   // Static must stay MOUNTED across modal cycles: unmounting it (the old
   // alternate-screen swap) reset ink's internal printed-items counter, so
   // every remount reprinted the whole settled transcript into the main
@@ -225,11 +358,11 @@ export function Chat({
   const frozenRef = useRef<readonly TranscriptBlock[] | null>(null);
   let staticItems: readonly TranscriptBlock[];
   if (replaySettled) {
-    if (frozenRef.current === null) frozenRef.current = settledBlocks;
+    if (frozenRef.current === null) frozenRef.current = assembledSettled;
     staticItems = frozenRef.current;
   } else {
     frozenRef.current = null;
-    staticItems = settledBlocks;
+    staticItems = assembledSettled;
   }
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
@@ -306,6 +439,103 @@ export function Chat({
       />
     </Box>
   );
+}
+
+/** Lines of live reasoning kept volatile below the promoted head (#329). */
+export const REASONING_TAIL_LINES = 5;
+
+/** One open live-reasoning promotion chain (#329): the volatile
+ * thinking-block key being tracked ("live-reasoning" while the live
+ * channel streams, the log key after the handover), how many of its lines
+ * are already promoted into Static, and the immutable chunks printed so
+ * far. */
+export interface ReasoningHeadChain {
+  key: string;
+  lines: number;
+  chunks: TranscriptBlock[];
+  /** #329: settledBlocks length when the chain opened — the stable Static
+   * insertion index for the chunks (see Chat). Set by the caller. */
+  startIndex: number;
+}
+
+/** A sealed chain (#329): the chunks printed for a settled reasoning block,
+ * how many of its lines they cover, and where they sit in the Static items —
+ * the settled block prints only the remainder, so a long reasoning stream
+ * lands in scrollback exactly once. */
+export type SealedReasoningHead = Omit<ReasoningHeadChain, "key">;
+
+/** One #329 promotion step. Pure: takes the current chain and the leading
+ * thinking block (key + lines), returns the advanced chain. Only lines past
+ * the tail budget are promoted, each as a never-mutating Static chunk — the
+ * first chunk carries the block head ("⋯ thinking …"), later ones render as
+ * continuations. A key change from "live-reasoning" is the handover to the
+ * settled, model-labelled block (same text, new key): the promoted prefix is
+ * kept. Any other key change starts a fresh chain. */
+export function nextReasoningHead(
+  chain: ReasoningHeadChain | null,
+  key: string,
+  lines: readonly string[],
+  tailLines = REASONING_TAIL_LINES,
+): ReasoningHeadChain {
+  let next: ReasoningHeadChain;
+  if (!chain) next = { key, lines: 0, chunks: [], startIndex: 0 };
+  else if (chain.key === key) next = chain;
+  else if (chain.key === "live-reasoning") next = { ...chain, key, chunks: [...chain.chunks] };
+  else next = { key, lines: 0, chunks: [], startIndex: 0 };
+  // The block may shrink (multi-part reasoning resets the live buffer,
+  // #240): clamp so promotion resumes from the new content.
+  if (lines.length < next.lines) next = { ...next, lines: lines.length };
+  const promotable = lines.length - tailLines - next.lines;
+  if (promotable <= 0) return next;
+  const slice = lines.slice(next.lines, next.lines + promotable);
+  return {
+    ...next,
+    lines: next.lines + slice.length,
+    chunks: [...next.chunks, {
+      key: `${key}-head-${next.chunks.length}`,
+      kind: "thinking",
+      glyph: "⋯",
+      type: "thinking",
+      ...(next.chunks.length === 0 ? { detail: "…" } : { continuation: true }),
+      lines: [...slice],
+    }],
+  };
+}
+
+/** Dedups sealed #329 chains against the settled projection: each block
+ * with a head keeps only its un-promoted lines, so Static never reprints
+ * lines already in scrollback. The chunks themselves are NOT spliced here —
+ * they ride the Static items at their stable index (spliceReasoningChunks):
+ * moving them through the projection would shift already-printed items
+ * around ink's forward-only Static counter, reprinting or losing rows. */
+export function embedReasoningHeads(
+  blocks: readonly TranscriptBlock[],
+  heads: ReadonlyMap<string, SealedReasoningHead>,
+): TranscriptBlock[] {
+  if (heads.size === 0) return [...blocks];
+  const deduped: TranscriptBlock[] = [];
+  for (const block of blocks) {
+    const head = heads.get(block.key);
+    deduped.push(head ? { ...block, lines: block.lines.slice(head.lines) } : block);
+  }
+  return deduped;
+}
+
+/** Splices #329 head chunks into the Static items at their recorded indices.
+ * Inserts run in ascending index order: each chunk group was recorded in
+ * assembled coordinates that already include every earlier group, so the
+ * positions line up as the array grows. */
+export function spliceReasoningChunks(
+  blocks: readonly TranscriptBlock[],
+  inserts: ReadonlyArray<{ startIndex: number; chunks: readonly TranscriptBlock[] }>,
+): TranscriptBlock[] {
+  const active = inserts.filter((insert) => insert.chunks.length > 0);
+  if (active.length === 0) return [...blocks];
+  const spliced = [...blocks];
+  for (const insert of [...active].sort((a, b) => a.startIndex - b.startIndex)) {
+    spliced.splice(Math.min(insert.startIndex, spliced.length), 0, ...insert.chunks);
+  }
+  return spliced;
 }
 
 /** Incremental promotion boundary (#194): while a turn is pending, the

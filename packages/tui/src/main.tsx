@@ -34,6 +34,13 @@ export function renderTui(options: AppProps) {
     // Exit is the deliberate double ctrl+c handled in App: a single stray
     // ctrl+c only arms ("press ctrl+c again") and never kills the session.
     exitOnCtrlC: false,
+    // #329: `incrementalRendering` was validated and REJECTED: ink's
+    // incremental log-update assumes its previous frame sits directly above
+    // the cursor, but moh's native-scrollback design interleaves Static
+    // writes (log.clear + write(static) + log(output)) — the cursorUp-based
+    // rewrite then lands on the freshly promoted rows and erases them
+    // (reproduced in the PTY suite). The flicker fix is the Static head
+    // promotion in Chat; this option stays off.
     kittyKeyboard: kittyKeyboardOptions(),
   });
 }
