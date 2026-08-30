@@ -61,6 +61,25 @@ describe("local markdown tracker", () => {
     await expect(t.claim("9")).rejects.toThrow("not open");
     await expect(t.claim("nope")).rejects.toThrow("no tracker issue");
   });
+
+  test("unclaim removes only the current user from claimed-by", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-trk-"));
+    writeFileSync(join(dir, "7.md"), "---\nid: 7\ntitle: Busy\nclaimed-by: @me, alice\n---\n\nbody\n");
+    const t = localMarkdownTracker(dir);
+    await t.unclaim("7");
+    const after = readFileSync(join(dir, "7.md"), "utf8");
+    expect(after).toContain("claimed-by: alice");
+    expect(after).not.toContain("@me");
+    expect(after).toContain("body");
+  });
+
+  test("unclaim on an issue without the current user is a safe no-op", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-trk-"));
+    writeFileSync(join(dir, "8.md"), "---\nid: 8\ntitle: Theirs\nclaimed-by: alice\n---\n\nbody\n");
+    const t = localMarkdownTracker(dir);
+    await t.unclaim("8");
+    expect((await t.list()).find((i) => i.id === "8")!.assignees).toEqual(["alice"]);
+  });
 });
 
 describe("gh backend", () => {
@@ -89,6 +108,17 @@ describe("gh backend", () => {
     await t.claim("5");
     expect(calls.at(-1)).toContain("--add-assignee");
     expect(calls.at(-1)).toContain("@me");
+  });
+
+  test("unclaims with gh --remove-assignee @me", async () => {
+    const calls: string[][] = [];
+    const run = fakeRunner((cmd) => {
+      calls.push(cmd);
+      if (cmd[1] === "issue" && cmd[2] === "list") return { code: 0, stdout: "[]" };
+      return { code: 0, stdout: "" };
+    });
+    await ghTracker("owner/repo", run).unclaim("5");
+    expect(calls.at(-1)).toEqual(["gh", "issue", "edit", "5", "--repo", "owner/repo", "--remove-assignee", "@me"]);
   });
 });
 

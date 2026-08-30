@@ -22,6 +22,9 @@ matching section here at tag time.
 
 ### Added
 
+- The Frontier panel now supports unclaiming (`u`): it removes the current
+  user's assignment through the same permission seam as claiming, on every
+  tracker backend (gh, gitlab, local markdown).
 - Frontier claims now open a label-guided workflow chooser. Selecting a route
   pre-fills (but never sends) the minimal slash command and issue reference;
   projects can extend or override label routes through `moh.json` (#357).

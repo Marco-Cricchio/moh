@@ -29,6 +29,8 @@ export interface TrackerBackend {
   list(): Promise<TrackerIssue[]>;
   /** Assigns the current user to an open issue. */
   claim(id: string): Promise<void>;
+  /** Removes the current user's assignment (idempotent for others'). */
+  unclaim(id: string): Promise<void>;
 }
 
 /** Injectable process runner (tests); default: `Bun.spawn`. */
@@ -74,6 +76,10 @@ export function ghTracker(repo: string, run: ShellRunner = defaultRunner): Track
       const res = await run(["gh", "issue", "edit", id, "--repo", repo, "--add-assignee", "@me"]);
       if (res.code !== 0) throw new Error(`gh issue edit failed: ${res.stderr.trim()}`);
     },
+    async unclaim(id) {
+      const res = await run(["gh", "issue", "edit", id, "--repo", repo, "--remove-assignee", "@me"]);
+      if (res.code !== 0) throw new Error(`gh issue edit failed: ${res.stderr.trim()}`);
+    },
   };
 }
 
@@ -106,6 +112,17 @@ export function gitlabTracker(repo: string, run: ShellRunner = defaultRunner): T
     },
     async claim(id) {
       const res = await run(["glab", "issue", "update", id, "--repo", repo, "--assignee", "@me"]);
+      if (res.code !== 0) throw new Error(`glab issue update failed: ${res.stderr.trim()}`);
+    },
+    // glab has no "remove one assignee" flag: reassign the remaining
+    // usernames, or clear all assignees when only @me remained.
+    async unclaim(id) {
+      const issues = await this.list();
+      const assignees = issues.find((i) => i.id === id)?.assignees.filter((a) => a !== "@me") ?? [];
+      const args = assignees.length
+        ? ["glab", "issue", "update", id, "--repo", repo, "--assignee", assignees.join(",")]
+        : ["glab", "issue", "update", id, "--repo", repo, "--unassign"];
+      const res = await run(args);
       if (res.code !== 0) throw new Error(`glab issue update failed: ${res.stderr.trim()}`);
     },
   };
@@ -173,6 +190,28 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
         if ((fields.get("id") ?? basename(entry.name, ".md")) !== id) continue;
         const claimed = splitList(fields.get("claimed-by"));
         if (!claimed.includes(user)) claimed.push(user);
+        fields.set("claimed-by", claimed.join(", "));
+        const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
+        const fmText = [...fields.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
+        writeFileSync(file, `---\n${fmText}\n---${body}`);
+        return;
+      }
+      throw new Error(`tracker file for "${id}" not found`);
+    },
+    async unclaim(id) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+        const file = join(dir, entry.name);
+        const raw = readFileSync(file, "utf8");
+        const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
+        if (!fm) continue;
+        const fields = new Map<string, string>();
+        for (const line of fm[1]!.split(/\r?\n/)) {
+          const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(line);
+          if (kv) fields.set(kv[1]!, kv[2]!.trim());
+        }
+        if ((fields.get("id") ?? basename(entry.name, ".md")) !== id) continue;
+        const claimed = splitList(fields.get("claimed-by")).filter((a) => a !== user);
         fields.set("claimed-by", claimed.join(", "));
         const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
         const fmText = [...fields.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
