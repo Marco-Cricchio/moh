@@ -123,12 +123,9 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   fetch: "ask",
   // Subagents (#13): spawning a child is delegation — ask by default.
   spawn: "ask",
-  // Tracker tools (#36): reads are free, claiming is a mutation. Unclaim
-  // has no model-facing tool; the default names the TUI Frontier seam so a
-  // runtime rule for it parses against a known tool.
+  // Tracker tools (#36): reads are free, claiming is a mutation.
   tracker_list: "allow",
   tracker_claim: "ask",
-  tracker_unclaim: "ask",
 };
 
 const TIER_RANK: Record<PermissionTier, number> = { builtin: 0, config: 1, runtime: 2 };

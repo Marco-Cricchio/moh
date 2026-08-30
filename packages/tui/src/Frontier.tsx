@@ -21,15 +21,13 @@ export interface FrontierProps {
 n   * PermissionGate modal used for `tracker_claim` tool calls.
    */
   requestClaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
-  /** Permission seam for unclaim: same contract as requestClaim. */
-  requestUnclaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
   /** Called only after the backend has confirmed the mutation. */
   onClaimed?: (issue: TrackerIssue) => void;
 }
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; issues: TrackerIssue[] };
 
-export function Frontier({ backend, onToast, onClose, requestClaim, requestUnclaim, onClaimed }: FrontierProps) {
+export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }: FrontierProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
@@ -100,10 +98,8 @@ export function Frontier({ backend, onToast, onClose, requestClaim, requestUncla
       setClaiming(true);
       void (async () => {
         try {
-          if (requestUnclaim && !(await requestUnclaim(current))) {
-            onToast(`unclaim of #${current.id} denied`);
-            return;
-          }
+          // Unclaim is ungated: it only removes the current user's own
+          // assignment — reversible and self-scoped, unlike claiming.
           await backend?.unclaim(current.id);
           onToast(`unclaimed #${current.id}`);
           reload();

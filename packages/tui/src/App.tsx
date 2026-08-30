@@ -807,9 +807,6 @@ export function App({
             requestClaim={(issue) =>
               gate.ask("tracker_claim", { id: issue.id }).then((answer) => answer !== "no")
             }
-            requestUnclaim={(issue) =>
-              gate.ask("tracker_unclaim", { id: issue.id }).then((answer) => answer !== "no")
-            }
             onClaimed={(issue) => {
               setClaimedIssue(issue);
               setOverlay("skill-chooser");

@@ -2,7 +2,10 @@
  * The seam between the core's blocking `onPermissionRequest` callback and
  * the TUI's permission modal (issue #33). The core's turn loop awaits
  * `ask()`; the modal resolves the pending request with the user's answer.
- * "always" is handled inside the core (runtime rule + auditable event).
+ * "always" writes a session runtime rule here (bare-tool allow), so later
+ * asks for the same tool never prompt — the TUI twin of the core's
+ * runtime-rule tier, for client-initiated asks (Frontier claims) that
+ * don't travel through a tool call.
  */
 import { formatRule, splitCommandSegments } from "@moh/core";
 import { truncate } from "./ui";
@@ -35,6 +38,15 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
       args,
       detail: [`path: ${a.path}`],
       rulePreview: formatRule({ tier: "runtime", tool, effect: "allow", path: a.path }),
+    };
+  }
+  // Tracker claims (#357): the issue id is the whole story — never raw JSON.
+  if ((tool === "tracker_claim" || tool === "tracker_unclaim") && typeof a.id === "string") {
+    return {
+      tool,
+      args,
+      detail: [`issue: #${a.id}`],
+      rulePreview: formatRule({ tier: "runtime", tool, effect: "allow" }),
     };
   }
   let rendered: string;
@@ -70,6 +82,10 @@ interface Pending {
 export class PermissionGate {
   #pending: Pending | null = null;
   #version = 0;
+  /** Session runtime rules written by "always" answers, keyed by the
+   * canonical rule string (scoped: `bash:cmd prefix`, `write:path`, or
+   * bare tool when the request carries no scoping arguments). */
+  readonly #runtimeAllows = new Set<string>();
   readonly #listeners = new Set<() => void>();
 
   /** Snapshot of the request the modal should render, if any. */
@@ -100,8 +116,14 @@ export class PermissionGate {
       // Overlapping asks must not happen (sequential gate); deny defensively.
       return Promise.resolve("no");
     }
+    // A runtime rule from a previous "always" short-circuits the prompt —
+    // scoped: the rule this ask would write must match one already written.
+    const view = describePermissionRequest(tool, args);
+    if (view.rulePreview && this.#runtimeAllows.has(view.rulePreview)) {
+      return Promise.resolve("yes");
+    }
     return new Promise<PermissionAnswer>((resolve) => {
-      this.#pending = { view: describePermissionRequest(tool, args), resolve };
+      this.#pending = { view, resolve };
       this.#emit();
     });
   };
@@ -111,6 +133,9 @@ export class PermissionGate {
     const pending = this.#pending;
     if (!pending) return;
     this.#pending = null;
+    if (answer === "always" && pending.view.rulePreview) {
+      this.#runtimeAllows.add(pending.view.rulePreview);
+    }
     this.#emit();
     pending.resolve(answer);
   }

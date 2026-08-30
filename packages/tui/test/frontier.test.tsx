@@ -159,7 +159,7 @@ describe("Frontier panel", () => {
     i.unmount();
   });
 
-  test("u unclaims the selected claimed issue", async () => {
+  test("u unclaims the selected claimed issue without a permission prompt", async () => {
     const backend = backendOf([issue("1", { assignees: ["@me"] })]);
     const toasts: string[] = [];
     const i = mount(backend, (t) => toasts.push(t));
@@ -168,36 +168,6 @@ describe("Frontier panel", () => {
     await sleep(50);
     expect(toasts).toContain("unclaimed #1");
     expect(backend.claimed).toEqual([]);
-    i.unmount();
-  });
-
-  test("unclaim goes through the permission seam", async () => {
-    const backend = backendOf([issue("1", { assignees: ["@me"] })]);
-    const unclaims: string[] = [];
-    backend.unclaim = async (id) => {
-      unclaims.push(id);
-    };
-    const asked: string[] = [];
-    const toasts: string[] = [];
-    const i = render(
-      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
-        <Frontier
-          backend={backend}
-          onToast={(t) => toasts.push(t)}
-          onClose={() => {}}
-          requestUnclaim={(iss) => {
-            asked.push(iss.id);
-            return false;
-          }}
-        />
-      </ThemeProvider>,
-    );
-    await sleep(50);
-    i.stdin.write("u");
-    await sleep(30);
-    expect(asked).toEqual(["1"]);
-    expect(toasts).toContain("unclaim of #1 denied");
-    expect(unclaims).toEqual([]); // denied: no mutation
     i.unmount();
   });
 
