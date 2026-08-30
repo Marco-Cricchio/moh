@@ -4,7 +4,7 @@ import { Box } from "ink";
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { loadMohConfig } from "@moh/core";
+import { loadMohConfig, type TrackerIssue } from "@moh/core";
 import {
   installFirstPartySkills,
   checkUpstreamUpdates,
@@ -46,6 +46,7 @@ import { ModelPickerModal } from "./ModelPickerModal";
 import { endpointModelCatalog } from "@moh/core";
 import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
+import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
 import { runSlashCommand, commandEntries } from "./commands";
 import { Toasts, useToasts } from "./Toasts";
@@ -81,7 +82,7 @@ export interface AppProps {
   version?: string;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "model";
+type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -173,6 +174,8 @@ export function App({
     if (offerWorkflow) setOverlay("workflow-offer");
   }, [offerWorkflow]);
   const [wizardFromSettings, setWizardFromSettings] = useState(false);
+  const [claimedIssue, setClaimedIssue] = useState<TrackerIssue | null>(null);
+  const [composerPrefill, setComposerPrefill] = useState<string>();
   // #242: temporary session-level reasoning display override (`/thinking
   // show|hide`); null = use the persisted global preference.
   const [reasoningOverride, setReasoningOverride] = useState<boolean | null>(null);
@@ -550,7 +553,9 @@ export function App({
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
-    if (overlay !== null && overlay !== "onboarding" && key.escape) return setOverlay(null);
+    // The post-claim chooser owns Esc: it returns to Frontier rather than
+    // discarding the explicit cancel/Just claim decision.
+    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && key.escape) return setOverlay(null);
   });
 
   const showChat = session !== null;
@@ -582,6 +587,7 @@ export function App({
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}
+      prefill={composerPrefill}
       replaySettled={alternateScreen}
       bufferFlipPending={bufferFlipPending}
       commands={commandEntries({ config })}
@@ -801,6 +807,22 @@ export function App({
             requestClaim={(issue) =>
               gate.ask("tracker_claim", { id: issue.id }).then((answer) => answer !== "no")
             }
+            onClaimed={(issue) => {
+              setClaimedIssue(issue);
+              setOverlay("skill-chooser");
+            }}
+          />
+        )}
+        {overlay === "skill-chooser" && claimedIssue && (
+          <SkillChooser
+            issue={claimedIssue}
+            routing={loadMohConfig(join(cwd, "moh.json")).skillRouting}
+            onChoose={(prefill) => {
+              setComposerPrefill(prefill);
+              setOverlay(null);
+            }}
+            onBack={() => setOverlay("frontier")}
+            onJustClaim={() => setOverlay(null)}
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
