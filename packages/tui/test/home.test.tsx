@@ -12,7 +12,7 @@ import { stripAnsi } from "./helpers";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** n sessions titled s1…sn (oldest first, so sN is the newest). */
-function homeWithSessions(n: number): { cwd: string; home: string } {
+async function homeWithSessions(n: number): Promise<{ cwd: string; home: string }> {
   const home = mkdtempSync(join(tmpdir(), "moh-tui-home-list-"));
   const cwd = process.cwd();
   for (let i = 1; i <= n; i++) {
@@ -21,7 +21,8 @@ function homeWithSessions(n: number): { cwd: string; home: string } {
       provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
       sink: (e) => store.append(e),
     });
-    void session.send(`title s${i}`);
+    // Await the send: a fire-and-forget send races the Home read on slow CI (#361 flake).
+    await session.send(`title s${i}`);
   }
   return { cwd, home };
 }
@@ -39,7 +40,7 @@ describe("home session list", () => {
   });
 
   test("caps the list at 5 visible sessions with a more-below hint", async () => {
-    const { cwd, home } = homeWithSessions(8);
+    const { cwd, home } = await homeWithSessions(8);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
@@ -52,7 +53,7 @@ describe("home session list", () => {
   });
 
   test("scrolling follows the cursor to the tail and back up", async () => {
-    const { cwd, home } = homeWithSessions(8);
+    const { cwd, home } = await homeWithSessions(8);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     for (const _ of Array.from({ length: 8 })) {
@@ -69,7 +70,7 @@ describe("home session list", () => {
 
 describe("home session list — configurable cap", () => {
   test("listMax prop raises the visible window", async () => {
-    const { cwd, home } = homeWithSessions(8);
+    const { cwd, home } = await homeWithSessions(8);
     const i = render(
       <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} listMax={8} />,
     );
