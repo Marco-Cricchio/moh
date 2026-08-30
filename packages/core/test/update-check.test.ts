@@ -10,6 +10,7 @@ import {
   updateCacheFile,
   updateDue,
   updateNoticeFor,
+  writeUpdateCache,
   type UpdateCache,
   type UpdateCheckIo,
 } from "../src/update-check";
@@ -104,5 +105,18 @@ describe("isDevRun", () => {
   test("repo checkout is dev, $bunfs is compiled", () => {
     expect(isDevRun("/repo/packages/core/src")).toBe(true);
     expect(isDevRun("/$bunfs/root/pkg/src")).toBe(false);
+  });
+});
+
+describe("writeUpdateCache (#328)", () => {
+  test("writes a fresh cache (same shape checkForUpdate writes)", () => {
+    const writes: [string, string][] = [];
+    writeUpdateCache(HOME, "0.7.1", { now: () => 777, write: (f, d) => writes.push([f, d]) });
+    const [file, data] = writes[0]!;
+    expect(file).toBe(updateCacheFile(HOME));
+    expect(JSON.parse(data)).toEqual({ lastCheckedAt: 777, latestVersion: "0.7.1" });
+  });
+  test("write failure is silent", () => {
+    expect(() => writeUpdateCache(HOME, "0.7.1", { now: () => 1, write: () => { throw new Error("disk full"); } })).not.toThrow();
   });
 });

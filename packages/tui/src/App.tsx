@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import { useApp, useInput, useStdout } from "ink";
 import { Box } from "ink";
 import { homedir } from "node:os";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { loadMohConfig } from "@moh/core";
 import {
@@ -10,8 +11,8 @@ import {
   checkForUpdate,
   isDevRun,
   readUpdateCache,
-  updateDue,
   updateNoticeFor,
+  UPDATE_CHECK_INTERVAL_MS,
   MOH_VERSION,
   resolveTrackerSync,
   readUserProviderConfig,
@@ -248,8 +249,10 @@ export function App({
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
 
   // Update check (#273 / ADR-0014): notice from the 24h cache (works
-  // offline once checked once) + one-shot toast; a stale cache triggers a
-  // silent background refresh that never delays startup. Opt-out via the
+  // offline once checked once) + one-shot toast. The network check runs on
+  // every launch and re-fires whenever the cache goes stale again (#328),
+  // so a long-running session learns in-session about a new release; the
+  // 24h cache stays as offline fallback and storage. Opt-out via the
   // `updateCheck` user-config flag; skipped entirely in dev runs.
   const [updateNotice, setUpdateNotice] = useState<UpdateNotice | null>(null);
   useEffect(() => {
@@ -257,25 +260,39 @@ export function App({
     let live = true;
     const shown = new Set<string>(); // one-shot toast: never repeat a notice
     const show = (notice: UpdateNotice | null) => {
-      if (!live || !notice) return;
-      const key = `${notice.kind}:${notice.latestVersion}`;
-      if (shown.has(key)) {
-        setUpdateNotice(notice);
-        return;
-      }
-      shown.add(key);
+      if (!live) return;
       setUpdateNotice(notice);
+      if (!notice) return;
+      const key = `${notice.kind}:${notice.latestVersion}`;
+      if (shown.has(key)) return;
+      shown.add(key);
       push(updateNoticeText(notice));
     };
-    const cache = readUpdateCache(mohHome);
-    show(updateNoticeFor(version ?? MOH_VERSION, cache?.latestVersion));
-    if (updateDue(cache)) {
+    // #328 hardening: a cache whose lastCheckedAt predates the running
+    // binary cannot be trusted to call the current version "non-stable"
+    // (e.g. a manual binary replacement bypassing the cache) — project
+    // nothing in that case rather than a false notice.
+    const installedAt = binaryInstalledAt(process.execPath);
+    const fromCache = (latest: string | undefined, checkedAt?: number): UpdateNotice | null => {
+      const notice = updateNoticeFor(version ?? MOH_VERSION, latest);
+      if (notice?.kind === "nonstable" && checkedAt !== undefined && installedAt !== null && checkedAt < installedAt) {
+        return null;
+      }
+      return notice;
+    };
+    const check = () => {
       void checkForUpdate({ mohHome }).then((latest) => {
-        if (latest) show(updateNoticeFor(version ?? MOH_VERSION, latest));
+        if (!live || !latest) return;
+        show(fromCache(latest, Date.now()));
       });
-    }
+    };
+    const cache = readUpdateCache(mohHome);
+    show(fromCache(cache?.latestVersion, cache?.lastCheckedAt));
+    check(); // per-launch, even when the cache is fresh (#328)
+    const timer = setInterval(check, UPDATE_CHECK_INTERVAL_MS); // re-fire when the cache goes stale mid-session
     return () => {
       live = false;
+      clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -530,6 +547,7 @@ export function App({
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
       notice={toasts.at(-1)?.text}
+      updateMessage={updateNotice ? updateNoticeText(updateNotice) : undefined}
       submitSignal={submitSignal}
       replaySettled={alternateScreen}
       bufferFlipPending={bufferFlipPending}
@@ -812,5 +830,14 @@ function providerConfigured(cwd: string, home?: string): boolean {
     return typeof readUserProviderConfig(userConfigFile(home ?? homedir())).provider === "string";
   } catch {
     return true;
+  }
+}
+
+/** mtime of the running binary, when statable (#328 cache-staleness hardening). */
+function binaryInstalledAt(execPath: string): number | null {
+  try {
+    return statSync(execPath).mtimeMs;
+  } catch {
+    return null;
   }
 }

@@ -128,6 +128,7 @@ import {
   readUpdateCache,
   updateDue,
   updateNoticeFor,
+  UPDATE_CHECK_INTERVAL_MS,
   type UpdateNotice,
 } from "./update-check";
 export {
@@ -433,6 +434,7 @@ export {
   readUpdateCache,
   updateDue,
   updateNoticeFor,
+  UPDATE_CHECK_INTERVAL_MS,
   UpdateNotice,
   trackerTools,
   projectFrontier,

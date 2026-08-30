@@ -50,6 +50,9 @@ export interface ChatProps {
   showReasoning?: boolean;
   livePhase?: string;
   notice?: string;
+  /** #328: active update notice, rendered left-aligned on status-bar row 2
+   * (the cwd/branch/mode tail stays right-aligned on the same row). */
+  updateMessage?: string;
   /** Git branch label override (tests); default: read from the session cwd. */
   branch?: string | null;
   submitSignal?: number;
@@ -91,6 +94,7 @@ export function Chat({
   showReasoning = false,
   livePhase,
   notice,
+  updateMessage,
   submitSignal = 0,
   replaySettled = false,
   bufferFlipPending = false,
@@ -437,6 +441,7 @@ export function Chat({
         memoryFresh={memoryFresh}
         phase={armed ? "esc again to stop" : livePhase}
         notice={notice}
+        updateMessage={updateMessage}
         branch={branch ?? gitBranch}
         cwd={cwd}
         focusedChip={focusedChip}

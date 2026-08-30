@@ -138,3 +138,41 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
     expect(middleElide("/a/b/c/d/e/f/g/h", 9)).toBe("/a/b…/g/h");
   });
 });
+
+describe("status row 2 update notice (#328)", () => {
+  const base = { width: 120, pending: false, spinner: "⠸", model: "mock", turns: 0, tokens: { contextIn: 0, totalOut: 0, calls: 0 }, level: "default" as const, focusedChip: null };
+
+  const renderBar = (props: Record<string, unknown>) => {
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar {...base} {...(props as any)} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    ink.unmount();
+    return frame;
+  };
+
+  const MSG = "moh 0.8.0 available — run `moh update`";
+
+  test("notice renders left-aligned on row 2 with the tail intact, both modes", () => {
+    for (const mode of ["vibe", "dev"] as const) {
+      const frame = renderBar({ mode, cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop", updateMessage: MSG });
+      const row2 = frame.split("\n").find((l) => l.includes("⎇ develop"))!;
+      expect(row2).toContain(MSG);
+      expect(row2.trimEnd().endsWith("○ vibe") || row2.trimEnd().endsWith("◉ dev")).toBe(true);
+      expect(row2.indexOf(MSG)).toBeLessThan(row2.indexOf("▣"));
+    }
+  });
+
+  test("no notice segment when none is active", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop" });
+    expect(frame).not.toContain("moh update");
+  });
+
+  test("notice elides at narrow widths; the tail is never displaced or dropped", () => {
+    for (const width of [50, 70, 90]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop", updateMessage: MSG });
+      const row2 = frame.split("\n").find((l) => l.includes("⎇ develop"))!;
+      expect(row2).toContain("◉ dev");
+      expect(row2).not.toContain(MSG); // fully elided at these widths is fine
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+    }
+  });
+});
