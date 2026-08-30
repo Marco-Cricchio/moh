@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-30
+
 ### Fixed
 
 - Double `Ctrl+C` exit no longer holds the shell prompt for ~3s after the
@@ -224,7 +226,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.7.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.8.0...develop
+[0.8.0]: https://github.com/Marco-Cricchio/moh/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/Marco-Cricchio/moh/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Marco-Cricchio/moh/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Marco-Cricchio/moh/compare/v0.6.0...v0.7.0
