@@ -141,6 +141,7 @@ export {
   performSelfUpdate,
   releasesUrl,
   type SelfUpdateIo,
+  type SelfUpdateProgress,
   type SelfUpdateResult,
   type SelfUpdateStatus,
   type UpdatePlatform,

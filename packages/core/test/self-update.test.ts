@@ -1,5 +1,6 @@
 /**
  * #274 / ADR-0014: self-update — download/verify/replace seams, injectable IO.
+ * #351: onProgress emission at phase transitions (optional, silent without).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -13,6 +14,7 @@ import {
   detectUpdatePlatform,
   performSelfUpdate,
   releasesUrl,
+  type SelfUpdateProgress,
   type UpdateFetchResponse,
 } from "../src/self-update";
 
@@ -288,5 +290,83 @@ describe("performSelfUpdate update-check cache refresh (#328)", () => {
       io: { fetch: fetchMap(fakeReleaseUrls()), writeUpdateCache: () => { throw new Error("must not write"); } },
     }));
     expect(r.status).toBe("updated");
+  });
+});
+
+describe("performSelfUpdate onProgress (#351)", () => {
+  test("happy path emits the full phase sequence with byte count", async () => {
+    const events: SelfUpdateProgress[] = [];
+    const r = await performSelfUpdate(baseOptions({
+      onProgress: (p) => events.push(p),
+    }));
+    expect(r.status).toBe("updated");
+    expect(events).toEqual([
+      { phase: "checking" },
+      { phase: "downloading", receivedBytes: 0 },
+      { phase: "downloading", receivedBytes: NEW_BINARY.byteLength },
+      { phase: "verifying" },
+      { phase: "installing" },
+    ]);
+  });
+
+  test("up-to-date stops after checking", async () => {
+    const events: SelfUpdateProgress[] = [];
+    const r = await performSelfUpdate(baseOptions({
+      currentVersion: "0.2.0",
+      onProgress: (p) => events.push(p),
+    }));
+    expect(r.status).toBe("up-to-date");
+    expect(events).toEqual([{ phase: "checking" }]);
+  });
+
+  test("download failure emits checking + the downloading start only", async () => {
+    const routes = fakeReleaseUrls();
+    routes["/dl/moh-darwin-arm64"] = bytesRes(new Uint8Array(), false);
+    const events: SelfUpdateProgress[] = [];
+    const r = await performSelfUpdate(baseOptions({
+      io: { fetch: fetchMap(routes) },
+      onProgress: (p) => events.push(p),
+    }));
+    expect(r.status).toBe("error");
+    expect(events).toEqual([{ phase: "checking" }, { phase: "downloading", receivedBytes: 0 }]);
+  });
+
+  test("checksum mismatch emits verifying but never installing", async () => {
+    const events: SelfUpdateProgress[] = [];
+    const r = await performSelfUpdate(baseOptions({
+      io: { fetch: fetchMap(fakeReleaseUrls(NEW_BINARY, "0".repeat(64))) },
+      onProgress: (p) => events.push(p),
+    }));
+    expect(r.status).toBe("checksum-mismatch");
+    expect(events).toEqual([
+      { phase: "checking" },
+      { phase: "downloading", receivedBytes: 0 },
+      { phase: "downloading", receivedBytes: NEW_BINARY.byteLength },
+      { phase: "verifying" },
+    ]);
+  });
+
+  test("downgrade confirmation sits between checking and downloading", async () => {
+    const events: SelfUpdateProgress[] = [];
+    const r = await performSelfUpdate(baseOptions({
+      currentVersion: "9.9.9",
+      assumeYes: true,
+      onProgress: (p) => events.push(p),
+    }));
+    expect(r.status).toBe("updated");
+    expect(events.map((e) => e.phase)).toEqual(["checking", "downloading", "downloading", "verifying", "installing"]);
+  });
+
+  test("unsupported platform emits nothing", async () => {
+    const original = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const events: SelfUpdateProgress[] = [];
+      const r = await performSelfUpdate(baseOptions({ platform: undefined, io: { fetch: fetchMap({}) }, onProgress: (p) => events.push(p) }));
+      expect(r.status).toBe("unsupported-platform");
+      expect(events).toEqual([]);
+    } finally {
+      Object.defineProperty(process, "platform", { value: original });
+    }
   });
 });
