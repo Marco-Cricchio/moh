@@ -62,18 +62,38 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     process.stderr.write("moh: --dangerously-bypass-permissions was removed; use --yolo\n");
     return 2;
   }
-  if (!command || command === "help" || command === "--help") {
-    if (!command) return tuiCommand(argv.includes("--yolo"));
+  // #377: `moh --yolo` opens the TUI like bare `moh` does — the flag rides
+  // on the no-command path instead of being mistaken for a subcommand.
+  const yolo = argv.includes("--yolo");
+  if (yolo && !["--yolo", "tui", "run", "help", "--help"].includes(command!)) {
+    process.stderr.write(`moh: --yolo applies to the TUI launch; use "moh --yolo" or "moh tui --yolo"\n`);
+    return 2;
+  }
+  if (!command || command === "--yolo") {
+    // `moh --yolo junk` is a usage error, not a silently ignored flag.
+    if (argv.some((a, i) => i > 0 && a !== "--yolo")) {
+      process.stderr.write(`moh: unexpected argument (bare moh opens the TUI; did you mean "moh run …"?)\n`);
+      return 2;
+    }
+    return tuiCommand(yolo);
+  }
+  if (command === "help" || command === "--help") {
     process.stdout.write(HELP);
     return 0;
   }
   if (command === "tui") {
-    const yolo = rest.includes("--yolo");
-    if (rest.length > (yolo ? 1 : 0)) {
+    if (rest.includes("--yolo")) {
+      if (rest.length > 1) {
+        process.stderr.write(`moh tui takes no arguments\n`);
+        return 2;
+      }
+      return tuiCommand(true);
+    }
+    if (rest.length) {
       process.stderr.write(`moh tui takes no arguments\n`);
       return 2;
     }
-    return tuiCommand(yolo);
+    return tuiCommand(false);
   }
   if (command === "run") {
     if (rest.includes("--help") || rest.includes("-h")) {
