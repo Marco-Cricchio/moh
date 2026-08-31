@@ -52,6 +52,7 @@ A starting situation that generates work, then merges onto the main flow.
 
 - **`/domain-modeling`** — sharpen the project's domain language: challenge a fuzzy term, resolve an overloaded word, record a decision as an ADR. Single-context layout: root `CONTEXT.md` + `docs/adr/` (see `docs/agents/domain.md`).
 - **`/session-memory`** — structured session notes for continuity across conversations.
+- **`/gh-manager`** — declarative, IaC-style GitHub repository management ("manage my GitHub footprint", "make my repos match repos.yaml", "standardize labels/branch protection across my repos"): init → plan → apply, with a consent-gated apply.
 - **`/wizard`** — for steps only a **human** can take: provisioning, credentials, CI secrets, unfamiliar dashboards, one-off migrations. It generates an interactive bash script the human runs.
 - **`/writing-for-agents`** — reference for writing documents agents consume: skills, AGENTS.md, pointed-at docs.
 

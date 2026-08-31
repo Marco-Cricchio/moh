@@ -7,6 +7,18 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- First-party `gh-manager` skill (#378): declarative, IaC-style GitHub
+  repository management (`init → plan → apply` from a `repos.yaml`),
+  backed by a TypeScript plan/diff engine and gh-CLI access layer in
+  `@moh/core` (`packages/core/src/github-settings.ts`) — apply is
+  consent-gated with a rendered diff, and undeclared live settings are
+  never touched. Ported from
+  [gh-manager](https://github.com/ddlaws0n/gh-manager) by David Lawson
+  ([@ddlaws0n](https://github.com/ddlaws0n)) under its MIT license;
+  decision recorded in ADR-0017.
+
 ### Internal
 +
 - Published releases now close still-open issues referenced by GitHub closing directives in delivered PRs; delivery happens at publication rather than the `develop` merge, which preserves the integration-branch workflow (#375).

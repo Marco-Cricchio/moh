@@ -57,3 +57,10 @@ port; #366): it keeps moh's implementation execution discipline separate
 from the upstream `implement` workflow.
 - `pr-review` was considered and dropped (#79): upstream `code-review`
   covers inbound PR review; no upstream pr-review text exists to port.
+- `gh-manager` is a moh-native skill (#378) porting the ideas of David
+  Lawson's gh-manager (https://github.com/ddlaws0n/gh-manager, MIT —
+  Copyright (c) 2026 David Lawson): the declarative init → plan → apply
+  repository-management flow, re-implemented in TypeScript in
+  `packages/core/src/github-settings.ts` (plan/diff semantics) with a
+  consent-gated skill on top. Same MIT permission notice as above applies
+  to the ported ideas.
