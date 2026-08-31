@@ -1,0 +1,33 @@
+# Feature PRs merge into develop, so GitHub does not apply their `Closes #N`
+# directives (it only does that for the default branch). Close them only once the
+# corresponding GitHub Release is published, never when its draft is created.
+name: close delivered issues
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  close:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Close issues delivered by this release
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ github.event.release.id }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: bun scripts/close-delivered-issues.ts

@@ -7,6 +7,10 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Internal
++
+- Published releases now close still-open issues referenced by GitHub closing directives in delivered PRs; delivery happens at publication rather than the `develop` merge, which preserves the integration-branch workflow (#375).
+
 ## [0.9.1] - 2026-08-31
 
 ### Added
