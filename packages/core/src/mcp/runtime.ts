@@ -129,6 +129,7 @@ export class McpRuntime {
 
   async #connect(server: DeclaredMcpServer): Promise<void> {
     this.#state.set(server.name, "starting");
+    let conn: Connection | undefined;
     try {
       const handlers: ServerHandlers = {
         onRequest: (method, id) => {
@@ -156,7 +157,7 @@ export class McpRuntime {
         },
       };
       let connRef: Connection;
-      const conn =
+      conn =
         server.transport.type === "stdio"
           ? new StdioConnection({ command: server.transport.command, args: server.transport.args ?? [], env: server.transport.env, cwd: this.#cwd, ...handlers })
           : new HttpConnection({ url: server.transport.url, headers: server.transport.headers, ...handlers });
@@ -198,6 +199,9 @@ export class McpRuntime {
       // Trusted servers (user scope or moh-recorded "always") never ask again.
       if (server.scope === "user" || server.trusted) this.#onTrustedTools?.(run.tools);
     } catch (err) {
+      // Validation happens after transport creation; failed registration must
+      // not strand a spawned stdio child outside the running-server registry.
+      if (conn) await conn.close().catch(() => undefined);
       const kind = err instanceof McpError ? err.kind : "start_failed";
       this.#state.set(server.name, "failed");
       this.#onEvent({
@@ -246,6 +250,12 @@ export class McpRuntime {
   async restart(name: string): Promise<void> {
     const server = this.#servers.find((s) => s.name === name);
     if (!server) throw new McpError("unavailable", `unknown MCP server "${name}"`);
+    if (this.#needsConsent(server) && !(await this.#consent(server.name))) {
+      if (!this.#onConsent) {
+        throw new McpError("unavailable", `MCP server "${name}" requires project consent; restart is unavailable in headless mode`);
+      }
+      return;
+    }
     const run = this.#running.get(name);
     if (run) {
       this.#state.set(name, "stopped");
@@ -260,7 +270,6 @@ export class McpRuntime {
     for (const tool of this.#tools.keys()) {
       if (tool.startsWith(`mcp__${name}__`)) this.#tools.delete(tool);
     }
-    if (this.#needsConsent(server) && !(await this.#consent(server.name))) return;
     await this.#connect(server);
   }
 

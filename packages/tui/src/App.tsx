@@ -43,6 +43,7 @@ import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
 import { ModelPickerModal } from "./ModelPickerModal";
+import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog } from "@moh/core";
 import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
@@ -240,7 +241,7 @@ export function App({
           }
           if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);
           if (event.type === "permission_rules_restored") {
-            push(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`, "warn");
+            push(sanitizeForDisplay(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`), "warn");
           }
           const fallbackNotice = watchFallback(event);
           if (fallbackNotice) push(fallbackNotice, "warn");

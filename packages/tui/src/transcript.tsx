@@ -374,7 +374,14 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       }
     }
   }
-  return blocks;
+  // One final display boundary protects every event-log projection, including
+  // chrome and error fields added after individual case projections.
+  return blocks.map((block) => ({
+    ...block,
+    type: sanitizeForDisplay(block.type),
+    detail: block.detail === undefined ? undefined : sanitizeForDisplay(block.detail),
+    lines: block.lines.map(sanitizeForDisplay),
+  }));
 }
 
 /** #326: display-order pass — a completed call's reasoning group

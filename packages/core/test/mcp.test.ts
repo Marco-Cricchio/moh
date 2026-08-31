@@ -184,13 +184,14 @@ describe("McpRuntime (stdio)", () => {
     await runtime.restart("p");
     expect(runtime.status()[0]!.state).toBe("denied");
     expect(events.filter((event) => event.type === "permission_requested")).toHaveLength(2);
-    expect(Object.keys(runtime.tools)).toEqual([]);
+    // Declining a restart leaves the healthy existing server untouched.
+    expect(Object.keys(runtime.tools)).toEqual(["mcp__p__echo"]);
   });
 
   test("headless restart denies an untrusted project server", async () => {
     const events: AgentEvent[] = [];
     const runtime = makeRuntime([{ name: "p", scope: "project", transport: stdioServer("ok", "p").transport }], events);
-    await runtime.restart("p");
+    await expect(runtime.restart("p")).rejects.toThrow("requires project consent");
     expect(runtime.status()[0]!.state).toBe("denied");
     expect(events.some((event) => event.type === "permission_denied" && event.reason === "headless")).toBe(true);
   });
