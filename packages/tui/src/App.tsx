@@ -54,6 +54,7 @@ import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } fro
 import { SkillUpdatesModal } from "./SkillUpdatesModal";
 import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
+import { launchSkillSync } from "./launch-skill-sync";
 import {
   catalogEntryFor,
   endpointThinkingStatus,
@@ -188,6 +189,12 @@ export function App({
   const [reasoningOverride, setReasoningOverride] = useState<boolean | null>(null);
   const [thinkingPreferenceRevision, setThinkingPreferenceRevision] = useState(0);
   const [skillUpdatePlan, setSkillUpdatePlan] = useState<UpstreamUpdate[] | null>(null);
+  // #385: existing workflow users get newly bundled skills on launch —
+  // once per process, fail-silent, no-op when workflow mode is off.
+  useEffect(() => {
+    launchSkillSync({ mohHome, workflowEnabled: configRef.current.workflow.enabled });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const gateRef = useRef<PermissionGate | null>(null);
   if (gateRef.current === null) gateRef.current = new PermissionGate();
