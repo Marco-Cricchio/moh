@@ -175,7 +175,10 @@ function readWholeFile(file: string): string {
  * Mirrors what AgentSession accumulates in memory: user messages as-is,
  * consecutive assistant deltas grouped into one message per turn, tool
  * calls attached to the current assistant message, and settled tool
- * results folded into a following user message.
+ * results folded into a following user message. Tool protocol invariants
+ * are repaired in-memory only: unanswered tool_calls get a synthetic
+ * failed tool_result (#237), and tool_results whose assistant call was
+ * discarded never reach the provider (#371).
  */
 export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   const messages: Message[] = [];
