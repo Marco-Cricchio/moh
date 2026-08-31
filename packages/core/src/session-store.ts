@@ -17,9 +17,18 @@ const SESSION_ID_RE = /^\d{8}T\d{6}\d{3}Z-[0-9a-f]{8}$/;
  * New session id: sortable UTC timestamp (millisecond precision so ids are
  * strictly increasing within a process) + short uuid. Lexicographic order
  * of filenames equals chronological order of sessions.
+ *
+ * Same-millisecond creations would tie-break on the random uuid, making
+ * file order arbitrary on fast machines (#364 flake family): the stamp is
+ * forced monotonic within the process instead.
  */
+let lastStampMs = 0;
+
 export function newSessionId(now = new Date()): string {
-  const ts = now.toISOString().replace(/[-:.]/g, "");
+  let ms = now.getTime();
+  if (ms <= lastStampMs) ms = lastStampMs + 1;
+  lastStampMs = ms;
+  const ts = new Date(ms).toISOString().replace(/[-:.]/g, "");
   const uuid = randomUUID().replace(/-/g, "").slice(0, 8);
   return `${ts}-${uuid}`;
 }
