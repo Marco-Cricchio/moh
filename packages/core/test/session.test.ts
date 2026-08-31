@@ -102,7 +102,7 @@ describe("core agent loop", () => {
       { deltas: ["working "], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "true" } }] },
       { deltas: ["WRAPUP: done so far X, remains Y, next Z"], finish: "stop" },
     ]);
-    const session = createSession({ provider, maxIterations: 2, permissions: { bypassPermissions: true } });
+    const session = createSession({ provider, maxIterations: 2, permissions: { unrestrictedTools: true } });
 
     const result = await session.send("implement something");
     expect(result.status).toBe("done");

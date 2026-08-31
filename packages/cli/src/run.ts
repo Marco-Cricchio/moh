@@ -31,7 +31,7 @@ options:
   --provider <ref>           "mock", a custom id, or endpoint/model-id (moh.json)
   --cassette <file>          run the mock provider from a JSON cassette (e2e/evals)
   --auto-accept              auto-accept every permission prompt
-  --dangerously-bypass-permissions   skip all permission checks
+  --yolo                     no permission prompts, unrestricted filesystem (launch-only)
   --cwd <dir>                project root (default: process.cwd())
 
 rules: "bash", "bash:git status", "write:src/**", "edit:docs/**" — same
@@ -62,7 +62,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     parsed = parseArgs(argv, {
       strings: ["prompt", "session", "provider", "cassette", "cwd"],
       lists: ["allow", "deny"],
-      booleans: ["auto-accept", "fork", "dangerously-bypass-permissions"],
+      booleans: ["auto-accept", "fork", "yolo"],
     });
   } catch (e) {
     err.write(e instanceof ArgError ? `moh run: ${e.message}\n` : String(e));
@@ -115,7 +115,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       permissionFlags: cliOverrides,
       permissions: {
         mode: parsed.booleans["auto-accept"] ? "auto-accept" : "normal",
-        bypassPermissions: parsed.booleans["dangerously-bypass-permissions"] || undefined,
+        unrestrictedTools: parsed.booleans["yolo"] || undefined,
       },
       sink: (event: AgentEvent) => out.write(JSON.stringify(event) + "\n"),
       // A fresh store is created by the builder (after config/provider

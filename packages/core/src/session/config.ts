@@ -19,10 +19,12 @@ import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, Tool } from 
 export interface PermissionsConfig {
   /** moh.json `permissions.overrides` (tier 2). */
   overrides?: PermissionOverrides;
-  /** "normal" (default) or "auto-accept". "bypass" is only reachable via the explicit flag. */
+  /** "normal" (default) or "auto-accept". "yolo" is only reachable via the explicit flag. */
   mode?: "normal" | "auto-accept";
-  /** Explicit opt-in for bypass mode; overrides `mode`. */
-  bypassPermissions?: boolean;
+  /** Explicit opt-in for yolo mode (#377: no prompts, unrestricted filesystem
+   * for built-in tools); overrides `mode`. Launch-only — never settable from
+   * moh.json, Settings, or in-session. */
+  unrestrictedTools?: boolean;
   /** Runtime rules restored from a replayed session log. */
   runtimeRules?: PermissionRule[];
 }

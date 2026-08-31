@@ -83,6 +83,9 @@ export interface AppProps {
   /** Version shown on the home screen (default: MOH_VERSION; the binary
    * stamps the build's git tag via cli → renderTui → Home, #292). */
   version?: string;
+  /** #377: yolo session (launch-only `--yolo` flag) — no permission
+   * prompts, unrestricted filesystem for built-in tools. */
+  yolo?: boolean;
 }
 
 type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
@@ -108,6 +111,7 @@ export function App({
   skipOnboarding,
   env,
   version,
+  yolo,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -146,7 +150,7 @@ export function App({
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
-    startInChat ? makeSession({ cwd, home, provider }) : null,
+    startInChat ? makeSession({ cwd, home, provider, ...(yolo ? { yolo } : {}) }) : null,
   );
   const [session, setSession] = useState<AgentSession | null>(() =>
     initialSession && "session" in initialSession ? initialSession.session : null,
@@ -379,6 +383,7 @@ export function App({
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
       permissionMode: config.permissionMode,
+      ...(yolo ? { yolo } : {}),
     };
     let made: ReturnType<typeof makeSession>;
     if (resume) {
@@ -430,6 +435,7 @@ export function App({
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
       permissionMode: configRef.current.permissionMode,
+      ...(yolo ? { yolo } : {}),
       store: SessionStore.open(file),
     });
     if ("error" in result) {
@@ -592,6 +598,7 @@ export function App({
       unsupportedThinkingLevel={thinkingStatus.unsupported}
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
+      yolo={yolo}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}

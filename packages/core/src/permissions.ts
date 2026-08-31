@@ -4,7 +4,14 @@ import { isAbsolute, relative, resolve as pathResolve } from "node:path";
 export type PermissionDecision = "allow" | "ask" | "deny";
 export type PermissionTier = "builtin" | "config" | "runtime";
 export type RuleEffect = "allow" | "deny";
-export type SessionMode = "normal" | "auto-accept" | "bypass";
+export type SessionMode = "normal" | "auto-accept" | "yolo";
+/**
+ * #377: the filesystem reach of built-in path tools, derived from the
+ * session mode — "yolo" lifts the project-root containment (SEC-03's
+ * canonical resolution still applies; only the final containment check
+ * is gated on scope). "project" for every other mode.
+ */
+export type FilesystemScope = "project" | "unrestricted";
 
 /**
  * A single permission rule. Argument matchers are optional:

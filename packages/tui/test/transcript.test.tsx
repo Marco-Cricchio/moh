@@ -109,7 +109,7 @@ describe("semantic transcript projection (#183)", () => {
       { type: "permission_requested", callId: "p1", tool: "bash" },
       { type: "permission_granted", callId: "p1", tool: "bash", reason: "auto_accept" },
       { type: "permission_requested", callId: "p2", tool: "bash" },
-      { type: "permission_granted", callId: "p2", tool: "bash", reason: "bypass" },
+      { type: "permission_granted", callId: "p2", tool: "bash", reason: "yolo" },
       { type: "permission_granted", callId: "p3", tool: "bash", reason: "user" },
       { type: "permission_denied", callId: "p4", tool: "bash", reason: "user" },
     ];

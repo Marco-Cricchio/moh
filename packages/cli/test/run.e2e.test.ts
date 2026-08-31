@@ -53,6 +53,36 @@ function sessionFiles(home: string): string[] {
 }
 
 describe("moh run (e2e)", () => {
+  test("--yolo: session_mode yolo, out-of-root write allowed, no prompts (#377)", () => {
+    const { cwd, spawn } = harness();
+    const outside = `/tmp/moh-cli-e2e-outside-${process.pid}-${Date.now()}`;
+    writeFileSync(
+      join(cwd, "cassette.json"),
+      JSON.stringify([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: `${outside}/f.txt`, content: "yolo" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+    );
+    const res = spawn(["run", "--cassette", "cassette.json", "--yolo", "write outside"]);
+    expect(res.code).toBe(0);
+    const events = readEvents(res.stdout);
+    expect(events.find((e) => e.type === "session_mode")?.mode).toBe("yolo");
+    const result = events.find((e) => e.type === "tool_result")!;
+    expect(result.ok).toBe(true);
+    const grant = events.find((e) => e.type === "permission_granted");
+    expect(grant?.reason).toBe("yolo");
+    expect(readFileSync(`${outside}/f.txt`, "utf8")).toBe("yolo");
+  });
+
+  test("--dangerously-bypass-permissions is rejected, not aliased (#377)", () => {
+    const { spawn } = harness();
+    const res = spawn(["run", "--dangerously-bypass-permissions", "hi"]);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain("use --yolo");
+    const bare = spawn(["--dangerously-bypass-permissions"]);
+    expect(bare.code).toBe(2);
+  });
+
   test("works out-of-the-box with the mock provider: no API keys, no prompts", () => {
     const { spawn, home } = harness();
     const res = spawn(["run", "hello"]);

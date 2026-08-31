@@ -234,19 +234,19 @@ describe("AgentSession permission integration", () => {
       });
     const s1 = mk({});
     const s2 = mk({ mode: "auto-accept" });
-    const s3 = mk({ bypassPermissions: true });
-    // mode: "bypass" without the flag is not honored
-    const s4 = mk({ mode: "bypass" as any });
+    const s3 = mk({ unrestrictedTools: true });
+    // mode: "yolo" without the flag is not honored
+    const s4 = mk({ mode: "yolo" as any });
 
     const modeOf = (s: ReturnType<typeof mk>) =>
       (s.history().find((e) => e.type === "session_mode") as any)?.mode;
     expect(modeOf(s1)).toBe("normal");
     expect(modeOf(s2)).toBe("auto-accept");
-    expect(modeOf(s3)).toBe("bypass");
+    expect(modeOf(s3)).toBe("yolo");
     expect(modeOf(s4)).toBe("normal");
   });
 
-  test("bypass mode proceeds past ask, granted with reason bypass", async () => {
+  test("yolo mode proceeds past ask, granted with reason yolo", async () => {
     const provider = MockProvider.scripted([
       { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "ls" } }] },
       { deltas: ["done"], finish: "stop" },
@@ -255,11 +255,11 @@ describe("AgentSession permission integration", () => {
       provider,
       tools: { bash: tool("bash") },
       cwd: root,
-      permissions: { bypassPermissions: true },
+      permissions: { unrestrictedTools: true },
     });
     await session.send("go");
     const granted = session.history().find((e) => e.type === "permission_granted") as any;
-    expect(granted.reason).toBe("bypass");
+    expect(granted.reason).toBe("yolo");
   });
 
   test("ask flow with callback: yes grants, no denies with structured failure", async () => {

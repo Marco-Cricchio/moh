@@ -53,7 +53,7 @@ export interface SessionConsent {
 export interface SessionOverrides {
   /** Full tool registry (TUI: built-ins + tracker tools in workflow mode). Default: built-ins. */
   tools?: Record<string, Tool>;
-  /** Patch over the config-derived permission config (mode, bypass). Its
+  /** Patch over the config-derived permission config (mode, yolo). Its
    * `overrides`, when given, replaces the merged set entirely (it wins over
    * `permissionFlags`) — pass one or the other, never both. */
   permissions?: Partial<PermissionsConfig>;

@@ -26,15 +26,17 @@ commands:
   update   self-update the binary to the latest stable release
 
 options:
+  --yolo     unrestricted tools: no permission prompts, no filesystem
+             containment (launch-only; MCP consent still applies)
   --version  print version and exit
   --help     show this help
 `;
 
 /** Bare `moh` / `moh tui`: open the interactive TUI (#32). */
-async function tuiCommand(): Promise<number> {
+async function tuiCommand(yolo = false): Promise<number> {
   const { renderTui } = await import("@moh/tui");
   const { CLI_VERSION } = await import("./version");
-  const instance = renderTui({ cwd: process.cwd(), version: CLI_VERSION });
+  const instance = renderTui({ cwd: process.cwd(), version: CLI_VERSION, ...(yolo ? { yolo } : {}) });
   await instance.waitUntilExit?.();
   // #341: exit is deliberate, so it must be bounded — tracked session
   // disposal gets a budget, then the process terminates explicitly.
@@ -55,17 +57,23 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     process.stdout.write(CLI_VERSION + "\n");
     return 0;
   }
+  // #377: the old flag is removed, not aliased — fail loudly.
+  if (argv.includes("--dangerously-bypass-permissions")) {
+    process.stderr.write("moh: --dangerously-bypass-permissions was removed; use --yolo\n");
+    return 2;
+  }
   if (!command || command === "help" || command === "--help") {
-    if (!command) return tuiCommand();
+    if (!command) return tuiCommand(argv.includes("--yolo"));
     process.stdout.write(HELP);
     return 0;
   }
   if (command === "tui") {
-    if (rest.length) {
+    const yolo = rest.includes("--yolo");
+    if (rest.length > (yolo ? 1 : 0)) {
       process.stderr.write(`moh tui takes no arguments\n`);
       return 2;
     }
-    return tuiCommand();
+    return tuiCommand(yolo);
   }
   if (command === "run") {
     if (rest.includes("--help") || rest.includes("-h")) {

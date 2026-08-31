@@ -5,7 +5,7 @@ import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, 
 import { SCHEMA_VERSION } from "../types";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
-import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
+import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
@@ -109,8 +109,8 @@ export class AgentSession {
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
     const perms = config.permissions ?? {};
-    const mode: SessionMode = perms.bypassPermissions === true
-      ? "bypass"
+    const mode: SessionMode = perms.unrestrictedTools === true
+      ? "yolo"
       : perms.mode === "auto-accept" ? "auto-accept" : "normal";
     this.#permissions = new PermissionResolver({
       defaults: DEFAULT_TOOL_PERMISSIONS,
@@ -135,6 +135,7 @@ export class AgentSession {
       parallel: () => this.#provider.capabilities?.parallelToolCalls !== false,
       cwd: this.#cwd,
       skillDirs: () => this.#skillDirs,
+      filesystemScope: (): FilesystemScope => (mode === "yolo" ? "unrestricted" : "project"),
       turn: this.#turn,
       ...(this.#onAskUser ? { onAskUser: this.#onAskUser } : {}),
       append: (event) => this.#append(event),

@@ -180,7 +180,7 @@ describe("live tool timer in Chat (#300 integration)", () => {
     const session = createSession({
       provider,
       tools: builtinTools(),
-      permissions: { mode: "auto-accept", bypassPermissions: true },
+      permissions: { mode: "auto-accept", unrestrictedTools: true },
       memory: { enabled: false },
     });
     drain(session);

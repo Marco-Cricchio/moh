@@ -88,7 +88,7 @@ describe("ask_user tool", () => {
       provider,
       tools: builtinTools(),
       cwd,
-      permissions: { bypassPermissions: true },
+      permissions: { unrestrictedTools: true },
       onAskUser: async () => ({ choice: "b" }),
     });
     const result = await session.send("decide");
