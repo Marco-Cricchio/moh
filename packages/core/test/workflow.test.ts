@@ -90,6 +90,7 @@ describe("first-party skill install", () => {
       "codebase-design",
       "diagnosing-bugs",
       "domain-modeling",
+      "gh-manager", // #378: declarative GitHub settings, MIT port (NOTICE.md)
       "grilling",
       "implement",
       "moh-implementation-flow",
