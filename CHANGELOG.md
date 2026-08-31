@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-31
+
 ### Changed
 
 - **Breaking**: replaced `--dangerously-bypass-permissions` with the
@@ -27,8 +29,6 @@ matching section here at tag time.
   workflow users (binary upgrades included), not only on fresh installs (#385).
 - A persisted `tool_result` is never replayed when its paired `tool_call`
   was discarded (e.g. by steering), preventing corrupted session resume (#371).
-
-## [0.11.0] - 2026-08-31
 
 ## [0.10.0] - 2026-08-31
 
