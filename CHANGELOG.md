@@ -21,6 +21,15 @@ matching section here at tag time.
   `bypassPermissions` → `unrestrictedTools`. The TUI shows a persistent
   `⚠ YOLO` status indicator.
 
+### Fixed
+
+- First-party skills are now installed/synced at TUI launch for existing
+  workflow users (binary upgrades included), not only on fresh installs (#385).
+- A persisted `tool_result` is never replayed when its paired `tool_call`
+  was discarded (e.g. by steering), preventing corrupted session resume (#371).
+
+## [0.11.0] - 2026-08-31
+
 ## [0.10.0] - 2026-08-31
 
 ### Added
@@ -294,7 +303,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.11.0...develop
+[0.11.0]: https://github.com/Marco-Cricchio/moh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Marco-Cricchio/moh/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Marco-Cricchio/moh/compare/v0.8.0...v0.9.0
