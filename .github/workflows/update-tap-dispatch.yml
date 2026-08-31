@@ -1,0 +1,33 @@
+# Keep the Homebrew tap (Marco-Cricchio/homebrew-moh) in sync with
+# published releases (#383): the tap's update-tap workflow polls
+# `releases/latest` (invisible while a release is a draft), so the correct
+# trigger is publication, not the tag. This workflow dispatches the tap's
+# update immediately; the tap keeps its daily cron as a safety net.
+#
+# Requires the TAP_DISPATCH_TOKEN secret (fine-grained PAT with write on
+# the tap repo's contents/workflows) — the default GITHUB_TOKEN cannot
+# dispatch a different repository.
+name: update homebrew tap
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger the tap's update-tap workflow
+        env:
+          GH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            repos/Marco-Cricchio/homebrew-moh/dispatches \
+            -f event_type=update-formula \
+            -f 'client_payload[tag]="${{ github.event.release.tag_name }}"'
