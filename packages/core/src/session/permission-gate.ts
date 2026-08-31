@@ -81,7 +81,10 @@ export class PermissionGate {
 
     // "ask" decisions.
     const mode = this.#permissions.mode;
-    if (mode === "yolo") {
+    // #377: yolo lifts prompts for built-in tools only — MCP tools keep
+    // their explicit ask flow (server first-use consent lives in McpRuntime;
+    // the per-call default "ask on first invocation" must survive yolo too).
+    if (mode === "yolo" && !tool.startsWith("mcp__")) {
       this.#append({ type: "permission_granted", callId, tool, reason: "yolo" });
       return { allowed: true };
     }

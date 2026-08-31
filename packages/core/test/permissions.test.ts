@@ -262,6 +262,49 @@ describe("AgentSession permission integration", () => {
     expect(granted.reason).toBe("yolo");
   });
 
+  test("yolo does NOT auto-grant MCP tools: the ask flow survives (#377 decision 4)", async () => {
+    const provider = MockProvider.scripted([
+      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "mcp__srv__tool", args: {} }] },
+      { deltas: ["done"], finish: "stop" },
+    ]);
+    // Headless (no onPermissionRequest): the call must fail fast as a
+    // structured denial — not be granted with reason "yolo".
+    const session = createSession({
+      provider,
+      tools: { "mcp__srv__tool": tool("mcp__srv__tool") },
+      cwd: root,
+      permissions: { unrestrictedTools: true },
+    });
+    await session.send("go");
+    const events = session.history();
+    expect(events.find((e) => e.type === "permission_granted")).toBeUndefined();
+    expect(events.find((e) => e.type === "permission_denied")).toMatchObject({
+      tool: "mcp__srv__tool",
+      reason: "headless",
+    });
+    // Interactive: the consent seam is consulted, not skipped.
+    const asked: string[] = [];
+    const session2 = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "mcp__srv__tool", args: {} }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { "mcp__srv__tool": tool("mcp__srv__tool") },
+      cwd: root,
+      permissions: { unrestrictedTools: true },
+      onPermissionRequest: (t) => {
+        asked.push(t);
+        return "no";
+      },
+    });
+    await session2.send("go");
+    expect(asked).toEqual(["mcp__srv__tool"]);
+    expect(session2.history().find((e) => e.type === "permission_denied")).toMatchObject({
+      tool: "mcp__srv__tool",
+      reason: "user",
+    });
+  });
+
   test("ask flow with callback: yes grants, no denies with structured failure", async () => {
     const grant = MockProvider.scripted([
       { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "ls" } }] },
