@@ -1,4 +1,4 @@
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -61,9 +61,11 @@ export class SessionStore {
   /** Creates a fresh session file for the project rooted at `cwd`. */
   static create(cwd: string, home = homedir()): SessionStore {
     const dir = projectSessionsDir(cwd, home);
-    mkdirSync(dir, { recursive: true });
+    // Only newly created artifacts are tightened: existing user-owned paths
+    // retain their modes. `mode` is also applied to every missing parent.
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = join(dir, `${newSessionId()}.jsonl`);
-    writeFileSync(file, "");
+    writeFileSync(file, "", { mode: 0o600 });
     return new SessionStore(file);
   }
 
@@ -107,6 +109,10 @@ export class SessionStore {
   fork(): SessionStore {
     const target = join(dirname(this.#file), `${newSessionId()}.jsonl`);
     copyFileSync(this.#file, target);
+    // copyFile preserves the source mode, which may be a legacy session log.
+    // This target is freshly created, so tightening it does not alter a
+    // pre-existing user-owned path.
+    chmodSync(target, 0o600);
     return new SessionStore(target);
   }
 

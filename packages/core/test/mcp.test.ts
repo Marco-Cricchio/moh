@@ -43,6 +43,39 @@ describe("McpRuntime (stdio)", () => {
     expect(() => McpRuntime.validate([stdioServer("ok", "dup"), stdioServer("ok", "dup")])).toThrow(/duplicate MCP server name/);
   });
 
+  test("server names cannot contain the reserved MCP tool-name separator", () => {
+    expect(() => McpRuntime.validate([stdioServer("ok", "a__b")])).toThrow(/invalid MCP server name "a__b".*reserved/);
+  });
+
+  test("stdio servers receive only the minimal environment plus declared overrides", async () => {
+    const expected = new Set(["PATH", "HOME", "TMPDIR", "LANG", "TERM", "CUSTOM"]);
+    for (const scope of ["user", "project"] as const) {
+      const name = `env-${scope}`;
+      const runtime = makeRuntime(
+        [{ name, scope, transport: { type: "stdio", command: process.execPath, args: [SERVER, "env"], env: { CUSTOM: "present", PATH: "overridden" } } }],
+        [],
+        scope === "project" ? { onConsent: () => "yes" as const } : {},
+      );
+      await runtime.ensureStarted();
+      const output = await runtime.tools[`mcp__${name}__env`]!.execute({}, { signal: new AbortController().signal, cwd: process.cwd(), onProgress: () => {} });
+      const env = JSON.parse(output) as Record<string, string>;
+      expect(Object.keys(env).every((key) => expected.has(key))).toBe(true);
+      expect(env.CUSTOM).toBe("present");
+      expect(env.PATH).toBe("overridden");
+      await runtime.shutdown();
+    }
+  });
+
+  test("a server returning a reserved tool name fails without registering tools", async () => {
+    const events: AgentEvent[] = [];
+    const runtime = makeRuntime([stdioServer("bad-tool")], events);
+    await runtime.ensureStarted();
+    expect(runtime.status()[0]!.state).toBe("failed");
+    expect(Object.keys(runtime.tools)).toEqual([]);
+    const failure = events.find((event) => event.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
+    expect(failure.message).toMatch(/srv.*bad__tool.*reserved/);
+  });
+
   test("lazy: nothing starts until ensureStarted(); handshake timeout is categorized", async () => {
     const events: AgentEvent[] = [];
     const runtime = makeRuntime([stdioServer("ok")], events);
@@ -138,6 +171,39 @@ describe("McpRuntime (stdio)", () => {
     await runtime.ensureStarted();
     expect(runtime.status()[0]!.state).toBe("denied");
     expect(events.some((e) => e.type === "permission_denied" && e.reason === "headless")).toBe(true);
+  });
+
+  test("restart re-checks consent for an untrusted project server", async () => {
+    const events: AgentEvent[] = [];
+    const answers: Array<"yes" | "no"> = ["yes", "no"];
+    const runtime = makeRuntime([{ name: "p", scope: "project", transport: stdioServer("ok", "p").transport }], events, {
+      onConsent: () => answers.shift()!,
+    });
+    await runtime.ensureStarted();
+    expect(runtime.status()[0]!.state).toBe("running");
+    await runtime.restart("p");
+    expect(runtime.status()[0]!.state).toBe("denied");
+    expect(events.filter((event) => event.type === "permission_requested")).toHaveLength(2);
+    // Declining a restart leaves the healthy existing server untouched.
+    expect(Object.keys(runtime.tools)).toEqual(["mcp__p__echo"]);
+  });
+
+  test("headless restart denies an untrusted project server", async () => {
+    const events: AgentEvent[] = [];
+    const runtime = makeRuntime([{ name: "p", scope: "project", transport: stdioServer("ok", "p").transport }], events);
+    await expect(runtime.restart("p")).rejects.toThrow("requires project consent");
+    expect(runtime.status()[0]!.state).toBe("denied");
+    expect(events.some((event) => event.type === "permission_denied" && event.reason === "headless")).toBe(true);
+  });
+
+  test("trusted project servers restart without asking again", async () => {
+    const runtime = makeRuntime([{ name: "p", scope: "project", trusted: true, transport: stdioServer("ok", "p").transport }], [], {
+      onConsent: () => { throw new Error("trusted server must not ask"); },
+    });
+    await runtime.ensureStarted();
+    await runtime.restart("p");
+    expect(runtime.status()[0]!.state).toBe("running");
+    await runtime.shutdown();
   });
 
   test("crash makes tools unavailable; manual restart works; no auto-restart", async () => {

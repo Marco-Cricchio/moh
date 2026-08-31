@@ -189,7 +189,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
-      tools: o.tools ?? builtinTools(),
+      tools: o.tools ?? builtinTools({ ledgerRoot: join(mohHome, "bash-ledgers") }),
       mohHome,
       sessionFile: store.file,
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),

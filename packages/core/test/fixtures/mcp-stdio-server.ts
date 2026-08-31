@@ -5,6 +5,8 @@
  * - "silent": never answers initialize (handshake-timeout fixture)
  * - "refuse": after answering tools/list, sends a sampling/createMessage
  *   request (must be refused with -32601)
+ * - "env": exposes the spawned environment through an `env` tool
+ * - "bad-tool": lists a name containing the reserved `__` separator
  */
 const mode = process.argv[2] ?? "ok";
 const encoder = new TextEncoder();
@@ -37,17 +39,19 @@ async function main(): Promise<void> {
         if (mode === "refuse") {
           send({ jsonrpc: "2.0", id: 9001, method: "sampling/createMessage", params: {} });
         }
+        const name = mode === "env" ? "env" : mode === "bad-tool" ? "bad__tool" : "echo";
         send({
           jsonrpc: "2.0",
           id: msg.id,
-          result: { tools: [{ name: "echo", description: "Echo the input text", inputSchema: { type: "object" } }] },
+          result: { tools: [{ name, description: "Echo the input text", inputSchema: { type: "object" } }] },
         });
       } else if (msg.method === "tools/call" && msg.id !== undefined) {
         if (msg.params?.arguments?.boom) {
           process.exit(1); // crash fixture: die without answering
         }
         const text = msg.params?.arguments?.text ?? "";
-        send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: `echo: ${text}` }] } });
+        const output = mode === "env" ? JSON.stringify(process.env) : `echo: ${text}`;
+        send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: output }] } });
       } else if (msg.id !== undefined && msg.method) {
         send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } });
       }

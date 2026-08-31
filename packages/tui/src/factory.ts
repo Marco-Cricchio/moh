@@ -25,6 +25,7 @@ import {
   type TrackerBackend,
 } from "@moh/core";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -57,7 +58,7 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
   const tracker =
     options.tracker !== undefined ? options.tracker : options.workflow ? resolveTrackerSync({ cwd: options.cwd }) : null;
   const tools = options.tools ?? {
-    ...builtinTools(),
+    ...builtinTools({ ledgerRoot: join(options.home ?? homedir(), ".moh", "bash-ledgers") }),
     ...(tracker ? trackerTools(tracker) : {}),
   };
   return sessionFromConfig({

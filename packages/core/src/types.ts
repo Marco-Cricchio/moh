@@ -184,6 +184,8 @@ export type AgentEvent =
   | { type: "permission_granted"; callId: string; tool: string; reason: PermissionGrantReason }
   | { type: "permission_denied"; callId: string; tool: string; reason: string }
   | { type: "permission_rule_added"; rule: PermissionRule }
+  /** Resume chrome: runtime allow rules reconstructed from this log. */
+  | { type: "permission_rules_restored"; rules: string[] }
   | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" }
   /** ADR-0011: a turn-scoped skill prompt was attached to this turn's
    * send. Chrome — appended just before the turn's user_message; replay

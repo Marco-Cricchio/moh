@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 
 import { dialogWidth, useViewport } from "./viewport";
+import { sanitizeForDisplay } from "./render-sanitize";
 
 /** pi-style labelled message box: single round border, label row inside. */
 export function MsgBox({ label, color, children }: { label: string; color: string; children: React.ReactNode }) {
@@ -48,11 +49,9 @@ export function truncate(s: string, n: number): string {
  * `\n` first; this removes everything else that moves a cursor.
  */
 export function sanitizeLine(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s
-    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
-    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "")
-    .replace(/\t/g, "  ");
+  // Lines are a layout concern: tabs expand to spaces after the common
+  // display boundary retained them for multi-line/modal rendering.
+  return sanitizeForDisplay(s).replace(/\t/g, "  ");
 }
 
 /** figlet-Slant banner for the home screen (#292). */

@@ -4,6 +4,7 @@ import type { AgentEvent } from "@moh/core";
 import type { Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
+import { sanitizeForDisplay } from "./render-sanitize";
 import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import type { ToolTimings } from "./tool-timing";
@@ -55,11 +56,11 @@ const vibeDetail = (name: string, args: unknown): string => {
   const rec = args as Record<string, unknown>;
   // Search tools: the pattern says what was looked for, the path is noise.
   if (name === "glob" || name === "grep") {
-    if (typeof rec.pattern === "string") return rec.pattern.split("\n")[0]!;
+    if (typeof rec.pattern === "string") return sanitizeForDisplay(rec.pattern).split("\n")[0]!;
   }
   const path = rec.path ?? rec.file;
-  if (typeof path === "string") return path.split("\n")[0]!;
-  if (name === "fetch" && typeof rec.url === "string") return rec.url.split("\n")[0]!;
+  if (typeof path === "string") return sanitizeForDisplay(path).split("\n")[0]!;
+  if (name === "fetch" && typeof rec.url === "string") return sanitizeForDisplay(rec.url).split("\n")[0]!;
   return "";
 };
 
@@ -71,7 +72,7 @@ const vibeCommandHint = (args: unknown): string => {
   if (!args || typeof args !== "object") return "";
   const command = (args as { command?: unknown }).command;
   if (typeof command !== "string" || !command.trim()) return "";
-  const words = command.trim().split(/\s+/)
+  const words = sanitizeForDisplay(command).trim().split(/\s+/)
     // Skip leading env assignments (FOO=bar cmd) and wrappers (cd x && cmd)
     .filter((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && word !== "&&" && word !== ";");
   const first = words[0]?.split("/").pop() ?? "";
@@ -86,7 +87,9 @@ const detailOf = (args: unknown): string => {
   for (const key of ["command", "path", "file", "pattern", "query", "url"]) {
     if (typeof rec[key] === "string") return sanitizeLine(String(rec[key])).split("\n")[0]!;
   }
-  return truncate(sanitizeLine(JSON.stringify(args)), 100);
+  let rendered: string;
+  try { rendered = JSON.stringify(args); } catch { rendered = String(args); }
+  return truncate(sanitizeLine(rendered), 100);
 };
 
 /** Complete, deterministic projection of the append-only event log. Events
@@ -124,11 +127,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
     const key = `${keyBase + index}-${event.type}`;
     switch (event.type) {
       case "user_message":
-        blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: event.text.split("\n") });
+        blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: sanitizeForDisplay(event.text).split("\n") });
         break;
       case "assistant_delta": {
-        let text = event.text;
-        while (ordered[i + 1]?.event.type === "assistant_delta") text += (ordered[++i] as { event: Extract<AgentEvent, { type: "assistant_delta" }> }).event.text;
+        let text = sanitizeForDisplay(event.text);
+        while (ordered[i + 1]?.event.type === "assistant_delta") text += sanitizeForDisplay((ordered[++i] as { event: Extract<AgentEvent, { type: "assistant_delta" }> }).event.text);
         let lastItemLine = "";
         // One reply, many append-only segments (#205): the terminal Markdown
         // renderer owns fences/tables/headings inline, but a whole reply as
@@ -168,7 +171,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           break;
         }
         if (event.name === "ask_user") {
-          const question = event.args && typeof event.args === "object" && "question" in event.args ? String((event.args as { question: unknown }).question) : detailOf(event.args);
+          const question = event.args && typeof event.args === "object" && "question" in event.args ? sanitizeForDisplay(String((event.args as { question: unknown }).question)) : detailOf(event.args);
           const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
           blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state, ...timingFields });
           break;
@@ -219,6 +222,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         break;
       case "permission_rule_added":
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "permission rule", detail: JSON.stringify(event.rule), lines: [] });
+        break;
+      case "permission_rules_restored":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "restored permission rules", detail: `${event.rules.length} restored`, lines: event.rules.map(sanitizeLine) });
         break;
       case "model_call":
         // The model line closes the turn instead (#213): per-call blocks
@@ -368,7 +374,14 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       }
     }
   }
-  return blocks;
+  // One final display boundary protects every event-log projection, including
+  // chrome and error fields added after individual case projections.
+  return blocks.map((block) => ({
+    ...block,
+    type: sanitizeForDisplay(block.type),
+    detail: block.detail === undefined ? undefined : sanitizeForDisplay(block.detail),
+    lines: block.lines.map(sanitizeForDisplay),
+  }));
 }
 
 /** #326: display-order pass — a completed call's reasoning group

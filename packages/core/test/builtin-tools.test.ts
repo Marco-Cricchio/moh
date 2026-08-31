@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
@@ -274,6 +274,9 @@ describe("bash re-run guard (#304)", () => {
     const out = await guardTools.bash.execute({ command: "make test" }, repoCtx);
     expect(out).toContain("(pass) one");
     expect(out).toMatch(/\[full output saved: .+\]/);
+    const file = out.match(/\[full output saved: (.+)\]/)?.[1]!;
+    expect(statSync(file).mode & 0o077).toBe(0);
+    expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
     const again = await guardTools.bash.execute({ command: "make   test" }, repoCtx); // whitespace-normalized identity
     expect(again).toContain("not re-executed");
     expect(again).toMatch(/Full output saved at: .+/);
@@ -307,6 +310,15 @@ describe("bash re-run guard (#304)", () => {
     expect(again).toContain("nogit");
     expect(again).not.toContain("not re-executed");
   }, 30_000);
+
+  test("new sessions prune stale capture directories without affecting live pointers", () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-ledger-root-"));
+    const stale = join(root, "bash-stale");
+    mkdirSync(stale, { mode: 0o700 });
+    utimesSync(stale, new Date(Date.now() - 11 * 60_000), new Date(Date.now() - 11 * 60_000));
+    builtinTools({ ledgerRoot: root });
+    expect(existsSync(stale)).toBe(false);
+  });
 
   test("cheap commands never capture and never intercept", async () => {
     fakeSuite("cheap", "echo cheap-target");
