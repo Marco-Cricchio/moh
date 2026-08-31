@@ -7,6 +7,15 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-31
+
+### Fixed
+
+- `moh --yolo` (bare, no subcommand) now opens the TUI in yolo mode like
+  `moh tui --yolo`; previously it failed with "unknown command". Stray
+  arguments after the flag and `--yolo` on unrelated subcommands are
+  explicit usage errors; `moh run --yolo` is unchanged (#377, #391).
+
 ## [0.11.0] - 2026-08-31
 
 ### Changed
@@ -303,7 +312,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.11.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.11.1...develop
+[0.11.1]: https://github.com/Marco-Cricchio/moh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/Marco-Cricchio/moh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Marco-Cricchio/moh/compare/v0.9.0...v0.9.1
