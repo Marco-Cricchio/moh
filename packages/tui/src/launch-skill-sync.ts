@@ -9,7 +9,11 @@ type SkillInstallReport = ReturnType<typeof installFirstPartySkills>;
  * first-run offer, so newly bundled skills were never installed. This seam
  * runs the standard install (hash-manifest semantics unchanged: modified
  * copies left alone, min-version gating, pruning) once per process when
- * workflow mode is enabled — fail-silent, never blocking launch.
+ * workflow mode is enabled. The install is synchronous but cheap (a
+ * hash compare against already-installed copies); failures are swallowed
+ * so a broken `~/.moh` never crashes launch. The one-shot budget is
+ * consumed even on failure: launch is not a retry loop — the next launch
+ * (or `/workflow on`) retries.
  */
 
 // Once-per-process guard: the sync is idempotent, but App effects can run
@@ -34,8 +38,6 @@ export function launchSkillSync(options: LaunchSkillSyncOptions): SkillInstallRe
   try {
     return (options.install ?? ((o) => installFirstPartySkills(o)))({ mohHome: options.mohHome });
   } catch {
-    // A broken `~/.moh` (unwritable, corrupt manifest dir) must never
-    // block or crash launch — same posture as the background checks.
     return null;
   }
 }
