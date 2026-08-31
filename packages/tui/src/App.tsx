@@ -239,6 +239,9 @@ export function App({
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
           if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);
+          if (event.type === "permission_rules_restored") {
+            push(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`, "warn");
+          }
           const fallbackNotice = watchFallback(event);
           if (fallbackNotice) push(fallbackNotice, "warn");
         }

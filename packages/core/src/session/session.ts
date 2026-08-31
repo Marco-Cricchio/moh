@@ -5,7 +5,7 @@ import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, 
 import { SCHEMA_VERSION } from "../types";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
-import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
+import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
@@ -257,8 +257,10 @@ export class AgentSession {
       // already has them); only new events reach the sink.
       this.#eventLog.seed(config.resume.events);
       this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
-      for (const rule of runtimeRulesFromEvents(config.resume.events)) {
-        this.#permissions.addRuntimeRule(rule);
+      const restoredRules = runtimeRulesFromEvents(config.resume.events);
+      for (const rule of restoredRules) this.#permissions.addRuntimeRule(rule);
+      if (restoredRules.length > 0) {
+        this.#append({ type: "permission_rules_restored", rules: restoredRules.map(formatRule) });
       }
       this.#flushExtensionEvents();
       // Extensions missing on resume: a previously enabled extension that

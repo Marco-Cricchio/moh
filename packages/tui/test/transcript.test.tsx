@@ -26,6 +26,29 @@ const base: AgentEvent[] = [
   { type: "cancelled" },
 ];
 
+describe("render-side sanitizer (SEC-08)", () => {
+  test("strips terminal controls from argument details and output previews without changing line breaks", () => {
+    const raw = "echo safe\u001b[2K\u001b[1A\nnext";
+    const blocks = projectTranscript([
+      { type: "tool_call", callId: "c", name: "bash", args: { command: raw } },
+      { type: "tool_result", callId: "c", ok: true, output: `result\u001b[2K\nnext` },
+    ], { mode: "dev" });
+    const block = blocks.find((item) => item.type === "bash")!;
+    expect(block.detail).toBe("echo safe");
+    expect(block.lines).toEqual(["result", "next"]);
+    expect(raw).toContain("\u001b[2K"); // the event bytes are never rewritten
+    expect(projectTranscript([{ type: "assistant_delta", text: "reply\u001b[2K\nnext" }])[0]?.lines).toEqual(["reply", "next"]);
+  });
+
+  test("sanitizes ask_user question and answer previews", () => {
+    const blocks = projectTranscript([
+      { type: "tool_call", callId: "ask", name: "ask_user", args: { question: "Choose\u009b2K now" } },
+      { type: "tool_result", callId: "ask", ok: true, output: "yes\u001b[2K" },
+    ]);
+    expect(blocks.find((item) => item.type === "ask")?.lines).toEqual(["Choose now", "↳ you: yes"]);
+  });
+});
+
 describe("semantic transcript projection (#183)", () => {
   test("vibe hides metric/chrome blocks and keeps failures; dev keeps the full grammar (#193)", () => {
     const vibe = projectTranscript(base, { mode: "vibe" });

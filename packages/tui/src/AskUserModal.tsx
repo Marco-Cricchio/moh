@@ -4,6 +4,7 @@ import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
 import { dialogWidth, useViewport } from "./viewport";
 import type { AskUserGate } from "./ask-user-gate";
+import { sanitizeForDisplay } from "./render-sanitize";
 
 /**
  * The blocking ask_user overlay (issue #70 / style guide §8): the question
@@ -82,14 +83,14 @@ export function AskUserModal({ gate }: { gate: AskUserGate }) {
 
   return (
     <Dialog title=" question " color={theme.purple} width={dialogWidth(viewport)}>
-      <Text bold>{question.question}</Text>
+      <Text bold>{sanitizeForDisplay(question.question)}</Text>
       <Text> </Text>
       {question.options.map((option, i) => {
         const isSuggested = option.label === question.suggested;
         const isSelected = i === selected;
-        const line = `${isSelected ? ">" : " "} ${i + 1}  ${option.label}${
+        const line = `${isSelected ? ">" : " "} ${i + 1}  ${sanitizeForDisplay(option.label)}${
           isSuggested ? "  ← suggested" : ""
-        } — ${option.description}`;
+        } — ${sanitizeForDisplay(option.description)}`;
         return (
           <Text key={option.label} color={isSelected ? theme.accent : undefined} bold={isSuggested && !isSelected}>
             {line}

@@ -81,6 +81,20 @@ describe("permission modal (issue #33)", () => {
     i.unmount();
   });
 
+  test("strips terminal controls from approval details and rule previews", async () => {
+    const gate = new PermissionGate();
+    const pending = gate.ask("bash", { command: "echo safe\u001b[2K" });
+    const i = render(<PermissionModal gate={gate} mode="dev" />);
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("command: echo safe");
+    expect(frame).toContain("bash:echo safe");
+    expect(frame).not.toContain("[2K");
+    gate.resolve("no");
+    await pending;
+    i.unmount();
+  });
+
   test("“a” (always) writes a runtime rule, restorable on replay", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-perm-"));
     const home = mkdtempSync(join(tmpdir(), "moh-perm-h-"));

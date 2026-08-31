@@ -77,6 +77,25 @@ describe("ask_user overlay (issue #70)", () => {
     i.unmount();
   });
 
+  test("strips terminal controls from the question and option text", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask({
+      question: "Question\u001b[2K",
+      suggested: "safe\u001b[2K",
+      options: [{ label: "safe\u001b[2K", description: "description\u009b2K" }],
+    });
+    const i = render(<AskUserModal gate={gate} />);
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Question");
+    expect(frame).toContain("safe");
+    expect(frame).toContain("description");
+    expect(frame).not.toContain("[2K");
+    gate.resolve({ choice: "safe\u001b[2K" });
+    await pending;
+    i.unmount();
+  });
+
   test("enter picks the highlighted option; esc falls back to the suggested one", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);

@@ -10,6 +10,7 @@
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import {
@@ -34,8 +35,8 @@ export interface ExtensionRuntimeOptions {
   mohHome?: string;
   /**
    * One-time enable consent. Called only when no stored consent matches
-   * `name` at `version`. A `true` answer is persisted; `false` refuses the
-   * load. When absent and nothing is stored, the load is refused.
+   * loaded module content identity. A `true` answer is persisted; `false`
+   * refuses the load. When absent and nothing is stored, the load is refused.
    */
   consent?: (name: string, version: string) => Promise<boolean> | boolean;
   /**
@@ -71,9 +72,9 @@ export interface RuntimeExtension {
 }
 
 interface ExtensionStore {
-  /** name -> true (one-time enable consent, remembered forever). */
+  /** `absolute-path:content-hash` -> true (one-time enable consent). */
   consents: Record<string, true>;
-  /** name -> approved dependency list. */
+  /** `absolute-path:content-hash` -> approved dependency list. */
   dependencies: Record<string, ExtensionDependencies>;
 }
 
@@ -94,6 +95,17 @@ function sameDeps(a: string[], b: string[]): boolean {
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** File modules are consented by location and exact bytes, never self-claimed metadata. */
+function contentIdentity(file: string | undefined): string | null {
+  if (!file) return null;
+  try {
+    const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
+    return `${resolve(file)}:${hash}`;
+  } catch {
+    return null;
+  }
 }
 
 /** Cache-busted import returning the module's candidate definition. */
@@ -252,8 +264,10 @@ export class ExtensionRuntime {
       };
     }
     const store = this.#readStore();
-    // One-time enable consent: asked once per extension name, ever.
-    if (!store.consents[name]) {
+    // In-memory definitions have no source bytes: retain their historical
+    // name identity. Loaded modules bind consent to resolved path + bytes.
+    const identity = contentIdentity(file) ?? `memory:${name}`;
+    if (!store.consents[identity]) {
       if (!this.#options.consent) {
         return { ok: false, name, reason: "consent", message: "extension not previously enabled and no consent flow is available" };
       }
@@ -264,12 +278,12 @@ export class ExtensionRuntime {
         return { ok: false, name, reason: "consent", message: errMessage(err) };
       }
       if (!granted) return { ok: false, name, reason: "consent", message: "user declined to enable the extension" };
-      store.consents[name] = true;
+      store.consents[identity] = true;
       this.#writeStore(store);
     }
-    // Per-change dependency authorization (approved list remembered per extension).
+    // Per-change dependency authorization, bound to the same content identity.
     const deps = d.dependencies ?? [];
-    const approved = store.dependencies[name] ?? [];
+    const approved = store.dependencies[identity] ?? [];
     if (!sameDeps(deps, approved)) {
       if (deps.length > 0 && !this.#options.authorizeDependencies) {
         return { ok: false, name, reason: "deps_unauthorized", message: `dependency list changed (${deps.join(", ")}) and no authorization flow is available` };
@@ -285,7 +299,7 @@ export class ExtensionRuntime {
           return { ok: false, name, reason: "deps_unauthorized", message: `user declined dependencies: ${deps.join(", ")}` };
         }
       }
-      store.dependencies[name] = [...deps];
+      store.dependencies[identity] = [...deps];
       this.#writeStore(store);
     }
     const instance: RuntimeExtension = { def: d as ExtensionDefinition, state: { ...seedState }, notes: [], hooks: EMPTY_HOOKS(), file };

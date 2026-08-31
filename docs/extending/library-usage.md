@@ -192,7 +192,10 @@ const assembled = sessionFromConfig({
 
 `"always"` answers become runtime rules (tier 3 — they only narrow, never
 widen built-in defaults) and are recorded as `permission_rule_added`
-events, so they persist across resume of the same log.
+events, so they persist across resume of the same log. When a resume restores
+one or more rules, the session appends one `permission_rules_restored` chrome
+event containing their canonical rule strings; clients should surface it to
+make inherited grants visible.
 
 ### MCP stdio environment
 

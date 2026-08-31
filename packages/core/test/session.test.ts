@@ -344,10 +344,20 @@ describe("resume (#31)", () => {
     await second.send("run it again");
     const log = second.history();
     // No new permission events: the restored runtime rule allowed the call silently.
-    const newPermissionEvents = log.slice(history.length).filter((e: any) => e.type.startsWith("permission_"));
+    const newPermissionEvents = log.slice(history.length).filter((e: any) => e.type.startsWith("permission_") && e.type !== "permission_rules_restored");
     expect(newPermissionEvents).toEqual([]);
     const result = log.find((e: any) => e.type === "tool_result")!;
     expect((result as any).ok).toBe(true);
+    const notice = log.slice(history.length).find((e) => e.type === "permission_rules_restored");
+    expect(notice).toEqual({ type: "permission_rules_restored", rules: ["bash:echo hi"] });
+  });
+
+  test("resume without runtime rules emits no restored-rule notice", () => {
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      resume: { events: [{ type: "session_start", schemaVersion: 1, promptVersion: "fixture" }] },
+    });
+    expect(session.history().some((event) => event.type === "permission_rules_restored")).toBe(false);
   });
 });
 

@@ -126,11 +126,14 @@ the loop can react to it.
 ## Loading, lifecycle, failure
 
 - Loading goes through `ExtensionRuntime.registerFile(file)` (dynamic,
-  cache-busted import) or `register(def)` (in-memory). The runtime owns
-  one-time **enable consent** (per name+version, persisted in
-  `<mohHome>/extensions.json`) and **per-change npm dependency
-  authorization** — both are host-supplied seams; with no consent seam and
-  nothing stored, the load is refused.
+  cache-busted import) or `register(def)` (in-memory). For file modules,
+  the runtime binds enable consent to the resolved absolute path and a SHA-256
+  hash of its contents, persisted in `<mohHome>/extensions.json`. Editing a
+  file or loading another file that claims the same name requires consent
+  again; an unchanged file loads silently. The approved npm dependency list
+  is bound to that same content identity and is authorized again after a
+  changed module requests dependencies. Both are host-supplied seams; with
+  no consent seam and nothing stored, the load is refused.
 - Hot-reload: registered files are watched; on change the module is
   re-imported and `setup()` re-runs with the previous `ctx.state` seeded
   in. A failed reload keeps the previous instance running (warning only).

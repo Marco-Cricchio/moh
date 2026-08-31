@@ -9,6 +9,7 @@
  */
 import { formatRule, splitCommandSegments } from "@moh/core";
 import { truncate } from "./ui";
+import { sanitizeForDisplay } from "./render-sanitize";
 
 export type PermissionAnswer = "yes" | "always" | "no";
 
@@ -32,14 +33,14 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
     const rule = segments.length === 1 && segments[0]!.length > 0
       ? formatRule({ tier: "runtime", tool: "bash", effect: "allow", tokens: segments[0]! })
       : null;
-    return { tool, args, detail: [`command: ${a.command}`], rulePreview: rule };
+    return { tool, args, detail: [`command: ${sanitizeForDisplay(a.command)}`], rulePreview: rule ? sanitizeForDisplay(rule) : null };
   }
   if (typeof a.path === "string") {
     return {
       tool,
       args,
-      detail: [`path: ${a.path}`],
-      rulePreview: formatRule({ tier: "runtime", tool, effect: "allow", path: a.path }),
+      detail: [`path: ${sanitizeForDisplay(a.path)}`],
+      rulePreview: sanitizeForDisplay(formatRule({ tier: "runtime", tool, effect: "allow", path: a.path })),
     };
   }
   // Tracker claims (#357): the issue id is the whole story — never raw JSON.
@@ -47,8 +48,8 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
     return {
       tool,
       args,
-      detail: [`issue: #${a.id}`],
-      rulePreview: formatRule({ tier: "runtime", tool, effect: "allow" }),
+      detail: [`issue: #${sanitizeForDisplay(a.id)}`],
+      rulePreview: sanitizeForDisplay(formatRule({ tier: "runtime", tool, effect: "allow" })),
     };
   }
   let rendered: string;
@@ -57,18 +58,18 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
   } catch {
     rendered = String(args);
   }
-  rendered = truncate(rendered, 200);
-  return { tool, args, detail: rendered ? [rendered] : ["(no arguments)"], rulePreview: formatRule({ tier: "runtime", tool, effect: "allow" }) };
+  rendered = truncate(sanitizeForDisplay(rendered), 200);
+  return { tool, args, detail: rendered ? [rendered] : ["(no arguments)"], rulePreview: sanitizeForDisplay(formatRule({ tier: "runtime", tool, effect: "allow" })) };
 }
 
 /** One-line argument summary for tool lines (shared with the TUI chat). */
 export function toolArgSummary(args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
-  if (typeof a.command === "string") return a.command;
-  if (typeof a.path === "string") return a.path;
+  if (typeof a.command === "string") return sanitizeForDisplay(a.command);
+  if (typeof a.path === "string") return sanitizeForDisplay(a.path);
   // ask_user (#70): the question is the summary; the answer lands in the
   // tool_result output, so replay shows both.
-  if (typeof a.question === "string") return a.question;
+  if (typeof a.question === "string") return sanitizeForDisplay(a.question);
   return "";
 }
 

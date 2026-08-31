@@ -6,7 +6,7 @@
  * dependency authorization.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
@@ -275,6 +275,40 @@ describe("consent and dependencies", () => {
   });
 });
 
+describe("content-bound file consent", () => {
+  test("same claimed name from another file requires consent and cannot run setup when refused", async () => {
+    const dir = tempDir();
+    const first = join(dir, "first.mjs");
+    const second = join(dir, "second.mjs");
+    const marker = join(dir, "setup-ran");
+    writeFileSync(first, `export default { name: "same", version: "1.0.0", apiVersion: "1.0", setup() {} };`);
+    writeFileSync(second, `import { writeFileSync } from "node:fs"; export default { name: "same", version: "9.9.9", apiVersion: "1.0", setup() { writeFileSync(${JSON.stringify(marker)}, "ran"); } };`);
+
+    const approved = new ExtensionRuntime({ mohHome: dir, consent: () => true });
+    expect(await approved.registerFile(first)).toBe(true);
+    const refused = new ExtensionRuntime({ mohHome: dir, consent: () => false });
+    expect(await refused.registerFile(second)).toBe(false);
+    expect(refused.instances).toHaveLength(0);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("unchanged file loads silently, while changed content re-authorizes its dependencies", async () => {
+    const dir = tempDir();
+    const file = join(dir, "extension.mjs");
+    const source = (deps: string[]) => `export default { name: "stable", version: "1.0.0", apiVersion: "1.0", dependencies: ${JSON.stringify(deps)}, setup() {} };`;
+    writeFileSync(file, source(["left@1"]));
+    const dependencyRequests: string[][] = [];
+    const first = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
+    expect(await first.registerFile(file)).toBe(true);
+    const unchanged = new ExtensionRuntime({ mohHome: dir, consent: () => false, authorizeDependencies: () => false });
+    expect(await unchanged.registerFile(file)).toBe(true);
+    writeFileSync(file, source(["right@2"]));
+    const changed = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
+    expect(await changed.registerFile(file)).toBe(true);
+    expect(dependencyRequests).toEqual([["left@1"], ["right@2"]]);
+  });
+});
+
 describe("hot-reload", () => {
   test("preserves ctx.state and re-registers hooks; a mismatched reload keeps the previous instance", async () => {
     const dir = tempDir();
@@ -309,6 +343,22 @@ describe("hot-reload", () => {
     );
     await Bun.sleep(400);
     expect(rt.instances[0]!.def.version).toBe("1.1.0");
+    rt.stopWatch();
+  });
+
+  test("modified file re-asks before replacement", async () => {
+    const dir = tempDir();
+    const file = join(dir, "consented.mjs");
+    const source = (version: string) => `export default { name: "watch", version: ${JSON.stringify(version)}, apiVersion: "1.0", setup() {} };`;
+    writeFileSync(file, source("1.0.0"));
+    let asks = 0;
+    const rt = new ExtensionRuntime({ mohHome: dir, consent: () => ++asks <= 2 });
+    expect(await rt.registerFile(file)).toBe(true);
+    rt.startWatch();
+    writeFileSync(file, source("2.0.0"));
+    await Bun.sleep(400);
+    expect(asks).toBe(2);
+    expect(rt.instances[0]!.def.version).toBe("2.0.0");
     rt.stopWatch();
   });
 
