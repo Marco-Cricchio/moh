@@ -20,6 +20,7 @@ import {
   type Provider,
   type TrackerBackend,
   type UpdateNotice,
+  type UpstreamUpdate,
 } from "@moh/core";
 import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
@@ -49,7 +50,8 @@ import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
-import { runSlashCommand, commandEntries } from "./commands";
+import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } from "./commands";
+import { SkillUpdatesModal } from "./SkillUpdatesModal";
 import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
 import {
@@ -83,7 +85,7 @@ export interface AppProps {
   version?: string;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model";
+type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -181,6 +183,7 @@ export function App({
   // show|hide`); null = use the persisted global preference.
   const [reasoningOverride, setReasoningOverride] = useState<boolean | null>(null);
   const [thinkingPreferenceRevision, setThinkingPreferenceRevision] = useState(0);
+  const [skillUpdatePlan, setSkillUpdatePlan] = useState<UpstreamUpdate[] | null>(null);
 
   const gateRef = useRef<PermissionGate | null>(null);
   if (gateRef.current === null) gateRef.current = new PermissionGate();
@@ -623,6 +626,10 @@ export function App({
           if (result?.ok) setSkillUpdateCount(result.updates.length);
           else if (result === undefined) recheckSkillsRef.current();
         },
+        onOpenSkillUpdates: (updates) => {
+          setSkillUpdatePlan(updates);
+          setOverlay("skill-updates");
+        },
         onThinkingDisplay: (show) => setReasoningOverride(show),
         thinkingDisplay: () => reasoningOverride ?? configRef.current.showReasoning,
         onThinkingLevelChanged: () => setThinkingPreferenceRevision((value) => value + 1),
@@ -787,6 +794,32 @@ export function App({
             onSwitched={(model) => setModelLabel(model)}
             onToast={push}
             onClose={() => setOverlay(null)}
+          />
+        )}
+        {overlay === "skill-updates" && skillUpdatePlan && (
+          <SkillUpdatesModal
+            updates={skillUpdatePlan}
+            readInstalled={(name) => readInstalled(mohHome, name)}
+            onApply={() => {
+              void applySkillUpdates({
+                cwd,
+                mohHome,
+                config,
+                updateConfig,
+                session,
+                notify: push,
+                onSkillUpdatesChanged: () => recheckSkillsRef.current(),
+              }, skillUpdatePlan)
+                .then(() => {
+                  setSkillUpdatePlan(null);
+                  setOverlay(null);
+                })
+                .catch(() => push("skills update apply failed"));
+            }}
+            onClose={() => {
+              setSkillUpdatePlan(null);
+              setOverlay(null);
+            }}
           />
         )}
         {overlay === "workflow-offer" && (

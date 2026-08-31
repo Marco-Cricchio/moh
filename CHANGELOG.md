@@ -7,6 +7,10 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
++
+- `/skills update` now opens a TUI modal with selectable, scrollable upstream skill diffs and explicit Apply or Not now actions; applying still revalidates locally modified copies before writing (#372).
+
 ## [0.9.0] - 2026-08-31
 
 ### Fixed

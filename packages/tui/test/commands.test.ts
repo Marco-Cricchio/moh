@@ -425,6 +425,18 @@ describe("/skills update notice sync (#348)", () => {
     expect(syncs).toBe(1);
   });
 
+  test("a TUI caller receives the checked plan for its update modal", async () => {
+    let opened: import("@moh/core").UpstreamUpdate[] | undefined;
+    const ctx = skillsCtx({
+      skillsCheck: fakeCheck({ ok: true, updates: [{ name: "tdd", currentHash: "a", upstreamHash: "b", files: {} }] }),
+      onOpenSkillUpdates: (updates) => { opened = updates; },
+    });
+    runSlashCommand("/skills update", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(opened?.map((update) => update.name)).toEqual(["tdd"]);
+    expect(ctx.notices()).toEqual([]);
+  });
+
   test("apply notifies after installing", async () => {
     let syncs = 0;
     const ctx = skillsCtx({

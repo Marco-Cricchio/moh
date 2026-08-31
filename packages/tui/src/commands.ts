@@ -78,6 +78,9 @@ export interface SlashContext {
    * call. Called without a result after apply, when the App must recheck
    * because modified skills may have been skipped. */
   onSkillUpdatesChanged?: (result?: UpstreamCheckResult) => void;
+  /** Opens the TUI-only update inspection modal. Headless callers keep the
+   * textual diff and `/skills update apply` flow. */
+  onOpenSkillUpdates?: (updates: UpstreamUpdate[]) => void;
   /** #348: injectable upstream check (default: the core
    * `checkUpstreamUpdates`) — tests substitute it; production callers
    * never pass it. */
@@ -179,8 +182,9 @@ const skillsCommand: SlashCommand = {
           return ctx.notify(upstreamCheckMessage(result));
         }
         if (confirm !== "apply") {
-          // Show every diff in full first; consent is the separate
-          // `/skills update apply` invocation (hashes re-verified there).
+          // The TUI owns the readable projection and its explicit Apply
+          // control. Headless callers retain the textual two-command flow.
+          if (ctx.onOpenSkillUpdates) return ctx.onOpenSkillUpdates(updates);
           pendingUpdates = updates;
           for (const u of updates) {
             const diff = diffSkillFiles(readInstalled(ctx.mohHome, u.name), u.files);
@@ -188,21 +192,7 @@ const skillsCommand: SlashCommand = {
           }
           return;
         }
-        const plan = pendingUpdates ?? updates;
-        return applyUpstreamUpdates({
-          mohHome: ctx.mohHome,
-          updates: plan,
-          // Consent: the explicit `apply` after the full diff was shown;
-          // modified copies are skipped by the hash checks regardless.
-          consent: (u: UpstreamUpdate) => plan.some((p) => p.name === u.name),
-        }).then((report) => {
-          pendingUpdates = null;
-          ctx.notify(`skills updated: ${report.applied.join(", ") || "none"}${report.skippedModified.length ? ` · modified, skipped: ${report.skippedModified.join(", ")}` : ""}`);
-          ctx.session?.refreshSkills();
-          // Application can skip locally modified skills, so recheck rather
-          // than pretending the earlier plan is now empty.
-          ctx.onSkillUpdatesChanged?.();
-        });
+        return applySkillUpdates(ctx, pendingUpdates ?? updates);
       })
       .catch(() => ctx.notify("skills update check failed"));
   },
@@ -291,7 +281,23 @@ const thinkingCommand: SlashCommand = {
 };
 
 
-function readInstalled(mohHome: string, name: string): Record<string, string> {
+export async function applySkillUpdates(ctx: SlashContext, updates: UpstreamUpdate[]): Promise<void> {
+  const report = await applyUpstreamUpdates({
+    mohHome: ctx.mohHome,
+    updates,
+    // The caller has already made an explicit apply decision. Core still
+    // revalidates every hash immediately before each write.
+    consent: () => true,
+  });
+  pendingUpdates = null;
+  ctx.notify(`skills updated: ${report.applied.join(", ") || "none"}${report.skippedModified.length ? ` · modified, skipped: ${report.skippedModified.join(", ")}` : ""}`);
+  ctx.session?.refreshSkills();
+  // Application can skip locally modified skills, so recheck rather than
+  // pretending the earlier plan is now empty.
+  ctx.onSkillUpdatesChanged?.();
+}
+
+export function readInstalled(mohHome: string, name: string): Record<string, string> {
   const dir = join(mohHome, "skills", name);
   const files: Record<string, string> = {};
   try {
