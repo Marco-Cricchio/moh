@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-31
+
 ### Added
 
 - First-party `gh-manager` skill (#378): declarative, IaC-style GitHub
@@ -20,7 +22,6 @@ matching section here at tag time.
   decision recorded in ADR-0017.
 
 ### Internal
-+
 - Published releases now close still-open issues referenced by GitHub closing directives in delivered PRs; delivery happens at publication rather than the `develop` merge, which preserves the integration-branch workflow (#375).
 
 ## [0.9.1] - 2026-08-31
@@ -280,6 +281,7 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
   on first run via the existing hash-manifest upgrade semantics.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...develop
+[0.10.0]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Marco-Cricchio/moh/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Marco-Cricchio/moh/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Marco-Cricchio/moh/compare/v0.7.2...v0.8.0
