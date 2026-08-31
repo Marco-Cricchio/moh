@@ -164,20 +164,22 @@ function StatusRow(props: StatusProps) {
   // #328: an active update notice leads row 2, left-aligned; the tail keeps
   // the full row budget and the notice elides to whatever remains.
   const row2Text = row2.join(" ");
-  const noticeBudget = Math.max(0, props.width - 4 - row2Text.length - 1);
-  const noticeText = props.updateMessage && noticeBudget >= 4
-    ? props.updateMessage.length <= noticeBudget
-      ? props.updateMessage
-      : `${props.updateMessage.slice(0, noticeBudget - 1)}…`
-    : null;
-  // #377: the yolo banner is always live — it takes the notice slot
-  // (eliding to the short form, never dropping) when both compete for the
-  // same budget; the right tail is never displaced.
+  // #377: the yolo banner is always live — it leads the notice slot and
+  // never drops (down to the bare ⚠ marker); the update notice (#328)
+  // renders after it in whatever budget remains, elided — a yolo session
+  // still learns about updates instead of losing the notice entirely.
   const yoloBudget = props.width - 4 - row2Text.length - 1;
   const yoloText = props.yolo
     ? yoloBudget >= "⚠ YOLO — unrestricted tools".length
       ? "⚠ YOLO — unrestricted tools"
       : yoloBudget >= "⚠ YOLO".length ? "⚠ YOLO" : null
+    : null;
+  const yoloLead = yoloText !== null ? `${yoloText} · ` : props.yolo ? "⚠ " : "";
+  const noticeBudget = Math.max(0, props.width - 4 - row2Text.length - 1 - yoloLead.length);
+  const noticeText = props.updateMessage && noticeBudget >= 4
+    ? props.updateMessage.length <= noticeBudget
+      ? props.updateMessage
+      : `${props.updateMessage.slice(0, noticeBudget - 1)}…`
     : null;
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
@@ -187,9 +189,9 @@ function StatusRow(props: StatusProps) {
       </Box>
       {row2 && (
         <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-          {yoloText !== null && <Text color={theme.err} wrap="truncate">{yoloText}</Text>}
-          {props.yolo === true && yoloText === null && <Text color={theme.err}>⚠</Text>}
-          {yoloText === null && noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
+          {props.yolo && <Text color={theme.err} wrap="truncate">{yoloText ?? "⚠"}</Text>}
+          {props.yolo && noticeText !== null && <Text color={theme.dim}> · </Text>}
+          {noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
           <Box justifyContent="flex-end" flexWrap="nowrap">
             <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
           </Box>

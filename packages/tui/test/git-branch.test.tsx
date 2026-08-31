@@ -195,12 +195,15 @@ describe("yolo indicator (#377)", () => {
     expect(plain).not.toContain("YOLO");
   });
 
-  test("yolo indicator wins the notice slot and never displaces the tail", () => {
+  test("yolo indicator leads row 2 with the update notice beside it; the tail is never displaced", () => {
     const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true, updateMessage: "moh update available" });
     const row2 = frame.split("\n").find((l) => l.includes("⎇ develop"))!;
     expect(row2).toContain("⚠ YOLO");
     expect(row2).toContain("◉ dev");
-    expect(row2).not.toContain("moh update");
+    // #391 follow-up: a yolo session still sees the update notice (#328),
+    // elided to the remaining budget — never dropped entirely.
+    expect(row2).toContain("moh upd");
+    expect(row2.indexOf("YOLO")).toBeLessThan(row2.indexOf("moh"));
   });
 
   test("short form at narrow widths; rows stay within the viewport", () => {
