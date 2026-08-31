@@ -246,7 +246,7 @@ describe("readLiveRepo", () => {
       }
       return { code: 1, stdout: "", stderr: "not found" };
     });
-    const repo = await readLiveRepo("acme/widget", run);
+    const repo = await readLiveRepo("acme/widget", "main", run);
     expect(repo.visibility).toBe("private");
     expect(repo.labels[0]!.color).toBe("d73a4a");
     expect(repo.branchProtection?.requiredReviews).toBe(1);
@@ -258,11 +258,11 @@ describe("readLiveRepo", () => {
       if (path.startsWith("repos/a/b/labels")) return { code: 0, stdout: JSON.stringify([]) };
       return { code: 1, stdout: "", stderr: "404" };
     });
-    expect((await readLiveRepo("a/b", run)).branchProtection).toBeNull();
+    expect((await readLiveRepo("a/b", "main", run)).branchProtection).toBeNull();
   });
 
   test("repo fetch failure surfaces as GithubSettingsError", async () => {
     const run = fakeRunner(() => ({ code: 1, stdout: "", stderr: "gh not authed" }));
-    await expect(readLiveRepo("a/b", run)).rejects.toThrow("gh not authed");
+    await expect(readLiveRepo("a/b", "main", run)).rejects.toThrow("gh not authed");
   });
 });

@@ -236,8 +236,16 @@ export const ghApiMutator: GhMutator = async (verb, path, body) => {
   if (code !== 0) throw new GithubSettingsError(`gh api ${verb} ${path} failed: ${stderr.trim()}`);
 };
 
-/** Live-state reader over `gh api` (read-only). */
-export async function readLiveRepo(name: string, run: ShellRunner = defaultRunner): Promise<LiveRepo> {
+/**
+ * Live-state reader over `gh api` (read-only). `branch` selects which
+ * branch's protection is projected; it should match the declared
+ * `branchProtection.branch` (default: `main`).
+ */
+export async function readLiveRepo(
+  name: string,
+  branch = "main",
+  run: ShellRunner = defaultRunner,
+): Promise<LiveRepo> {
   async function api(path: string): Promise<any> {
     const res = await run(["gh", "api", path]);
     if (res.code !== 0) throw new GithubSettingsError(`gh api ${path} failed: ${res.stderr.trim()}`);
@@ -259,7 +267,7 @@ export async function readLiveRepo(name: string, run: ShellRunner = defaultRunne
     })),
     branchProtection: protection
       ? {
-          branch: "main",
+          branch,
           requiredChecks: (protection?.required_status_checks?.contexts ?? []) as string[],
           requiredReviews: (protection?.required_pull_request_reviews
             ?.required_approving_review_count ?? 0) as number,
