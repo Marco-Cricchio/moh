@@ -7,6 +7,20 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking**: replaced `--dangerously-bypass-permissions` with the
+  launch-only `moh --yolo` / `moh tui --yolo` / `moh run --yolo` (#377).
+  Yolo sessions run built-in tools with no permission prompts **and** no
+  filesystem containment to the project root: `read`/`glob`/`grep`/
+  `write`/`edit` may target any path — still resolved canonically
+  (realpath, symlink-aware). The old flag is removed without an alias
+  (the CLI rejects it pointing at `--yolo`). Extension vetoes still
+  apply; MCP first-use consent is unchanged; normal mode is untouched.
+  Internal renames: session mode `"bypass"` → `"yolo"`, config field
+  `bypassPermissions` → `unrestrictedTools`. The TUI shows a persistent
+  `⚠ YOLO` status indicator.
+
 ## [0.10.0] - 2026-08-31
 
 ### Added

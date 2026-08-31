@@ -226,7 +226,7 @@ describe("AgentSession permission integration", () => {
     expect(log.find((e) => e.type === "tool_result")!).toMatchObject({ ok: true });
   });
 
-  test("session_mode event appended at start; bypass only via explicit flag", async () => {
+  test("session_mode event appended at start; yolo only via explicit flag", async () => {
     const mk = (permissions: any) =>
       createSession({
         provider: MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
