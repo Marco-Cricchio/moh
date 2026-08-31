@@ -54,6 +54,7 @@ import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } fro
 import { SkillUpdatesModal } from "./SkillUpdatesModal";
 import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
+import { launchSkillSync } from "./launch-skill-sync";
 import {
   catalogEntryFor,
   endpointThinkingStatus,
@@ -166,6 +167,12 @@ export function App({
       !provider &&
       !providerConfigured(cwd, home),
   );
+  // #385: existing workflow users get newly bundled skills on launch —
+  // once per process, no-op when workflow mode is off.
+  useEffect(() => {
+    launchSkillSync({ mohHome, workflowEnabled: configRef.current.workflow.enabled });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Icon preference applies once at mount; the settings panel keeps it live.
   useEffect(() => {
     setIcons(config.icons);
