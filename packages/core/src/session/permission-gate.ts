@@ -25,8 +25,8 @@ export interface PermissionGateOptions {
 
 /**
  * The 3-tier permission gate (#90): extension veto first (veto > user
- * rules > defaults, applies even in bypass — extensions can only
- * restrict), then rule resolution, then mode handling (bypass /
+ * rules > defaults, applies even in yolo — extensions can only
+ * restrict), then rule resolution, then mode handling (yolo /
  * auto-accept / headless) and the user ask flow.
  *
  * The "always" answer's persistence decisions live here, out of the
@@ -60,7 +60,7 @@ export class PermissionGate {
     args: unknown,
   ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
     // Extension veto first (#34): veto > user rules > defaults, and it applies
-    // even in bypass mode — extensions can only restrict, never grant.
+    // even in yolo mode — extensions can only restrict, never grant.
     if (this.#extensions) {
       const veto = await this.#extensions.checkToolVeto({ callId, name: tool, args });
       for (const e of veto.errors) this.#append(e);
@@ -81,8 +81,11 @@ export class PermissionGate {
 
     // "ask" decisions.
     const mode = this.#permissions.mode;
-    if (mode === "bypass") {
-      this.#append({ type: "permission_granted", callId, tool, reason: "bypass" });
+    // #377: yolo lifts prompts for built-in tools only — MCP tools keep
+    // their explicit ask flow (server first-use consent lives in McpRuntime;
+    // the per-call default "ask on first invocation" must survive yolo too).
+    if (mode === "yolo" && !tool.startsWith("mcp__")) {
+      this.#append({ type: "permission_granted", callId, tool, reason: "yolo" });
       return { allowed: true };
     }
     if (mode === "auto-accept") {

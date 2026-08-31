@@ -388,7 +388,7 @@ export class ExtensionRuntime {
 
   /**
    * First veto wins, in registration order. Veto outranks user rules and
-   * defaults (and applies even in bypass mode): extensions only restrict.
+   * defaults (and applies even in yolo mode): extensions only restrict.
    */
   async checkToolVeto(
     call: { callId: string; name: string; args: unknown },

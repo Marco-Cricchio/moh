@@ -171,6 +171,17 @@ Flags merge on top of moh.json permission overrides — caller wins. If you
 want the structured form instead, pass `overrides.permissions.overrides`
 directly (`tools`/`bashAllow`/`pathAllow`/… lists).
 
+**Yolo sessions (#377).** `PermissionsConfig.unrestrictedTools: true`
+(launch-only, never settable from moh.json, Settings, or in-session)
+selects the `yolo` session mode: built-in tools run with no permission
+prompts **and** no filesystem containment to the project root —
+`read`/`glob`/`grep`/`write`/`edit` may target any path, still resolved
+canonically (realpath, symlink-aware; only the containment check lifts).
+Recorded as a `session_mode` event with `mode: "yolo"` and grants carry
+`reason: "yolo"`. Two things always survive: extension vetoes (principle
+4 — extensions restrict, never grant) and MCP tools' ask flow, including
+server first-use consent. Normal mode is unchanged.
+
 ### 4. Consent seams (or none)
 
 Without consent callbacks, the session is **headless fail-fast**: a tool

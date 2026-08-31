@@ -74,7 +74,7 @@ async function smokeText(label: string, provider: Provider) {
 
 /** Scenario 2: model calls the tool, core executes it, result returns, done. */
 async function smokeTool(label: string, provider: Provider) {
-  const session = createSession({ provider, tools: { echo: echoTool() }, permissions: { bypassPermissions: true } });
+  const session = createSession({ provider, tools: { echo: echoTool() }, permissions: { unrestrictedTools: true } });
   const result = await session.send("Call the echo tool with text 'ping'. Then say 'tool ok'.");
   const types = eventTypes(session);
   if (result.status !== "done") throw new Error(`${label}/tool: turn ended ${JSON.stringify(result)}`);

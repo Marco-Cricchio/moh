@@ -226,7 +226,7 @@ describe("AgentSession permission integration", () => {
     expect(log.find((e) => e.type === "tool_result")!).toMatchObject({ ok: true });
   });
 
-  test("session_mode event appended at start; bypass only via explicit flag", async () => {
+  test("session_mode event appended at start; yolo only via explicit flag", async () => {
     const mk = (permissions: any) =>
       createSession({
         provider: MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
@@ -234,19 +234,19 @@ describe("AgentSession permission integration", () => {
       });
     const s1 = mk({});
     const s2 = mk({ mode: "auto-accept" });
-    const s3 = mk({ bypassPermissions: true });
-    // mode: "bypass" without the flag is not honored
-    const s4 = mk({ mode: "bypass" as any });
+    const s3 = mk({ unrestrictedTools: true });
+    // mode: "yolo" without the flag is not honored
+    const s4 = mk({ mode: "yolo" as any });
 
     const modeOf = (s: ReturnType<typeof mk>) =>
       (s.history().find((e) => e.type === "session_mode") as any)?.mode;
     expect(modeOf(s1)).toBe("normal");
     expect(modeOf(s2)).toBe("auto-accept");
-    expect(modeOf(s3)).toBe("bypass");
+    expect(modeOf(s3)).toBe("yolo");
     expect(modeOf(s4)).toBe("normal");
   });
 
-  test("bypass mode proceeds past ask, granted with reason bypass", async () => {
+  test("yolo mode proceeds past ask, granted with reason yolo", async () => {
     const provider = MockProvider.scripted([
       { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "ls" } }] },
       { deltas: ["done"], finish: "stop" },
@@ -255,11 +255,54 @@ describe("AgentSession permission integration", () => {
       provider,
       tools: { bash: tool("bash") },
       cwd: root,
-      permissions: { bypassPermissions: true },
+      permissions: { unrestrictedTools: true },
     });
     await session.send("go");
     const granted = session.history().find((e) => e.type === "permission_granted") as any;
-    expect(granted.reason).toBe("bypass");
+    expect(granted.reason).toBe("yolo");
+  });
+
+  test("yolo does NOT auto-grant MCP tools: the ask flow survives (#377 decision 4)", async () => {
+    const provider = MockProvider.scripted([
+      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "mcp__srv__tool", args: {} }] },
+      { deltas: ["done"], finish: "stop" },
+    ]);
+    // Headless (no onPermissionRequest): the call must fail fast as a
+    // structured denial — not be granted with reason "yolo".
+    const session = createSession({
+      provider,
+      tools: { "mcp__srv__tool": tool("mcp__srv__tool") },
+      cwd: root,
+      permissions: { unrestrictedTools: true },
+    });
+    await session.send("go");
+    const events = session.history();
+    expect(events.find((e) => e.type === "permission_granted")).toBeUndefined();
+    expect(events.find((e) => e.type === "permission_denied")).toMatchObject({
+      tool: "mcp__srv__tool",
+      reason: "headless",
+    });
+    // Interactive: the consent seam is consulted, not skipped.
+    const asked: string[] = [];
+    const session2 = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "mcp__srv__tool", args: {} }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { "mcp__srv__tool": tool("mcp__srv__tool") },
+      cwd: root,
+      permissions: { unrestrictedTools: true },
+      onPermissionRequest: (t) => {
+        asked.push(t);
+        return "no";
+      },
+    });
+    await session2.send("go");
+    expect(asked).toEqual(["mcp__srv__tool"]);
+    expect(session2.history().find((e) => e.type === "permission_denied")).toMatchObject({
+      tool: "mcp__srv__tool",
+      reason: "user",
+    });
   });
 
   test("ask flow with callback: yes grants, no denies with structured failure", async () => {

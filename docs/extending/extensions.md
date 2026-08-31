@@ -107,7 +107,7 @@ permissions. Within one turn, the ordering is:
 6. `onSessionEnd` — once, when the client disposes the session.
 
 A veto outranks user permission rules and applies even in
-bypass mode — extensions can only restrict, never widen. The denial
+yolo mode — extensions can only restrict, never widen. The denial
 produces the same denied `tool_result` the model sees for any denial, so
 the loop can react to it.
 

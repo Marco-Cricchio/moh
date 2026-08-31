@@ -297,7 +297,7 @@ describe("sessionFromConfig — user-level provider layering (#129)", () => {
       writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", maxIterations: 2 }));
       const loopTurn = { deltas: ["working "], finish: "tool_calls" as const, toolCalls: [{ name: "bash", args: { command: "true" } }] };
       const provider = MockProvider.scripted([loopTurn, loopTurn, { deltas: ["WRAPUP"], finish: "stop" as const }]);
-      const result = sessionFromConfig({ cwd, home, provider, overrides: { permissions: { bypassPermissions: true } } });
+      const result = sessionFromConfig({ cwd, home, provider, overrides: { permissions: { unrestrictedTools: true } } });
       expect("error" in result).toBe(false);
       if ("error" in result) return;
       const done = await result.session.send("go");

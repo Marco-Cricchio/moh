@@ -131,6 +131,33 @@ describe("hooks and veto", () => {
     const denial = s.history().find((e) => e.type === "permission_denied");
     expect(denial).toMatchObject({ tool: "echo", reason: "extension" });
   });
+
+  test("a veto still denies in a yolo session (#377: extensions restrict, never grant)", async () => {
+    const dir = tempDir();
+    const rt = runtime(dir);
+    await rt.register(
+      defineExtension({
+        name: "guard",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.onToolCall(() => ({ veto: true })),
+      }),
+    );
+    const s = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "echo", args: { text: "x" } }] },
+        { deltas: ["fine"], finish: "stop" },
+      ]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      permissions: { unrestrictedTools: true },
+    });
+    await s.send("go");
+    expect(s.history().find((e) => e.type === "permission_denied")).toMatchObject({
+      tool: "echo",
+      reason: "extension",
+    });
+  });
 });
 
 describe("extension_notes", () => {

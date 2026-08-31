@@ -41,7 +41,7 @@ export interface UserConfig {
   answerLanguage: AnswerLanguage;
   /** Opt-in only; never asked interactively outside the settings panel. */
   telemetry: boolean;
-  /** Permission mode for new sessions; bypass stays CLI-flag-only. */
+  /** Permission mode for new sessions; yolo stays launch-only. */
   permissionMode: DefaultPermissionMode;
   /** $EDITOR override for the permission "edit" action. */
   editor?: string;

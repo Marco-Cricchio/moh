@@ -185,6 +185,43 @@ describe("built-in tools", () => {
     expect(await tools.grep.execute({ pattern: "SECRETMARKER" }, ctx)).not.toContain("SECRETMARKER");
   });
 
+  // #377: yolo scope — canonical resolution stays, containment lifts.
+  const yoloCtx: ToolContext = { ...ctx, filesystemScope: "unrestricted" };
+
+  test("yolo: read/write/edit outside the project root succeed (#377)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-yolo-"));
+    const file = join(outside, "f.txt");
+    await tools.write.execute({ path: file, content: "yolo" }, yoloCtx);
+    expect(await tools.read.execute({ path: file }, yoloCtx)).toContain("yolo");
+    await tools.edit.execute({ path: file, oldText: "yolo", newText: "yolo2" }, yoloCtx);
+    expect(readFileSync(file, "utf8")).toBe("yolo2");
+    // project scope is unchanged for the same paths.
+    await expect(tools.read.execute({ path: file }, ctx)).rejects.toThrow(/outside project root/);
+  });
+
+  test("yolo: grep targets an outside directory (#377)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-yolo-grep-"));
+    writeFileSync(join(outside, "s.txt"), "YOLOMARKER");
+    expect(await tools.grep.execute({ pattern: "YOLOMARKER", path: outside }, yoloCtx)).toContain("YOLOMARKER");
+    await expect(tools.grep.execute({ pattern: "YOLOMARKER", path: outside }, ctx)).rejects.toThrow(/outside project root/);
+  });
+
+  test("yolo: glob enumerates an outside directory via absolute pattern (#377)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-yolo-glob-"));
+    writeFileSync(join(outside, "findme.txt"), "x");
+    const out = await tools.glob.execute({ pattern: join(outside, "*.txt") }, yoloCtx);
+    expect(out).toContain("findme.txt");
+    await expect(tools.glob.execute({ pattern: join(outside, "*.txt") }, ctx)).rejects.toThrow(/escapes the project root/);
+  });
+
+  test("yolo: paths are still resolved canonically — a lexical in-root path that traverses an outside symlink resolves to the target (#377)", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "moh-yolo-link-"));
+    writeFileSync(join(outside, "target.txt"), "CANONICAL");
+    const link = join(cwd, "yolo-link");
+    try { symlinkSync(outside, link); } catch { return; } // no symlink permission → skip
+    expect(await tools.read.execute({ path: "yolo-link/target.txt" }, yoloCtx)).toContain("CANONICAL");
+  });
+
   test("todo stores and returns the task list", async () => {
     const todos = [{ content: "first", status: "pending" as const }, { content: "second", status: "in_progress" as const }];
     const out = await tools.todo.execute({ todos }, ctx);

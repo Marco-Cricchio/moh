@@ -27,6 +27,7 @@ function harness(opts: {
     parallel: () => opts.parallel ?? true,
     cwd: "/w",
     skillDirs: () => ["/skills"],
+    filesystemScope: () => "project",
     turn: () => 1,
     ...(opts.askUser ? { onAskUser: (async () => ({ kind: "answer", text: "y" })) as never } : {}),
     append: (e) => events.push(e),

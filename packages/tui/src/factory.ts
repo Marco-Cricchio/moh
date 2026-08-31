@@ -40,8 +40,12 @@ export interface OpenSessionOptions {
   onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
   /** Interactive question channel for the ask_user tool (#70). */
   onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
-  /** Default permission mode for new sessions (user config; bypass stays CLI-only). */
+  /** Default permission mode for new sessions (user config; yolo stays launch-only). */
   permissionMode?: "normal" | "auto-accept";
+  /** #377: yolo session (launch-only `--yolo`): no permission prompts and
+   * unrestricted filesystem for built-in tools. Never persisted, never
+   * settable from Settings. */
+  yolo?: boolean;
   /** Tool registry override (tests). Default: built-ins (+ tracker tools in workflow mode). */
   tools?: Record<string, Tool>;
   /** Workflow mode (#36): includes first-party skills and tracker tools. */
@@ -81,7 +85,9 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
       // Workflow mode (#36): first-party skills join the index; off filters
       // them out so base behavior stays untouched.
       firstParty: options.workflow ? "include" : "exclude",
-      ...(options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
+      ...(options.yolo
+        ? { permissions: { ...options.permissionMode ? { mode: options.permissionMode } : {}, unrestrictedTools: true } }
+        : options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
       ...(options.store ? { store: options.store } : {}),
       ...(options.resumeEvents ? { resumeEvents: options.resumeEvents } : {}),
     },

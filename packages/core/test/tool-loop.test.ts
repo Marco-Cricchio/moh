@@ -40,7 +40,7 @@ describe("tool-calling loop", () => {
     const session = createSession({
       provider: recorder.wrapped,
       tools: { echo: echoTool() },
-      permissions: { bypassPermissions: true },
+      permissions: { unrestrictedTools: true },
     });
 
     const result = await session.send("use the tool");
@@ -102,7 +102,7 @@ describe("tool-calling loop", () => {
       },
       { deltas: ["ok"], finish: "stop" },
     ]);
-    const session = createSession({ provider, tools: { slow, fast }, permissions: { bypassPermissions: true } });
+    const session = createSession({ provider, tools: { slow, fast }, permissions: { unrestrictedTools: true } });
 
     const result = await session.send("run both");
     expect(result.status).toBe("done");
@@ -148,7 +148,7 @@ describe("tool-calling loop", () => {
       { deltas: ["recovered"], finish: "stop" },
     ]);
     const recorder = recording(provider);
-    const session = createSession({ provider: recorder.wrapped, tools: { boom }, permissions: { bypassPermissions: true } });
+    const session = createSession({ provider: recorder.wrapped, tools: { boom }, permissions: { unrestrictedTools: true } });
 
     const result = await session.send("fail once");
     expect(result.status).toBe("done");

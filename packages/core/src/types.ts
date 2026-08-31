@@ -13,7 +13,7 @@ export const SCHEMA_VERSION = 1;
 export const CANCELLED_TOOL_OUTPUT = "turn cancelled before the tool returned";
 
 import { z } from "zod";
-import type { PermissionRule } from "./permissions";
+import type { FilesystemScope, PermissionRule } from "./permissions";
 
 export type TextPart = { kind: "text"; text: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
@@ -186,7 +186,7 @@ export type AgentEvent =
   | { type: "permission_rule_added"; rule: PermissionRule }
   /** Resume chrome: runtime allow rules reconstructed from this log. */
   | { type: "permission_rules_restored"; rules: string[] }
-  | { type: "session_mode"; mode: "normal" | "auto-accept" | "bypass" }
+  | { type: "session_mode"; mode: "normal" | "auto-accept" | "yolo" }
   /** ADR-0011: a turn-scoped skill prompt was attached to this turn's
    * send. Chrome — appended just before the turn's user_message; replay
    * ignores it (the skill body lived in the system prompt, not the log). */
@@ -237,7 +237,7 @@ export type AgentEvent =
     };
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
-export type PermissionGrantReason = "bypass" | "auto_accept" | "user";
+export type PermissionGrantReason = "yolo" | "auto_accept" | "user";
 
 export type TurnStatus = "done" | "error" | "cancelled";
 
@@ -266,6 +266,11 @@ export interface ToolContext {
   onProgress: (chunk: string) => void;
   /** Skill directories (#30): read-only roots outside cwd the read tool may access. */
   skillDirs?: readonly string[];
+  /** #377: filesystem reach of built-in path tools. "unrestricted" (yolo
+   * sessions) lifts the project-root containment — paths are still
+   * resolved canonically (realpath, symlink-aware); only the final
+   * containment check is skipped. */
+  filesystemScope?: FilesystemScope;
   /** 1-based live-run turn sequence — lets tools scope caches per turn
    * (e.g. the read ledger's re-read nudge, #196). */
   turn?: number;

@@ -55,6 +55,8 @@ export interface ChatProps {
   updateMessage?: string;
   /** Git branch label override (tests); default: read from the session cwd. */
   branch?: string | null;
+  /** #377: yolo session (launch-only) — persistent ⚠ YOLO status indicator. */
+  yolo?: boolean;
   submitSignal?: number;
   /** Unsent external composer draft. */
   prefill?: string;
@@ -102,6 +104,7 @@ export function Chat({
   replaySettled = false,
   bufferFlipPending = false,
   branch,
+  yolo = false,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
@@ -448,6 +451,7 @@ export function Chat({
         updateMessage={updateMessage}
         branch={branch ?? gitBranch}
         cwd={cwd}
+        yolo={yolo}
         focusedChip={focusedChip}
       />
     </Box>

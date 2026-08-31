@@ -214,7 +214,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "permission_granted":
         // Auto-accept grants are ambient mode, not news: one block per tool
         // call only adds noise (#215). Explicit grants still show.
-        if (event.reason === "auto_accept" || event.reason === "bypass") break;
+        if (event.reason === "auto_accept" || event.reason === "yolo") break;
         blocks.push({ key, kind: "tool", glyph: "✓", type: "permission", detail: `${event.tool} · allowed (${event.reason})`, lines: [], state: "ok" });
         break;
       case "permission_denied":

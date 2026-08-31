@@ -72,6 +72,9 @@ interface StatusProps {
   memoryFresh?: boolean;
   phase?: string;
   notice?: string;
+  /** #377: yolo session (launch-only `--yolo`) — persistent unmissable
+   * warning indicator; leads row 2 and elides only after the update notice. */
+  yolo?: boolean;
   /** Current git branch, when the cwd is a repository (both modes). */
   branch?: string | null;
   /** Session working directory: shown in both modes, middle-elided when it
@@ -167,6 +170,15 @@ function StatusRow(props: StatusProps) {
       ? props.updateMessage
       : `${props.updateMessage.slice(0, noticeBudget - 1)}…`
     : null;
+  // #377: the yolo banner is always live — it takes the notice slot
+  // (eliding to the short form, never dropping) when both compete for the
+  // same budget; the right tail is never displaced.
+  const yoloBudget = props.width - 4 - row2Text.length - 1;
+  const yoloText = props.yolo
+    ? yoloBudget >= "⚠ YOLO — unrestricted tools".length
+      ? "⚠ YOLO — unrestricted tools"
+      : yoloBudget >= "⚠ YOLO".length ? "⚠ YOLO" : null
+    : null;
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
@@ -175,7 +187,9 @@ function StatusRow(props: StatusProps) {
       </Box>
       {row2 && (
         <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-          {noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
+          {yoloText !== null && <Text color={theme.err} wrap="truncate">{yoloText}</Text>}
+          {props.yolo === true && yoloText === null && <Text color={theme.err}>⚠</Text>}
+          {yoloText === null && noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
           <Box justifyContent="flex-end" flexWrap="nowrap">
             <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
           </Box>

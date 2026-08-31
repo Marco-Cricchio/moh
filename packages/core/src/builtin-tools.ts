@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Tool } from "./types";
+import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,12 +69,13 @@ function realpathish(root: string): string {
 }
 
 /** Resolves a user-supplied path inside the session cwd; throws on escapes. */
-function inRoot(path: string, cwd: string): string {
-  return resolvedInRoot(path, cwd);
+function inRoot(path: string, cwd: string, scope: FilesystemScope | undefined = undefined): string {
+  return scope === "unrestricted" ? resolvedUnrestricted(path, cwd) : resolvedInRoot(path, cwd);
 }
 
 /** Like inRoot, but the path may fall inside any of the given roots. */
-function inAnyRoot(path: string, roots: readonly string[]): string {
+function inAnyRoot(path: string, roots: readonly string[], scope: FilesystemScope | undefined = undefined): string {
+  if (scope === "unrestricted") return resolvedUnrestricted(path, roots[0]!);
   const abs = isAbsolute(path) ? path : resolve(roots[0]!, path);
   for (const root of roots) {
     try {
@@ -85,6 +87,35 @@ function inAnyRoot(path: string, roots: readonly string[]): string {
     }
   }
   throw new Error(`path outside project root: ${path}`);
+}
+
+/**
+ * #377 (yolo): canonical resolution without the containment check. The
+ * path is realpath'd exactly like `resolvedInRoot` (SEC-03's
+ * symlink-awareness is preserved — the path is resolved, never trusted
+ * lexically); only the final under-root assertion is skipped.
+ */
+export function resolvedUnrestricted(path: string, cwd: string): string {
+  const abs = isAbsolute(path) ? path : resolve(cwd, path);
+  try {
+    return realpathSync(abs);
+  } catch {
+    // New path: resolve through the deepest existing ancestor.
+    let dir = dirname(abs);
+    const tail: string[] = [abs.slice(dir.length + 1)];
+    while (true) {
+      try {
+        dir = realpathSync(dir);
+        break;
+      } catch {
+        const parent = dirname(dir);
+        if (parent === dir) throw new Error(`cannot resolve path: ${path}`);
+        tail.unshift(dir.slice(parent.length + 1));
+        dir = parent;
+      }
+    }
+    return join(dir, ...tail);
+  }
 }
 
 const bashSchema = z.object({
@@ -418,7 +449,7 @@ const readTool = (ledger: Map<string, ServedRead>): Tool<z.infer<typeof readSche
   description: "Read a text file (optionally a line range) inside the project root or a skill directory.",
   inputSchema: readSchema,
   async execute(args, ctx) {
-    const abs = inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])]);
+    const abs = inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])], ctx.filesystemScope);
     const file = Bun.file(abs);
     if (!(await file.exists())) throw new Error(`file not found: ${args.path}`);
     const text = await file.text();
@@ -452,7 +483,7 @@ const write: Tool<z.infer<typeof writeSchema>> = {
   description: "Create or overwrite a file inside the project root.",
   inputSchema: writeSchema,
   async execute(args, ctx) {
-    const abs = inRoot(args.path, ctx.cwd);
+    const abs = inRoot(args.path, ctx.cwd, ctx.filesystemScope);
     await Bun.write(abs, args.content);
     return `wrote ${args.content.length} bytes to ${args.path}`;
   },
@@ -468,7 +499,7 @@ const edit: Tool<z.infer<typeof editSchema>> = {
   description: "Replace an exact, unique text occurrence in a file.",
   inputSchema: editSchema,
   async execute(args, ctx) {
-    const abs = inRoot(args.path, ctx.cwd);
+    const abs = inRoot(args.path, ctx.cwd, ctx.filesystemScope);
     const file = Bun.file(abs);
     if (!(await file.exists())) throw new Error(`file not found: ${args.path}`);
     const text = await file.text();
@@ -488,18 +519,29 @@ const glob: Tool<z.infer<typeof globSchema>> = {
   async execute(args, ctx) {
     // SEC-07: patterns must stay lexically inside the root — absolute
     // patterns and any `..` segment are rejected up front (Bun's glob
-    // honors `..`, which would enumerate outside the project).
-    if (isAbsolute(args.pattern.replace(/^!+/, "")) || args.pattern.split(/[/\\]/).includes("..")) {
-      throw new Error(`glob pattern escapes the project root: ${args.pattern}`);
+    // honors `..`, which would enumerate outside the project). Yolo
+    // (#377) lifts the containment: an absolute or `..`-prefixed pattern
+    // retargets the scan onto its literal leading directory instead.
+    let scanRoot = ctx.cwd;
+    let pattern = args.pattern;
+    if (ctx.filesystemScope !== "unrestricted") {
+      if (isAbsolute(pattern.replace(/^!+/, "")) || pattern.split(/[/\\]/).includes("..")) {
+        throw new Error(`glob pattern escapes the project root: ${args.pattern}`);
+      }
+    } else {
+      const retarget = globRetarget(pattern, ctx.cwd);
+      scanRoot = retarget.root;
+      pattern = retarget.pattern;
     }
-    const globber = new Bun.Glob(args.pattern);
+    const globber = new Bun.Glob(pattern);
     const matches: string[] = [];
-    // Defense in depth: results are re-checked for containment (resolved
-    // through the SEC-03 helper) so a matched symlink target outside the
-    // root never leaks an outside listing.
-    for await (const path of globber.scan({ cwd: ctx.cwd, onlyFiles: true })) {
+    // Defense in depth: results are re-resolved canonically (SEC-03) so a
+    // matched symlink target outside the root never leaks an outside
+    // listing in project scope; in yolo the resolution stays canonical
+    // but is not filtered.
+    for await (const path of globber.scan({ cwd: scanRoot, onlyFiles: true })) {
       try {
-        resolvedInRoot(path, ctx.cwd);
+        inRoot(path, scanRoot, ctx.filesystemScope);
       } catch {
         continue;
       }
@@ -508,6 +550,31 @@ const glob: Tool<z.infer<typeof globSchema>> = {
     return truncate(matches.sort().join("\n"));
   },
 };
+
+/**
+ * #377 (yolo): split a possibly out-of-root glob pattern into a literal
+ * leading directory (resolved canonically) and the remaining glob
+ * sub-pattern. Absolute patterns retarget from the filesystem root,
+ * relative ones from the session cwd; leading `..` segments resolve.
+ */
+function globRetarget(pattern: string, cwd: string): { root: string; pattern: string } {
+  const raw = pattern.replace(/^!+/, "");
+  const parts = raw.split(/[/\\]+/).filter((s) => s.length > 0);
+  const literal: string[] = [];
+  let i = 0;
+  if (isAbsolute(raw)) {
+    literal.push("/");
+    while (i < parts.length && !/[*?[{]/.test(parts[i]!)) { literal.push(parts[i]!); i++; }
+  } else {
+    while (i < parts.length && (parts[i] === ".." || parts[i] === "." || !/[*?[{]/.test(parts[i]!))) {
+      if (parts[i] !== ".") literal.push(parts[i]!);
+      i++;
+    }
+  }
+  const root = resolvedUnrestricted(literal.join("/") || ".", isAbsolute(raw) ? "/" : cwd);
+  const rest = parts.slice(i);
+  return { root, pattern: rest.length ? rest.join("/") : "*" };
+}
 
 const grepSchema = z.object({
   pattern: z.string().min(1),
@@ -518,7 +585,7 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
   description: "Search file contents with a regular expression (case-sensitive).",
   inputSchema: grepSchema,
   async execute(args, ctx) {
-    const root = args.path ? inRoot(args.path, ctx.cwd) : ctx.cwd;
+    const root = args.path ? inRoot(args.path, ctx.cwd, ctx.filesystemScope) : ctx.cwd;
     const re = new RegExp(args.pattern);
     const out: string[] = [];
     const globber = new Bun.Glob("**/*");
@@ -526,8 +593,9 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
       let abs: string;
       try {
         // SEC-03: grep is a read primitive too — never follow an in-root
-        // symlink to content outside its selected root.
-        abs = resolvedInRoot(rel, root);
+        // symlink to content outside its selected root (#377: in yolo the
+        // resolution stays canonical, the containment filter drops).
+        abs = inRoot(rel, root, ctx.filesystemScope);
       } catch {
         continue;
       }

@@ -176,3 +176,39 @@ describe("status row 2 update notice (#328)", () => {
     }
   });
 });
+
+describe("yolo indicator (#377)", () => {
+  const base = { width: 120, pending: false, spinner: "⠸", model: "mock", turns: 0, tokens: { contextIn: 0, totalOut: 0, calls: 0 }, level: "default" as const, focusedChip: null };
+  const renderBar = (props: Record<string, unknown>) => {
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar {...base} {...(props as any)} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    ink.unmount();
+    return frame;
+  };
+
+  test("⚠ YOLO leads row 2 when the session is yolo; absent otherwise", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true });
+    const row2 = frame.split("\n").find((l) => l.includes("▣"))!;
+    expect(row2).toContain("⚠ YOLO — unrestricted tools");
+    expect(row2.indexOf("⚠")).toBeLessThan(row2.indexOf("▣"));
+    const plain = renderBar({ mode: "dev", cwd: "/x", branch: "develop" });
+    expect(plain).not.toContain("YOLO");
+  });
+
+  test("yolo indicator wins the notice slot and never displaces the tail", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true, updateMessage: "moh update available" });
+    const row2 = frame.split("\n").find((l) => l.includes("⎇ develop"))!;
+    expect(row2).toContain("⚠ YOLO");
+    expect(row2).toContain("◉ dev");
+    expect(row2).not.toContain("moh update");
+  });
+
+  test("short form at narrow widths; rows stay within the viewport", () => {
+    const frame = renderBar({ width: 46, mode: "dev", cwd: "/long/path/to/project", branch: "develop", yolo: true });
+    const row2 = frame.split("\n").find((l) => l.includes("⎇"))!;
+    // the indicator never drops below the bare ⚠ marker.
+    expect(row2).toContain("⚠");
+    expect(row2).toContain("◉ dev");
+    for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(45);
+  });
+});
