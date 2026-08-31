@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-31
+
 ### Added
 +
 - `/skills update` now opens a TUI modal with selectable, scrollable upstream skill diffs and explicit Apply or Not now actions; applying still revalidates locally modified copies before writing (#372).
@@ -261,7 +263,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.9.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...develop
+[0.9.1]: https://github.com/Marco-Cricchio/moh/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Marco-Cricchio/moh/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Marco-Cricchio/moh/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/Marco-Cricchio/moh/compare/v0.7.1...v0.7.2
