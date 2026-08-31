@@ -27,7 +27,11 @@ lives in the headless core; every client is thin.**
 - **Workflow mode** (`/workflow on|off`): bundles faithful ports of the Matt
   Pocock skill set (wayfinder, grilling, to-spec, to-tickets, tdd, code-review,
   …) as user-owned first-party skills with an upstream update channel, plus
-  the `ask_user` tool for accompanied questions with recommended answers.
+  the `ask_user` tool for accompanied questions with recommended answers —
+  and `gh-manager` for declarative GitHub repository management
+  (`repos.yaml` → plan → consent-gated apply), ported from
+  [gh-manager](https://github.com/ddlaws0n/gh-manager) by David Lawson
+  ([@ddlaws0n](https://github.com/ddlaws0n)) under its MIT license.
 - **Skills, subagents, memory, MCP.** Progressive-disclosure skills, in-process
   subagents with strict tool inheritance, cross-session per-project memory
   consolidated by a maintenance subagent, lazy MCP servers.
@@ -124,9 +128,13 @@ Pocock or the authors of Pi. It was created drawing inspiration from:
 - the **architectural principles of pi** (Mario Zechner's
   coding agent harness) — headless core, thin clients,
   skills and progressive disclosure, subagents; and
-- **Matt Pocock's agent workflow** — the wayfinder/grilling/to-spec/to-tickets
+- the **Matt Pocock's agent workflow** — the wayfinder/grilling/to-spec/to-tickets
   cycle, ported as first-party skills under the terms of the upstream MIT
-  license (see `packages/core/assets/skills/NOTICE.md`).
+  license (see `packages/core/assets/skills/NOTICE.md`); and
+- **David Lawson's gh-manager** ([@ddlaws0n](https://github.com/ddlaws0n),
+  https://github.com/ddlaws0n/gh-manager) — whose declarative
+  `init → plan → apply` repository-management approach is ported as the
+  first-party `gh-manager` skill under the terms of its MIT license.
 
 ## License
 
