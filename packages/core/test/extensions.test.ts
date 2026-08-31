@@ -6,7 +6,7 @@
  * dependency authorization.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
@@ -243,6 +243,7 @@ describe("consent and dependencies", () => {
     const rt3 = new ExtensionRuntime({ mohHome: dir, consent: () => false });
     expect(await rt3.register(def)).toBe(true);
     expect(asked).toEqual(["c", "c"]);
+    expect(statSync(join(dir, "extensions.json")).mode & 0o777).toBe(0o600);
   });
 
   test("npm dep list change re-asks authorization; approved list remembered per extension", async () => {

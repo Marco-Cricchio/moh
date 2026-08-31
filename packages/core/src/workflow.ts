@@ -159,11 +159,11 @@ export function validateSkillEntry(name: string, files: Record<string, string>):
  */
 function writeSkillFiles(mohHome: string, name: string, files: Record<string, string>): void {
   const dir = resolve(mohHome, "skills", name);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   for (const [path, content] of Object.entries(files)) {
     const target = resolve(dir, path);
     if (dirname(target) !== dir) throw new Error(`skill file "${path}" escapes the skills directory`);
-    writeFileSync(target, content);
+    writeFileSync(target, content, { mode: 0o600 });
   }
 }
 
@@ -204,8 +204,8 @@ export function loadFirstPartyManifest(mohHome: string): FirstPartyManifest {
 }
 
 function saveFirstPartyManifest(mohHome: string, manifest: FirstPartyManifest): void {  const file = join(mohHome, "skills", FIRST_PARTY_MANIFEST);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 }
 
 /** Loose semver compare: returns true when `need <= have`. */

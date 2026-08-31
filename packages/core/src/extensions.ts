@@ -352,8 +352,8 @@ export class ExtensionRuntime {
 
   #writeStore(store: ExtensionStore): void {
     const file = this.#storeFile();
-    mkdirSync(this.#mohHome, { recursive: true });
-    writeFileSync(file, JSON.stringify(store, null, 2));
+    mkdirSync(this.#mohHome, { recursive: true, mode: 0o700 });
+    writeFileSync(file, JSON.stringify(store, null, 2), { mode: 0o600 });
   }
 
   // ---- Hook dispatch (used by AgentSession) ----

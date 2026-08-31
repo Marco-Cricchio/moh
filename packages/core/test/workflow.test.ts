@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,6 +45,10 @@ describe("first-party skill install", () => {
     expect(existsSync(join(home, "skills", "plan", "SKILL.md"))).toBe(true);
     const manifest = JSON.parse(readFileSync(join(home, "skills", FIRST_PARTY_MANIFEST), "utf8"));
     expect(Object.keys(manifest.skills).sort()).toEqual(["plan", "review"]);
+    expect(statSync(join(home, "skills")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, "skills", "plan")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, "skills", "plan", "SKILL.md")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(home, "skills", FIRST_PARTY_MANIFEST)).mode & 0o777).toBe(0o600);
   });
 
   test("second run is unchanged", () => {

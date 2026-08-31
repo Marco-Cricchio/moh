@@ -10,7 +10,7 @@
  * and fails with total silence — an update check must never degrade or
  * delay startup.
  */
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /** GitHub endpoint for the newest stable release (no identifiers sent). */
@@ -116,9 +116,11 @@ export function writeUpdateCache(mohHome: string, latestVersion: string, io: Upd
   try {
     if (io.write) io.write(file, data);
     else {
-      mkdirSync(dirname(file), { recursive: true });
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.tmp-${process.pid}`;
-      writeFileSync(tmp, data);
+      // An atomic replacement must not silently tighten an existing file.
+      const mode = existsSync(file) ? statSync(file).mode & 0o777 : 0o600;
+      writeFileSync(tmp, data, { mode });
       renameSync(tmp, file);
     }
   } catch {

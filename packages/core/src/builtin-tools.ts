@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Tool } from "./types";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
-import { mkdirSync, writeFileSync, realpathSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 /**
@@ -196,7 +196,44 @@ interface RecordedRun {
   /** `rev-parse HEAD` + `status --porcelain` at record time. */
   gitState: string;
 }
-type RunLedger = Map<string, RecordedRun>;
+interface RunLedger {
+  readonly runs: Map<string, RecordedRun>;
+  /** Lazily created per session, so sessions without long runs leave no trace. */
+  outputDir?: string;
+  readonly root: string;
+}
+
+/** Remove abandoned per-session ledgers after their reuse window expires. */
+function pruneRunLedgers(root: string, now = Date.now()): void {
+  try {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith("bash-")) continue;
+      const dir = join(root, entry.name);
+      if (now - statSync(dir).mtimeMs > RERUN_WINDOW_MS) rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {
+    // Ledger capture and its cleanup are deliberately best-effort.
+  }
+}
+
+function ledgerOutputDir(ledger: RunLedger): string {
+  if (ledger.outputDir) return ledger.outputDir;
+  mkdirSync(ledger.root, { recursive: true, mode: 0o700 });
+  pruneRunLedgers(ledger.root);
+  const dir = mkdtempSync(join(ledger.root, "bash-"));
+  // mkdtemp is normally 0700, but make the promise explicit across runtimes.
+  chmodSync(dir, 0o700);
+  ledger.outputDir = dir;
+  return dir;
+}
+
+function createRunLedger(root?: string): RunLedger {
+  // Direct builtinTools() callers retain a secure mkdtemp-based fallback;
+  // normal session builders supply ~/.moh so captures follow moh-home policy.
+  const ledgerRoot = root ?? tmpdir();
+  pruneRunLedgers(ledgerRoot);
+  return { runs: new Map(), root: ledgerRoot };
+}
 
 /** Best-effort git snapshot; null when not a repo or git fails → never intercept. */
 function gitSnapshot(cwd: string): string | null {
@@ -228,7 +265,7 @@ const bashTool = (ledger: RunLedger): Tool<z.infer<typeof bashSchema>> => ({
     // #304 interception: only identical, suite-like commands on an
     // unchanged git tree, within the window, never after #fresh. Missing
     // ledger info (no git, different duration) → run for real.
-    const recorded = ledger.get(normalized);
+    const recorded = ledger.runs.get(normalized);
     if (
       !fresh &&
       recorded &&
@@ -319,13 +356,12 @@ const bashTool = (ledger: RunLedger): Tool<z.infer<typeof bashSchema>> => ({
     let pointer = "";
     if (durationMs >= RERUN_MIN_MS && isSuiteLike(rawCommand)) {
       try {
-        const dir = join(tmpdir(), `moh-bash-${process.pid}`);
-        mkdirSync(dir, { recursive: true });
-        const file = join(dir, `run-${started}.log`);
-        writeFileSync(file, `$ ${rawCommand}\n\n${output}\n`);
+        const dir = ledgerOutputDir(ledger);
+        const file = join(dir, `run-${started}-${Math.random().toString(36).slice(2)}.log`);
+        writeFileSync(file, `$ ${rawCommand}\n\n${output}\n`, { mode: 0o600 });
         const gitState = gitSnapshot(ctx.cwd);
         if (gitState !== null) {
-          ledger.set(normalized, { command: normalized, durationMs, file, at: started, gitState });
+          ledger.runs.set(normalized, { command: normalized, durationMs, file, at: started, gitState });
         }
         pointer = `\n[full output saved: ${file}]`;
       } catch {
@@ -688,11 +724,16 @@ function joinSafe(root: string, rel: string): string {
   return `${root}/${rel.split("\\").join("/")}`;
 }
 
-export function builtinTools(): Record<string, Tool> {
+export interface BuiltinToolsOptions {
+  /** Root for secure, per-session bash capture directories. */
+  ledgerRoot?: string;
+}
+
+export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, Tool> {
   // Per-session ledgers: the read tool's re-read nudge (#196) and the bash
   // tool's re-run interception (#304) share this session scope only.
   const readLedger = new Map<string, ServedRead>();
-  const runLedger: RunLedger = new Map();
+  const runLedger = createRunLedger(options.ledgerRoot);
   const all = [bashTool(runLedger), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));
 }

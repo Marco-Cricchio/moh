@@ -26,6 +26,25 @@ describe("session store", () => {
     expect(statSync(store.file).size).toBe(0);
   });
 
+  test("fresh moh-home session artifacts are owner-only without changing the injected home", () => {
+    const home = tempHome();
+    const homeMode = statSync(home).mode & 0o777;
+    const store = SessionStore.create(mkdtempSync(join(tmpdir(), "moh-proj-")), home);
+    for (const path of [join(home, ".moh"), join(home, ".moh", "projects"), join(home, ".moh", "projects", basename(join(store.file, "..")))]) {
+      expect(statSync(path).mode & 0o777).toBe(0o700);
+    }
+    expect(statSync(store.file).mode & 0o777).toBe(0o600);
+    expect(statSync(home).mode & 0o777).toBe(homeMode);
+  });
+
+  test("does not retroactively chmod existing moh-home directories", () => {
+    const home = tempHome();
+    const mohHome = join(home, ".moh");
+    mkdirSync(mohHome, { mode: 0o755 });
+    SessionStore.create(mkdtempSync(join(tmpdir(), "moh-proj-")), home);
+    expect(statSync(mohHome).mode & 0o777).toBe(0o755);
+  });
+
   test("same-named project dirs get distinct slugs; same cwd gets the same slug", () => {
     const home = tempHome();
     const a = mkdtempSync(join(tmpdir(), "moh-same-"));

@@ -5,7 +5,7 @@
  * fail-silent, injected as a system-prompt section, disabled by config.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { AgentSession, MockProvider } from "../src/index";
 import {
@@ -47,6 +47,9 @@ describe("MemoryStore", () => {
     const index = s.readIndex();
     expect(index.topics["Testing"]?.entries).toBe(1);
     expect(s.topics()).toEqual(["Testing"]);
+    expect(statSync(s.dir).mode & 0o777).toBe(0o700);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(statSync(s.indexFile).mode & 0o777).toBe(0o600);
   });
 
   test("topic files are append-only: bytes only ever grow", async () => {

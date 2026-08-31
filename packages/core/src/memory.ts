@@ -173,7 +173,7 @@ export class MemoryStore {
   async append(entries: ReadonlyArray<MemoryEntry>, sessionId: string, now = new Date()): Promise<void> {
     if (entries.length === 0) return;
     await this.#withLock(() => {
-      mkdirSync(this.dir, { recursive: true });
+      mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       const index = this.readIndex();
       const byTopic = new Map<string, string[]>();
       for (const entry of entries) {
@@ -185,7 +185,7 @@ export class MemoryStore {
         byTopic.set(topic, list);
       }
       for (const [topic, lines] of byTopic) {
-        appendFileSync(this.topicFile(topic), lines.join("\n") + "\n");
+        appendFileSync(this.topicFile(topic), lines.join("\n") + "\n", { mode: 0o600 });
         const existing = index.topics[topic];
         index.topics[topic] = {
           file: topicFileName(topic),
@@ -287,7 +287,7 @@ export class MemoryStore {
         totalDropped += dropped;
         if (dropped === 0) continue;
         const note = `<!-- consolidated ${now.toISOString()} by ${sessionId}: duplicates dropped -->`;
-        writeFileSync(this.topicFile(topic), `${note}\n${finalLines.join("\n")}\n`);
+        writeFileSync(this.topicFile(topic), `${note}\n${finalLines.join("\n")}\n`, { mode: 0o600 });
         index.topics[topic] = { ...meta, entries: finalLines.length, updated: now.toISOString() };
       }
       this.#writeIndex(index);
@@ -297,7 +297,11 @@ export class MemoryStore {
 
   #writeIndex(index: MemoryIndex): void {
     const tmp = join(this.dir, `index.json.${process.pid}.tmp`);
-    writeFileSync(tmp, `${JSON.stringify(index, null, 2)}\n`);
+    // Replacing an existing index must retain its user-owned mode; a fresh
+    // index is owner-only from birth.
+    let mode = 0o600;
+    try { mode = statSync(this.indexFile).mode & 0o777; } catch { /* new file */ }
+    writeFileSync(tmp, `${JSON.stringify(index, null, 2)}\n`, { mode });
     renameSync(tmp, this.indexFile);
   }
 
@@ -315,7 +319,7 @@ export class MemoryStore {
   }
 
   async #acquireLock(): Promise<void> {
-    mkdirSync(this.dir, { recursive: true });
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
     for (;;) {
       if (existsSync(this.#lockFile)) {
@@ -326,7 +330,7 @@ export class MemoryStore {
         }
       } else {
         try {
-          closeSync(openSync(this.#lockFile, "wx"));
+          closeSync(openSync(this.#lockFile, "wx", 0o600));
           return;
         } catch {
           // someone else got it
