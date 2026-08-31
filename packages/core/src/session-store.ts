@@ -175,7 +175,10 @@ function readWholeFile(file: string): string {
  * Mirrors what AgentSession accumulates in memory: user messages as-is,
  * consecutive assistant deltas grouped into one message per turn, tool
  * calls attached to the current assistant message, and settled tool
- * results folded into a following user message.
+ * results folded into a following user message. Tool protocol invariants
+ * are repaired in-memory only: unanswered tool_calls get a synthetic
+ * failed tool_result (#237), and tool_results whose assistant call was
+ * discarded never reach the provider (#371).
  */
 export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   const messages: Message[] = [];
@@ -226,7 +229,14 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   // #240: completed reasoning blocks of the calls whose deltas follow —
   // attached to the assistant message built from those deltas.
   const reasoningParts: Message["parts"] = [];
+  // Call ids whose assistant tool_call was discarded by a failed/
+  // cancelled/fallback path — their (possibly already settled) results
+  // must never reach the provider conversation (#371).
+  const droppedCalls = new Set<string>();
   const discardAssistant = () => {
+    for (const c of toolCalls) {
+      if (c.kind === "tool_call") droppedCalls.add(c.callId);
+    }
     text = "";
     toolCalls.length = 0;
     reasoningParts.length = 0;
@@ -246,7 +256,12 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         ? [{ kind: "tool_result" as const, callId: c.callId, ok: false, output: CANCELLED_TOOL_OUTPUT }]
         : [],
     );
-    const all = [...results, ...orphans];
+    const all = [
+      // #371: results of discarded calls never reach the provider — they
+      // would be orphan tool outputs with no matching assistant tool_call.
+      ...results.filter((r) => !(r.kind === "tool_result" && droppedCalls.has(r.callId))),
+      ...orphans,
+    ];
     results.length = 0;
     if (all.length === 0) return;
     flushAssistant();

@@ -211,6 +211,61 @@ describe("session store", () => {
     expect(follow.parts[0]).toMatchObject({ kind: "tool_result", callId: "c9", ok: false });
   });
 
+  test("replayMessages() never emits an orphan tool_result after a discarded assistant message #371", () => {
+    // Completed tool call, then the following model call fails and the
+    // turn is cancelled: the tool_result must not survive the discard of
+    // its assistant tool_call, or every later OpenAI-wire request fails
+    // with "No tool call found for function call output".
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
+      { type: "user_message", text: "run" },
+      { type: "assistant_delta", text: "starting" },
+      { type: "tool_call", callId: "c1", name: "bash", args: { command: "ls" } },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "tool_result", callId: "c1", ok: true, output: "file.txt" },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 }, failed: true },
+      { type: "cancelled" },
+      { type: "user_message", text: "continue" },
+      { type: "assistant_delta", text: "ok" },
+      { type: "done" },
+    ];
+    const messages = replayMessages(events);
+    const callIds = new Set(
+      messages.flatMap((m) => m.parts.flatMap((p) => (p.kind === "tool_call" ? [p.callId] : []))),
+    );
+    const orphans = messages.flatMap((m) =>
+      m.parts.flatMap((p) => (p.kind === "tool_result" && !callIds.has(p.callId) ? [p.callId] : [])),
+    );
+    expect(orphans).toEqual([]);
+    expect(messages).toEqual([
+      { role: "user", parts: [{ kind: "text", text: "run" }] },
+      { role: "user", parts: [{ kind: "text", text: "continue" }] },
+      { role: "assistant", parts: [{ kind: "text", text: "ok" }] },
+    ]);
+  });
+
+  test("replayMessages() drops a completed tool pair when a fallback discards the call #371", () => {
+    // Same invariant through the fallback path: the failed stop's
+    // assistant message (carrying the tool_call) is discarded, so its
+    // already-settled tool_result must not leak into the conversation.
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
+      { type: "user_message", text: "run" },
+      { type: "assistant_delta", text: "starting" },
+      { type: "tool_call", callId: "c1", name: "bash", args: { command: "ls" } },
+      { type: "tool_result", callId: "c1", ok: true, output: "file.txt" },
+      { type: "fallback", from: "glm-5.3", to: "gpt-5.6-terra", reason: "rate_limited" },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 }, failed: true },
+      { type: "assistant_delta", text: "resumed" },
+      { type: "done" },
+    ];
+    const messages = replayMessages(events);
+    expect(messages).toEqual([
+      { role: "user", parts: [{ kind: "text", text: "run" }] },
+      { role: "assistant", parts: [{ kind: "text", text: "resumed" }] },
+    ]);
+  });
+
   test("replayMessages() rebuilds the provider-facing conversation from the log", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
