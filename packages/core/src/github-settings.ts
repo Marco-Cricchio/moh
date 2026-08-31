@@ -254,7 +254,7 @@ export async function readLiveRepo(
   const repo = await api(`repos/${name}`);
   const [labels, protection] = await Promise.all([
     api(`repos/${name}/labels?per_page=100`).catch(() => [] as any[]),
-    api(`repos/${name}/branches/main/protection`).catch(() => null),
+    api(`repos/${name}/branches/${encodeURIComponent(branch)}/protection`).catch(() => null),
   ]);
   return {
     name,

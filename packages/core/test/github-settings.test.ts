@@ -261,6 +261,22 @@ describe("readLiveRepo", () => {
     expect((await readLiveRepo("a/b", "main", run)).branchProtection).toBeNull();
   });
 
+  test("reads the protection of the requested branch, not just main", async () => {
+    const seen: string[] = [];
+    const run = fakeRunner((path) => {
+      seen.push(path);
+      if (path === "repos/a/b") return { code: 0, stdout: JSON.stringify({}) };
+      if (path.startsWith("repos/a/b/labels")) return { code: 0, stdout: JSON.stringify([]) };
+      if (path.endsWith("branches/release/protection")) {
+        return { code: 0, stdout: JSON.stringify({ required_status_checks: { contexts: ["ci"] } }) };
+      }
+      return { code: 1, stdout: "", stderr: "" };
+    });
+    const repo = await readLiveRepo("a/b", "release", run);
+    expect(seen.some((p) => p.includes("branches/release/protection"))).toBe(true);
+    expect(repo.branchProtection?.branch).toBe("release");
+  });
+
   test("repo fetch failure surfaces as GithubSettingsError", async () => {
     const run = fakeRunner(() => ({ code: 1, stdout: "", stderr: "gh not authed" }));
     await expect(readLiveRepo("a/b", "main", run)).rejects.toThrow("gh not authed");
