@@ -7,6 +7,15 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-08-31
+
+### Fixed
+
+- YOLO sessions (`moh --yolo`) show the update-available notice again:
+  the ⚠ YOLO status banner no longer occupies row 2's notice slot
+  exclusively — the notice renders beside it, elided to the remaining
+  budget (#377, #393).
+
 ## [0.11.1] - 2026-08-31
 
 ### Fixed
@@ -312,7 +321,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.11.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.11.2...develop
+[0.11.2]: https://github.com/Marco-Cricchio/moh/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/Marco-Cricchio/moh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/Marco-Cricchio/moh/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Marco-Cricchio/moh/compare/v0.9.1...v0.10.0
