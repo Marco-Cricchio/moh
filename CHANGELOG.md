@@ -9,6 +9,10 @@ matching section here at tag time.
 
 ### Fixed
 
+- MCP security hardening (#354): stdio servers receive only a minimal explicit
+  environment (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TERM`, plus declared `env`);
+  restarting an untrusted project server re-checks consent; and `__` is now
+  rejected as a reserved MCP server/tool-name separator.
 - Security (audit SEC-01, #352): a project `moh.json` can no longer
   self-declare an MCP server as `trusted` — the field is ignored on read.
   Persisted "always" consent for project servers now lives in the user

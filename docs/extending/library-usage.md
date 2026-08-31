@@ -194,6 +194,15 @@ const assembled = sessionFromConfig({
 widen built-in defaults) and are recorded as `permission_rule_added`
 events, so they persist across resume of the same log.
 
+### MCP stdio environment
+
+For privacy, stdio MCP servers do **not** inherit the launching process
+environment. Their base environment contains only `PATH`, `HOME`, `TMPDIR`,
+`LANG`, and `TERM` when present; the server declaration's `env` entries are
+then applied and override those values. Declare every variable required by a
+server explicitly in its `env` block, including variables that it previously
+inherited (such as provider credentials).
+
 ## Provider reasoning and thinking levels (#240)
 
 Reasoning-capable providers may emit neutral reasoning stream events

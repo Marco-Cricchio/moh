@@ -71,6 +71,7 @@ export class McpRuntime {
   static validate(servers: DeclaredMcpServer[]): void {
     const seen = new Set<string>();
     for (const s of servers) {
+      if (s.name.includes("__")) throw new Error(`invalid MCP server name "${s.name}": "__" is reserved as the MCP tool-name separator`);
       if (seen.has(s.name)) throw new Error(`duplicate MCP server name "${s.name}" (project and user servers must be uniquely named)`);
       seen.add(s.name);
     }
@@ -101,9 +102,13 @@ export class McpRuntime {
     for (const server of this.#servers) {
       const state = this.#state.get(server.name);
       if (state !== "stopped") continue;
-      if (server.scope === "project" && !server.trusted && !(await this.#consent(server.name))) continue;
+      if (this.#needsConsent(server) && !(await this.#consent(server.name))) continue;
       await this.#connect(server);
     }
+  }
+
+  #needsConsent(server: DeclaredMcpServer): boolean {
+    return server.scope === "project" && !server.trusted;
   }
 
   async #consent(name: string): Promise<boolean> {
@@ -171,6 +176,17 @@ export class McpRuntime {
       const listed = (await conn.request("tools/list", {}, this.#timeoutMs)) as { tools?: { name: string; description?: string }[] };
       const mcpTools = listed?.tools ?? [];
       const run: RunningServer = { conn, tools: [] };
+      const names = new Set<string>();
+      for (const t of mcpTools) {
+        if (t.name.includes("__")) {
+          throw new McpError("protocol", `MCP server "${server.name}" returned invalid tool name "${t.name}": "__" is reserved as the MCP tool-name separator`);
+        }
+        const fullName = mcpToolName(server.name, t.name);
+        if (names.has(fullName) || this.#tools.has(fullName)) {
+          throw new McpError("protocol", `MCP server "${server.name}" tool "${t.name}" collides with already registered tool "${fullName}"`);
+        }
+        names.add(fullName);
+      }
       for (const t of mcpTools) {
         const fullName = mcpToolName(server.name, t.name);
         this.#tools.set(fullName, this.#wrapTool(server.name, t.name, t.description));
@@ -238,6 +254,13 @@ export class McpRuntime {
       await run.conn.close();
     }
     this.#state.set(name, "stopped");
+    // A crashed server has no RunningServer entry, but its unavailable tool
+    // wrappers intentionally remain registered. Remove them before replacing
+    // the server so registration collision checks still protect other servers.
+    for (const tool of this.#tools.keys()) {
+      if (tool.startsWith(`mcp__${name}__`)) this.#tools.delete(tool);
+    }
+    if (this.#needsConsent(server) && !(await this.#consent(server.name))) return;
     await this.#connect(server);
   }
 

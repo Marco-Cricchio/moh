@@ -1,6 +1,19 @@
 import { McpError } from "./errors";
 import { JsonRpcConnection, type ServerHandlers } from "./json-rpc";
 
+/**
+ * Environment deliberately exposed to a stdio MCP server. Do not inherit the
+ * launching process: it commonly holds provider credentials unrelated to MCP.
+ */
+function minimalEnvironment(overrides: Record<string, string> | undefined): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "TERM"]) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return { ...env, ...overrides };
+}
+
 export class StdioConnection extends JsonRpcConnection {
   readonly #proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
   readonly #encoder = new TextEncoder();
@@ -20,7 +33,7 @@ export class StdioConnection extends JsonRpcConnection {
         stdout: "pipe",
         stderr: "pipe",
         cwd: opts.cwd,
-        env: opts.env ? { ...process.env, ...opts.env } : process.env,
+        env: minimalEnvironment(opts.env),
       });
     } catch (err) {
       throw new McpError("start_failed", `could not start MCP server: ${err instanceof Error ? err.message : String(err)}`);
