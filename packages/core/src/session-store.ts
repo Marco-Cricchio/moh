@@ -1,6 +1,6 @@
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
 import type { AgentEvent, Message } from "./types";
@@ -339,6 +339,61 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   flushResults();
   flushAssistant();
   return messages;
+}
+
+/** One row of a session listing (#401). */
+export interface SessionSummary {
+  /** Absolute JSONL path. */
+  file: string;
+  id: string;
+  /** First user message, trimmed; placeholder when absent/unreadable. */
+  title: string;
+  /** Modification time (ms). */
+  mtimeMs: number;
+}
+
+/**
+ * Lists the project's persisted sessions, newest first, with a summary
+ * title peeked from the log's first user_message. An unreadable file
+ * degrades to a placeholder title — listings never crash on user data.
+ * One seam for every client (TUI home screen, `moh run --resume`).
+ */
+export function listSessionSummaries(cwd: string, home = homedir()): SessionSummary[] {
+  return SessionStore.list(cwd, home)
+    .map((store) => {
+      let title = "(unreadable session)";
+      try {
+        title = titleFrom(store.file);
+      } catch {
+        // keep placeholder
+      }
+      let mtimeMs = 0;
+      try {
+        mtimeMs = statSync(store.file).mtimeMs;
+      } catch {
+        // keep 0
+      }
+      return { file: store.file, id: basename(store.file, ".jsonl"), title, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function titleFrom(file: string): string {
+  const raw = readFileSync(file, "utf8");
+  for (const line of raw.split("\n")) {
+    if (line.trim() === "") continue;
+    let event: AgentEvent;
+    try {
+      event = JSON.parse(line) as AgentEvent;
+    } catch {
+      break; // corrupt tail: stop at the first bad line
+    }
+    if (event.type === "user_message") {
+      const text = event.text.replace(/\s+/g, " ").trim();
+      return text.length > 60 ? text.slice(0, 57) + "…" : text || "(empty session)";
+    }
+  }
+  return "(empty session)";
 }
 
 /** The final assistant text of the last turn: deltas after the last user_message. */
