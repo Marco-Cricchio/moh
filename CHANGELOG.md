@@ -9,6 +9,12 @@ matching section here at tag time.
 
 ### Added
 
+- ask_user option previews, side-by-side (#414): questions whose options
+  carry `preview` render an adjacent bordered box with the focused
+  option's content — markdown with highlighted code blocks, truncating
+  past the row budget with a hidden-lines indicator, favoring height
+  when space is tight; the chosen option's preview is echoed back to the
+  model in the tool result.
 - ask_user inline block resize + compact Static projection (#413): while a
   question set is open the block grows with its content and compresses the
   volatile transcript; on resolution the settled block projects one row per
