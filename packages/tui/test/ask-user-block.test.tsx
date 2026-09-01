@@ -374,8 +374,30 @@ describe("ask_user preview side-by-side (#414)", () => {
     const plain = askUserBlockRows(QUESTION.questions);
     expect(askUserBlockRows(PREVIEW_SET.questions)).toBe(plain + 23); // min(20, 32 lines) + 3
     expect(askUserBlockRows(QUESTION.questions)).toBe(askUserBlockRows([
-      { ...QUESTION.questions[0]!, options: [{ label: "a" }, { label: "b" }, { label: "c", preview: "one line" }] },
+      { ...QUESTION.questions[0]!, options: [{ preview: undefined }, { preview: undefined }, { preview: "one line" }] },
     ]) - 4); // short preview: 1 content row + 3 overhead
+  });
+
+  test("code fences inside a preview highlight via the shared renderer", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask({
+      questions: [{
+        question: "Which snippet?",
+        header: "Snippet",
+        options: [
+          { label: "sync", description: "await in sequence", preview: "```ts\nconst out = await run(a, b);\n```" },
+          { label: "parallel", description: "Promise.all" },
+        ],
+        suggested: "sync",
+      }],
+    });
+    const i = await mountAt(gate, 100);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "const out = await run(a, b);");
+    expect(frame()).toContain("┌");
+    gate.resolve({ answers: [{ labels: ["sync"] }] });
+    await pending;
+    i.unmount();
   });
 
   test("wiring: the chosen option's preview is echoed to the model in the tool result", async () => {

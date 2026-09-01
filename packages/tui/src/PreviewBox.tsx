@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { Marked } from "marked";
 import { createMarkdownRenderer, parseAnsiSegments, wrapRenderedLines } from "./markdown";
+import { sanitizeForDisplay } from "./render-sanitize";
 import { useTheme } from "./themes";
 
 /**
@@ -55,7 +56,9 @@ export function PreviewBox({ content, maxLines, minWidth, maxWidth }: PreviewBox
   const theme = useTheme();
   const md: Marked = useMemo(() => createMarkdownRenderer(theme, Math.max(8, minWidth)), [theme, minWidth]);
   const rendered = useMemo(
-    () => wrapRenderedLines(String(md.parse(content)).replace(/\n+$/, ""), Math.max(8, minWidth)),
+    // Preview strings are model-controlled: strip terminal controls before
+    // the markdown renderer sees them (render-sanitize posture).
+    () => wrapRenderedLines(String(md.parse(sanitizeForDisplay(content))).replace(/\n+$/, ""), Math.max(8, minWidth)),
     [md, content, minWidth],
   );
 

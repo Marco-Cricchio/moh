@@ -57,9 +57,11 @@ function PreviewOptionRow({
   );
 }
 
+
 /** Preview content rows a preview box may show before truncating (#414):
- * keeps an extreme preview from consuming the whole block. */
-const PREVIEW_MAX_LINES = 20;
+ * keeps an extreme preview from consuming the whole block; the row
+ * reservation in askUserBlockRows uses the same ceiling. */
+export const PREVIEW_ROW_CAP = 20;
 
 /** Whether a question renders side-by-side (#414): only when any option
  * carries a preview — plain questions keep the classic stacked layout. */
@@ -81,11 +83,10 @@ export function askUserBlockRows(
 ): number {
   const previewRows = (q: { options: ReadonlyArray<{ preview?: string }> }): number => {
     if (!q.options.some((o) => o.preview !== undefined)) return 0;
-    // Longest preview line budget: each rendered preview row, clamped so
-    // extreme content cannot consume the whole screen.
-    const PREVIEW_MAX_LINES = 20;
+    // Longest preview line budget: each rendered preview row, clamped to
+    // the box's truncation ceiling so the reservation matches the render.
     return Math.min(
-      PREVIEW_MAX_LINES,
+      PREVIEW_ROW_CAP,
       Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1))),
     ) + 3; // top border + bottom border + truncation indicator
   };
@@ -285,7 +286,7 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
                 {"option" in focused && question.options[focused.option]?.preview !== undefined ? (
                   <PreviewBox
                     content={question.options[focused.option]!.preview!}
-                    maxLines={PREVIEW_MAX_LINES}
+                    maxLines={PREVIEW_ROW_CAP}
                     minWidth={Math.max(20, Math.floor((blockWidth - 4) * 0.4))}
                     maxWidth={blockWidth - 4 - Math.min(32, Math.max(20, Math.floor((blockWidth - 4) * 0.4))) - 2}
                   />
