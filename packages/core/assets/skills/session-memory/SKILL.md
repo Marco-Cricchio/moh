@@ -6,14 +6,19 @@ minMohVersion: 0.1.0
 
 # Session Memory
 
-Keep structured session notes at `~/.moh/projects/<project-slug>/session.md`. The `<project-slug>` is the lowercase `basename` of the working directory (spaces → hyphens), the same slug moh uses for session stores and memory.
+Keep structured session notes at `~/.moh/projects/<project-slug>/session.md`, in the same project directory moh uses for session files and memory.
+
+The `<project-slug>` is moh's exact slug rule (see `projectSlug` in `packages/core/src/session-store.ts`): the sanitized lowercase basename of the resolved working directory (every run of characters outside `[a-z0-9._-]` becomes one `-`, leading/trailing `-` trimmed, `project` if empty), followed by `-` and the first 8 hex chars of the SHA-256 of the resolved absolute path. The hash makes the slug unique per project location.
 
 ## Path setup
 
 ```bash
-PROJECT_SLUG=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-SESSION_FILE="$HOME/.moh/projects/$PROJECT_SLUG/session.md"
-mkdir -p "$HOME/.moh/projects/$PROJECT_SLUG"
+SLUG_BASE=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
+[ -n "$SLUG_BASE" ] || SLUG_BASE="project"
+SLUG_HASH=$(printf '%s' "$PWD" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
+SESSION_DIR="$HOME/.moh/projects/$SLUG_BASE-$SLUG_HASH"
+SESSION_FILE="$SESSION_DIR/session.md"
+mkdir -p "$SESSION_DIR"
 ```
 
 ## Structured template
@@ -59,16 +64,20 @@ Always respect these rules when updating the file:
 4. **Current State is critical**: always update it to reflect the latest work — it is the re-entry point for the next session
 5. **Sections with nothing new**: leave unchanged, never write "no updates" or similar
 6. **Per-section size**: max ~2000 words; when near the limit, cycle out the least important detail
-7. **No duplication**: do not repeat info already in the project's `AGENTS.md`, and do not restate durable facts already in moh memory topics (`~/.moh/projects/<slug>/memory/`) — session notes are for the *current* effort, memory for facts that outlive it
+7. **No duplication**: do not repeat info already in the project's `AGENTS.md`, and do not restate durable facts already in moh memory topics (`~/.moh/projects/<project-slug>/memory/`) — session notes are for the *current* effort, memory for facts that outlive it
 8. **Use `edit`** for precise in-place updates, never rewrite the whole file
 
 ## Typical workflow
 
 ### Session start — read the previous state
 ```bash
-PROJECT_SLUG=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' '-')
-cat "$HOME/.moh/projects/$PROJECT_SLUG/session.md" 2>/dev/null || echo "No previous session."
+SLUG_BASE=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
+[ -n "$SLUG_BASE" ] || SLUG_BASE="project"
+SLUG_HASH=$(printf '%s' "$PWD" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
+cat "$HOME/.moh/projects/$SLUG_BASE-$SLUG_HASH/session.md" 2>/dev/null || echo "No previous session."
 ```
+
+Cross-check: if `~/.moh/projects/` already contains exactly one directory starting with `<basename>-`, prefer that directory over the computed slug.
 Report a summary of "Current State" and next steps found.
 
 ### During the session — update after significant tasks
