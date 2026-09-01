@@ -11,19 +11,20 @@ import { sanitizeForDisplay } from "./render-sanitize";
  * Dialog — the block lives between the composer text area and bottom-bar
  * row 1 (one blank line of padding above and below), one question at a
  * time. ↑/↓ moves through options (plus "Other", always last, reachable
- * by arrows), tab moves to the next question (enters its free-text input
- * when focused), a final summary screen collects everything before
- * submit; Enter advances. multiSelect: space toggles, Enter confirms
- * (Enter toggles while nothing is selected yet). Esc navigates back a
- * question; from the summary, an explicit cancel aborts the set with a
- * "cancelled" tool result (the old esc=suggested behavior is gone —
- * `suggested` renders as a visual chip only).
+ * by arrows or by typing), tab moves to the next question (from the
+ * summary it goes back to edit the last one), a final summary screen
+ * collects everything before submit; Enter advances. multiSelect: space
+ * toggles, Enter confirms (Enter toggles while nothing is selected yet).
+ * Esc navigates back a question; from the summary, an explicit cancel
+ * (ctrl+x) aborts the set with a "cancelled" tool result (the old
+ * esc=suggested behavior is gone — `suggested` renders as a visual chip
+ * only).
  */
 type Focused = { option: number } | { other: true };
 
-const FOOTER = " ↑↓ options · tab other · enter next";
-const FOOTER_MULTI = " space toggle · enter confirm · tab other";
-const FOOTER_OTHER = " enter send · esc back to options";
+const FOOTER = " ↑↓ options · enter/tab next question";
+const FOOTER_MULTI = " space toggle · enter confirm · tab next";
+const FOOTER_OTHER = " enter/tab send · esc back to options";
 const FOOTER_SUMMARY = " enter submit · tab edit · esc back";
 const FOOTER_SUMMARY_FIRST = " enter submit · esc back · ctrl+x cancel";
 
@@ -96,7 +97,7 @@ export function AskUserBlock({ gate }: { gate: AskUserGate }) {
         setFocused({ option: 0 });
         return;
       }
-      if (key.return) {
+      if (key.return || key.tab) {
         const value = text.trim();
         if (value) next([...answers.slice(0, index), { other: value }]);
         return; // empty text: nothing to submit
@@ -118,7 +119,21 @@ export function AskUserBlock({ gate }: { gate: AskUserGate }) {
       return;
     }
     if (key.escape) return back();
-    if (key.tab) return setFocused({ other: true });
+    // tab advances to the next question / summary (ADR-0019 §2), carrying
+    // the current answer: focused option, toggled multiSelect labels, or
+    // the typed free text.
+    if (key.tab) {
+      if ("other" in focused) {
+        const value = text.trim();
+        if (value) next([...answers.slice(0, index), { other: value }]);
+      } else if (question.multiSelect) {
+        if (selected.length > 0) next([...answers.slice(0, index), { labels: selected }]);
+        else setSelected((s) => [...s, question.options[focused.option]!.label]);
+      } else {
+        next([...answers.slice(0, index), { labels: [question.options[focused.option]!.label] }]);
+      }
+      return;
+    }
     if (input === " " && key.shift === false && "option" in focused && focused.option < question.options.length) {
       if (question.multiSelect) {
         const label = question.options[focused.option]!.label;

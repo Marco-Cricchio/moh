@@ -141,23 +141,23 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     i.unmount();
   });
 
-  test("two questions: tab between questions is arrow-driven; esc navigates back", async () => {
+  test("two questions: tab advances between questions; esc navigates back", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(TWO);
     const i = await mount(gate);
-    // Q1: down to Postgres, enter
+    // Q1: down to Postgres, tab to Q2
     i.stdin.write("\x1b[B");
     await sleep(20);
-    i.stdin.write("\r");
+    i.stdin.write("\t");
     await sleep(20);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("2/2");
-    // esc → back to Q1, answer is restored (Postgres focused reset to first)
+    // esc → back to Q1, answer state restored
     i.stdin.write("\x1b");
     await sleep(20);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("1/2");
     i.stdin.write("\x1b[B");
     await sleep(20);
-    i.stdin.write("\r"); // Postgres again
+    i.stdin.write("\r"); // Postgres again (enter also advances)
     await sleep(20);
     i.stdin.write("\x1b[B"); // Q2: down to Valkey
     await sleep(20);
