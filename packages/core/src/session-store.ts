@@ -5,6 +5,14 @@ import { createHash, randomUUID } from "node:crypto";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 
+/** #400: observed external growth of a session file, as reported to the
+ * session (and the `session_file_growth` chrome event) at an append boundary. */
+export interface SessionFileGrowth {
+  file: string;
+  expectedBytes: number;
+  actualBytes: number;
+}
+
 /**
  * Oldest schemaVersion this build can load. Logs older than this fail with
  * a clear "start a new session" error instead of mis-replaying.
@@ -155,10 +163,14 @@ export class SessionStore {
    * (checked immediately before) to detect that another writer (another
    * machine over a sync channel, a second process) grew the file between
    * appends. The append itself always proceeds on the tail: the local
-   * writer's appends stay intact; interleaving is surfaced, never silent. */
+   * writer's appends stay intact; interleaving is surfaced, never silent.
+   * The new expectation is computed arithmetically, never re-stat'ed, so
+   * foreign bytes landing between write and measure are never silently
+   * absorbed into the baseline. */
   append(event: AgentEvent): void {
-    appendFileSync(this.#file, JSON.stringify(event) + "\n");
-    this.#expectedSize = statSync(this.#file).size;
+    const line = JSON.stringify(event) + "\n";
+    appendFileSync(this.#file, line);
+    this.#expectedSize += Buffer.byteLength(line);
   }
 
   /**

@@ -514,10 +514,16 @@ export class AgentSession {
     // backing file beyond what this writer last appended becomes one
     // `session_file_growth` chrome event (all surfaces warn) recorded
     // *before* the pending event — chronologically honest in the log.
+    // `sessionFile` is always set when `externalGrowth` is (the from-config
+    // seam pairs them), so the fallback is unreachable in practice.
     if (this.#externalGrowth) {
       const growth = this.#externalGrowth();
       if (growth) {
-        this.#eventLog.append({ type: "session_file_growth", file: this.#sessionFile!, ...growth });
+        this.#eventLog.append({
+          type: "session_file_growth",
+          file: this.#sessionFile ?? "",
+          ...growth,
+        });
       }
     }
     this.#eventLog.append(event);
