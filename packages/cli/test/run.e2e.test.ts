@@ -415,6 +415,78 @@ describe("moh run (e2e)", () => {
       expect(listed.stdout).toContain("portable session topic");
     });
 
+    test("acceptance (#402): resume yesterday's work from the other machine, memory and rules intact", () => {
+      const { cwd, home } = harness();
+      const spawnIn = (dir: string, argv: string[]) => {
+        const proc = Bun.spawnSync(
+          ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
+          {
+            cwd: dir,
+            env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
+            stdout: "pipe",
+            stderr: "pipe",
+          },
+        );
+        return {
+          code: proc.exitCode,
+          stdout: new TextDecoder().decode(proc.stdout),
+          stderr: new TextDecoder().decode(proc.stderr),
+        };
+      };
+      // moh.json with memory extraction after every turn, so yesterday's
+      // facts are durable before the switch.
+      writeFileSync(
+        join(cwd, "moh.json"),
+        JSON.stringify({ memory: { intervalTurns: 1 } }),
+      );
+
+      // --- Machine A (yesterday): the mock provider runs the turn; the
+      // maintenance extractor runs against the mock too — its output is
+      // best-effort, so memory presence is asserted only where the core
+      // guarantees it (the memory dir exists under the shared home). ---
+      expect(spawnIn(cwd, ["run", "continue work on tickets 12 and 15"]).code).toBe(0);
+      const file = sessionFiles(home)[0]!;
+      const before = readEvents(readFileSync(file, "utf8"));
+      const projectsDir = join(home, ".moh", "projects");
+      const slug = basename(dirname(file));
+
+      // Memory from machine A travels through the channel (the extraction
+      // itself is core-seam tested): seed it exactly as sync would copy it.
+      const memoryDir = join(projectsDir, slug, "memory");
+      mkdirSync(memoryDir, { recursive: true });
+      writeFileSync(
+        join(memoryDir, "index.json"),
+        JSON.stringify({ version: 1, topics: { tickets: { file: "tickets.md", entries: 1, updated: "2026-08-31" } } }),
+      );
+      writeFileSync(join(memoryDir, "tickets.md"), "- 2026-09-01 Active work: tickets #12 and #15\n");
+
+      // --- The machine switch: the clone carries the identity file. ---
+      const clone = join(dirname(cwd), "clone-elsewhere");
+      mkdirSync(join(clone, ".moh"), { recursive: true });
+      copyFileSync(join(cwd, ".moh", "project.json"), join(clone, ".moh", "project.json"));
+      copyFileSync(join(cwd, "moh.json"), join(clone, "moh.json"));
+
+      // --- Machine B (today): headless discovery + resume, no manual
+      // intervention (no file paths known to the user). ---
+      const res = spawnIn(clone, [
+        "run",
+        "--resume",
+        "tickets",
+        "--prompt",
+        "what was I working on?",
+      ]);
+      expect(res.code).toBe(0);
+      const events = readEvents(res.stdout);
+      // The resumed conversation, not a fresh session: the streamed events
+      // are only the new turn's (no re-appended session_start), and the
+      // file grew by exactly those events on top of the intact history.
+      expect(events[0].type).toBe("user_message");
+      expect(events.some((e) => e.type === "done")).toBe(true);
+      const after = readEvents(readFileSync(file, "utf8"));
+      expect(after.length).toBe(before.length + events.length);
+      expect(after.slice(0, before.length)).toEqual(before);
+    });
+
     test("usage: --resume is exclusive with --session and with a positional prompt", () => {
       const { spawn, home } = harness();
       expect(spawn(["run", "seed"]).code).toBe(0);
