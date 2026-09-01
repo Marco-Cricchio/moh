@@ -4,7 +4,7 @@
 continue the same project's work. This page is the user-facing contract for
 moh's data. It applies whether you use the TUI, `moh run`, or embed the Core.
 
-moh is **sync-tolerant**, not sync-owning ([ADR-0018](../adr/0018-project-identity-sync-tolerance.md)). It does not select, configure, or operate a sync service. You own the transport — for example iCloud, Dropbox, or a private Git repository — and moh makes the data below safe to carry through it.
+moh is **sync-tolerant**, not sync-owning ([ADR-0018](../adr/0018-project-identity-sync-tolerance.md)). It does not select, configure, or operate a sync service. You own the transport — for example iCloud, Dropbox, or a private Git repository — and moh makes the data below safe to carry through it for serial use. Recopying an unchanged portable artifact needs no moh-side merge; concurrent writers are not supported.
 
 ## Set up a channel
 

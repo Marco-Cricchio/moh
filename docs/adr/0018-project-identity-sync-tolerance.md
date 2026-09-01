@@ -1,6 +1,6 @@
 # ADR-0018: Stable project identity and sync-tolerant user data
 
-Status: accepted · Date: 2026-09-01 · Issue: #396 (spec: session continuity, vision note 28) · Implementation: #398, #399, #400, #401, #402
+Status: accepted · Date: 2026-09-01 · Issue: #397 (parent: #396, session continuity, vision note 28) · Implementation: #398, #399, #400, #401, #402
 
 ## Context
 
@@ -19,8 +19,12 @@ exact path.
 ## Decision
 
 moh becomes **sync-tolerant, not sync-owning**: no transport ships in Core
-(ADR-0004); the user syncs `~/.moh/` through any channel, and moh guarantees
-its data is portable, idempotent and conflict-safe under that contract.
+(ADR-0004); the user syncs `~/.moh/` through any channel. The portable
+artifacts have stable, append-only formats and repeatable ownership rules, so
+retransferring an unchanged artifact does not require a moh-side merge. This
+is conflict-safe **for serial use only**: moh detects a competing session
+writer and does not claim to merge divergent histories or make concurrent
+writes safe.
 
 - **Project identity** (`resolveProjectIdentity(cwd, home)` in
   `project-identity.ts`): a stable uuid in `.moh/project.json` at the
