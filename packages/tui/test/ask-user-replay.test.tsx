@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider, SessionStore, createSession } from "@moh/core";
@@ -46,13 +45,22 @@ const legacyHistory: AgentEvent[] = [
   { type: "done", models: ["mock"], usage: { inputTokens: 10, outputTokens: 5 } },
 ];
 
-/** Writes the legacy history as a real session JSONL file and returns
- * its path (SessionStore.create establishes the project-slug directory;
- * the file content is then replaced wholesale with the legacy lines). */
-function writeLegacySessionFile(cwd: string, home: string): string {
+/** The history serialized exactly as a legacy session file stored it. */
+function jsonlOf(events: ReadonlyArray<AgentEvent>): string {
+  return events.map((e) => JSON.stringify(e)).join("\n") + "\n";
+}
+
+/** Fresh home + repo dirs with a legacy session JSONL written into the
+ * project's session directory (SessionStore.create establishes it; the
+ * file content is then replaced wholesale with the legacy lines). */
+function legacySession(): { cwd: string; home: string; file: string } {
+  const home = join(dir(), "home");
+  const cwd = join(dir(), "repo");
+  mkdirSync(join(home, ".moh"), { recursive: true });
+  mkdirSync(cwd, { recursive: true });
   const store = SessionStore.create(cwd, home);
-  writeFileSync(store.file, legacyHistory.map((e) => JSON.stringify(e)).join("\n") + "\n");
-  return store.file;
+  writeFileSync(store.file, jsonlOf(legacyHistory));
+  return { cwd, home, file: store.file };
 }
 
 describe("legacy ask_user replay (#415)", () => {
@@ -61,26 +69,23 @@ describe("legacy ask_user replay (#415)", () => {
     const ask = blocks.find((b) => b.type === "ask");
     expect(ask).toBeDefined();
     // Same compact shape a new question-set produces (#413): one question
-    // row (kind "ask") plus one answer row (kind "answer"); unchosen
-    // options and the suggested chip never appear.
+    // row (kind "ask") plus one answer row (kind "answer"); the unchosen
+    // option and the suggested chip never appear.
     expect(ask!.lines).toEqual(["Ship v2 now or wait for QA?", "↳ you: ship now"]);
     expect(ask!.lineKinds).toEqual(["ask", "answer"]);
     expect(ask!.state).toBe("ok");
-    expect(ask!.lines.join("\n")).not.toContain("wait for QA sign-off");
+    expect(ask!.lines.join("\n")).not.toContain("hold for QA sign-off");
+    expect(ask!.lines.join("\n")).not.toContain("suggested");
     // An unanswered legacy call (interrupted session): question row only.
-    const open = projectTranscript(legacyHistory.filter((e) => !(e.type === "tool_result" || e.type === "assistant_delta" || e.type === "model_call" || e.type === "done")));
+    const open = projectTranscript(legacyHistory.slice(0, 3));
     const openAsk = open.find((b) => b.type === "ask");
     expect(openAsk!.lines).toEqual(["Ship v2 now or wait for QA?"]);
     expect(openAsk!.state).toBe("run");
   });
 
   test("TUI end-to-end: a legacy session file replays through the compact block and is never rewritten", async () => {
-    const home = join(dir(), "home");
-    const cwd = join(dir(), "repo");
-    mkdirSync(join(home, ".moh"), { recursive: true });
-    mkdirSync(cwd, { recursive: true });
-    const file = writeLegacySessionFile(cwd, home);
-    const bytesBefore = readFileSync(file, "utf8");
+    const { cwd, home, file } = legacySession();
+    const before = readFileSync(file, "utf8");
 
     const provider = MockProvider.scripted([{ deltas: ["done!"], finish: "stop" }]);
     const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
@@ -101,22 +106,22 @@ describe("legacy ask_user replay (#415)", () => {
         }),
         () => "legacy ask_user compact projection never appeared in any frame",
       );
-      // Acceptance 2: no rewrite or migration on disk — the legacy lines
-      // survive byte-identical as the file's prefix. (The resumed session
-      // may append NEW events after them; that is the append-only log
-      // working, not a rewrite.)
-      expect(readFileSync(file, "utf8").startsWith(bytesBefore)).toBe(true);
+      // Acceptance 2: no rewrite or migration on disk. Opening the
+      // session legitimately appends new chrome (session_mode), but the
+      // legacy lines survive byte-identical as the file's prefix and the
+      // appended tail carries no ask_user event — a migrated or
+      // re-translated call would have to be written somewhere, and it
+      // never is.
+      const after = readFileSync(file, "utf8");
+      expect(after.startsWith(before)).toBe(true);
+      expect(after.slice(before.length).includes("ask_user")).toBe(false);
     } finally {
       i.unmount();
     }
   });
 
   test("core: resuming a legacy ask_user history replays the conversation to the provider intact", async () => {
-    const home = join(dir(), "home");
-    const cwd = join(dir(), "repo");
-    mkdirSync(join(home, ".moh"), { recursive: true });
-    mkdirSync(cwd, { recursive: true });
-    const file = writeLegacySessionFile(cwd, home);
+    const { cwd, home, file } = legacySession();
 
     // The provider sees the legacy call/result pair unchanged (args pass
     // through replayMessages verbatim) and the session log stays intact.
@@ -138,13 +143,11 @@ describe("legacy ask_user replay (#415)", () => {
     // The seeded legacy events come first, byte-for-byte unmodified.
     expect(log.slice(0, legacyHistory.length)).toEqual(legacyHistory);
     await session.dispose({ timeoutMs: 5_000 });
-    // Still append-only: the file is the original lines plus new ones.
+    // Still append-only: the file is the original lines plus new ones —
+    // the legacy prefix survives verbatim, nothing is rewritten.
     const after = readFileSync(file, "utf8");
-    expect(after.startsWith(bytesOf(legacyHistory))).toBe(true);
-    expect(after.length).toBeGreaterThan(bytesOf(legacyHistory).length);
+    const legacyJsonl = jsonlOf(legacyHistory);
+    expect(after.startsWith(legacyJsonl)).toBe(true);
+    expect(after.length).toBeGreaterThan(legacyJsonl.length);
   });
 });
-
-function bytesOf(events: AgentEvent[]): string {
-  return events.map((e) => JSON.stringify(e)).join("\n") + "\n";
-}
