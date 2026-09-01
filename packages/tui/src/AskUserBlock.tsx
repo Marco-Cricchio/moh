@@ -22,6 +22,17 @@ import { sanitizeForDisplay } from "./render-sanitize";
  */
 type Focused = { option: number } | { other: true };
 
+/** The block's row budget for one question screen (#413): question rows
+ * contribute the tallest single screen (header chip + question text +
+ * one row per option + the Other row + footer), the summary screen shows
+ * one row per question. Blank-line padding above and below (the +3) is
+ * part of the block itself. Shared with Chat so the transcript-compression
+ * arithmetic and the layout stay in one place. */
+export function askUserBlockRows(questions: ReadonlyArray<{ question: string; options: ReadonlyArray<unknown> }>): number {
+  const questionScreens = questions.map((q) => q.options.length + 5);
+  return Math.max(...questionScreens, questions.length + 4) + 3;
+}
+
 const FOOTER = " ↑↓ options · enter/tab next question";
 const FOOTER_MULTI = " space toggle · enter confirm · tab next";
 const FOOTER_OTHER = " enter/tab send · esc back to options";
