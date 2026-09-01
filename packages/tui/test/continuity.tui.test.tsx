@@ -27,6 +27,7 @@ describe("cross-machine continuity, TUI surface (#402)", () => {
     // Machine A (yesterday): one persisted turn.
     const store = SessionStore.create(rootA, home);
     const worked = createSession({
+      cwd: rootA,
       provider: MockProvider.scripted([{ deltas: ["worked on tickets 12 and 15"], finish: "stop" }]),
       sink: (e) => store.append(e),
     });

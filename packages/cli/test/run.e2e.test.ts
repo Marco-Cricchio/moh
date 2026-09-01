@@ -41,7 +41,24 @@ function harness() {
       stderr: new TextDecoder().decode(proc.stderr),
     };
   };
-  return { cwd, home, spawn };
+  // Spawn from any dir against this harness's fake home (#402 cross-machine).
+  const spawnIn = (dir: string, argv: string[]) => {
+    const proc = Bun.spawnSync(
+      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
+      {
+        cwd: dir,
+        env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    return {
+      code: proc.exitCode,
+      stdout: new TextDecoder().decode(proc.stdout),
+      stderr: new TextDecoder().decode(proc.stderr),
+    };
+  };
+  return { cwd, home, spawn, spawnIn };
 }
 
 function readEvents(raw: string): any[] {
@@ -382,23 +399,7 @@ describe("moh run (e2e)", () => {
     });
 
     test("cross-machine: discovery works from a clone at a different path (declared identity slug, #398/#401)", () => {
-      const { cwd, home } = harness();
-      const spawnIn = (dir: string, argv: string[]) => {
-        const proc = Bun.spawnSync(
-          ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-          {
-            cwd: dir,
-            env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
-            stdout: "pipe",
-            stderr: "pipe",
-          },
-        );
-        return {
-          code: proc.exitCode,
-          stdout: new TextDecoder().decode(proc.stdout),
-          stderr: new TextDecoder().decode(proc.stderr),
-        };
-      };
+      const { cwd, spawnIn } = harness();
       expect(spawnIn(cwd, ["run", "portable session topic"]).code).toBe(0);
 
       // Same declared identity, different checkout path: the identity slug
@@ -415,24 +416,8 @@ describe("moh run (e2e)", () => {
       expect(listed.stdout).toContain("portable session topic");
     });
 
-    test("acceptance (#402): resume yesterday's work from the other machine, memory and rules intact", () => {
-      const { cwd, home } = harness();
-      const spawnIn = (dir: string, argv: string[]) => {
-        const proc = Bun.spawnSync(
-          ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-          {
-            cwd: dir,
-            env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
-            stdout: "pipe",
-            stderr: "pipe",
-          },
-        );
-        return {
-          code: proc.exitCode,
-          stdout: new TextDecoder().decode(proc.stdout),
-          stderr: new TextDecoder().decode(proc.stderr),
-        };
-      };
+    test("acceptance (#402): resume yesterday's work from the other machine, history and memory intact", () => {
+      const { cwd, home, spawnIn } = harness();
       // moh.json with memory extraction after every turn, so yesterday's
       // facts are durable before the switch.
       writeFileSync(
@@ -467,7 +452,46 @@ describe("moh run (e2e)", () => {
       copyFileSync(join(cwd, "moh.json"), join(clone, "moh.json"));
 
       // --- Machine B (today): headless discovery + resume, no manual
-      // intervention (no file paths known to the user). ---
+      // intervention (no file paths known to the user). The echo provider
+      // hashes the system prompt it receives: the resumed machine-B call
+      // must see yesterday's memory injected (context intact), and —
+      // control — the same clone without the memory files must not. ---
+      const echoRes = spawnIn(clone, [
+        "run",
+        "--provider",
+        "echo",
+        "--resume",
+        "tickets",
+        "--prompt",
+        "what was I working on?",
+      ]);
+      expect(echoRes.code).toBe(0);
+      const withMemory = JSON.parse(
+        readEvents(echoRes.stdout)
+          .filter((e) => e.type === "assistant_delta")
+          .map((e) => e.text)
+          .join(""),
+      ) as { systemSha256: string };
+      writeFileSync(join(memoryDir, "index.json"), JSON.stringify({ version: 1, topics: {} }));
+      const noMemoryRes = spawnIn(clone, [
+        "run",
+        "--provider",
+        "echo",
+        "--prompt",
+        "control probe",
+      ]);
+      expect(noMemoryRes.code).toBe(0);
+      const withoutMemory = JSON.parse(
+        readEvents(noMemoryRes.stdout)
+          .filter((e) => e.type === "assistant_delta")
+          .map((e) => e.text)
+          .join(""),
+      ) as { systemSha256: string };
+      expect(withMemory.systemSha256).not.toBe(withoutMemory.systemSha256);
+
+      // And the story form itself: mock provider, resumed conversation,
+      // appending to yesterday's log.
+      const beforeStory = readEvents(readFileSync(file, "utf8"));
       const res = spawnIn(clone, [
         "run",
         "--resume",
@@ -483,8 +507,8 @@ describe("moh run (e2e)", () => {
       expect(events[0].type).toBe("user_message");
       expect(events.some((e) => e.type === "done")).toBe(true);
       const after = readEvents(readFileSync(file, "utf8"));
-      expect(after.length).toBe(before.length + events.length);
-      expect(after.slice(0, before.length)).toEqual(before);
+      expect(after.length).toBe(beforeStory.length + events.length);
+      expect(after.slice(0, beforeStory.length)).toEqual(beforeStory);
     });
 
     test("usage: --resume is exclusive with --session and with a positional prompt", () => {
