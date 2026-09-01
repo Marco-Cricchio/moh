@@ -32,7 +32,7 @@ import {
   ownerIsGone,
   parseLockOwner,
   readLockFile,
-  removeLockFile,
+  releaseLockFile,
 } from "./memory-lock";
 
 /** One durable fact, filed under a short topic label. */
@@ -90,7 +90,6 @@ export const CHARS_PER_TOKEN = 4;
 export const MAX_ENTRIES_PER_TOPIC = 40;
 
 const LOCK_TIMEOUT_MS = 5_000;
-const LOCK_STALE_MS = 15_000;
 const LOCK_POLL_MS = 10;
 
 /** Max entries accepted from one extraction (protects the store). */
@@ -316,7 +315,7 @@ export class MemoryStore {
     try {
       return await fn();
     } finally {
-      removeLockFile(this.#lockFile);
+      releaseLockFile(this.#lockFile);
     }
   }
 
@@ -343,7 +342,7 @@ export class MemoryStore {
     // Old-format/corrupt lock or a gone owner (dead pid, foreign machine,
     // our own recycled pid): reclaim. A live same-machine owner is
     // respected. Decided from content, never from mtime (#399).
-    const reclaim = owner === undefined || ownerIsGone(owner, machineId());
+    const reclaim = owner === undefined || ownerIsGone(owner);
     if (!reclaim) return false;
     try {
       unlinkSync(this.#lockFile);

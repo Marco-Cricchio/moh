@@ -7,17 +7,20 @@
  */
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { hostname } from "node:os";
+import { hostname, uptime } from "node:os";
 
 /** Lock file payload; `v` gates forward-compatible parsing. */
 export interface LockOwner {
   v: 1;
   pid: number;
   machineId: string;
+  /** Monotonic boot counter (0 on platforms without /proc uptime). */
+  boot: number;
   createdAt: number;
 }
 
 let cachedMachineId: string | undefined;
+let cachedBootCount: number | undefined;
 
 /**
  * Stable per-machine identifier (cached per process). Linux:
@@ -51,9 +54,32 @@ export function machineId(): string {
   return cachedMachineId;
 }
 
-/** Test seam: pin the machine identity observed by the lock. */
-export function setMachineIdForTests(id: string | undefined): void {
+/**
+ * Approximate number of reboots this machine has had (cached per
+ * process): uptime seconds rounded up on Linux (from /proc/uptime,
+ * readable by non-root), 0 where unavailable. A pid recorded under a
+ * smaller boot count predates a reboot, so its owner is dead even if
+ * the pid got recycled.
+ */
+export function bootCount(): number {
+  if (cachedBootCount !== undefined) return cachedBootCount;
+  let boot = 0;
+  if (process.platform === "linux") {
+    try {
+      const uptimeSeconds = Number.parseFloat(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
+      if (Number.isFinite(uptimeSeconds)) boot = Math.ceil(uptimeSeconds);
+    } catch {
+      // unavailable: 0, never causing spurious reclaims
+    }
+  }
+  cachedBootCount = boot;
+  return cachedBootCount;
+}
+
+/** Test seam: pin the machine identity and boot count observed by the lock. */
+export function setLockIdentityForTests(id: string | undefined, boot?: number): void {
   cachedMachineId = id;
+  if (boot !== undefined) cachedBootCount = boot;
 }
 
 /** `kill(pid, 0)` liveness probe; false for dead/recycled-away pids. */
@@ -72,7 +98,13 @@ export function parseLockOwner(raw: string): LockOwner | undefined {
   try {
     const parsed = JSON.parse(raw) as Partial<LockOwner>;
     if (parsed?.v === 1 && typeof parsed.pid === "number" && typeof parsed.machineId === "string") {
-      return { v: 1, pid: parsed.pid, machineId: parsed.machineId, createdAt: parsed.createdAt ?? 0 };
+      return {
+        v: 1,
+        pid: parsed.pid,
+        machineId: parsed.machineId,
+        boot: typeof parsed.boot === "number" ? parsed.boot : 0,
+        createdAt: parsed.createdAt ?? 0,
+      };
     }
   } catch {
     // not JSON: treated as malformed below
@@ -80,25 +112,32 @@ export function parseLockOwner(raw: string): LockOwner | undefined {
   return undefined;
 }
 
+/** The identity this process writes into a lock file it creates. */
+export function ownIdentity(): Omit<LockOwner, "createdAt"> {
+  return { v: 1, pid: process.pid, machineId: machineId(), boot: bootCount() };
+}
+
 /** True when the recorded owner can no longer be holding the lock. */
-export function ownerIsGone(owner: LockOwner, myMachineId: string, isPidAlive = isProcessAlive): boolean {
+export function ownerIsGone(owner: LockOwner, isPidAlive = isProcessAlive): boolean {
   // Foreign machine in a shared home: liveness is unverifiable and the
   // acceptance contract (#399) says a foreign owner never blocks — reclaim.
-  if (owner.machineId !== myMachineId) return true;
-  // Same machine: dead pid (or our own recycled pid) means stale.
-  return !isPidAlive(owner.pid) || owner.pid === process.pid;
+  if (owner.machineId !== machineId()) return true;
+  // Recorded before the last reboot: the owner died with that boot,
+  // even if this boot recycled its pid.
+  if (owner.boot < bootCount()) return true;
+  // Same machine and boot: dead pid means stale.
+  return !isPidAlive(owner.pid);
 }
 
 /**
  * Creates the lock file exclusively and writes the owner payload.
  * Returns false when another process won the race (file exists).
  */
-export function createLockFile(path: string, myMachineId = machineId()): boolean {
+export function createLockFile(path: string): boolean {
   try {
     const fd = openSync(path, "wx", 0o600);
     try {
-      const payload: LockOwner = { v: 1, pid: process.pid, machineId: myMachineId, createdAt: Date.now() };
-      writeSync(fd, JSON.stringify(payload));
+      writeSync(fd, JSON.stringify({ ...ownIdentity(), createdAt: Date.now() }));
     } finally {
       closeSync(fd);
     }
@@ -118,11 +157,17 @@ export function readLockFile(path: string): string {
   }
 }
 
-/** Removes the lock; a missing file (reclaim race) is fine. */
-export function removeLockFile(path: string): void {
+/**
+ * Removes the lock only when it still records this process as owner —
+ * a reclaim winner must not delete a newer holder's lock file.
+ */
+export function releaseLockFile(path: string): void {
   try {
-    unlinkSync(path);
+    const owner = parseLockOwner(readLockFile(path));
+    if (owner && owner.pid === process.pid && owner.machineId === machineId() && owner.boot === bootCount()) {
+      unlinkSync(path);
+    }
   } catch {
-    // already gone: nothing to do
+    // unreadable or gone: nothing to do
   }
 }
