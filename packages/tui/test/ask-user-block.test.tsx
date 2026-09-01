@@ -296,6 +296,110 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
   });
 });
 
+const LONG_PREVIEW = ["# Verbose style", "", ...Array.from({ length: 30 }, (_, i) => `line-${i} of the verbose essay`)].join("\n");
+
+const PREVIEW_SET = {
+  questions: [
+    {
+      question: "Which reply style?",
+      header: "Style",
+      options: [
+        { label: "concise", description: "short answers", preview: "**Concise**: short answers, no filler." },
+        { label: "verbose", description: "long essays", preview: LONG_PREVIEW },
+        { label: "plain", description: "no preview here" },
+      ],
+      suggested: "concise",
+    },
+  ],
+} satisfies AskUserQuestionSet;
+
+describe("ask_user preview side-by-side (#414)", () => {
+  /** Mounts the block at an explicit width (side-by-side needs columns). */
+  async function mountAt(gate: AskUserGate, width: number) {
+    const i = render(<AskUserBlock gate={gate} width={width} />);
+    await sleep(30);
+    return i;
+  }
+
+  test("preview-bearing question renders side-by-side; focused (not selected) option drives the preview", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask(PREVIEW_SET);
+    const i = await mountAt(gate, 100);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    // Bordered preview box beside the option list, showing the focused
+    // option's (concise, index 0) content — markdown-bolded text renders.
+    await waitForFrame(frame, "Concise");
+    expect(frame()).toContain("┌");
+    expect(frame()).toContain("short answers, no filler");
+    // Descriptions are omitted in the side-by-side left column.
+    expect(frame()).not.toContain("long essays");
+    // Down to verbose: the preview swaps to its title.
+    i.stdin.write("\x1b[B");
+    await waitForFrame(frame, "Verbose style");
+    // Down to plain (no preview): the box disappears.
+    i.stdin.write("\x1b[B");
+    await sleep(40);
+    expect(frame()).not.toContain("┌");
+    gate.resolve({ answers: [{ labels: ["verbose"] }] });
+    await pending;
+    i.unmount();
+  });
+
+  test("preview content truncates with a hidden-lines indicator beyond the budget", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask(PREVIEW_SET);
+    const i = await mountAt(gate, 100);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    i.stdin.write("\x1b[B"); // verbose — 33 rendered rows vs a 20-row cap
+    await waitForFrame(frame, "lines hidden");
+    expect(frame()).not.toContain("line-25 of");
+    gate.resolve({ answers: [{ labels: ["verbose"] }] });
+    await pending;
+    i.unmount();
+  });
+
+  test("plain questions keep the stacked layout — no preview box", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask(QUESTION);
+    const i = await mountAt(gate, 100);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("zero-config, file-based"); // descriptions shown
+    expect(frame).not.toContain("┌");
+    gate.resolve({ answers: [{ labels: ["SQLite"] }] });
+    await pending;
+    i.unmount();
+  });
+
+  test("askUserBlockRows reserves the tallest preview box's height", () => {
+    const plain = askUserBlockRows(QUESTION.questions);
+    expect(askUserBlockRows(PREVIEW_SET.questions)).toBe(plain + 23); // min(20, 32 lines) + 3
+    expect(askUserBlockRows(QUESTION.questions)).toBe(askUserBlockRows([
+      { ...QUESTION.questions[0]!, options: [{ label: "a" }, { label: "b" }, { label: "c", preview: "one line" }] },
+    ]) - 4); // short preview: 1 content row + 3 overhead
+  });
+
+  test("wiring: the chosen option's preview is echoed to the model in the tool result", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-ask-prev-"));
+    const home = mkdtempSync(join(tmpdir(), "moh-ask-prev-h-"));
+    const seen: string[] = [];
+    const gate = new AskUserGate();
+    const { session } = unwrap(makeSession({
+      cwd,
+      home,
+      provider: MockProvider.scripted(script(PREVIEW_SET)),
+      tools: askUserTool(seen),
+      onAskUser: gate.ask,
+    }));
+    const i = await mountAt(gate, 100);
+    void session.send("pick a style");
+    await sleep(200);
+    gate.resolve({ answers: [{ labels: ["verbose"] }] });
+    await sleep(300);
+    expect(seen[0]).toContain("Which reply style?: verbose\n# Verbose style");
+    i.unmount();
+  });
+});
+
 /** Mounts a full Chat (transcript + composer + inline block) wired to a
  * scripted session whose first turn suspends on the ask_user tool. */
 async function mountChat(

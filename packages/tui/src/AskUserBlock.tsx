@@ -5,6 +5,7 @@ import { Dim } from "./ui";
 import type { AskUserGate } from "./ask-user-gate";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult } from "@moh/core";
 import { sanitizeForDisplay } from "./render-sanitize";
+import { PreviewBox } from "./PreviewBox";
 
 /**
  * Inline ask_user rendering (ADR-0019 / #412): no modal, no blocking
@@ -22,25 +23,84 @@ import { sanitizeForDisplay } from "./render-sanitize";
  */
 type Focused = { option: number } | { other: true };
 
+/** One option row, shared by the stacked and the side-by-side layout
+ * (#414): the side-by-side left panel omits descriptions (they would
+ * crowd the narrow column) and keeps one label per row. */
+function PreviewOptionRow({
+  question,
+  option,
+  index,
+  focused,
+  selected,
+  sideBySide,
+}: {
+  question: AskUserQuestion;
+  option: { label: string; description: string };
+  index: number;
+  focused: Focused;
+  selected: string[];
+  sideBySide?: boolean;
+}) {
+  const theme = useTheme();
+  const isFocused = "option" in focused && focused.option === index;
+  const checked = question.multiSelect && selected.includes(option.label);
+  const isSuggested = option.label === question.suggested;
+  const marker = question.multiSelect ? (checked ? "[x]" : "[ ]") : isFocused ? "›" : " ";
+  return (
+    <Box>
+      <Text color={isFocused ? theme.accent : theme.fg} bold={isFocused}>
+        {`${marker} ${index + 1} ${sanitizeForDisplay(option.label)}`}
+      </Text>
+      {isSuggested && <Text color={theme.warn}>{" ◂ recommended"}</Text>}
+      {!sideBySide && <Text color={theme.dim}>{` — ${sanitizeForDisplay(option.description)}`}</Text>}
+    </Box>
+  );
+}
+
+/** Preview content rows a preview box may show before truncating (#414):
+ * keeps an extreme preview from consuming the whole block. */
+const PREVIEW_MAX_LINES = 20;
+
+/** Whether a question renders side-by-side (#414): only when any option
+ * carries a preview — plain questions keep the classic stacked layout. */
+function hasPreview(question: AskUserQuestion): boolean {
+  return question.options.some((o) => o.preview !== undefined);
+}
+
 /** The block's row budget for one question screen (#413): question rows
  * contribute the tallest single screen (header chip + question text +
  * one row per option + the Other row + footer), the summary screen shows
- * one row per question. Blank-line padding above and below (the +3) is
- * part of the block itself. Shared with Chat so the transcript-compression
- * arithmetic and the layout stay in one place. */
-export function askUserBlockRows(questions: ReadonlyArray<{ question: string; options: ReadonlyArray<unknown> }>): number {
-  const questionScreens = questions.map((q) => q.options.length + 5);
+ * one row per question. #414: a preview-bearing question renders
+ * side-by-side, favoring height — its screen reserves the tallest
+ * preview box (content rows + 2 borders + the truncation indicator).
+ * Blank-line padding above and below (the +3) is part of the block
+ * itself. Shared with Chat so the transcript-compression arithmetic and
+ * the layout stay in one place. */
+export function askUserBlockRows(
+  questions: ReadonlyArray<{ question: string; options: ReadonlyArray<{ preview?: string }> }>,
+): number {
+  const previewRows = (q: { options: ReadonlyArray<{ preview?: string }> }): number => {
+    if (!q.options.some((o) => o.preview !== undefined)) return 0;
+    // Longest preview line budget: each rendered preview row, clamped so
+    // extreme content cannot consume the whole screen.
+    const PREVIEW_MAX_LINES = 20;
+    return Math.min(
+      PREVIEW_MAX_LINES,
+      Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1))),
+    ) + 3; // top border + bottom border + truncation indicator
+  };
+  const questionScreens = questions.map((q) => q.options.length + 5 + previewRows(q));
   return Math.max(...questionScreens, questions.length + 4) + 3;
 }
 
-const FOOTER = " ↑↓ options · enter/tab next question";
-const FOOTER_MULTI = " space toggle · enter confirm · tab next";
+const FOOTER = " ↑↓ options · enter/tab next question";const FOOTER_MULTI = " space toggle · enter confirm · tab next";
 const FOOTER_OTHER = " enter/tab send · esc back to options";
 const FOOTER_SUMMARY = " enter submit · tab edit · esc back";
 const FOOTER_SUMMARY_FIRST = " enter submit · esc back · ctrl+x cancel";
 
-export function AskUserBlock({ gate }: { gate: AskUserGate }) {
+export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: number }) {
   const theme = useTheme();
+  const blockWidth = Math.max(40, width ?? 100);
   useSyncExternalStore(gate.subscribe, gate.getSnapshot);
   const set = gate.current;
   const questions = set?.questions ?? [];
@@ -201,31 +261,56 @@ export function AskUserBlock({ gate }: { gate: AskUserGate }) {
             <Text color={theme.dim}>{` ${index + 1}/${questions.length}`}</Text>
           </Text>
           <Text bold>{sanitizeForDisplay(question.question)}</Text>
-          {question.options.map((option, i) => {
-            const isFocused = "option" in focused && focused.option === i;
-            const checked = question.multiSelect && selected.includes(option.label);
-            const isSuggested = option.label === question.suggested;
-            const marker = question.multiSelect ? (checked ? "[x]" : "[ ]") : isFocused ? "›" : " ";
-            return (
-              <Box key={option.label}>
-                <Text color={isFocused ? theme.accent : theme.fg} bold={isFocused}>
-                  {`${marker} ${i + 1} ${sanitizeForDisplay(option.label)}`}
+          {/* #414: preview-bearing questions render side-by-side — the
+              option list on the left, the focused option's preview in a
+              bordered box on the right. Plain questions stack as before. */}
+          {hasPreview(question) ? (
+            <Box flexDirection="row" gap={2}>
+              <Box flexDirection="column" width={Math.min(32, Math.max(20, Math.floor((blockWidth - 4) * 0.4)))}>
+                {question.options.map((option, i) => (
+                  <PreviewOptionRow key={option.label} question={question} option={option} index={i} focused={focused} selected={selected} sideBySide />
+                ))}
+                <Text>
+                  {textMode ? (
+                    <>
+                      <Text color={theme.accent}>{"› Other "}</Text>
+                      <Text underline>{text || " "}</Text>
+                    </>
+                  ) : (
+                    <Text color={"other" in focused ? theme.accent : theme.dim} bold={"other" in focused}>› Other…</Text>
+                  )}
                 </Text>
-                {isSuggested && <Text color={theme.warn}>{" ◂ recommended"}</Text>}
-                <Text color={theme.dim}>{` — ${sanitizeForDisplay(option.description)}`}</Text>
               </Box>
-            );
-          })}
-          <Text>
-            {textMode ? (
-              <>
-                <Text color={theme.accent}>{"› Other "}</Text>
-                <Text underline>{text || " "}</Text>
-              </>
-            ) : (
-              <Text color={"other" in focused ? theme.accent : theme.dim} bold={"other" in focused}>› Other…</Text>
-            )}
-          </Text>
+              <Box flexDirection="column">
+                {"option" in focused && question.options[focused.option]?.preview !== undefined ? (
+                  <PreviewBox
+                    content={question.options[focused.option]!.preview!}
+                    maxLines={PREVIEW_MAX_LINES}
+                    minWidth={Math.max(20, Math.floor((blockWidth - 4) * 0.4))}
+                    maxWidth={blockWidth - 4 - Math.min(32, Math.max(20, Math.floor((blockWidth - 4) * 0.4))) - 2}
+                  />
+                ) : (
+                  <Text color={theme.dim}> </Text>
+                )}
+              </Box>
+            </Box>
+          ) : (
+            <>
+              {question.options.map((option, i) => (
+                <PreviewOptionRow key={option.label} question={question} option={option} index={i} focused={focused} selected={selected} />
+              ))}
+              <Text>
+                {textMode ? (
+                  <>
+                    <Text color={theme.accent}>{"› Other "}</Text>
+                    <Text underline>{text || " "}</Text>
+                  </>
+                ) : (
+                  <Text color={"other" in focused ? theme.accent : theme.dim} bold={"other" in focused}>› Other…</Text>
+                )}
+              </Text>
+            </>
+          )}
           <Text> </Text>
           <Dim>{textMode ? FOOTER_OTHER : question.multiSelect ? FOOTER_MULTI : FOOTER}</Dim>
         </Box>

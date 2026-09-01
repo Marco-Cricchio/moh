@@ -823,7 +823,12 @@ function askUserAnswerLine(question: AskUserQuestion, answer: AskUserAnswer): st
   if (labels.length > 0) parts.push(labels.join(", "));
   if (answer.other !== undefined) parts.push(`Other: ${answer.other}`);
   if (parts.length === 0) askUserAnswerError(`answer for "${question.question}" is empty`);
-  return parts.join(" + ");
+  // #414: the chosen option's preview is echoed to the model — it saw the
+  // box only on the user's screen, so the selection carries its content.
+  const previews = labels
+    .map((label) => question.options.find((o) => o.label === label)?.preview)
+    .filter((p): p is string => p !== undefined);
+  return previews.length > 0 ? `${parts.join(" + ")}\n${previews.join("\n---\n")}` : parts.join(" + ");
 }
 
 /** The settled result of one ask_user set (ADR-0019): question → answer
