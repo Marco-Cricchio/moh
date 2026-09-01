@@ -45,7 +45,7 @@ writes safe.
 - **mcpTrust re-keyed** by the identity slug; pre-#396 absolute-path keys
   stay readable so existing consents survive the upgrade.
 - **Single-writer sessions**: `SessionStore.append` tracks its byte
-  baseline and emits a `session_writer_conflict` chrome event when the file
+  baseline and emits a `session_file_growth` chrome event when the file
   grows from elsewhere. Warning only; concurrent same-file writing is
   declared unsupported and auto-fork is a follow-up. The log stays
   append-only and integral either way.

@@ -58,7 +58,7 @@ skills distinct from them when configuring a selective sync rule.
 
 A session JSONL file has one writer. Concurrently opening the same session on
 two machines is unsupported: moh detects external file growth at append
-boundaries and emits a `session_writer_conflict` warning, but it does not
+boundaries and emits a `session_file_growth` warning, but it does not
 merge writers or auto-fork. Fork manually to recover a divergent line of
 work.
 
