@@ -354,13 +354,20 @@ export function Chat({
   // for), so an uncapped open turn rewrites hundreds of rows per frame —
   // O(n²) output that froze keypress handling and ballooned memory until the
   // OS killed the process (session 20260825T062108113Z).
-  // #412: while the inline ask_user block is open, the volatile ask_user
-  // tool_call is suppressed — its live duplicate would double the question
-  // with the block itself; the settled projection (post-answer) still runs.
+  // #413: while the inline ask_user block is open, the volatile ask_user
+  // tool_call projects compactly (one row per question, no answers yet)
+  // instead of being suppressed: the block below grows dynamically and can
+  // compress this tail, but the pending call itself stays visible (its
+  // ◌→✓ mutation is what settledBoundary keeps volatile). Once resolved,
+  // the settled projection carries the answer rows into Static.
   const askOpen = askGate !== undefined && askGate.current !== null;
+  // #413: the block's row height shrinks the volatile transcript budget so
+  // the block can grow to compress the transcript (frameless, #183). A
+  // 1-row floor keeps a scrolling tail visible at any size.
+  const askBudget = askOpen ? Math.max(1, viewport.rows - 9 - (askGate!.current!.questions.length + 3)) : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, Math.max(1, viewport.rows - 9)),
-    [liveBlocks, cols, viewport.rows],
+    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - 9)),
+    [liveBlocks, cols, viewport.rows, askBudget],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items at their recorded insertion indices — never through the settled
@@ -415,7 +422,7 @@ export function Chat({
       {replaySettled && replayBlocks.map((block) => (
         <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
       ))}
-      {state.pending && !askOpen && <Box flexDirection="column">{liveTail.map((block) => (
+      {state.pending && <Box flexDirection="column">{liveTail.map((block) => (
         <TranscriptBlockView
           key={`live-${block.key}`}
           block={block}

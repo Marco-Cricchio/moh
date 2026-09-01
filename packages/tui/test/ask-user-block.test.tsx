@@ -10,6 +10,7 @@ import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { projectTurns } from "../src/turns";
 import { toolArgSummary } from "../src/permission-gate";
+import { Chat } from "../src/Chat";
 import { stripAnsi, unwrap, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -293,4 +294,135 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     expect(call.ok).toBe(true);
     expect(call.output).toBe("Which database should I use?: Postgres");
   });
+});
+
+/** Mounts a full Chat (transcript + composer + inline block) wired to a
+ * scripted session whose first turn suspends on the ask_user tool. */
+async function mountChat(
+  gate: AskUserGate,
+  set: AskUserQuestionSet,
+  opts: { columns: number; rows: number },
+) {
+  const cwd = mkdtempSync(join(tmpdir(), "moh-ask-chat-"));
+  const home = mkdtempSync(join(tmpdir(), "moh-ask-chat-h-"));
+  const { session } = unwrap(makeSession({
+    cwd,
+    home,
+    provider: MockProvider.scripted([
+      { deltas: [""], finish: "tool_calls" as const, toolCalls: [{ name: "ask_user", args: set }] },
+      // Long slow reply keeps the turn pending after the answers return,
+      // so the promoted Static projection is observable mid-turn (#413).
+      { deltas: Array.from({ length: 20 }, (_, i) => `after-${i} `), deltaDelayMs: 60, finish: "stop" as const },
+    ]),
+    onAskUser: gate.ask,
+    permissionMode: "auto-accept",
+  }));
+  const element = (extra: Partial<React.ComponentProps<typeof Chat>> = {}) => (
+    <Chat
+      session={session}
+      cwd={cwd}
+      mode="dev"
+      modelLabel="mock"
+      width={opts.columns}
+      askGate={gate}
+      {...extra}
+    />
+  );
+  const ink = render(element());
+  Object.defineProperty(ink.stdout, "columns", { value: opts.columns, configurable: true });
+  Object.defineProperty(ink.stdout, "rows", { value: opts.rows, configurable: true });
+  ink.rerender(element());
+  void session.send("ask me");
+  // The session's own ask_user drives the gate — never pre-ask manually.
+  const frame = () => stripAnsi(ink.lastFrame() ?? "");
+  const first = BIG_SET.questions[0]!.question;
+  await waitForFrame(frame, set.questions[0]!.question, { timeoutMs: 4000 });
+  await sleep(80); // let ink install the block's useInput handler
+  return { ink, session, element };
+}
+
+const BIG_SET = {
+  questions: [
+    {
+      question: "First long decision question about deployment strategy?",
+      header: "Deploy",
+      options: [
+        { label: "blue-green", description: "zero downtime, double infra" },
+        { label: "canary", description: "gradual rollout, metrics gated" },
+        { label: "rolling", description: "simple, brief dip" },
+      ],
+      suggested: "canary",
+    },
+    {
+      question: "Second long decision question about database choice?",
+      header: "DB",
+      options: [
+        { label: "SQLite", description: "zero-config, file-based" },
+        { label: "Postgres", description: "production-grade server" },
+      ],
+      suggested: "SQLite",
+    },
+  ],
+} satisfies AskUserQuestionSet;
+
+describe("ask_user dynamic resize + Static projection (#413)", () => {
+  test("while the set is open: block grows with content, frameless, and the volatile transcript compresses", async () => {
+    const gate = new AskUserGate();
+    // Short terminal: the block's height must eat into the transcript budget.
+    const { ink } = await mountChat(gate, BIG_SET, { columns: 100, rows: 16 });
+    const open = stripAnsi(ink.lastFrame() ?? "");
+    // The block is frameless (#183): no Dialog border anywhere.
+    expect(open).not.toContain("╭");
+    // One question at a time with its full option set — the block grows
+    // with content rather than clipping the questions.
+    expect(open).toContain("First long decision question");
+    expect(open).toContain("blue-green");
+    expect(open).toContain("canary");
+    expect(open).toContain("rolling");
+    expect(open).toContain("1/2");
+    // The pending call stays visible as one compact question row (#413:
+    // no longer suppressed) — at 16 rows the transcript budget compressed
+    // to 1 row, which transcriptTail gives to the newest block (the ask
+    // row itself), so the question appears once: the volatile tool row.
+    expect(open.split("First long decision question").length - 1).toBe(1);
+    ink.unmount();
+  });
+
+  test("small sets stay compact on a tall terminal — transcript keeps its full budget", async () => {
+    const gate = new AskUserGate();
+    const { ink } = await mountChat(gate, QUESTION, { columns: 100, rows: 40 });
+    const open = stripAnsi(ink.lastFrame() ?? "");
+    expect(open).toContain("Which database should I use?");
+    expect(open).toContain("1/1");
+    // Plenty of transcript room: the fake-openai-style long turn is not
+    // squeezed — the whole geometry still renders the composer and bars.
+    expect(open).toContain("type");
+    ink.unmount();
+    gate.resolve({ answers: [{ labels: ["SQLite"] }] });
+  });
+
+  test("on resolution: compact Static projection — one row per question with answers, unchosen options omitted", async () => {
+    const gate = new AskUserGate();
+    const { ink } = await mountChat(gate, BIG_SET, { columns: 100, rows: 40 });
+    // Answer both questions: Q1 down to canary, advance; Q2 down to Postgres, advance; submit.
+    ink.stdin.write("\x1b[B"); // canary
+    await sleep(30);
+    ink.stdin.write("\r");
+    await sleep(30);
+    ink.stdin.write("\x1b[B"); // Postgres
+    await sleep(30);
+    ink.stdin.write("\r");
+    await sleep(30);
+    ink.stdin.write("\r"); // submit from summary
+    await sleep(150);
+    expect(gate.current).toBeNull(); // settled
+    // The settled projection lands in the frame while the long reply
+    // still streams: questions once, answers attached, no unchosen option
+    // text (SQLite/rolling/blue-green never render in the settled rows).
+    const settled = stripAnsi(ink.lastFrame() ?? "");
+    expect(settled).toContain("↳ you: canary");
+    expect(settled).toContain("↳ you: Postgres");
+    expect(settled.split("First long decision question").length - 1).toBe(1);
+    ink.unmount();
+  }, 15000);
 });

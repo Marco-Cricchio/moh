@@ -40,7 +40,65 @@ export interface TranscriptBlock {
 }
 
 /** Vibe phrasing for a tool call (#193): plain language, no raw command. */
+/** One row of the resolved ask_user Static projection (#413): a question
+ * line (kind "ask") or its answer line (kind "answer"). */
+export interface AskUserProjectionEntry {
+  line: string;
+  kind: "ask" | "answer";
+}
+
+/** The compact Static projection of a resolved ask_user set (#413, spec
+ * #411/#412): one row per question — the question itself, then "↳ you:"
+ * with the chosen answers parsed back from the tool_result output —
+ * unchosen options omitted. Shared by the volatile block: while the set is
+ * open, each unanswered question projects alone (state "run" keeps it
+ * volatile via settledBoundary); once the result arrives, the same walker
+ * attaches the answers. Legacy single-question args (pre-ADR-0019 replay)
+ * fall back to the old two-row shape through `legacyDetail`. */
+export function askUserProjectionEntries(
+  args: unknown,
+  resultOutput: string | undefined,
+  legacyDetail: () => string,
+): AskUserProjectionEntry[] {
+  const a = (args ?? {}) as { questions?: unknown };
+  if (!Array.isArray(a.questions)) {
+    // Legacy single-question shape: one question row + one answer row.
+    const question = askUserQuestionSummary(a) ?? legacyDetail();
+    const line = sanitizeForDisplay(question);
+    return [
+      { line, kind: "ask" },
+      ...(resultOutput !== undefined && resultOutput !== "" ? [{ line: `↳ you: ${sanitizeLine(resultOutput)}`, kind: "answer" as const }] : []),
+    ];
+  }
+  const questions = a.questions as ReadonlyArray<{ question?: unknown }>;
+  return questions.flatMap((q, i) => {
+    const text = typeof q.question === "string" ? q.question : "";
+    const answer = resultOutput !== undefined ? askUserAnswerAt(resultOutput, i) : undefined;
+    return [
+      { line: sanitizeForDisplay(text), kind: "ask" as const },
+      ...(answer !== undefined ? [{ line: `↳ you: ${sanitizeLine(answer)}`, kind: "answer" as const }] : []),
+    ];
+  });
+}
+
+/** Pulls question i's answer line out of the tool_result output produced
+ * by the core's `formatAskUserSetResult` ("Q: a" per line). Unanswerable
+ * (cancelled sets, drifted shape) → undefined: no answer row is invented. */
+function askUserAnswerAt(output: string, index: number): string | undefined {
+  const lines = output.split("\n");
+  for (let i = 0, seen = -1; i < lines.length; i++) {
+    const separator = lines[i]!.indexOf(": ");
+    if (separator < 0) continue;
+    seen++;
+    if (seen === index) return lines[i]!.slice(separator + 2);
+  }
+  return undefined;
+}
+
+/** Vibe plain-language verbs for tool activity (#193). */
 const TOOL_ACTION: Record<string, string> = {
+
+
   read: "read a file",
   write: "wrote a file",
   edit: "edited a file",
@@ -171,14 +229,25 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args), lines: result?.output.split("\n").slice(0, 5).map(sanitizeLine) ?? [], state: "fail" });
           break;
         }
-        // ask_user (#70, set shape #411): the first question is the
-        // summary; the answers land in the tool_result output, so replay
-        // shows both. Legacy single-question args still render (helper).
+        // ask_user (#70, set shape #411, Static projection #413): one row
+        // per question plus one answer row each (the chosen answers land
+        // in the tool_result output); unchosen options are omitted — the
+        // settled block is the compact record, not a replay of the whole
+        // interactive block. Legacy single-question args still render.
         if (event.name === "ask_user") {
-          const firstQuestion = askUserQuestionSummary(event.args);
-          const question = firstQuestion !== undefined ? sanitizeForDisplay(firstQuestion) : detailOf(event.args);
-          const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
-          blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state, ...timingFields });
+          const entries = askUserProjectionEntries(event.args, result?.output, () => detailOf(event.args));
+          if (entries.length > 0) {
+            blocks.push({
+              key,
+              kind: "moh",
+              glyph: "?",
+              type: "ask",
+              lines: entries.map((entry) => entry.line),
+              lineKinds: entries.map((entry) => entry.kind),
+              state,
+              ...timingFields,
+            });
+          }
           break;
         }
         if (vibe) {

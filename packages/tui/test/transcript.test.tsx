@@ -48,7 +48,7 @@ describe("render-side sanitizer (SEC-08)", () => {
     expect(blocks.find((item) => item.type === "ask")?.lines).toEqual(["Choose now", "↳ you: yes"]);
   });
 
-  test("question-set ask_user renders the first question as summary (#411); legacy shape still works", () => {
+  test("question-set ask_user: one row per question plus its answer; unchosen options omitted (#413); legacy shape still works", () => {
     const set = projectTranscript([
       {
         type: "tool_call",
@@ -58,7 +58,32 @@ describe("render-side sanitizer (SEC-08)", () => {
       },
       { type: "tool_result", callId: "set", ok: true, output: "Choose now: a\nSecond?: c" },
     ])[0]!;
-    expect(set.lines).toEqual(["Choose now", "↳ you: Choose now: a\nSecond?: c"]);
+    expect(set.lines).toEqual(["Choose now", "↳ you: a", "Second?", "↳ you: c"]);
+    expect(set.lineKinds).toEqual(["ask", "answer", "ask", "answer"]);
+    // Unchosen options never appear in the compact projection.
+    expect(set.lines.join("\n")).not.toContain("suggested");
+    // Unanswered (open) set: question rows only, no invented answers.
+    const open = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set2",
+        name: "ask_user",
+        args: { questions: [{ question: "Q1?", header: "A", options: [{ label: "x", description: "" }, { label: "y", description: "" }] }] },
+      },
+    ])[0]!;
+    expect(open.lines).toEqual(["Q1?"]);
+    expect(open.state).toBe("run");
+    // Cancelled set: the questions record themselves, no answer rows.
+    const cancelled = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set3",
+        name: "ask_user",
+        args: { questions: [{ question: "Q1?", header: "A", options: [{ label: "x", description: "" }] }] },
+      },
+      { type: "tool_result", callId: "set3", ok: true, output: "cancelled" },
+    ])[0]!;
+    expect(cancelled.lines).toEqual(["Q1?"]);
   });
 });
 
