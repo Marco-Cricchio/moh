@@ -13,7 +13,7 @@ import type { PromptComposer, SkillIndexEntry } from "../prompt-composer";
 import type { ProviderRegistry } from "../provider-registry";
 import type { EndpointProfile } from "../config";
 import type { SubagentOptions } from "../subagents";
-import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, Tool } from "../types";
+import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool } from "../types";
 
 /** Permission configuration for a session. */
 export interface PermissionsConfig {
@@ -57,7 +57,7 @@ export interface SessionConfig {
     args: unknown,
   ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
   /** Interactive question channel for the ask_user tool. Without it (headless) the tool fails fast. */
-  onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
+  onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
   /** Path of the JSONL file the sink appends to (from `sessionFromConfig`).

@@ -249,22 +249,70 @@ export type PermissionGrantReason = "yolo" | "auto_accept" | "user";
 
 export type TurnStatus = "done" | "error" | "cancelled";
 
-/** One selectable answer of an ask_user question: short label plus a description shown to the user. */
+/** One selectable answer of an ask_user question: short label, a
+ * description shown to the user, and optional preview content (markdown
+ * or text) rendered beside the question when the option is focused and
+ * echoed to the model on selection (ADR-0019). */
 export interface AskUserOption {
   label: string;
   description: string;
+  /** Optional side-by-side preview content; echoed on selection. */
+  preview?: string;
 }
 
-/** An ask_user question as rendered to the user. */
+/** One question of an ask_user question set (ADR-0019): full text, the
+ * required header chip (≤ 12 chars), 2–4 options, an optional
+ * multiSelect flag, and the retained `suggested` — a purely visual
+ * "recommended" chip per question, never a default answer. */
 export interface AskUserQuestion {
   question: string;
+  header: string;
   options: AskUserOption[];
-  /** The option label flagged as the suggested answer (the ➡️ of the grilling format). */
+  /** Space/Enter multi-selection; the answer carries a label list. */
+  multiSelect?: boolean;
+  /** The option label flagged as the suggested answer (the ➡️ of the
+   * grilling format). Purely visual: never a default, never marked in
+   * the result when not chosen. */
+  suggested?: string;
+}
+
+/** An ask_user call: 1–4 questions, all answered in one round. */
+export interface AskUserQuestionSet {
+  questions: AskUserQuestion[];
+}
+
+/** The user's answer to one ask_user question: an offered label (a
+ * non-empty label list for multiSelect), an "Other" free-text answer,
+ * or "Other" on top of a selection. */
+export interface AskUserAnswer {
+  /** The chosen option label(s): exactly one for single-select, one or
+   * more for multiSelect. */
+  labels?: string[];
+  /** Free-text "Other" answer, may combine with labels. */
+  other?: string;
+}
+
+/** The whole set of answers collected before the turn resumes: one
+ * answer per question, in question order — or an explicit cancellation
+ * of the entire set. */
+export interface AskUserSetResult {
+  answers: AskUserAnswer[];
+  /** True when the user explicitly cancelled the set (from the summary
+   * screen). The tool result becomes "cancelled". */
+  cancelled?: boolean;
+}
+
+/** Legacy single-question ask_user payload (pre-ADR-0019 sessions).
+ * Widened to a question set; kept for replay translation (T5). */
+export interface AskUserLegacyQuestion {
+  question: string;
+  options: AskUserOption[];
   suggested: string;
 }
 
-/** A user's answer: exactly one of the choice label (an offered option) or free text. */
-export type AskUserResult = { choice?: string; text?: string };
+/** A user's legacy answer: exactly one of the choice label (an offered
+ * option) or free text. Superseded by AskUserAnswer; kept for replay. */
+export type AskUserLegacyResult = { choice?: string; text?: string };
 
 /** Runtime context handed to every tool execution. */
 export interface ToolContext {
@@ -283,7 +331,7 @@ export interface ToolContext {
    * (e.g. the read ledger's re-read nudge, #196). */
   turn?: number;
   /** Interactive question channel (ask_user). Absent (headless) → the tool fails fast. */
-  askUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
+  askUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
 }
 
 /** The tool contract every built-in and extension tool implements. */

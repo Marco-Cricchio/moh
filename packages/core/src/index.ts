@@ -26,8 +26,10 @@ import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
   ReasoningStreamEvent,
+  AskUserAnswer,
   AskUserQuestion,
-  AskUserResult,
+  AskUserQuestionSet,
+  AskUserSetResult,
   Provider,
   SendOptions,
   SkillPrompt,
@@ -521,8 +523,10 @@ export {
   type ReasoningStreamEvent,
   type StreamOptions,
   type ThinkingLevel,
+  type AskUserAnswer,
   type AskUserQuestion,
-  type AskUserResult,
+  type AskUserQuestionSet,
+  type AskUserSetResult,
   type Provider,
   type Tool,
 };
