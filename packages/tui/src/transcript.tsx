@@ -170,8 +170,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args), lines: result?.output.split("\n").slice(0, 5).map(sanitizeLine) ?? [], state: "fail" });
           break;
         }
+        // ask_user (#70, set shape #411): the first question is the
+        // summary; the answers land in the tool_result output, so replay
+        // shows both. Legacy single-question args still render.
         if (event.name === "ask_user") {
-          const question = event.args && typeof event.args === "object" && "question" in event.args ? sanitizeForDisplay(String((event.args as { question: unknown }).question)) : detailOf(event.args);
+          const args = event.args as { question?: unknown; questions?: { question?: unknown }[] } | undefined;
+          const firstQuestion =
+            Array.isArray(args?.questions) && typeof args!.questions[0]?.question === "string"
+              ? args!.questions[0].question
+              : typeof args?.question === "string"
+                ? args.question
+                : undefined;
+          const question = firstQuestion !== undefined ? sanitizeForDisplay(String(firstQuestion)) : detailOf(event.args);
           const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
           blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state, ...timingFields });
           break;

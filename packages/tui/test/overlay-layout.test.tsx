@@ -26,13 +26,18 @@ const askScript = () => [
       {
         name: "ask_user",
         args: {
-          question: "Which database should I use?",
-          options: [
-            { label: "SQLite", description: "zero-config, file-based" },
-            { label: "Postgres", description: "production-grade server" },
-            { label: "Redis", description: "in-memory store" },
+          questions: [
+            {
+              question: "Which database should I use?",
+              header: "Database",
+              options: [
+                { label: "SQLite", description: "zero-config, file-based" },
+                { label: "Postgres", description: "production-grade server" },
+                { label: "Redis", description: "in-memory store" },
+              ],
+              suggested: "Postgres",
+            },
           ],
-          suggested: "Postgres",
         },
       },
     ],
@@ -90,7 +95,7 @@ describe("overlay layout integrity over Chat", () => {
     expect(frame).toContain("2  Postgres  ← suggested — production-grade server");
     expect(frame).toContain("3  Redis — in-memory store");
     expect(frame).toContain("or type your answer");
-    gate.resolve({ choice: "Postgres" });
+    gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await sleep(50);
     i.unmount();
   });

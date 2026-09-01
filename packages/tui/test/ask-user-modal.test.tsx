@@ -4,7 +4,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, SessionStore, builtinTools, type AskUserQuestion, type Tool } from "@moh/core";
+import { MockProvider, SessionStore, builtinTools, type AskUserQuestionSet, type Tool } from "@moh/core";
 import { AskUserModal } from "../src/AskUserModal";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
@@ -14,15 +14,35 @@ import { stripAnsi, unwrap, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const QUESTION: AskUserQuestion = {
-  question: "Which database should I use?",
-  options: [
-    { label: "SQLite", description: "zero-config, file-based" },
-    { label: "Postgres", description: "production-grade server" },
-    { label: "Redis", description: "in-memory store" },
+const QUESTION: AskUserQuestionSet = {
+  questions: [
+    {
+      question: "Which database should I use?",
+      header: "Database",
+      options: [
+        { label: "SQLite", description: "zero-config, file-based" },
+        { label: "Postgres", description: "production-grade server" },
+        { label: "Redis", description: "in-memory store" },
+      ],
+      suggested: "Postgres",
+    },
   ],
-  suggested: "Postgres",
 };
+
+const TWO = {
+  questions: [
+    ...QUESTION.questions,
+    {
+      question: "And the cache?",
+      header: "Cache",
+      options: [
+        { label: "in-process", description: "no extra service" },
+        { label: "Valkey", description: "shared, persistent" },
+      ],
+      suggested: "Valkey",
+    },
+  ],
+} satisfies AskUserQuestionSet;
 
 /** ask_user built-in wrapped to record what the model receives. */
 function askUserTool(seen: string[]): Record<string, Tool> {
@@ -40,39 +60,36 @@ function askUserTool(seen: string[]): Record<string, Tool> {
 }
 
 /** Script: one ask_user call, then a closing reply. */
-const script = () => [
+const script = (args: unknown) => [
   {
     deltas: [""],
     finish: "tool_calls" as const,
-    toolCalls: [{ name: "ask_user", args: QUESTION }],
+    toolCalls: [{ name: "ask_user", args }],
   },
   { deltas: ["all set"], finish: "stop" as const },
 ];
 
-describe("ask_user overlay (issue #70)", () => {
-  test("overlapping ask rejects instead of silently answering with the suggested option (#68)", async () => {
+describe("ask_user question set (ADR-0019 / #411, transitional modal)", () => {
+  test("overlapping ask rejects instead of silently answering (#68)", async () => {
     const gate = new AskUserGate();
     const first = gate.ask(QUESTION);
-    await expect(gate.ask(QUESTION)).rejects.toThrow("ask_user: a question is already pending");
-    gate.resolve({ choice: "Postgres" });
-    expect(await first).toEqual({ choice: "Postgres" });
+    await expect(gate.ask(QUESTION)).rejects.toThrow("ask_user: a question set is already pending");
+    gate.resolve({ answers: [{ labels: ["Postgres"] }] });
+    expect(await first).toEqual({ answers: [{ labels: ["Postgres"] }] });
   });
 
-  test("renders question, options, suggested marker, and the free-text affordance", async () => {
+  test("renders header chip, question, options, suggested marker, free-text affordance", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("Which database should I use?");
+    expect(frame).toContain("Database (1/1)");
     expect(frame).toContain("SQLite");
-    expect(frame).toContain("zero-config, file-based");
-    expect(frame).toContain("Postgres");
     expect(frame).toContain("← suggested");
-    expect(frame).toContain("> 2  Postgres"); // suggested is highlighted by default
     expect(frame).toContain("or type your answer");
-    expect(frame).toContain("↑↓/1-4 choose");
-    gate.resolve({ choice: "Postgres" });
+    gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await pending; // no unhandled rejection
     i.unmount();
   });
@@ -80,9 +97,14 @@ describe("ask_user overlay (issue #70)", () => {
   test("strips terminal controls from the question and option text", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask({
-      question: "Question\u001b[2K",
-      suggested: "safe\u001b[2K",
-      options: [{ label: "safe\u001b[2K", description: "description\u009b2K" }],
+      questions: [
+        {
+          question: "Question\u001b[2K",
+          header: "Safe",
+          suggested: "safe\u001b[2K",
+          options: [{ label: "safe\u001b[2K", description: "description\u009b2K" }, { label: "b", description: "d" }],
+        },
+      ],
     });
     const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
@@ -91,19 +113,21 @@ describe("ask_user overlay (issue #70)", () => {
     expect(frame).toContain("safe");
     expect(frame).toContain("description");
     expect(frame).not.toContain("[2K");
-    gate.resolve({ choice: "safe\u001b[2K" });
+    gate.resolve({ answers: [{ labels: ["safe\u001b[2K"] }] });
     await pending;
     i.unmount();
   });
 
-  test("enter picks the highlighted option; esc falls back to the suggested one", async () => {
+  test("enter picks the focused option; esc cancels the whole set", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
-    i.stdin.write("\r"); // enter → suggested (default highlight)
+    i.stdin.write("\x1b[B"); // down to Postgres (focus starts at option 1)
     await sleep(20);
-    expect(await pending).toEqual({ choice: "Postgres" });
+    i.stdin.write("\r");
+    await sleep(20);
+    expect(await pending).toEqual({ answers: [{ labels: ["Postgres"] }] });
     expect(gate.current).toBeNull();
     i.unmount();
 
@@ -111,32 +135,33 @@ describe("ask_user overlay (issue #70)", () => {
     const pending2 = gate2.ask(QUESTION);
     const i2 = render(<AskUserModal gate={gate2} />);
     await sleep(30);
-    i2.stdin.write("\x1b"); // esc → suggested
+    i2.stdin.write("\x1b"); // esc → cancel the set (no more esc=suggested)
     await sleep(20);
-    expect(await pending2).toEqual({ choice: "Postgres" });
+    expect(await pending2).toEqual({ answers: [], cancelled: true });
     i2.unmount();
   });
 
-  test("arrow and number navigation select any option", async () => {
+  test("multi-question set: answers collected one question at a time, all before the turn resumes", async () => {
     const gate = new AskUserGate();
-    const pending = gate.ask(QUESTION);
+    const pending = gate.ask(TWO);
     const i = render(<AskUserModal gate={gate} />);
     await sleep(30);
-    i.stdin.write("\x1b[A"); // up from suggested → SQLite
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Database (1/2)");
+    i.stdin.write("\r"); // SQLite
     await sleep(20);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("> 1  SQLite");
-    i.stdin.write("\x1b[B"); // down → Postgres
+    const mid = stripAnsi(i.lastFrame() ?? "");
+    expect(mid).toContain("Cache (2/2)");
+    expect(mid).toContain("And the cache?");
+    expect(gate.current).not.toBeNull(); // turn still held
+    i.stdin.write("\x1b[B"); // down to Valkey
     await sleep(20);
-    i.stdin.write("\x1b[B"); // down → Redis
+    i.stdin.write("\r");
     await sleep(20);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("> 3  Redis");
-    i.stdin.write("1"); // direct number → SQLite
-    await sleep(20);
-    expect(await pending).toEqual({ choice: "SQLite" });
+    expect(await pending).toEqual({ answers: [{ labels: ["SQLite"] }, { labels: ["Valkey"] }] });
     i.unmount();
   });
 
-  test("typing switches to free text; enter submits the text, not an option", async () => {
+  test("typing switches to free text; enter submits an 'Other' answer", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = render(<AskUserModal gate={gate} />);
@@ -146,15 +171,13 @@ describe("ask_user overlay (issue #70)", () => {
     i.stdin.write("go");
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "Mongo");
-    expect(frame()).toContain("Mongo");
     expect(frame()).toContain("enter send"); // text-mode footer
     i.stdin.write("\x7f"); // backspace
     await waitForFrame(frame, "Mong");
-    expect(frame()).toContain("Mong");
     i.stdin.write("o");
     await waitForFrame(frame, "Mongo");
     i.stdin.write("\r");
-    expect(await pending).toEqual({ text: "Mongo" });
+    expect(await pending).toEqual({ answers: [{ other: "Mongo" }] });
     i.unmount();
   });
 
@@ -170,8 +193,8 @@ describe("ask_user overlay (issue #70)", () => {
     i.stdin.write("\r");
     await sleep(20);
     expect(gate.current).not.toBeNull(); // still up
-    gate.resolve({ text: "fallback" }); // settle without the UI
-    expect(await pending).toEqual({ text: "fallback" });
+    gate.resolve({ answers: [{ other: "fallback" }] }); // settle without the UI
+    expect(await pending).toEqual({ answers: [{ other: "fallback" }] });
     i.unmount();
   });
 
@@ -183,7 +206,7 @@ describe("ask_user overlay (issue #70)", () => {
     const { session } = unwrap(makeSession({
       cwd,
       home,
-      provider: MockProvider.scripted(script()),
+      provider: MockProvider.scripted(script(QUESTION)),
       tools: askUserTool(seen),
       onAskUser: gate.ask,
     }));
@@ -191,12 +214,12 @@ describe("ask_user overlay (issue #70)", () => {
     await sleep(30);
     void session.send("pick one");
     await sleep(200);
-    expect(gate.current?.question).toBe("Which database should I use?");
+    expect(gate.current?.questions[0]?.question).toBe("Which database should I use?");
     expect(seen).toEqual([]); // turn suspended on the overlay
 
-    gate.resolve({ choice: "Redis" });
+    gate.resolve({ answers: [{ labels: ["Redis"] }] });
     await sleep(300);
-    expect(seen).toEqual(["Redis"]); // the model received the answer
+    expect(seen).toEqual(["Which database should I use?: Redis"]); // the model received the answer
     i.unmount();
   });
 
@@ -210,19 +233,19 @@ describe("ask_user overlay (issue #70)", () => {
       cwd,
       home,
       store,
-      provider: MockProvider.scripted(script()),
+      provider: MockProvider.scripted(script(QUESTION)),
       tools: askUserTool(seen),
       onAskUser: gate.ask,
     }));
     void session.send("pick one");
     await sleep(200);
-    gate.resolve({ choice: "Postgres" });
+    gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await sleep(300);
 
     const turns = projectTurns(store.load());
     const call = turns.flatMap((t) => t.toolCalls).find((c) => c.name === "ask_user")!;
     expect(toolArgSummary(call.args)).toBe("Which database should I use?");
     expect(call.ok).toBe(true);
-    expect(call.output).toBe("Postgres");
+    expect(call.output).toBe("Which database should I use?: Postgres");
   });
 });

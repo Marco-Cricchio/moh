@@ -4,41 +4,63 @@ import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
 import { dialogWidth, useViewport } from "./viewport";
 import type { AskUserGate } from "./ask-user-gate";
+import type { AskUserAnswer, AskUserQuestion, AskUserSetResult } from "@moh/core";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 /**
- * The blocking ask_user overlay (issue #70 / style guide §8): the question
- * with up to 4 options, the suggested answer visually distinct, arrow /
- * number navigation, and a free-text answer always available. The turn
- * loop is suspended in the core while this overlay is up.
+ * TRANSITIONAL renderer for the ADR-0019 question set (#411): keeps the
+ * blocking Dialog while the core contract has widened to 1–4 questions.
+ * The questions of one set are answered one at a time; "Other" free text
+ * is available for every question; the last question's confirm releases
+ * the whole set. multiSelect questions select the focused option on Enter
+ * (full multi-select interaction, tab navigation, summary, and cancel
+ * land with the inline rendering, #412 — this stopgap exists so the core
+ * seam can ship and be tested end-to-end). The old "esc = suggested"
+ * behavior is already gone: esc cancels the set.
  *
- * Keys: ↑/↓ move, 1–4 pick an option, enter confirms (option in option
- * mode, text in text mode), any printable character except the digits
- * 1–4 (option shortcuts) switches to free text — press tab first to type
- * an answer that starts with a digit. Tab toggles modes, esc answers
- * with the suggested option.
+ * Keys: ↑/↓ move, enter confirms, tab switches to free text, esc cancels
+ * the whole set.
  */
 export function AskUserModal({ gate }: { gate: AskUserGate }) {
   const theme = useTheme();
   const viewport = useViewport();
   useSyncExternalStore(gate.subscribe, gate.getSnapshot);
-  const question = gate.current;
-  // Default selection = the suggested option; resets whenever a new
-  // question arrives (the gate's version bumps).
-  const suggestedIndex = question
-    ? Math.max(0, question.options.findIndex((o) => o.label === question.suggested))
-    : 0;
-  const [selected, setSelected] = useState(suggestedIndex);
+  const set = gate.current;
+  const questions = set?.questions ?? [];
+  const [index, setIndex] = useState(0);
+  const [answers, setAnswers] = useState<AskUserAnswer[]>([]);
+  const [selected, setSelected] = useState(0);
   const [textMode, setTextMode] = useState(false);
   const [text, setText] = useState("");
 
-  // New question → reset the picker to the suggested option.
+  const question: AskUserQuestion | undefined = questions[index];
+
+  // New set → reset all navigation and collection state.
   useEffect(() => {
-    setSelected(suggestedIndex);
+    setIndex(0);
+    setAnswers([]);
+    setSelected(0);
     setTextMode(false);
     setText("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.version]);
+
+  const settle = (result: AskUserSetResult) => gate.resolve(result);
+
+  const confirm = (answer: AskUserAnswer) => {
+    if (!question) return;
+    const next = [...answers];
+    next[index] = answer;
+    setAnswers(next);
+    if (index + 1 < questions.length) {
+      setIndex(index + 1);
+      setSelected(0);
+      setTextMode(false);
+      setText("");
+    } else {
+      settle({ answers: next });
+    }
+  };
 
   useInput((input, key) => {
     if (!question) return;
@@ -54,7 +76,7 @@ export function AskUserModal({ gate }: { gate: AskUserGate }) {
       }
       if (key.return) {
         const value = text.trim();
-        if (value) return gate.resolve({ text: value });
+        if (value) confirm({ other: value });
         return; // empty text: nothing to submit
       }
       if (key.backspace || key.delete) {
@@ -67,12 +89,9 @@ export function AskUserModal({ gate }: { gate: AskUserGate }) {
     const count = question.options.length;
     if (key.upArrow) return setSelected((s) => (s - 1 + count) % count);
     if (key.downArrow) return setSelected((s) => (s + 1) % count);
-    if (key.escape) return gate.resolve({ choice: question.suggested });
+    if (key.escape) return settle({ answers: [], cancelled: true });
     if (key.tab) return setTextMode(true);
-    if (input >= "1" && input <= "4" && Number(input) <= count) {
-      return gate.resolve({ choice: question.options[Number(input) - 1]!.label });
-    }
-    if (key.return) return gate.resolve({ choice: question.options[selected]!.label });
+    if (key.return) return confirm({ labels: [question.options[selected]!.label] });
     if (input && !key.ctrl && !key.meta && !key.upArrow && !key.downArrow) {
       setTextMode(true);
       setText(input);
@@ -82,7 +101,7 @@ export function AskUserModal({ gate }: { gate: AskUserGate }) {
   if (!question) return null;
 
   return (
-    <Dialog title=" question " color={theme.purple} width={dialogWidth(viewport)}>
+    <Dialog title={` ${question.header} (${index + 1}/${questions.length}) `} color={theme.purple} width={dialogWidth(viewport)}>
       <Text bold>{sanitizeForDisplay(question.question)}</Text>
       <Text> </Text>
       {question.options.map((option, i) => {
@@ -97,6 +116,7 @@ export function AskUserModal({ gate }: { gate: AskUserGate }) {
           </Text>
         );
       })}
+      {question.multiSelect ? <Dim>{"  multi-select"}</Dim> : null}
       <Text> </Text>
       <Text>
         {textMode ? (
@@ -112,7 +132,7 @@ export function AskUserModal({ gate }: { gate: AskUserGate }) {
       <Dim>
         {textMode
           ? " enter send · tab back to options · esc discard text"
-          : " ↑↓/1-4 choose · enter confirm · esc suggested · tab free text (digits: tab first)"}
+          : " ↑↓/enter choose · tab free text · esc cancel the set"}
       </Dim>
     </Dialog>
   );

@@ -67,8 +67,12 @@ export function toolArgSummary(args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
   if (typeof a.command === "string") return sanitizeForDisplay(a.command);
   if (typeof a.path === "string") return sanitizeForDisplay(a.path);
-  // ask_user (#70): the question is the summary; the answer lands in the
-  // tool_result output, so replay shows both.
+  // ask_user (#70/#411): the first question is the summary; the answers
+  // land in the tool_result output, so replay shows both.
+  if (typeof a.questions === "object" && Array.isArray(a.questions) && a.questions.length > 0) {
+    const q = (a.questions[0] as { question?: unknown }).question;
+    if (typeof q === "string") return sanitizeForDisplay(q);
+  }
   if (typeof a.question === "string") return sanitizeForDisplay(a.question);
   return "";
 }

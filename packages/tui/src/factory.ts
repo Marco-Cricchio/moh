@@ -17,8 +17,8 @@ import {
   type MohConfig,
   type AgentEvent,
   type AgentSession,
-  type AskUserQuestion,
-  type AskUserResult,
+  type AskUserQuestionSet,
+  type AskUserSetResult,
   type AssemblyError,
   type Provider,
   type Tool,
@@ -39,7 +39,7 @@ export interface OpenSessionOptions {
   /** Consent seam for the TUI permission modal (#33). */
   onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
   /** Interactive question channel for the ask_user tool (#70). */
-  onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
+  onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Default permission mode for new sessions (user config; yolo stays launch-only). */
   permissionMode?: "normal" | "auto-accept";
   /** #377: yolo session (launch-only `--yolo`): no permission prompts and
