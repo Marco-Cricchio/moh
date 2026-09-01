@@ -7,9 +7,34 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-01
+
+### Added
+
+- Session continuity across machines (#396): declared project identity
+  persisted in `.moh/project.json` (slug + path hash) with automatic
+  legacy migration, so resumed sessions find the same
+  `~/.moh/projects/<slug>/` home on a different machine or path (#398).
+- Session continuity portability contract: documented rules for syncing
+  sessions across machines, including the serial single-writer contract
+  and the ignore-list for what must not be synced (#397).
+- Content-based memory lock (pid + boot/machine id): memory writes are
+  owned by one machine at a time; a stale or foreign lock is detected
+  from system identity rather than wall-clock heuristics (#399).
+- Single-writer warning: an open session probes its file size at every
+  append boundary and emits a `session_file_growth` chrome event when
+  the file grows from elsewhere (another machine or process), surfaced
+  as a visible warning in the TUI, CLI, and replay (#400).
+- `moh run --resume [query]` headless session discovery: listing,
+  best-match, id match, append, and cross-machine slug resolution;
+  `--resume` now rejects `--fork` instead of silently ignoring it (#401).
+- Cross-machine continuity acceptance tests end-to-end (shared home,
+  two project roots) on the core, CLI, and TUI surfaces (#402).
+
 ### Fixed
 
 - `session-memory` skill now computes the project slug with the core's exact rule (sanitized basename + path hash), so session notes land in the same `~/.moh/projects/<slug>/` directory as sessions and memory (#395).
+
 ## [0.11.2] - 2026-08-31
 
 ### Fixed
@@ -324,7 +349,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.11.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.12.0...develop
+[0.12.0]: https://github.com/Marco-Cricchio/moh/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/Marco-Cricchio/moh/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/Marco-Cricchio/moh/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/Marco-Cricchio/moh/compare/v0.10.0...v0.11.0
