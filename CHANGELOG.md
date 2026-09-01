@@ -7,6 +7,9 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- `session-memory` skill now computes the project slug with the core's exact rule (sanitized basename + path hash), so session notes land in the same `~/.moh/projects/<slug>/` directory as sessions and memory (#395).
 ## [0.11.2] - 2026-08-31
 
 ### Fixed

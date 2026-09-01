@@ -15,11 +15,13 @@ The `<project-slug>` is moh's exact slug rule (see `projectSlug` in `packages/co
 ```bash
 SLUG_BASE=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
 [ -n "$SLUG_BASE" ] || SLUG_BASE="project"
-SLUG_HASH=$(printf '%s' "$PWD" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
+SLUG_HASH=$(printf '%s' "$(pwd -P)" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
 SESSION_DIR="$HOME/.moh/projects/$SLUG_BASE-$SLUG_HASH"
 SESSION_FILE="$SESSION_DIR/session.md"
 mkdir -p "$SESSION_DIR"
 ```
+
+(Use `pwd -P`, not `$PWD`, for the hash: the core hashes the resolved absolute path, and a logical path through a symlink would produce a different slug.)
 
 ## Structured template
 
@@ -73,11 +75,9 @@ Always respect these rules when updating the file:
 ```bash
 SLUG_BASE=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
 [ -n "$SLUG_BASE" ] || SLUG_BASE="project"
-SLUG_HASH=$(printf '%s' "$PWD" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
+SLUG_HASH=$(printf '%s' "$(pwd -P)" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
 cat "$HOME/.moh/projects/$SLUG_BASE-$SLUG_HASH/session.md" 2>/dev/null || echo "No previous session."
 ```
-
-Cross-check: if `~/.moh/projects/` already contains exactly one directory starting with `<basename>-`, prefer that directory over the computed slug.
 Report a summary of "Current State" and next steps found.
 
 ### During the session — update after significant tasks
