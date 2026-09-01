@@ -71,9 +71,9 @@ export function askUserProjectionEntries(
     ];
   }
   const questions = a.questions as ReadonlyArray<{ question?: unknown }>;
-  return questions.flatMap((q, i) => {
+  return questions.flatMap((q) => {
     const text = typeof q.question === "string" ? q.question : "";
-    const answer = resultOutput !== undefined ? askUserAnswerAt(resultOutput, i) : undefined;
+    const answer = resultOutput !== undefined ? askUserAnswerFor(resultOutput, text) : undefined;
     return [
       { line: sanitizeForDisplay(text), kind: "ask" as const },
       ...(answer !== undefined ? [{ line: `↳ you: ${sanitizeLine(answer)}`, kind: "answer" as const }] : []),
@@ -81,18 +81,17 @@ export function askUserProjectionEntries(
   });
 }
 
-/** Pulls question i's answer line out of the tool_result output produced
- * by the core's `formatAskUserSetResult` ("Q: a" per line). Unanswerable
- * (cancelled sets, drifted shape) → undefined: no answer row is invented. */
-function askUserAnswerAt(output: string, index: number): string | undefined {
-  const lines = output.split("\n");
-  for (let i = 0, seen = -1; i < lines.length; i++) {
-    const separator = lines[i]!.indexOf(": ");
-    if (separator < 0) continue;
-    seen++;
-    if (seen === index) return lines[i]!.slice(separator + 2);
-  }
-  return undefined;
+/** Pulls a question's answer out of the tool_result output produced by the
+ * core's `formatAskUserSetResult` (one "Q: a" line per question; question
+ * text is unique in the set). Matches on the `"<question>: "` prefix rather
+ * than position, so a colon inside the question text cannot misalign the
+ * parse. Unanswerable (cancelled sets, drifted shape) → undefined: no
+ * answer row is invented. */
+function askUserAnswerFor(output: string, question: string): string | undefined {
+  if (question === "") return undefined;
+  const prefix = `${question}: `;
+  const line = output.split("\n").find((l) => l.startsWith(prefix));
+  return line !== undefined ? line.slice(prefix.length) : undefined;
 }
 
 /** Vibe plain-language verbs for tool activity (#193). */

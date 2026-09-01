@@ -7,6 +7,13 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- ask_user inline block resize + compact Static projection (#413): while a
+  question set is open the block grows with its content and compresses the
+  volatile transcript; on resolution the settled block projects one row per
+  question with the chosen answers, unchosen options omitted.
+
 ## [0.12.0] - 2026-09-01
 
 ### Added

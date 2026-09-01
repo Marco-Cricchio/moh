@@ -5,7 +5,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, SessionStore, builtinTools, type AskUserQuestionSet, type Tool } from "@moh/core";
-import { AskUserBlock } from "../src/AskUserBlock";
+import { AskUserBlock, askUserBlockRows } from "../src/AskUserBlock";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { projectTurns } from "../src/turns";
@@ -366,6 +366,25 @@ const BIG_SET = {
 } satisfies AskUserQuestionSet;
 
 describe("ask_user dynamic resize + Static projection (#413)", () => {
+  test("askUserBlockRows: scales with the tallest question screen, never below the summary screen (#413)", () => {
+    // Small single-question set: header + question + 2 options + Other + footer + padding.
+    expect(askUserBlockRows([{ question: "q", options: [{}, {}] }])).toBe(2 + 5 + 3);
+    // Many questions, few options each: the summary screen (1 row/question
+    // + header/blank rows) sets the floor, the tallest question screen the
+    // ceiling.
+    expect(askUserBlockRows([
+      { question: "a", options: [{}] },
+      { question: "b", options: [{}] },
+      { question: "c", options: [{}] },
+      { question: "d", options: [{}] },
+    ])).toBe(4 + 4 + 3); // summary floor (4 rows + header/blank) beats the question screen
+    // One question with a big option list dominates the set.
+    expect(askUserBlockRows([
+      { question: "a", options: [{}, {}] },
+      { question: "b", options: [{}, {}, {}, {}] },
+    ])).toBe(12);
+  });
+
   test("while the set is open: block grows with content, frameless, and the volatile transcript compresses", async () => {
     const gate = new AskUserGate();
     // Short terminal: the block's height must eat into the transcript budget.

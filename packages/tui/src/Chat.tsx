@@ -10,7 +10,7 @@ import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
-import { AskUserBlock } from "./AskUserBlock";
+import { AskUserBlock, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
@@ -364,7 +364,9 @@ export function Chat({
   // #413: the block's row height shrinks the volatile transcript budget so
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
-  const askBudget = askOpen ? Math.max(1, viewport.rows - 9 - (askGate!.current!.questions.length + 3)) : undefined;
+  const askBudget = askOpen
+    ? Math.max(1, viewport.rows - 9 - askUserBlockRows(askGate!.current!.questions))
+    : undefined;
   const liveTail = useMemo(
     () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - 9)),
     [liveBlocks, cols, viewport.rows, askBudget],

@@ -84,6 +84,18 @@ describe("render-side sanitizer (SEC-08)", () => {
       { type: "tool_result", callId: "set3", ok: true, output: "cancelled" },
     ])[0]!;
     expect(cancelled.lines).toEqual(["Q1?"]);
+    // A colon inside the question text cannot misalign the answer parse
+    // (#413 review): the prefix match keys on the question, not position.
+    const colon = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set4",
+        name: "ask_user",
+        args: { questions: [{ question: "Deploy: where?", header: "Deploy", options: [{ label: "prod", description: "" }, { label: "staging", description: "" }] }, { question: "Rollback?", header: "Roll", options: [{ label: "auto", description: "" }] }] },
+      },
+      { type: "tool_result", callId: "set4", ok: true, output: "Deploy: where?: staging\nRollback?: auto" },
+    ])[0]!;
+    expect(colon.lines).toEqual(["Deploy: where?", "↳ you: staging", "Rollback?", "↳ you: auto"]);
   });
 });
 
