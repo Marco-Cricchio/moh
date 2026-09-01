@@ -43,7 +43,7 @@ export interface SessionConsent {
     tool: string,
     args: unknown,
   ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
-  /** ask_user channel (TUI: the question modal). */
+  /** ask_user channel (TUI: the inline question block, ADR-0019). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Project MCP server consent (TUI: reuses the permission modal). */
   onMcpTrust?: (server: string) => Promise<McpConsentAnswer> | McpConsentAnswer;

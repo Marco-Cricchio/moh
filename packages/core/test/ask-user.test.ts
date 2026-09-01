@@ -113,6 +113,39 @@ describe("ask_user tool (question set, ADR-0019 / #411)", () => {
     ]);
   });
 
+  test("chosen option's preview is echoed back to the model (#414)", async () => {
+    const withPreview = {
+      questions: [
+        {
+          question: "Which style?",
+          header: "Style",
+          options: [
+            { label: "concise", description: "terse", preview: "**Concise**: short answers, no filler." },
+            { label: "verbose", description: "loquacious", preview: "# Verbose\n\nLong, structured essays with\ntwo\nthree\nfour\nfive lines." },
+          ],
+          suggested: "concise",
+        },
+      ],
+    } as const;
+    const ctx = ctxWith(() => ({ answers: [{ labels: ["verbose"] }] }));
+    const out = await tools.ask_user.execute(withPreview, ctx);
+    expect(out).toBe(
+      "Which style?: verbose\n# Verbose\n\nLong, structured essays with\ntwo\nthree\nfour\nfive lines.",
+    );
+    // multiSelect: each chosen option's preview, separated by ---.
+    const ctxMulti = ctxWith(() => ({ answers: [{ labels: ["concise", "verbose"] }] }));
+    const multi = await tools.ask_user.execute(
+      { ...withPreview, questions: [{ ...withPreview.questions[0], multiSelect: true }] },
+      ctxMulti,
+    );
+    expect(multi).toBe(
+      "Which style?: concise, verbose\n**Concise**: short answers, no filler.\n---\n# Verbose\n\nLong, structured essays with\ntwo\nthree\nfour\nfive lines.",
+    );
+    // No previews offered → the classic single line, unchanged.
+    const plain = await tools.ask_user.execute(single, ctxWith(() => ({ answers: [{ labels: ["Postgres"] }] })));
+    expect(plain).toBe("Which database should we target?: Postgres");
+  });
+
   test("free-text 'Other' only answer", async () => {
     const ctx = ctxWith(() => ({ answers: [{ other: "whatever the team prefers" }] }));
     const out = await tools.ask_user.execute(single, ctx);

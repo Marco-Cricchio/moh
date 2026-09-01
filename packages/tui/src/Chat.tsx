@@ -452,7 +452,7 @@ export function Chat({
       />
       {/* #412: inline ask_user block — one blank line of padding above and
           below (inside AskUserBlock), between the text area and row 1. */}
-      {askGate && askGate.current && <AskUserBlock gate={askGate} />}
+      {askGate && askGate.current && <AskUserBlock gate={askGate} width={cols} />}
       <BottomBar
         width={cols}
         pending={state.pending}
