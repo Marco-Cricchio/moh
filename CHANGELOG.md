@@ -9,6 +9,10 @@ matching section here at tag time.
 
 ### Added
 
+- legacy ask_user replay compatibility (#415): sessions recorded with the
+  pre-redesign single-question ask_user shape replay through the same
+  compact Static projection as new question sets — translated in memory
+  at projection time, with session JSONL files never rewritten.
 - ask_user option previews, side-by-side (#414): questions whose options
   carry `preview` render an adjacent bordered box with the focused
   option's content — markdown with highlighted code blocks, truncating
