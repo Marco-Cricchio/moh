@@ -253,8 +253,18 @@ export function App({
             setMemoryFresh(true);
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
-          if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);
-          if (event.type === "permission_rules_restored") {
+          // #400 single-writer guard: the session file grew from elsewhere
+          // (another machine / a second process). Loud warning: concurrent
+          // same-file use is unsupported — fork the session to recover.
+          if (event.type === "session_file_growth") {
+            push(
+              sanitizeForDisplay(
+                `session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to keep working safely`,
+              ),
+              "warn",
+            );
+          }
+          if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);          if (event.type === "permission_rules_restored") {
             push(sanitizeForDisplay(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`), "warn");
           }
           const fallbackNotice = watchFallback(event);

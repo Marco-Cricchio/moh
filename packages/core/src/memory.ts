@@ -11,10 +11,8 @@
  */
 import {
   appendFileSync,
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
   statSync,
@@ -28,6 +26,14 @@ import { projectSlug } from "./session-store";
 import type { AgentEvent, Provider, TurnResult } from "./types";
 import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
+import {
+  createLockFile,
+  machineId,
+  ownerIsGone,
+  parseLockOwner,
+  readLockFile,
+  releaseLockFile,
+} from "./memory-lock";
 
 /** One durable fact, filed under a short topic label. */
 export interface MemoryEntry {
@@ -84,7 +90,6 @@ export const CHARS_PER_TOKEN = 4;
 export const MAX_ENTRIES_PER_TOPIC = 40;
 
 const LOCK_TIMEOUT_MS = 5_000;
-const LOCK_STALE_MS = 15_000;
 const LOCK_POLL_MS = 10;
 
 /** Max entries accepted from one extraction (protects the store). */
@@ -310,11 +315,7 @@ export class MemoryStore {
     try {
       return await fn();
     } finally {
-      try {
-        unlinkSync(this.#lockFile);
-      } catch {
-        // already gone (stale reclaim race): nothing to do
-      }
+      releaseLockFile(this.#lockFile);
     }
   }
 
@@ -322,23 +323,33 @@ export class MemoryStore {
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
     for (;;) {
-      if (existsSync(this.#lockFile)) {
-        try {
-          if (Date.now() - statSync(this.#lockFile).mtimeMs > LOCK_STALE_MS) unlinkSync(this.#lockFile);
-        } catch {
-          // raced away: retry below
-        }
-      } else {
-        try {
-          closeSync(openSync(this.#lockFile, "wx", 0o600));
-          return;
-        } catch {
-          // someone else got it
-        }
+      if (!existsSync(this.#lockFile) || this.#staleLockHeldByOther()) {
+        if (createLockFile(this.#lockFile)) return;
       }
       if (Date.now() > deadline) throw new Error(`memory lock timeout after ${LOCK_TIMEOUT_MS}ms`);
       await Bun.sleep(LOCK_POLL_MS);
     }
+  }
+
+  /**
+   * True when the existing lock file is owned by a process that can no
+   * longer be holding it (#399): a dead pid on this machine, a foreign
+   * machine's owner (shared home), or malformed legacy content. Decided
+   * from the file's content, never from mtime.
+   */
+  #staleLockHeldByOther(): boolean {
+    const owner = parseLockOwner(readLockFile(this.#lockFile));
+    // Old-format/corrupt lock or a gone owner (dead pid, foreign machine,
+    // our own recycled pid): reclaim. A live same-machine owner is
+    // respected. Decided from content, never from mtime (#399).
+    const reclaim = owner === undefined || ownerIsGone(owner);
+    if (!reclaim) return false;
+    try {
+      unlinkSync(this.#lockFile);
+    } catch {
+      // raced away: retried by the caller's loop
+    }
+    return true;
   }
 }
 

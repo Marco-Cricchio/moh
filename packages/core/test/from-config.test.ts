@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig } from "../src/session/from-config";
@@ -305,6 +305,50 @@ describe("sessionFromConfig — user-level provider layering (#129)", () => {
       const calls = result.session.history().filter((e) => e.type === "model_call");
       // 2 capped loop calls + 1 wrap-up call.
       expect(calls.length).toBe(3);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// #400: single-writer guard at the assembly seam — external growth of the
+// open session file between appends emits one `session_file_growth` chrome
+// event (visible in every surface) while the local appends stay intact.
+describe("single-writer guard (#400)", () => {
+  test("external growth between appends emits session_file_growth and keeps local appends intact", async () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const result = sessionFromConfig({ cwd, home, provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]) });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      const events: any[] = [];
+      void (async () => {
+        for await (const e of result.session.events) events.push(e);
+      })();
+
+      // First turn: normal appends, no warning.
+      await result.session.send("hello");
+      expect(events.some((e) => e.type === "session_file_growth")).toBe(false);
+
+      // Between turns, an external writer (sync channel / second process)
+      // appends to the same file.
+      appendFileSync(result.store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+
+      await result.session.send("again");
+      await result.session.dispose();
+
+      const warnings = events.filter((e) => e.type === "session_file_growth");
+      expect(warnings.length).toBeGreaterThanOrEqual(1);
+      expect(warnings[0].file).toBe(result.store.file);
+      expect(warnings[0].actualBytes).toBeGreaterThan(warnings[0].expectedBytes);
+      // The local writer's appends stayed intact: the file ends with valid
+      // JSONL lines and the externally appended line survives verbatim.
+      const raw = readFileSync(result.store.file, "utf8");
+      expect(raw).toContain("from elsewhere");
+      for (const line of raw.split("\n")) {
+        if (line.trim() === "") continue;
+        expect(() => JSON.parse(line)).not.toThrow();
+      }
     } finally {
       cleanup();
     }

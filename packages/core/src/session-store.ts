@@ -16,6 +16,14 @@ import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 
+/** #400: observed external growth of a session file, as reported to the
+ * session (and the `session_file_growth` chrome event) at an append boundary. */
+export interface SessionFileGrowth {
+  file: string;
+  expectedBytes: number;
+  actualBytes: number;
+}
+
 /**
  * Oldest schemaVersion this build can load. Logs older than this fail with
  * a clear "start a new session" error instead of mis-replaying.
@@ -70,9 +78,18 @@ function isSessionFile(name: string): boolean {
  */
 export class SessionStore {
   readonly #file: string;
+  /** #400: size of the file as this writer last saw it, snapshotted at
+   * open/create time and updated after every append. Growth beyond it
+   * between appends means someone else wrote to the file. */
+  #expectedSize: number;
 
   private constructor(file: string) {
     this.#file = file;
+    try {
+      this.#expectedSize = statSync(file).size;
+    } catch {
+      this.#expectedSize = 0;
+    }
   }
 
   /** Path of the backing JSONL file. */
@@ -136,9 +153,40 @@ export class SessionStore {
     return new SessionStore(target);
   }
 
-  /** Appends one event as a single JSON line. Never rewrites existing bytes. */
+  /**
+   * #400: observes whether the file grew beyond what this writer last
+   * appended. Consuming: a reported growth is acknowledged (the baseline
+   * moves to the observed size), so one incident yields exactly one
+   * warning — the caller reports it before appending on the tail. Null
+   * when it did not (or the file cannot be stat'ed — the guard is
+   * best-effort and never blocks writes).
+   */
+  externalGrowth(): { expectedBytes: number; actualBytes: number } | null {
+    let actual: number;
+    try {
+      actual = statSync(this.#file).size;
+    } catch {
+      return null;
+    }
+    if (actual <= this.#expectedSize) return null;
+    const expectedBytes = this.#expectedSize;
+    this.#expectedSize = actual;
+    return { expectedBytes, actualBytes: actual };
+  }
+
+  /** Appends one event as a single JSON line. Never rewrites existing bytes.
+   * Single-writer guard (#400): callers pair this with `externalGrowth()`
+   * (checked immediately before) to detect that another writer (another
+   * machine over a sync channel, a second process) grew the file between
+   * appends. The append itself always proceeds on the tail: the local
+   * writer's appends stay intact; interleaving is surfaced, never silent.
+   * The new expectation is computed arithmetically, never re-stat'ed, so
+   * foreign bytes landing between write and measure are never silently
+   * absorbed into the baseline. */
   append(event: AgentEvent): void {
-    appendFileSync(this.#file, JSON.stringify(event) + "\n");
+    const line = JSON.stringify(event) + "\n";
+    appendFileSync(this.#file, line);
+    this.#expectedSize += Buffer.byteLength(line);
   }
 
   /**
