@@ -9,7 +9,6 @@ import { MockProvider, builtinTools } from "@moh/core";
 import { Chat } from "../src/Chat";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate } from "../src/permission-gate";
-import { AskUserModal } from "../src/AskUserModal";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { stripAnsi, unwrap } from "./helpers";
@@ -66,7 +65,7 @@ function tempDirs() {
  * height can't sneak back in and corrupt overlay frames.
  */
 describe("overlay layout integrity over Chat", () => {
-  test("ask_user overlay renders intact above a live Chat", async () => {
+  test("ask_user renders intact inline under a live Chat (#412)", async () => {
     const { cwd, home } = tempDirs();
     const gate = new AskUserGate();
     const { session } = unwrap(makeSession({
@@ -78,8 +77,7 @@ describe("overlay layout integrity over Chat", () => {
     }));
     const i = render(
       <Box flexDirection="column">
-        <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />
-        <AskUserModal gate={gate} />
+        <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" askGate={gate} />
       </Box>,
     );
     await sleep(30);
@@ -88,13 +86,17 @@ describe("overlay layout integrity over Chat", () => {
     i.stdin.write("\r");
     await sleep(250);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    // Every overlay row must be intact: question, all three options, the
-    // suggested marker, and the free-text affordance.
+    // Every inline block row must be intact between the input and the
+    // bottom bar: chip + counter, question, all three options with the
+    // recommended marker, and the Other affordance — no dialog border.
+    expect(frame).toContain("Database  1/1");
     expect(frame).toContain("Which database should I use?");
-    expect(frame).toContain("1  SQLite — zero-config, file-based");
-    expect(frame).toContain("2  Postgres  ← suggested — production-grade server");
-    expect(frame).toContain("3  Redis — in-memory store");
-    expect(frame).toContain("or type your answer");
+    expect(frame).toContain("1 SQLite");
+    expect(frame).toContain("2 Postgres");
+    expect(frame).toContain("recommended");
+    expect(frame).toContain("3 Redis");
+    expect(frame).toContain("Other");
+    expect(frame).not.toContain("╭");
     gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await sleep(50);
     i.unmount();
