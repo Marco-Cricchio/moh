@@ -35,7 +35,7 @@ import type {
   ThinkingLevel,
   Tool,
 } from "./types";
-import { SessionStore } from "./session-store";
+import { SessionStore, listSessionSummaries, type SessionSummary } from "./session-store";
 import {
   formatRule,
   overridesFromFlags,
@@ -413,6 +413,8 @@ export {
   type SendOptions,
   type SkillPrompt,
   SessionStore,
+  listSessionSummaries,
+  type SessionSummary,
   splitCommandSegments,
   formatRule,
   parseRule,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile } from "../user-config";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { projectSlug } from "../session-store";
 
 /** Handshake budget. A server that does not answer `initialize` in time fails. */
 export const MCP_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -76,7 +77,7 @@ export function declaredUserMcpServers(file?: string): DeclaredMcpServer[] {
 
 /**
  * User-config section recording persisted "always" consent for *project*
- * MCP servers (#352 / audit SEC-01), keyed by absolute project path →
+ * MCP servers (#352 / audit SEC-01), keyed by stable project identity →
  * server names. It lives in `~/.moh/config` precisely because the
  * repository cannot write there: a `trusted: true` shipped in the
  * project's `moh.json` is ignored.
@@ -87,13 +88,16 @@ export const MCP_TRUST_SECTION = "mcpTrust";
 export function isProjectServerTrusted(file: string, projectPath: string, server: string): boolean {
   const section = readUserConfigFile(file)[MCP_TRUST_SECTION];
   if (typeof section !== "object" || section === null || Array.isArray(section)) return false;
-  const names = (section as Record<string, unknown>)[trustKey(projectPath)];
-  return Array.isArray(names) && names.includes(server);
+  const keys = [projectSlug(projectPath, dirname(dirname(file))), resolve(projectPath)];
+  return keys.some((key) => {
+    const names = (section as Record<string, unknown>)[key];
+    return Array.isArray(names) && names.includes(server);
+  });
 }
 
-/** Persists an "always" consent (project path + server name) via the guardian. */
+/** Persists an "always" consent under stable project identity via the guardian. */
 export function persistProjectMcpTrust(file: string, projectPath: string, server: string): void {
-  const key = trustKey(projectPath);
+  const key = projectSlug(projectPath, dirname(dirname(file)));
   updateUserConfigFile(file, (data) => {
     const current = data[MCP_TRUST_SECTION];
     const section =
@@ -103,10 +107,4 @@ export function persistProjectMcpTrust(file: string, projectPath: string, server
     section[key] = names;
     data[MCP_TRUST_SECTION] = section;
   });
-}
-
-/** Trust keys are absolute, resolved project paths: a relative or symlinked
- * cwd must not split one project into two trust keys (consent loops). */
-function trustKey(projectPath: string): string {
-  return resolve(projectPath);
 }

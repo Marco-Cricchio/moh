@@ -3,6 +3,7 @@ import { rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, McpRuntime, MockProvider, sessionFromConfig, type AgentEvent, type DeclaredMcpServer } from "../src/index";
+import { projectSlug } from "../src/session-store";
 import { McpError } from "../src/mcp";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");
@@ -386,7 +387,7 @@ describe("AgentSession MCP integration", () => {
     expect(first.session.history().some((e) => e.type === "mcp_server_started")).toBe(true);
     // Trust was persisted to the user config — not to the repo's moh.json.
     const userConfig = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
-    expect(userConfig.mcpTrust[cwd]).toEqual(["srv"]);
+    expect(userConfig.mcpTrust[projectSlug(cwd, home)]).toEqual(["srv"]);
     expect(JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8")).mcpServers.srv.trusted).toBe(true); // untouched
     // Next session for the same project: no consent asked, server starts.
     const second = sessionFromConfig({
@@ -399,6 +400,20 @@ describe("AgentSession MCP integration", () => {
     await second.session.send("hi");
     expect(second.session.history().some((e) => e.type === "mcp_server_started")).toBe(true);
     await second.session.dispose();
+    // A clone with the declared identity recognizes the same consent.
+    const clone = tmpCwd();
+    mkdirSync(join(clone, ".moh"), { recursive: true });
+    writeFileSync(join(clone, ".moh", "project.json"), readFileSync(join(cwd, ".moh", "project.json")));
+    writeFileSync(join(clone, "moh.json"), readFileSync(join(cwd, "moh.json")));
+    const cloneSession = sessionFromConfig({
+      cwd: clone,
+      home,
+      provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
+      consent: { onMcpTrust: () => { throw new Error("must not ask clone"); } },
+    });
+    if ("error" in cloneSession) throw new Error(cloneSession.error.message);
+    await cloneSession.session.send("hi");
+    await cloneSession.session.dispose();
     // A different project declaring the same server name still asks.
     const other = tmpCwd();
     const otherHome = join(other, "home");

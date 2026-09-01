@@ -8,20 +8,11 @@ minMohVersion: 0.1.0
 
 Keep structured session notes at `~/.moh/projects/<project-slug>/session.md`, in the same project directory moh uses for session files and memory.
 
-The `<project-slug>` is moh's exact slug rule (see `projectSlug` in `packages/core/src/session-store.ts`): the sanitized lowercase basename of the resolved working directory (every run of characters outside `[a-z0-9._-]` becomes one `-`, leading/trailing `-` trimmed, `project` if empty), followed by `-` and the first 8 hex chars of the SHA-256 of the resolved absolute path. The hash makes the slug unique per project location.
+The `<project-slug>` is resolved by the Core from `.moh/project.json`. It is stable across checkouts that carry the same identity file; do not derive it from the working-directory path.
 
 ## Path setup
 
-```bash
-SLUG_BASE=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
-[ -n "$SLUG_BASE" ] || SLUG_BASE="project"
-SLUG_HASH=$(printf '%s' "$(pwd -P)" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
-SESSION_DIR="$HOME/.moh/projects/$SLUG_BASE-$SLUG_HASH"
-SESSION_FILE="$SESSION_DIR/session.md"
-mkdir -p "$SESSION_DIR"
-```
-
-(Use `pwd -P`, not `$PWD`, for the hash: the core hashes the resolved absolute path, and a logical path through a symlink would produce a different slug.)
+Use the session directory already supplied by moh. If it is not available, ask the user for the intended session file rather than recreating the slug calculation manually.
 
 ## Structured template
 
@@ -72,12 +63,8 @@ Always respect these rules when updating the file:
 ## Typical workflow
 
 ### Session start — read the previous state
-```bash
-SLUG_BASE=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
-[ -n "$SLUG_BASE" ] || SLUG_BASE="project"
-SLUG_HASH=$(printf '%s' "$(pwd -P)" | { command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum; } | cut -c1-8)
-cat "$HOME/.moh/projects/$SLUG_BASE-$SLUG_HASH/session.md" 2>/dev/null || echo "No previous session."
-```
+Read the session note from the session directory supplied by moh. If no directory was supplied, report that no prior session note can be resolved safely.
+
 Report a summary of "Current State" and next steps found.
 
 ### During the session — update after significant tasks

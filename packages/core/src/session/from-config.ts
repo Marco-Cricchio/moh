@@ -177,6 +177,11 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   if (finalOverrides) permissions.overrides = finalOverrides;
 
   const extraSink = o.sink;
+  // #400 single-writer guard: AgentSession probes the store at every
+  // append boundary; growth from elsewhere (another machine over a sync
+  // channel, a second process) becomes a visible `session_file_growth`
+  // chrome event through the normal append path. The sink itself stays
+  // the plain store append.
   const sink = extraSink
     ? (event: AgentEvent) => {
         store.append(event);
@@ -192,6 +197,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       tools: o.tools ?? builtinTools({ ledgerRoot: join(mohHome, "bash-ledgers") }),
       mohHome,
       sessionFile: store.file,
+      externalGrowth: () => store.externalGrowth(),
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),
       ...(servers.length
         ? {

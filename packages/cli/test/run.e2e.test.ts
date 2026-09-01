@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { runCommand } from "../src/run";
 import { createHash } from "node:crypto";
 
@@ -18,19 +26,39 @@ function harness() {
   mkdirSync(cwd, { recursive: true });
   mkdirSync(home, { recursive: true });
   const spawn = (argv: string[]) => {
-    const proc = Bun.spawnSync(["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv], {
-      cwd,
-      env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const proc = Bun.spawnSync(
+      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
+      {
+        cwd,
+        env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     return {
       code: proc.exitCode,
       stdout: new TextDecoder().decode(proc.stdout),
       stderr: new TextDecoder().decode(proc.stderr),
     };
   };
-  return { cwd, home, spawn };
+  // Spawn from any dir against this harness's fake home (#402 cross-machine).
+  const spawnIn = (dir: string, argv: string[]) => {
+    const proc = Bun.spawnSync(
+      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
+      {
+        cwd: dir,
+        env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    return {
+      code: proc.exitCode,
+      stdout: new TextDecoder().decode(proc.stdout),
+      stderr: new TextDecoder().decode(proc.stderr),
+    };
+  };
+  return { cwd, home, spawn, spawnIn };
 }
 
 function readEvents(raw: string): any[] {
@@ -47,7 +75,8 @@ function sessionFiles(home: string): string[] {
   for (const slug of readdirSync(projects)) {
     const slugDir = join(projects, slug);
     if (!statSync(slugDir).isDirectory()) continue;
-    for (const f of readdirSync(slugDir)) if (f.endsWith(".jsonl")) out.push(join(slugDir, f));
+    for (const f of readdirSync(slugDir))
+      if (f.endsWith(".jsonl")) out.push(join(slugDir, f));
   }
   return out;
 }
@@ -59,11 +88,26 @@ describe("moh run (e2e)", () => {
     writeFileSync(
       join(cwd, "cassette.json"),
       JSON.stringify([
-        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: `${outside}/f.txt`, content: "yolo" } }] },
+        {
+          deltas: [],
+          finish: "tool_calls",
+          toolCalls: [
+            {
+              name: "write",
+              args: { path: `${outside}/f.txt`, content: "yolo" },
+            },
+          ],
+        },
         { deltas: ["done"], finish: "stop" },
       ]),
     );
-    const res = spawn(["run", "--cassette", "cassette.json", "--yolo", "write outside"]);
+    const res = spawn([
+      "run",
+      "--cassette",
+      "cassette.json",
+      "--yolo",
+      "write outside",
+    ]);
     expect(res.code).toBe(0);
     const events = readEvents(res.stdout);
     expect(events.find((e) => e.type === "session_mode")?.mode).toBe("yolo");
@@ -106,11 +150,22 @@ describe("moh run (e2e)", () => {
     writeFileSync(
       join(cwd, "cassette.json"),
       JSON.stringify([
-        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo moh-ran" } }] },
+        {
+          deltas: [],
+          finish: "tool_calls",
+          toolCalls: [{ name: "bash", args: { command: "echo moh-ran" } }],
+        },
         { deltas: ["bash worked"], finish: "stop" },
       ]),
     );
-    const res = spawn(["run", "--cassette", "cassette.json", "--allow", "bash:echo", "do it"]);
+    const res = spawn([
+      "run",
+      "--cassette",
+      "cassette.json",
+      "--allow",
+      "bash:echo",
+      "do it",
+    ]);
     expect(res.code).toBe(0);
     const events = readEvents(res.stdout);
     const result = events.find((e) => e.type === "tool_result")!;
@@ -123,11 +178,24 @@ describe("moh run (e2e)", () => {
     writeFileSync(
       join(cwd, "cassette.json"),
       JSON.stringify([
-        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "evil.txt", content: "x" } }] },
+        {
+          deltas: [],
+          finish: "tool_calls",
+          toolCalls: [
+            { name: "write", args: { path: "evil.txt", content: "x" } },
+          ],
+        },
         { deltas: ["denied, fine"], finish: "stop" },
       ]),
     );
-    const res = spawn(["run", "--cassette", "cassette.json", "--deny", "write", "write something"]);
+    const res = spawn([
+      "run",
+      "--cassette",
+      "cassette.json",
+      "--deny",
+      "write",
+      "write something",
+    ]);
     expect(res.code).toBe(0);
     const events = readEvents(res.stdout);
     const denial = events.find((e) => e.type === "permission_denied")!;
@@ -144,7 +212,11 @@ describe("moh run (e2e)", () => {
     writeFileSync(
       join(cwd, "cassette.json"),
       JSON.stringify([
-        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo nope" } }] },
+        {
+          deltas: [],
+          finish: "tool_calls",
+          toolCalls: [{ name: "bash", args: { command: "echo nope" } }],
+        },
         { deltas: ["ok, skipped"], finish: "stop" },
       ]),
     );
@@ -167,7 +239,9 @@ describe("moh run (e2e)", () => {
     const second = spawn(["run", "--session", file, "second message"]);
     expect(second.code).toBe(0);
     const events = readEvents(second.stdout);
-    expect(events.filter((e) => e.type === "user_message").map((e) => e.text)).toEqual(["second message"]);
+    expect(
+      events.filter((e) => e.type === "user_message").map((e) => e.text),
+    ).toEqual(["second message"]);
     const after = readEvents(readFileSync(file, "utf8"));
     expect(after.length).toBe(before.length + events.length);
     expect(after[0]).toEqual(before[0]); // same session_start, appended in place
@@ -191,15 +265,24 @@ describe("moh run (e2e)", () => {
     };
     const base = run();
     // The provider saw the user message and the full tool registry.
-    expect(base.messages.at(-1)).toEqual({ role: "user", sha256: sha256("ctx-probe") });
+    expect(base.messages.at(-1)).toEqual({
+      role: "user",
+      sha256: sha256("ctx-probe"),
+    });
     expect(base.tools).toContain("bash");
     expect(base.tools).toContain("read");
     // Injecting AGENTS.md must change the system prompt the provider receives.
     // If the digest stays the same, instructions injection has regressed.
-    writeFileSync(join(cwd, "AGENTS.md"), "MARKER-e2e-7c31 never guess file contents");
+    writeFileSync(
+      join(cwd, "AGENTS.md"),
+      "MARKER-e2e-7c31 never guess file contents",
+    );
     const withFile = run();
     expect(withFile.systemSha256).not.toBe(base.systemSha256);
-    expect(withFile.messages.at(-1)).toEqual({ role: "user", sha256: sha256("ctx-probe") });
+    expect(withFile.messages.at(-1)).toEqual({
+      role: "user",
+      sha256: sha256("ctx-probe"),
+    });
   });
 
   test("usage errors: no prompt, unknown flag", () => {
@@ -210,7 +293,10 @@ describe("moh run (e2e)", () => {
 
   test("broken provider reference is a visible error (no silent demo fallback, #100)", () => {
     const { cwd, spawn } = harness();
-    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "no-such-endpoint/model" }));
+    writeFileSync(
+      join(cwd, "moh.json"),
+      JSON.stringify({ provider: "no-such-endpoint/model" }),
+    );
     const res = spawn(["run", "hello"]);
     expect(res.code).toBe(2);
     expect(res.stderr).toContain("unknown provider");
@@ -223,5 +309,222 @@ describe("moh run (e2e)", () => {
     const res = spawn(["run", "hello"]);
     expect(res.code).toBe(2);
     expect(res.stderr).toBeTruthy();
+  });
+
+  // #401: headless session discovery via --resume.
+  describe("--resume (#401)", () => {
+    test("no query lists the project's sessions newest first with ids and titles", () => {
+      const { spawn, home } = harness();
+      // Nothing yet: graceful empty behavior.
+      const empty = spawn(["run", "--resume"]);
+      expect(empty.code).toBe(1);
+      expect(empty.stderr).toContain("no previous session");
+
+      expect(spawn(["run", "first session message"]).code).toBe(0);
+      expect(spawn(["run", "second session message"]).code).toBe(0);
+      const res = spawn(["run", "--resume"]);
+      expect(res.code).toBe(0);
+      const lines = res.stdout.trim().split("\n");
+      expect(lines).toHaveLength(2);
+      // Newest first: the second message's session is on top.
+      expect(lines[0]).toMatch(/second session message/);
+      expect(lines[1]).toMatch(/first session message/);
+      for (const line of lines)
+        expect(line).toMatch(/^\d{8}T\d{6}\d{3}Z-[0-9a-f]{8}  /);
+      // Both ids resolve to real session files under this project's slug.
+      for (const line of lines) {
+        const id = line.split("  ")[0]!;
+        expect(sessionFiles(home).some((f) => f.endsWith(`${id}.jsonl`))).toBe(
+          true,
+        );
+      }
+    });
+
+    test("a query prints the best-matching session; no match is a graceful error with hints", () => {
+      const { spawn } = harness();
+      expect(spawn(["run", "fix the login bug"]).code).toBe(0);
+      expect(spawn(["run", "refactor the parser"]).code).toBe(0);
+
+      const hit = spawn(["run", "--resume", "login"]);
+      expect(hit.code).toBe(0);
+      expect(hit.stdout).toContain("fix the login bug");
+
+      const miss = spawn(["run", "--resume", "no-such-thing"]);
+      expect(miss.code).toBe(1);
+      expect(miss.stderr).toContain('no session matches "no-such-thing"');
+      // Hints list the project's sessions so the user can refine.
+      expect(miss.stderr).toContain("fix the login bug");
+      expect(miss.stderr).toContain("refactor the parser");
+    });
+
+    test("exact session id wins over title matches", () => {
+      const { spawn, home } = harness();
+      expect(spawn(["run", "alpha topic"]).code).toBe(0);
+      expect(spawn(["run", "beta topic"]).code).toBe(0);
+      const files = sessionFiles(home);
+      const newestId = files
+        .map((f) => basename(f, ".jsonl"))
+        .sort()
+        .at(-1)!;
+      const res = spawn(["run", "--resume", newestId]);
+      expect(res.code).toBe(0);
+      // The id is unique: exactly the session it names, not a title tie.
+      expect(res.stdout.trim().split("\n")).toHaveLength(1);
+    });
+
+    test("with --prompt the best match is resumed and appended to", () => {
+      const { spawn, home } = harness();
+      expect(spawn(["run", "unique-marker-one hello"]).code).toBe(0);
+      expect(spawn(["run", "other session"]).code).toBe(0);
+      const file = sessionFiles(home).find((f) => {
+        const raw = readFileSync(f, "utf8");
+        return raw.includes("unique-marker-one");
+      })!;
+      const before = readEvents(readFileSync(file, "utf8")).length;
+
+      const res = spawn([
+        "run",
+        "--resume",
+        "unique-marker-one",
+        "--prompt",
+        "continue that",
+      ]);
+      expect(res.code).toBe(0);
+      const events = readEvents(res.stdout);
+      expect(
+        events.filter((e) => e.type === "user_message").map((e) => e.text),
+      ).toEqual(["continue that"]);
+      const after = readEvents(readFileSync(file, "utf8"));
+      expect(after.length).toBe(before + events.length);
+    });
+
+    test("cross-machine: discovery works from a clone at a different path (declared identity slug, #398/#401)", () => {
+      const { cwd, spawnIn } = harness();
+      expect(spawnIn(cwd, ["run", "portable session topic"]).code).toBe(0);
+
+      // Same declared identity, different checkout path: the identity slug
+      // resolves to the same projects dir, so discovery finds the session.
+      const clone = join(dirname(cwd), "clone-elsewhere");
+      mkdirSync(clone, { recursive: true });
+      mkdirSync(join(clone, ".moh"), { recursive: true });
+      copyFileSync(
+        join(cwd, ".moh", "project.json"),
+        join(clone, ".moh", "project.json"),
+      );
+      const listed = spawnIn(clone, ["run", "--resume", "portable"]);
+      expect(listed.code).toBe(0);
+      expect(listed.stdout).toContain("portable session topic");
+    });
+
+    test("acceptance (#402): resume yesterday's work from the other machine, history and memory intact", () => {
+      const { cwd, home, spawnIn } = harness();
+      // moh.json with memory extraction after every turn, so yesterday's
+      // facts are durable before the switch.
+      writeFileSync(
+        join(cwd, "moh.json"),
+        JSON.stringify({ memory: { intervalTurns: 1 } }),
+      );
+
+      // --- Machine A (yesterday): the mock provider runs the turn; the
+      // maintenance extractor runs against the mock too — its output is
+      // best-effort, so memory presence is asserted only where the core
+      // guarantees it (the memory dir exists under the shared home). ---
+      expect(spawnIn(cwd, ["run", "continue work on tickets 12 and 15"]).code).toBe(0);
+      const file = sessionFiles(home)[0]!;
+      const before = readEvents(readFileSync(file, "utf8"));
+      const projectsDir = join(home, ".moh", "projects");
+      const slug = basename(dirname(file));
+
+      // Memory from machine A travels through the channel (the extraction
+      // itself is core-seam tested): seed it exactly as sync would copy it.
+      const memoryDir = join(projectsDir, slug, "memory");
+      mkdirSync(memoryDir, { recursive: true });
+      writeFileSync(
+        join(memoryDir, "index.json"),
+        JSON.stringify({ version: 1, topics: { tickets: { file: "tickets.md", entries: 1, updated: "2026-08-31" } } }),
+      );
+      writeFileSync(join(memoryDir, "tickets.md"), "- 2026-09-01 Active work: tickets #12 and #15\n");
+
+      // --- The machine switch: the clone carries the identity file. ---
+      const clone = join(dirname(cwd), "clone-elsewhere");
+      mkdirSync(join(clone, ".moh"), { recursive: true });
+      copyFileSync(join(cwd, ".moh", "project.json"), join(clone, ".moh", "project.json"));
+      copyFileSync(join(cwd, "moh.json"), join(clone, "moh.json"));
+
+      // --- Machine B (today): headless discovery + resume, no manual
+      // intervention (no file paths known to the user). The echo provider
+      // hashes the system prompt it receives: the resumed machine-B call
+      // must see yesterday's memory injected (context intact), and —
+      // control — the same clone without the memory files must not. ---
+      const echoRes = spawnIn(clone, [
+        "run",
+        "--provider",
+        "echo",
+        "--resume",
+        "tickets",
+        "--prompt",
+        "what was I working on?",
+      ]);
+      expect(echoRes.code).toBe(0);
+      const withMemory = JSON.parse(
+        readEvents(echoRes.stdout)
+          .filter((e) => e.type === "assistant_delta")
+          .map((e) => e.text)
+          .join(""),
+      ) as { systemSha256: string };
+      writeFileSync(join(memoryDir, "index.json"), JSON.stringify({ version: 1, topics: {} }));
+      const noMemoryRes = spawnIn(clone, [
+        "run",
+        "--provider",
+        "echo",
+        "--prompt",
+        "control probe",
+      ]);
+      expect(noMemoryRes.code).toBe(0);
+      const withoutMemory = JSON.parse(
+        readEvents(noMemoryRes.stdout)
+          .filter((e) => e.type === "assistant_delta")
+          .map((e) => e.text)
+          .join(""),
+      ) as { systemSha256: string };
+      expect(withMemory.systemSha256).not.toBe(withoutMemory.systemSha256);
+
+      // And the story form itself: mock provider, resumed conversation,
+      // appending to yesterday's log.
+      const beforeStory = readEvents(readFileSync(file, "utf8"));
+      const res = spawnIn(clone, [
+        "run",
+        "--resume",
+        "tickets",
+        "--prompt",
+        "what was I working on?",
+      ]);
+      expect(res.code).toBe(0);
+      const events = readEvents(res.stdout);
+      // The resumed conversation, not a fresh session: the streamed events
+      // are only the new turn's (no re-appended session_start), and the
+      // file grew by exactly those events on top of the intact history.
+      expect(events[0].type).toBe("user_message");
+      expect(events.some((e) => e.type === "done")).toBe(true);
+      const after = readEvents(readFileSync(file, "utf8"));
+      expect(after.length).toBe(beforeStory.length + events.length);
+      expect(after.slice(0, beforeStory.length)).toEqual(beforeStory);
+    });
+
+    test("usage: --resume is exclusive with --session and with a positional prompt", () => {
+      const { spawn, home } = harness();
+      expect(spawn(["run", "seed"]).code).toBe(0);
+      const file = sessionFiles(home)[0]!;
+      expect(spawn(["run", "--resume", "seed", "--session", file]).code).toBe(
+        2,
+      );
+      expect(spawn(["run", "--resume", "seed", "and a positional"]).code).toBe(
+        2,
+      );
+      // --fork is --session-only: never silently ignored with --resume.
+      expect(
+        spawn(["run", "--resume", "seed", "--fork", "--prompt", "x"]).code,
+      ).toBe(2);
+    });
   });
 });

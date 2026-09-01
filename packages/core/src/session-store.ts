@@ -1,9 +1,28 @@
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { basename, dirname, isAbsolute, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
+
+/** #400: observed external growth of a session file, as reported to the
+ * session (and the `session_file_growth` chrome event) at an append boundary. */
+export interface SessionFileGrowth {
+  file: string;
+  expectedBytes: number;
+  actualBytes: number;
+}
 
 /**
  * Oldest schemaVersion this build can load. Logs older than this fail with
@@ -33,21 +52,23 @@ export function newSessionId(now = new Date()): string {
   return `${ts}-${uuid}`;
 }
 
-/** Project slug: sanitized basename + short hash of the resolved cwd. */
-export function projectSlug(cwd: string): string {
-  const resolved = pathResolve(cwd);
-  const base = basename(resolved).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
-  const hash = createHash("sha256").update(resolved).digest("hex").slice(0, 8);
-  return `${base}-${hash}`;
+/** Project slug. A declared identity wins; legacy path-derived slugs remain readable. */
+export function projectSlug(cwd: string, home = homedir()): string {
+  return resolveProjectIdentity(cwd, home).slug;
 }
 
 /** Directory holding the project's session files: <home>/.moh/projects/<slug> */
 export function projectSessionsDir(cwd: string, home = homedir()): string {
-  return join(home, ".moh", "projects", projectSlug(cwd));
+  return join(home, ".moh", "projects", projectSlug(cwd, home));
 }
 
+export { legacyProjectSlug, resolveProjectIdentity };
+
 function isSessionFile(name: string): boolean {
-  return name.endsWith(".jsonl") && SESSION_ID_RE.test(name.slice(0, name.length - ".jsonl".length));
+  return (
+    name.endsWith(".jsonl") &&
+    SESSION_ID_RE.test(name.slice(0, name.length - ".jsonl".length))
+  );
 }
 
 /**
@@ -57,9 +78,18 @@ function isSessionFile(name: string): boolean {
  */
 export class SessionStore {
   readonly #file: string;
+  /** #400: size of the file as this writer last saw it, snapshotted at
+   * open/create time and updated after every append. Growth beyond it
+   * between appends means someone else wrote to the file. */
+  #expectedSize: number;
 
   private constructor(file: string) {
     this.#file = file;
+    try {
+      this.#expectedSize = statSync(file).size;
+    } catch {
+      this.#expectedSize = 0;
+    }
   }
 
   /** Path of the backing JSONL file. */
@@ -80,11 +110,12 @@ export class SessionStore {
 
   /** Reopens an existing session file for appending. */
   static open(file: string): SessionStore {
-    if (!isAbsolute(file)) throw new Error(`session file path must be absolute: ${file}`);
+    if (!isAbsolute(file))
+      throw new Error(`session file path must be absolute: ${file}`);
     return new SessionStore(file);
   }
 
-/**
+  /**
    * The project's session files, newest first (empty array when none).
    */
   static list(cwd: string, home = homedir()): SessionStore[] {
@@ -104,10 +135,7 @@ export class SessionStore {
   static latest(cwd: string, home = homedir()): SessionStore | null {
     const dir = projectSessionsDir(cwd, home);
     if (!existsSync(dir)) return null;
-    const newest = readdirSync(dir)
-      .filter(isSessionFile)
-      .sort()
-      .at(-1);
+    const newest = readdirSync(dir).filter(isSessionFile).sort().at(-1);
     return newest ? new SessionStore(join(dir, newest)) : null;
   }
 
@@ -125,9 +153,40 @@ export class SessionStore {
     return new SessionStore(target);
   }
 
-  /** Appends one event as a single JSON line. Never rewrites existing bytes. */
+  /**
+   * #400: observes whether the file grew beyond what this writer last
+   * appended. Consuming: a reported growth is acknowledged (the baseline
+   * moves to the observed size), so one incident yields exactly one
+   * warning — the caller reports it before appending on the tail. Null
+   * when it did not (or the file cannot be stat'ed — the guard is
+   * best-effort and never blocks writes).
+   */
+  externalGrowth(): { expectedBytes: number; actualBytes: number } | null {
+    let actual: number;
+    try {
+      actual = statSync(this.#file).size;
+    } catch {
+      return null;
+    }
+    if (actual <= this.#expectedSize) return null;
+    const expectedBytes = this.#expectedSize;
+    this.#expectedSize = actual;
+    return { expectedBytes, actualBytes: actual };
+  }
+
+  /** Appends one event as a single JSON line. Never rewrites existing bytes.
+   * Single-writer guard (#400): callers pair this with `externalGrowth()`
+   * (checked immediately before) to detect that another writer (another
+   * machine over a sync channel, a second process) grew the file between
+   * appends. The append itself always proceeds on the tail: the local
+   * writer's appends stay intact; interleaving is surfaced, never silent.
+   * The new expectation is computed arithmetically, never re-stat'ed, so
+   * foreign bytes landing between write and measure are never silently
+   * absorbed into the baseline. */
   append(event: AgentEvent): void {
-    appendFileSync(this.#file, JSON.stringify(event) + "\n");
+    const line = JSON.stringify(event) + "\n";
+    appendFileSync(this.#file, line);
+    this.#expectedSize += Buffer.byteLength(line);
   }
 
   /**
@@ -149,7 +208,9 @@ export class SessionStore {
     }
     const first = events[0];
     if (!first || first.type !== "session_start") {
-      throw new Error(`corrupt session log ${this.#file}: log does not start with session_start`);
+      throw new Error(
+        `corrupt session log ${this.#file}: log does not start with session_start`,
+      );
     }
     const v = first.schemaVersion;
     if (v < MIN_SUPPORTED_SCHEMA_VERSION) {
@@ -196,11 +257,16 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   }
   let replayEvents = events;
   if (compactionIndex >= 0) {
-    const compaction = events[compactionIndex] as Extract<AgentEvent, { type: "compaction" }>;
+    const compaction = events[compactionIndex] as Extract<
+      AgentEvent,
+      { type: "compaction" }
+    >;
     const upTo = Math.min(Math.max(0, compaction.upTo), compactionIndex);
     messages.push({
       role: "user",
-      parts: [{ kind: "text", text: `[Compaction summary]\n${compaction.summary}` }],
+      parts: [
+        { kind: "text", text: `[Compaction summary]\n${compaction.summary}` },
+      ],
     });
     replayEvents = events.slice(upTo);
   }
@@ -217,7 +283,14 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
       completedCall = false;
       return;
     }
-    messages.push({ role: "assistant", parts: [...reasoningParts, ...(text ? [{ kind: "text" as const, text }] : []), ...toolCalls] });
+    messages.push({
+      role: "assistant",
+      parts: [
+        ...reasoningParts,
+        ...(text ? [{ kind: "text" as const, text }] : []),
+        ...toolCalls,
+      ],
+    });
     text = "";
     toolCalls.length = 0;
     reasoningParts.length = 0;
@@ -253,13 +326,22 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   const flushResults = () => {
     const orphans = toolCalls.flatMap((c) =>
       c.kind === "tool_call" && !settled.has(c.callId)
-        ? [{ kind: "tool_result" as const, callId: c.callId, ok: false, output: CANCELLED_TOOL_OUTPUT }]
+        ? [
+            {
+              kind: "tool_result" as const,
+              callId: c.callId,
+              ok: false,
+              output: CANCELLED_TOOL_OUTPUT,
+            },
+          ]
         : [],
     );
     const all = [
       // #371: results of discarded calls never reach the provider — they
       // would be orphan tool outputs with no matching assistant tool_call.
-      ...results.filter((r) => !(r.kind === "tool_result" && droppedCalls.has(r.callId))),
+      ...results.filter(
+        (r) => !(r.kind === "tool_result" && droppedCalls.has(r.callId)),
+      ),
       ...orphans,
     ];
     results.length = 0;
@@ -273,7 +355,10 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
       case "user_message":
         flushResults();
         flushAssistant();
-        messages.push({ role: "user", parts: [{ kind: "text", text: event.text }] });
+        messages.push({
+          role: "user",
+          parts: [{ kind: "text", text: event.text }],
+        });
         break;
       case "reasoning":
         // #240: completed reasoning is logged after its call's deltas (it
@@ -281,7 +366,11 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         // Pending tool results mark an iteration boundary: flush the
         // previous call's message before opening the next call's reasoning.
         flushResults();
-        reasoningParts.push({ kind: "reasoning", text: event.text, ...(event.continuation ? { continuation: event.continuation } : {}) });
+        reasoningParts.push({
+          kind: "reasoning",
+          text: event.text,
+          ...(event.continuation ? { continuation: event.continuation } : {}),
+        });
         break;
       case "assistant_delta":
         flushResults();
@@ -289,12 +378,22 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         sawContent = true;
         break;
       case "tool_call":
-        toolCalls.push({ kind: "tool_call", callId: event.callId, name: event.name, args: event.args });
+        toolCalls.push({
+          kind: "tool_call",
+          callId: event.callId,
+          name: event.name,
+          args: event.args,
+        });
         sawContent = true;
         break;
       case "tool_result":
         settled.add(event.callId);
-        results.push({ kind: "tool_result", callId: event.callId, ok: event.ok, output: event.output });
+        results.push({
+          kind: "tool_result",
+          callId: event.callId,
+          ok: event.ok,
+          output: event.output,
+        });
         break;
       case "model_call":
         if (event.failed) {
@@ -339,6 +438,71 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   flushResults();
   flushAssistant();
   return messages;
+}
+
+/** One row of a session listing (#401). */
+export interface SessionSummary {
+  /** Absolute JSONL path. */
+  file: string;
+  id: string;
+  /** First user message, trimmed; placeholder when absent/unreadable. */
+  title: string;
+  /** Modification time (ms). */
+  mtimeMs: number;
+}
+
+/**
+ * Lists the project's persisted sessions, newest first, with a summary
+ * title peeked from the log's first user_message. An unreadable file
+ * degrades to a placeholder title — listings never crash on user data.
+ * One seam for every client (TUI home screen, `moh run --resume`).
+ */
+export function listSessionSummaries(
+  cwd: string,
+  home = homedir(),
+): SessionSummary[] {
+  return SessionStore.list(cwd, home)
+    .map((store) => {
+      let title = "(unreadable session)";
+      try {
+        title = titleFrom(store.file);
+      } catch {
+        // keep placeholder
+      }
+      let mtimeMs = 0;
+      try {
+        mtimeMs = statSync(store.file).mtimeMs;
+      } catch {
+        // keep 0
+      }
+      return {
+        file: store.file,
+        id: basename(store.file, ".jsonl"),
+        title,
+        mtimeMs,
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function titleFrom(file: string): string {
+  const raw = readFileSync(file, "utf8");
+  for (const line of raw.split("\n")) {
+    if (line.trim() === "") continue;
+    let event: AgentEvent;
+    try {
+      event = JSON.parse(line) as AgentEvent;
+    } catch {
+      break; // corrupt tail: stop at the first bad line
+    }
+    if (event.type === "user_message") {
+      const text = event.text.replace(/\s+/g, " ").trim();
+      return text.length > 60
+        ? text.slice(0, 57) + "…"
+        : text || "(empty session)";
+    }
+  }
+  return "(empty session)";
 }
 
 /** The final assistant text of the last turn: deltas after the last user_message. */

@@ -4,15 +4,16 @@ Two different people plug into moh, and this section keeps them apart.
 Each chapter is written for exactly one of them — pick yours and skip the
 other.
 
-| Chapter | Who it is for |
-| --- | --- |
-| [Writing extensions](extensions.md) | **Extension writers** — you build a module against the `@moh/extension` contract: phase hooks, veto semantics, lifecycle, failure behavior. |
-| [Embedding moh as a library](library-usage.md) | **Library users** — you embed `@moh/core` in your own program: `sessionFromConfig`, consuming the event log, headless permission seams. |
-| [Authoring skills](skills.md) | Either persona, and end users: pi-compatible `SKILL.md` files for both moh and pi. |
+| Chapter                                        | Who it is for                                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Writing extensions](extensions.md)            | **Extension writers** — you build a module against the `@moh/extension` contract: phase hooks, veto semantics, lifecycle, failure behavior. |
+| [Embedding moh as a library](library-usage.md) | **Library users** — you embed `@moh/core` in your own program: `sessionFromConfig`, consuming the event log, headless permission seams.     |
+| [Authoring skills](skills.md)                  | Either persona, and end users: pi-compatible `SKILL.md` files for both moh and pi.                                                          |
+| [Portability across machines](portability.md)  | End users: the sync-tolerance contract for `~/.moh/`, project identity, and serial cross-machine resume.                                    |
 
 The boundary between the personas is the same one that governs the
 architecture (see [principle 4](../principles.md)): everything that plugs
-in is additive and can only *restrict* — extensions veto tool calls, they
+in is additive and can only _restrict_ — extensions veto tool calls, they
 never widen permissions; library users inject consent seams, they never
 bypass the permission spine. If you find yourself wanting a hook that
 grants permissions or rewrites the system prompt, that is a core change —
@@ -37,7 +38,7 @@ And deliberately differs:
 - **Locations**: moh's user-level home is `~/.moh/`, not `~/.pi/`.
 - **First-party workflow**: moh bundles the Matt Pocock workflow skills
   behind workflow mode (`/workflow on|off`); pi has no such mode.
-- **Extensions**: pi extensions are *not* compatible with
+- **Extensions**: pi extensions are _not_ compatible with
   `@moh/extension` — moh's contract is its own additive-only API with a
   mandatory `apiVersion` (see [extensions.md](extensions.md)).
 - **Sessions**: moh sessions are append-only JSONL event logs under

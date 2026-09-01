@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { MIN_SUPPORTED_SCHEMA_VERSION, replayMessages } from "../src/session-store";
+import { legacyProjectSlug, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, replayMessages } from "../src/session-store";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -45,15 +45,44 @@ describe("session store", () => {
     expect(statSync(mohHome).mode & 0o777).toBe(0o755);
   });
 
-  test("same-named project dirs get distinct slugs; same cwd gets the same slug", () => {
+  test("first open creates an opaque project identity and shared clones resolve to one slug", () => {
     const home = tempHome();
     const a = mkdtempSync(join(tmpdir(), "moh-same-"));
     const b = mkdtempSync(join(tmpdir(), "moh-same-"));
-    const dirA = SessionStore.create(a, home).file;
-    const dirB = SessionStore.create(b, home).file;
-    const dirA2 = SessionStore.create(a, home).file;
-    expect(join(dirA, "..")).not.toBe(join(dirB, ".."));
-    expect(join(dirA, "..")).toBe(join(dirA2, ".."));
+    const first = SessionStore.create(a, home);
+    const identity = readFileSync(join(a, ".moh", "project.json"), "utf8");
+    expect(JSON.parse(identity)).toEqual({ id: expect.any(String) });
+    expect(identity).not.toContain(a);
+    mkdirSync(join(b, ".moh"), { recursive: true });
+    writeFileSync(join(b, ".moh", "project.json"), identity);
+    const second = SessionStore.create(b, home);
+    expect(join(first.file, "..")).toBe(join(second.file, ".."));
+    expect(SessionStore.list(b, home).map((store) => store.file)).toContain(first.file);
+  });
+
+  test("projects without an identity retain their legacy slug when identity creation fails", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-legacy-"));
+    mkdirSync(join(cwd, ".moh", "project.json"), { recursive: true });
+    expect(projectSlug(cwd, home)).toBe(legacyProjectSlug(cwd));
+  });
+
+  test("declared identity atomically migrates an existing legacy directory once and records a note", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-migrate-"));
+    const legacy = legacyProjectSlug(cwd);
+    const legacyDir = join(home, ".moh", "projects", legacy);
+    mkdirSync(join(legacyDir, "memory"), { recursive: true });
+    writeFileSync(join(legacyDir, "old.jsonl"), "session");
+    writeFileSync(join(legacyDir, "memory", "facts.md"), "fact");
+    const slug = projectSlug(cwd, home);
+    const target = join(home, ".moh", "projects", slug);
+    expect(existsSync(legacyDir)).toBe(false);
+    expect(readFileSync(join(target, "old.jsonl"), "utf8")).toBe("session");
+    expect(readFileSync(join(target, "memory", "facts.md"), "utf8")).toBe("fact");
+    expect(readFileSync(join(target, "migration.log"), "utf8")).toContain("Migrated legacy project directory");
+    projectSlug(cwd, home);
+    expect(readFileSync(join(target, "migration.log"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
   });
 
   test("append is one JSON line per event; load() round-trips a real session log", async () => {
@@ -296,5 +325,100 @@ describe("session store", () => {
       { role: "user", parts: [{ kind: "tool_result", callId: "c1", ok: true, output: "file.txt" }] },
       { role: "assistant", parts: [{ kind: "text", text: "Done" }] },
     ]);
+  });
+});
+
+// #400: single-writer semantics — an open session detects that its JSONL
+// file grew from elsewhere (sync channel / second process) at append
+// boundaries. Tested at the session-store seam by mutating the file
+// externally between open and append.
+describe("single-writer guard (#400)", () => {
+  const START: AgentEvent = { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" };
+
+  test("externalGrowth() reports growth between open and append, once, with both sizes", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    expect(store.externalGrowth()).toBeNull();
+
+    // External writer appends to the same file (e.g. a synced machine).
+    const before = statSync(store.file).size;
+    appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    const after = statSync(store.file).size;
+
+    const growth = store.externalGrowth();
+    expect(growth).not.toBeNull();
+    expect(growth!.expectedBytes).toBe(before);
+    expect(growth!.actualBytes).toBe(after);
+    // Consuming: one incident, one warning — acknowledged until new
+    // external growth (the local append has not happened yet).
+    expect(store.externalGrowth()).toBeNull();
+  });
+
+  test("after the local append the expectation refreshes; local bytes stay intact", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    const bytesBeforeLocalAppend = readFileSync(store.file, "utf8");
+
+    // The session flow probes before appending: the incident is observed
+    // (consumed) here, then the local append proceeds on the tail with
+    // the refreshed baseline. Nothing is rewritten; the external line
+    // survives; no silent corruption.
+    expect(store.externalGrowth()).not.toBeNull();
+    store.append({ type: "user_message", text: "local" });
+    const raw = readFileSync(store.file, "utf8");
+    expect(raw.startsWith(bytesBeforeLocalAppend)).toBe(true);
+    expect(store.externalGrowth()).toBeNull();
+  });
+
+  test("a local append that never probed does not swallow the external growth", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    const before = statSync(store.file).size;
+    appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    const after = statSync(store.file).size;
+
+    // The append's arithmetic baseline (no re-stat) never observed the
+    // foreign bytes: the next probe still reports them, unswallowed —
+    // exactly once, then consumed.
+    store.append({ type: "user_message", text: "local" });
+    const growth = store.externalGrowth();
+    expect(growth).not.toBeNull();
+    const localLine = JSON.stringify({ type: "user_message", text: "local" }) + "\n";
+    expect(growth!.expectedBytes).toBe(before + Buffer.byteLength(localLine));
+    expect(growth!.actualBytes).toBe(statSync(store.file).size);
+    expect(store.externalGrowth()).toBeNull();
+  });
+
+  test("an open (resumed) store baselines at open time, not at the history's end", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const original = SessionStore.create(cwd, home);
+    original.append(START);
+    const originalBytes = readFileSync(original.file, "utf8");
+
+    const reopened = SessionStore.open(original.file);
+    expect(reopened.externalGrowth()).toBeNull();
+    appendFileSync(original.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    expect(reopened.externalGrowth()).not.toBeNull();
+
+    // The original writer also notices the reopened writer's appends.
+    reopened.append({ type: "user_message", text: "local" });
+    expect(original.externalGrowth()).not.toBeNull();
+  });
+
+  test("shrinking or same-size external rewrites are not reported (growth-only signal)", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    writeFileSync(store.file, readFileSync(store.file, "utf8"));
+    expect(store.externalGrowth()).toBeNull();
   });
 });

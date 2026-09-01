@@ -5,7 +5,7 @@
  * fail-silent, injected as a system-prompt section, disabled by config.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentSession, MockProvider } from "../src/index";
 import {
@@ -80,6 +80,18 @@ describe("MemoryStore", () => {
 
   test("read returns empty string with no memory", () => {
     expect(store("empty").read(1000)).toBe("");
+  });
+
+  test("forProject follows the declared identity across checkouts", () => {
+    const root = tmpDir("identity");
+    const home = join(root, "home", ".moh");
+    const a = join(root, "a");
+    const b = join(root, "b");
+    mkdirSync(a, { recursive: true });
+    const first = MemoryStore.forProject(a, home);
+    mkdirSync(join(b, ".moh"), { recursive: true });
+    writeFileSync(join(b, ".moh", "project.json"), readFileSync(join(a, ".moh", "project.json")));
+    expect(MemoryStore.forProject(b, home).dir).toBe(first.dir);
   });
 
   test("concurrent appends serialize under the lock (no lost lines)", async () => {

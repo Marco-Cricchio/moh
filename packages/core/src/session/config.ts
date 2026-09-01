@@ -61,8 +61,19 @@ export interface SessionConfig {
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
   /** Path of the JSONL file the sink appends to (from `sessionFromConfig`).
-   * Informational only; sessions built without a file store omit it. */
+   * Informational only for sessions without a growth probe; sessions with
+   * `externalGrowth` set report it in `session_file_growth` events. */
   sessionFile?: string;
+  /**
+   * #400 single-writer guard: probed at every append boundary to detect
+   * that the session JSONL grew from elsewhere (another machine over a
+   * sync channel, a second process) between this writer's appends. A
+   * non-null result is appended as a `session_file_growth` chrome event
+   * (visible warning in every surface) *before* the pending event; the
+   * local append then proceeds on the tail. Concurrent same-file use is
+   * unsupported — forking is the recovery path.
+   */
+  externalGrowth?: () => { expectedBytes: number; actualBytes: number } | null;
   /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
   promptComposer?: PromptComposer;
   /** User-level moh dir for skill discovery. Default: `~/.moh`. */
