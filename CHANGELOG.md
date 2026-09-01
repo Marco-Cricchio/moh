@@ -7,6 +7,24 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-01
+### Added
+
+- legacy ask_user replay compatibility (#415): sessions recorded with the
+  pre-redesign single-question ask_user shape replay through the same
+  compact Static projection as new question sets — translated in memory
+  at projection time, with session JSONL files never rewritten.
+- ask_user option previews, side-by-side (#414): questions whose options
+  carry `preview` render an adjacent bordered box with the focused
+  option's content — markdown with highlighted code blocks, truncating
+  past the row budget with a hidden-lines indicator, favoring height
+  when space is tight; the chosen option's preview is echoed back to the
+  model in the tool result.
+- ask_user inline block resize + compact Static projection (#413): while a
+  question set is open the block grows with its content and compresses the
+  volatile transcript; on resolution the settled block projects one row per
+  question with the chosen answers, unchosen options omitted.
+
 ## [0.12.0] - 2026-09-01
 
 ### Added
@@ -349,7 +367,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.12.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.13.0...develop
+[0.13.0]: https://github.com/Marco-Cricchio/moh/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Marco-Cricchio/moh/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/Marco-Cricchio/moh/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/Marco-Cricchio/moh/compare/v0.11.0...v0.11.1

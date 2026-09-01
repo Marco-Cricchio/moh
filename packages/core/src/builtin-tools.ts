@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Tool } from "./types";
+import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -739,32 +739,119 @@ const todo: Tool<z.infer<typeof todoSchema>> = {
   },
 };
 
+const askUserQuestionSchema = z.object({
+  question: z.string().min(1),
+  header: z.string().min(1),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        description: z.string(),
+        preview: z.string().optional(),
+      }),
+    )
+    .min(2)
+    .max(4),
+  multiSelect: z.boolean().optional(),
+  suggested: z.string().min(1),
+});
+
 const askUserSchema = z
-  .object({
-    question: z.string().min(1),
-    options: z
-      .array(z.object({ label: z.string().min(1), description: z.string() }))
-      .min(1)
-      .max(4),
-    suggested: z.string().min(1),
-  })
+  .object({ questions: z.array(askUserQuestionSchema).min(1).max(4) })
   .superRefine((args, ctx) => {
-    const labels = new Set(args.options.map((o) => o.label));
-    if (labels.size !== args.options.length) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "option labels must be unique" });
-    }
-    if (!labels.has(args.suggested)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "suggested must be one of the option labels" });
+    const seenQuestions = new Set<string>();
+    for (const q of args.questions) {
+      if (seenQuestions.has(q.question)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["questions"],
+          message: `duplicate question text: "${q.question}"`,
+        });
+      }
+      seenQuestions.add(q.question);
+      if (q.header.length > 12) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["questions"],
+          message: `header "${q.header}" exceeds 12 characters`,
+        });
+      }
+      const labels = new Set(q.options.map((o) => o.label));
+      if (labels.size !== q.options.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["questions"],
+          message: `option labels must be unique within a question ("${q.question}")`,
+        });
+      }
+      if (!labels.has(q.suggested)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["questions"],
+          message: `suggested must be one of the option labels ("${q.question}")`,
+        });
+      }
     }
   });
+
+/** Rejects a settled-but-invalid answer with a precise message (#68:
+ * never silently substitute a default). */
+function askUserAnswerError(detail: string): never {
+  throw new Error(`ask_user: ${detail}`);
+}
+
+/** Normalizes one answer against its question: validates labels and the
+ * single/multi shape, and produces the result's answer line. */
+function askUserAnswerLine(question: AskUserQuestion, answer: AskUserAnswer): string {
+  const offered = new Set(question.options.map((o) => o.label));
+  const labels = answer.labels ?? [];
+  if (labels.some((l) => !offered.has(l))) {
+    askUserAnswerError(
+      `answer for "${question.question}" includes a label that was not offered (${labels.filter((l) => !offered.has(l)).join(", ")})`,
+    );
+  }
+  if (!question.multiSelect && labels.length > 1) {
+    askUserAnswerError(`answer for "${question.question}" carries multiple labels but the question is single-select`);
+  }
+  if (question.multiSelect && labels.length === 0 && answer.other === undefined) {
+    askUserAnswerError(`answer for "${question.question}" carries neither a selection nor "Other" text`);
+  }
+  if (!question.multiSelect && labels.length > 0 && answer.other !== undefined) {
+    askUserAnswerError(`answer for "${question.question}" combines a choice with "Other" text in single-select mode`);
+  }
+  const parts: string[] = [];
+  if (labels.length > 0) parts.push(labels.join(", "));
+  if (answer.other !== undefined) parts.push(`Other: ${answer.other}`);
+  if (parts.length === 0) askUserAnswerError(`answer for "${question.question}" is empty`);
+  // #414: the chosen option's preview is echoed to the model — it saw the
+  // box only on the user's screen, so the selection carries its content.
+  const previews = labels
+    .map((label) => question.options.find((o) => o.label === label)?.preview)
+    .filter((p): p is string => p !== undefined);
+  return previews.length > 0 ? `${parts.join(" + ")}\n${previews.join("\n---\n")}` : parts.join(" + ");
+}
+
+/** The settled result of one ask_user set (ADR-0019): question → answer
+ * lines, or an explicit "cancelled" when the user aborted the set. */
+export function formatAskUserSetResult(
+  questions: AskUserQuestion[],
+  result: AskUserSetResult,
+): string {
+  if (result.cancelled) return "cancelled";
+  const { answers } = result;
+  if (answers.length !== questions.length) {
+    askUserAnswerError(`expected ${questions.length} answers, got ${answers.length}`);
+  }
+  return questions
+    .map((q, i) => `${q.question}: ${askUserAnswerLine(q, answers[i]!)}`)
+    .join("\n");
+}
 
 const askUser: Tool<z.infer<typeof askUserSchema>> = {
   name: "ask_user",
   interactive: true,
   description:
-    "Ask the user one question with up to 4 options (label + short description); " +
-    "exactly one option is the suggested answer. The user may also answer with free text. " +
-    "Prefer this over asking in plain chat when a decision with clear alternatives is needed.",
+    "Ask the user 1–4 questions in one round. Each question has full text (unique in the set), a required short header (≤12 chars, a chip label), 2–4 options (label + short description, optional preview), optional multiSelect, and `suggested` — the recommended option, purely visual. The user may answer with an option, options (multiSelect), or free text ('Other'). How many questions per round is your decision; prefer fewer. Prefer this over asking in plain chat when a decision has clear alternatives.",
   inputSchema: askUserSchema,
   async execute(args, ctx) {
     if (!ctx.askUser) {
@@ -773,18 +860,8 @@ const askUser: Tool<z.infer<typeof askUserSchema>> = {
           "Proceed without asking — rephrase or make the decision yourself.",
       );
     }
-    const answer = await ctx.askUser({ question: args.question, options: args.options, suggested: args.suggested });
-    if (answer.choice !== undefined && answer.text !== undefined) {
-      throw new Error("ask_user: answer must be either a choice or free text, not both");
-    }
-    if (answer.choice !== undefined) {
-      if (!args.options.some((o) => o.label === answer.choice)) {
-        throw new Error(`ask_user: "${answer.choice}" is not one of the offered options`);
-      }
-      return answer.choice;
-    }
-    if (answer.text !== undefined) return answer.text;
-    throw new Error("ask_user: answer carries neither a choice nor free text");
+    const result = await ctx.askUser({ questions: args.questions });
+    return formatAskUserSetResult(args.questions, result);
   },
 };
 

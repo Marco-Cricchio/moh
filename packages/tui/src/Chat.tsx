@@ -10,6 +10,8 @@ import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
+import { AskUserBlock, askUserBlockRows } from "./AskUserBlock";
+import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
 
@@ -62,6 +64,9 @@ export interface ChatProps {
   prefill?: string;
   /** Repaint settled history in the alternate-screen modal buffer. */
   replaySettled?: boolean;
+  /** ADR-0019 / #412: the pending ask_user question set — rendered as an
+   * inline block between the text area and bottom-bar row 1, no modal. */
+  askGate?: AskUserGate;
   /** #330: an alternate→main buffer flip is in flight (modal just closed,
   * flip timer pending). A deferred whole-transcript repaint must wait it
   * out — firing concurrently lands its Static re-emission in the dying
@@ -102,6 +107,7 @@ export function Chat({
   submitSignal = 0,
   prefill,
   replaySettled = false,
+  askGate,
   bufferFlipPending = false,
   branch,
   yolo = false,
@@ -348,9 +354,22 @@ export function Chat({
   // for), so an uncapped open turn rewrites hundreds of rows per frame —
   // O(n²) output that froze keypress handling and ballooned memory until the
   // OS killed the process (session 20260825T062108113Z).
+  // #413: while the inline ask_user block is open, the volatile ask_user
+  // tool_call projects compactly (one row per question, no answers yet)
+  // instead of being suppressed: the block below grows dynamically and can
+  // compress this tail, but the pending call itself stays visible (its
+  // ◌→✓ mutation is what settledBoundary keeps volatile). Once resolved,
+  // the settled projection carries the answer rows into Static.
+  const askOpen = askGate !== undefined && askGate.current !== null;
+  // #413: the block's row height shrinks the volatile transcript budget so
+  // the block can grow to compress the transcript (frameless, #183). A
+  // 1-row floor keeps a scrolling tail visible at any size.
+  const askBudget = askOpen
+    ? Math.max(1, viewport.rows - 9 - askUserBlockRows(askGate!.current!.questions))
+    : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, Math.max(1, viewport.rows - 9)),
-    [liveBlocks, cols, viewport.rows],
+    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - 9)),
+    [liveBlocks, cols, viewport.rows, askBudget],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items at their recorded insertion indices — never through the settled
@@ -431,8 +450,9 @@ export function Chat({
           void session.send(text);
         }}
       />
-      <ThinkingSeparator level={thinkingLevel} width={cols} />
-      <Box height={1} />
+      {/* #412: inline ask_user block — one blank line of padding above and
+          below (inside AskUserBlock), between the text area and row 1. */}
+      {askGate && askGate.current && <AskUserBlock gate={askGate} width={cols} />}
       <BottomBar
         width={cols}
         pending={state.pending}

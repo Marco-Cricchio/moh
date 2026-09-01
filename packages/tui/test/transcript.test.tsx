@@ -47,6 +47,56 @@ describe("render-side sanitizer (SEC-08)", () => {
     ]);
     expect(blocks.find((item) => item.type === "ask")?.lines).toEqual(["Choose now", "↳ you: yes"]);
   });
+
+  test("question-set ask_user: one row per question plus its answer; unchosen options omitted (#413); legacy shape still works", () => {
+    const set = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set",
+        name: "ask_user",
+        args: { questions: [{ question: "Choose now", header: "Pick", options: [{ label: "a", description: "" }, { label: "b", description: "" }], suggested: "a" }, { question: "Second?", header: "Next", options: [{ label: "c", description: "" }, { label: "d", description: "" }], suggested: "c" }] },
+      },
+      { type: "tool_result", callId: "set", ok: true, output: "Choose now: a\nSecond?: c" },
+    ])[0]!;
+    expect(set.lines).toEqual(["Choose now", "↳ you: a", "Second?", "↳ you: c"]);
+    expect(set.lineKinds).toEqual(["ask", "answer", "ask", "answer"]);
+    // Unchosen options never appear in the compact projection.
+    expect(set.lines.join("\n")).not.toContain("suggested");
+    // Unanswered (open) set: question rows only, no invented answers.
+    const open = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set2",
+        name: "ask_user",
+        args: { questions: [{ question: "Q1?", header: "A", options: [{ label: "x", description: "" }, { label: "y", description: "" }] }] },
+      },
+    ])[0]!;
+    expect(open.lines).toEqual(["Q1?"]);
+    expect(open.state).toBe("run");
+    // Cancelled set: the questions record themselves, no answer rows.
+    const cancelled = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set3",
+        name: "ask_user",
+        args: { questions: [{ question: "Q1?", header: "A", options: [{ label: "x", description: "" }] }] },
+      },
+      { type: "tool_result", callId: "set3", ok: true, output: "cancelled" },
+    ])[0]!;
+    expect(cancelled.lines).toEqual(["Q1?"]);
+    // A colon inside the question text cannot misalign the answer parse
+    // (#413 review): the prefix match keys on the question, not position.
+    const colon = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set4",
+        name: "ask_user",
+        args: { questions: [{ question: "Deploy: where?", header: "Deploy", options: [{ label: "prod", description: "" }, { label: "staging", description: "" }] }, { question: "Rollback?", header: "Roll", options: [{ label: "auto", description: "" }] }] },
+      },
+      { type: "tool_result", callId: "set4", ok: true, output: "Deploy: where?: staging\nRollback?: auto" },
+    ])[0]!;
+    expect(colon.lines).toEqual(["Deploy: where?", "↳ you: staging", "Rollback?", "↳ you: auto"]);
+  });
 });
 
 describe("semantic transcript projection (#183)", () => {

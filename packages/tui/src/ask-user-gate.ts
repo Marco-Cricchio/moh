@@ -1,28 +1,29 @@
 /**
  * The seam between the core's blocking `onAskUser` callback and the TUI's
- * ask_user overlay (issue #70), mirroring PermissionGate: the core's turn
- * loop awaits `ask()`; the overlay resolves the pending question with the
- * user's answer (a choice or free text).
+ * ask_user UI (issue #411 / ADR-0019): the core's turn loop awaits
+ * `ask()` with a **question set** (1–4 questions); the UI collects ALL
+ * answers — or an explicit cancellation — and releases the turn with one
+ * settled result. Mirrors PermissionGate.
  */
-import type { AskUserQuestion, AskUserResult } from "@moh/core";
+import type { AskUserQuestionSet, AskUserSetResult } from "@moh/core";
 
 interface Pending {
-  question: AskUserQuestion;
-  resolve: (answer: AskUserResult) => void;
+  set: AskUserQuestionSet;
+  resolve: (result: AskUserSetResult) => void;
 }
 
 /**
- * One pending question at a time (tool calls are sequential within the
- * turn loop). Subscribable for React.
+ * One pending question set at a time (interactive tools serialize within
+ * a parallel batch, #223). Subscribable for React.
  */
 export class AskUserGate {
   #pending: Pending | null = null;
   #version = 0;
   readonly #listeners = new Set<() => void>();
 
-  /** Snapshot of the question the overlay should render, if any. */
-  get current(): AskUserQuestion | null {
-    return this.#pending?.question ?? null;
+  /** Snapshot of the question set the UI should render, if any. */
+  get current(): AskUserQuestionSet | null {
+    return this.#pending?.set ?? null;
   }
 
   /** Bumped on every state change; use with useSyncExternalStore. */
@@ -43,26 +44,25 @@ export class AskUserGate {
   }
 
   /** The callback handed to `createSession` as `onAskUser`. */
-  ask = (question: AskUserQuestion): Promise<AskUserResult> => {
+  ask = (set: AskUserQuestionSet): Promise<AskUserSetResult> => {
     if (this.#pending) {
       // Overlapping asks must not happen (sequential gate). Reject rather
-      // than silently answer with the suggested option — #68 forbids
-      // silent suggested fallbacks; the tool call fails, the agent sees
-      // the error and self-corrects.
-      return Promise.reject(new Error("ask_user: a question is already pending"));
+      // than silently answer — #68 forbids silent fallbacks; the tool call
+      // fails, the agent sees the error and self-corrects.
+      return Promise.reject(new Error("ask_user: a question set is already pending"));
     }
-    return new Promise<AskUserResult>((resolve) => {
-      this.#pending = { question, resolve };
+    return new Promise<AskUserSetResult>((resolve) => {
+      this.#pending = { set, resolve };
       this.#emit();
     });
   };
 
-  /** Settles the pending question; no-op when nothing is pending. */
-  resolve(answer: AskUserResult): void {
+  /** Settles the pending set; no-op when nothing is pending. */
+  resolve(result: AskUserSetResult): void {
     const pending = this.#pending;
     if (!pending) return;
     this.#pending = null;
     this.#emit();
-    pending.resolve(answer);
+    pending.resolve(result);
   }
 }

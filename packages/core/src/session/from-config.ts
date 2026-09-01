@@ -23,7 +23,7 @@ import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer }
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";
 import type { PermissionOverrides } from "../permissions";
-import type { AgentEvent, AskUserQuestion, AskUserResult, Provider, Tool } from "../types";
+import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool } from "../types";
 import { AgentSession } from "./session";
 import { userConfigFile } from "../user-config";
 import type { PermissionsConfig } from "./config";
@@ -43,8 +43,8 @@ export interface SessionConsent {
     tool: string,
     args: unknown,
   ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
-  /** ask_user channel (TUI: the question modal). */
-  onAskUser?: (question: AskUserQuestion) => Promise<AskUserResult> | AskUserResult;
+  /** ask_user channel (TUI: the inline question block, ADR-0019). */
+  onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Project MCP server consent (TUI: reuses the permission modal). */
   onMcpTrust?: (server: string) => Promise<McpConsentAnswer> | McpConsentAnswer;
 }

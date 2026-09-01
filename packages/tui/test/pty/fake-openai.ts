@@ -2,7 +2,7 @@
  * large transcript, then FOUR ask_user calls in one parallel block (the
  * shape of the real failing session 20260825T062108113Z).
  */
-const REAL_ASK = { question: "Q1 — which way?", options: [{ label: "alpha", description: "first" }, { label: "beta", description: "second" }, { label: "gamma", description: "third" }], suggested: "alpha" };
+const REAL_ASK = { questions: [{ question: "Q1 — which way?", header: "Route", options: [{ label: "alpha", description: "first" }, { label: "beta", description: "second" }, { label: "gamma", description: "third" }], suggested: "alpha" }] };
 const LONG_TEXT = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(40);
 
 const CHAIN = 15; // tool-chain length (< default 50 iteration cap)

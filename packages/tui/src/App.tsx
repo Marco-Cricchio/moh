@@ -39,7 +39,7 @@ import { useViewport } from "./viewport";
 import { trackExitWork } from "./exit";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
-import { AskUserModal } from "./AskUserModal";
+
 import { Onboarding } from "./OnboardingOverlay";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
@@ -622,6 +622,7 @@ export function App({
       prefill={composerPrefill}
       replaySettled={alternateScreen}
       bufferFlipPending={bufferFlipPending}
+      askGate={askGate}
       commands={commandEntries({ config })}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
@@ -888,9 +889,6 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
-        {asking && (
-          <AskUserModal key={`${asking.question}|${asking.options.map((o) => o.label).join(",")}`} gate={askGate} />
-        )}
         </OverlayLayer>}
         {/* Toasts remain non-blocking bottom chrome on every screen. */}
         {!showChat && <Toasts toasts={toasts} />}
