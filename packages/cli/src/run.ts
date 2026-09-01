@@ -139,6 +139,12 @@ export async function runCommand(options: RunOptions): Promise<number> {
     parsed.strings["cwd"] ?? options.cwd ?? process.cwd(),
   );
 
+  // #401: exclusive resume forms fail fast, before any discovery/output.
+  if (sawResume && parsed.strings["session"]) {
+    err.write("moh run: --session and --resume are mutually exclusive\n");
+    return 2;
+  }
+
   // #401 headless session discovery. `--resume` reuses the core's listing
   // (same seam as the TUI home): with a query it filters and opens the
   // best match; with no query it lists and exits (a prompt may still be
@@ -223,10 +229,6 @@ export async function runCommand(options: RunOptions): Promise<number> {
   let resumeStore: SessionStore | undefined;
   try {
     if (parsed.strings["session"]) {
-      if (resumeFile) {
-        err.write("moh run: --session and --resume are mutually exclusive\n");
-        return 2;
-      }
       let existing = SessionStore.open(
         pathResolve(cwd, parsed.strings["session"]),
       );

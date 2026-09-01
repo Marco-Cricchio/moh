@@ -36,7 +36,11 @@ options:
 async function tuiCommand(yolo = false): Promise<number> {
   const { renderTui } = await import("@moh/tui");
   const { CLI_VERSION } = await import("./version");
-  const instance = renderTui({ cwd: process.cwd(), version: CLI_VERSION, ...(yolo ? { yolo } : {}) });
+  const instance = renderTui({
+    cwd: process.cwd(),
+    version: CLI_VERSION,
+    ...(yolo ? { yolo } : {}),
+  });
   await instance.waitUntilExit?.();
   // #341: exit is deliberate, so it must be bounded — tracked session
   // disposal gets a budget, then the process terminates explicitly.
@@ -47,7 +51,9 @@ async function tuiCommand(yolo = false): Promise<number> {
   return finishExit(2500, 0);
 }
 
-export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+export async function main(
+  argv: string[] = process.argv.slice(2),
+): Promise<number> {
   const [command, ...rest] = argv;
   if (command === "--version" || command === "-v") {
     if (rest.length) {
@@ -59,20 +65,26 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
   // #377: the old flag is removed, not aliased — fail loudly.
   if (argv.includes("--dangerously-bypass-permissions")) {
-    process.stderr.write("moh: --dangerously-bypass-permissions was removed; use --yolo\n");
+    process.stderr.write(
+      "moh: --dangerously-bypass-permissions was removed; use --yolo\n",
+    );
     return 2;
   }
   // #377: `moh --yolo` opens the TUI like bare `moh` does — the flag rides
   // on the no-command path instead of being mistaken for a subcommand.
   const yolo = argv.includes("--yolo");
   if (yolo && !["--yolo", "tui", "run", "help", "--help"].includes(command!)) {
-    process.stderr.write(`moh: --yolo applies to the TUI launch; use "moh --yolo" or "moh tui --yolo"\n`);
+    process.stderr.write(
+      `moh: --yolo applies to the TUI launch; use "moh --yolo" or "moh tui --yolo"\n`,
+    );
     return 2;
   }
   if (!command || command === "--yolo") {
     // `moh --yolo junk` is a usage error, not a silently ignored flag.
     if (argv.some((a, i) => i > 0 && a !== "--yolo")) {
-      process.stderr.write(`moh: unexpected argument (bare moh opens the TUI; did you mean "moh run …"?)\n`);
+      process.stderr.write(
+        `moh: unexpected argument (bare moh opens the TUI; did you mean "moh run …"?)\n`,
+      );
       return 2;
     }
     return tuiCommand(yolo);
@@ -100,7 +112,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       process.stdout.write(RUN_USAGE + "\n");
       return 0;
     }
-    return runCommand({ argv: rest });
+    return runCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "mcp") {
     if (rest.includes("--help") || rest.includes("-h")) {
