@@ -144,6 +144,14 @@ export async function runCommand(options: RunOptions): Promise<number> {
     err.write("moh run: --session and --resume are mutually exclusive\n");
     return 2;
   }
+  // `--fork` is only meaningful with an explicit `--session`; forking a
+  // discovered session would surprise: reject instead of silently ignoring.
+  if (sawResume && parsed.booleans["fork"]) {
+    err.write(
+      "moh run: --fork applies to --session <file>; to fork a discovered session, list with --resume and pass its file to --session --fork\n",
+    );
+    return 2;
+  }
 
   // #401 headless session discovery. `--resume` reuses the core's listing
   // (same seam as the TUI home): with a query it filters and opens the

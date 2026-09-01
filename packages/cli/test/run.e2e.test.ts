@@ -425,6 +425,10 @@ describe("moh run (e2e)", () => {
       expect(spawn(["run", "--resume", "seed", "and a positional"]).code).toBe(
         2,
       );
+      // --fork is --session-only: never silently ignored with --resume.
+      expect(
+        spawn(["run", "--resume", "seed", "--fork", "--prompt", "x"]).code,
+      ).toBe(2);
     });
   });
 });
