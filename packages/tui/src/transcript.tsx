@@ -296,6 +296,20 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });
         break;
+      case "session_file_growth":
+        // #400 single-writer guard: visible on replay too (headless resume
+        // of a file that once grew from elsewhere shows why history may
+        // interleave). Never hidden in vibe mode: it is a data warning.
+        blocks.push({
+          key,
+          kind: "error",
+          glyph: "✗",
+          type: "session file grew from elsewhere",
+          detail: `${event.expectedBytes} → ${event.actualBytes} bytes`,
+          lines: ["Concurrent use of one session file is unsupported; fork the session to recover."],
+          state: "fail",
+        });
+        break;
       case "compaction":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "context compacted", detail: `${event.upTo} events`, lines: [event.summary] });

@@ -130,6 +130,16 @@ Every event is also persisted (the `sink` you can add via
 `store.file` — one append-only JSONL per session, which you can `load()`
 to resume or `fork()` to branch later.
 
+Session files are **single-writer** (#400): an open session probes its
+file's size at every append boundary, and growth from elsewhere (another
+machine over a sync channel, a second process) is appended as a
+`session_file_growth` chrome event — a warning you should surface, never
+provider context. The local writer's appends are not blocked: they
+continue on the tail, intact. Concurrent use of the same session file on
+two machines is unsupported — use a session serially (close on one
+machine, then resume on the other), and fork the session when a growth
+warning fires.
+
 `send` accepts options (ADR-0011): `session.send(text, { prompt: { name,
 text } })` attaches a turn-scoped skill prompt that rides the system
 prompt for exactly one turn — the user message (and its persisted event)

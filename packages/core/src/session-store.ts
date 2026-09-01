@@ -1,4 +1,4 @@
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -57,9 +57,18 @@ function isSessionFile(name: string): boolean {
  */
 export class SessionStore {
   readonly #file: string;
+  /** #400: size of the file as this writer last saw it, snapshotted at
+   * open/create time and updated after every append. Growth beyond it
+   * between appends means someone else wrote to the file. */
+  #expectedSize: number;
 
   private constructor(file: string) {
     this.#file = file;
+    try {
+      this.#expectedSize = statSync(file).size;
+    } catch {
+      this.#expectedSize = 0;
+    }
   }
 
   /** Path of the backing JSONL file. */
@@ -125,9 +134,31 @@ export class SessionStore {
     return new SessionStore(target);
   }
 
-  /** Appends one event as a single JSON line. Never rewrites existing bytes. */
+  /**
+   * #400: observes whether the file grew beyond what this writer last
+   * appended — non-consuming (the next call still reports it until an
+   * append refreshes the expectation). Null when it did not (or the file
+   * cannot be stat'ed — the guard is best-effort and never blocks writes).
+   */
+  externalGrowth(): { expectedBytes: number; actualBytes: number } | null {
+    let actual: number;
+    try {
+      actual = statSync(this.#file).size;
+    } catch {
+      return null;
+    }
+    return actual > this.#expectedSize ? { expectedBytes: this.#expectedSize, actualBytes: actual } : null;
+  }
+
+  /** Appends one event as a single JSON line. Never rewrites existing bytes.
+   * Single-writer guard (#400): callers pair this with `externalGrowth()`
+   * (checked immediately before) to detect that another writer (another
+   * machine over a sync channel, a second process) grew the file between
+   * appends. The append itself always proceeds on the tail: the local
+   * writer's appends stay intact; interleaving is surfaced, never silent. */
   append(event: AgentEvent): void {
     appendFileSync(this.#file, JSON.stringify(event) + "\n");
+    this.#expectedSize = statSync(this.#file).size;
   }
 
   /**

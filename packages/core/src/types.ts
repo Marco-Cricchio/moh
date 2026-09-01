@@ -220,6 +220,14 @@ export type AgentEvent =
    * Discreet by design — clients may show an indicator, never chat noise.
    */
   | { type: "memory_updated"; entries: number; topics: string[] }
+  /**
+   * #400 single-writer guard: the session JSONL grew beyond what this
+   * writer last appended (another machine over a sync channel, or a second
+   * process). Chrome only: never provider context. Clients surface a
+   * visible warning; concurrent same-file use is unsupported — the
+   * recovery path is forking the session.
+   */
+  | { type: "session_file_growth"; file: string; expectedBytes: number; actualBytes: number }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */

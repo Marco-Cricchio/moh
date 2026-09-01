@@ -298,3 +298,73 @@ describe("session store", () => {
     ]);
   });
 });
+
+// #400: single-writer semantics — an open session detects that its JSONL
+// file grew from elsewhere (sync channel / second process) at append
+// boundaries. Tested at the session-store seam by mutating the file
+// externally between open and append.
+describe("single-writer guard (#400)", () => {
+  const START: AgentEvent = { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" };
+
+  test("externalGrowth() reports growth between open and append, once, with both sizes", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    expect(store.externalGrowth()).toBeNull();
+
+    // External writer appends to the same file (e.g. a synced machine).
+    const before = statSync(store.file).size;
+    appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    const after = statSync(store.file).size;
+
+    const growth = store.externalGrowth();
+    expect(growth).not.toBeNull();
+    expect(growth!.expectedBytes).toBe(before);
+    expect(growth!.actualBytes).toBe(after);
+    // Non-consuming: still visible until the local writer appends.
+    expect(store.externalGrowth()).toEqual(growth);
+  });
+
+  test("after the local append the expectation refreshes; local bytes stay intact", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    const bytesBeforeLocalAppend = readFileSync(store.file, "utf8");
+
+    // The local writer appends on the tail: nothing is rewritten, the
+    // external line survives, no silent corruption.
+    store.append({ type: "user_message", text: "local" });
+    const raw = readFileSync(store.file, "utf8");
+    expect(raw.startsWith(bytesBeforeLocalAppend)).toBe(true);
+    expect(store.externalGrowth()).toBeNull();
+  });
+
+  test("an open (resumed) store baselines at open time, not at the history's end", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const original = SessionStore.create(cwd, home);
+    original.append(START);
+    const originalBytes = readFileSync(original.file, "utf8");
+
+    const reopened = SessionStore.open(original.file);
+    expect(reopened.externalGrowth()).toBeNull();
+    appendFileSync(original.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    expect(reopened.externalGrowth()).not.toBeNull();
+
+    // The original writer also notices the reopened writer's appends.
+    reopened.append({ type: "user_message", text: "local" });
+    expect(original.externalGrowth()).not.toBeNull();
+  });
+
+  test("shrinking or same-size external rewrites are not reported (growth-only signal)", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    writeFileSync(store.file, readFileSync(store.file, "utf8"));
+    expect(store.externalGrowth()).toBeNull();
+  });
+});

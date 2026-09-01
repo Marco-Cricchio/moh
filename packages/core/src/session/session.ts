@@ -70,6 +70,8 @@ export class AgentSession {
   /** JSONL file the sink appends to (from-config path); undefined when
    * the session was built without a file store. */
   readonly #sessionFile: string | undefined;
+  /** #400: external-growth probe (from-config: `SessionStore.externalGrowth`). */
+  readonly #externalGrowth: (() => { expectedBytes: number; actualBytes: number } | null) | undefined;
   #promptVersion = "";
   readonly #messages: Message[];
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
@@ -122,6 +124,7 @@ export class AgentSession {
     this.#onAskUser = config.onAskUser;
     this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
     this.#sessionFile = config.sessionFile;
+    this.#externalGrowth = config.externalGrowth;
     this.#gate = new PermissionGate({
       permissions: this.#permissions,
       extensions: config.extensions,
@@ -507,6 +510,16 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
+    // #400 single-writer guard: at every append boundary, growth of the
+    // backing file beyond what this writer last appended becomes one
+    // `session_file_growth` chrome event (all surfaces warn) recorded
+    // *before* the pending event — chronologically honest in the log.
+    if (this.#externalGrowth) {
+      const growth = this.#externalGrowth();
+      if (growth) {
+        this.#eventLog.append({ type: "session_file_growth", file: this.#sessionFile!, ...growth });
+      }
+    }
     this.#eventLog.append(event);
   }
 

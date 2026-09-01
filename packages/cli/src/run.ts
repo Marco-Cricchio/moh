@@ -117,7 +117,17 @@ export async function runCommand(options: RunOptions): Promise<number> {
         mode: parsed.booleans["auto-accept"] ? "auto-accept" : "normal",
         unrestrictedTools: parsed.booleans["yolo"] || undefined,
       },
-      sink: (event: AgentEvent) => out.write(JSON.stringify(event) + "\n"),
+      sink: (event: AgentEvent) => {
+        // #400 single-writer guard: the file grew from elsewhere between
+        // appends — the JSON stream carries the event, and the human gets
+        // one stderr line (stdout stays pure JSONL).
+        if (event.type === "session_file_growth") {
+          err.write(
+            `moh run: warning: session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to recover\n`,
+          );
+        }
+        out.write(JSON.stringify(event) + "\n");
+      },
       // A fresh store is created by the builder (after config/provider
       // validation, so a broken config leaves no orphan session file).
       ...(resumeStore ? { store: resumeStore } : {}),
