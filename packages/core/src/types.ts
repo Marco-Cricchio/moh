@@ -302,18 +302,6 @@ export interface AskUserSetResult {
   cancelled?: boolean;
 }
 
-/** Legacy single-question ask_user payload (pre-ADR-0019 sessions).
- * Widened to a question set; kept for replay translation (T5). */
-export interface AskUserLegacyQuestion {
-  question: string;
-  options: AskUserOption[];
-  suggested: string;
-}
-
-/** A user's legacy answer: exactly one of the choice label (an offered
- * option) or free text. Superseded by AskUserAnswer; kept for replay. */
-export type AskUserLegacyResult = { choice?: string; text?: string };
-
 /** Runtime context handed to every tool execution. */
 export interface ToolContext {
   signal: AbortSignal;

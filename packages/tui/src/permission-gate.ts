@@ -62,18 +62,26 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
   return { tool, args, detail: rendered ? [rendered] : ["(no arguments)"], rulePreview: sanitizeForDisplay(formatRule({ tier: "runtime", tool, effect: "allow" })) };
 }
 
+/** ask_user (#70/#411): the first question is the summary; the answers
+ * land in the tool_result output, so replay shows both. Handles both
+ * the question-set shape and the legacy single-question args (replay of
+ * pre-ADR-0019 sessions). */
+export function askUserQuestionSummary(args: unknown): string | undefined {
+  const a = (args ?? {}) as { question?: unknown; questions?: unknown };
+  if (Array.isArray(a.questions)) {
+    const q = (a.questions[0] as { question?: unknown } | undefined)?.question;
+    if (typeof q === "string") return q;
+  }
+  return typeof a.question === "string" ? a.question : undefined;
+}
+
 /** One-line argument summary for tool lines (shared with the TUI chat). */
 export function toolArgSummary(args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
   if (typeof a.command === "string") return sanitizeForDisplay(a.command);
   if (typeof a.path === "string") return sanitizeForDisplay(a.path);
-  // ask_user (#70/#411): the first question is the summary; the answers
-  // land in the tool_result output, so replay shows both.
-  if (typeof a.questions === "object" && Array.isArray(a.questions) && a.questions.length > 0) {
-    const q = (a.questions[0] as { question?: unknown }).question;
-    if (typeof q === "string") return sanitizeForDisplay(q);
-  }
-  if (typeof a.question === "string") return sanitizeForDisplay(a.question);
+  const question = askUserQuestionSummary(args);
+  if (question !== undefined) return sanitizeForDisplay(question);
   return "";
 }
 

@@ -7,6 +7,7 @@ import { sanitizeLine, truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
+import { askUserQuestionSummary } from "./permission-gate";
 import type { ToolTimings } from "./tool-timing";
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent";
 export interface TranscriptBlock {
@@ -172,16 +173,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         }
         // ask_user (#70, set shape #411): the first question is the
         // summary; the answers land in the tool_result output, so replay
-        // shows both. Legacy single-question args still render.
+        // shows both. Legacy single-question args still render (helper).
         if (event.name === "ask_user") {
-          const args = event.args as { question?: unknown; questions?: { question?: unknown }[] } | undefined;
-          const firstQuestion =
-            Array.isArray(args?.questions) && typeof args!.questions[0]?.question === "string"
-              ? args!.questions[0].question
-              : typeof args?.question === "string"
-                ? args.question
-                : undefined;
-          const question = firstQuestion !== undefined ? sanitizeForDisplay(String(firstQuestion)) : detailOf(event.args);
+          const firstQuestion = askUserQuestionSummary(event.args);
+          const question = firstQuestion !== undefined ? sanitizeForDisplay(firstQuestion) : detailOf(event.args);
           const lines = [question, ...(result?.output ? [`↳ you: ${sanitizeLine(result.output)}`] : [])];
           blocks.push({ key, kind: "moh", glyph: "?", type: "ask", lines, lineKinds: lines.map((_, index) => index === 0 ? "ask" : "answer"), state, ...timingFields });
           break;
