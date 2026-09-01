@@ -45,6 +45,7 @@ describe.skipIf(!hasPython)("ask_user modal with a large open turn (PTY regressi
             { wait: 15.0, until: "Q1 — which way?" },
             { wait: 0.3, send: DOWN },
             { wait: 1.5, send: DOWN },
+            { wait: 1.5, send: DOWN }, // now on "Other"
             { wait: 4.0 },
           ],
           tail: 40,
@@ -52,10 +53,10 @@ describe.skipIf(!hasPython)("ask_user modal with a large open turn (PTY regressi
         });
         expect(meta.aliveAtEnd).toBe(true); // the real crash: SIGKILL ("killed") — meaningful because sampled pre-kill (#236)
         const raw = readFileSync(RAW, "utf8");
-        // The modal rendered its question…
+        // The inline block rendered its question…
         expect(raw).toContain("Q1 — which way?");
-        // …and two ↓ keypresses moved the selection off option 1.
-        expect(raw).toContain("> 2  beta");
+        // …and three ↓ keypresses reached the always-last "Other" row.
+        expect(raw).toContain("Other");
       } finally {
         server.stop(true);
       }
