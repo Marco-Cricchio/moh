@@ -144,9 +144,11 @@ export class SessionStore {
 
   /**
    * #400: observes whether the file grew beyond what this writer last
-   * appended — non-consuming (the next call still reports it until an
-   * append refreshes the expectation). Null when it did not (or the file
-   * cannot be stat'ed — the guard is best-effort and never blocks writes).
+   * appended. Consuming: a reported growth is acknowledged (the baseline
+   * moves to the observed size), so one incident yields exactly one
+   * warning — the caller reports it before appending on the tail. Null
+   * when it did not (or the file cannot be stat'ed — the guard is
+   * best-effort and never blocks writes).
    */
   externalGrowth(): { expectedBytes: number; actualBytes: number } | null {
     let actual: number;
@@ -155,7 +157,10 @@ export class SessionStore {
     } catch {
       return null;
     }
-    return actual > this.#expectedSize ? { expectedBytes: this.#expectedSize, actualBytes: actual } : null;
+    if (actual <= this.#expectedSize) return null;
+    const expectedBytes = this.#expectedSize;
+    this.#expectedSize = actual;
+    return { expectedBytes, actualBytes: actual };
   }
 
   /** Appends one event as a single JSON line. Never rewrites existing bytes.

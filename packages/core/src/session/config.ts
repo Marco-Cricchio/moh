@@ -74,6 +74,8 @@ export interface SessionConfig {
    * unsupported — forking is the recovery path.
    */
   externalGrowth?: () => { expectedBytes: number; actualBytes: number } | null;
+  /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
+  promptComposer?: PromptComposer;
   /** User-level moh dir for skill discovery. Default: `~/.moh`. */
   mohHome?: string;
   /**

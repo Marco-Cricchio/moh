@@ -322,8 +322,9 @@ describe("single-writer guard (#400)", () => {
     expect(growth).not.toBeNull();
     expect(growth!.expectedBytes).toBe(before);
     expect(growth!.actualBytes).toBe(after);
-    // Non-consuming: still visible until the local writer appends.
-    expect(store.externalGrowth()).toEqual(growth);
+    // Consuming: one incident, one warning — acknowledged until new
+    // external growth (the local append has not happened yet).
+    expect(store.externalGrowth()).toBeNull();
   });
 
   test("after the local append the expectation refreshes; local bytes stay intact", () => {
@@ -334,11 +335,35 @@ describe("single-writer guard (#400)", () => {
     appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
     const bytesBeforeLocalAppend = readFileSync(store.file, "utf8");
 
-    // The local writer appends on the tail: nothing is rewritten, the
-    // external line survives, no silent corruption.
+    // The session flow probes before appending: the incident is observed
+    // (consumed) here, then the local append proceeds on the tail with
+    // the refreshed baseline. Nothing is rewritten; the external line
+    // survives; no silent corruption.
+    expect(store.externalGrowth()).not.toBeNull();
     store.append({ type: "user_message", text: "local" });
     const raw = readFileSync(store.file, "utf8");
     expect(raw.startsWith(bytesBeforeLocalAppend)).toBe(true);
+    expect(store.externalGrowth()).toBeNull();
+  });
+
+  test("a local append that never probed does not swallow the external growth", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append(START);
+    const before = statSync(store.file).size;
+    appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
+    const after = statSync(store.file).size;
+
+    // The append's arithmetic baseline (no re-stat) never observed the
+    // foreign bytes: the next probe still reports them, unswallowed —
+    // exactly once, then consumed.
+    store.append({ type: "user_message", text: "local" });
+    const growth = store.externalGrowth();
+    expect(growth).not.toBeNull();
+    const localLine = JSON.stringify({ type: "user_message", text: "local" }) + "\n";
+    expect(growth!.expectedBytes).toBe(before + Buffer.byteLength(localLine));
+    expect(growth!.actualBytes).toBe(statSync(store.file).size);
     expect(store.externalGrowth()).toBeNull();
   });
 
