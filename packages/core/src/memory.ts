@@ -136,7 +136,7 @@ export class MemoryStore {
 
   /** <mohHome>/projects/<slug>/memory — sibling of the session logs. */
   static forProject(cwd: string, mohHome = join(homedir(), ".moh")): MemoryStore {
-    return new MemoryStore(join(mohHome, "projects", projectSlug(cwd), "memory"));
+    return new MemoryStore(join(mohHome, "projects", projectSlug(cwd, join(mohHome, "..")), "memory"));
   }
 
   get indexFile(): string {

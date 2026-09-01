@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { MIN_SUPPORTED_SCHEMA_VERSION, replayMessages } from "../src/session-store";
+import { legacyProjectSlug, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, replayMessages } from "../src/session-store";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -45,15 +45,44 @@ describe("session store", () => {
     expect(statSync(mohHome).mode & 0o777).toBe(0o755);
   });
 
-  test("same-named project dirs get distinct slugs; same cwd gets the same slug", () => {
+  test("first open creates an opaque project identity and shared clones resolve to one slug", () => {
     const home = tempHome();
     const a = mkdtempSync(join(tmpdir(), "moh-same-"));
     const b = mkdtempSync(join(tmpdir(), "moh-same-"));
-    const dirA = SessionStore.create(a, home).file;
-    const dirB = SessionStore.create(b, home).file;
-    const dirA2 = SessionStore.create(a, home).file;
-    expect(join(dirA, "..")).not.toBe(join(dirB, ".."));
-    expect(join(dirA, "..")).toBe(join(dirA2, ".."));
+    const first = SessionStore.create(a, home);
+    const identity = readFileSync(join(a, ".moh", "project.json"), "utf8");
+    expect(JSON.parse(identity)).toEqual({ id: expect.any(String) });
+    expect(identity).not.toContain(a);
+    mkdirSync(join(b, ".moh"), { recursive: true });
+    writeFileSync(join(b, ".moh", "project.json"), identity);
+    const second = SessionStore.create(b, home);
+    expect(join(first.file, "..")).toBe(join(second.file, ".."));
+    expect(SessionStore.list(b, home).map((store) => store.file)).toContain(first.file);
+  });
+
+  test("projects without an identity retain their legacy slug when identity creation fails", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-legacy-"));
+    mkdirSync(join(cwd, ".moh", "project.json"), { recursive: true });
+    expect(projectSlug(cwd, home)).toBe(legacyProjectSlug(cwd));
+  });
+
+  test("declared identity atomically migrates an existing legacy directory once and records a note", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-migrate-"));
+    const legacy = legacyProjectSlug(cwd);
+    const legacyDir = join(home, ".moh", "projects", legacy);
+    mkdirSync(join(legacyDir, "memory"), { recursive: true });
+    writeFileSync(join(legacyDir, "old.jsonl"), "session");
+    writeFileSync(join(legacyDir, "memory", "facts.md"), "fact");
+    const slug = projectSlug(cwd, home);
+    const target = join(home, ".moh", "projects", slug);
+    expect(existsSync(legacyDir)).toBe(false);
+    expect(readFileSync(join(target, "old.jsonl"), "utf8")).toBe("session");
+    expect(readFileSync(join(target, "memory", "facts.md"), "utf8")).toBe("fact");
+    expect(readFileSync(join(target, "migration.log"), "utf8")).toContain("Migrated legacy project directory");
+    projectSlug(cwd, home);
+    expect(readFileSync(join(target, "migration.log"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
   });
 
   test("append is one JSON line per event; load() round-trips a real session log", async () => {

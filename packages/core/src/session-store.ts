@@ -1,7 +1,8 @@
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { dirname, isAbsolute, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 
@@ -33,18 +34,17 @@ export function newSessionId(now = new Date()): string {
   return `${ts}-${uuid}`;
 }
 
-/** Project slug: sanitized basename + short hash of the resolved cwd. */
-export function projectSlug(cwd: string): string {
-  const resolved = pathResolve(cwd);
-  const base = basename(resolved).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
-  const hash = createHash("sha256").update(resolved).digest("hex").slice(0, 8);
-  return `${base}-${hash}`;
+/** Project slug. A declared identity wins; legacy path-derived slugs remain readable. */
+export function projectSlug(cwd: string, home = homedir()): string {
+  return resolveProjectIdentity(cwd, home).slug;
 }
 
 /** Directory holding the project's session files: <home>/.moh/projects/<slug> */
 export function projectSessionsDir(cwd: string, home = homedir()): string {
-  return join(home, ".moh", "projects", projectSlug(cwd));
+  return join(home, ".moh", "projects", projectSlug(cwd, home));
 }
+
+export { legacyProjectSlug, resolveProjectIdentity };
 
 function isSessionFile(name: string): boolean {
   return name.endsWith(".jsonl") && SESSION_ID_RE.test(name.slice(0, name.length - ".jsonl".length));
