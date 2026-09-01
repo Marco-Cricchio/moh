@@ -888,9 +888,7 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
-        {asking && (
-          <AskUserModal key={`${asking.question}|${asking.options.map((o) => o.label).join(",")}`} gate={askGate} />
-        )}
+        {asking && <AskUserModal gate={askGate} />}
         </OverlayLayer>}
         {/* Toasts remain non-blocking bottom chrome on every screen. */}
         {!showChat && <Toasts toasts={toasts} />}

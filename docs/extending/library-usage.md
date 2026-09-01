@@ -205,7 +205,7 @@ const assembled = sessionFromConfig({
   cwd, home, provider,
   consent: {
     onPermissionRequest: async (tool, args) => /* "yes" | "always" | "no" */ "no",
-    onAskUser: async (question) => /* an AskUserResult */ { choice: "1" },
+    onAskUser: async (set) => /* an AskUserSetResult */ { answers: [{ labels: ["1"] }] },
     onMcpTrust: async (server) => /* "yes" | "always" | "no" */ "no",
   },
 });

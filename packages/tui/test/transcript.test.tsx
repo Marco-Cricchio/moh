@@ -47,6 +47,19 @@ describe("render-side sanitizer (SEC-08)", () => {
     ]);
     expect(blocks.find((item) => item.type === "ask")?.lines).toEqual(["Choose now", "↳ you: yes"]);
   });
+
+  test("question-set ask_user renders the first question as summary (#411); legacy shape still works", () => {
+    const set = projectTranscript([
+      {
+        type: "tool_call",
+        callId: "set",
+        name: "ask_user",
+        args: { questions: [{ question: "Choose now", header: "Pick", options: [{ label: "a", description: "" }, { label: "b", description: "" }], suggested: "a" }, { question: "Second?", header: "Next", options: [{ label: "c", description: "" }, { label: "d", description: "" }], suggested: "c" }] },
+      },
+      { type: "tool_result", callId: "set", ok: true, output: "Choose now: a\nSecond?: c" },
+    ])[0]!;
+    expect(set.lines).toEqual(["Choose now", "↳ you: Choose now: a\nSecond?: c"]);
+  });
 });
 
 describe("semantic transcript projection (#183)", () => {
