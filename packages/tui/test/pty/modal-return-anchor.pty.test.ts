@@ -24,7 +24,11 @@ import { hasPython, runPtyRaw } from "./pty-runner";
 const B = (s: string) => btoa(s);
 
 describe.skipIf(!hasPython)("modal open/close keeps the session frame anchored (PTY)", () => {
-  test("settings open/close: input and bottom bar stay on the bottom rows", async () => {
+  // KNOWN FLAKE (#441, load-dependent): under a full-suite run this test
+  // can exceed the bun test timeout (Expected: >= 28, Received: -1) while
+  // passing in isolation. Temporarily skipped by the maintainer's call;
+  // restore by deleting `.skip` below — do not delete the test.
+  test.skip("settings open/close: input and bottom bar stay on the bottom rows", async () => {
     const meta = await runPtyRaw({
       cols: 100,
       rows: 30,
