@@ -450,9 +450,12 @@ export function Chat({
           void session.send(text);
         }}
       />
+      <ThinkingSeparator level={thinkingLevel} width={cols} />
       {/* #412: inline ask_user block — one blank line of padding above and
-          below (inside AskUserBlock), between the text area and row 1. */}
+          below (inside AskUserBlock), between the text area's separator
+          and row 1. */}
       {askGate && askGate.current && <AskUserBlock gate={askGate} width={cols} />}
+      <Box height={1} />
       <BottomBar
         width={cols}
         pending={state.pending}
