@@ -7,6 +7,28 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-02
+### Fixed
+
+- ask_user inline block freeze (#426): with a question set open, the
+  block no longer drives the modal alternate-screen buffer flip (and the
+  deferred whole-transcript repaint) — the visible screen stays
+  responsive under arrow stress on long transcripts; the block keeps
+  exclusive keyboard focus while open.
+
+### Changed
+
+- ask_user block redesign (#426), owner-validated via an interactive
+  prototype: at ≥72 columns the block renders as a bordered panel with
+  one tab-chip per question (current, answered, pending) and a
+  flush-right N/M counter, byte-exact aligned; option descriptions
+  word-wrap on their own indented lines; the summary screen shows one
+  padded row per question. Below 72 columns it regresses to a compact
+  borderless layout without tab-chips or side-by-side previews.
+- new `muted` theme token (mid-tone between fg and dim) renders the
+  focused option's description in every theme — dim was too dark to
+  read, fg was indistinguishable from the question title.
+
 ## [0.13.1] - 2026-09-02
 ### Fixed
 
@@ -377,6 +399,7 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
   on first run via the existing hash-manifest upgrade semantics.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...develop
+[0.14.0]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/Marco-Cricchio/moh/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Marco-Cricchio/moh/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Marco-Cricchio/moh/compare/v0.11.2...v0.12.0

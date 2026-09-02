@@ -365,7 +365,7 @@ export function Chat({
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
   const askBudget = askOpen
-    ? Math.max(1, viewport.rows - 9 - askUserBlockRows(askGate!.current!.questions))
+    ? Math.max(1, viewport.rows - 9 - askUserBlockRows(askGate!.current!.questions, cols))
     : undefined;
   const liveTail = useMemo(
     () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - 9)),
