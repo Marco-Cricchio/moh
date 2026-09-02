@@ -590,7 +590,12 @@ export function App({
   });
 
   const showChat = session !== null;
-  const overlayOpen = overlay !== null || pending !== null || asking !== null;
+  // #426: the inline ask_user block is NOT an overlay — including `asking`
+  // here drove the alternate-screen buffer flip (and the #330 deferred
+  // repaint) while the block was open, freezing the screen under arrow
+  // stress. The block renders inline in the main buffer; the composer is
+  // still blocked (see `blocked` above), so it keeps exclusive keys.
+  const overlayOpen = overlay !== null || pending !== null;
   // #330: a flip back to the main buffer is pending from the moment the
   // overlay closes (render-phase: covers the first post-close commit,
   // before the flip effect runs) until the delayed 1049l fires. Chat
