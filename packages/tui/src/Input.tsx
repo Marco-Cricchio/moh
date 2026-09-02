@@ -317,10 +317,16 @@ export function MultilineInput({
     const line = lines[cursorLine] ?? "";
     if (key.ctrl && input === "a") { setCursorColumn(0); setPreferredColumn(null); return; }
     if (key.ctrl && input === "e") { setCursorColumn(line.length); setPreferredColumn(null); return; }
-    if (key.ctrl && key.leftArrow) { setCursorColumn(wordLeft(line, cursorColumn)); setPreferredColumn(null); return; }
-    if (key.ctrl && key.rightArrow) { setCursorColumn(wordRight(line, cursorColumn)); setPreferredColumn(null); return; }
-    if (input === "\x1bb") { setCursorColumn(wordLeft(line, cursorColumn)); setPreferredColumn(null); return; }
-    if (input === "\x1bf") { setCursorColumn(wordRight(line, cursorColumn)); setPreferredColumn(null); return; }
+    if (key.ctrl && key.leftArrow || input === "\x1bb") {
+      if (cursorColumn > 0) setCursorColumn(wordLeft(line, cursorColumn));
+      else if (cursorLine > 0) { const previous = lines[cursorLine - 1] ?? ""; setCursorLine(cursorLine - 1); setCursorColumn(wordLeft(previous, previous.length)); }
+      setPreferredColumn(null); return;
+    }
+    if (key.ctrl && key.rightArrow || input === "\x1bf") {
+      if (cursorColumn < line.length) setCursorColumn(wordRight(line, cursorColumn));
+      else if (cursorLine < lines.length - 1) { const next = lines[cursorLine + 1] ?? ""; setCursorLine(cursorLine + 1); setCursorColumn(wordRight(next, 0)); }
+      setPreferredColumn(null); return;
+    }
     if (key.leftArrow) {
       if (cursorColumn === 0 && cursorLine > 0) { setCursorLine(cursorLine - 1); setCursorColumn((lines[cursorLine - 1] ?? "").length); }
       else setCursorColumn(previousColumn(line, cursorColumn));
@@ -364,15 +370,24 @@ export function MultilineInput({
     }
     if (key.upArrow || key.downArrow) {
       const direction = key.upArrow ? -1 : 1;
-      if (history.length && lines.length === 1 && (key.upArrow && cursorLine === 0 || key.downArrow && cursorLine === lines.length - 1) && (cursorColumn === 0 || cursorColumn === line.length || historyIndex >= 0)) {
+      const visualIndex = visualLines.findIndex((item) => item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length);
+      const atFirstVisualLine = visualIndex <= 0;
+      const atLastVisualLine = visualIndex === visualLines.length - 1;
+      // Readline/fish recall at the visual edges. A multiline draft is kept
+      // intact and restored after walking past the newest history entry.
+      if (history.length && ((direction < 0 && atFirstVisualLine) || (direction > 0 && atLastVisualLine) || historyIndex >= 0)) {
         if (historyIndex < 0) { setHistoryDraft(snapshot()); setHistoryIndex(0); replaceText(history[0]!, "end"); }
         else { const next = historyIndex + (direction < 0 ? 1 : -1); if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); } else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); } }
         return;
       }
-      if (direction < 0 && cursorLine === 0) return;
-      if (direction > 0 && cursorLine === lines.length - 1) return;
-      const target = preferredColumn ?? cursorColumn; const nextLine = cursorLine + direction;
-      setPreferredColumn(target); setCursorLine(nextLine); setCursorColumn(Math.min(target, (lines[nextLine] ?? "").length)); return;
+      if (visualIndex < 0 || direction < 0 && atFirstVisualLine || direction > 0 && atLastVisualLine) return;
+      const current = visualLines[visualIndex]!;
+      const target = preferredColumn ?? cursorColumn - current.start;
+      const next = visualLines[visualIndex + direction]!;
+      setPreferredColumn(target);
+      setCursorLine(next.logicalLine);
+      setCursorColumn(next.start + Math.min(target, next.text.length));
+      return;
     }
     if (input && !key.ctrl && !key.meta) { setSuggestionIndex(0); insertText(input); }
   }
