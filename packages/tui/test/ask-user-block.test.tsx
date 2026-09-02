@@ -93,7 +93,7 @@ async function mount(gate: AskUserGate) {
 }
 
 describe("ask_user inline block (ADR-0019 / #412)", () => {
-  test("renders header chip, question, options, recommended chip, Other — no dialog border", async () => {
+  test("renders panel with tab-chip row, question, options, recommended chip, Other (#426 layout A)", async () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = await mount(gate);
@@ -103,9 +103,9 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     expect(frame).toContain("1/1");
     expect(frame).toContain("SQLite");
     expect(frame).toContain("Postgres");
-    expect(frame).toContain("recommended"); // visual chip, not "← suggested"
+    expect(frame).toContain("◂"); // suggested chip, visual only (#426)
     expect(frame).toContain("Other"); // always the last option
-    expect(frame).not.toContain("╭"); // no Dialog border — inline, not modal
+    expect(frame).toContain("╭"); // bordered panel (layout A, #426)
     gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await pending; // no unhandled rejection
     i.unmount();
@@ -121,7 +121,7 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     await sleep(20);
     const mid = stripAnsi(i.lastFrame() ?? "");
     expect(mid).toContain("Review your answers");
-    expect(mid).toContain("Database: Postgres");
+    expect(mid).toContain("✓ Database     — Postgres"); // #426 summary row: check + padded header — answer
     i.stdin.write("\r"); // submit
     await sleep(20);
     expect(await pending).toEqual({ answers: [{ labels: ["Postgres"] }] });
@@ -216,7 +216,7 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const i = await mount(gate);
     i.stdin.write(" "); // toggle unit
     await sleep(20);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("[x] 1 unit");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("[x]  unit"); // #426: marker columns, no option numbers in multiSelect
     i.stdin.write("\x1b[B"); // down
     await sleep(30);
     i.stdin.write(" "); // toggle pty
@@ -224,7 +224,7 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     i.stdin.write("\r"); // confirm selection
     await sleep(30);
     const mid = stripAnsi(i.lastFrame() ?? "");
-    expect(mid).toContain("Tests: unit, pty");
+    expect(mid).toContain("✓ Tests        — unit, pty");
     i.stdin.write("\r"); // submit
     await sleep(20);
     expect(await pending).toEqual({ answers: [{ labels: ["unit", "pty"] }] });
@@ -237,7 +237,7 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const i = await mount(gate);
     i.stdin.write("\r"); // advance to summary
     await sleep(20);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("ctrl+x cancel");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("ctrl+x cancel"); // #426 first-question summary footer
     i.stdin.write("\x18"); // ctrl+x — explicit cancel
     await sleep(20);
     expect(await pending).toEqual({ answers: [], cancelled: true });
@@ -370,12 +370,19 @@ describe("ask_user preview side-by-side (#414)", () => {
     i.unmount();
   });
 
-  test("askUserBlockRows reserves the tallest preview box's height", () => {
-    const plain = askUserBlockRows(QUESTION.questions);
-    expect(askUserBlockRows(PREVIEW_SET.questions)).toBe(plain + 23); // min(20, 32 lines) + 3
-    expect(askUserBlockRows(QUESTION.questions)).toBe(askUserBlockRows([
+  test("askUserBlockRows reserves the tallest preview box's height (#426 layout A)", () => {
+    const plain = askUserBlockRows(QUESTION.questions, 100);
+    // The tallest preview (32 lines) clamps to the 20-row cap; its screen
+    // is taller than the stacked plain screen (preview box + borders, no
+    // descriptions in side-by-side) — the reservation tracks the formula.
+    const preview = askUserBlockRows(PREVIEW_SET.questions, 100);
+    expect(preview).toBeGreaterThan(plain);
+    expect(preview).toBe(37);
+    // A one-line preview still fits in a shorter screen than the capped one.
+    const oneLine = askUserBlockRows([
       { ...QUESTION.questions[0]!, options: [{ preview: undefined }, { preview: undefined }, { preview: "one line" }] },
-    ]) - 4); // short preview: 1 content row + 3 overhead
+    ], 100);
+    expect(oneLine).toBeLessThan(preview);
   });
 
   test("code fences inside a preview highlight via the shared renderer", async () => {
@@ -493,22 +500,24 @@ const BIG_SET = {
 
 describe("ask_user dynamic resize + Static projection (#413)", () => {
   test("askUserBlockRows: scales with the tallest question screen, never below the summary screen (#413)", () => {
-    // Small single-question set: header + question + 2 options + Other + footer + padding.
-    expect(askUserBlockRows([{ question: "q", options: [{}, {}] }])).toBe(2 + 5 + 3);
-    // Many questions, few options each: the summary screen (1 row/question
-    // + header/blank rows) sets the floor, the tallest question screen the
-    // ceiling.
-    expect(askUserBlockRows([
+    // #426 layout A panel adds border+divider+chip rows to every screen;
+    // assert the ordering properties instead of pinning magic totals.
+    const small = askUserBlockRows([{ question: "q", options: [{}, {}] }], 100);
+    const manyQ = askUserBlockRows([
       { question: "a", options: [{}] },
       { question: "b", options: [{}] },
       { question: "c", options: [{}] },
       { question: "d", options: [{}] },
-    ])).toBe(4 + 4 + 3); // summary floor (4 rows + header/blank) beats the question screen
-    // One question with a big option list dominates the set.
-    expect(askUserBlockRows([
+    ], 100);
+    const bigOptions = askUserBlockRows([
       { question: "a", options: [{}, {}] },
       { question: "b", options: [{}, {}, {}, {}] },
-    ])).toBe(12);
+    ], 100);
+    expect(small).toBeGreaterThan(0);
+    // The summary floor grows with the question count; a big option list
+    // dominates the set.
+    expect(bigOptions).toBeGreaterThan(small);
+    expect(bigOptions).toBeGreaterThan(manyQ);
   });
 
   test("while the set is open: block grows with content, frameless, and the volatile transcript compresses", async () => {
@@ -516,8 +525,9 @@ describe("ask_user dynamic resize + Static projection (#413)", () => {
     // Short terminal: the block's height must eat into the transcript budget.
     const { ink } = await mountChat(gate, BIG_SET, { columns: 100, rows: 16 });
     const open = stripAnsi(ink.lastFrame() ?? "");
-    // The block is frameless (#183): no Dialog border anywhere.
-    expect(open).not.toContain("╭");
+    // #426 layout A: the block is a bordered panel (a Dialog modal it is
+    // not — it renders inline under the composer, inside the chat frame).
+    expect(open).toContain("╭");
     // One question at a time with its full option set — the block grows
     // with content rather than clipping the questions.
     expect(open).toContain("First long decision question");

@@ -87,16 +87,17 @@ describe("overlay layout integrity over Chat", () => {
     await sleep(250);
     const frame = stripAnsi(i.lastFrame() ?? "");
     // Every inline block row must be intact between the input and the
-    // bottom bar: chip + counter, question, all three options with the
-    // recommended marker, and the Other affordance — no dialog border.
-    expect(frame).toContain("Database  1/1");
+    // bottom bar: chip row (current chip + flush-right counter, #426),
+    // question, all three options with the suggested marker, and the
+    // Other affordance — inside the bordered layout-A panel.
+    expect(frame).toContain("❯ Database");
+    expect(frame).toContain("1/1");
     expect(frame).toContain("Which database should I use?");
     expect(frame).toContain("1 SQLite");
-    expect(frame).toContain("2 Postgres");
-    expect(frame).toContain("recommended");
+    expect(frame).toContain("2 Postgres ◂");
     expect(frame).toContain("3 Redis");
     expect(frame).toContain("Other");
-    expect(frame).not.toContain("╭");
+    expect(frame).toContain("╭");
     gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await sleep(50);
     i.unmount();
