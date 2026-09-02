@@ -14,6 +14,10 @@ import {
   resolveTrackerSync,
   trackerTools,
   sessionFromConfig,
+  HandoffRunner,
+  createGistHandoffTransport,
+  publishHandoffAtExit,
+  type HandoffTransportError,
   type MohConfig,
   type AgentEvent,
   type AgentSession,
@@ -92,6 +96,52 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
       ...(options.resumeEvents ? { resumeEvents: options.resumeEvents } : {}),
     },
   });
+}
+
+/**
+ * Exit-time handoff publish (#433, T2 #435): when moh.json activates
+ * `handoff.transport: "gist"`, the raw artifact (#434) is published to
+ * the secret gist through the exit-work budget (ADR-0015). Returns
+ * `null` when the transport is off — single machine, byte-for-byte
+ * today's behavior (story 8). Failures surface as one warning, never
+ * as a crash or a held process (story 15: the artifact stays local).
+ */
+export function handoffPublishWork(
+  cwd: string,
+  home: string | undefined,
+  onWarning: (message: string) => void,
+): Promise<unknown> | null {
+  let active = false;
+  try {
+    const config = readMergedConfigFor(cwd, home);
+    active = config?.handoff?.transport === "gist";
+  } catch {
+    // A broken config already surfaced loudly at session assembly.
+    return null;
+  }
+  if (!active) return null;
+  return publishHandoffAtExit({
+    artifactFile: HandoffRunner.artifactFile(cwd, join(home ?? homedir(), ".moh")),
+    transport: createGistHandoffTransport({ cwd, home }),
+  }).then((result) => {
+    if (!result.ok) onWarning(handoffWarning(result.error));
+  });
+}
+
+/** The one warning line per failure reason (#433 story 15). */
+export function handoffWarning(error: HandoffTransportError): string {
+  switch (error.reason) {
+    case "no-artifact":
+      return "handoff: no local artifact to publish";
+    case "gh-missing":
+      return "handoff: gh is not installed — handoff kept local only";
+    case "not-logged-in":
+      return "handoff: gh is not logged in — handoff kept local only";
+    case "timeout":
+      return "handoff: publish exceeded the exit budget — handoff kept local only";
+    case "failed":
+      return `handoff: publish failed (${error.message}) — handoff kept local only`;
+  }
 }
 
 /** Merged provider view (project moh.json + user config, #129) for the

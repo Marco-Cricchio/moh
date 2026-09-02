@@ -30,7 +30,7 @@ import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { Chat, type Mode } from "./Chat";
-import { makeSession, providerLabel } from "./factory";
+import { handoffPublishWork, makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";

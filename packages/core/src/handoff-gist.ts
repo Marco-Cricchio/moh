@@ -29,8 +29,16 @@ export type GhRunner = (args: string[]) => { exitCode: number; stdout: string; s
 
 /** The real runner: synchronous `gh` child process. */
 export const spawnGh: GhRunner = (args) => {
-  const proc = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { exitCode: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+  let proc: ReturnType<typeof Bun.spawnSync> | undefined;
+  try {
+    proc = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
+  } catch (e) {
+    // ENOENT (no gh in PATH) surfaces as a thrown Bun error, not an exit
+    // code — normalize so classification sees gh-missing, not a crash.
+    const message = e instanceof Error ? e.message : String(e);
+    return { exitCode: 127, stdout: "", stderr: message.includes("gh") ? "command not found: gh" : message };
+  }
+  return { exitCode: proc.exitCode, stdout: proc.stdout?.toString() ?? "", stderr: proc.stderr?.toString() ?? "" };
 };
 
 export interface GistHandoffTransportOptions {

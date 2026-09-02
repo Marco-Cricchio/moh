@@ -79,7 +79,7 @@ describe("publishHandoffAtExit", () => {
     const { file } = artifact(true);
     const slow: HandoffTransport = {
       async publish() {
-        await new Promise(() => {});
+        return await new Promise<never>(() => {});
       },
       async fetch() {
         throw new Error("unused");
@@ -96,8 +96,7 @@ describe("publishHandoffAtExit", () => {
     const throwing: HandoffTransport = {
       async publish() {
         throw new Error("boom");
-      },
-      async fetch() {
+      },      async fetch() {
         throw new Error("unused");
       },
     };
