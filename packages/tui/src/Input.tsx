@@ -337,6 +337,9 @@ export function MultilineInput({
       else if (cursorLine < lines.length - 1) { const next = lines[cursorLine + 1] ?? ""; setCursorLine(cursorLine + 1); setCursorColumn(wordRight(next, 0)); }
       setPreferredColumn(null); return;
     }
+    // Horizontal movement breaks a history walk: the recalled entry stays as
+    // the working draft and arrows become cursor movement again.
+    if (key.leftArrow || key.rightArrow || input === "\x1bb" || input === "\x1bf") setHistoryIndex(-1);
     if (key.leftArrow) {
       if (cursorColumn === 0 && cursorLine > 0) { setCursorLine(cursorLine - 1); setCursorColumn((lines[cursorLine - 1] ?? "").length); }
       else setCursorColumn(previousColumn(line, cursorColumn));
@@ -383,14 +386,26 @@ export function MultilineInput({
       const visualIndex = visualLineIndexAtCursor();
       const atFirstVisualLine = visualIndex <= 0;
       const atLastVisualLine = visualIndex === visualLines.length - 1;
-      // Readline/fish recall at the visual edges. A multiline draft is kept
-      // intact and restored after walking past the newest history entry.
-      if (history.length && ((direction < 0 && atFirstVisualLine) || (direction > 0 && atLastVisualLine) || historyIndex >= 0)) {
-        if (historyIndex < 0) { setHistoryDraft(snapshot()); setHistoryIndex(0); replaceText(history[0]!, "end"); }
-        else { const next = historyIndex + (direction < 0 ? 1 : -1); if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); } else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); } }
+      // Readline walking recall: once entered (historyIndex >= 0), ↑/↓ keep
+      // walking the history until a horizontal move or edit breaks the walk.
+      if (history.length && historyIndex >= 0) {
+        const next = historyIndex + (direction < 0 ? 1 : -1);
+        if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); }
+        else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); }
         return;
       }
-      if (visualIndex < 0 || direction < 0 && atFirstVisualLine || direction > 0 && atLastVisualLine) return;
+      // Staged edges: while walking a long entry, ↑ first reaches the start
+      // of the first visual line and ↓ the end of the last one; only a
+      // further press at that edge recalls the history (fish-style readline).
+      if (direction < 0 && atFirstVisualLine) {
+        if (cursorColumn > 0) { setCursorColumn(0); setPreferredColumn(null); return; }
+        if (history.length) { setHistoryDraft(snapshot()); setHistoryIndex(0); replaceText(history[0]!, "end"); }
+        return;
+      }
+      if (direction > 0 && atLastVisualLine) {
+        if (cursorColumn < line.length) { setCursorColumn(line.length); setPreferredColumn(null); return; }
+        return;
+      }
       const current = visualLines[visualIndex]!;
       const target = preferredColumn ?? cursorColumn - current.start;
       const next = visualLines[visualIndex + direction]!;

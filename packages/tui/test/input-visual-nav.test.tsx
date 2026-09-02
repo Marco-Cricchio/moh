@@ -75,7 +75,7 @@ describe("multiline input visual-line arrow navigation (#430)", () => {
 });
 
 describe("multiline input readline history recall across visual lines (#430)", () => {
-  test("up on the first visual line recalls history even from a wrapped draft", async () => {
+  test("staged edges: up reaches the start of the first visual line, then recalls; a walk ends back on the draft", async () => {
     const submitted: string[] = [];
     const rendered = render(<MultilineInput placeholder="p" focused onSubmit={(t) => submitted.push(t)} />);
     await sleep(30);
@@ -88,9 +88,12 @@ describe("multiline input readline history recall across visual lines (#430)", (
     // type a long draft that wraps
     i.stdin.write(LONG_LINE);
     await untilFrame(() => i.frame(), (f) => f.includes("teen"));
-    // move cursor up to the first visual line, then up again: recall
+    // climb to the first visual line, then reach its start (staged edge)…
     i.stdin.write("\x1b[A");
     await sleep(60);
+    i.stdin.write("\x1b[A");
+    await sleep(60);
+    // …and only then recall the previous prompt
     i.stdin.write("\x1b[A");
     await untilFrame(() => i.frame(), (f) => f.includes("first entry") && !f.includes("teen"));
     // down past the end of the recalled entry: back to the preserved draft
@@ -98,6 +101,33 @@ describe("multiline input readline history recall across visual lines (#430)", (
     await sleep(60);
     i.stdin.write("\x1b[B");
     await untilFrame(() => i.frame(), (f) => f.includes("teen"));
+    i.unmount();
+  });
+
+  test("horizontal movement breaks the history walk: the recalled entry stays as the draft", async () => {
+    const submitted: string[] = [];
+    const rendered = render(<MultilineInput placeholder="p" focused onSubmit={(t) => submitted.push(t)} />);
+    await sleep(30);
+    const i = { stdin: rendered.stdin, frame: () => stripAnsi(rendered.lastFrame() ?? ""), unmount: () => rendered.unmount() };
+    i.stdin.write("first entry");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 1);
+    await untilFrame(() => i.frame(), (f) => !f.includes("first entry"));
+    i.stdin.write("draft two");
+    await untilFrame(() => i.frame(), (f) => f.includes("draft two"));
+    // reach the start edge and recall (plain lefts: this Ink test parser
+    // does not decode the ctrl+arrow CSI sequence)
+    for (let k = 0; k < 9; k++) { i.stdin.write("\x1b[D"); await sleep(50); }
+    i.stdin.write("\x1b[A"); // up: recall "first entry"
+    await untilFrame(() => i.frame(), (f) => f.includes("first entry") && !f.includes("draft two"));
+    // break the walk with a horizontal move, then press down: the recalled
+    // entry must stay — the arrow is cursor movement again
+    i.stdin.write("\x1b[D");
+    await sleep(40);
+    i.stdin.write("\x1b[B");
+    await sleep(60);
+    expect(i.frame()).toContain("first entry");
     i.unmount();
   });
 });
