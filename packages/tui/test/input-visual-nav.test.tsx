@@ -34,7 +34,7 @@ function editorRows(frame: string): string[] {
   return frame.split("\n").filter((l) => l.includes(">") || l.length > 0).slice(0, 12);
 }
 
-describe("multiline input visual-line arrow navigation (nota 26, #430)", () => {
+describe("multiline input visual-line arrow navigation (#430)", () => {
   test("up/down move one visual wrapped line inside a long logical line", async () => {
     const i = await mount();
     i.stdin.write(LONG_LINE);

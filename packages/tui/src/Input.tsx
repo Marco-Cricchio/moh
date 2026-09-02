@@ -164,12 +164,22 @@ export function MultilineInput({
   }, [lines, wrapWidth]);
 
   useEffect(() => {
-    const current = visualLines.findIndex((item) => item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length);
+    const current = visualLineIndexAtCursor();
     if (current >= 0) {
       const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
       setScrollOffset((offset) => Math.max(0, Math.min(Math.max(0, visualLines.length - maxVisible), current < offset ? current : current >= offset + maxVisible ? current - maxVisible + 1 : offset)));
     }
   }, [visualLines, cursorLine, cursorColumn, viewport.rows]);
+
+  /** Each cursor position belongs to exactly one visual row: a wrap boundary
+   * belongs to the row beginning there, while a logical-line end belongs to
+   * its final visual row. */
+  const visualLineIndexAtCursor = () => visualLines.findIndex((item, index) => {
+    if (item.logicalLine !== cursorLine || cursorColumn < item.start) return false;
+    const end = item.start + item.text.length;
+    const finalSegment = visualLines[index + 1]?.logicalLine !== item.logicalLine;
+    return cursorColumn < end || finalSegment && cursorColumn === end;
+  });
 
   const replaceText = (text: string, position: "start" | "end" = "end") => {
     const next = text.replace(/\r\n?/g, "\n").split("\n");
@@ -370,7 +380,7 @@ export function MultilineInput({
     }
     if (key.upArrow || key.downArrow) {
       const direction = key.upArrow ? -1 : 1;
-      const visualIndex = visualLines.findIndex((item) => item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length);
+      const visualIndex = visualLineIndexAtCursor();
       const atFirstVisualLine = visualIndex <= 0;
       const atLastVisualLine = visualIndex === visualLines.length - 1;
       // Readline/fish recall at the visual edges. A multiline draft is kept
@@ -408,7 +418,7 @@ export function MultilineInput({
     <Box flexDirection="column" width="100%" paddingX={1}>
       <Box flexDirection="column">
         {!(lines.length === 1 && lines[0] === "") && shown.map((item, index) => {
-          const active = focused && item.logicalLine === cursorLine && cursorColumn >= item.start && cursorColumn <= item.start + item.text.length;
+          const active = focused && index === visualLineIndexAtCursor();
           const column = active ? cursorColumn - item.start : -1;
           const cursor = active && cursorVisible && !disabled;
           return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{column >= 0 ? <>{item.text.slice(0, column)}{cursor ? <Text inverse bold>{item.text[column] ?? " "}</Text> : <Text color={focused ? theme.accent : theme.dim}>{item.text[column] ?? " "}</Text>}{item.text.slice(column + 1)}</> : item.text}</> : <>{"  "}{item.text}</>}</Text>;
