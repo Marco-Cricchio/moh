@@ -17,6 +17,7 @@ import {
   HandoffRunner,
   createGistHandoffTransport,
   publishHandoffAtExit,
+  transportActive,
   type HandoffTransportError,
   type MohConfig,
   type AgentEvent,
@@ -114,7 +115,7 @@ export function handoffPublishWork(
   let active = false;
   try {
     const config = readMergedConfigFor(cwd, home);
-    active = config?.handoff?.transport === "gist";
+    active = transportActive(config?.handoff);
   } catch {
     // A broken config already surfaced loudly at session assembly.
     return null;

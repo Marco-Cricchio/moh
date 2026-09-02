@@ -1,18 +1,29 @@
 /**
  * Session Handoff T2 client wiring (#435): the TUI exit-time publish
  * helper. Transport-off = null (single-machine transparency, story 8);
- transport-on failures surface as one warning (story 15). No network:
- `handoffPublishWork`'s own publish path is exercised through the fake
- transport seam in core tests; here we assert the gating and warning
- mapping, which is the TUI's responsibility.
+ * transport-on failures surface as one warning (story 15). No network:
+ * `handoffPublishWork`'s own publish path is exercised through the fake
+ * transport seam in core tests; here we assert the gating and warning
+ * mapping, which is the TUI's responsibility.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { handoffWarning } from "../src/factory";
+import { handoffPublishWork, handoffWarning } from "../src/factory";
 import type { HandoffTransportError } from "@moh/core";
 
 const TMP = join(import.meta.dir, "tmp-factory-handoff");
+
+afterEach(() => {
+  rmSync(TMP, { recursive: true, force: true });
+});
+
+function project(name: string, mohJson?: unknown): string {
+  const dir = join(TMP, name);
+  mkdirSync(dir, { recursive: true });
+  if (mohJson !== undefined) writeFileSync(join(dir, "moh.json"), JSON.stringify(mohJson));
+  return dir;
+}
 
 describe("handoffWarning", () => {
   const cases: Array<[HandoffTransportError, string]> = [
@@ -34,18 +45,10 @@ describe("handoffWarning", () => {
 // seam tests (fake transport); driving it here would shell out to gh.
 describe("handoffPublishWork gating", () => {
   test("transport off (no moh.json) returns null — single machine unchanged", () => {
-    mkdirSync(TMP, { recursive: true });
-    rmSync(join(TMP, "moh.json"), { force: true });
-    // dynamic import to avoid hoisting issues with the TMP cleanup
-    const { handoffPublishWork } = require("../src/factory") as typeof import("../src/factory");
-    expect(handoffPublishWork(TMP, TMP, () => {})).toBeNull();
+    expect(handoffPublishWork(project("off-none"), undefined, () => {})).toBeNull();
   });
 
   test("transport none is explicit off — null", () => {
-    mkdirSync(TMP, { recursive: true });
-    writeFileSync(join(TMP, "moh.json"), JSON.stringify({ handoff: { transport: "none" } }));
-    const { handoffPublishWork } = require("../src/factory") as typeof import("../src/factory");
-    expect(handoffPublishWork(TMP, TMP, () => {})).toBeNull();
-    rmSync(TMP, { recursive: true, force: true });
+    expect(handoffPublishWork(project("off-explicit", { handoff: { transport: "none" } }), undefined, () => {})).toBeNull();
   });
 });

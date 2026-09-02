@@ -19,6 +19,7 @@ import {
   overridesFromFlags,
   publishHandoffAtExit,
   sessionFromConfig,
+  transportActive,
   type AgentEvent,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";

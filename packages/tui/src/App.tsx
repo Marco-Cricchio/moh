@@ -428,6 +428,15 @@ export function App({
       // terminate the process even when lingering handles (Bun HTTP
       // keep-alive sockets) would otherwise hold the shell prompt.
       trackExitWork(session?.dispose({ timeoutMs: 2000 }).catch(() => {}) ?? Promise.resolve());
+      // Session handoff exit publish (#433, T2 #435): when
+      // handoff.transport is "gist", publish the raw artifact through
+      // the same exit budget. Returns null (nothing tracked) when the
+      // transport is off — single machine stays byte-for-byte unchanged
+      // (story 8). Failures surface as one warning toast (story 15).
+      const publish = handoffPublishWork(cwd, home, (message) =>
+        push(sanitizeForDisplay(message), "warn"),
+      );
+      if (publish) trackExitWork(publish);
     };
   }, [session]);
 

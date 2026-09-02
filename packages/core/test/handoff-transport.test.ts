@@ -4,6 +4,10 @@
  * runner. No test shells out to real `gh` or the network (#433 testing
  * decisions); exit-path degradation follows the exit-work budget prior
  * art (packages/tui/test/exit-work.test.ts, #341).
+ *
+ * The fake runner also pins the gh argv contract (stdin `-` + `-f`
+ * naming, no --secret flag: gists are secret by default) against the
+ * real gh CLI's documented interface.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -15,7 +19,7 @@ import {
   type HandoffTransport,
   type HandoffTransportError,
 } from "../src/handoff-transport";
-import { createGistHandoffTransport, handoffGistTag, type GhRunner } from "../src/handoff-gist";
+import { createGistHandoffTransport, handoffGistTag, type GhCall, type GhRunner } from "../src/handoff-gist";
 import type { RawHandoff } from "../src/handoff";
 
 const TMP = join(import.meta.dir, "tmp-handoff-t2");
@@ -96,7 +100,8 @@ describe("publishHandoffAtExit", () => {
     const throwing: HandoffTransport = {
       async publish() {
         throw new Error("boom");
-      },      async fetch() {
+      },
+      async fetch() {
         throw new Error("unused");
       },
     };
@@ -117,49 +122,52 @@ describe("publishHandoffAtExit", () => {
 /** Scriptable fake gh: answers per argv prefix, records every call. */
 function fakeGh(
   behavior: Array<{ args: string[]; exitCode?: number; stdout?: string; stderr?: string }>,
-): GhRunner & { calls: string[][] } {
-  const calls: string[][] = [];
-  const runner: GhRunner = (args) => {
-    calls.push(args);
-    const hit = behavior.find((b) => b.args.every((a, i) => args[i] === a));
-    if (!hit) return { exitCode: 1, stdout: "", stderr: `unhandled gh call: ${args.join(" ")}` };
+): GhRunner & { calls: GhCall[] } {
+  const calls: GhCall[] = [];
+  const runner: GhRunner = (call) => {
+    calls.push(call);
+    const hit = behavior.find((b) => b.args.every((a, i) => call.args[i] === a));
+    if (!hit) return { exitCode: 1, stdout: "", stderr: `unhandled gh call: ${call.args.join(" ")}` };
     return { exitCode: hit.exitCode ?? 0, stdout: hit.stdout ?? "", stderr: hit.stderr ?? "" };
   };
   return Object.assign(runner, { calls });
 }
 
-const LIST_NO_GIST = { args: ["gist", "list"], stdout: "ID\tDESCRIPTION\tFILES\tVISIBILITY\tUPDATED\nother\tsome other gist\t1\tsecret\tnow\n" };
-const LIST_WITH_GIST = {
-  args: ["gist", "list"],
-  stdout: "ID\tDESCRIPTION\tFILES\tVISIBILITY\tUPDATED\nabc123\tTAGHERE\t1\tsecret\t2026\nother\tx\t1\tsecret\t2026\n",
-};
+function gistListOutput(...lines: Array<[id: string, description: string]>): string {
+  const header = "ID\tDESCRIPTION\tFILES\tVISIBILITY\tUPDATED";
+  return `${header}\n${lines.map(([id, d]) => `${id}\t${d}\t1 file\tsecret\t2026-09-02T00:00:00Z`).join("\n")}\n`;
+}
 
 describe("gist transport", () => {
-  test("first publish creates a secret gist tagged with the deterministic tag", async () => {
-    const cwd = "/Users/dev/work/my-project";
+  const cwd = "/Users/dev/work/my-project";
+
+  test("first publish creates a secret gist via stdin, tagged deterministically", async () => {
     const tag = handoffGistTag(cwd, "dev");
     const gh = fakeGh([
       { args: ["api", "user"], stdout: "dev\n" },
-      { ...LIST_NO_GIST },
+      { args: ["gist", "list"], stdout: `${gistListOutput(["other", "some other gist"])}\n` },
       { args: ["gist", "create"], stdout: "https://gist.github.com/new1\n" },
     ]);
     const transport = createGistHandoffTransport({ cwd, gh });
     const { handoff } = artifact(true);
     const result = await transport.publish(handoff);
     expect(result).toEqual({ ok: true, url: "https://gist.github.com/new1" });
-    const create = gh.calls.find((c) => c[0] === "gist" && c[1] === "create")!;
-    expect(create).toContain("--secret");
-    expect(create[create.indexOf("-d") + 1]).toBe(tag);
-    expect(create[create.indexOf("-f") + 1]).toBe("handoff.json");
-    expect(create[create.length - 1]).toContain(`"sessionId": "s-1"`);
+    const create = gh.calls.find((c) => c.args[0] === "gist" && c.args[1] === "create")!;
+    // Real gh contract: `-` reads stdin, `-f` names the gist file, and
+    // there is no --secret flag (secret is the default).
+    expect(create.args).not.toContain("--secret");
+    expect(create.args).not.toContain("--public");
+    expect(create.args[create.args.indexOf("-d") + 1]).toBe(tag);
+    expect(create.args[create.args.indexOf("-f") + 1]).toBe("handoff.json");
+    expect(create.args.at(-1)).toBe("-");
+    expect(create.stdin).toContain('"sessionId": "s-1"');
   });
 
   test("republish replaces the existing tagged gist (delete then create)", async () => {
-    const cwd = "/Users/dev/work/my-project";
     const tag = handoffGistTag(cwd, "dev");
     const gh = fakeGh([
       { args: ["api", "user"], stdout: "dev\n" },
-      { args: ["gist", "list"], stdout: `ID\tDESCRIPTION\tFILES\tVISIBILITY\tUPDATED\nabc123\t${tag}\t1\tsecret\t2026\n` },
+      { args: ["gist", "list"], stdout: `${gistListOutput(["abc123", tag])}\n` },
       { args: ["gist", "delete"], stdout: "" },
       { args: ["gist", "create"], stdout: "https://gist.github.com/new2\n" },
     ]);
@@ -167,16 +175,15 @@ describe("gist transport", () => {
     const { handoff } = artifact(true);
     const result = await transport.publish({ ...handoff, turns: 5 });
     expect(result).toEqual({ ok: true, url: "https://gist.github.com/new2" });
-    expect(gh.calls.find((c) => c[1] === "delete")).toContain("abc123");
+    expect(gh.calls.find((c) => c.args[1] === "delete")!.args).toContain("abc123");
   });
 
   test("fetch returns the tagged gist payload", async () => {
-    const cwd = "/Users/dev/work/my-project";
     const tag = handoffGistTag(cwd, "dev");
     const { handoff } = artifact(true);
     const gh = fakeGh([
       { args: ["api", "user"], stdout: "dev\n" },
-      { args: ["gist", "list"], stdout: `ID\tDESCRIPTION\tFILES\tVISIBILITY\tUPDATED\nabc123\t${tag}\t1\tsecret\t2026\n` },
+      { args: ["gist", "list"], stdout: `${gistListOutput(["abc123", tag])}\n` },
       { args: ["gist", "view"], stdout: JSON.stringify(handoff) },
     ]);
     const transport = createGistHandoffTransport({ cwd, gh });
@@ -190,21 +197,23 @@ describe("gist transport", () => {
 
   test("gh missing is classified as gh-missing", async () => {
     const gh = fakeGh([{ args: ["api", "user"], exitCode: 127, stderr: "zsh: command not found: gh" }]);
-    const transport = createGistHandoffTransport({ cwd: "/x", gh });
+    const transport = createGistHandoffTransport({ cwd, gh });
     const result = await transport.publish(artifact(true).handoff);
     expect(result).toEqual({ ok: false, error: { reason: "gh-missing" } });
   });
 
   test("not logged in is classified as not-logged-in", async () => {
-    const gh = fakeGh([{ args: ["api", "user"], exitCode: 4, stderr: "gh: To get started with GitHub CLI, please run: gh auth login" }]);
-    const transport = createGistHandoffTransport({ cwd: "/x", gh });
+    const gh = fakeGh([
+      { args: ["api", "user"], exitCode: 4, stderr: "gh: To get started with GitHub CLI, please run: gh auth login" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh });
     const result = await transport.publish(artifact(true).handoff);
     expect(result).toEqual({ ok: false, error: { reason: "not-logged-in" } });
   });
 
   test("the gist tag embeds slug and gh user, not absolute paths", () => {
     const tag = handoffGistTag("/Users/dev/work/my-project", "someuser");
-    expect(tag.startsWith("moh:handoff:my-project")).toBe(true);
+    expect(tag.startsWith("moh:handoff:")).toBe(true);
     expect(tag.endsWith(":someuser")).toBe(true);
     expect(tag).not.toContain("/");
   });

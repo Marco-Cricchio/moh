@@ -63,7 +63,6 @@ export interface PublishHandoffOptions {
   timeoutMs?: number;
   /** Artifact read override (tests). */
   read?: () => RawHandoff | undefined;
-  now?: () => Date;
 }
 
 export type PublishHandoffResult =
