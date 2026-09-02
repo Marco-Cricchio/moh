@@ -159,6 +159,17 @@ import {
 } from "./tracker";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
 import {
+  publishHandoffAtExit,
+  readRawHandoff,
+  type HandoffPayload,
+  type HandoffTransport,
+  type HandoffTransportError,
+  type PublishHandoffOptions,
+  type PublishHandoffResult,
+} from "./handoff-transport";
+import { createGistHandoffTransport, handoffGistTag, type GhRunner } from "./handoff-gist";
+import { HandoffRunner, transportActive } from "./handoff";
+import {
   loadMergedConfig,
   readUserProviderConfig,
   upsertUserEndpoint,
@@ -470,6 +481,20 @@ export {
   resolveProvider,
   resolveProviderRef,
   sessionFromConfig,
+  // Session handoff (#433, T2 #435): the transport seam and gist impl
+  // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
+  type HandoffTransport,
+  type HandoffPayload,
+  type HandoffTransportError,
+  type PublishHandoffOptions,
+  type PublishHandoffResult,
+  publishHandoffAtExit,
+  readRawHandoff,
+  HandoffRunner,
+  transportActive,
+  createGistHandoffTransport,
+  handoffGistTag,
+  type GhRunner,
   type SessionConfig,
   type AssemblyError,
   type AssemblyErrorKind,

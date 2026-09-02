@@ -6,15 +6,20 @@
  * session JSONL log. Assembly goes through the core's single path
  * (`sessionFromConfig`, ADR-0005): this is a thin headless caller.
  */
-import { resolve as pathResolve } from "node:path";
+import { resolve as pathResolve, join } from "node:path";
 import { homedir } from "node:os";
 import {
   MockProvider,
   RuleError,
   SessionStore,
+  createGistHandoffTransport,
+  HandoffRunner,
   listSessionSummaries,
+  loadMohConfig,
   overridesFromFlags,
+  publishHandoffAtExit,
   sessionFromConfig,
+  transportActive,
   type AgentEvent,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
@@ -297,6 +302,22 @@ export async function runCommand(options: RunOptions): Promise<number> {
   } finally {
     process.off("SIGINT", onSignal);
     await session.dispose();
+  }
+  // Session handoff exit publish (#433, T2 #435): when moh.json sets
+  // handoff.transport to "gist", publish the raw artifact (#434) through
+  // the gist transport. Fail-silent with one stderr warning (stdout
+  // stays pure JSONL); the artifact always stays local (story 15).
+  try {
+    const handoffOn = loadMohConfig(pathResolve(cwd, "moh.json")).handoff?.transport === "gist";
+    if (handoffOn) {
+      const published = await publishHandoffAtExit({
+        artifactFile: HandoffRunner.artifactFile(cwd, join(options.home ?? homedir(), ".moh")),
+        transport: createGistHandoffTransport({ cwd, home: options.home }),
+      });
+      if (!published.ok) err.write(`moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
+    }
+  } catch {
+    // Transport wiring must never fail the run.
   }
   if (result.status === "error") {
     err.write(`moh run: turn failed (${result.reason}): ${result.message}\n`);

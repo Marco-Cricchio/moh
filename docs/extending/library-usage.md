@@ -278,6 +278,19 @@ calculation itself is `thinkingStatesForRef(ref, endpoints)`: per-model
 config declaration > endpoint-level declaration > normalized catalog map.
 Catalog `minimal` keys normalize into the canonical scale there (#256).
 
+## Session handoff transport (#433)
+
+The exit-time publish seam: a `HandoffTransport` (publish/fetch with
+typed errors) injected by the client, never known to the agent loop.
+The core ships one implementation — `createGistHandoffTransport`, a
+secret gist via `gh` (deterministic tag `moh:handoff:<slug>:<gh-user>`,
+tagged-gist replace on republish). `publishHandoffAtExit` reads the
+raw artifact (#434) and publishes it bounded by a timeout budget — it
+never rejects; on failure the artifact stays local and the caller
+surfaces one warning. Active only when moh.json sets
+`handoff.transport: "gist"`; everything else (absent, `"none"`) is
+byte-for-byte today's behavior.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,
