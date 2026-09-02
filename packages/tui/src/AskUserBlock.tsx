@@ -113,8 +113,18 @@ const FOOTER = " ↑↓ options · enter/tab next question";
 const FOOTER_MULTI = " space toggle · enter confirm · tab next";
 const FOOTER_OTHER = " enter/tab send · esc back to options";
 const FOOTER_SUMMARY = " enter submit · tab edit · esc back";
+/** Shown when the summary was reached from question 1 — i.e. a
+ * single-question set: esc goes straight back with nothing to re-edit,
+ * so the explicit cancel affordance belongs here. */
 const FOOTER_SUMMARY_FIRST = " enter submit · esc back · ctrl+x cancel";
 const FOOTER_C = " ↑↓ · enter/tab next";
+
+/** One summary row's answer text: selected labels plus a trailing
+ * `Other: …` when free text was given (shared by both layouts). */
+function answerText(a: AskUserAnswer | undefined): string {
+  if (!a) return "";
+  return [...(a.labels ?? []), ...(a.other !== undefined ? [`Other: ${a.other}`] : [])].join(", ");
+}
 
 function pad(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length);
@@ -292,9 +302,7 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
             <Text bold color={theme.purple}>Review your answers</Text>
             {questions.map((q, i) => {
               const a = answers[i];
-              const value = a
-                ? [...(a.labels ?? []), ...(a.other !== undefined ? [`Other: ${a.other}`] : [])].join(", ")
-                : "";
+              const value = answerText(a);
               return (
                 <Text key={q.question}>
                   <Text bold>{`${sanitizeForDisplay(q.header)}: `}</Text>
@@ -381,9 +389,7 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
           </Text>
           {questions.map((q, i) => {
             const a = answers[i];
-            const value = a
-              ? [...(a.labels ?? []), ...(a.other !== undefined ? [`Other: ${a.other}`] : [])].join(", ")
-              : "";
+            const value = answerText(a);
             return (
               <Text key={q.question}>
                 <Text bold>{` ✓ ${pad(sanitizeForDisplay(q.header), 12)} — `}</Text>
