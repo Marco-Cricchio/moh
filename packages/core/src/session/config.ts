@@ -7,6 +7,7 @@
  */
 import type { ExtensionRuntime } from "../extensions";
 import type { MemoryOptions } from "../memory";
+import type { HandoffOptions } from "../handoff";
 import type { McpRuntimeOptions } from "../mcp";
 import type { PermissionOverrides, PermissionRule } from "../permissions";
 import type { PromptComposer, SkillIndexEntry } from "../prompt-composer";
@@ -119,6 +120,12 @@ export interface SessionConfig {
    * disables everything (no writes, no section, no subagent runs).
    */
   memory?: MemoryOptions;
+  /**
+   * Session handoff (#433/#434): the raw post-turn artifact. Present =
+   * the artifact is maintained locally (transport-independent; the
+   * transport setting lives in moh.json and gates publishing only, T2+).
+   */
+  handoff?: HandoffOptions;
   /** #240: neutral thinking-level request for every model call of this
    * session. A static level, a per-call getter (#242: dynamic overrides),
    * or absent — in which case the session resolves endpoint-scoped

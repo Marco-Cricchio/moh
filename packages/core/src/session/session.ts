@@ -20,6 +20,7 @@ import { SubagentHost } from "../subagents";
 import { replayMessages } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import { resolveEndpointThinking } from "../thinking-preferences";
+import { HandoffRunner } from "../handoff";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 
@@ -77,6 +78,8 @@ export class AgentSession {
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
   readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
   #memory: MemoryRunner | null = null;
+  /** Session handoff (#434): the raw post-turn artifact runner. */
+  #handoff: HandoffRunner | null = null;
   /** ADR-0011: turn-scoped skill prompt — set by the send that carries
    * it, cleared when that turn settles. Null for every ordinary turn. */
   #skillPrompt: SkillPrompt | null = null;
@@ -192,6 +195,16 @@ export class AgentSession {
         onUpdated: () => this.#assemblePrompt(),
       });
     }
+    // Session handoff (#434): the raw artifact is maintained whenever the
+    // option is present (from-config passes it unconditionally — purely
+    // additive, zero behavioral change when transport is Not Set).
+    if (config.handoff) {
+      this.#handoff = new HandoffRunner({
+        file: config.handoff.file ?? HandoffRunner.artifactFile(this.#cwd, this.#mohHome),
+        sessionId: this.#sessionId,
+        cwd: this.#cwd,
+      });
+    }
     if (config.mcp) {
       // Startup validation: duplicate server names are a hard config error.
       McpRuntime.validate(config.mcp.servers);
@@ -229,7 +242,15 @@ export class AgentSession {
         }
         return resolveEndpointThinking(this.#provider.name, this.#endpoints, join(this.#mohHome, "config"));
       },
-      ...(this.#memory ? { onTurnSettled: (result) => this.#maybeExtractMemory(result) } : {}),
+      // Post-turn triggers: memory extraction (#38, every N turns) and the
+      // raw handoff artifact (#434, every settled turn — synchronous and
+      // fail-silent, so a killed session keeps the last turn's state).
+      onTurnSettled: (result) => {
+        this.#maybeExtractMemory(result);
+        if (this.#handoff && result.status === "done") {
+          this.#handoff.turnSettled(this.#turnSeq, this.#eventLog.live());
+        }
+      },
     });
     this.#queue = new TurnQueue({
       execute: (text, controller) => {
