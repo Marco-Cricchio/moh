@@ -7,6 +7,15 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-02
+### Fixed
+
+- TUI startup regression (#423): the horizontal separator under the text
+  area and the blank line after it — dropped when the inline ask_user
+  block was inserted (#412) — are back; with a question set open the
+  separator sits directly under the text area and the block keeps its own
+  padding above BottomBar row 1.
+
 ## [0.13.0] - 2026-09-01
 ### Added
 
@@ -367,7 +376,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.13.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...develop
+[0.13.1]: https://github.com/Marco-Cricchio/moh/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Marco-Cricchio/moh/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Marco-Cricchio/moh/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/Marco-Cricchio/moh/compare/v0.11.1...v0.11.2
