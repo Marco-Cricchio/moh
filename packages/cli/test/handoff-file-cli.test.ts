@@ -98,3 +98,63 @@ describe("moh handoff export/import (#440)", () => {
     expect(await handoffCommand({ argv: ["import"], cwd, home, ...io })).toBe(2);
   });
 });
+
+describe("moh handoff pull <url> (#451, story 17)", () => {
+  function pullTransport(payload: RawHandoff | { fail: string }) {
+    return {
+      async publish() {
+        return { ok: false as const, error: { reason: "failed" as const, message: "unused" } };
+      },
+      async fetch() {
+        return { ok: false as const, error: { reason: "failed" as const, message: "unused" } };
+      },
+      async fetchByUrl(url: string) {
+        if (typeof payload === "object" && "fail" in payload) {
+          return { ok: false as const, error: { reason: "failed" as const, message: payload.fail } };
+        }
+        return { ok: true as const, payload, url };
+      },
+    };
+  }
+
+  test("fetches the gist, runs the author check, and parks the payload", async () => {
+    const { cwd, home } = setup(); const io = streams();
+    const handoff = { ...fixtureHandoff("session-pulled"), author: "me" };
+    const result = await handoffCommand({
+      argv: ["pull", "https://gist.github.com/abc123"], cwd, home, ...io,
+      transport: pullTransport(handoff), ghUser: "me",
+    });
+    expect(result).toBe(0);
+    expect(io.read().stdout).toContain("handoff pulled from https://gist.github.com/abc123");
+    const parked = JSON.parse(readFileSync(importedHandoffFile(cwd, home), "utf8")) as RawHandoff;
+    expect(parked.sessionId).toBe("session-pulled");
+  });
+
+  test("declines a foreign-author payload", async () => {
+    const { cwd, home } = setup(); const io = streams();
+    const handoff = { ...fixtureHandoff("session-pulled"), author: "someone-else" };
+    const result = await handoffCommand({
+      argv: ["pull", "abc123"], cwd, home, ...io,
+      transport: pullTransport(handoff), ghUser: "me",
+    });
+    expect(result).toBe(1);
+    expect(io.read().stderr).toContain('authored by "someone-else"');
+    expect(() => readFileSync(importedHandoffFile(cwd, home))).toThrow();
+  });
+
+  test("surfaces fetch failure", async () => {
+    const { cwd, home } = setup(); const io = streams();
+    const result = await handoffCommand({
+      argv: ["pull", "abc123"], cwd, home, ...io,
+      transport: pullTransport({ fail: "gh: not found" }),
+    });
+    expect(result).toBe(1);
+    expect(io.read().stderr).toContain("fetch failed");
+  });
+
+  test("requires exactly one url argument", async () => {
+    const { cwd, home } = setup(); const io = streams();
+    expect(await handoffCommand({ argv: ["pull"], cwd, home, ...io })).toBe(2);
+    expect(await handoffCommand({ argv: ["pull", "a", "b"], cwd, home, ...io })).toBe(2);
+  });
+});

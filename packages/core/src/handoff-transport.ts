@@ -43,6 +43,10 @@ export interface HandoffTransport {
   publish(payload: HandoffPayload): Promise<{ ok: true; url: string } | { ok: false; error: HandoffTransportError }>;
   /** Fetches the newest published handoff for this identity. T3. */
   fetch(): Promise<{ ok: true; payload: HandoffPayload; url: string } | { ok: false; error: HandoffTransportError }>;
+  /** Fetches a specific handoff by channel handle (story 17: `pull <url>`
+   * fallback when the deterministic-tag discovery misses). Optional —
+   * only channels with addressable items implement it. */
+  fetchByUrl?(url: string): Promise<{ ok: true; payload: HandoffPayload; url: string } | { ok: false; error: HandoffTransportError }>;
 }
 
 /** Runs a promise under a deadline. */
@@ -119,9 +123,17 @@ export function readRawHandoff(file: string): RawHandoff | undefined {
   } catch {
     return undefined;
   }
+  return readRawHandoffText(text);
+}
+
+/** Validates an already-parsed/raw JSON text payload. */
+export function readRawHandoffText(text: string | RawHandoff): RawHandoff | undefined {
   try {
-    const parsed = JSON.parse(text) as RawHandoff;
-    if (parsed.version !== 1 || parsed.kind !== "raw" || typeof parsed.sessionId !== "string") return undefined;
+    const parsed = typeof text === "string" ? (JSON.parse(text) as RawHandoff) : text;
+    // v2 carries `author` (#451); v1 payloads stay readable (back-compat:
+    // gist-sourced v1 handoffs are per-author via the deterministic tag).
+    if ((parsed.version !== 1 && parsed.version !== 2) || parsed.kind !== "raw" || typeof parsed.sessionId !== "string")
+      return undefined;
     return parsed;
   } catch {
     return undefined;

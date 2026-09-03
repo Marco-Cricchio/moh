@@ -307,7 +307,11 @@ pattern) plus the one-line `handoffSeedMessage` — stale offers include
 an explicit reconcile-via-git instruction. The new session carries the
 accepted payload's `{ sessionId, updatedAt }` as `supersedes` in every
 subsequent raw artifact, making the logical A→B→A chain explicit even
-though the gist stores only its newest tip.
+though the gist stores only its newest tip. Ordering is the payload's
+`updatedAt` (the origin machine's clock) against the local session
+file's mtime; a tie or an older stamp is `local-current`, so clock
+skew on the origin side can only ever make a handoff win by being
+strictly newer — bounded in practice by the stale anchor check.
 
 The manual file fallback (T7, #440) bypasses the transport entirely:
 `moh handoff export <file>` writes the raw artifact (with the same
@@ -317,7 +321,19 @@ it under `~/.moh/projects/<slug>/imported-handoff.json`. Discovery
 merges the parked import newest-of-both with the fetched gist — it is
 offered only when no gist handoff won and it is genuinely newer than
 local work — so a gh-less machine receives handoffs over removable
-media while the newest-wins chain semantics stay identical.
+media while the newest-wins chain semantics stay identical. When the
+deterministic-tag discovery misses but you have a direct gist URL,
+`moh handoff pull <url>` fetches that specific gist through the
+transport's `fetchByUrl` and runs the same reception pipeline.
+
+Payload identity and safety (#451): the payload schema is version 2
+and carries `author` (the publishing gh user, stamped at publish);
+readers still accept v1 payloads — gist-sourced ones were per-author
+by construction via the deterministic tag. File imports (`import`,
+`pull`) of a payload authored by a different gh user are declined:
+handoffs are per-persona (#433 Q6). Republishing is non-destructive:
+the new gist is created before the old one is deleted, so a failed
+create never destroys the remote copy.
 
 ## What's intentionally not here
 

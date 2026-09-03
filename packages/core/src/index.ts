@@ -168,7 +168,7 @@ import {
   type PublishHandoffOptions,
   type PublishHandoffResult,
 } from "./handoff-transport";
-import { createGistHandoffTransport, ghUsername, handoffGistTag, spawnGh, type GhRunner } from "./handoff-gist";
+import { createGistHandoffTransport, ghUsername, spawnGh } from "./handoff-gist";
 import {
   discoverHandoff,
   handoffSeedPrompt,
@@ -176,7 +176,7 @@ import {
   type HandoffOffer,
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
-import { HandoffRunner, transportActive, buildRawHandoff, wayfinderLinksFromEvents, gitAnchor, type RawHandoff, type HandoffGitAnchor } from "./handoff";
+import { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
 import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
 import {
   exportHandoffFile,
@@ -511,17 +511,12 @@ export {
   publishHandoffAtExit,
   readRawHandoff,
   HandoffRunner,
-  buildRawHandoff,
-  wayfinderLinksFromEvents,
-  gitAnchor,
   type RawHandoff,
   type HandoffGitAnchor,
   transportActive,
   createGistHandoffTransport,
   ghUsername,
   spawnGh,
-  handoffGistTag,
-  type GhRunner,
   // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
   handoffSeedPrompt,

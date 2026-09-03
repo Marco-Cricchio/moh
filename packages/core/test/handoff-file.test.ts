@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   HandoffRunner,
-  buildRawHandoff,
   exportHandoffFile,
   importedHandoffFile,
   importHandoffFile,
@@ -12,6 +11,7 @@ import {
   type AgentEvent,
   type RawHandoff,
 } from "@moh/core";
+import { buildRawHandoff } from "../src/handoff";
 
 function tmpRoot(): { root: string; cwd: string; home: string } {
   const root = mkdtempSync(join(tmpdir(), "moh-handoff-file-"));
@@ -90,5 +90,26 @@ describe("importHandoffFile (#440)", () => {
       ok: false,
       error: { reason: "missing" },
     });
+  });
+
+  test("declines a payload authored by another gh user (#451)", async () => {
+    const { cwd, home } = tmpRoot();
+    const file = join(home, "bridge.json");
+    writeFileSync(file, JSON.stringify({ ...fixtureHandoff(), author: "someone-else" }));
+    const result = await importHandoffFile({ cwd, home, file, expectedAuthor: "me" });
+    expect(result).toEqual({ ok: false, error: { reason: "foreign-author", author: "someone-else" } });
+    expect(readImportedHandoff(cwd, home)).toBeUndefined();
+  });
+
+  test("accepts a payload authored by the logged-in user, and a v1 payload without author", async () => {
+    const { cwd, home } = tmpRoot();
+    const file = join(home, "bridge.json");
+    writeFileSync(file, JSON.stringify({ ...fixtureHandoff(), author: "me" }));
+    expect((await importHandoffFile({ cwd, home, file, expectedAuthor: "me" })).ok).toBe(true);
+    const v1 = join(home, "v1.json");
+    writeFileSync(v1, JSON.stringify({ ...fixtureHandoff("session-v1"), version: 1 }));
+    const result = await importHandoffFile({ cwd, home, file: v1, expectedAuthor: "me" });
+    expect(result.ok).toBe(true);
+    expect(readImportedHandoff(cwd, home)?.sessionId).toBe("session-v1");
   });
 });

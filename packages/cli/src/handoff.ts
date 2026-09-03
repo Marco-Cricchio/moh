@@ -9,11 +9,13 @@ import {
   createGistHandoffTransport,
   enrichHandoffWithWayfinder,
   exportHandoffFile,
+  ghUsername,
   importHandoffFile,
   loadMohConfig,
   notifyClaimedWayfinderTickets,
   readRawHandoff,
   resolveTracker,
+  spawnGh,
   type HandoffTransport,
   type TrackerBackend,
 } from "@moh/core";
@@ -22,6 +24,7 @@ import { ArgError, parseArgs } from "./args";
 export const HANDOFF_USAGE = `usage: moh handoff [--notify-ticket] [--cwd <dir>]
        moh handoff export <file> [--cwd <dir>]
        moh handoff import <file> [--cwd <dir>]
+       moh handoff pull <gist-url> [--cwd <dir>]
 
 With no subcommand: publishes the local session handoff when
 handoff.transport is "gist".
@@ -33,6 +36,10 @@ no gh, offline transfers, or removable media:
   import <file>    validate a received export and register it for this
                    project; the newest of gist/import/local is then
                    offered at the next startup
+  pull <url>       explicit fallback for story 17: fetch the handoff
+                   gist at <url> (bare gist id works too) when the
+                   deterministic-tag discovery misses, validate it, and
+                   register it — the same author check as import applies
 
 options:
   --notify-ticket  after a successful publish, comment only Wayfinder tickets
@@ -47,6 +54,9 @@ export interface HandoffCommandOptions {
   stderr?: NodeJS.WritableStream;
   transport?: HandoffTransport;
   tracker?: TrackerBackend | null;
+  /** The logged-in gh user override (tests); resolved via `ghUsername`
+   * when absent (pull's author check, #451). */
+  ghUser?: string;
 }
 
 export async function handoffCommand(options: HandoffCommandOptions): Promise<number> {
@@ -61,14 +71,16 @@ export async function handoffCommand(options: HandoffCommandOptions): Promise<nu
   }
   if (parsed.positionals.length) {
     const [subcommand] = parsed.positionals;
-    if (subcommand !== "export" && subcommand !== "import") {
+    if (subcommand !== "export" && subcommand !== "import" && subcommand !== "pull") {
       err.write(`moh handoff: unexpected argument "${parsed.positionals[0]}"\n`);
       return 2;
     }
   }
   const cwd = resolve(parsed.strings.cwd ?? options.cwd ?? process.cwd());
   if (parsed.positionals.length) {
-    return handoffFileCommand(parsed.positionals[0] as "export" | "import", parsed.positionals.slice(1), options, out, err, cwd);
+    const subcommand = parsed.positionals[0] as "export" | "import" | "pull";
+    if (subcommand === "pull") return handoffPullCommand(parsed.positionals.slice(1), options, out, err, cwd);
+    return handoffFileCommand(subcommand, parsed.positionals.slice(1), options, out, err, cwd);
   }
   let config;
   try {
@@ -157,5 +169,68 @@ async function handoffFileCommand(
     return 1;
   }
   out.write(`handoff imported: it will be offered at the next startup if newer than local work\n`);
+  return 0;
+}
+
+/**
+ * `moh handoff pull <url>` (#451, spec story 17): the explicit fallback
+ * when the deterministic-tag discovery misses (e.g. the gist lives under
+ * a different account slug mapping, or you were given a direct URL).
+ * Fetches through the transport's `fetchByUrl`, then runs the normal
+ * reception pipeline: validate, author check, park, newest-wins at the
+ * next startup. Like export/import it runs before the publish-only
+ * `handoff.transport: "gist"` requirement.
+ */
+async function handoffPullCommand(
+  rest: string[],
+  options: HandoffCommandOptions,
+  out: NodeJS.WritableStream,
+  err: NodeJS.WritableStream,
+  cwd: string,
+): Promise<number> {
+  const url = rest[0];
+  if (!url || rest.length > 1) {
+    err.write("moh handoff pull: exactly one <gist-url> argument is required\n");
+    return 2;
+  }
+  const transport = options.transport ?? createGistHandoffTransport({ cwd, home: options.home });
+  if (!transport.fetchByUrl) {
+    err.write("moh handoff pull: the configured transport does not support fetch by url\n");
+    return 1;
+  }
+  const fetched = await transport.fetchByUrl(url);
+  if (!fetched.ok) {
+    err.write(
+      `moh handoff pull: fetch failed (${fetched.error.reason === "failed" ? fetched.error.message : fetched.error.reason})\n`,
+    );
+    return 1;
+  }
+  // Resolve the logged-in gh user for the author check; when gh cannot
+  // tell us (gh missing/offline), skip the check — a v2 payload still
+  // carries its author, and the received gist is per-user anyway.
+  let expectedAuthor: string | undefined;
+  if (options.ghUser) {
+    expectedAuthor = options.ghUser;
+  } else {
+    const resolved = ghUsername(spawnGh);
+    if (resolved.ok) expectedAuthor = resolved.user;
+  }
+  const result = await importHandoffFile({
+    cwd,
+    home: options.home,
+    payload: fetched.payload,
+    expectedAuthor,
+  });
+  if (!result.ok) {
+    err.write(
+      result.error.reason === "foreign-author"
+        ? `moh handoff pull: declined — the handoff is authored by "${result.error.author}", not the logged-in gh user (handoffs are per-persona)\n`
+        : result.error.reason === "invalid"
+          ? "moh handoff pull: the fetched gist is not a valid handoff payload\n"
+          : `moh handoff pull: failed (${result.error.reason === "failed" ? result.error.message : result.error.reason})\n`,
+    );
+    return 1;
+  }
+  out.write(`handoff pulled from ${fetched.url}: it will be offered at the next startup if newer than local work\n`);
   return 0;
 }
