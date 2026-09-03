@@ -94,18 +94,21 @@ export function ghTracker(repo: string, run: ShellRunner = defaultRunner): Track
       const parents = await Promise.all(linkedIds.map(async (id) => {
         const res = await run(["gh", "api", `repos/${repo}/issues/${id}/parent`]);
         if (res.code !== 0) return null;
-        try { return JSON.parse(res.stdout) as { number?: number }; } catch { return null; }
+        try { return { id, parent: JSON.parse(res.stdout) as { number?: number } }; } catch { return null; }
       }));
-      const mapId = parents[0]?.number;
-      if (!mapId || parents.some((parent) => parent?.number !== mapId)) return null;
-      const children = await run(["gh", "api", `repos/${repo}/issues/${mapId}/sub_issues`, "--paginate"]);
+      // A session may mention ordinary issues alongside Wayfinder work. Keep
+      // the first map-backed ticket and ignore links outside that one map.
+      const mapId = parents.find((entry) => entry?.parent.number)?.parent.number;
+      if (!mapId) return null;
+      const children = await run(["gh", "api", `repos/${repo}/issues/${mapId}/sub_issues`, "--paginate", "--slurp"]);
       if (children.code !== 0) return null;
       try {
-        const raw = JSON.parse(children.stdout) as any[];
-        if (!Array.isArray(raw)) return null;
+        const pages = JSON.parse(children.stdout) as any[][];
+        const raw = Array.isArray(pages) ? pages.flat() : [];
+        if (!raw.length && !Array.isArray(pages)) return null;
         return {
           mapId: String(mapId),
-          issues: raw.map((issue) => ({
+          issues: raw.map((issue) => ({ 
             ...ghIssueToTracker(issue),
             blockedBy: Array.from({ length: Number(issue.issue_dependencies_summary?.blocked_by ?? 0) }, (_, i) => `open-${i}`),
           })),

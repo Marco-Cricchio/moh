@@ -105,6 +105,11 @@ describe("buildRawHandoff", () => {
     ]);
   });
 
+  test("does not treat non-GitHub issue URLs as ticket citations", () => {
+    const h = buildRawHandoff([{ type: "user_message", text: "https://gitlab.com/o/r/-/issues/77" }] as any, "s", 1, tmpDir("non-github-link"), new Date(), {});
+    expect(h.wayfinderLinks).toBeUndefined();
+  });
+
   test("caps messages, files and tests", () => {
     const dir = tmpDir("caps");
     const events: any[] = [{ type: "user_message", text: "x".repeat(2000) }];

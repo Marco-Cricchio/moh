@@ -126,8 +126,9 @@ describe("gh backend", () => {
       return { code: 0, stdout: "" };
     });
     const t = ghTracker("owner/repo", run);
-    const snapshot = await t.wayfinderSnapshot!(["7", "8"]);
+    const snapshot = await t.wayfinderSnapshot!(["7", "8", "999"]);
     expect(snapshot?.mapId).toBe("2");
+    expect(calls.some((call) => call.includes("--slurp"))).toBe(true);
     expect(projectFrontier(snapshot!.issues).ready.map((issue) => issue.id)).toEqual(["8"]);
     expect(projectFrontier(snapshot!.issues).blocked.map((issue) => issue.id)).toEqual(["9"]);
     await t.comment!("7", "handoff url");
