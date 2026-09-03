@@ -4,7 +4,7 @@ import { Box } from "ink";
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { loadMohConfig, type TrackerIssue } from "@moh/core";
+import { loadMohConfig, type TrackerIssue, writeMohConfig } from "@moh/core";
 import {
   installFirstPartySkills,
   checkUpstreamUpdates,
@@ -17,6 +17,7 @@ import {
   readUserProviderConfig,
   type AgentSession,
   type AssemblyError,
+  type HandoffOffer,
   type Provider,
   type TrackerBackend,
   type UpdateNotice,
@@ -24,14 +25,14 @@ import {
 } from "@moh/core";
 import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
-import { SessionStore } from "@moh/core";
+import { SessionStore, handoffSeedMessage, handoffSeedPrompt } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { Chat, type Mode } from "./Chat";
-import { makeSession, providerLabel } from "./factory";
-import type { SessionSummary } from "./sessions";
+import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel } from "./factory";
+import { listSessionSummaries, type SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
@@ -41,6 +42,7 @@ import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
 
 import { Onboarding } from "./OnboardingOverlay";
+import { HandoffActivationModal, type GhVerification } from "./HandoffActivationModal";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
 import { ModelPickerModal } from "./ModelPickerModal";
@@ -81,6 +83,8 @@ export interface AppProps {
    * provider keys in the environment makes every "first run" test see the
    * detect list, regardless of the injected home dir). */
   env?: Record<string, string | undefined>;
+  /** Test seam for the handoff activation preflight; production uses gh. */
+  verifyHandoffGh?: GhVerification;
   /** Version shown on the home screen (default: MOH_VERSION; the binary
    * stamps the build's git tag via cli → renderTui → Home, #292). */
   version?: string;
@@ -89,7 +93,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
+type Overlay = null | "settings" | "commands" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -111,6 +115,7 @@ export function App({
   initialTheme,
   skipOnboarding,
   env,
+  verifyHandoffGh,
   version,
   yolo,
 }: AppProps) {
@@ -178,15 +183,29 @@ export function App({
     setIcons(config.icons);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : null);
+  const [handoffStartupOffer] = useState(() => {
+    // Handoff onboarding is for the project's first local session only.
+    // Direct chat/resume paths must remain transparent: they have no Home
+    // screen on which to make the first-run choice, and existing history
+    // proves this is not a new project on this machine.
+    if (skipOnboarding || needsOnboarding || startInChat || listSessionSummaries(cwd, home).length > 0) return false;
+    try {
+      const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
+      return handoff?.transport === undefined && handoff?.onboarding === undefined;
+    } catch {
+      return false;
+    }
+  });
+  const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : handoffStartupOffer ? "handoff-onboarding" : null);
+  const [handoffFromSettings, setHandoffFromSettings] = useState(false);
   const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
   const [offerWorkflow] = useState(
     () => !skipOnboarding && !needsOnboarding && !loadUserConfig(cfgFile).workflowOffered,
   );
   useEffect(() => {
-    if (offerWorkflow) setOverlay("workflow-offer");
-  }, [offerWorkflow]);
+    if (offerWorkflow && !handoffStartupOffer) setOverlay("workflow-offer");
+  }, [offerWorkflow, handoffStartupOffer]);
   const [wizardFromSettings, setWizardFromSettings] = useState(false);
   const [claimedIssue, setClaimedIssue] = useState<TrackerIssue | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string>();
@@ -391,7 +410,12 @@ export function App({
     push(REASONING_PERSISTENCE_NOTICE, "warn");
   };
 
-  const open = (resume: SessionSummary | null, initialPrompt?: string) => {
+  const open = (
+    resume: SessionSummary | null,
+    initialPrompt?: string,
+    turnPrompt?: { name: string; text: string },
+    handoffOffer?: Extract<HandoffOffer, { status: "offer" }>,
+  ) => {
     const base = {
       cwd,
       home,
@@ -401,6 +425,8 @@ export function App({
       onAskUser: askGate.ask,
       permissionMode: config.permissionMode,
       ...(yolo ? { yolo } : {}),
+      ...(handoffOffer ? { handoffOffer } : {}),
+      onHandoffWarning: (message: string) => push(message, "warn"),
     };
     let made: ReturnType<typeof makeSession>;
     if (resume) {
@@ -417,8 +443,34 @@ export function App({
     // call, not wait for the post-render session effect.
     showReasoningPersistenceNotice(made.session);
     setSession(made.session);
-    if (initialPrompt) void made.session.send(initialPrompt);
+    // T3 #436: a seeded session opens with the handoff as its first
+    // turn — message + turn-scoped skill prompt (ADR-0011 pattern, the
+    // same seam /ask-moh uses; never a replayed event log).
+    if (turnPrompt) {
+      void made.session.send(initialPrompt ?? handoffSeedMessage(lastOffer.current!), { prompt: turnPrompt });
+    } else if (initialPrompt) {
+      void made.session.send(initialPrompt);
+    }
   };
+
+  // T3 #436: startup handoff discovery — runs once when the home screen
+  // mounts. Bounded and fail-silent: offline / gh-less / off machines
+  // simply see no offer (stories 8 and 15).
+  const [handoff, setHandoff] = useState<HandoffOffer | null>(null);
+  const lastOffer = useRef<Extract<HandoffOffer, { status: "offer" }> | null>(null);
+  useEffect(() => {
+    if (!startInChat) return;
+    let cancelled = false;
+    void discoverHandoffForHome(cwd, home).then((offer) => {
+      if (cancelled) return;
+      if (offer.status === "offer") lastOffer.current = offer;
+      setHandoff(offer);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd]);
 
   // MCP servers and other session-scoped resources shut down at session
   // end: when the active session is replaced or the app unmounts (#15).
@@ -428,6 +480,27 @@ export function App({
       // terminate the process even when lingering handles (Bun HTTP
       // keep-alive sockets) would otherwise hold the shell prompt.
       trackExitWork(session?.dispose({ timeoutMs: 2000 }).catch(() => {}) ?? Promise.resolve());
+      // Session handoff exit publish (#433, T2 #435): when
+      // handoff.transport is "gist", publish the raw artifact through
+      // the same exit budget. Returns null (nothing tracked) when the
+      // transport is off — single machine stays byte-for-byte unchanged
+      // (story 8). Failures surface as one warning toast (story 15).
+      const publish = handoffPublishWork(cwd, home, (message) =>
+        push(sanitizeForDisplay(message), "warn"),
+      );
+      if (publish) trackExitWork(publish);
+      // #438: a startup dismissal gets exactly one end-of-first-session
+      // reminder. Persist before exit so later sessions remain silent.
+      try {
+        const file = join(cwd, "moh.json");
+        const project = loadMohConfig(file);
+        if (session && project.handoff?.onboarding === "dismissed") {
+          writeMohConfig(file, { ...project, handoff: { ...project.handoff, onboarding: "reminded" } });
+          push("session handoff remains Not Set · configure it later in Settings");
+        }
+      } catch {
+        // A reminder is never worth delaying or failing session cleanup.
+      }
     };
   }, [session]);
 
@@ -763,6 +836,11 @@ export function App({
             updateNotice={updateNotice}
             skillUpdateCount={skillUpdateCount}
             version={version ?? MOH_VERSION}
+            handoff={handoff}
+            onOpenHandoff={(offer) => {
+              lastOffer.current = offer;
+              open(null, undefined, handoffSeedPrompt(offer), offer);
+            }}
           />
         )}
         </Box>
@@ -783,12 +861,37 @@ export function App({
               if (wizardFromSettings) {
                 setWizardFromSettings(false);
                 setOverlay("settings");
-              } else if (!configRef.current.workflowOffered) {
-                // First-run workflow offer (#36): right after onboarding.
-                setOverlay("workflow-offer");
               } else {
-                setOverlay(null);
+                const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
+                if (!startInChat && listSessionSummaries(cwd, home).length === 0 && handoff?.transport === undefined && handoff?.onboarding === undefined) {
+                  setOverlay("handoff-onboarding");
+                } else if (!configRef.current.workflowOffered) {
+                  // First-run workflow offer (#36): right after onboarding.
+                  setOverlay("workflow-offer");
+                } else {
+                  setOverlay(null);
+                }
               }
+            }}
+          />
+        )}
+        {overlay === "handoff-onboarding" && (
+          <HandoffActivationModal
+            cwd={cwd}
+            startup={!handoffFromSettings}
+            verifyGh={verifyHandoffGh}
+            onDone={(transport) => {
+              if (transport) push(`session handoff: ${transport === "gist" ? "GitHub Gist enabled" : "disabled"}`);
+              else push("session handoff not set · one reminder appears when this first session ends");
+              if (handoffFromSettings) {
+                setHandoffFromSettings(false);
+                setOverlay("settings");
+              } else if (!configRef.current.workflowOffered) setOverlay("workflow-offer");
+              else setOverlay(null);
+            }}
+            onClose={() => {
+              setHandoffFromSettings(false);
+              setOverlay("settings");
             }}
           />
         )}
@@ -803,6 +906,10 @@ export function App({
             onStartWizard={() => {
               setWizardFromSettings(true);
               setOverlay("onboarding");
+            }}
+            onConfigureHandoff={() => {
+              setHandoffFromSettings(true);
+              setOverlay("handoff-onboarding");
             }}
             onToast={push}
             onClose={() => setOverlay(null)}

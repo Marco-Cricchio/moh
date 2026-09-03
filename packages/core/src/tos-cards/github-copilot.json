@@ -1,0 +1,19 @@
+{
+  "provider": "github-copilot",
+  "verified": "2026-09",
+  "allowed": [
+    "You may use Copilot through its supported programmatic interfaces for automated coding assistance within your subscription.",
+    "You may use generated code suggestions in your projects, subject to your own license-review obligations."
+  ],
+  "forbidden": [
+    "You must not resell, sublicense, or repackage Copilot as a competing service.",
+    "You must not circumvent rate limits or access controls.",
+    "You must not reverse engineer the service."
+  ],
+  "retention": "GitHub states Copilot prompts and suggestions are not retained except in limited cases such as abuse investigation (as of the verification date).",
+  "training": "GitHub states prompts and suggestions are not used to train its generative models by default.",
+  "links": [
+    { "label": "Customer Terms", "url": "https://github.com/customer-terms" },
+    { "label": "Terms for Additional Products and Features", "url": "https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features" }
+  ]
+}

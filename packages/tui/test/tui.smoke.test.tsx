@@ -155,6 +155,7 @@ describe("home smoke", () => {
     const provider = MockProvider.scripted([{ deltas: ["done!"], finish: "stop" }]);
     const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
+    expect(frameText()).not.toContain("session handoff");
     await waitForFrame(frameText, "workflow mode");
     // A rendered Ink dialog can precede its useInput registration. Retry the
     // dismissal until its *observable* overlay is gone instead of assuming a

@@ -76,6 +76,7 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { catalogEntryFor, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
 export {
   clearThinkingPreference,
   defaultThinkingLevel,
@@ -153,11 +154,41 @@ export {
 import {
   trackerTools,
   projectFrontier,
+  resolveTracker,
   resolveTrackerSync,
   type TrackerIssue,
   type TrackerBackend,
 } from "./tracker";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
+import {
+  publishHandoffAtExit,
+  readRawHandoff,
+  type HandoffPayload,
+  type HandoffTransport,
+  type HandoffTransportError,
+  type PublishHandoffOptions,
+  type PublishHandoffResult,
+} from "./handoff-transport";
+import { createGistHandoffTransport, ghUsername, spawnGh } from "./handoff-gist";
+import {
+  discoverHandoff,
+  handoffSeedPrompt,
+  handoffSeedMessage,
+  type HandoffOffer,
+  type DiscoverHandoffOptions,
+} from "./handoff-reception";
+import { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
+import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
+import {
+  exportHandoffFile,
+  importHandoffFile,
+  readImportedHandoff,
+  importedHandoffFile,
+  type ExportHandoffOptions,
+  type ExportHandoffResult,
+  type ImportHandoffOptions,
+  type ImportHandoffResult,
+} from "./handoff-file";
 import {
   loadMergedConfig,
   readUserProviderConfig,
@@ -455,6 +486,7 @@ export {
   UpdateNotice,
   trackerTools,
   projectFrontier,
+  resolveTracker,
   resolveTrackerSync,
   readUserConfigFile,
   updateUserConfigFile,
@@ -470,6 +502,39 @@ export {
   resolveProvider,
   resolveProviderRef,
   sessionFromConfig,
+  // Session handoff (#433, T2 #435): the transport seam and gist impl
+  // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
+  type HandoffTransport,
+  type HandoffPayload,
+  type HandoffTransportError,
+  type PublishHandoffOptions,
+  type PublishHandoffResult,
+  publishHandoffAtExit,
+  readRawHandoff,
+  HandoffRunner,
+  type RawHandoff,
+  type HandoffGitAnchor,
+  transportActive,
+  createGistHandoffTransport,
+  ghUsername,
+  spawnGh,
+  // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
+  discoverHandoff,
+  handoffSeedPrompt,
+  handoffSeedMessage,
+  enrichHandoffWithWayfinder,
+  notifyClaimedWayfinderTickets,
+  type HandoffOffer,
+  type DiscoverHandoffOptions,
+  // Manual file fallback (T7 #440): export/import via file.
+  exportHandoffFile,
+  importHandoffFile,
+  readImportedHandoff,
+  importedHandoffFile,
+  type ExportHandoffOptions,
+  type ExportHandoffResult,
+  type ImportHandoffOptions,
+  type ImportHandoffResult,
   type SessionConfig,
   type AssemblyError,
   type AssemblyErrorKind,

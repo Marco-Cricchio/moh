@@ -1,0 +1,21 @@
+{
+  "provider": "openai",
+  "verified": "2026-09",
+  "allowed": [
+    "You may call the API programmatically, including automated and agent-driven pipelines.",
+    "You may use the outputs, including for commercial purposes; OpenAI claims no ownership of outputs.",
+    "You may retain and store outputs under your own policies."
+  ],
+  "forbidden": [
+    "You must not circumvent rate limits or service restrictions, or scrape the website in place of the API.",
+    "You must not use outputs to develop models that compete with OpenAI's services.",
+    "You must not misrepresent outputs as human-authored where disclosure is required.",
+    "You must not reverse engineer the services or underlying models."
+  ],
+  "retention": "OpenAI states API inputs/outputs are not used for training and are retained at most around 30 days for abuse monitoring unless a longer or zero-retention arrangement applies (as of the verification date).",
+  "training": "OpenAI does not train on API inputs by default.",
+  "links": [
+    { "label": "Terms of Use", "url": "https://openai.com/policies/terms-of-use" },
+    { "label": "API data controls", "url": "https://developers.openai.com/api/docs/guides/your-data" }
+  ]
+}

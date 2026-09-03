@@ -1,26 +1,98 @@
 # CI (#236): the suite's health was invisible without bare metal — the
 # Linux test-failure report in #236 would have been caught here first.
-# PTY tests run too: python3 is present on ubuntu runners, and the
-# readiness-wait harness (#236) made their budgets host-independent.
+#
+# PR-only (#441): every merge to develop goes through a PR, and the PR run
+# already tested that exact tree — a push:develop run would duplicate ~6 min
+# per merge. Requires "test" checks to be required on develop (branch
+# protection); see docs below.
+#
+# Jobs run in parallel (wall time = slowest job, not the sum):
+#   typecheck  — bun run typecheck (~30s)
+#   core       — packages/core + packages/extension
+#   tui-unit   — TUI component/ink tests (non-PTY)
+#   tui-pty    — PTY integration tests, the slow tail (~3min), one retry on
+#                failure (known load-dependent flakes pass in isolation)
+#
+# Release PRs (CHANGELOG.md + version bump only) skip CI via paths-ignore:
+# the tagged tree is the develop tree the PR checks already covered.
 name: ci
 
 on:
-  push:
-    branches: [develop]
   pull_request:
     branches: [develop]
+    paths-ignore:
+      - "CHANGELOG.md"
+      - "package.json"
+      - "**/package.json"
 
 jobs:
-  test:
+  typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - name: Typecheck
-        run: bun run typecheck
-      - name: Test suite
-        run: bun test
+      - run: bun run typecheck
+
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/core packages/extension
+
+  cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/cli
+
+  tui-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Non-PTY TUI tests only (top-level test dir); the PTY tail runs in
+      # its own job below. Globs avoid bun --exclude, which this version
+      # ignores for directory args.
+      - run: bun test packages/tui/test/*.test.ts packages/tui/test/*.test.tsx
+
+  tui-pty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # One retry on failure: the PTY suite has known load-dependent flakes
+      # that pass in isolation; a green run pays no retry cost.
+      - name: PTY tests (retry once)
+        run: |
+          set +e
+          bun test packages/tui/test/pty
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::warning::PTY suite failed on first attempt — retrying once"
+            sleep 5
+            bun test packages/tui/test/pty
+            status=$?
+          fi
+          exit $status

@@ -278,6 +278,63 @@ calculation itself is `thinkingStatesForRef(ref, endpoints)`: per-model
 config declaration > endpoint-level declaration > normalized catalog map.
 Catalog `minimal` keys normalize into the canonical scale there (#256).
 
+## Session handoff transport (#433)
+
+The exit-time publish seam: a `HandoffTransport` (publish/fetch with
+typed errors) injected by the client, never known to the agent loop.
+The core ships one implementation — `createGistHandoffTransport`, a
+secret gist via `gh` (deterministic tag `moh:handoff:<slug>:<gh-user>`,
+tagged-gist replace on republish). `publishHandoffAtExit` reads the
+raw artifact (#434) and publishes it bounded by a timeout budget — it
+never rejects; on failure the artifact stays local and the caller
+surfaces one warning. A client may also attach its best-effort publish
+callback to a successful `bash` `git push`; it does not delay or alter
+the tool result, and the core still knows neither the transport nor
+`gh`. Active only when moh.json sets
+`handoff.transport: "gist"`; everything else (absent, `"none"`) is
+byte-for-byte today's behavior.
+
+The receiving side (T3, #436) lives behind the same seam:
+`discoverHandoff` fetches the newest published handoff (bounded, never
+throwing) and compares it with the newest local session — a handoff
+matching the local session id is `own-session`, one not newer than the
+local file is `local-current`, any failure is a silent `none`. A
+genuinely newer handoff comes back as an `offer` with a `stale` flag
+(anchor SHA ≠ HEAD). Seeding is never a replayed event log: the client
+opens a **new** session whose first turn carries the handoff rendered
+by `handoffSeedPrompt` as a turn-scoped skill prompt (ADR-0011
+pattern) plus the one-line `handoffSeedMessage` — stale offers include
+an explicit reconcile-via-git instruction. The new session carries the
+accepted payload's `{ sessionId, updatedAt }` as `supersedes` in every
+subsequent raw artifact, making the logical A→B→A chain explicit even
+though the gist stores only its newest tip. Ordering is the payload's
+`updatedAt` (the origin machine's clock) against the local session
+file's mtime; a tie or an older stamp is `local-current`, so clock
+skew on the origin side can only ever make a handoff win by being
+strictly newer — bounded in practice by the stale anchor check.
+
+The manual file fallback (T7, #440) bypasses the transport entirely:
+`moh handoff export <file>` writes the raw artifact (with the same
+best-effort Wayfinder enrichment as a publish) to any carrier file,
+and `moh handoff import <file>` validates a received export and parks
+it under `~/.moh/projects/<slug>/imported-handoff.json`. Discovery
+merges the parked import newest-of-both with the fetched gist — it is
+offered only when no gist handoff won and it is genuinely newer than
+local work — so a gh-less machine receives handoffs over removable
+media while the newest-wins chain semantics stay identical. When the
+deterministic-tag discovery misses but you have a direct gist URL,
+`moh handoff pull <url>` fetches that specific gist through the
+transport's `fetchByUrl` and runs the same reception pipeline.
+
+Payload identity and safety (#451): the payload schema is version 2
+and carries `author` (the publishing gh user, stamped at publish);
+readers still accept v1 payloads — gist-sourced ones were per-author
+by construction via the deterministic tag. File imports (`import`,
+`pull`) of a payload authored by a different gh user are declined:
+handoffs are per-persona (#433 Q6). Republishing is non-destructive:
+the new gist is created before the old one is deleted, so a failed
+create never destroys the remote copy.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

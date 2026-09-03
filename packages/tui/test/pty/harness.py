@@ -180,9 +180,15 @@ def main() -> None:
     cwd = tempfile.mkdtemp(prefix="moh-pty-cwd-")
     # Optional user-config injection (~/.moh/config): lets tests pin TUI
     # settings (mode, onboarding flags) instead of scripting overlays.
+    # PTY fixtures exercise established Home/chat behaviour, not the
+    # first-project handoff offer. Pin its explicit off state so the new
+    # startup modal cannot consume their scripted keystrokes; focused Ink
+    # tests cover the offer itself.
+    project = {"handoff": {"transport": "none"}}
     if isinstance(spec.get("project"), dict):
-        with open(os.path.join(cwd, "moh.json"), "w") as f:
-            json.dump(spec["project"], f)
+        project.update(spec["project"])
+    with open(os.path.join(cwd, "moh.json"), "w") as f:
+        json.dump(project, f)
     if isinstance(spec.get("config"), dict):
         os.makedirs(os.path.join(home, ".moh"), exist_ok=True)
         with open(os.path.join(home, ".moh", "config"), "w") as f:

@@ -11,9 +11,18 @@ import {
   SessionStore,
   builtinTools,
   loadMergedConfig,
+  resolveTracker,
   resolveTrackerSync,
   trackerTools,
   sessionFromConfig,
+  HandoffRunner,
+  enrichHandoffWithWayfinder,
+  createGistHandoffTransport,
+  publishHandoffAtExit,
+  transportActive,
+  discoverHandoff,
+  type HandoffOffer,
+  type HandoffTransportError,
   type MohConfig,
   type AgentEvent,
   type AgentSession,
@@ -35,6 +44,10 @@ export interface OpenSessionOptions {
   store?: SessionStore;
   /** Persisted events to resume from (the store must be that file). */
   resumeEvents?: ReadonlyArray<AgentEvent>;
+  /** The accepted remote handoff that this fresh session supersedes (#437). */
+  handoffOffer?: Extract<HandoffOffer, { status: "offer" }>;
+  /** Best-effort warning from automatic push-time publication (#437). */
+  onHandoffWarning?: (message: string) => void;
   home?: string;
   /** Consent seam for the TUI permission modal (#33). */
   onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
@@ -90,7 +103,100 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
         : options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
       ...(options.store ? { store: options.store } : {}),
       ...(options.resumeEvents ? { resumeEvents: options.resumeEvents } : {}),
+      ...(options.handoffOffer
+        ? { handoffSupersedes: { sessionId: options.handoffOffer.payload.sessionId, updatedAt: options.handoffOffer.payload.updatedAt } }
+        : {}),
+      ...(options.onHandoffWarning ? { onGitPush: handoffPushWork(options.cwd, options.home, options.onHandoffWarning) } : {}),
     },
+  });
+}
+
+/**
+ * Exit-time handoff publish (#433, T2 #435): when moh.json activates
+ * `handoff.transport: "gist"`, the raw artifact (#434) is published to
+ * the secret gist through the exit-work budget (ADR-0015). Returns
+ * `null` when the transport is off — single machine, byte-for-byte
+ * today's behavior (story 8). Failures surface as one warning, never
+ * as a crash or a held process (story 15: the artifact stays local).
+ */
+/** Starts (without awaiting) a bounded publish after a successful git push.
+ * A tool call must never wait for gh/network work. */
+export function handoffPushWork(
+  cwd: string,
+  home: string | undefined,
+  onWarning: (message: string) => void,
+): () => void {
+  return () => {
+    // Yield before a gist transport starts its synchronous gh runner.
+    // The settled turn/tool result is already final when this runs.
+    setTimeout(() => {
+      const work = handoffPublishWork(cwd, home, onWarning);
+      void work;
+    }, 0).unref?.();
+  };
+}
+
+export function handoffPublishWork(
+  cwd: string,
+  home: string | undefined,
+  onWarning: (message: string) => void,
+): Promise<unknown> | null {
+  let active = false;
+  try {
+    const config = readMergedConfigFor(cwd, home);
+    active = transportActive(config?.handoff);
+  } catch {
+    // A broken config already surfaced loudly at session assembly.
+    return null;
+  }
+  if (!active) return null;
+  return publishHandoffAtExit({
+    artifactFile: HandoffRunner.artifactFile(cwd, join(home ?? homedir(), ".moh")),
+    transport: createGistHandoffTransport({ cwd, home }),
+    enrich: async (payload) => enrichHandoffWithWayfinder(payload, await resolveTracker({ cwd })),
+  }).then((result) => {
+    if (!result.ok) onWarning(handoffWarning(result.error));
+  });
+}
+
+/** The one warning line per failure reason (#433 story 15). */
+export function handoffWarning(error: HandoffTransportError): string {
+  switch (error.reason) {
+    case "no-artifact":
+      return "handoff: no local artifact to publish";
+    case "gh-missing":
+      return "handoff: gh is not installed — handoff kept local only";
+    case "not-logged-in":
+      return "handoff: gh is not logged in — handoff kept local only";
+    case "timeout":
+      return "handoff: publish exceeded the exit budget — handoff kept local only";
+    case "failed":
+      return `handoff: publish failed (${error.message}) — handoff kept local only`;
+  }
+}
+
+/**
+ * Startup handoff discovery (#433, T3 #436): when `handoff.transport`
+ * is "gist", fetches the newest published handoff and compares it with
+ * the newest local session. Returns `{ status: "none" }` whenever the
+ * transport is off or anything fails — single machine stays
+ * byte-for-byte today's home (story 8); offline/gh-less machines just
+ * see no offer (story 15). Never rejects, never hangs (bounded fetch).
+ */
+export async function discoverHandoffForHome(
+  cwd: string,
+  home: string | undefined,
+): Promise<HandoffOffer> {
+  try {
+    if (!transportActive(loadMergedConfig(cwd, { home })?.handoff)) return { status: "none" };
+  } catch {
+    // A broken config already surfaced loudly at session assembly.
+    return { status: "none" };
+  }
+  return discoverHandoff({
+    cwd,
+    home: home ?? homedir(),
+    transport: createGistHandoffTransport({ cwd, home }),
   });
 }
 
