@@ -153,6 +153,14 @@ export interface EndpointCapabilities {
 
 export type AgentEvent =
   | { type: "session_start"; schemaVersion: number; promptVersion: string }
+  /**
+   * ADR-0021: appended by the core when a session with pre-existing events
+   * is opened in resume (TUI and `moh run --resume` alike, same seam), at
+   * resume-open before any turn; the store-level fork appends it to the new
+   * file (forks are born consumed). Chrome only: the sole marker of
+   * consumption for the pertinent-session suggestion.
+   */
+  | { type: "session_resumed" }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall & {

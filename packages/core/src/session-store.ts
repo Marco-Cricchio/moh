@@ -150,7 +150,12 @@ export class SessionStore {
     // This target is freshly created, so tightening it does not alter a
     // pre-existing user-owned path.
     chmodSync(target, 0o600);
-    return new SessionStore(target);
+    const forked = new SessionStore(target);
+    // ADR-0021: forks are born consumed — one `session_resumed` in the new
+    // file keeps the fork out of the pertinent-session banner (it is not a
+    // suggestion; the original it was forked from stays untouched).
+    forked.append({ type: "session_resumed" });
+    return forked;
   }
 
   /**
@@ -449,6 +454,13 @@ export interface SessionSummary {
   title: string;
   /** Modification time (ms). */
   mtimeMs: number;
+  /**
+   * ADR-0021: consumed iff the last `session_resumed` index is greater than
+   * the index of the last turn's last event (index comparison, no
+   * timestamps). Re-openable: work after a resume makes the session
+   * suggestible again.
+   */
+  consumed: boolean;
 }
 
 /**
@@ -475,18 +487,45 @@ export function listSessionSummaries(
       } catch {
         // keep 0
       }
+      let consumed = false;
+      try {
+        consumed = peekSession(store.file).consumed;
+      } catch {
+        // unreadable: keep false (placeholder title keeps it out of the banner)
+      }
       return {
         file: store.file,
         id: basename(store.file, ".jsonl"),
         title,
         mtimeMs,
+        consumed,
       };
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
-function titleFrom(file: string): string {
+/** Result of the full-line parse of one session file (ADR-0021 read seam). */
+interface SessionPeek {
+  title: string;
+  consumed: boolean;
+}
+
+/**
+ * Parses every line (no early-exit) tracking the first `user_message` as
+ * title and the indexes needed for the consumption predicate (ADR-0021):
+ * consumed iff the last `session_resumed` sits after the last turn's last
+ * event. The turn tail is the last of `user_message`/`done`/`error`/
+ * `cancelled` — chrome appended outside a turn (session_mode,
+ * permission_rules_restored, session_resumed itself) never counts, so a
+ * resumed-then-closed session is consumed while resumed-then-worked-on
+ * flips back to suggestible. Index comparison only: no timestamps.
+ */
+function peekSession(file: string): SessionPeek {
   const raw = readFileSync(file, "utf8");
+  let title: string | null = null;
+  let lastTurnIdx = -1;
+  let lastResumedIdx = -1;
+  let idx = -1;
   for (const line of raw.split("\n")) {
     if (line.trim() === "") continue;
     let event: AgentEvent;
@@ -495,14 +534,24 @@ function titleFrom(file: string): string {
     } catch {
       break; // corrupt tail: stop at the first bad line
     }
-    if (event.type === "user_message") {
+    idx++;
+    if (event.type === "user_message" && title === null) {
       const text = event.text.replace(/\s+/g, " ").trim();
-      return text.length > 60
-        ? text.slice(0, 57) + "…"
-        : text || "(empty session)";
+      title = text.length > 60 ? text.slice(0, 57) + "…" : text || "(empty session)";
     }
+    if (event.type === "user_message" || event.type === "done" || event.type === "error" || event.type === "cancelled") {
+      lastTurnIdx = idx;
+    }
+    if (event.type === "session_resumed") lastResumedIdx = idx;
   }
-  return "(empty session)";
+  return {
+    title: title ?? "(empty session)",
+    consumed: lastResumedIdx > lastTurnIdx,
+  };
+}
+
+function titleFrom(file: string): string {
+  return peekSession(file).title;
 }
 
 /** The final assistant text of the last turn: deltas after the last user_message. */

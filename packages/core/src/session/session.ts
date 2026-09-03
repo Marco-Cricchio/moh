@@ -296,6 +296,10 @@ export class AgentSession {
       // already has them); only new events reach the sink.
       this.#eventLog.seed(config.resume.events);
       this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
+      // ADR-0021: resume leaves a trace — one chrome event at resume-open,
+      // before any turn. The sole consumption marker for the pertinent-
+      // session suggestion; both TUI and `moh run --resume` ride this seam.
+      this.#append({ type: "session_resumed" });
       const restoredRules = runtimeRulesFromEvents(config.resume.events);
       for (const rule of restoredRules) this.#permissions.addRuntimeRule(rule);
       if (restoredRules.length > 0) {
