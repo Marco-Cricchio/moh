@@ -6,13 +6,11 @@ minMohVersion: 0.1.0
 
 # Session Memory
 
-Keep structured session notes at `~/.moh/projects/<project-slug>/session.md`, in the same project directory moh uses for session files and memory.
-
-The `<project-slug>` is resolved by the Core from `.moh/project.json`. It is stable across checkouts that carry the same identity file; do not derive it from the working-directory path.
+Keep structured session notes at `session.md` in the project directory moh supplies in the prompt environment (`Session notes:` line under `## Environment`). Use exactly that path — never recompute the project slug from the working directory.
 
 ## Path setup
 
-Use the session directory already supplied by moh. If it is not available, ask the user for the intended session file rather than recreating the slug calculation manually.
+Read the `Session notes:` path from the prompt environment. If it is not available, ask the user for the intended session file rather than recreating the slug calculation manually.
 
 ## Structured template
 
@@ -57,7 +55,7 @@ Always respect these rules when updating the file:
 4. **Current State is critical**: always update it to reflect the latest work — it is the re-entry point for the next session
 5. **Sections with nothing new**: leave unchanged, never write "no updates" or similar
 6. **Per-section size**: max ~2000 words; when near the limit, cycle out the least important detail
-7. **No duplication**: do not repeat info already in the project's `AGENTS.md`, and do not restate durable facts already in moh memory topics (`~/.moh/projects/<project-slug>/memory/`) — session notes are for the *current* effort, memory for facts that outlive it
+7. **No duplication**: do not repeat info already in the project's `AGENTS.md`, and do not restate durable facts already in moh memory topics (`memory/` next to the session notes) — session notes are for the *current* effort, memory for facts that outlive it
 8. **Use `edit`** for precise in-place updates, never rewrite the whole file
 
 ## Typical workflow

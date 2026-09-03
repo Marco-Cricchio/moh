@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { projectSlug } from "./session-store";
 import type { Message, SkillPrompt } from "./types";
 
 /**
@@ -119,6 +120,7 @@ export class PromptComposer {
   readonly #mohHome: string;
   readonly #budget: number;
   readonly #basePrompt: string;
+  readonly #projectSlug: string;
   readonly #overrides: Partial<Record<SectionName, SectionRenderer>>;
 
   constructor(config: PromptComposerConfig = {}) {
@@ -126,6 +128,9 @@ export class PromptComposer {
     this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
     this.#budget = config.budget ?? DEFAULT_INSTRUCTIONS_BUDGET;
     this.#basePrompt = config.basePrompt ?? BASE_PROMPT;
+    // Session-notes path (#467): the canonical Core-resolved slug
+    // (`.moh/project.json` identity), never recomputed by the skill.
+    this.#projectSlug = projectSlug(this.#projectDir, this.#mohHome);
     this.#overrides = config.sections ?? {};
   }
 
@@ -206,6 +211,7 @@ export class PromptComposer {
       `- Date: ${ctx.now.toISOString().slice(0, 10)}`,
       `- Route: ${ctx.route ?? "(unset)"}`,
       `- Model: ${ctx.model ?? "(unset)"}`,
+      `- Session notes: ${join(this.#mohHome, "projects", this.#projectSlug, "session.md")}`,
     ];
     return lines.join("\n");
   }
