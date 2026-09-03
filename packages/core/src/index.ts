@@ -170,7 +170,6 @@ import {
 import { createGistHandoffTransport, handoffGistTag, type GhRunner } from "./handoff-gist";
 import {
   discoverHandoff,
-  isHandoffStale,
   handoffSeedPrompt,
   handoffSeedMessage,
   type HandoffOffer,
@@ -505,7 +504,6 @@ export {
   type GhRunner,
   // Reception (T3 #436): discovery/newest-wins/stale/seed surfaces.
   discoverHandoff,
-  isHandoffStale,
   handoffSeedPrompt,
   handoffSeedMessage,
   type HandoffOffer,

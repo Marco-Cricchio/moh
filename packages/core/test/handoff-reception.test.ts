@@ -14,9 +14,10 @@ import {
   handoffSeedPrompt,
   handoffSeedMessage,
   type HandoffOffer,
-  type HandoffTransport,
 } from "../src/handoff-reception";
+import type { HandoffTransport } from "../src/handoff-transport";
 import type { RawHandoff, HandoffGitAnchor } from "../src/handoff";
+import { HandoffRunner } from "../src/handoff";
 import type { SessionSummary } from "../src/session-store";
 
 const TMP = join(import.meta.dir, "tmp-handoff-t3");
@@ -42,12 +43,14 @@ function payload(overrides: Partial<RawHandoff> = {}): RawHandoff {
   };
 }
 
-function fakeTransport(result: ReturnType<HandoffTransport["fetch"]> | "hang"): HandoffTransport {
+type FetchResult = Awaited<ReturnType<HandoffTransport["fetch"]>>;
+
+function fakeTransport(result: FetchResult | "hang"): HandoffTransport {
   return {
     async publish() {
       throw new Error("publish is T2, not exercised here");
     },
-    async fetch(): ReturnType<HandoffTransport["fetch"]> {
+    async fetch(): Promise<FetchResult> {
       if (result === "hang") return new Promise(() => {});
       return result;
     },
@@ -69,10 +72,11 @@ const GIT: HandoffGitAnchor = { branch: "develop", head: "feed0000", dirty: fals
 /** A `git` override must be passed explicitly (the default probes the
  * live repo); these assertions keep each test hermetic. */
 function discover(args: {
-  fetch: ReturnType<HandoffTransport["fetch"]> | "hang";
+  fetch: FetchResult | "hang";
   locals?: SessionSummary[];
   git?: HandoffGitAnchor;
   timeoutMs?: number;
+  readLocalArtifact?: () => RawHandoff | undefined;
 }): Promise<HandoffOffer> {
   return discoverHandoff({
     cwd: TMP,
@@ -80,6 +84,7 @@ function discover(args: {
     git: args.git ?? GIT,
     listLocal: () => args.locals ?? [local()],
     timeoutMs: args.timeoutMs ?? 500,
+    readLocalArtifact: args.readLocalArtifact ?? (() => undefined),
   });
 }
 
@@ -96,8 +101,30 @@ describe("discoverHandoff", () => {
   test("handoff matching the newest local session id is own-session", async () => {
     const offer = await discover({
       fetch: { ok: true, payload: payload({ sessionId: "local-1" }), url: "u" },
+      readLocalArtifact: () => payload({ sessionId: "local-1", updatedAt: "2026-09-02T10:00:00.000Z" }),
     });
     expect(offer).toEqual({ status: "own-session" });
+  });
+
+  test("own-session detection ignores the file-basename id space", async () => {
+    // The local session file's id (basename) never matches the payload's
+    // internal `session-xxxxxxxx` id — only the local artifact can say
+    // "this machine published this handoff" (T3 review finding).
+    const offer = await discover({
+      locals: [local({ id: "20260902-abcd" })],
+      fetch: { ok: true, payload: payload(), url: "u" },
+      readLocalArtifact: () => undefined,
+    });
+    expect(offer.status).toBe("offer");
+  });
+
+  test("handoff newer than the newest local session wins despite matching basename", async () => {
+    const offer = await discover({
+      locals: [local({ id: "remote-9" })],
+      fetch: { ok: true, payload: payload(), url: "u" },
+      readLocalArtifact: () => undefined,
+    });
+    expect(offer.status).toBe("offer");
   });
 
   test("handoff not newer than the local session is local-current", async () => {
@@ -131,9 +158,22 @@ describe("discoverHandoff", () => {
   });
 
   test("fetch rejection is a silent none, never a throw", async () => {
-    const offer = await discover({
-      fetch: { ok: false, error: { reason: "failed", message: "boom" } },
-      });
+    const transport: HandoffTransport = {
+      async publish() {
+        throw new Error("unused");
+      },
+      async fetch(): Promise<never> {
+        throw new Error("network blew up");
+      },
+    };
+    const offer = await discoverHandoff({
+      cwd: TMP,
+      transport,
+      git: GIT,
+      listLocal: () => [],
+      readLocalArtifact: () => undefined,
+      timeoutMs: 500,
+    });
     expect(offer).toEqual({ status: "none" });
   });
 
@@ -199,4 +239,31 @@ test("readRawHandoff round-trips a T3 payload", async () => {
   const file = join(TMP, "handoff.json");
   writeFileSync(file, `${JSON.stringify(payload())}\n`);
   expect(readRawHandoff(file)?.sessionId).toBe("remote-9");
+});
+
+/** Regression (T3 review finding): `home` is the OS home — the local
+ * listing and the artifact derivation both add `.moh` themselves, so
+ * an injected `<home>/.moh` would look in `<home>/.moh/.moh/...` and
+ * silently find nothing. This exercises the real default paths against
+ * a temp home, no seams. */
+test("default local paths resolve under <home>/.moh exactly once", async () => {
+  const { readRawHandoff } = await import("../src/handoff-transport");
+  const home = join(TMP, "home-once");
+  const cwd = join(TMP, "proj-once");
+  mkdirSync(cwd, { recursive: true });
+  const artifactFile = HandoffRunner.artifactFile(cwd, join(home, ".moh"));
+  mkdirSync(join(artifactFile, ".."), { recursive: true });
+  expect(artifactFile.startsWith(join(home, ".moh"))).toBe(true);
+  expect(artifactFile.includes(".moh.moh")).toBe(false);
+  writeFileSync(artifactFile, `${JSON.stringify(payload())}\n`);
+  const offer = await discoverHandoff({
+    cwd,
+    home,
+    transport: fakeTransport({ ok: true, payload: payload(), url: "u" }),
+    git: GIT,
+    timeoutMs: 500,
+  });
+  // The artifact matches the payload's session id: this machine's own publish.
+  expect(offer).toEqual({ status: "own-session" });
+  expect(readRawHandoff(artifactFile)?.sessionId).toBe("remote-9");
 });

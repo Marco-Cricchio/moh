@@ -167,7 +167,7 @@ export async function discoverHandoffForHome(
   }
   return discoverHandoff({
     cwd,
-    home: join(home ?? homedir(), ".moh"),
+    home: home ?? homedir(),
     transport: createGistHandoffTransport({ cwd, home }),
   });
 }

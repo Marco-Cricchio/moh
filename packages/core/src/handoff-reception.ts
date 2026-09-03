@@ -17,15 +17,16 @@
  * an offline or gh-less machine just sees today's home screen (story 15).
  */
 import { homedir } from "node:os";
+import { join } from "node:path";
 import type { HandoffGitAnchor, RawHandoff } from "./handoff";
-import { gitAnchor } from "./handoff";
+import { gitAnchor, HandoffRunner } from "./handoff";
 import { listSessionSummaries, type SessionSummary } from "./session-store";
-import type { HandoffPayload, HandoffTransport } from "./handoff-transport";
+import { readRawHandoff, type HandoffPayload, type HandoffTransport } from "./handoff-transport";
 import type { SkillPrompt } from "./types";
 
 export interface DiscoverHandoffOptions {
   cwd: string;
-  /** moh home (`~/.moh`); defaults to the real one. */
+  /** OS home (`~`); defaults to the real one. Derived paths use `<home>/.moh`. */
   home?: string;
   transport: HandoffTransport;
   /** Budget for the whole fetch. Default: 3000ms (startup must not hang). */
@@ -34,6 +35,9 @@ export interface DiscoverHandoffOptions {
   git?: HandoffGitAnchor;
   /** Local session listing override (tests). */
   listLocal?: () => SessionSummary[];
+  /** Local raw-artifact reader override (tests). Default: the project's
+   * `<home>/.moh/projects/<slug>/handoff.json`. */
+  readLocalArtifact?: () => RawHandoff | undefined;
 }
 
 /** The startup discovery outcome. Everything but `offer` means: nothing
@@ -66,7 +70,10 @@ function deadline<T>(p: Promise<T>, timeoutMs: number): Promise<T | "timeout"> {
  * Startup discovery: fetches the newest published handoff and compares
  * it with the newest local session. Ordering key is the handoff's
  * `updatedAt` (last completed turn on the origin machine) against the
- * local session file's mtime. Never throws and never hangs: any failure
+ * local session file's mtime. Own-session detection compares the
+ * payload's internal sessionId against the **local raw artifact** (same
+ * internal id, `session-xxxxxxxx`) — file basenames are a different id
+ * space and never match. Never throws and never hangs: any failure
  * (offline, gh missing, timeout, unparsable gist) is `{ status: "none" }`.
  */
 export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<HandoffOffer> {
@@ -76,12 +83,13 @@ export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<
   );
   if (raced === "timeout" || raced === null || !raced.ok) return { status: "none" };
   const { payload, url } = raced;
-  const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, options.home ?? homedir())))();
+  const home = options.home ?? homedir();
+  const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, home)))();
+  const localArtifact =
+    options.readLocalArtifact?.() ?? readRawHandoff(HandoffRunner.artifactFile(options.cwd, join(home, ".moh")));
+  if (localArtifact?.sessionId === payload.sessionId) return { status: "own-session" };
   const newest = local[0];
-  if (newest) {
-    if (newest.id === payload.sessionId) return { status: "own-session" };
-    if (Date.parse(payload.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
-  }
+  if (newest && Date.parse(payload.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
   return { status: "offer", payload, url, stale: isHandoffStale(payload, options.cwd, options.git) };
 }
 
