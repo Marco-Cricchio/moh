@@ -97,6 +97,24 @@ describe("ToolRunner", () => {
     expect(events).toEqual(["publish"]);
   });
 
+  test("recognizes common git push command prefixes and global options", async () => {
+    let publishes = 0;
+    const { runner } = harness({
+      tools: { bash: makeTool({ name: "bash", execute: () => "pushed" }) },
+      onGitPush: () => { publishes += 1; },
+    });
+    for (const command of [
+      "git -C packages/core push",
+      "git --git-dir .git --work-tree . push origin develop",
+      "GIT_DIR=.git git push",
+      "env GIT_DIR=.git git push",
+      "command git push",
+    ]) {
+      await runner.run([call("bash", { command })], new AbortController().signal);
+    }
+    expect(publishes).toBe(5);
+  });
+
   test("failed and non-push bash commands do not publish", async () => {
     let publishes = 0;
     const { runner } = harness({

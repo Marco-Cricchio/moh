@@ -65,13 +65,42 @@ export interface ToolRunnerOptions {
  * `parallelToolCalls`. Returns the result parts for the feedback
  * message the model sees for self-correction.
  */
+/** Shell variable assignment token (the conservative common form). */
+function isAssignment(word: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(word);
+}
+
+/** True when one shell segment invokes `git push`. Supports environment
+ * prefixes, `command git`, and Git's common global options, while keeping
+ * arbitrary text such as `echo 'git push'` out of the trigger grammar. */
+function isGitPushSegment(words: string[]): boolean {
+  let i = 0;
+  while (isAssignment(words[i] ?? "")) i += 1;
+  if (words[i] === "env") {
+    i += 1;
+    while (words[i]?.startsWith("-") || isAssignment(words[i] ?? "")) i += 1;
+  }
+  if (words[i] === "command") {
+    i += 1;
+    while (words[i]?.startsWith("-")) i += 1;
+  }
+  if (words[i] !== "git") return false;
+  i += 1;
+  while (words[i]?.startsWith("-")) {
+    const option = words[i++]!;
+    // Git options with a separate argument. Other global options are
+    // flag-like or use `=`, so they can be skipped safely here.
+    if (option === "-C" || option === "-c" || option === "--git-dir" || option === "--work-tree") i += 1;
+  }
+  return words[i] === "push";
+}
+
 /** True for a shell command segment that invokes `git push`; quoted text
  * and `git status` are not triggers. Compound commands are intentional:
  * a successful bash call that did push must publish the fresh artifact. */
 export function isGitPush(call: ToolCall): boolean {
   if (call.name !== "bash" || typeof (call.args as { command?: unknown })?.command !== "string") return false;
-  return splitCommandSegments((call.args as { command: string }).command)
-    .some((words) => words[0] === "git" && words[1] === "push");
+  return splitCommandSegments((call.args as { command: string }).command).some(isGitPushSegment);
 }
 
 export class ToolRunner {
