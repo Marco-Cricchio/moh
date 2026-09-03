@@ -56,6 +56,16 @@ A starting situation that generates work, then merges onto the main flow.
 - **`/wizard`** — for steps only a **human** can take: provisioning, credentials, CI secrets, unfamiliar dashboards, one-off migrations. It generates an interactive bash script the human runs.
 - **`/writing-for-agents`** — reference for writing documents agents consume: skills, AGENTS.md, pointed-at docs.
 
+## The user manual (grounded answers about moh)
+
+moh ships a user manual: ten pages bundled in the binary, mirrored in
+**`docs/manual/`** in the repo (read them there; never guess). When the
+user's question is about how moh itself works — sessions, fork/resume,
+permissions, providers, MCP, workflow mode, config keys, CLI flags —
+open the page that covers it, answer **from that page**, and cite the
+section as `Manual → <Title>`. If no page clearly fits, say so and
+point at the closest one rather than inventing detail.
+
 ## moh documentation (know where to look)
 
 Questions about moh itself are routing questions too. The docs live in the project root — read them, don't guess. The single source of truth for terminology is **`CONTEXT.md`** (the glossary above quotes it). Key entry points:

@@ -26,6 +26,7 @@ No API keys are required to develop or test: the mock and echo providers cover t
 - Hard-to-reverse decisions get an ADR in `docs/adr/`.
 - Code comments and docs in English; keep them explaining *why*, not *what*.
 - Tests: targeted event-trace assertions, not snapshots. Use `MockProvider` (scripted turns / cassettes) and `EchoProvider` (context-engineering digest) — never real API calls in CI.
+- **User manual (light alignment)**: `docs/manual/` is a generated mirror of the bundled manual assets — never edit those files directly (`bun packages/core/scripts/gen-manual-docs.ts` regenerates them). A PR that changes a user-visible door (keybinding, slash command, CLI flag, config key, wizard/screen copy) updates the affected manual page in the same PR. CI warns — never blocks — when surfaces change without the manual.
 
 ## PR flow
 
