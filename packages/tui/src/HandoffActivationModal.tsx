@@ -21,13 +21,15 @@ type Option = (typeof options)[number];
 function writeTransport(cwd: string, transport: "gist" | "none" | undefined, onboarding?: "dismissed" | "reminded") {
   const file = `${cwd}/moh.json`;
   const config = loadMohConfig(file);
-  const existing = config.handoff;
-  const handoff = {
-    ...(existing?.onboarding && !onboarding ? { onboarding: existing.onboarding } : {}),
-    ...(transport ? { transport } : {}),
-    ...(onboarding ? { onboarding } : {}),
-  };
-  writeMohConfig(file, { ...config, ...(Object.keys(handoff).length ? { handoff } : {}) });
+  // An explicit choice settles the one-time offer. Only startup dismissal
+  // carries pending reminder state; a Settings reset is Not Set by policy,
+  // not a request to restart first-run onboarding.
+  const handoff = transport
+    ? { transport }
+    : onboarding
+      ? { onboarding }
+      : { onboarding: "reminded" as const };
+  writeMohConfig(file, { ...config, handoff });
 }
 
 function verificationMessage(error: HandoffTransportError): string {

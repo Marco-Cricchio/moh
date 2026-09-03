@@ -186,7 +186,8 @@ export function App({
   const [handoffStartupOffer] = useState(() => {
     if (skipOnboarding || needsOnboarding) return false;
     try {
-      return loadMohConfig(join(cwd, "moh.json")).handoff === undefined;
+      const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
+      return handoff?.transport === undefined && handoff?.onboarding === undefined;
     } catch {
       return false;
     }
@@ -856,13 +857,16 @@ export function App({
               if (wizardFromSettings) {
                 setWizardFromSettings(false);
                 setOverlay("settings");
-              } else if (loadMohConfig(join(cwd, "moh.json")).handoff === undefined) {
-                setOverlay("handoff-onboarding");
-              } else if (!configRef.current.workflowOffered) {
-                // First-run workflow offer (#36): right after onboarding.
-                setOverlay("workflow-offer");
               } else {
-                setOverlay(null);
+                const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
+                if (handoff?.transport === undefined && handoff?.onboarding === undefined) {
+                  setOverlay("handoff-onboarding");
+                } else if (!configRef.current.workflowOffered) {
+                  // First-run workflow offer (#36): right after onboarding.
+                  setOverlay("workflow-offer");
+                } else {
+                  setOverlay(null);
+                }
               }
             }}
           />

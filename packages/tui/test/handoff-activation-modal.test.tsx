@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadMohConfig } from "@moh/core";
@@ -67,7 +67,7 @@ describe("handoff activation modal (#438)", () => {
     i.unmount();
   });
 
-  test("Settings resets an explicit transport to Not Set", async () => {
+  test("Settings resets an explicit transport to Not Set without restarting onboarding", async () => {
     const dir = cwd();
     const i = mount(dir);
     await sleep(30);
@@ -77,7 +77,19 @@ describe("handoff activation modal (#438)", () => {
     await sleep(20);
     i.stdin.write("\r");
     await sleep(30);
-    expect(loadMohConfig(join(dir, "moh.json")).handoff).toBeUndefined();
+    expect(loadMohConfig(join(dir, "moh.json")).handoff).toEqual({ onboarding: "reminded" });
+    i.unmount();
+  });
+
+  test("an explicit Settings choice clears a pending dismissal", async () => {
+    const dir = cwd();
+    const file = join(dir, "moh.json");
+    writeFileSync(file, JSON.stringify({ handoff: { onboarding: "dismissed" } }));
+    const i = mount(dir, { verifyGh: () => ({ ok: true, user: "octo" }) });
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(loadMohConfig(file).handoff).toEqual({ transport: "gist" });
     i.unmount();
   });
 
