@@ -96,3 +96,25 @@ jobs:
             status=$?
           fi
           exit $status
+
+  # Manual-drift heuristic (#457): warn — never block — when a PR changes a
+  # user-visible door (slash commands, the COMMANDS panel, CLI usage texts,
+  # the config schema) without touching docs/manual/. The light-alignment
+  # rule for the manual lives in AGENTS.md.
+  manual-drift-warning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Warn when doors change without the manual
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          changed="$(git diff --name-only "$base"...HEAD)"
+          doors=$(echo "$changed" | grep -E '^packages/tui/src/(commands|CommandsPanel)\.tsx?$|^packages/cli/src/[^/]+\.ts$|^packages/core/src/(config|user-config)\.ts$' || true)
+          manual=$(echo "$changed" | grep -E '^docs/manual/|^packages/core/src/manual/' || true)
+          if [ -n "$doors" ] && [ -z "$manual" ]; then
+            echo "::warning::This PR changes user-visible surfaces (commands/CLI/config) without touching docs/manual/ — check whether a manual page needs the same change (see AGENTS.md, 'User manual')."
+          fi

@@ -8,8 +8,11 @@ import {
   applyUpstreamUpdates,
   checkUpstreamUpdates,
   diffSkillFiles,
+  allManualPages,
   installFirstPartySkills,
   loadFirstPartyManifest,
+  manualIndex,
+  manualPage,
   readBundledSkill,
   resolveTrackerSync,
   trackerTools,
@@ -66,6 +69,9 @@ export interface SlashContext {
   onReload?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
+  /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
+   * (headless): the command prints the manual index as text instead. */
+  onOpenManual?: () => void;
   /** Cycles vibe ↔ dev (`/mode`). Absent (headless): the command explains
    * it needs the TUI. */
   onCycleMode?: () => void;
@@ -315,7 +321,11 @@ export function readInstalled(mohHome: string, name: string): Record<string, str
  * the SKILL.md is read from the bundle (it is only copied into
  * `~/.moh/skills/` when workflow mode is on). ADR-0011: the skill body
  * rides the system prompt via `send(text, { prompt })`; the user message
- * is the clean question and the log records a discreet `skill_invoked`. */
+ * is the clean question and the log records a discreet `skill_invoked`.
+ * #457: the router's subject matter extends to the user manual — the
+ * prompt carries the page index, and the instruction tells the router to
+ * fetch a full page (via manualPage) when the question falls in its
+ * subject, answering grounded and citing `Manual → <section>`. */
 const askMohCommand: SlashCommand = {
   name: "ask-moh",
   description: "which skill or flow fits? router over moh skills + docs",
@@ -327,12 +337,15 @@ const askMohCommand: SlashCommand = {
     const state = ctx.config.workflow.enabled ? "on" : "off";
     const question = args.trim() || "Which skill or flow fits my situation?";
     const body = stripSkillFrontmatter(skill.files["SKILL.md"] ?? "");
+    const index = manualIndex()
+      .map((p) => `- ${p.id}: ${p.title} — ${p.summary}`)
+      .join("\n");
     void ctx.session.send(
       `${question}\n\n(Workflow mode is currently ${state}. The ask-moh skill's workflow-mode gate applies as written.)`,
       {
         prompt: {
           name: "ask-moh",
-          text: body,
+          text: `${body}\n\n## User manual (grounding source)\n\nWhen the question is about how moh itself works, answer from the manual page that covers it — read the page file from docs/manual/<id>.md (or the embedded asset via the CLI: \`moh manual <id>\`) — and cite it as "Manual → <title>". When unsure which page fits, ask or list these:\n\n${index}`,
         },
       },
     );
@@ -363,14 +376,36 @@ const reloadCommand: SlashCommand = {
 };
 
 /** Commands available regardless of workflow mode, alphabetical (the
- * completion popup lists exactly this order: ask-moh, commands, mode,
- * model, reload, settings, theme, thinking, wayfinder, workflow). */
+ * completion popup lists exactly this order: ask-moh, commands, help,
+ * mode, model, reload, settings, theme, thinking, wayfinder, workflow). */
 const commandsCommand: SlashCommand = {
   name: "commands",
   description: "open the all-commands panel",
   usage: "/commands",
   run(ctx) {
     ctx.onOpenCommands?.();
+  },
+};
+
+/** #457: the user manual. With a UI, opens the manual modal; headless
+ * callers get the index (or one page's body with `/help <id>`) as text. */
+const helpCommand: SlashCommand = {
+  name: "help",
+  description: "open the user manual (or /help <page-id>)",
+  usage: "/help [page-id]",
+  run(ctx, args) {
+    const id = args.trim();
+    if (id) {
+      const page = manualPage(id);
+      if (!page) {
+        const known = allManualPages().map((p) => p.id).join(", ");
+        return ctx.notify(`no manual page "${id}" (pages: ${known})`);
+      }
+      return ctx.notify(page.body);
+    }
+    if (ctx.onOpenManual) return ctx.onOpenManual();
+    const index = manualIndex().map((p) => `${p.id.padEnd(24)}${p.title} — ${p.summary}`).join("\n");
+    ctx.notify(`moh manual:\n${index}\n\nread one with /help <id>`);
   },
 };
 
@@ -418,6 +453,7 @@ const wayfinderCommand: SlashCommand = {
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
   commandsCommand,
+  helpCommand,
   modeCommand,
   modelCommand,
   reloadCommand,

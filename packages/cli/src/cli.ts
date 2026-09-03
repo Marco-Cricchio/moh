@@ -9,6 +9,7 @@ import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
 import { handoffCommand, HANDOFF_USAGE } from "./handoff";
+import { manualCommand, MANUAL_USAGE } from "./manual";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -24,6 +25,7 @@ commands:
   mcp      manage MCP tool servers (see: moh mcp --help)
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
+  manual   read the user manual (see: moh manual --help)
   update   self-update the binary to the latest stable release
   handoff  publish a session handoff (see: moh handoff --help)
 
@@ -137,6 +139,9 @@ export async function main(
       return 0;
     }
     return providerCommand({ argv: rest, cwd: process.cwd() });
+  }
+  if (command === "manual") {
+    return manualCommand({ argv: rest });
   }
   if (command === "update") {
     if (rest.includes("--help") || rest.includes("-h")) {
