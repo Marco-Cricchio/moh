@@ -8,6 +8,8 @@ import {
   HandoffRunner,
   createGistHandoffTransport,
   enrichHandoffWithWayfinder,
+  exportHandoffFile,
+  importHandoffFile,
   loadMohConfig,
   notifyClaimedWayfinderTickets,
   readRawHandoff,
@@ -18,8 +20,19 @@ import {
 import { ArgError, parseArgs } from "./args";
 
 export const HANDOFF_USAGE = `usage: moh handoff [--notify-ticket] [--cwd <dir>]
+       moh handoff export <file> [--cwd <dir>]
+       moh handoff import <file> [--cwd <dir>]
 
-Publishes the local session handoff when handoff.transport is "gist".
+With no subcommand: publishes the local session handoff when
+handoff.transport is "gist".
+
+export/import (#440) are the manual file fallback — for machines with
+no gh, offline transfers, or removable media:
+  export <file>    write the local handoff artifact (with the same
+                   read-only Wayfinder enrichment as a publish) to <file>
+  import <file>    validate a received export and register it for this
+                   project; the newest of gist/import/local is then
+                   offered at the next startup
 
 options:
   --notify-ticket  after a successful publish, comment only Wayfinder tickets
@@ -47,10 +60,16 @@ export async function handoffCommand(options: HandoffCommandOptions): Promise<nu
     return 2;
   }
   if (parsed.positionals.length) {
-    err.write(`moh handoff: unexpected argument "${parsed.positionals[0]}"\n`);
-    return 2;
+    const [subcommand] = parsed.positionals;
+    if (subcommand !== "export" && subcommand !== "import") {
+      err.write(`moh handoff: unexpected argument "${parsed.positionals[0]}"\n`);
+      return 2;
+    }
   }
   const cwd = resolve(parsed.strings.cwd ?? options.cwd ?? process.cwd());
+  if (parsed.positionals.length) {
+    return handoffFileCommand(parsed.positionals[0] as "export" | "import", parsed.positionals.slice(1), options, out, err, cwd);
+  }
   let config;
   try {
     config = loadMohConfig(join(cwd, "moh.json"));
@@ -85,4 +104,58 @@ export async function handoffCommand(options: HandoffCommandOptions): Promise<nu
     err.write(`moh handoff: published, but ticket notification failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
+}
+
+/**
+ * `moh handoff export|import <file>` (T7 #440): the manual file
+ * fallback. Subcommand handling happens before the publish-only
+ * `handoff.transport: "gist"` requirement: the fallback exists exactly
+ * for machines where the gist transport is unavailable (no gh, offline
+ * transfers, private repos with transport "none").
+ */
+async function handoffFileCommand(
+  subcommand: "export" | "import",
+  rest: string[],
+  options: HandoffCommandOptions,
+  out: NodeJS.WritableStream,
+  err: NodeJS.WritableStream,
+  cwd: string,
+): Promise<number> {
+  const file = rest[0];
+  if (!file || rest.length > 1) {
+    err.write(`moh handoff ${subcommand}: exactly one <file> argument is required\n`);
+    return 2;
+  }
+  if (subcommand === "export") {
+    const tracker = await resolveTracker({ cwd }).catch(() => null);
+    const result = await exportHandoffFile({
+      cwd,
+      home: options.home,
+      out: resolve(file),
+      enrich: (payload) => enrichHandoffWithWayfinder(payload, tracker),
+    });
+    if (!result.ok) {
+      err.write(
+        result.error.reason === "no-artifact"
+          ? "moh handoff export: no local handoff artifact\n"
+          : `moh handoff export: failed (${result.error.reason === "failed" ? result.error.message : result.error.reason})\n`,
+      );
+      return 1;
+    }
+    out.write(`handoff exported: ${result.path}\n`);
+    return 0;
+  }
+  const result = await importHandoffFile({ cwd, home: options.home, file: resolve(file) });
+  if (!result.ok) {
+    err.write(
+      result.error.reason === "missing"
+        ? `moh handoff import: no such file: ${resolve(file)}\n`
+        : result.error.reason === "invalid"
+          ? `moh handoff import: ${resolve(file)} is not a valid handoff export\n`
+          : `moh handoff import: failed (${result.error.reason === "failed" ? result.error.message : result.error.reason})\n`,
+    );
+    return 1;
+  }
+  out.write(`handoff imported: it will be offered at the next startup if newer than local work\n`);
+  return 0;
 }
