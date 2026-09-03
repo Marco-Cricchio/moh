@@ -8,6 +8,7 @@ import { mcpCommand, MCP_USAGE } from "./mcp";
 import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
+import { handoffCommand, HANDOFF_USAGE } from "./handoff";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -24,6 +25,7 @@ commands:
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   update   self-update the binary to the latest stable release
+  handoff  publish a session handoff (see: moh handoff --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -142,6 +144,13 @@ export async function main(
       return 0;
     }
     return updateCommand({ argv: rest });
+  }
+  if (command === "handoff") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(HANDOFF_USAGE + "\n");
+      return 0;
+    }
+    return handoffCommand({ argv: rest, home: process.env.HOME });
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;

@@ -110,6 +110,30 @@ describe("gh backend", () => {
     expect(calls.at(-1)).toContain("@me");
   });
 
+  test("reads the exact parent-map Wayfinder frontier and comments only explicitly", async () => {
+    const calls: string[][] = [];
+    const run = fakeRunner((cmd) => {
+      calls.push(cmd);
+      if (cmd.some((part) => part.endsWith("/issues/7/parent") || part.endsWith("/issues/8/parent"))) return { code: 0, stdout: JSON.stringify({ number: 2 }) };
+      if (cmd.some((part) => part.endsWith("/issues/2/sub_issues"))) return {
+        code: 0,
+        stdout: JSON.stringify([
+          { number: 7, title: "Claimed", url: "https://x/7", state: "OPEN", labels: [{ name: "wayfinder:task" }], assignees: [{ login: "me" }], issue_dependencies_summary: { blocked_by: 0 } },
+          { number: 8, title: "Ready", url: "https://x/8", state: "OPEN", labels: [{ name: "wayfinder:research" }], assignees: [], issue_dependencies_summary: { blocked_by: 0 } },
+          { number: 9, title: "Blocked", url: "https://x/9", state: "OPEN", labels: [{ name: "wayfinder:task" }], assignees: [], issue_dependencies_summary: { blocked_by: 1 } },
+        ]),
+      };
+      return { code: 0, stdout: "" };
+    });
+    const t = ghTracker("owner/repo", run);
+    const snapshot = await t.wayfinderSnapshot!(["7", "8"]);
+    expect(snapshot?.mapId).toBe("2");
+    expect(projectFrontier(snapshot!.issues).ready.map((issue) => issue.id)).toEqual(["8"]);
+    expect(projectFrontier(snapshot!.issues).blocked.map((issue) => issue.id)).toEqual(["9"]);
+    await t.comment!("7", "handoff url");
+    expect(calls.at(-1)).toEqual(["gh", "issue", "comment", "7", "--repo", "owner/repo", "--body", "handoff url"]);
+  });
+
   test("unclaims with gh --remove-assignee @me", async () => {
     const calls: string[][] = [];
     const run = fakeRunner((cmd) => {

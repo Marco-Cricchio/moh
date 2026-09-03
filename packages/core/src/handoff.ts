@@ -43,12 +43,25 @@ export interface HandoffGitAnchor {
   dirty?: boolean;
 }
 
-/** The raw (non-LLM) handoff artifact. Kind stays "raw" until exit-time
- * synthesis (T2+) may replace it with a synthesized payload. */
 /** Identifies the preceding handoff in a cross-machine continuity chain. */
 export interface HandoffReference {
   sessionId: string;
   updatedAt: string;
+}
+
+export type HandoffTicketRelation = "claimed" | "mentioned";
+
+/** A session-linked Wayfinder ticket, distilled from the event log. */
+export interface HandoffWayfinderLink {
+  id: string;
+  relations: HandoffTicketRelation[];
+}
+
+/** Read-only Wayfinder context attached at publish time. The raw links are
+ * crash-safe local state; citations and frontier are a best-effort snapshot. */
+export interface HandoffWayfinderContext {
+  tickets: Array<HandoffWayfinderLink & { title: string; url?: string }>;
+  frontier: { ready: number; inProgress: number; blocked: number };
 }
 
 export interface RawHandoff {
@@ -74,6 +87,10 @@ export interface RawHandoff {
   tests: string[];
   /** Totals distilled from the event log. */
   counts: { toolCalls: number; errors: number; cancelled: number };
+  /** Crash-safe ticket links inferred from the event log. */
+  wayfinderLinks?: HandoffWayfinderLink[];
+  /** Best-effort read-only citation/frontier snapshot attached on publish. */
+  wayfinder?: HandoffWayfinderContext;
 }
 
 /** Caps: the artifact is a bridge, not a transcript. */
@@ -87,6 +104,7 @@ const FILE_TOOLS = new Set(["write", "edit"]);
 
 /** Substrings that make a bash command "a test run" for the artifact. */
 const TEST_MARKERS = ["test", "jest", "vitest", "mocha", "pytest"];
+const TICKET_REFERENCE = /(?:^|[^\w])#(\d+)\b|https?:\/\/github\.com\/[^\s)]+\/issues\/(\d+)\b/g;
 
 function looksLikeTest(command: string): boolean {
   return TEST_MARKERS.some((marker) => new RegExp(`\\b${marker}`).test(command));
@@ -105,6 +123,35 @@ function firstCommandString(args: unknown): string | undefined {
   if (typeof args !== "object" || args === null) return undefined;
   const v = (args as Record<string, unknown>).command ?? (args as Record<string, unknown>).cmd;
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+function ticketReferences(text: string): string[] {
+  const ids: string[] = [];
+  for (const match of text.matchAll(TICKET_REFERENCE)) ids.push(match[1] ?? match[2]!);
+  return ids;
+}
+
+/** Links come only from model-visible messages and successful tracker claims:
+ * tool results remain private and failed claims never become working state. */
+export function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): HandoffWayfinderLink[] {
+  const relations = new Map<string, Set<HandoffTicketRelation>>();
+  const claims = new Map<string, string>();
+  const add = (id: string, relation: HandoffTicketRelation) => {
+    if (!relations.has(id)) relations.set(id, new Set());
+    relations.get(id)!.add(relation);
+  };
+  for (const event of events) {
+    if (event.type === "user_message" || event.type === "assistant_delta") {
+      for (const id of ticketReferences(event.text)) add(id, "mentioned");
+    } else if (event.type === "tool_call" && event.name === "tracker_claim") {
+      const id = typeof (event.args as { id?: unknown }).id === "string" ? (event.args as { id: string }).id : undefined;
+      if (id) claims.set(event.callId, id);
+    } else if (event.type === "tool_result" && event.ok) {
+      const id = claims.get(event.callId);
+      if (id) add(id, "claimed");
+    }
+  }
+  return [...relations.entries()].map(([id, found]) => ({ id, relations: [...found] }));
 }
 
 /** Reads the git anchor for the artifact. Fail-silent per field. */
@@ -192,6 +239,7 @@ export function buildRawHandoff(
         break;
     }
   }
+  const wayfinderLinks = wayfinderLinksFromEvents(events);
   return {
     version: 1,
     kind: "raw",
@@ -205,6 +253,7 @@ export function buildRawHandoff(
     files,
     tests,
     counts,
+    ...(wayfinderLinks.length ? { wayfinderLinks } : {}),
   };
 }
 

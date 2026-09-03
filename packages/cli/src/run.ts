@@ -14,11 +14,13 @@ import {
   SessionStore,
   createGistHandoffTransport,
   HandoffRunner,
+  enrichHandoffWithWayfinder,
   listSessionSummaries,
   loadMohConfig,
   overridesFromFlags,
   publishHandoffAtExit,
   sessionFromConfig,
+  resolveTracker,
   transportActive,
   type AgentEvent,
 } from "@moh/core";
@@ -330,6 +332,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       const published = await publishHandoffAtExit({
         artifactFile: HandoffRunner.artifactFile(cwd, join(options.home ?? homedir(), ".moh")),
         transport: createGistHandoffTransport({ cwd, home: options.home }),
+        enrich: async (payload) => enrichHandoffWithWayfinder(payload, await resolveTracker({ cwd })),
       });
       if (!published.ok) err.write(`moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
     }
