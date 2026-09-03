@@ -222,8 +222,19 @@ describe("discoverHandoff — manual import merge (T7 #440)", () => {
     expect(offer.status).toBe("local-current");
   });
 
-  test("a winning gist handoff is offered even with a newer parked import present", async () => {
+  test("newest-wins: a newer parked import beats an older fetched gist (story 21)", async () => {
     const offer = await discover({ fetch: { ok: true, payload: payload(), url: "u" }, readImported: imported });
+    expect(offer.status).toBe("offer");
+    if (offer.status !== "offer") return;
+    expect(offer.payload.sessionId).toBe("imported-7");
+    expect(offer.url).toBe("imported file");
+  });
+
+  test("newest-wins: a newer fetched gist beats an older parked import", async () => {
+    const offer = await discover({
+      fetch: { ok: true, payload: payload({ updatedAt: "2026-09-02T21:30:00.000Z" }), url: "u" },
+      readImported: imported,
+    });
     expect(offer.status).toBe("offer");
     if (offer.status !== "offer") return;
     expect(offer.payload.sessionId).toBe("remote-9");

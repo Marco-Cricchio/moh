@@ -79,6 +79,19 @@ describe("moh handoff export/import (#440)", () => {
     expect(io.read().stderr).toContain("no such file");
   });
 
+  test("export → import round-trip preserves the payload (review nit)", async () => {
+    const { cwd, home } = setup(); const io = streams();
+    const carrier = join(home, "bridge.json");
+    expect(await handoffCommand({ argv: ["export", carrier], cwd, home, ...io })).toBe(0);
+    const other = mkdtempSync(join(tmpdir(), "moh-handoff-file-cli-"));
+    const cwdB = join(other, "project"); const homeB = join(other, "home");
+    mkdirSync(cwdB, { recursive: true }); mkdirSync(homeB, { recursive: true });
+    writeFileSync(join(cwdB, "moh.json"), JSON.stringify({ handoff: { transport: "none" } }));
+    expect(await handoffCommand({ argv: ["import", carrier], cwd: cwdB, home: homeB, ...io })).toBe(0);
+    const parked = JSON.parse(readFileSync(importedHandoffFile(cwdB, homeB), "utf8")) as RawHandoff;
+    expect(parked).toEqual(JSON.parse(readFileSync(HandoffRunner.artifactFile(cwd, join(home, ".moh")), "utf8")));
+  });
+
   test("export/import require a file argument", async () => {
     const { cwd, home } = setup(); const io = streams();
     expect(await handoffCommand({ argv: ["export"], cwd, home, ...io })).toBe(2);
