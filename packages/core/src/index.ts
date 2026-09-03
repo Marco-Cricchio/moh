@@ -176,8 +176,18 @@ import {
   type HandoffOffer,
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
-import { HandoffRunner, transportActive } from "./handoff";
+import { HandoffRunner, transportActive, buildRawHandoff, wayfinderLinksFromEvents, gitAnchor, type RawHandoff, type HandoffGitAnchor } from "./handoff";
 import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
+import {
+  exportHandoffFile,
+  importHandoffFile,
+  readImportedHandoff,
+  importedHandoffFile,
+  type ExportHandoffOptions,
+  type ExportHandoffResult,
+  type ImportHandoffOptions,
+  type ImportHandoffResult,
+} from "./handoff-file";
 import {
   loadMergedConfig,
   readUserProviderConfig,
@@ -501,6 +511,11 @@ export {
   publishHandoffAtExit,
   readRawHandoff,
   HandoffRunner,
+  buildRawHandoff,
+  wayfinderLinksFromEvents,
+  gitAnchor,
+  type RawHandoff,
+  type HandoffGitAnchor,
   transportActive,
   createGistHandoffTransport,
   ghUsername,
@@ -515,6 +530,15 @@ export {
   notifyClaimedWayfinderTickets,
   type HandoffOffer,
   type DiscoverHandoffOptions,
+  // Manual file fallback (T7 #440): export/import via file.
+  exportHandoffFile,
+  importHandoffFile,
+  readImportedHandoff,
+  importedHandoffFile,
+  type ExportHandoffOptions,
+  type ExportHandoffResult,
+  type ImportHandoffOptions,
+  type ImportHandoffResult,
   type SessionConfig,
   type AssemblyError,
   type AssemblyErrorKind,

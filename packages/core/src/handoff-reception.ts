@@ -22,6 +22,7 @@ import type { HandoffGitAnchor, RawHandoff } from "./handoff";
 import { gitAnchor, HandoffRunner } from "./handoff";
 import { listSessionSummaries, type SessionSummary } from "./session-store";
 import { readRawHandoff, type HandoffPayload, type HandoffTransport } from "./handoff-transport";
+import { readImportedHandoff } from "./handoff-file";
 import type { SkillPrompt } from "./types";
 
 export interface DiscoverHandoffOptions {
@@ -38,6 +39,9 @@ export interface DiscoverHandoffOptions {
   /** Local raw-artifact reader override (tests). Default: the project's
    * `<home>/.moh/projects/<slug>/handoff.json`. */
   readLocalArtifact?: () => RawHandoff | undefined;
+  /** Parked manual import reader override (tests, T7 #440). Default:
+   * the project's `<home>/.moh/projects/<slug>/imported-handoff.json`. */
+  readImported?: () => RawHandoff | undefined;
 }
 
 /** The startup discovery outcome. Everything but `offer` means: nothing
@@ -81,16 +85,56 @@ export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<
     options.transport.fetch().catch(() => null),
     options.timeoutMs ?? 3_000,
   );
-  if (raced === "timeout" || raced === null || !raced.ok) return { status: "none" };
-  const { payload, url } = raced;
+  if (raced === "timeout" || raced === null || !raced.ok) {
+    // No reachable gist handoff — a parked manual import (T7 #440) can
+    // still be newer than the local session; offer it when so.
+    return offerFromImport(options);
+  }
+  const imported = (options.readImported ?? (() => readImportedHandoff(options.cwd, options.home)))();
   const home = options.home ?? homedir();
   const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, home)))();
   const localArtifact =
     options.readLocalArtifact?.() ?? readRawHandoff(HandoffRunner.artifactFile(options.cwd, join(home, ".moh")));
-  if (localArtifact?.sessionId === payload.sessionId) return { status: "own-session" };
+  // Rediscovering your own publish (gist or re-imported export) is a no-op.
+  if (localArtifact?.sessionId === raced.payload.sessionId) return { status: "own-session" };
+  // Newest handoff candidate wins (story 21: newest state wins regardless
+  // of producing machine): fetched gist vs parked manual import.
+  let candidate: { payload: HandoffPayload; url: string } = { payload: raced.payload, url: raced.url };
+  if (imported && Date.parse(imported.updatedAt) > Date.parse(candidate.payload.updatedAt)) {
+    if (localArtifact?.sessionId === imported.sessionId) return { status: "own-session" };
+    candidate = { payload: imported, url: "imported file" };
+  }
   const newest = local[0];
-  if (newest && Date.parse(payload.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
-  return { status: "offer", payload, url, stale: isHandoffStale(payload, options.cwd, options.git) };
+  if (newest && Date.parse(candidate.payload.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
+  return {
+    status: "offer",
+    payload: candidate.payload,
+    url: candidate.url,
+    stale: isHandoffStale(candidate.payload, options.cwd, options.git),
+  };
+}
+
+/** T7 (#440) import fallback path: reached when no gist handoff was
+ * reachable at all. A parked manual import that is genuinely newer than
+ * the newest local session is offered; own-session imports are silently
+ * dropped — importing your own export back is a no-op, exactly like
+ * rediscovering your own gist publish. */
+function offerFromImport(options: DiscoverHandoffOptions): HandoffOffer {
+  const imported = (options.readImported ?? (() => readImportedHandoff(options.cwd, options.home)))();
+  if (!imported) return { status: "none" };
+  const home = options.home ?? homedir();
+  const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, home)))();
+  const localArtifact =
+    options.readLocalArtifact?.() ?? readRawHandoff(HandoffRunner.artifactFile(options.cwd, join(home, ".moh")));
+  if (localArtifact?.sessionId === imported.sessionId) return { status: "own-session" };
+  const newest = local[0];
+  if (newest && Date.parse(imported.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
+  return {
+    status: "offer",
+    payload: imported,
+    url: "imported file",
+    stale: isHandoffStale(imported, options.cwd, options.git),
+  };
 }
 
 /**

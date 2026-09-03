@@ -309,6 +309,16 @@ accepted payload's `{ sessionId, updatedAt }` as `supersedes` in every
 subsequent raw artifact, making the logical A→B→A chain explicit even
 though the gist stores only its newest tip.
 
+The manual file fallback (T7, #440) bypasses the transport entirely:
+`moh handoff export <file>` writes the raw artifact (with the same
+best-effort Wayfinder enrichment as a publish) to any carrier file,
+and `moh handoff import <file>` validates a received export and parks
+it under `~/.moh/projects/<slug>/imported-handoff.json`. Discovery
+merges the parked import newest-of-both with the fetched gist — it is
+offered only when no gist handoff won and it is genuinely newer than
+local work — so a gh-less machine receives handoffs over removable
+media while the newest-wins chain semantics stay identical.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,
