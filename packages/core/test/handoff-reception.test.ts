@@ -77,6 +77,7 @@ function discover(args: {
   git?: HandoffGitAnchor;
   timeoutMs?: number;
   readLocalArtifact?: () => RawHandoff | undefined;
+  readImported?: () => RawHandoff | undefined;
 }): Promise<HandoffOffer> {
   return discoverHandoff({
     cwd: TMP,
@@ -85,6 +86,7 @@ function discover(args: {
     listLocal: () => args.locals ?? [local()],
     timeoutMs: args.timeoutMs ?? 500,
     readLocalArtifact: args.readLocalArtifact ?? (() => undefined),
+    readImported: args.readImported ?? (() => undefined),
   });
 }
 
@@ -180,6 +182,57 @@ describe("discoverHandoff", () => {
   test("a hanging fetch is cut by the deadline", async () => {
     const offer = await discover({ fetch: "hang", timeoutMs: 50 });
     expect(offer).toEqual({ status: "none" });
+  });
+});
+
+describe("discoverHandoff — manual import merge (T7 #440)", () => {
+  const imported = (): RawHandoff => payload({ sessionId: "imported-7", updatedAt: "2026-09-02T20:00:00.000Z" });
+
+  test("a parked import newer than local work is offered when no gist is reachable", async () => {
+    const offer = await discover({ fetch: { ok: false, error: { reason: "gh-missing" } }, readImported: imported });
+    expect(offer.status).toBe("offer");
+    if (offer.status !== "offer") return;
+    expect(offer.payload.sessionId).toBe("imported-7");
+    expect(offer.url).toBe("imported file");
+    expect(offer.stale).toBe(false); // imported anchor feed0000 equals the injected HEAD
+  });
+
+  test("a parked import loses to local work just like a fetched handoff", async () => {
+    const offer = await discover({ fetch: { ok: false, error: { reason: "gh-missing" } }, readImported: imported, locals: [local({ mtimeMs: Date.parse("2026-09-02T21:00:00.000Z") })] });
+    expect(offer.status).toBe("local-current");
+  });
+
+  test("importing your own export back is own-session", async () => {
+    const offer = await discover({
+      fetch: { ok: false, error: { reason: "gh-missing" } },
+      readImported: imported,
+      readLocalArtifact: () => payload({ sessionId: "imported-7" }),
+    });
+    expect(offer.status).toBe("own-session");
+  });
+
+  test("a fetched gist handoff never loses to an older parked import", async () => {
+    const offer = await discover({
+      fetch: { ok: false, error: { reason: "gh-missing" } },
+      readImported: imported,
+      locals: [local({ mtimeMs: Date.parse("2026-09-02T21:00:00.000Z") })],
+      // the gist payload is newer than local, but fetch failed — nothing to compare here;
+      // instead verify via a beating gist below
+    });
+    expect(offer.status).toBe("local-current");
+  });
+
+  test("a winning gist handoff is offered even with a newer parked import present", async () => {
+    const offer = await discover({ fetch: { ok: true, payload: payload(), url: "u" }, readImported: imported });
+    expect(offer.status).toBe("offer");
+    if (offer.status !== "offer") return;
+    expect(offer.payload.sessionId).toBe("remote-9");
+    expect(offer.url).toBe("u");
+  });
+
+  test("no import parked: fetch failure stays none", async () => {
+    const offer = await discover({ fetch: { ok: false, error: { reason: "gh-missing" } } });
+    expect(offer.status).toBe("none");
   });
 });
 

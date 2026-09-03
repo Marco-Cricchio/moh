@@ -22,6 +22,7 @@ import type { HandoffGitAnchor, RawHandoff } from "./handoff";
 import { gitAnchor, HandoffRunner } from "./handoff";
 import { listSessionSummaries, type SessionSummary } from "./session-store";
 import { readRawHandoff, type HandoffPayload, type HandoffTransport } from "./handoff-transport";
+import { readImportedHandoff } from "./handoff-file";
 import type { SkillPrompt } from "./types";
 
 export interface DiscoverHandoffOptions {
@@ -38,6 +39,9 @@ export interface DiscoverHandoffOptions {
   /** Local raw-artifact reader override (tests). Default: the project's
    * `<home>/.moh/projects/<slug>/handoff.json`. */
   readLocalArtifact?: () => RawHandoff | undefined;
+  /** Parked manual import reader override (tests, T7 #440). Default:
+   * the project's `<home>/.moh/projects/<slug>/imported-handoff.json`. */
+  readImported?: () => RawHandoff | undefined;
 }
 
 /** The startup discovery outcome. Everything but `offer` means: nothing
@@ -81,7 +85,11 @@ export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<
     options.transport.fetch().catch(() => null),
     options.timeoutMs ?? 3_000,
   );
-  if (raced === "timeout" || raced === null || !raced.ok) return { status: "none" };
+  if (raced === "timeout" || raced === null || !raced.ok) {
+    // No reachable gist handoff — a parked manual import (T7 #440) can
+    // still be newer than the local session; offer it when so.
+    return offerFromImport(options, { payload: undefined, url: undefined });
+  }
   const { payload, url } = raced;
   const home = options.home ?? homedir();
   const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, home)))();
@@ -89,8 +97,47 @@ export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<
     options.readLocalArtifact?.() ?? readRawHandoff(HandoffRunner.artifactFile(options.cwd, join(home, ".moh")));
   if (localArtifact?.sessionId === payload.sessionId) return { status: "own-session" };
   const newest = local[0];
-  if (newest && Date.parse(payload.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
+  if (newest && Date.parse(payload.updatedAt) <= newest.mtimeMs) {
+    // The gist handoff lost to local work — the parked import might
+    // still beat the local session (T7 #440 newest-of-both merge).
+    return offerFromImport(options, { payload, url });
+  }
   return { status: "offer", payload, url, stale: isHandoffStale(payload, options.cwd, options.git) };
+}
+
+/** T7 (#440) newest-of-both merge: when the fetched handoff did not win
+ * (nothing fetched, or beaten by local work), a parked manual import
+ * that is genuinely newer than the newest local session is offered in
+ * its place. Own-session imports are silently dropped — importing your
+ * own export back is a no-op, exactly like rediscovering your own gist
+ * publish. `beaten` carries the losing gist handoff, if any. */
+function offerFromImport(
+  options: DiscoverHandoffOptions,
+  beaten: { payload: HandoffPayload | undefined; url: string | undefined },
+): HandoffOffer {
+  const imported = (options.readImported ?? (() => readImportedHandoff(options.cwd, options.home)))();
+  if (!imported) {
+    // No parked import: the pre-T7 outcome stands (the gist lost to
+    // local work → local-current; nothing fetched at all → none).
+    return beaten.payload ? { status: "local-current" } : { status: "none" };
+  }
+  const home = options.home ?? homedir();
+  const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, home)))();
+  const localArtifact =
+    options.readLocalArtifact?.() ?? readRawHandoff(HandoffRunner.artifactFile(options.cwd, join(home, ".moh")));
+  if (localArtifact?.sessionId === imported.sessionId) return { status: "own-session" };
+  const newest = local[0];
+  if (newest && Date.parse(imported.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
+  // An import only ever substitutes for a losing/absent gist handoff.
+  if (beaten.payload && Date.parse(beaten.payload.updatedAt) > Date.parse(imported.updatedAt)) {
+    return { status: "none" };
+  }
+  return {
+    status: "offer",
+    payload: imported,
+    url: "imported file",
+    stale: isHandoffStale(imported, options.cwd, options.git),
+  };
 }
 
 /**
