@@ -8,7 +8,7 @@ import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { actUntilFrame, stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -289,8 +289,9 @@ describe("merged provider endpoints (#129)", () => {
     // Wait for each React commit before the next key: under suite load a
     // fixed 30ms pause can drop one arrow and leave the cursor on openai.
     for (const endpoint of ["anthropic", "openai", "zai (user)"]) {
-      i.stdin.write("\x1b[B");
-      await waitForFrame(frame, `› ${endpoint}`);
+      // Under CI load an arrow can be dropped while the list is scrollable
+      // (↓ n more): repeat the key until the cursor lands (actUntilFrame).
+      await actUntilFrame(() => i.stdin.write("\x1b[B"), frame, `› ${endpoint}`);
     }
     expect(frame()).toContain("zai (user)");
     i.unmount();
