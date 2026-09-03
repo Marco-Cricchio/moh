@@ -157,3 +157,20 @@ options:
                    successfully claimed in this session (never implied)
   --cwd <dir>      project root (default: process.cwd())
 ```
+
+## moh compact
+
+```
+usage: moh compact --session <file> [--cwd <dir>]
+
+Compacts a session's context in place: appends a compaction marker
+(a summary of the older turns plus a pointer), keeping the last 10
+turns verbatim. The log is append-only — nothing is ever deleted.
+
+  --session <file>   the session JSONL to compact (required)
+  --cwd <dir>        project root the session belongs to
+                     (default: process.cwd())
+
+Compacting never consumes a session: it can still be suggested and
+resumed as usual afterwards.
+```

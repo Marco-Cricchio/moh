@@ -113,6 +113,7 @@ TUI manual (ctrl+h / /help) and docs/manual/.`,
     },
     { heading: "moh update", body: extractUsage("UPDATE_USAGE", "update.ts") },
     { heading: "moh handoff", body: extractUsage("HANDOFF_USAGE", "handoff.ts") },
+    { heading: "moh compact", body: extractUsage("COMPACT_USAGE", "compact.ts") },
   ];
   const lines: string[] = [
     "# CLI reference",
