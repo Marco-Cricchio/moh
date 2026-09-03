@@ -402,7 +402,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             {sub.kind === "tos"
               ? "esc back"
               : sub.kind === "endpoint"
-              ? "↑↓ select · enter models · t terms · esc back — switch endpoint"
+              ? "↑↓ select · enter · t ToS · esc back"
               : sub.kind === "model"
                 ? "type to filter · enter select · esc back — set default model"
                 : sub.kind === "model-free"
