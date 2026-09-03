@@ -127,7 +127,7 @@ export function readRawHandoff(file: string): RawHandoff | undefined {
 }
 
 /** Validates an already-parsed/raw JSON text payload. */
-function readRawHandoffText(text: string | object): RawHandoff | undefined {
+export function readRawHandoffText(text: string | RawHandoff): RawHandoff | undefined {
   try {
     const parsed = typeof text === "string" ? (JSON.parse(text) as RawHandoff) : text;
     // v2 carries `author` (#451); v1 payloads stay readable (back-compat:

@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { projectSlug } from "./session-store";
 import { HandoffRunner, type RawHandoff } from "./handoff";
-import { readRawHandoff, type HandoffTransportError } from "./handoff-transport";
+import { readRawHandoff, readRawHandoffText, type HandoffTransportError } from "./handoff-transport";
 
 /** Where the imported handoff is parked per project. */
 export function importedHandoffFile(cwd: string, home = homedir()): string {
