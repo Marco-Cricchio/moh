@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { AgentSession, MockProvider, createSession } from "../src/index";
+import { ProviderRegistry } from "../src/provider-registry";
 import {
   CompactionRunner,
   FALLBACK_CONTEXT_WINDOW,
@@ -16,7 +17,7 @@ import {
   createCompactionSummarizer,
   type CompactionSummarizer,
 } from "../src/compaction";
-import type { AgentEvent } from "../src/types";
+import type { AgentEvent, Provider } from "../src/types";
 
 const TMP = join(import.meta.dir, "tmp-compaction");
 
@@ -74,6 +75,27 @@ describe("upToFor / tail", () => {
     const events: AgentEvent[] = [];
     for (let i = 0; i < 9; i++) events.push({ type: "user_message", text: `t${i}` });
     expect(CompactionRunner.upToFor(events, 5)).toBe(4);
+  });
+
+  test("tail never exceeds ~25% of the window when turn tokens are measured (#466)", () => {
+    // 30 turns × 40k tokens each; window 1M → 25% cap = 250k. The 10-turn
+    // tail would span 400k > cap, but 10 turns is the floor: it stays.
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 30; i++) events.push(...turnEvents(i, 40_000));
+    expect(CompactionRunner.upToFor(events, 10, 1_000_000)).toBe(CompactionRunner.upToFor(events, 10));
+    // Smaller turns: 30 × 20k, window 1M → cap 250k fits 12 turns → the
+    // tail spans 12 turns, upTo = the 18th user_message (index 1 + 17*5).
+    const small: AgentEvent[] = [];
+    for (let i = 0; i < 30; i++) small.push(...turnEvents(i, 20_000));
+    // tail=12: user_messages 17..29 span 12×20k = 240k ≤ 250k.
+    const indices: number[] = [];
+    for (let i = 0; i < small.length; i++) if (small[i]!.type === "user_message") indices.push(i);
+    expect(CompactionRunner.upToFor(small, 12, 1_000_000)).toBe(indices[18]);
+    // The floor holds: even when one turn alone busts the cap, shrinking
+    // stops at DEFAULT_TAIL_TURNS (here 12 → 10).
+    const huge: AgentEvent[] = [];
+    for (let i = 0; i < 15; i++) huge.push(...turnEvents(i, i === 14 ? 900_000 : 100));
+    expect(CompactionRunner.upToFor(huge, 12, 1_000_000)).toBe(CompactionRunner.upToFor(huge, 10));
   });
 });
 
@@ -204,6 +226,24 @@ describe("forced compaction", () => {
 });
 
 describe("fail-silent", () => {
+  test("failure appends compaction_failed; backoff grows with consecutive failures (#466)", async () => {
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 13; i++) events.push(...turnEvents(i, i === 12 ? 900_000 : 100));
+    let calls = 0;
+    const failing: CompactionSummarizer = async () => {
+      calls++;
+      throw new Error("provider down");
+    };
+    const { r, appended } = runner(events, failing);
+    r.maybeCompact({ status: "done" }, events, false);
+    await r.pending;
+    expect(appended.filter((e) => e.type === "compaction_failed")).toHaveLength(1);
+    // Forced path failure also emits the chrome event.
+    await r.compactNow(events);
+    await r.pending;
+    expect(appended.filter((e) => e.type === "compaction_failed")).toHaveLength(2);
+    expect((appended[1] as Extract<AgentEvent, { type: "compaction_failed" }>).reason).toBe("provider down");
+  });
   test("one retry then no marker; the guard re-arms on a new measurement", async () => {
     const events: AgentEvent[] = [];
     for (let i = 0; i < 13; i++) events.push(...turnEvents(i, i === 12 ? 900_000 : 100));
@@ -216,7 +256,10 @@ describe("fail-silent", () => {
     r.maybeCompact({ status: "done" }, events, false);
     await r.pending;
     expect(calls).toBe(2); // one retry, then give up
-    expect(appended).toHaveLength(0);
+    // No `compaction` marker (not lossy), but the chrome failure event is
+    // appended — clients need it for their sticky warning (ADR-0022).
+    expect(appended.filter((e) => e.type === "compaction")).toHaveLength(0);
+    expect(appended.filter((e) => e.type === "compaction_failed")).toHaveLength(1);
     // A new model_call measurement re-arms the trigger.
     events.push({ type: "model_call", model: "mock", usage: { inputTokens: 900_001, outputTokens: 1 } });
     events.push(...turnEvents(14, 100));
@@ -282,6 +325,35 @@ describe("subagent summarizer (integration)", () => {
     expect(history.length).toBeGreaterThan(before);
     const marker = [...history].reverse().find((e) => e.type === "compaction") as Extract<AgentEvent, { type: "compaction" }>;
     expect(marker.summary).toBe("Task state: everything is fine.");
+    await session.dispose();
+  });
+
+  test("next turn's provider context starts from the summary (inputTokens drop)", async () => {
+    mkdirSync(TMP, { recursive: true });
+    let contextSize = 0;
+    const capture: Provider = {
+      name: "capture",
+      async *stream(messages) {
+        contextSize = JSON.stringify(messages).length;
+        yield { type: "text_delta", text: "ack" };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const session = createSession({
+      provider: capture,
+      cwd: TMP,
+      compaction: { summarizer: async () => "SUMMARY" },
+    });
+    for (let i = 0; i < 12; i++) await session.send(`turn ${i}`);
+    const beforeSize = contextSize;
+    expect(beforeSize).toBeGreaterThan(0);
+    const result = await session.compact();
+    expect(result.ok).toBe(true);
+    await session.send("after compaction");
+    // The context the provider saw after compaction is much smaller than
+    // the pre-compaction one (the summary replaces the covered prefix).
+    expect(contextSize).toBeLessThan(beforeSize);
+    expect(contextSize).toBeGreaterThan(0);
     await session.dispose();
   });
 });

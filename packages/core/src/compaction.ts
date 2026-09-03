@@ -17,7 +17,7 @@
  * pattern applies: an in-process child session, no tools, fail-silent
  * with one retry, never reachable through `spawn`.
  */
-import type { AgentEvent, Provider } from "./types";
+import type { AgentEvent, Provider, TurnResult } from "./types";
 import { catalogEntryFor } from "./model-catalog";
 import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
@@ -28,6 +28,13 @@ export const DEFAULT_TAIL_TURNS = 10;
 export const DEFAULT_COMPACTION_THRESHOLD = 0.8;
 /** Absolute inputTokens fallback when the window is unknown (0). */
 export const FALLBACK_CONTEXT_WINDOW = 180_000;
+/** The verbatim tail may never exceed this fraction of the context window
+ * (ADR-0022: "at least 10 turns and at most ~25% of the window"). */
+export const DEFAULT_TAIL_WINDOW_FRACTION = 0.25;
+/** Backoff between auto-retry runs while above threshold (#466): doubling,
+ * capped; unlimited retries — a success or a below-threshold stop ends it. */
+export const RETRY_BACKOFF_BASE_MS = 2_000;
+export const RETRY_BACKOFF_MAX_MS = 60_000;
 /** Hard character cap on the transcript handed to the summarizer. */
 const TRANSCRIPT_CAP_CHARS = 60_000;
 
@@ -161,6 +168,11 @@ export class CompactionRunner {
   #busy = false;
   #pending: Promise<void> | null = null;
   #controller: AbortController | null = null;
+  /** Consecutive failed auto runs above threshold (#466): drives the
+   * doubling backoff; reset on a success or a below-threshold turn. */
+  #consecutiveFailures = 0;
+  /** Timer of a scheduled auto retry (cleared on cancel/dispose). */
+  #retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: CompactionRunnerOptions) {
     this.#provider = opts.provider;
@@ -180,6 +192,10 @@ export class CompactionRunner {
 
   cancel(): void {
     this.#controller?.abort();
+    if (this.#retryTimer !== null) {
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = null;
+    }
   }
 
   /** The newest compaction marker in the log, or undefined. */
@@ -192,14 +208,51 @@ export class CompactionRunner {
   }
 
   /** Absolute `upTo` for a new marker: the index of the user_message that
-   * begins the (N - tail)th turn — the last `tailTurns` turns stay verbatim. */
-  static upToFor(events: ReadonlyArray<AgentEvent>, tailTurns: number): number | undefined {
+   * begins the (N - tail)th turn — the last `tailTurns` turns stay verbatim.
+   * Combined rule (ADR-0022): the tail keeps at least 10 turns but never
+   * spans more than ~25% of the context window (estimated from the
+   * measured `model_call` tokens per turn). When the requested tail
+   * exceeds the window fraction, it shrinks — down to the
+   * `DEFAULT_TAIL_TURNS` floor, never below. */
+  static upToFor(
+    events: ReadonlyArray<AgentEvent>,
+    tailTurns: number,
+    windowTokens = 0,
+  ): number | undefined {
     const turns: number[] = [];
     for (let i = 0; i < events.length; i++) {
       if (events[i]!.type === "user_message") turns.push(i);
     }
     if (turns.length <= tailTurns) return undefined;
-    return turns[turns.length - tailTurns]!;
+    if (windowTokens <= 0 || tailTurns <= DEFAULT_TAIL_TURNS) return turns[turns.length - tailTurns]!;
+    const cap = windowTokens * DEFAULT_TAIL_WINDOW_FRACTION;
+    const start = turns.length - tailTurns;
+    // Span of the requested tail, shrunk from its oldest turn while it
+    // exceeds the window fraction; the 10-turn floor is a hard minimum.
+    let span = 0;
+    for (let k = start; k < turns.length; k++) {
+      span += CompactionRunner.turnTokens(events, turns[k]!, turns[k + 1] ?? events.length);
+    }
+    let kept = tailTurns;
+    let oldest = start;
+    while (span > cap && kept > DEFAULT_TAIL_TURNS && oldest < turns.length - (DEFAULT_TAIL_TURNS - 1)) {
+      span -= CompactionRunner.turnTokens(events, turns[oldest]!, turns[oldest + 1] ?? events.length);
+      oldest += 1;
+      kept -= 1;
+    }
+    return turns[oldest]!;
+  }
+
+  /** Measured input tokens attributable to one turn (its user_message up
+   * to the next turn's start): the max `model_call.inputTokens` inside —
+   * the largest measurement approximates the whole-turn context size. */
+  static turnTokens(events: ReadonlyArray<AgentEvent>, from: number, to: number): number {
+    let max = 0;
+    for (let i = Math.max(0, from); i < to && i < events.length; i++) {
+      const e = events[i]!;
+      if (e.type === "model_call" && e.usage.inputTokens > max) max = e.usage.inputTokens;
+    }
+    return max;
   }
 
   /** Whether the last measured inputTokens crosses the auto threshold. */
@@ -224,14 +277,27 @@ export class CompactionRunner {
   }
 
   /** Fire-and-forget after each settled turn. `events` must be the host's
-   * live log (same array instance) so index bookkeeping stays valid. */
-  maybeCompact(result: { status: string }, events: ReadonlyArray<AgentEvent>, disposed: boolean): void {
+   * live log (same array instance) so index bookkeeping stays valid.
+   * Unlimited retries with backoff while two consecutive measurements stay
+   * above threshold (#466): a failure schedules the next attempt on the
+   * next new measurement after a doubling delay, and emits the
+   * `compaction_failed` chrome event the clients need for their sticky
+   * warning. */
+  maybeCompact(result: TurnResult, events: ReadonlyArray<AgentEvent>, disposed: boolean): void {
     if (result.status !== "done" || this.#busy || disposed) return;
     const call = CompactionRunner.lastMeasuredCall(events);
     // Anti-loop guard: only a *new* measurement can arm the trigger.
     if (!call || call.index <= this.#lastSeenCallIndex) return;
     this.#lastSeenCallIndex = call.index;
-    if (!this.shouldAutoCompact(events)) return;
+    if (!this.shouldAutoCompact(events)) {
+      // Below threshold again: the retry chain ends, backoff resets.
+      this.#consecutiveFailures = 0;
+      if (this.#retryTimer !== null) {
+        clearTimeout(this.#retryTimer);
+        this.#retryTimer = null;
+      }
+      return;
+    }
     this.#run(events, false);
   }
 
@@ -252,7 +318,8 @@ export class CompactionRunner {
     resolve?: (r: { ok: true; summary: string; upTo: number } | { ok: false; error: string }) => void,
   ): void {
     const live = events as AgentEvent[];
-    const newUpTo = CompactionRunner.upToFor(live, this.#tailTurns);
+    const window = contextWindowFor(this.#provider().name, this.#endpointType?.()) || this.#fallbackWindow;
+    const newUpTo = CompactionRunner.upToFor(live, this.#tailTurns, window);
     if (newUpTo === undefined) {
       resolve?.({ ok: false, error: `nothing to compact: fewer than ${this.#tailTurns + 1} turns in the log` });
       return;
@@ -284,13 +351,29 @@ export class CompactionRunner {
           if (!text) throw new Error("empty compaction summary");
           this.#append({ type: "compaction", summary: text, upTo: newUpTo });
           this.#onCompacted();
+          this.#consecutiveFailures = 0;
           resolve?.({ ok: true, summary: text, upTo: newUpTo });
           return;
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           if (attempt === 1) {
-            // Fail-silent, not lossy: no marker written; the next new
-            // model_call measurement re-arms the auto trigger.
-            resolve?.({ ok: false, error: err instanceof Error ? err.message : String(err) });
+            // Fail-silent, not lossy: no marker written. The chrome event
+            // lets clients show their sticky warning; the auto path keeps
+            // retrying on later turns with doubling backoff (#466).
+            this.#consecutiveFailures += 1;
+            this.#append({ type: "compaction_failed", reason: message });
+            if (!forced) {
+              const delay = Math.min(
+                RETRY_BACKOFF_BASE_MS * 2 ** (this.#consecutiveFailures - 1),
+                RETRY_BACKOFF_MAX_MS,
+              );
+              this.#retryTimer = setTimeout(() => {
+                this.#retryTimer = null;
+                if (this.#busy || this.#consecutiveFailures === 0) return;
+                this.#run(events, false);
+              }, delay);
+            }
+            resolve?.({ ok: false, error: message });
             return;
           }
         }
