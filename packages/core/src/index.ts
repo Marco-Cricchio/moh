@@ -49,6 +49,7 @@ import {
 } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
+import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 import { type SubagentOptions } from "./subagents";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
@@ -550,6 +551,10 @@ export {
   type PermissionRule,
   type ProviderRegistry,
   type MemoryOptions,
+  CompactionRunner,
+  type CompactionOptions,
+  type CompactionSummarizer,
+  type CompactionSummarizerInput,
   type SubagentOptions,
   type McpServerEntry,
   type McpRuntimeOptions,

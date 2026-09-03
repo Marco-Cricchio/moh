@@ -369,6 +369,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });
         break;
+      case "compaction":
+        if (vibe) break;
+        blocks.push({ key, kind: "chrome", glyph: "▣", type: "context compacted", lines: [event.summary.split("\n").slice(0, 3).join("\n")] });
+        break;
       case "session_resumed":
         // ADR-0021: resume-open marker; visible on replay as chrome.
         blocks.push({ key, kind: "chrome", glyph: "↻", type: "resumed", detail: "", lines: [] });

@@ -273,6 +273,11 @@ export function App({
             setMemoryFresh(true);
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
           }
+          // #466: the compaction producer appended a marker — the live
+          // prompt was rebuilt; the summary replaces the covered past.
+          if (event.type === "compaction") {
+            push("context compacted — older turns summarized, recent turns kept", "ok", "side");
+          }
           // #400 single-writer guard: the session file grew from elsewhere
           // (another machine / a second process). Loud warning: concurrent
           // same-file use is unsupported — fork the session to recover.
