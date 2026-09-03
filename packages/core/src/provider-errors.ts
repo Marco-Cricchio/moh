@@ -65,7 +65,7 @@ function extractBodyHint(body: string | undefined): string | undefined {
   if (!body) return undefined;
   try {
     const parsed = JSON.parse(body) as {
-      error?: { message?: unknown; param?: unknown } | Array<{ message?: unknown }>;
+      error?: { message?: unknown; param?: unknown } | Array<{ message?: unknown; param?: unknown }>;
       message?: unknown;
       detail?: unknown;
     };
