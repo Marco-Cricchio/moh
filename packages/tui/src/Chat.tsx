@@ -43,6 +43,8 @@ export interface ChatProps {
   contextLimit?: number;
   workflowOn?: boolean;
   memoryFresh?: boolean;
+  /** #466/ADR-0022: sticky compaction-failure indicator. */
+  compactionFailed?: boolean;
   thinkingLevel?: DisplayThinkingLevel;
   /** #256: an unsupported stored preference — surfaced as a small dim
    * marker next to the model ("✗⚙ <level>"), never a prompt. */
@@ -98,6 +100,7 @@ export function Chat({
   contextLimit,
   workflowOn = false,
   memoryFresh = false,
+  compactionFailed = false,
   thinkingLevel = "medium",
   unsupportedThinkingLevel,
   showReasoning = false,
@@ -469,6 +472,7 @@ export function Chat({
         unsupportedLevel={unsupportedThinkingLevel}
         workflowOn={workflowOn}
         memoryFresh={memoryFresh}
+        compactionFailed={compactionFailed}
         phase={armed ? "esc again to stop" : livePhase}
         notice={notice}
         updateMessage={updateMessage}

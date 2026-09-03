@@ -71,6 +71,9 @@ export interface SessionOverrides {
   handoffSupersedes?: import("../handoff").HandoffReference;
   /** Client-owned best-effort publish after the session successfully runs `git push`. */
   onGitPush?: () => void;
+  /** ADR-0022: `moh compact` opens a closed file with `resumeConsume: false` —
+   * the `session_resumed` marker is not appended (compacting never consumes). */
+  resumeConsume?: boolean;
 }
 
 export interface SessionFromConfigOptions {

@@ -28,13 +28,13 @@ function project(name: string): { cwd: string; file: string } {
 
 /** A session file with 12 user turns (assistant reply + done each). */
 function seed(file: string): void {
-  const lines: string[] = [{ type: "session_start", schemaVersion: 1, promptVersion: "p" } as object];
+  const lines: string[] = [{ type: "session_start", schemaVersion: 1, promptVersion: "p" } as unknown as Record<string, unknown>];
   for (let i = 0; i < 12; i++) {
     lines.push(
-      { type: "user_message", text: `turn ${i}` } as object,
-      { type: "assistant_delta", text: "reply" } as object,
-      { type: "done" } as object,
-      { type: "model_call", model: "mock", usage: { inputTokens: 100, outputTokens: 10 } } as object,
+      { type: "user_message", text: `turn ${i}` } as unknown as Record<string, unknown>,
+      { type: "assistant_delta", text: "reply" } as unknown as Record<string, unknown>,
+      { type: "done" } as unknown as Record<string, unknown>,
+      { type: "model_call", model: "mock", usage: { inputTokens: 100, outputTokens: 10 } } as unknown as Record<string, unknown>,
     );
   }
   writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", { mode: 0o600 });

@@ -391,9 +391,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           state: "fail",
         });
         break;
-      case "compaction":
+      case "compaction_failed":
+        // #466/ADR-0022: chrome on replay too — why no marker exists yet.
         if (vibe) break;
-        blocks.push({ key, kind: "chrome", glyph: "◈", type: "context compacted", detail: `${event.upTo} events`, lines: [event.summary] });
+        blocks.push({ key, kind: "error", glyph: "⚠", type: "compaction failed", detail: event.reason, lines: ["The producer retries on later turns; /compact forces one now."] });
         break;
       case "extension_loaded":
         if (vibe) break;

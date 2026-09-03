@@ -236,6 +236,14 @@ export type AgentEvent =
    * recovery path is forking the session.
    */
   | { type: "session_file_growth"; file: string; expectedBytes: number; actualBytes: number }
+  /**
+   * Compaction failure (#466, ADR-0022): a run (auto or forced) could not
+   * produce a marker. Chrome only — never provider context. Clients show
+   * a sticky warning until the next successful `compaction` marker or a
+   * user-forced retry clears it. The auto trigger keeps retrying with
+   * backoff on later turns; a failed run wrote no marker (not lossy).
+   */
+  | { type: "compaction_failed"; reason: string }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
