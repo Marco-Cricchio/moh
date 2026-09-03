@@ -13,11 +13,12 @@
  * spawnSync seams. This module is client wiring support: the core agent
  * loop never calls it.
  *
- * One gist per (project, author): `publish` replaces the tagged gist's
- * content — delete + create (the editor-based `gh gist edit` cannot run
- * headless) — so the tag always points at the newest payload. The
- * append-only chain ordering keys (supersedes-style anchor + timestamp,
- * T4) travel inside the payload itself.
+ * One gist per (project, author): `publish` replaces the tagged gist —
+ * **non-destructively** (#451): the new gist is created first, and the
+ * old one is deleted only afterwards (delete failure = a stale extra
+ * gist, never remote data loss). The append-only chain ordering keys
+ * (supersedes-style anchor + timestamp, T4) travel inside the payload
+ * itself, so a receiver tolerates multiple live gists during the swap.
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -130,26 +131,43 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
     return { ok: true, id: undefined };
   };
 
+  /** Views one gist by id — the shared path of fetch() and fetchByUrl(). */
+  const viewGist = (id: string) => {
+    const proc = gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
+    if (proc.exitCode !== 0) return { ok: false as const, error: classifyGhFailure(proc).error };
+    try {
+      return {
+        ok: true as const,
+        payload: JSON.parse(proc.stdout) as HandoffPayload,
+        url: `https://gist.github.com/${id}`,
+      };
+    } catch (e) {
+      return { ok: false as const, error: { reason: "failed" as const, message: e instanceof Error ? e.message : String(e) } };
+    }
+  };
+
   return {
     async publish(payload) {
       const user = ghUsername(gh);
       if (!user.ok) return { ok: false, error: user.error };
+      // Stamp the author (#451) at the seam that knows it: the payload
+      // leaving the machine always records the publishing gh user.
+      const authored: HandoffPayload = { ...payload, author: user.user, version: 2 };
       const tagged = findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
-      if (tagged.id) {
-        // A failed delete is not fatal: a fresh tagged gist still
-        // publishes the newest payload (worst case: a duplicate tag the
-        // receiver resolves by newest-updated).
-        gh({ args: ["gist", "delete", tagged.id, "--yes"] });
-      }
+      // Non-destructive replace (#451): create first, delete the old
+      // tagged gist only after the create succeeded. A failed delete
+      // leaves a duplicate tag the receiver resolves by newest-updated;
+      // a failed create leaves the remote copy intact.
       // gh gist create reads content from stdin (`-`) with `-f` naming
       // the gist file; gists are secret by default (there is no --secret
       // flag — only --public, which we never pass).
       const proc = gh({
         args: ["gist", "create", "-d", handoffGistTag(options.cwd, user.user, options.home), "-f", "handoff.json", "-"],
-        stdin: `${JSON.stringify(payload, null, 2)}\n`,
+        stdin: `${JSON.stringify(authored, null, 2)}\n`,
       });
       if (proc.exitCode !== 0) return { ok: false, error: classifyGhFailure(proc).error };
+      if (tagged.id) gh({ args: ["gist", "delete", tagged.id, "--yes"] });
       return { ok: true, url: proc.stdout.trim() };
     },
     async fetch() {
@@ -158,17 +176,13 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       const tagged = findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
       if (!tagged.id) return { ok: false, error: { reason: "failed", message: "no handoff gist found" } };
-      const proc = gh({ args: ["gist", "view", tagged.id, "--filename", "handoff.json", "--raw"] });
-      if (proc.exitCode !== 0) return { ok: false, error: classifyGhFailure(proc).error };
-      try {
-        return {
-          ok: true,
-          payload: JSON.parse(proc.stdout) as HandoffPayload,
-          url: `https://gist.github.com/${tagged.id}`,
-        };
-      } catch (e) {
-        return { ok: false, error: { reason: "failed", message: e instanceof Error ? e.message : String(e) } };
-      }
+      return viewGist(tagged.id);
+    },
+    async fetchByUrl(url) {
+      // Accept the bare gist id as well as the full URL.
+      const id = url.trim().replace(/^https?:\/\/gist\.github\.com\//, "");
+      if (!/^[\w-]+$/.test(id)) return { ok: false, error: { reason: "failed", message: `not a gist url: ${url}` } };
+      return viewGist(id);
     },
   };
 }

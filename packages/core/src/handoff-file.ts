@@ -74,35 +74,51 @@ export interface ImportHandoffOptions {
   cwd: string;
   home?: string;
   /** The received export file. */
-  file: string;
+  file?: string;
+  /** An already-fetched payload (e.g. `moh handoff pull <url>`), skipping
+   * the file read. Takes precedence over `file`. */
+  payload?: RawHandoff;
+  /** The logged-in gh user. A payload authored by someone else is
+   * declined (#451: handoffs are per-persona, #433 Q6). */
+  expectedAuthor?: string;
   /** Read override for the source file (tests). */
   read?: (file: string) => RawHandoff | undefined;
 }
 
 export type ImportHandoffResult =
   | { ok: true; path: string }
-  | { ok: false; error: { reason: "missing" } | { reason: "invalid" } | HandoffTransportError };
+  | { ok: false; error: { reason: "missing" } | { reason: "invalid" } | { reason: "foreign-author"; author?: string } | HandoffTransportError };
 
 /** Validates the received export and parks it as the project's imported
  * handoff (atomic write, 0600). A later import of a newer export simply
  * overwrites it — newest wins by `updatedAt` at discovery time. */
 export async function importHandoffFile(options: ImportHandoffOptions): Promise<ImportHandoffResult> {
-  const read = options.read ?? readRawHandoff;
   let payload: RawHandoff | undefined;
-  try {
-    payload = read(options.file);
-  } catch {
-    payload = undefined;
+  if (options.payload) {
+    payload = readRawHandoffText(options.payload);
+  } else {
+    const read = options.read ?? readRawHandoff;
+    try {
+      payload = options.file === undefined ? undefined : read(options.file);
+    } catch {
+      payload = undefined;
+    }
   }
   if (!payload) {
     let exists = false;
     try {
-      readFileSync(options.file);
+      readFileSync(options.file ?? "");
       exists = true;
     } catch {
       // genuinely absent
     }
     return { ok: false, error: exists ? { reason: "invalid" } : { reason: "missing" } };
+  }
+  // Author isolation (#451): a file-carried handoff from another gh user
+  // is declined. Gist-sourced handoffs don't need this check — the
+  // deterministic tag `moh:handoff:<slug>:<gh-user>` already enforces it.
+  if (options.expectedAuthor && payload.author && payload.author !== options.expectedAuthor) {
+    return { ok: false, error: { reason: "foreign-author", author: payload.author } };
   }
   const dest = importedHandoffFile(options.cwd, options.home);
   try {

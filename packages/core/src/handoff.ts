@@ -65,9 +65,17 @@ export interface HandoffWayfinderContext {
 }
 
 export interface RawHandoff {
-  version: 1;
+  /** Payload schema version. v2 adds `author` (#451); v1 payloads are
+   * still valid on read (back-compat: gist-sourced v1 handoffs are
+   * per-author by construction via the deterministic tag). New writes
+   * are always v2. */
+  version: 1 | 2;
   kind: "raw";
   sessionId: string;
+  /** The gh username of the publishing machine (#451). Set at publish
+   * time; file imports from a different author are declined — handoffs
+   * are per-persona (#433 Q6). Absent only in v1 payloads. */
+  author?: string;
   /** Immediate predecessor when this session was seeded from a handoff.
    * The singleton gist holds the newest tip; this edge keeps the logical
    * handoff chain append-only across A → B → A transfers. */
@@ -241,7 +249,7 @@ export function buildRawHandoff(
   }
   const wayfinderLinks = wayfinderLinksFromEvents(events);
   return {
-    version: 1,
+    version: 2,
     kind: "raw",
     sessionId,
     ...(supersedes ? { supersedes } : {}),

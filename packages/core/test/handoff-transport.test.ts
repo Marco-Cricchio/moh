@@ -176,7 +176,7 @@ describe("gist transport", () => {
     expect(create.stdin).toContain('"sessionId": "s-1"');
   });
 
-  test("republish replaces the existing tagged gist (delete then create)", async () => {
+  test("republish replaces the existing tagged gist (create new, then delete old)", async () => {
     const tag = handoffGistTag(cwd, "dev");
     const gh = fakeGh([
       { args: ["api", "user"], stdout: "dev\n" },
@@ -188,7 +188,67 @@ describe("gist transport", () => {
     const { handoff } = artifact(true);
     const result = await transport.publish({ ...handoff, turns: 5 });
     expect(result).toEqual({ ok: true, url: "https://gist.github.com/new2" });
-    expect(gh.calls.find((c) => c.args[1] === "delete")!.args).toContain("abc123");
+    const create = gh.calls.findIndex((c) => c.args[1] === "create");
+    const del = gh.calls.findIndex((c) => c.args[1] === "delete");
+    expect(create).toBeGreaterThanOrEqual(0);
+    expect(del).toBeGreaterThan(create);
+    expect(gh.calls[del].args).toContain("abc123");
+  });
+
+  test("republish is non-destructive: create failure leaves the old gist untouched (#451)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: `${gistListOutput(["abc123", tag])}\n` },
+      { args: ["gist", "create"], exitCode: 1, stderr: "gh: network error" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh });
+    const { handoff } = artifact(true);
+    const result = await transport.publish({ ...handoff, turns: 5 });
+    expect(result.ok).toBe(false);
+    // No gist delete was issued at all: the remote copy survives.
+    expect(gh.calls.some((c) => c.args[1] === "delete")).toBe(false);
+  });
+
+  test("republish tolerates a delete failure after a successful create (#451)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: `${gistListOutput(["abc123", tag])}\n` },
+      { args: ["gist", "delete"], exitCode: 1, stderr: "gh: not found" },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new3\n" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh });
+    const result = await transport.publish(artifact(true).handoff);
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/new3" });
+  });
+
+  test("publish stamps the gh user as author into the payload (#451)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: `${gistListOutput(["other", "some other gist"])}\n` },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new4\n" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh });
+    const { handoff } = artifact(true);
+    const result = await transport.publish(handoff);
+    expect(result.ok).toBe(true);
+    const create = gh.calls.find((c) => c.args[1] === "create")!;
+    const published = JSON.parse(create.stdin!) as RawHandoff;
+    expect(published.author).toBe("dev");
+    expect(published.version).toBe(2);
+  });
+
+  test("readRawHandoff still accepts v1 payloads (back-compat)", () => {
+    mkdirSync(TMP, { recursive: true });
+    const file = join(TMP, "v1.json");
+    const { handoff } = artifact(false);
+    writeFileSync(file, JSON.stringify({ ...handoff, version: 1 }));
+    expect(readRawHandoff(file)?.sessionId).toBe("s-1");
+    // A bogus future version is invalid.
+    writeFileSync(file, JSON.stringify({ ...handoff, version: 3 }));
+    expect(readRawHandoff(file)).toBeUndefined();
   });
 
   test("fetch returns the tagged gist payload", async () => {
