@@ -28,6 +28,8 @@ export interface SettingsPanelProps {
   onProviderSwitch: (ref: string) => void;
   /** Opens the add-provider wizard overlay. */
   onStartWizard: () => void;
+  /** Opens the per-project session-handoff transport chooser. */
+  onConfigureHandoff?: () => void;
   onToast: (text: string) => void;
   onClose: () => void;
 }
@@ -38,7 +40,7 @@ interface Row {
   value: string;
 }
 
-export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onToast, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
@@ -51,6 +53,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     return loadMergedConfig(cwd, { home });
   });
   const [cursor, setCursor] = useState(0);
+  const handoffTransport = loadMohConfig(configFile).handoff?.transport;
   // #181 hierarchical provider picker: endpoint → its catalog models
   // (free-text fallback for unknown types). Selecting a model rewrites
   // `defaultModel` on the project moh.json endpoint (user-level endpoints
@@ -88,11 +91,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider", label: "Provider", value: modelLabel },
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
+      { key: "handoff", label: "Session handoff", value: handoffTransport === "gist" ? "GitHub Gist" : handoffTransport === "none" ? "Disabled" : "Not Set" },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
     ],
-    [config, modelLabel, moh],
+    [config, modelLabel, moh, handoffTransport],
   );
 
   // Endpoints defined in the project moh.json (editable defaultModel);
@@ -176,6 +180,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       case "provider-remove":
         if ((moh.endpoints ?? []).length === 0) return onToast("no endpoints to remove");
         return setSub({ kind: "remove", options: (moh.endpoints ?? []).map((e) => e.name), cursor: 0 });
+      case "handoff":
+        return onConfigureHandoff?.();
     }
   };
 

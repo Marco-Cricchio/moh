@@ -167,7 +167,7 @@ import {
   type PublishHandoffOptions,
   type PublishHandoffResult,
 } from "./handoff-transport";
-import { createGistHandoffTransport, handoffGistTag, type GhRunner } from "./handoff-gist";
+import { createGistHandoffTransport, ghUsername, handoffGistTag, spawnGh, type GhRunner } from "./handoff-gist";
 import {
   discoverHandoff,
   handoffSeedPrompt,
@@ -500,6 +500,8 @@ export {
   HandoffRunner,
   transportActive,
   createGistHandoffTransport,
+  ghUsername,
+  spawnGh,
   handoffGistTag,
   type GhRunner,
   // Reception (T3 #436): discovery/newest-wins/stale/seed surfaces.

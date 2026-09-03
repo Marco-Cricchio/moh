@@ -4,7 +4,7 @@ import { Box } from "ink";
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { loadMohConfig, type TrackerIssue } from "@moh/core";
+import { loadMohConfig, type TrackerIssue, writeMohConfig } from "@moh/core";
 import {
   installFirstPartySkills,
   checkUpstreamUpdates,
@@ -42,6 +42,7 @@ import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
 
 import { Onboarding } from "./OnboardingOverlay";
+import { HandoffActivationModal, type GhVerification } from "./HandoffActivationModal";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
 import { ModelPickerModal } from "./ModelPickerModal";
@@ -82,6 +83,8 @@ export interface AppProps {
    * provider keys in the environment makes every "first run" test see the
    * detect list, regardless of the injected home dir). */
   env?: Record<string, string | undefined>;
+  /** Test seam for the handoff activation preflight; production uses gh. */
+  verifyHandoffGh?: GhVerification;
   /** Version shown on the home screen (default: MOH_VERSION; the binary
    * stamps the build's git tag via cli → renderTui → Home, #292). */
   version?: string;
@@ -90,7 +93,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
+type Overlay = null | "settings" | "commands" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -112,6 +115,7 @@ export function App({
   initialTheme,
   skipOnboarding,
   env,
+  verifyHandoffGh,
   version,
   yolo,
 }: AppProps) {
@@ -179,15 +183,24 @@ export function App({
     setIcons(config.icons);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : null);
+  const [handoffStartupOffer] = useState(() => {
+    if (skipOnboarding || needsOnboarding) return false;
+    try {
+      return loadMohConfig(join(cwd, "moh.json")).handoff === undefined;
+    } catch {
+      return false;
+    }
+  });
+  const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : handoffStartupOffer ? "handoff-onboarding" : null);
+  const [handoffFromSettings, setHandoffFromSettings] = useState(false);
   const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
   const [offerWorkflow] = useState(
     () => !skipOnboarding && !needsOnboarding && !loadUserConfig(cfgFile).workflowOffered,
   );
   useEffect(() => {
-    if (offerWorkflow) setOverlay("workflow-offer");
-  }, [offerWorkflow]);
+    if (offerWorkflow && !handoffStartupOffer) setOverlay("workflow-offer");
+  }, [offerWorkflow, handoffStartupOffer]);
   const [wizardFromSettings, setWizardFromSettings] = useState(false);
   const [claimedIssue, setClaimedIssue] = useState<TrackerIssue | null>(null);
   const [composerPrefill, setComposerPrefill] = useState<string>();
@@ -471,6 +484,18 @@ export function App({
         push(sanitizeForDisplay(message), "warn"),
       );
       if (publish) trackExitWork(publish);
+      // #438: a startup dismissal gets exactly one end-of-first-session
+      // reminder. Persist before exit so later sessions remain silent.
+      try {
+        const file = join(cwd, "moh.json");
+        const project = loadMohConfig(file);
+        if (session && project.handoff?.onboarding === "dismissed") {
+          writeMohConfig(file, { ...project, handoff: { ...project.handoff, onboarding: "reminded" } });
+          push("session handoff remains Not Set · configure it later in Settings");
+        }
+      } catch {
+        // A reminder is never worth delaying or failing session cleanup.
+      }
     };
   }, [session]);
 
@@ -831,12 +856,34 @@ export function App({
               if (wizardFromSettings) {
                 setWizardFromSettings(false);
                 setOverlay("settings");
+              } else if (loadMohConfig(join(cwd, "moh.json")).handoff === undefined) {
+                setOverlay("handoff-onboarding");
               } else if (!configRef.current.workflowOffered) {
                 // First-run workflow offer (#36): right after onboarding.
                 setOverlay("workflow-offer");
               } else {
                 setOverlay(null);
               }
+            }}
+          />
+        )}
+        {overlay === "handoff-onboarding" && (
+          <HandoffActivationModal
+            cwd={cwd}
+            startup={!handoffFromSettings}
+            verifyGh={verifyHandoffGh}
+            onDone={(transport) => {
+              if (transport) push(`session handoff: ${transport === "gist" ? "GitHub Gist enabled" : "disabled"}`);
+              else push("session handoff not set · one reminder appears when this first session ends");
+              if (handoffFromSettings) {
+                setHandoffFromSettings(false);
+                setOverlay("settings");
+              } else if (!configRef.current.workflowOffered) setOverlay("workflow-offer");
+              else setOverlay(null);
+            }}
+            onClose={() => {
+              setHandoffFromSettings(false);
+              setOverlay("settings");
             }}
           />
         )}
@@ -851,6 +898,10 @@ export function App({
             onStartWizard={() => {
               setWizardFromSettings(true);
               setOverlay("onboarding");
+            }}
+            onConfigureHandoff={() => {
+              setHandoffFromSettings(true);
+              setOverlay("handoff-onboarding");
             }}
             onToast={push}
             onClose={() => setOverlay(null)}

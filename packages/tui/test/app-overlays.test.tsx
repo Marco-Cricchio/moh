@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider } from "@moh/core";
+import { loadMohConfig, MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { stripAnsi } from "./helpers";
 
@@ -43,11 +43,25 @@ describe("App overlays (issue #33)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("connect a provider");
     i.stdin.write("s"); // skip (works in both phases)
     await sleep(50);
+    i.stdin.write("n"); // dismiss the per-project handoff offer
+    await sleep(50);
     i.stdin.write("n"); // skip the workflow offer revealed by correct overlay layering
     await sleep(50);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("search or start something new");
     i.unmount();
+  });
+
+  test("a dismissed handoff offer reminds once at the first session end", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ handoff: { onboarding: "dismissed" } }));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("n"); // new session
+    await sleep(50);
+    i.unmount();
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).handoff).toEqual({ onboarding: "reminded" });
   });
 
   test("a configured provider skips onboarding entirely", async () => {
@@ -85,7 +99,8 @@ describe("App overlays (issue #33)", () => {
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("settings");
     i.stdin.write("\x1b");
-    await sleep(30);
+    // Closing an alternate-buffer modal includes a bounded 40ms flip.
+    await sleep(70);
     i.stdin.write("\x0b"); // ctrl+k
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");

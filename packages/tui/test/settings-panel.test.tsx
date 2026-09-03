@@ -41,6 +41,7 @@ function mount(cwd: string, overrides: Partial<Parameters<typeof SettingsPanel>[
     modelLabel: "anthropic/claude-sonnet-4-5",
     onProviderSwitch: (ref: string) => switched.push(ref),
     onStartWizard: () => (wizard += 1),
+    onConfigureHandoff: () => {},
     onToast: (t: string) => toasts.push(t),
     onClose: () => {},
     ...overrides,
@@ -106,10 +107,24 @@ describe("settings panel (issue #33)", () => {
     i.unmount();
   });
 
+  test("Session handoff shows its project transport state and opens its chooser", async () => {
+    const cwd = setupCwd();
+    let opened = 0;
+    const { i } = mount(cwd, { onConfigureHandoff: () => { opened += 1; } });
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Session handoff");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Not Set");
+    await down(i, 10);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(opened).toBe(1);
+    i.unmount();
+  });
+
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
     await sleep(30);
-    await down(i, 11); // Provider reasoning (last row; stable old row indexes)
+    await down(i, 12); // Provider reasoning (last row; handoff is row 10)
     i.stdin.write("\r");
     await sleep(10);
     expect(changes).toContainEqual({ showReasoning: true });
@@ -175,6 +190,7 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 1); // openai
+    await sleep(30); // let Ink commit the submenu cursor before selecting
     i.stdin.write("\r");
     await sleep(30);
     const config = loadMohConfig(join(cwd, "moh.json"));
