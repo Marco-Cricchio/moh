@@ -45,6 +45,7 @@ import { Onboarding } from "./OnboardingOverlay";
 import { HandoffActivationModal, type GhVerification } from "./HandoffActivationModal";
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
+import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog } from "@moh/core";
@@ -93,7 +94,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -656,10 +657,19 @@ export function App({
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
+    // #457: the user manual, from chat and home alike (slash fallback: /help).
+    // ctrl+h spike finding: terminals with extended-key encoding (kitty,
+    // CSI-u) deliver this as ctrl+h; legacy terminals send 0x08, which Ink
+    // reports as key.backspace with empty input — so they never reach this
+    // branch and /help is the documented fallback (never silently remapped;
+    // backspace keeps deleting in the composer).
+    if (overlay === null && key.ctrl && input === "h") return setOverlay("manual");
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
     // The post-claim chooser owns Esc: it returns to Frontier rather than
-    // discarding the explicit cancel/Just claim decision.
-    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && key.escape) return setOverlay(null);
+    // discarding the explicit cancel/Just claim decision. The manual modal
+    // owns Esc too (#457): page → index, index → close — the App-level
+    // handler must not close it out from under the page view.
+    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) return setOverlay(null);
   });
 
   const showChat = session !== null;
@@ -721,6 +731,7 @@ export function App({
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
         onOpenCommands: () => setOverlay("commands"),
+        onOpenManual: () => setOverlay("manual"),
         onOpenSettings: () => setOverlay("settings"),
         onCycleMode: cycleMode,
         onCycleTheme: cycleTheme,
@@ -916,6 +927,7 @@ export function App({
           />
         )}
         {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
+        {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
         {overlay === "model" && session && (
           <ModelPickerModal
             activeModel={session.activeModel}

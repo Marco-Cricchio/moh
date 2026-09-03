@@ -32,9 +32,9 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 }
 
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
-  test("BASE_COMMANDS lists the ten base commands alphabetically", () => {
+  test("BASE_COMMANDS lists the eleven base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "commands", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "commands", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -52,6 +52,18 @@ describe("new base slash commands (/commands /mode /theme /settings /wayfinder)"
     expect(runSlashCommand("/theme", ctx)).toBe(true);
     expect(opened).toEqual(["commands", "settings", "mode", "theme"]);
     expect(ctx.notices()).toHaveLength(0);
+  });
+
+  test("/help opens the manual via onOpenManual; /help <id> prints a page (#457)", () => {
+    const opened: string[] = [];
+    const ctx = makeCtx({ onOpenManual: () => opened.push("manual") });
+    expect(runSlashCommand("/help", ctx)).toBe(true);
+    expect(opened).toEqual(["manual"]);
+    runSlashCommand("/help sessions", ctx);
+    expect(ctx.notices()[0]).toContain("# Sessions");
+    runSlashCommand("/help nope", ctx);
+    expect(ctx.notices()[1]).toContain('no manual page "nope"');
+    expect(ctx.notices()[1]).toContain("getting-started");
   });
 
   test("without the TUI seams /mode and /theme explain instead of failing", () => {
@@ -127,7 +139,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "commands", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow",
+      "ask-moh", "commands", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);

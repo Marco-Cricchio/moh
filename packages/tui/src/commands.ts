@@ -8,8 +8,11 @@ import {
   applyUpstreamUpdates,
   checkUpstreamUpdates,
   diffSkillFiles,
+  allManualPages,
   installFirstPartySkills,
   loadFirstPartyManifest,
+  manualIndex,
+  manualPage,
   readBundledSkill,
   resolveTrackerSync,
   trackerTools,
@@ -66,6 +69,9 @@ export interface SlashContext {
   onReload?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
+  /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
+   * (headless): the command prints the manual index as text instead. */
+  onOpenManual?: () => void;
   /** Cycles vibe ↔ dev (`/mode`). Absent (headless): the command explains
    * it needs the TUI. */
   onCycleMode?: () => void;
@@ -363,14 +369,36 @@ const reloadCommand: SlashCommand = {
 };
 
 /** Commands available regardless of workflow mode, alphabetical (the
- * completion popup lists exactly this order: ask-moh, commands, mode,
- * model, reload, settings, theme, thinking, wayfinder, workflow). */
+ * completion popup lists exactly this order: ask-moh, commands, help,
+ * mode, model, reload, settings, theme, thinking, wayfinder, workflow). */
 const commandsCommand: SlashCommand = {
   name: "commands",
   description: "open the all-commands panel",
   usage: "/commands",
   run(ctx) {
     ctx.onOpenCommands?.();
+  },
+};
+
+/** #457: the user manual. With a UI, opens the manual modal; headless
+ * callers get the index (or one page's body with `/help <id>`) as text. */
+const helpCommand: SlashCommand = {
+  name: "help",
+  description: "open the user manual (or /help <page-id>)",
+  usage: "/help [page-id]",
+  run(ctx, args) {
+    const id = args.trim();
+    if (id) {
+      const page = manualPage(id);
+      if (!page) {
+        const known = allManualPages().map((p) => p.id).join(", ");
+        return ctx.notify(`no manual page "${id}" (pages: ${known})`);
+      }
+      return ctx.notify(page.body);
+    }
+    if (ctx.onOpenManual) return ctx.onOpenManual();
+    const index = manualIndex().map((p) => `${p.id.padEnd(24)}${p.title} — ${p.summary}`).join("\n");
+    ctx.notify(`moh manual:\n${index}\n\nread one with /help <id>`);
   },
 };
 
@@ -418,6 +446,7 @@ const wayfinderCommand: SlashCommand = {
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
   commandsCommand,
+  helpCommand,
   modeCommand,
   modelCommand,
   reloadCommand,
