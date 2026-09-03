@@ -291,6 +291,18 @@ surfaces one warning. Active only when moh.json sets
 `handoff.transport: "gist"`; everything else (absent, `"none"`) is
 byte-for-byte today's behavior.
 
+The receiving side (T3, #436) lives behind the same seam:
+`discoverHandoff` fetches the newest published handoff (bounded, never
+throwing) and compares it with the newest local session — a handoff
+matching the local session id is `own-session`, one not newer than the
+local file is `local-current`, any failure is a silent `none`. A
+genuinely newer handoff comes back as an `offer` with a `stale` flag
+(anchor SHA ≠ HEAD). Seeding is never a replayed event log: the client
+opens a **new** session whose first turn carries the handoff rendered
+by `handoffSeedPrompt` as a turn-scoped skill prompt (ADR-0011
+pattern) plus the one-line `handoffSeedMessage` — stale offers include
+an explicit reconcile-via-git instruction.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,
