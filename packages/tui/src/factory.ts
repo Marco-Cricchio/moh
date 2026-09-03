@@ -18,6 +18,8 @@ import {
   createGistHandoffTransport,
   publishHandoffAtExit,
   transportActive,
+  discoverHandoff,
+  type HandoffOffer,
   type HandoffTransportError,
   type MohConfig,
   type AgentEvent,
@@ -143,6 +145,31 @@ export function handoffWarning(error: HandoffTransportError): string {
     case "failed":
       return `handoff: publish failed (${error.message}) — handoff kept local only`;
   }
+}
+
+/**
+ * Startup handoff discovery (#433, T3 #436): when `handoff.transport`
+ * is "gist", fetches the newest published handoff and compares it with
+ * the newest local session. Returns `{ status: "none" }` whenever the
+ * transport is off or anything fails — single machine stays
+ * byte-for-byte today's home (story 8); offline/gh-less machines just
+ * see no offer (story 15). Never rejects, never hangs (bounded fetch).
+ */
+export async function discoverHandoffForHome(
+  cwd: string,
+  home: string | undefined,
+): Promise<HandoffOffer> {
+  try {
+    if (!transportActive(loadMergedConfig(cwd, { home })?.handoff)) return { status: "none" };
+  } catch {
+    // A broken config already surfaced loudly at session assembly.
+    return { status: "none" };
+  }
+  return discoverHandoff({
+    cwd,
+    home: home ?? homedir(),
+    transport: createGistHandoffTransport({ cwd, home }),
+  });
 }
 
 /** Merged provider view (project moh.json + user config, #129) for the

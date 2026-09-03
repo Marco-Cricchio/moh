@@ -17,6 +17,7 @@ import {
   readUserProviderConfig,
   type AgentSession,
   type AssemblyError,
+  type HandoffOffer,
   type Provider,
   type TrackerBackend,
   type UpdateNotice,
@@ -24,13 +25,13 @@ import {
 } from "@moh/core";
 import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
-import { SessionStore } from "@moh/core";
+import { SessionStore, handoffSeedMessage, handoffSeedPrompt } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { Chat, type Mode } from "./Chat";
-import { handoffPublishWork, makeSession, providerLabel } from "./factory";
+import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel } from "./factory";
 import type { SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
@@ -391,7 +392,11 @@ export function App({
     push(REASONING_PERSISTENCE_NOTICE, "warn");
   };
 
-  const open = (resume: SessionSummary | null, initialPrompt?: string) => {
+  const open = (
+    resume: SessionSummary | null,
+    initialPrompt?: string,
+    turnPrompt?: { name: string; text: string },
+  ) => {
     const base = {
       cwd,
       home,
@@ -417,8 +422,34 @@ export function App({
     // call, not wait for the post-render session effect.
     showReasoningPersistenceNotice(made.session);
     setSession(made.session);
-    if (initialPrompt) void made.session.send(initialPrompt);
+    // T3 #436: a seeded session opens with the handoff as its first
+    // turn — message + turn-scoped skill prompt (ADR-0011 pattern, the
+    // same seam /ask-moh uses; never a replayed event log).
+    if (turnPrompt) {
+      void made.session.send(initialPrompt ?? handoffSeedMessage(lastOffer.current!), { prompt: turnPrompt });
+    } else if (initialPrompt) {
+      void made.session.send(initialPrompt);
+    }
   };
+
+  // T3 #436: startup handoff discovery — runs once when the home screen
+  // mounts. Bounded and fail-silent: offline / gh-less / off machines
+  // simply see no offer (stories 8 and 15).
+  const [handoff, setHandoff] = useState<HandoffOffer | null>(null);
+  const lastOffer = useRef<Extract<HandoffOffer, { status: "offer" }> | null>(null);
+  useEffect(() => {
+    if (!startInChat) return;
+    let cancelled = false;
+    void discoverHandoffForHome(cwd, home).then((offer) => {
+      if (cancelled) return;
+      if (offer.status === "offer") lastOffer.current = offer;
+      setHandoff(offer);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd]);
 
   // MCP servers and other session-scoped resources shut down at session
   // end: when the active session is replaced or the app unmounts (#15).
@@ -772,6 +803,11 @@ export function App({
             updateNotice={updateNotice}
             skillUpdateCount={skillUpdateCount}
             version={version ?? MOH_VERSION}
+            handoff={handoff}
+            onOpenHandoff={(offer) => {
+              lastOffer.current = offer;
+              open(null, undefined, handoffSeedPrompt(offer));
+            }}
           />
         )}
         </Box>
