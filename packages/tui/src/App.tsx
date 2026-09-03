@@ -32,7 +32,7 @@ import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { Chat, type Mode } from "./Chat";
 import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel } from "./factory";
-import type { SessionSummary } from "./sessions";
+import { listSessionSummaries, type SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
@@ -184,7 +184,11 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [handoffStartupOffer] = useState(() => {
-    if (skipOnboarding || needsOnboarding) return false;
+    // Handoff onboarding is for the project's first local session only.
+    // Direct chat/resume paths must remain transparent: they have no Home
+    // screen on which to make the first-run choice, and existing history
+    // proves this is not a new project on this machine.
+    if (skipOnboarding || needsOnboarding || startInChat || listSessionSummaries(cwd, home).length > 0) return false;
     try {
       const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
       return handoff?.transport === undefined && handoff?.onboarding === undefined;
@@ -859,7 +863,7 @@ export function App({
                 setOverlay("settings");
               } else {
                 const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
-                if (handoff?.transport === undefined && handoff?.onboarding === undefined) {
+                if (!startInChat && listSessionSummaries(cwd, home).length === 0 && handoff?.transport === undefined && handoff?.onboarding === undefined) {
                   setOverlay("handoff-onboarding");
                 } else if (!configRef.current.workflowOffered) {
                   // First-run workflow offer (#36): right after onboarding.

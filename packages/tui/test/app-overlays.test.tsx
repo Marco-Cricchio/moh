@@ -64,6 +64,15 @@ describe("App overlays (issue #33)", () => {
     expect(loadMohConfig(join(cwd, "moh.json")).handoff).toEqual({ onboarding: "reminded" });
   });
 
+  test("direct chat skips the handoff offer", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat />);
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("type…");
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("session handoff");
+    i.unmount();
+  });
+
   test("a configured provider skips onboarding entirely", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
