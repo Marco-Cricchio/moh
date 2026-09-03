@@ -112,7 +112,10 @@ export const mohConfigSchema = z.object({
   agents: z.record(z.string(), subagentSpecSchema).optional(),
   /** Cross-session memory (#38); `enabled: false` disables everything. */
   memory: memoryConfigSchema.optional(),
-  /** Session handoff (#433/#434): `transport` absent = Not Set = off. */
+  /** Session handoff (#433/#434): `transport` absent = Not Set = off.
+   * `onboarding` (owner decision on #451) stays here deliberately — a
+   * machine-specific state in a synced project file, so the first-run
+   * modal is "already seen" on every machine; acceptable and desirable. */
   handoff: handoffConfigSchema.optional(),
   /** Project label → workflow-command suggestions after a Frontier claim (#357). */
   skillRouting: skillRoutingSchema.optional(),

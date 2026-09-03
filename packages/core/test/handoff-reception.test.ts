@@ -137,6 +137,27 @@ describe("discoverHandoff", () => {
     expect(offer).toEqual({ status: "local-current" });
   });
 
+  test("clock skew: ordering is payload updatedAt (origin clock) vs local mtime — equal timestamps favor local (pinned #451)", async () => {
+    // The origin machine's wall clock is authoritative for the handoff
+    // timestamp; the local mtime is the receiver's clock. Equal stamps
+    // (i.e. unmeasurable skew) resolve to local-current — never trust a
+    // tie across machines. A forward-skewed origin clock can still make
+    // an old handoff win; the stale anchor SHA check bounds the damage
+    // (the seed prompt then instructs reconcile-via-git).
+    const stamp = Date.parse("2026-09-02T18:00:00.000Z");
+    const offer = await discover({
+      locals: [local({ mtimeMs: stamp })],
+      fetch: { ok: true, payload: payload({ updatedAt: "2026-09-02T18:00:00.000Z" }), url: "u" },
+    });
+    expect(offer).toEqual({ status: "local-current" });
+    // One millisecond newer wins, however small the real skew margin.
+    const newer = await discover({
+      locals: [local({ mtimeMs: stamp })],
+      fetch: { ok: true, payload: payload({ updatedAt: "2026-09-02T18:00:00.001Z" }), url: "u" },
+    });
+    expect(newer.status).toBe("offer");
+  });
+
   test("anchor SHA different from HEAD marks the offer stale", async () => {
     const offer = await discover({
       git: { branch: "develop", head: "different999", dirty: false },
