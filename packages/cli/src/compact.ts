@@ -9,7 +9,7 @@
  */
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { sessionFromConfig, SessionStore } from "@moh/core";
+import { sessionFromConfig, SessionStore, listSessionSummaries } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
 
 export const COMPACT_USAGE = `usage: moh compact --session <file> [--cwd <dir>]
@@ -44,12 +44,19 @@ export async function compactCommand({
     }
     throw e;
   }
-  const sessionFile = parsed.strings["session"];
-  if (!sessionFile) {
-    err.write("moh compact: --session <file> is required\n");
-    return 2;
-  }
   const cwd = parsed.strings["cwd"] ? resolve(parsed.strings["cwd"]) : process.cwd();
+
+  // Explicit `--session` wins; without it, the project's most recent
+  // session (same discovery `moh run --resume` uses).
+  let sessionFile = parsed.strings["session"];
+  if (!sessionFile) {
+    const recent = listSessionSummaries(cwd, home).find((s) => s.title !== "(unreadable session)");
+    if (!recent) {
+      err.write("moh compact: --session <file> is required (no session found for this project)\n");
+      return 2;
+    }
+    sessionFile = recent.file;
+  }
 
   let store: SessionStore;
   try {
@@ -77,7 +84,7 @@ export async function compactCommand({
       return 1;
     }
     process.stdout.write(
-      `compacted: summary appended (upTo ${result.upTo}); last 10 turns kept verbatim — ${store.file}\n`,
+      `compacted: summary appended (upTo ${result.upTo}); ${result.tailTurns} turns kept verbatim (~${result.tokensAfter} of ~${result.tokensBefore} input tokens) — ${store.file}\n`,
     );
     return 0;
   } finally {

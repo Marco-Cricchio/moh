@@ -19,7 +19,7 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost } from "../subagents";
 import { replayMessages } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
-import { CompactionRunner, createCompactionSummarizer } from "../compaction";
+import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from "../compaction";
 import { resolveEndpointThinking } from "../thinking-preferences";
 import { HandoffRunner } from "../handoff";
 
@@ -543,10 +543,25 @@ export class AgentSession {
    * as the auto path, same producer. On success the live messages are
    * rebuilt through the same replay path resume uses.
    */
-  async compact(): Promise<{ ok: true; summary: string; upTo: number } | { ok: false; error: string }> {
+  async compact(): Promise<
+    | { ok: true; summary: string; upTo: number; tailTurns: number; tokensBefore: number; tokensAfter: number }
+    | { ok: false; error: string }
+  > {
     if (!this.#compaction) return { ok: false, error: "compaction is disabled for this session" };
     if (this.#queue.pending()) return { ok: false, error: "a turn is in flight; compact when the session is idle" };
-    return this.#compaction.compactNow(this.#eventLog.live());
+    const events = this.#eventLog.live();
+    // Before/after context estimate for clients (#466): the largest
+    // measured inputTokens vs the tail the marker keeps.
+    const tokensBefore = CompactionRunner.lastMeasuredCall(events)?.inputTokens ?? 0;
+    const result = await this.#compaction.compactNow(events);
+    if (!result.ok) return result;
+    const tailStart = CompactionRunner.upToFor(events, DEFAULT_TAIL_TURNS) ?? result.upTo;
+    let tailTurns = 0;
+    for (let i = tailStart; i < events.length; i++) {
+      if (events[i]!.type === "user_message") tailTurns += 1;
+    }
+    const tokensAfter = CompactionRunner.turnTokens(events, tailStart, events.length);
+    return { ...result, tailTurns, tokensBefore, tokensAfter };
   }
 
   /** Rebuilds `#messages` from the log after a marker (#466): the same

@@ -66,8 +66,8 @@ export type CompactionSummarizer = (input: CompactionSummarizerInput) => Promise
 
 /** Options accepted by `createSession`. */
 export interface CompactionOptions {
-  /** Default true; `false` = no auto trigger, `/compact` still works? No:
-   * `false` disables the runner entirely (no forced path either). */
+  /** Default true; `false` disables the runner entirely (no auto
+   * trigger, no forced path). */
   enabled?: boolean;
   /** Turns kept verbatim. Default 10. */
   tailTurns?: number;
@@ -224,7 +224,7 @@ export class CompactionRunner {
       if (events[i]!.type === "user_message") turns.push(i);
     }
     if (turns.length <= tailTurns) return undefined;
-    if (windowTokens <= 0 || tailTurns <= DEFAULT_TAIL_TURNS) return turns[turns.length - tailTurns]!;
+    if (windowTokens <= 0) return turns[turns.length - tailTurns]!;
     const cap = windowTokens * DEFAULT_TAIL_WINDOW_FRACTION;
     const start = turns.length - tailTurns;
     // Span of the requested tail, shrunk from its oldest turn while it

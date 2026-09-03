@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "../src/cli";
+import { projectSlug } from "../../core/src/session-store";
 
 const TMP_ROOT = join(tmpdir(), "moh-compact-cli");
 
@@ -28,13 +29,13 @@ function project(name: string): { cwd: string; file: string } {
 
 /** A session file with 12 user turns (assistant reply + done each). */
 function seed(file: string): void {
-  const lines: string[] = [{ type: "session_start", schemaVersion: 1, promptVersion: "p" } as unknown as Record<string, unknown>];
+  const lines: Array<Record<string, unknown>> = [{ type: "session_start", schemaVersion: 1, promptVersion: "p" }];
   for (let i = 0; i < 12; i++) {
     lines.push(
-      { type: "user_message", text: `turn ${i}` } as unknown as Record<string, unknown>,
-      { type: "assistant_delta", text: "reply" } as unknown as Record<string, unknown>,
-      { type: "done" } as unknown as Record<string, unknown>,
-      { type: "model_call", model: "mock", usage: { inputTokens: 100, outputTokens: 10 } } as unknown as Record<string, unknown>,
+      { type: "user_message", text: `turn ${i}` },
+      { type: "assistant_delta", text: "reply" },
+      { type: "done" },
+      { type: "model_call", model: "mock", usage: { inputTokens: 100, outputTokens: 10 } },
     );
   }
   writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", { mode: 0o600 });
@@ -61,10 +62,45 @@ describe("moh compact (#466)", () => {
     expect(out).toContain("usage: moh compact --session <file>");
   });
 
-  test("requires --session", async () => {
-    const { code, err } = await run(["compact"]);
-    expect(code).toBe(2);
-    expect(err).toContain("--session <file> is required");
+  test("requires --session when the project has no sessions (isolated HOME)", async () => {
+    const origHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "moh-empty-home-"));
+    try {
+      const { code, err } = await run(["compact"]);
+      expect(code).toBe(2);
+      expect(err).toContain("--session <file> is required");
+    } finally {
+      process.env.HOME = origHome;
+    }
+  });
+
+  test("without --session, compacts the project's most recent session", async () => {
+    const { cwd, file } = project("recent");
+    seed(file);
+    // Discovery looks in <home>/.moh/projects/<slug>/; create the session
+    // there via the core's own seam (project.json pins the slug).
+    mkdirSync(join(cwd, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, ".moh", "project.json"), `${JSON.stringify({ id: "compact-cli-recent" })}\n`);
+    const home = mkdtempSync(join(TMP_ROOT, "recent-home-"));
+    const origHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const slugDir = join(home, ".moh", "projects", projectSlug(cwd, home));
+      mkdirSync(slugDir, { recursive: true });
+      const discovered = join(slugDir, "20260903T010000123Z-0badf00d.jsonl");
+      seed(discovered);
+      const before = readFileSync(discovered, "utf8");
+      const { code, out } = await run(["compact", "--cwd", cwd]);
+      expect(code).toBe(0);
+      expect(out).toContain(discovered);
+      const after = readFileSync(discovered, "utf8");
+      expect(after.startsWith(before)).toBe(true);
+      expect(after).toContain('"compaction"');
+      expect(after).not.toContain("session_resumed");
+    } finally {
+      process.env.HOME = origHome;
+    }
+    void file;
   });
 
   test("compacts a seeded session file in place", async () => {
