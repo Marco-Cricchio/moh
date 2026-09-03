@@ -80,6 +80,8 @@ export class AgentSession {
   #memory: MemoryRunner | null = null;
   /** Session handoff (#434): the raw post-turn artifact runner. */
   #handoff: HandoffRunner | null = null;
+  /** A successful bash `git push` occurred in the active turn (#437). */
+  #gitPushPending = false;
   /** ADR-0011: turn-scoped skill prompt — set by the send that carries
    * it, cleared when that turn settles. Null for every ordinary turn. */
   #skillPrompt: SkillPrompt | null = null;
@@ -145,6 +147,9 @@ export class AgentSession {
       turn: this.#turn,
       ...(this.#onAskUser ? { onAskUser: this.#onAskUser } : {}),
       append: (event) => this.#append(event),
+      ...(config.handoff?.onGitPush
+        ? { onGitPush: () => { this.#gitPushPending = true; } }
+        : {}),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.
@@ -203,6 +208,7 @@ export class AgentSession {
         file: config.handoff.file ?? HandoffRunner.artifactFile(this.#cwd, this.#mohHome),
         sessionId: this.#sessionId,
         cwd: this.#cwd,
+        supersedes: config.handoff.supersedes,
       });
     }
     if (config.mcp) {
@@ -258,6 +264,14 @@ export class AgentSession {
         return this.#loop.run(text, controller);
       },
       onTurnSettled: () => {
+        if (this.#gitPushPending) {
+          this.#gitPushPending = false;
+          // AgentLoop has settled and written the raw artifact before the
+          // queue resolves the turn. Client I/O stays fire-and-forget.
+          queueMicrotask(() => {
+            try { config.handoff?.onGitPush?.(); } catch { /* best-effort client seam */ }
+          });
+        }
         // ADR-0011: a turn-scoped skill prompt lives exactly one turn.
         // Dropped when the turn's promise settles and before the queue
         // re-pumps, so the next turn composes the ordinary skills index.

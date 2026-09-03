@@ -42,6 +42,10 @@ export interface OpenSessionOptions {
   store?: SessionStore;
   /** Persisted events to resume from (the store must be that file). */
   resumeEvents?: ReadonlyArray<AgentEvent>;
+  /** The accepted remote handoff that this fresh session supersedes (#437). */
+  handoffOffer?: Extract<HandoffOffer, { status: "offer" }>;
+  /** Best-effort warning from automatic push-time publication (#437). */
+  onHandoffWarning?: (message: string) => void;
   home?: string;
   /** Consent seam for the TUI permission modal (#33). */
   onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
@@ -97,6 +101,10 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
         : options.permissionMode ? { permissions: { mode: options.permissionMode } } : {}),
       ...(options.store ? { store: options.store } : {}),
       ...(options.resumeEvents ? { resumeEvents: options.resumeEvents } : {}),
+      ...(options.handoffOffer
+        ? { handoffSupersedes: { sessionId: options.handoffOffer.payload.sessionId, updatedAt: options.handoffOffer.payload.updatedAt } }
+        : {}),
+      ...(options.onHandoffWarning ? { onGitPush: handoffPushWork(options.cwd, options.home, options.onHandoffWarning) } : {}),
     },
   });
 }
@@ -109,6 +117,23 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
  * today's behavior (story 8). Failures surface as one warning, never
  * as a crash or a held process (story 15: the artifact stays local).
  */
+/** Starts (without awaiting) a bounded publish after a successful git push.
+ * A tool call must never wait for gh/network work. */
+export function handoffPushWork(
+  cwd: string,
+  home: string | undefined,
+  onWarning: (message: string) => void,
+): () => void {
+  return () => {
+    // Yield before a gist transport starts its synchronous gh runner.
+    // The settled turn/tool result is already final when this runs.
+    setTimeout(() => {
+      const work = handoffPublishWork(cwd, home, onWarning);
+      void work;
+    }, 0).unref?.();
+  };
+}
+
 export function handoffPublishWork(
   cwd: string,
   home: string | undefined,

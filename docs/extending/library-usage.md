@@ -287,7 +287,10 @@ secret gist via `gh` (deterministic tag `moh:handoff:<slug>:<gh-user>`,
 tagged-gist replace on republish). `publishHandoffAtExit` reads the
 raw artifact (#434) and publishes it bounded by a timeout budget — it
 never rejects; on failure the artifact stays local and the caller
-surfaces one warning. Active only when moh.json sets
+surfaces one warning. A client may also attach its best-effort publish
+callback to a successful `bash` `git push`; it does not delay or alter
+the tool result, and the core still knows neither the transport nor
+`gh`. Active only when moh.json sets
 `handoff.transport: "gist"`; everything else (absent, `"none"`) is
 byte-for-byte today's behavior.
 
@@ -301,7 +304,10 @@ genuinely newer handoff comes back as an `offer` with a `stale` flag
 opens a **new** session whose first turn carries the handoff rendered
 by `handoffSeedPrompt` as a turn-scoped skill prompt (ADR-0011
 pattern) plus the one-line `handoffSeedMessage` — stale offers include
-an explicit reconcile-via-git instruction.
+an explicit reconcile-via-git instruction. The new session carries the
+accepted payload's `{ sessionId, updatedAt }` as `supersedes` in every
+subsequent raw artifact, making the logical A→B→A chain explicit even
+though the gist stores only its newest tip.
 
 ## What's intentionally not here
 

@@ -41,10 +41,20 @@ export interface HandoffGitAnchor {
 
 /** The raw (non-LLM) handoff artifact. Kind stays "raw" until exit-time
  * synthesis (T2+) may replace it with a synthesized payload. */
+/** Identifies the preceding handoff in a cross-machine continuity chain. */
+export interface HandoffReference {
+  sessionId: string;
+  updatedAt: string;
+}
+
 export interface RawHandoff {
   version: 1;
   kind: "raw";
   sessionId: string;
+  /** Immediate predecessor when this session was seeded from a handoff.
+   * The singleton gist holds the newest tip; this edge keeps the logical
+   * handoff chain append-only across A → B → A transfers. */
+  supersedes?: HandoffReference;
   /** ISO timestamp of the last completed turn this artifact reflects. */
   updatedAt: string;
   git: HandoffGitAnchor;
@@ -138,6 +148,7 @@ export function buildRawHandoff(
   cwd: string,
   now: Date = new Date(),
   gitInfo?: HandoffGitAnchor,
+  supersedes?: HandoffReference,
 ): RawHandoff {
   let lastUser = "";
   let assistant = "";
@@ -181,6 +192,7 @@ export function buildRawHandoff(
     version: 1,
     kind: "raw",
     sessionId,
+    ...(supersedes ? { supersedes } : {}),
     updatedAt: now.toISOString(),
     git: gitInfo ?? gitAnchor(cwd),
     turns,
@@ -205,11 +217,13 @@ export class HandoffRunner {
   readonly #file: string;
   readonly #sessionId: string;
   readonly #cwd: string;
+  readonly #supersedes: HandoffReference | undefined;
 
-  constructor(opts: { file: string; sessionId: string; cwd: string }) {
+  constructor(opts: { file: string; sessionId: string; cwd: string; supersedes?: HandoffReference }) {
     this.#file = opts.file;
     this.#sessionId = opts.sessionId;
     this.#cwd = opts.cwd;
+    this.#supersedes = opts.supersedes;
   }
 
   /** Artifact path: <mohHome>/projects/<slug>/handoff.json. */
@@ -226,7 +240,7 @@ export class HandoffRunner {
     try {
       const dir = join(this.#file, "..");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const handoff = buildRawHandoff(events, this.#sessionId, turns, this.#cwd);
+      const handoff = buildRawHandoff(events, this.#sessionId, turns, this.#cwd, new Date(), undefined, this.#supersedes);
       const tmp = `${this.#file}.${process.pid}.tmp`;
       writeFileSync(tmp, `${JSON.stringify(handoff, null, 2)}\n`, { mode: 0o600 });
       renameSync(tmp, this.#file);
@@ -240,4 +254,9 @@ export class HandoffRunner {
 export interface HandoffOptions {
   /** Artifact file override (tests). Default: HandoffRunner.artifactFile. */
   file?: string;
+  /** Handoff accepted when this new session was created. */
+  supersedes?: HandoffReference;
+  /** Client-owned best-effort callback after a successful `git push` bash tool call.
+   * The core observes the command but never knows the transport or `gh`. */
+  onGitPush?: () => void;
 }
