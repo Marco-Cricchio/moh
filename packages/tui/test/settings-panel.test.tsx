@@ -61,6 +61,35 @@ const down = async (i: ReturnType<typeof render>, n: number) => {
   }
 };
 
+describe("settings panel ToS card (#444)", () => {
+  test("pressing t on an endpoint shows the full ToS card with disclaimer, links and verification date", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 7); // Provider row
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("t"); // ToS for mock: toast, no card
+    await sleep(30);
+    let frame = stripAnsi(i.lastFrame() ?? "");
+    // First row is mock: no bundled card, just a toast.
+    expect(frame).not.toContain("Machine-written informational summary");
+    await down(i, 1); // anthropic endpoint
+    i.stdin.write("t");
+    await sleep(30);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Machine-written informational summary"); // disclaimer
+    expect(frame).toContain("Terms of Service — anthropic (verified 2026-09)");
+    expect(frame).toContain("Terms of Service: https://www.anthropic.com/legal/com…");
+    expect(frame).toContain("Data retention:");
+    i.stdin.write("\x1b"); // back
+    await sleep(30);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("anthropic"); // endpoint list again
+    i.unmount();
+  });
+});
+
 describe("settings panel (issue #33)", () => {
   test("renders every setting row with current values", async () => {
     const i = mount(setupCwd());

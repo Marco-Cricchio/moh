@@ -1,0 +1,20 @@
+{
+  "provider": "xai",
+  "verified": "2026-09",
+  "allowed": [
+    "You may use the Grok API programmatically, including for automated and agent-driven workloads.",
+    "You may use the outputs, including commercially, subject to the terms."
+  ],
+  "forbidden": [
+    "You must not use outputs to develop a competing model.",
+    "You must not circumvent rate limits or access controls.",
+    "You must not reverse engineer the services or models.",
+    "You must not submit unlawful or harmful content under the Acceptable Use Policy."
+  ],
+  "retention": "As of the verification date, xAI states API/enterprise customer data is not used for training and is retained only as needed to provide the service.",
+  "training": "xAI states it does not train on API inputs by default.",
+  "links": [
+    { "label": "Terms of Service", "url": "https://x.ai/legal/terms-of-service" },
+    { "label": "Acceptable Use Policy", "url": "https://x.ai/legal/acceptable-use-policy" }
+  ]
+}

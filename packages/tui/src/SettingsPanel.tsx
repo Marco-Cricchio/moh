@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, readUserProviderConfig, removeUserEndpoint, saveUserProviderRef, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
@@ -40,6 +40,14 @@ interface Row {
   value: string;
 }
 
+/** #444: render a provider's bundled ToS card for the endpoint section.
+ * Unknown/custom providers get a one-line "no bundled card" note. */
+function renderTosCardText(provider: string, width: number): string[] {
+  const card = tosCardFor(provider);
+  if (!card) return [`(no bundled ToS summary for "${provider}")`];
+  return renderTosCard(card).split("\n").map((l) => truncate(l, width));
+}
+
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
@@ -62,7 +70,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "endpoint"; cursor: number }
     | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; cursor: number; query: string }
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
-    | { kind: "remove"; options: string[]; cursor: number };
+    | { kind: "remove"; options: string[]; cursor: number }
+    | { kind: "tos"; provider: string };
   const [sub, setSub] = useState<Sub | null>(null);
   // Live-fetched model lists for openai-compat endpoints (#181 follow-up):
   // `GET <baseUrl>/models`, shown in the model level like a vendored
@@ -212,9 +221,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
 
   useInput((input, key) => {
     if (key.escape) {
-      if (sub?.kind === "model") return setSub({ kind: "endpoint", cursor: 0 });
-      if (sub?.kind === "model-free") return setSub({ kind: "endpoint", cursor: 0 });
-      if (sub) return setSub(null);
+      if (sub && sub.kind !== "tos") {
+        if (sub.kind === "model") return setSub({ kind: "endpoint", cursor: 0 });
+        if (sub.kind === "model-free") return setSub({ kind: "endpoint", cursor: 0 });
+        return setSub(null);
+      }
+      if (sub?.kind === "tos") return setSub({ kind: "endpoint", cursor: 0 });
       return onClose();
     }
     if (sub?.kind === "model-free") {
@@ -227,12 +239,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return;
     }
     if (sub) {
+      // #444: `t` on the endpoint level opens the provider's ToS card.
+      if (sub.kind === "endpoint" && input === "t") {
+        const option = subOptions[sub.cursor];
+        if (!option) return;
+        if (option === "mock") return onToast('no bundled ToS summary for "mock"');
+        const name = option.replace(/ \(user\)$/, "");
+        const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
+        if (!endpoint) return;
+        return setSub({ kind: "tos", provider: endpoint.type });
+      }
       if (key.upArrow) {
         if (sub.kind === "endpoint" || sub.kind === "remove") return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
+        if (sub.kind === "tos") return;
         return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
       }
       if (key.downArrow) {
         if (sub.kind === "endpoint" || sub.kind === "remove") return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
+        if (sub.kind === "tos") return;
         return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
       }
       // Typing inside the model level filters incrementally (#181).
@@ -340,7 +364,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       <Text> </Text>
       {sub ? (
         <>
-          {sub.kind === "model-free" ? (
+          {sub.kind === "tos" ? (
+            <>
+              {renderTosCardText(sub.provider, innerWidth).map((line: string, idx: number) => (
+                <Text key={idx}>{truncate(line, innerWidth)}</Text>
+              ))}
+            </>
+          ) : sub.kind === "model-free" ? (
             <>
               <Text bold>{`model id: ${sub.value}▏`}</Text>
               <Text> </Text>
@@ -369,8 +399,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           )}
           <Text> </Text>
           <Dim>
-            {sub.kind === "endpoint"
-              ? "↑↓ select · enter models · esc back — switch endpoint"
+            {sub.kind === "tos"
+              ? "esc back"
+              : sub.kind === "endpoint"
+              ? "↑↓ select · enter models · t terms · esc back — switch endpoint"
               : sub.kind === "model"
                 ? "type to filter · enter select · esc back — set default model"
                 : sub.kind === "model-free"
