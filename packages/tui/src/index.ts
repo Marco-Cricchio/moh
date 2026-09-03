@@ -31,6 +31,7 @@ export { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, type 
 export { DEFAULT_WORKFLOW, type WorkflowSettings } from "./user-config";
 export { PermissionModal } from "./PermissionModal";
 export { Onboarding } from "./OnboardingOverlay";
+export { HandoffActivationModal, type GhVerification } from "./HandoffActivationModal";
 export { SettingsPanel } from "./SettingsPanel";
 export { CommandsPanel } from "./CommandsPanel";
 export { Toasts, useToasts, type Toast, type ToastsApi } from "./Toasts";

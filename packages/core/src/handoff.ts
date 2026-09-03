@@ -23,6 +23,10 @@ import type { AgentEvent } from "./types";
  * explicit full-off ("no gist on my account at all"). */
 export const handoffConfigSchema = z.object({
   transport: z.enum(["gist", "none"]).optional(),
+  /** First-run handoff offer state. Kept in project config because the
+   * transport policy is per-project: dismissed gets exactly one later
+   * end-of-first-session reminder, then reminded suppresses all prompts. */
+  onboarding: z.enum(["dismissed", "reminded"]).optional(),
 });
 
 export type HandoffConfig = z.infer<typeof handoffConfigSchema>;
