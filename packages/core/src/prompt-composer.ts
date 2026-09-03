@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { projectSlug } from "./session-store";
 import type { Message, SkillPrompt } from "./types";
@@ -130,7 +130,7 @@ export class PromptComposer {
     this.#basePrompt = config.basePrompt ?? BASE_PROMPT;
     // Session-notes path (#467): the canonical Core-resolved slug
     // (`.moh/project.json` identity), never recomputed by the skill.
-    this.#projectSlug = projectSlug(this.#projectDir, this.#mohHome);
+    this.#projectSlug = projectSlug(this.#projectDir, dirname(this.#mohHome));
     this.#overrides = config.sections ?? {};
   }
 

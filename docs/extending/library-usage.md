@@ -335,6 +335,20 @@ handoffs are per-persona (#433 Q6). Republishing is non-destructive:
 the new gist is created before the old one is deleted, so a failed
 create never destroys the remote copy.
 
+## Session notes path (#467)
+
+The core owns the canonical project directory: `projectSlug(cwd, home)`
+resolves the slug from the `.moh/project.json` identity, and
+`projectSessionsDir(cwd, home)` appends it under `<home>/.moh/projects/`.
+Both are exported from `@moh/core` (an explicit, minimal ADR-0004
+reopening, decided in #467). The assembled prompt's environment section
+already renders the session-notes path (`~/.moh/projects/<slug>/session.md`);
+embedders who need the same directory should call these helpers rather
+than recomputing the slug from the working directory. The core guarantees
+the path only — session-notes content stays entirely with the
+`session-memory` skill and is never read, written, or remembered by the
+core (no double store with Memory).
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

@@ -55,7 +55,7 @@ Always respect these rules when updating the file:
 4. **Current State is critical**: always update it to reflect the latest work — it is the re-entry point for the next session
 5. **Sections with nothing new**: leave unchanged, never write "no updates" or similar
 6. **Per-section size**: max ~2000 words; when near the limit, cycle out the least important detail
-7. **No duplication**: do not repeat info already in the project's `AGENTS.md`, and do not restate durable facts already in moh memory topics (`memory/` next to the session notes) — session notes are for the *current* effort, memory for facts that outlive it
+7. **No duplication**: do not repeat info already in the project's `AGENTS.md`, and do not restate durable facts already in moh memory topics (`~/.moh/projects/<project-slug>/memory/`) — session notes are for the *current* effort, memory for facts that outlive it
 8. **Use `edit`** for precise in-place updates, never rewrite the whole file
 
 ## Typical workflow
