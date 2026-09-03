@@ -396,6 +396,7 @@ export function App({
     resume: SessionSummary | null,
     initialPrompt?: string,
     turnPrompt?: { name: string; text: string },
+    handoffOffer?: Extract<HandoffOffer, { status: "offer" }>,
   ) => {
     const base = {
       cwd,
@@ -406,6 +407,8 @@ export function App({
       onAskUser: askGate.ask,
       permissionMode: config.permissionMode,
       ...(yolo ? { yolo } : {}),
+      ...(handoffOffer ? { handoffOffer } : {}),
+      onHandoffWarning: (message: string) => push(message, "warn"),
     };
     let made: ReturnType<typeof makeSession>;
     if (resume) {
@@ -806,7 +809,7 @@ export function App({
             handoff={handoff}
             onOpenHandoff={(offer) => {
               lastOffer.current = offer;
-              open(null, undefined, handoffSeedPrompt(offer));
+              open(null, undefined, handoffSeedPrompt(offer), offer);
             }}
           />
         )}

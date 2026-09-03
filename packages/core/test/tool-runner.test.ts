@@ -18,6 +18,7 @@ function harness(opts: {
   tools?: Record<string, Tool>;
   gate?: ToolRunnerOptions["gate"];
   askUser?: boolean;
+  onGitPush?: () => void;
 } = {}) {
   const events: AgentEvent[] = [];
   const tools = opts.tools ?? {};
@@ -30,6 +31,7 @@ function harness(opts: {
     filesystemScope: () => "project",
     turn: () => 1,
     ...(opts.askUser ? { onAskUser: (async () => ({ kind: "answer", text: "y" })) as never } : {}),
+    ...(opts.onGitPush ? { onGitPush: opts.onGitPush } : {}),
     append: (e) => events.push(e),
   });
   return { runner, events, tools };
@@ -83,6 +85,31 @@ describe("ToolRunner", () => {
     expect(outcome).toBe("ok");
     expect(order).toEqual(["start:a", "start:b"]);
     expect(parts.map((p) => (p as any).callId)).toEqual(["c-a", "c-b"]);
+  });
+
+  test("a successful bash git push triggers the client callback only after its result", async () => {
+    const events: string[] = [];
+    const { runner } = harness({
+      tools: { bash: makeTool({ name: "bash", execute: () => "pushed" }) },
+      onGitPush: () => events.push("publish"),
+    });
+    await runner.run([call("bash", { command: "git push origin develop" })], new AbortController().signal);
+    expect(events).toEqual(["publish"]);
+  });
+
+  test("failed and non-push bash commands do not publish", async () => {
+    let publishes = 0;
+    const { runner } = harness({
+      tools: { bash: makeTool({ name: "bash", execute: (args) => {
+        if ((args as { command: string }).command === "git push") throw new Error("rejected");
+        return "ok";
+      } }) },
+      onGitPush: () => { publishes += 1; },
+    });
+    await runner.run([call("bash", { command: "git status" })], new AbortController().signal);
+    await runner.run([call("bash", { command: "echo 'git push'" })], new AbortController().signal);
+    await runner.run([call("bash", { command: "git push" })], new AbortController().signal);
+    expect(publishes).toBe(0);
   });
 
   test("unknown tool → failed result, never throws", async () => {

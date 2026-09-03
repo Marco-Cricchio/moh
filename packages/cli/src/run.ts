@@ -284,6 +284,23 @@ export async function runCommand(options: RunOptions): Promise<number> {
       // A fresh store is created by the builder (after config/provider
       // validation, so a broken config leaves no orphan session file).
       ...(resumeStore ? { store: resumeStore } : {}),
+      // #437: a successful agent-run `git push` publishes the most recent
+      // crash-safe artifact without delaying or changing the bash result.
+      onGitPush: () => {
+        try {
+          if (!transportActive(loadMohConfig(pathResolve(cwd, "moh.json")).handoff)) return;
+          setTimeout(() => {
+            void publishHandoffAtExit({
+              artifactFile: HandoffRunner.artifactFile(cwd, join(options.home ?? homedir(), ".moh")),
+              transport: createGistHandoffTransport({ cwd, home: options.home }),
+            }).then((published) => {
+              if (!published.ok) err.write(`moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
+            });
+          }, 0).unref?.();
+        } catch {
+          // Client transport wiring must never affect the tool call.
+        }
+      },
     },
   });
   if ("error" in assembled) {

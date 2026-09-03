@@ -1,5 +1,5 @@
 import type { AgentEvent, Message, Tool, ToolContext, ToolCall } from "../types";
-import type { FilesystemScope } from "../permissions";
+import { splitCommandSegments, type FilesystemScope } from "../permissions";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
 import type { SessionConfig } from "./config";
 
@@ -53,6 +53,8 @@ export interface ToolRunnerOptions {
   onAskUser?: SessionConfig["onAskUser"];
   /** Log append callback — the runner owns its tool_call/tool_result emission. */
   append: (event: AgentEvent) => void;
+  /** Best-effort client callback after a successful bash `git push` (#437). */
+  onGitPush?: () => void;
 }
 
 /**
@@ -63,6 +65,15 @@ export interface ToolRunnerOptions {
  * `parallelToolCalls`. Returns the result parts for the feedback
  * message the model sees for self-correction.
  */
+/** True for a shell command segment that invokes `git push`; quoted text
+ * and `git status` are not triggers. Compound commands are intentional:
+ * a successful bash call that did push must publish the fresh artifact. */
+export function isGitPush(call: ToolCall): boolean {
+  if (call.name !== "bash" || typeof (call.args as { command?: unknown })?.command !== "string") return false;
+  return splitCommandSegments((call.args as { command: string }).command)
+    .some((words) => words[0] === "git" && words[1] === "push");
+}
+
 export class ToolRunner {
   readonly #tools: () => Record<string, Tool>;
   readonly #gate: GateCheck;
@@ -73,6 +84,7 @@ export class ToolRunner {
   readonly #turn: () => number;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
   readonly #append: (event: AgentEvent) => void;
+  readonly #onGitPush: (() => void) | undefined;
 
   constructor(options: ToolRunnerOptions) {
     this.#tools = options.tools;
@@ -84,6 +96,7 @@ export class ToolRunner {
     this.#turn = options.turn;
     this.#onAskUser = options.onAskUser;
     this.#append = options.append;
+    this.#onGitPush = options.onGitPush;
   }
 
   /**
@@ -124,6 +137,11 @@ export class ToolRunner {
       ]);
       this.#append({ type: "tool_result", ...result });
       parts.push({ kind: "tool_result", ...result });
+      if (result.ok && isGitPush(call)) {
+        // The bash result is final before publishing begins; a failed or
+        // slow transport can neither delay nor alter the tool result/turn.
+        try { this.#onGitPush?.(); } catch { /* client callback is best-effort */ }
+      }
     };
     // Capability downgrade: endpoints without parallelToolCalls run calls sequentially.
     if (!this.#parallel()) {

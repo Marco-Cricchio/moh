@@ -158,6 +158,19 @@ describe("HandoffRunner", () => {
     expect(() => failing.turnSettled(1, [])).not.toThrow();
   });
 
+  test("retains the accepted handoff as its chain predecessor", () => {
+    const dir = tmpDir("runner-chain");
+    const file = join(dir, "handoff.json");
+    const runner = new HandoffRunner({
+      file,
+      sessionId: "session-b",
+      cwd: dir,
+      supersedes: { sessionId: "session-a", updatedAt: "2026-09-02T10:00:00.000Z" },
+    });
+    runner.turnSettled(1, []);
+    expect(readHandoff(file).supersedes).toEqual({ sessionId: "session-a", updatedAt: "2026-09-02T10:00:00.000Z" });
+  });
+
   test("artifactFile lands under projects/<slug>/", () => {
     const dir = tmpDir("path");
     const file = HandoffRunner.artifactFile(dir, join(dir, "moh-home"));
@@ -204,6 +217,35 @@ describe("session integration", () => {
     expect(h.lastAssistantMessage).toContain("done and green");
     expect(h.tests).toEqual(["bun test packages/core/test/x.test.ts"]);
     expect(h.counts.toolCalls).toBe(1);
+  });
+
+  test("a successful git push publishes only after this turn's artifact is written", async () => {
+    const dir = tmpDir("push-publish");
+    const file = join(dir, "handoff.json");
+    let published: RawHandoff | undefined;
+    const session = new AgentSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: [],
+          finish: "tool_calls" as const,
+          toolCalls: [{ name: "bash", args: { command: "git push" } }],
+        },
+        { deltas: ["pushed"], finish: "stop" as const },
+      ]),
+      cwd: dir,
+      permissions: { mode: "auto-accept" },
+      tools: { bash: { name: "bash", description: "run", inputSchema: z.object({ command: z.string() }), execute: () => "ok" } },
+      handoff: {
+        file,
+        onGitPush: () => { published = readHandoff(file); },
+      },
+    });
+    const result = await session.send("push it");
+    expect(result.status).toBe("done");
+    expect(session.history().find((event) => event.type === "tool_result")).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(published?.lastAssistantMessage).toBe("pushed");
+    expect(published?.turns).toBe(1);
   });
 
   test("crash-safety: the artifact exists immediately after send() resolves", async () => {
