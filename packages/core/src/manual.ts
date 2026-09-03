@@ -73,18 +73,6 @@ const OUT_OF_SUBSET: ReadonlyArray<RegExp> = [
   /^ {0,3}(=+|-{3,})\s*$/, // setext heading underline / thematic break
 ];
 
-/** Setext-heading detector for the page-structure check: a non-empty,
- * non-heading, non-fence line whose next non-blank line is a `---`/`===`
- * underline makes that underline a setext H2 — out of subset. */
-export function setextViolations(body: string): string[] {
-  const lines = body.split("\n");
-  const violations: string[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    if (/^ {0,3}=+\s*$/.test(lines[i]!)) violations.push(lines[i]!);
-  }
-  return violations;
-}
-
 /** Returns the offending lines of a page body (empty = subset-clean).
  * Fence-aware: fenced code blocks are verbatim and never flagged. Pure,
  * exported for the anti-drift test and the generator. */

@@ -113,8 +113,7 @@ jobs:
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           changed="$(git diff --name-only "$base"...HEAD)"
-          doors=$(echo "$changed" | grep -E '^packages/tui/src/(commands|CommandsPanel)\.tsx?$|^packages/cli/src/[^/]+\.ts$|^packages/core/src/(config|user-config)\.ts
- || true)
+          doors=$(echo "$changed" | grep -E '^packages/tui/src/(commands|CommandsPanel)\.tsx?$|^packages/cli/src/[^/]+\.ts$|^packages/core/src/(config|user-config)\.ts$' || true)
           manual=$(echo "$changed" | grep -E '^docs/manual/|^packages/core/src/manual/' || true)
           if [ -n "$doors" ] && [ -z "$manual" ]; then
             echo "::warning::This PR changes user-visible surfaces (commands/CLI/config) without touching docs/manual/ — check whether a manual page needs the same change (see AGENTS.md, 'User manual')."

@@ -6,6 +6,12 @@ SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
 ## [Unreleased]
+### Added
+
+- **User manual** (#457): ten bundled pages embedded in the binary, a
+  generated mirror at `docs/manual/`, a filterable TUI modal (`ctrl+h`,
+  `/help`), `moh manual [page]` on the CLI, and `/ask-moh` grounding
+  with `Manual → <section>` citations.
 
 ## [0.15.0] - 2026-09-03
 ### Added
