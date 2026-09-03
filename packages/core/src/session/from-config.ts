@@ -219,6 +219,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       ...(config.agents ? { subagents: { presets: config.agents } } : {}),
       // Memory (#38): on by default (spec); moh.json `memory` tunes/disables it.
       ...(config.memory ? { memory: config.memory } : { memory: {} }),
+      // Compaction (#466): on by default; purely additive when absent.
+      compaction: {},
       // Session handoff (#434): the raw artifact is maintained locally
       // regardless of `handoff.transport` (transport gates publishing
       // only, T2+; absent = Not Set = off, purely additive here).
@@ -228,7 +230,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       },
       // Per-turn iteration cap (#190): moh.json `maxIterations`, default 50.
       ...(config.maxIterations ? { maxIterations: config.maxIterations } : {}),
-      ...(resumeEvents?.length ? { resume: { events: resumeEvents } } : {}),
+      ...(resumeEvents?.length ? { resume: { events: resumeEvents, consume: o.resumeConsume !== false } } : {}),
     });
     return { session, store };
   } catch (e) {
