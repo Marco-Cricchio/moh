@@ -6,6 +6,8 @@ SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
 ## [Unreleased]
+
+## [0.16.0] - 2026-09-03
 ### Added
 
 - **User manual** (#457): ten bundled pages embedded in the binary, a
@@ -447,7 +449,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.16.0...develop
+[0.16.0]: https://github.com/Marco-Cricchio/moh/compare/v0.15.0...v0.16.0
 [0.14.0]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/Marco-Cricchio/moh/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Marco-Cricchio/moh/compare/v0.12.0...v0.13.0
