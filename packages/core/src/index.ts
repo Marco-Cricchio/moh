@@ -76,6 +76,7 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { catalogEntryFor, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
 export {
   clearThinkingPreference,
   defaultThinkingLevel,

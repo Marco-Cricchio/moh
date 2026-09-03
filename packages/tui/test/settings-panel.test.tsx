@@ -8,7 +8,7 @@ import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { actUntilFrame, stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -60,6 +60,35 @@ const down = async (i: ReturnType<typeof render>, n: number) => {
     await sleep(30);
   }
 };
+
+describe("settings panel ToS card (#444)", () => {
+  test("pressing t on an endpoint shows the full ToS card with disclaimer, links and verification date", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 7); // Provider row
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("t"); // ToS for mock: toast, no card
+    await sleep(30);
+    let frame = stripAnsi(i.lastFrame() ?? "");
+    // First row is mock: no bundled card, just a toast.
+    expect(frame).not.toContain("Machine-written informational summary");
+    await down(i, 1); // anthropic endpoint
+    i.stdin.write("t");
+    await sleep(30);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Machine-written informational summary"); // disclaimer
+    expect(frame).toContain("Terms of Service — anthropic (verified 2026-09)");
+    expect(frame).toContain("Terms of Service: https://www.anthropic.com/legal/com…");
+    expect(frame).toContain("Data retention:");
+    i.stdin.write("\x1b"); // back
+    await sleep(30);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("anthropic"); // endpoint list again
+    i.unmount();
+  });
+});
 
 describe("settings panel (issue #33)", () => {
   test("renders every setting row with current values", async () => {
@@ -260,8 +289,9 @@ describe("merged provider endpoints (#129)", () => {
     // Wait for each React commit before the next key: under suite load a
     // fixed 30ms pause can drop one arrow and leave the cursor on openai.
     for (const endpoint of ["anthropic", "openai", "zai (user)"]) {
-      i.stdin.write("\x1b[B");
-      await waitForFrame(frame, `› ${endpoint}`);
+      // Under CI load an arrow can be dropped while the list is scrollable
+      // (↓ n more): repeat the key until the cursor lands (actUntilFrame).
+      await actUntilFrame(() => i.stdin.write("\x1b[B"), frame, `› ${endpoint}`);
     }
     expect(frame()).toContain("zai (user)");
     i.unmount();

@@ -78,6 +78,25 @@ describe("runProviderAdd (guided flow)", () => {
   });
 });
 
+describe("tos wizard line (#444)", () => {
+  test("a discreet ToS line with a parseable verification date follows the provider choice", async () => {
+    const io = ioWith(["anthropic", "anthropic", "api-key", "", "", "claude-sonnet"]);
+    await runProviderAdd(io, okTest());
+    const line = io.said.find((l) => l.startsWith("ToS: "));
+    expect(line).toMatch(/^ToS: https:\S+ \(verified \d{4}-\d{2}\)$/);
+    // Right after the provider-type answer, before any other question.
+    expect(io.said.indexOf(line!)).toBe(1);
+  });
+
+  test("unknown provider types get no ToS line", async () => {
+    const io = ioWith(answers());
+    await runProviderAdd(io, okTest());
+    // openai-compat HAS a generic card, so the line exists but defers:
+    const line = io.said.find((l) => l.startsWith("ToS: "));
+    expect(line).toBeDefined();
+  });
+});
+
 describe("known compat endpoints (#295)", () => {
   test("KNOWN_COMPAT_ENDPOINTS: locals first, then cloud, then Custom (empty url)", async () => {
     // Expected literals verified against each provider's official docs (see

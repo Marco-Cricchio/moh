@@ -16,6 +16,7 @@ import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
 import { knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
+import { tosWizardLine } from "./tos-cards";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
@@ -120,6 +121,10 @@ export async function runProviderAdd(
   options: ProviderAddOptions = {},
 ): Promise<EndpointProfile> {
   const type = await askOneOf(io, `Provider type (${BUILTIN_PROVIDER_TYPES.join(" | ")})`, [...BUILTIN_PROVIDER_TYPES]);
+  // #444: one discreet ToS line right after the provider choice — the link
+  // plus the verification date. Unknown/custom types have no bundled card.
+  const tosLine = tosWizardLine(type);
+  if (tosLine) await io.info(tosLine);
   const nameDefault = slugify(type);
   let name = slugify(await io.ask(`Endpoint name [${nameDefault}]: `));
   if (name === "") name = nameDefault;
