@@ -168,6 +168,14 @@ import {
   type PublishHandoffResult,
 } from "./handoff-transport";
 import { createGistHandoffTransport, handoffGistTag, type GhRunner } from "./handoff-gist";
+import {
+  discoverHandoff,
+  isHandoffStale,
+  handoffSeedPrompt,
+  handoffSeedMessage,
+  type HandoffOffer,
+  type DiscoverHandoffOptions,
+} from "./handoff-reception";
 import { HandoffRunner, transportActive } from "./handoff";
 import {
   loadMergedConfig,
@@ -495,6 +503,13 @@ export {
   createGistHandoffTransport,
   handoffGistTag,
   type GhRunner,
+  // Reception (T3 #436): discovery/newest-wins/stale/seed surfaces.
+  discoverHandoff,
+  isHandoffStale,
+  handoffSeedPrompt,
+  handoffSeedMessage,
+  type HandoffOffer,
+  type DiscoverHandoffOptions,
   type SessionConfig,
   type AssemblyError,
   type AssemblyErrorKind,
