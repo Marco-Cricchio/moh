@@ -12,7 +12,7 @@ import {
   useViewport,
 } from "./viewport";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
-import { MOH_VERSION } from "@moh/core";
+import { MOH_VERSION, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 import { skillUpdateNoticeText } from "./update-poll";
@@ -22,6 +22,12 @@ export function updateNoticeText(notice: UpdateNotice): string {
   return notice.kind === "available"
     ? `moh ${notice.latestVersion} available — run \`moh update\``
     : `non-stable (dev) version — run \`moh update\``;
+}
+
+/** The handoff row's timestamp source (T3 #436). */
+function offerAt(offer: Extract<HandoffOffer, { status: "offer" }>): number {
+  const parsed = Date.parse(offer.payload.updatedAt);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 export interface HomeProps {
@@ -40,6 +46,10 @@ export interface HomeProps {
   updateNotice?: UpdateNotice | null;
   /** #348: discovered skill updates — persistent notice line. */
   skillUpdateCount?: number;
+  /** T3 #436: a newer handoff discovered from another machine. */
+  handoff?: HandoffOffer | null;
+  /** Opens the seeded session from the discovered handoff (T3 #436). */
+  onOpenHandoff?: (offer: Extract<HandoffOffer, { status: "offer" }>) => void;
   /** Version shown under the logo (#292; defaults to MOH_VERSION). */
   version?: string;
 }
@@ -51,7 +61,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -64,11 +74,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   const [cursor, setCursor] = useState(0);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
   const hits = sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
+  // Row 0 is always "New session" (or "start <query>"); row 1 is the
+  // handoff offer when present (T3 #436); rows after are the hits.
+  const handoffRow = handoff?.status === "offer" && onOpenHandoff ? 1 : -1;
   // Row 0 is always "New session" (or "start <query>"); rows 1..n are hits.
-  const totalRows = 1 + hits.length;
+  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + hits.length;
   // A narrower filter can leave the cursor past the end: clamp in render.
   const cursorRow = Math.min(cursor, totalRows - 1);
-  const hitIndex = cursorRow - 1; // -1 = the new-session row
+  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0); // < 0 = new-session/handoff rows
   const win = windowing(hits.length, Math.max(hitIndex, 0), visibleListHeight(listMax, viewport.rows));
 
   useInput((input, key) => {
@@ -78,10 +91,16 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     if (key.downArrow) return setCursor((c) => Math.min(totalRows - 1, Math.max(c, 0) + 1));
     if (key.return || input === "\n") {
       if (cursorRow === 0) return onOpen(null, query.trim() || undefined);
+      if (cursorRow === handoffRow && handoff?.status === "offer" && onOpenHandoff) {
+        if (query) return setQuery(""); // guard: enter while typing selects the query, not the handoff
+        return onOpenHandoff(handoff);
+      }
       const hit = hits[hitIndex];
       if (hit) return onOpen(hit);
       return;
     }
+    if (input === "h" && query === "" && handoffRow >= 0 && handoff?.status === "offer" && onOpenHandoff)
+      return onOpenHandoff(handoff);
     if (input === "n" && query === "") return onOpen(null);
     if (input === "s" && query === "" && onOpenSettings) return onOpenSettings();
     if (input === "?" && query === "" && onOpenCommands) return onOpenCommands();
@@ -107,6 +126,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         <Text color={cursorRow === 0 ? theme.bg : theme.accent} backgroundColor={cursorRow === 0 ? theme.accent : undefined}>
           {` ${cursorRow === 0 ? ic("›", ">") : " "} ${query.trim() ? `start “${truncate(query.trim(), boxW - 16)}”` : "New session"}` + (cursorRow === 0 ? " " : "")}
         </Text>
+        {handoff?.status === "offer" && onOpenHandoff ? (
+          <Text
+            color={cursorRow === handoffRow ? theme.bg : theme.warn}
+            backgroundColor={cursorRow === handoffRow ? theme.warn : undefined}
+          >
+            {` ${cursorRow === handoffRow ? ic("›", ">") : " "} ⤴ session handoff from another machine (${new Date(offerAt(handoff)).toISOString().slice(0, 16).replace("T", " ")} UTC)${handoff.stale ? " · stale" : ""}`}
+          </Text>
+        ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
         {hits.slice(win.start, win.start + win.count).map((s, i) => {
           const selected = win.start + i === hitIndex;
