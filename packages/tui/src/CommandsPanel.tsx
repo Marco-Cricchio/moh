@@ -11,7 +11,7 @@ import { useViewport } from "./viewport";
  * Height-aware (#64): on short terminals the flattened list scrolls
  * (↑↓) inside a cursor-free window with more-indicators.
  */
-const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, string]> }> = [
+export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string, string]> }> = [
   {
     area: "Chat",
     keys: [
