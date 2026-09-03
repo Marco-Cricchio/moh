@@ -90,6 +90,26 @@ describe("buildRawHandoff", () => {
     expect(h.git).toEqual({}); // not a git repo: fields absent, never fake
   });
 
+  test("records successful Wayfinder claims and message citations without tool output", () => {
+    const h = buildRawHandoff([
+      { type: "user_message", text: "continue #42 and https://github.com/o/r/issues/43" },
+      { type: "tool_call", callId: "claim", name: "tracker_claim", args: { id: "42" } },
+      { type: "tool_result", callId: "claim", ok: true, output: "claimed #42" },
+      { type: "tool_call", callId: "failed", name: "tracker_claim", args: { id: "99" } },
+      { type: "tool_result", callId: "failed", ok: false, output: "#98 must stay private" },
+      { type: "assistant_delta", text: "working on #42" },
+    ] as any, "s", 1, tmpDir("links"), new Date(), {});
+    expect(h.wayfinderLinks).toEqual([
+      { id: "42", relations: ["mentioned", "claimed"] },
+      { id: "43", relations: ["mentioned"] },
+    ]);
+  });
+
+  test("does not treat non-GitHub issue URLs as ticket citations", () => {
+    const h = buildRawHandoff([{ type: "user_message", text: "https://gitlab.com/o/r/-/issues/77" }] as any, "s", 1, tmpDir("non-github-link"), new Date(), {});
+    expect(h.wayfinderLinks).toBeUndefined();
+  });
+
   test("caps messages, files and tests", () => {
     const dir = tmpDir("caps");
     const events: any[] = [{ type: "user_message", text: "x".repeat(2000) }];

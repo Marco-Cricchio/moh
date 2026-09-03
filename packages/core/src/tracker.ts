@@ -16,6 +16,8 @@ export interface TrackerIssue {
   /** Backend-stable id (number as string for gh/gitlab, slug for local). */
   id: string;
   title: string;
+  /** Canonical browser URL when the backend exposes one. */
+  url?: string;
   state: "open" | "closed";
   labels: string[];
   /** Assignees; non-empty means "claimed". */
@@ -27,6 +29,11 @@ export interface TrackerIssue {
 export interface TrackerBackend {
   readonly kind: "gh" | "gitlab" | "local-markdown";
   list(): Promise<TrackerIssue[]>;
+  /** Exact Wayfinder map snapshot for linked tickets, when the backend
+   * exposes map membership and dependency state. Read-only. */
+  wayfinderSnapshot?(linkedIds: string[]): Promise<WayfinderSnapshot | null>;
+  /** Explicit user-requested tracker write; never used by automatic handoff. */
+  comment?(id: string, body: string): Promise<void>;
   /** Assigns the current user to an open issue. */
   claim(id: string): Promise<void>;
   /** Removes the current user's assignment (idempotent for others'). */
@@ -34,6 +41,12 @@ export interface TrackerBackend {
 }
 
 /** Injectable process runner (tests); default: `Bun.spawn`. */
+export interface WayfinderSnapshot {
+  /** The map that owns all tickets in this snapshot. */
+  mapId: string;
+  issues: TrackerIssue[];
+}
+
 export type ShellRunner = (cmd: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export const defaultRunner: ShellRunner = async (cmd) => {
@@ -50,6 +63,7 @@ function ghIssueToTracker(raw: any): TrackerIssue {
   return {
     id: String(raw.number ?? raw.id ?? ""),
     title: String(raw.title ?? ""),
+    ...(typeof raw.url === "string" ? { url: raw.url } : {}),
     // `gh --json` emits uppercase states (OPEN/CLOSED); normalize here so
     // a closed issue can never project as open.
     state: String(raw.state ?? "").toLowerCase() === "closed" ? "closed" : "open",
@@ -67,10 +81,45 @@ export function ghTracker(repo: string, run: ShellRunner = defaultRunner): Track
     async list() {
       const res = await run([
         "gh", "issue", "list", "--repo", repo, "--state", "all", "--limit", "200",
-        "--json", "number,title,state,labels,assignees",
+        "--json", "number,title,url,state,labels,assignees",
       ]);
       if (res.code !== 0) throw new Error(`gh issue list failed: ${res.stderr.trim()}`);
       return (JSON.parse(res.stdout) as any[]).map(ghIssueToTracker);
+    },
+    async wayfinderSnapshot(linkedIds) {
+      if (linkedIds.length === 0) return null;
+      // GitHub's sub-issue and dependency APIs are the canonical Wayfinder
+      // representation (docs/agents/issue-tracker.md). All linked tickets
+      // must share one parent map; otherwise there is no honest frontier.
+      const parents = await Promise.all(linkedIds.map(async (id) => {
+        const res = await run(["gh", "api", `repos/${repo}/issues/${id}/parent`]);
+        if (res.code !== 0) return null;
+        try { return { id, parent: JSON.parse(res.stdout) as { number?: number } }; } catch { return null; }
+      }));
+      // A session may mention ordinary issues alongside Wayfinder work. Keep
+      // the first map-backed ticket and ignore links outside that one map.
+      const mapId = parents.find((entry) => entry?.parent.number)?.parent.number;
+      if (!mapId) return null;
+      const children = await run(["gh", "api", `repos/${repo}/issues/${mapId}/sub_issues`, "--paginate", "--slurp"]);
+      if (children.code !== 0) return null;
+      try {
+        const pages = JSON.parse(children.stdout) as any[][];
+        const raw = Array.isArray(pages) ? pages.flat() : [];
+        if (!raw.length && !Array.isArray(pages)) return null;
+        return {
+          mapId: String(mapId),
+          issues: raw.map((issue) => ({ 
+            ...ghIssueToTracker(issue),
+            blockedBy: Array.from({ length: Number(issue.issue_dependencies_summary?.blocked_by ?? 0) }, (_, i) => `open-${i}`),
+          })),
+        };
+      } catch {
+        return null;
+      }
+    },
+    async comment(id, body) {
+      const res = await run(["gh", "issue", "comment", id, "--repo", repo, "--body", body]);
+      if (res.code !== 0) throw new Error(`gh issue comment failed: ${res.stderr.trim()}`);
     },
     async claim(id) {
       const res = await run(["gh", "issue", "edit", id, "--repo", repo, "--add-assignee", "@me"]);

@@ -59,6 +59,9 @@ export interface PublishHandoffOptions {
   /** The raw artifact file (#434): `<mohHome>/projects/<slug>/handoff.json`. */
   artifactFile: string;
   transport: HandoffTransport;
+  /** Best-effort read-only payload enrichment (T6). A failure leaves the
+   * raw payload publishable; automatic handoff never depends on it. */
+  enrich?: (payload: RawHandoff) => Promise<RawHandoff>;
   /** Exit budget share for the whole publish. Default: 2000ms. */
   timeoutMs?: number;
   /** Artifact read override (tests). */
@@ -82,12 +85,26 @@ export async function publishHandoffAtExit(options: PublishHandoffOptions): Prom
     payload = undefined;
   }
   if (!payload) return { ok: false, error: { reason: "no-artifact" } };
+  // Enrichment is optional but must share the exit budget with transport:
+  // a slow tracker can never hold the bounded interactive exit path.
+  const budget = options.timeoutMs ?? 2_000;
+  const started = Date.now();
+  if (options.enrich) {
+    try {
+      // Reserve most of the budget for the actual transport so a slow
+      // tracker degrades to the raw payload instead of suppressing publish.
+      const enriched = await deadline(options.enrich(payload), Math.min(500, Math.floor(budget / 4)));
+      if (enriched !== "timeout") payload = enriched;
+    } catch { /* raw fallback */ }
+  }
+  const remaining = budget - (Date.now() - started);
+  if (remaining <= 0) return { ok: false, error: { reason: "timeout" } };
   const raced = await deadline(
     options.transport.publish(payload).catch((e: unknown): { ok: false; error: HandoffTransportError } => ({
       ok: false,
       error: { reason: "failed", message: e instanceof Error ? e.message : String(e) },
     })),
-    options.timeoutMs ?? 2_000,
+    remaining,
   );
   if (raced === "timeout") return { ok: false, error: { reason: "timeout" } };
   return raced;

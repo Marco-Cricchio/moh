@@ -140,6 +140,17 @@ export function handoffSeedPrompt(offer: Extract<HandoffOffer, { status: "offer"
       ],
     ) +
     section("Git anchor", anchorLines) +
+    section(
+      "Wayfinder",
+      p.wayfinder
+        ? [
+            ...p.wayfinder.tickets.map((ticket) =>
+              `${ticket.relations.join(" + ")}: ${ticket.url ? `[${ticket.title}](${ticket.url})` : `#${ticket.id} ${ticket.title}`}`,
+            ),
+            `frontier: ${p.wayfinder.frontier.ready} ready · ${p.wayfinder.frontier.inProgress} in progress · ${p.wayfinder.frontier.blocked} blocked`,
+          ]
+        : [],
+    ) +
     section("Files touched (first-seen order)", p.files) +
     section("Test commands run", p.tests);
   return { name: "handoff-context", text };

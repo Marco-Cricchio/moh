@@ -11,10 +11,12 @@ import {
   SessionStore,
   builtinTools,
   loadMergedConfig,
+  resolveTracker,
   resolveTrackerSync,
   trackerTools,
   sessionFromConfig,
   HandoffRunner,
+  enrichHandoffWithWayfinder,
   createGistHandoffTransport,
   publishHandoffAtExit,
   transportActive,
@@ -151,6 +153,7 @@ export function handoffPublishWork(
   return publishHandoffAtExit({
     artifactFile: HandoffRunner.artifactFile(cwd, join(home ?? homedir(), ".moh")),
     transport: createGistHandoffTransport({ cwd, home }),
+    enrich: async (payload) => enrichHandoffWithWayfinder(payload, await resolveTracker({ cwd })),
   }).then((result) => {
     if (!result.ok) onWarning(handoffWarning(result.error));
   });

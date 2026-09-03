@@ -216,6 +216,20 @@ describe("handoffSeedPrompt", () => {
     expect(prompt.text).toContain("STALE");
     expect(prompt.text).toContain("git diff");
   });
+
+  test("renders cited Wayfinder tickets and the exact map frontier", () => {
+    const offer = offered(false);
+    offer.payload.wayfinder = {
+      tickets: [
+        { id: "42", title: "Chart route", url: "https://github.com/o/r/issues/42", relations: ["claimed", "mentioned"] },
+      ],
+      frontier: { ready: 2, inProgress: 1, blocked: 3 },
+    };
+    const prompt = handoffSeedPrompt(offer);
+    expect(prompt.text).toContain("## Wayfinder");
+    expect(prompt.text).toContain("claimed + mentioned: [Chart route](https://github.com/o/r/issues/42)");
+    expect(prompt.text).toContain("frontier: 2 ready · 1 in progress · 3 blocked");
+  });
 });
 
 describe("handoffSeedMessage", () => {

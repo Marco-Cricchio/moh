@@ -95,6 +95,19 @@ describe("publishHandoffAtExit", () => {
     expect(Date.now() - start).toBeLessThan(1_000);
   });
 
+  test("a slow Wayfinder enrichment falls back to raw and stays within the exit budget", async () => {
+    const { file, handoff } = artifact(true);
+    const captured: { payload?: HandoffPayload } = {};
+    const result = await publishHandoffAtExit({
+      artifactFile: file,
+      transport: okTransport(captured),
+      timeoutMs: 100,
+      enrich: async () => new Promise<RawHandoff>((resolve) => setTimeout(() => resolve({ ...handoff, turns: 9 }), 1_000)),
+    });
+    expect(result.ok).toBe(true);
+    expect(captured.payload).toEqual(handoff);
+  });
+
   test("a rejecting transport surfaces as failed, not a throw", async () => {
     const { file } = artifact(true);
     const throwing: HandoffTransport = {

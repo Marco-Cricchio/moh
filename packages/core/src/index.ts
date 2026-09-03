@@ -153,6 +153,7 @@ export {
 import {
   trackerTools,
   projectFrontier,
+  resolveTracker,
   resolveTrackerSync,
   type TrackerIssue,
   type TrackerBackend,
@@ -176,6 +177,7 @@ import {
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
 import { HandoffRunner, transportActive } from "./handoff";
+import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
 import {
   loadMergedConfig,
   readUserProviderConfig,
@@ -473,6 +475,7 @@ export {
   UpdateNotice,
   trackerTools,
   projectFrontier,
+  resolveTracker,
   resolveTrackerSync,
   readUserConfigFile,
   updateUserConfigFile,
@@ -504,10 +507,12 @@ export {
   spawnGh,
   handoffGistTag,
   type GhRunner,
-  // Reception (T3 #436): discovery/newest-wins/stale/seed surfaces.
+  // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
   handoffSeedPrompt,
   handoffSeedMessage,
+  enrichHandoffWithWayfinder,
+  notifyClaimedWayfinderTickets,
   type HandoffOffer,
   type DiscoverHandoffOptions,
   type SessionConfig,
