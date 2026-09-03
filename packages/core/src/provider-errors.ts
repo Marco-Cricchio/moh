@@ -25,7 +25,9 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
   if (typeof anyErr?.statusCode === "number") {
     return new ProviderError(
       classifyStatus(anyErr.statusCode, anyErr.responseBody ?? "", anyErr.message ?? ""),
-      describe(err),
+      // #404: the AI SDK stream may surface the error as a plain object
+      // without a string message — fall back to the responseBody hint.
+      describe(err) === describeFallback(anyErr) ? extractBodyHint(anyErr.responseBody) ?? describe(err) : describe(err),
     );
   }
 
@@ -43,7 +45,41 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
 }
 
 function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  if (err instanceof Error) return err.message;
+  // #404: the AI SDK stream may surface the error as a plain object
+  // without a string message — String() would render it "[object Object]".
+  const msg = (err as { message?: unknown } | null)?.message;
+  if (typeof msg === "string" && msg.length > 0) return msg;
+  return String(err);
+}
+
+/** #404: the description a plain object without a message would produce. */
+function describeFallback(anyErr: { message?: string }): string {
+  const msg = anyErr?.message;
+  if (typeof msg === "string" && msg.length > 0) return msg;
+  return "[object Object]";
+}
+
+/** #404: pull a human-readable message out of a provider error body. */
+function extractBodyHint(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { message?: unknown; param?: unknown } | Array<{ message?: unknown }>;
+      message?: unknown;
+      detail?: unknown;
+    };
+    const inner = Array.isArray(parsed.error) ? parsed.error[0] : parsed.error;
+    const candidate = inner?.message ?? parsed.message ?? parsed.detail;
+    if (typeof candidate === "string" && candidate.length > 0) {
+      const param = typeof inner?.param === "string" ? inner.param : undefined;
+      return param && !candidate.includes(param) ? `${candidate} (param: ${param})` : candidate;
+    }
+  } catch {
+    // Not JSON: use a truncated body as the hint.
+  }
+  if (body.length > 0) return body.length > 300 ? `${body.slice(0, 300)}…` : body;
+  return undefined;
 }
 
 /** Status-code classification, with body hints and 429 disambiguation. */
