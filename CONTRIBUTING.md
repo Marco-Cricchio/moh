@@ -1,6 +1,8 @@
 # Contributing to moh
 
-Thanks for contributing! This file covers the human-facing basics; **agent-facing conventions live in [AGENTS.md](AGENTS.md)** — when the two overlap, AGENTS.md wins.
+Thanks for contributing! This file covers the human-facing basics; agent-facing
+conventions live in `AGENTS.md` (scaffolded per-project with `moh init`) — when
+the two overlap, `AGENTS.md` wins.
 
 ## Setup
 
@@ -22,7 +24,7 @@ No API keys are required to develop or test: the mock and echo providers cover t
 ## Conventions
 
 - Read [docs/principles.md](docs/principles.md) before any change; violations need an ADR.
-- Domain vocabulary: [CONTEXT.md](CONTEXT.md) (glossary-only, kept current).
+- Domain vocabulary lives in a project-local `CONTEXT.md` (glossary-only, kept current) — scaffolded by `moh init`; this repo keeps its own copy out of version control.
 - Hard-to-reverse decisions get an ADR in `docs/adr/`.
 - Code comments and docs in English; keep them explaining *why*, not *what*.
 - Tests: targeted event-trace assertions, not snapshots. Use `MockProvider` (scripted turns / cassettes) and `EchoProvider` (context-engineering digest) — never real API calls in CI.

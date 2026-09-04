@@ -1,51 +1,61 @@
+<div align="center">
+
+<img src="docs/assets/logo.png" alt="moh logo" width="420" />
+
 # moh
 
-A provider-agnostic, headless-first coding agent in TypeScript on Bun, with the
-Matt Pocock workflow integrated natively as an optional mode.
+**Your terminal, with a coding agent inside.**
 
-moh is a monorepo of four packages built around one rule: **all agent logic
-lives in the headless core; every client is thin.**
+[![Release](https://img.shields.io/github/v/release/Marco-Cricchio/moh?display_name=tag&sort=semver&label=version&color=blue)](https://github.com/Marco-Cricchio/moh/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-| Package | What it is |
-| --- | --- |
-| `@moh/core` | The agent loop, append-only event log, providers, permissions, skills, memory, subagents, extensions. No UI, no global state. |
-| `@moh/tui` | The Ink terminal client. Never talks to providers directly. |
-| `@moh/cli` | `moh` binary: interactive entry, `moh run` (headless, fail-fast), `moh init`. |
-| `@moh/extension` | Types-only contract for extensions. |
+*Open source · MIT licensed · Runs on macOS and Linux · No Node, no Bun, no npm required*
+
+</div>
+
+---
+
+## What is moh?
+
+moh is a coding agent that lives in your terminal: you describe what you want
+in plain language, and moh reads your code, edits files, runs commands, and
+gets the work done — showing you every step and asking permission before
+anything risky.
+
+Three things make it different:
+
+- **It works with the AI provider you choose.** Anthropic, OpenAI, Google,
+  GitHub Copilot, OpenRouter, Kimi, xAI — and local models too (Ollama, LM
+  Studio), all through one configuration. If a provider goes down, moh falls
+  back to the next one on your list. Your agent setup is never locked to a
+  single vendor.
+- **Your data stays yours.** Sessions, memory, and notes live in a plain
+  append-only log on your machine (`~/.moh/`) — nothing is ever deleted, and
+  you can resume, fork, or compact any session at any time.
+- **It asks before it acts.** A layered permission system gates every file
+  write and every shell command; extensions can veto actions but can never
+  grant more than you allowed.
 
 ## Highlights
 
-- **The event log is the session.** One append-only JSONL sequence of
-  `AgentEvent`s per session; streaming, persistence, resume, fork, compaction
-  and the TUI are all projections of it. Nothing is ever deleted.
-- **Providers are single-shot and provider-neutral.** moh owns the loop,
-  retries and fallback across declared route chains. Built-in anthropic, openai
-  and google adapters, config-only `openai-compat` profiles (Ollama, LM Studio,
-  DeepSeek, OpenRouter, …) and programmatic `registerProvider`.
-- **3-tier permission spine** (defaults < `moh.json` < runtime rules) that only
-  narrows; extensions can veto tool calls but never widen permissions.
-- **Workflow mode** (`/workflow on|off`): bundles faithful ports of the Matt
-  Pocock skill set (wayfinder, grilling, to-spec, to-tickets, tdd, code-review,
-  …) as user-owned first-party skills with an upstream update channel, plus
-  the `ask_user` tool for accompanied questions with recommended answers —
-  and `gh-manager` for declarative GitHub repository management
-  (`repos.yaml` → plan → consent-gated apply), ported from
-  [gh-manager](https://github.com/ddlaws0n/gh-manager) by David Lawson
-  ([@ddlaws0n](https://github.com/ddlaws0n)) under its MIT license.
-- **Skills, subagents, memory, MCP.** Progressive-disclosure skills, in-process
-  subagents with strict tool inheritance, cross-session per-project memory
-  consolidated by a maintenance subagent, lazy MCP servers.
-- **Update check** (ADR-0014): while a TUI session is open, moh polls for
-  updates every 30 minutes — the binary against GitHub's `releases/latest`
-  API, and the first-party skills against the skills upstream index — and
-  surfaces a notice on the status bar (plus the `moh update` / `/skills
-  update` remedies). The checks carry no identifiers, the binary check is
-  skipped in dev runs, and both can be disabled with
-  `"updateCheck": false` in `~/.moh/config` (the former
-  `workflow.upstreamCheck` gate is deprecated — see ADR-0014). Network
-  failures are always silent — they never delay startup, and polling never
-  installs anything: skill updates always require the explicit
-  `/skills update apply` consent.
+- **Terminal UI (TUI)** — a fast, keyboard-driven interface with file
+  mentions (`@path`), image previews, session picker, and guided provider
+  onboarding. Or go headless with `moh run` for scripts and CI — no prompts,
+  fail-fast.
+- **Workflow mode** — an optional first-party port of the Matt Pocock agent
+  workflow (wayfinder, grilling, to-spec, to-tickets, tdd, code-review, …)
+  plus declarative GitHub repo management (`gh-manager`). One command to
+  turn it on: `/workflow on`.
+- **Skills** — progressive-disclosure capabilities you can author yourself;
+  bundled ones are user-owned and only upgraded when you haven't modified
+  them.
+- **Memory** — durable, per-project facts kept across sessions, written
+  automatically after each turn and consolidated in the background.
+- **Subagents & MCP** — in-process subagents with strict tool inheritance,
+  and Model Context Protocol servers configured lazily per project.
+- **Always up to date** — moh quietly checks for new releases and skill
+  updates while you work (never installing anything without your explicit
+  consent; fully disableable).
 
 ## Install
 
@@ -94,6 +104,18 @@ Scaffold agent docs for your repo (AGENTS.md + `docs/agents/` tracker layout):
 moh init
 ```
 
+## How it's built
+
+moh is a monorepo of four packages built around one rule: **all agent logic
+lives in the headless core; every client is thin.**
+
+| Package | What it is |
+| --- | --- |
+| `@moh/core` | The agent loop, append-only event log, providers, permissions, skills, memory, subagents, extensions. No UI, no global state. |
+| `@moh/tui` | The Ink terminal client. Never talks to providers directly. |
+| `@moh/cli` | `moh` binary: interactive entry, `moh run` (headless, fail-fast), `moh init`. |
+| `@moh/extension` | Types-only contract for extensions. |
+
 ## Hack on moh
 
 The repo builds and tests with Bun:
@@ -114,9 +136,7 @@ saying why. Decisions are recorded, not implied: see `docs/adr/`.
   core as a library, authoring skills
 - `docs/provider-reasoning.md` — provider reasoning privacy, persistence,
   display controls, and thinking-level availability
-- `docs/spec/v1.md` — the consolidated v1 specification
 - `docs/principles.md` — the seven principles governing every change
-- `CONTEXT.md` — glossary of the domain model
 - `docs/adr/` — architecture decision records
 - `CONTRIBUTING.md` — conventions for contributors and forkers
 
