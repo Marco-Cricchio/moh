@@ -23,6 +23,8 @@ async function homeWithSessions(n: number): Promise<{ cwd: string; home: string 
     });
     // Await the send: a fire-and-forget send races the Home read on slow CI (#361 flake).
     await session.send(`title s${i}`);
+    // #478: release the open-session registration so delete tests can trash it.
+    store.dispose();
   }
   return { cwd, home };
 }
@@ -334,6 +336,77 @@ describe("session rename (#477) — edges", () => {
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("rename:");
+    i.unmount();
+  });
+});
+
+describe("session delete (#478)", () => {
+  test("d enters the confirm, default No (enter/n), y deletes and refreshes", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("d");
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Delete?");
+    // Default No: enter cancels, the row stays.
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(listSessionSummaries(cwd, home).length).toBe(1);
+    // Confirm with y.
+    i.stdin.write("d");
+    await sleep(30);
+    i.stdin.write("y");
+    await sleep(30);
+    expect(listSessionSummaries(cwd, home).length).toBe(0);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("title s1");
+    i.unmount();
+  });
+
+  test("esc cancels the delete", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("d");
+    await sleep(30);
+    i.stdin.write("\x1b");
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("Delete?");
+    expect(listSessionSummaries(cwd, home).length).toBe(1);
+    i.unmount();
+  });
+
+  test("the deleted pertinent banner row disappears on refresh", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("▸"); // pertinent banner
+    i.stdin.write("d"); // cursor pre-selects the banner row
+    await sleep(30);
+    i.stdin.write("y");
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("▸");
+    i.unmount();
+  });
+
+  test("the handoff row never enters the delete confirm", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-handoff-del-"));
+    const offer: any = {
+      status: "offer",
+      source: { machine: "other", project: "p" },
+      payload: { slug: "p", sessionId: "s", updatedAt: new Date().toISOString(), synthesis: "syn", transcript: [] },
+      path: "/tmp/x.json",
+      stale: false,
+    };
+    const i = render(
+      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
+    );
+    await sleep(60);
+    i.stdin.write("\x1b[B"); // down to the handoff row
+    await sleep(20);
+    i.stdin.write("d");
+    await sleep(30);
+    // falls through: the query buffer absorbs "d", no confirm opens
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("Delete?");
     i.unmount();
   });
 });
