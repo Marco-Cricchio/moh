@@ -23,6 +23,19 @@ the session: an in-log `compaction` marker stores a summary with
 pointers, and replay uses the marker instead of replaying everything
 covered by it. The log stays integral forever — nothing is ever deleted.
 
+Compaction is automatic: when a turn's measured input crosses 80% of
+the active model's context window (or 180k tokens when the window is
+unknown), a background summarizer distills the covered past — task
+state, decisions, next steps — into a marker, keeping the last 10 turns
+verbatim. The next turn starts against the rebuilt context.
+
+You can also force it:
+
+- `/compact` — in-session (TUI): compacts now, same producer.
+- `moh compact [--session <file>]` — from the shell: opens a closed
+  session file, compacts it, and closes it again. Compacting never
+  consumes the session: it is still suggested and resumable as usual.
+
 ## Why two mechanisms
 
 Compaction answers "what happened earlier *in this conversation*";

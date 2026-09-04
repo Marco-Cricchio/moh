@@ -6,13 +6,11 @@ minMohVersion: 0.1.0
 
 # Session Memory
 
-Keep structured session notes at `~/.moh/projects/<project-slug>/session.md`, in the same project directory moh uses for session files and memory.
-
-The `<project-slug>` is resolved by the Core from `.moh/project.json`. It is stable across checkouts that carry the same identity file; do not derive it from the working-directory path.
+Keep structured session notes at `session.md` in the project directory moh supplies in the prompt environment (`Session notes:` line under `## Environment`). Use exactly that path — never recompute the project slug from the working directory.
 
 ## Path setup
 
-Use the session directory already supplied by moh. If it is not available, ask the user for the intended session file rather than recreating the slug calculation manually.
+Read the `Session notes:` path from the prompt environment. If it is not available, ask the user for the intended session file rather than recreating the slug calculation manually.
 
 ## Structured template
 

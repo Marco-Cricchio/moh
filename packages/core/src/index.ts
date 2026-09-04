@@ -37,7 +37,24 @@ import type {
   ThinkingLevel,
   Tool,
 } from "./types";
-import { SessionStore, listSessionSummaries, type SessionSummary } from "./session-store";
+import {
+  SessionStore,
+  listSessionSummaries,
+  // #477: session rename — the ADR-0004 reopening that lets clients (TUI
+  // Home picker, `moh sessions rename`) append the `session_renamed` event.
+  renameSession,
+  // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
+  // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
+  deleteSession,
+  restoreSession,
+  listTrashedSessions,
+  type TrashedSessionSummary,
+  type SessionSummary,
+  // #467: session-notes path primitives — the ADR-0004 reopening that lets
+  // clients resolve the canonical project directory without recomputing the slug.
+  projectSlug,
+  projectSessionsDir,
+} from "./session-store";
 import {
   formatRule,
   overridesFromFlags,
@@ -49,6 +66,7 @@ import {
 } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
+import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 import { type SubagentOptions } from "./subagents";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
@@ -448,7 +466,18 @@ export {
   type SkillPrompt,
   SessionStore,
   listSessionSummaries,
+  renameSession,
+  // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
+  // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
+  deleteSession,
+  restoreSession,
+  listTrashedSessions,
+  type TrashedSessionSummary,
   type SessionSummary,
+  // #467: session-notes path primitives — the ADR-0004 reopening that lets
+  // clients resolve the canonical project directory without recomputing the slug.
+  projectSlug,
+  projectSessionsDir,
   splitCommandSegments,
   formatRule,
   parseRule,
@@ -550,6 +579,10 @@ export {
   type PermissionRule,
   type ProviderRegistry,
   type MemoryOptions,
+  CompactionRunner,
+  type CompactionOptions,
+  type CompactionSummarizer,
+  type CompactionSummarizerInput,
   type SubagentOptions,
   type McpServerEntry,
   type McpRuntimeOptions,

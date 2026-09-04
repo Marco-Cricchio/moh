@@ -164,4 +164,32 @@ describe("PromptComposer", () => {
     const d = composer.compose(baseCtx({ now: new Date("2026-02-15T00:00:00Z") }));
     expect(d.version).not.toBe(a.version); // date is part of the prompt
   });
+
+  test("environment section renders the session-notes path under the resolved project slug (#467)", () => {
+    const projectDir = tmp();
+    // Declare the identity explicitly so the slug is deterministic.
+    mkdirSync(join(projectDir, ".moh"), { recursive: true });
+    writeFileSync(join(projectDir, ".moh", "project.json"), `${JSON.stringify({ id: "467-identity" })}\n`);
+    const composer = new PromptComposer({ projectDir, mohHome: tmp() });
+    const env = composer.sections.environment(baseCtx({ cwd: projectDir }));
+    expect(env).toMatch(/- Session notes: .+\/projects\/project-[0-9a-f]{16}\/session\.md$/m);
+    // No path re-computation hint for the skill: the Core renders the path.
+    expect(env).not.toContain("<project-slug>");
+  });
+
+  test("two projects with different declared identities get different session-notes paths", () => {
+    const dirA = tmp();
+    const dirB = tmp();
+    mkdirSync(join(dirA, ".moh"), { recursive: true });
+    mkdirSync(join(dirB, ".moh"), { recursive: true });
+    writeFileSync(join(dirA, ".moh", "project.json"), `${JSON.stringify({ id: "shared-id" })}\n`);
+    writeFileSync(join(dirB, ".moh", "project.json"), `${JSON.stringify({ id: "other-id" })}\n`);
+    const composerA = new PromptComposer({ projectDir: dirA, mohHome: tmp() });
+    const composerB = new PromptComposer({ projectDir: dirB, mohHome: tmp() });
+    const pathA = composerA.sections.environment(baseCtx({ cwd: dirA })).match(/Session notes: (.+)$/m)?.[1];
+    const pathB = composerB.sections.environment(baseCtx({ cwd: dirB })).match(/Session notes: (.+)$/m)?.[1];
+    expect(pathA).toBeTruthy();
+    expect(pathB).toBeTruthy();
+    expect(pathA).not.toBe(pathB);
+  });
 });

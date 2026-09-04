@@ -11,7 +11,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { listSessionSummaries, type SessionSummary } from "./sessions";
+import { deleteSession, listSessionSummaries, renameSession, type SessionSummary } from "./sessions";
 import { MOH_VERSION, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
@@ -28,6 +28,19 @@ export function updateNoticeText(notice: UpdateNotice): string {
 function offerAt(offer: Extract<HandoffOffer, { status: "offer" }>): number {
   const parsed = Date.parse(offer.payload.updatedAt);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** Relative time for the pertinent-session banner (T3 #470). */
+export function relativeTime(mtimeMs: number, now = Date.now()): string {
+  const diff = now - mtimeMs;
+  if (diff < 60_000) return "adesso";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}g`;
+  return new Date(mtimeMs).toISOString().slice(0, 10);
 }
 
 export interface HomeProps {
@@ -71,30 +84,131 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
   const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
-  const [cursor, setCursor] = useState(0);
+  // Pre-select the pertinent banner row when present (#470): opening it is
+  // the suggested action; the first keystroke moves off it as usual. The
+  // rows are computed below, so the default rides a lazy state initializer
+  // over a ref-free closure: cursor === undefined means "not moved yet".
+  const [cursor, setCursor] = useState<number | null>(null);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
-  const hits = sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
+  // #477 rename: when non-null, the composer area becomes an inline edit
+  // for the display name (prefilled with the current name; Enter confirms,
+  // Esc cancels, Enter on empty resets). Owns input while open.
+  const [renaming, setRenaming] = useState<SessionSummary | null>(null);
+  const [nameBuf, setNameBuf] = useState("");
+  // #478 delete: when non-null, the composer area becomes the inline
+  // `Delete? y/N` confirm (default No; Esc cancels). Owns input while open.
+  const [deleting, setDeleting] = useState<SessionSummary | null>(null);
+  // Rename/delete mutate the session files on disk; summaries are read once,
+  // so a confirmed mutation re-reads them (a version bump invalidates the memo).
+  const [renamesDone, setRenamesDone] = useState(0);
+  const refreshKey = `${cwd}\0${home ?? ""}\0${renamesDone}`;
+  const refreshSessions = React.useCallback(
+    () => listSessionSummaries(cwd, home),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [refreshKey],
+  );
+  const sessionsList = renamesDone > 0 ? refreshSessions() : sessions;
+  // #478: refusal (open session) renders as a visible error line.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const pertinent = useMemo(
+    () => sessionsList.find((s) => !s.consumed && s.title !== "(unreadable session)"),
+    // sessionsList is a fresh array after every confirmed rename, so the
+    // banner follows a rename of the pertinent session too (#477).
+    [sessionsList],
+  );
+  // #477: filter double-match — display name AND derived (first-message)
+  // title both count as hits.
+  const hits = sessionsList.filter((s) => {
+    const q = query.toLowerCase();
+    return s.title.toLowerCase().includes(q) || s.derivedTitle.toLowerCase().includes(q);
+  });
   // Row 0 is always "New session" (or "start <query>"); row 1 is the
   // handoff offer when present (T3 #436); rows after are the hits.
   const handoffRow = handoff?.status === "offer" && onOpenHandoff ? 1 : -1;
-  // Row 0 is always "New session" (or "start <query>"); rows 1..n are hits.
-  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + hits.length;
+  const pertinentRow = pertinent && !query ? (handoffRow >= 0 ? 2 : 1) : -1;
+  const effectiveCursor = cursor ?? (pertinentRow >= 0 ? pertinentRow : 0);
+  // Row 0 is always "New session" (or "start <query>"); row 1 is the
+  // handoff offer when present (T3 #436); row 2 the pertinent banner
+  // (#470); rows after are the hits.
+  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + (pertinentRow >= 0 ? 1 : 0) + hits.length;
   // A narrower filter can leave the cursor past the end: clamp in render.
-  const cursorRow = Math.min(cursor, totalRows - 1);
-  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0); // < 0 = new-session/handoff rows
+  const cursorRow = Math.min(effectiveCursor, totalRows - 1);
+  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0) - (pertinentRow >= 0 ? 1 : 0); // < 0 = new-session/handoff/pertinent rows
   const win = windowing(hits.length, Math.max(hitIndex, 0), visibleListHeight(listMax, viewport.rows));
 
   useInput((input, key) => {
     if (blocked) return;
+    // #477: inline rename edit owns input while open.
+    if (renaming) {
+      if (key.return || input === "\n") {
+        renameSession(renaming.file, nameBuf);
+        setRenamesDone((n) => n + 1);
+        setRenaming(null);
+        setNameBuf("");
+        return;
+      }
+      if (key.escape) {
+        setRenaming(null);
+        setNameBuf("");
+        return;
+      }
+      if (key.backspace || key.delete) return setNameBuf((b) => b.slice(0, -1));
+      if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
+      return;
+    }
+    // #478: inline delete confirm owns input while open. Default No.
+    if (deleting) {
+      if (input === "y" || input === "Y") {
+        try {
+          deleteSession(deleting.file, cwd, home);
+          setRenamesDone((n) => n + 1); // bump the refresh counter: the row vanishes
+        } catch (e) {
+          setDeleteError(e instanceof Error ? e.message : String(e));
+        }
+        setDeleting(null);
+        return;
+      }
+      if (key.return || key.escape || input === "n" || input === "N") {
+        setDeleting(null);
+        return;
+      }
+      return;
+    }
+    // A dismissal clears a stale refusal line; any edit re-arms it.
+    if (deleteError && (key.escape || key.upArrow || key.downArrow)) setDeleteError(null);
     if (input === "q" && query === "") return; // q is just a search char; exit is double ctrl+c (App-level)
-    if (key.upArrow) return setCursor((c) => Math.max(0, Math.min(c, totalRows - 1) - 1));
-    if (key.downArrow) return setCursor((c) => Math.min(totalRows - 1, Math.max(c, 0) + 1));
+    if (key.upArrow) return setCursor(Math.max(0, Math.min(effectiveCursor, totalRows - 1) - 1));
+    if (key.downArrow) return setCursor(Math.min(totalRows - 1, Math.max(effectiveCursor, 0) + 1));
+    // #477: `r` or → on a selected session row (banner or list hit, never
+    // the handoff row) enters the inline rename.
+    const selectedSession =
+      pertinentRow >= 0 && cursorRow === pertinentRow && pertinent
+        ? pertinent
+        : hitIndex >= 0
+          ? hits[hitIndex]
+          : null;
+    // #477 + #478: → opens the action chip for the selected session row —
+    // it enters the rename edit (the r shortcut's behavior, kept stable);
+    // delete stays on its direct `d` shortcut.
+    if ((input === "r" || key.rightArrow) && query === "" && selectedSession) {
+      setRenaming(selectedSession);
+      setNameBuf(selectedSession.title);
+      return;
+    }
+    // #478: `d` on a selected session row (banner or list hit, never the
+    // handoff row) enters the inline delete confirm. → stays rename.
+    if (input === "d" && query === "" && selectedSession) {
+      setDeleteError(null);
+      setDeleting(selectedSession);
+      return;
+    }
     if (key.return || input === "\n") {
       if (cursorRow === 0) return onOpen(null, query.trim() || undefined);
       if (cursorRow === handoffRow && handoff?.status === "offer" && onOpenHandoff) {
         if (query) return setQuery(""); // guard: enter while typing selects the query, not the handoff
         return onOpenHandoff(handoff);
       }
+      if (cursorRow === pertinentRow && pertinent) return onOpen(pertinent);
       const hit = hits[hitIndex];
       if (hit) return onOpen(hit);
       return;
@@ -118,8 +232,23 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
-        <Text>{query || <Dim>search or start something new…</Dim>}</Text>
-        <Text color={theme.dim}>▊</Text>
+        {renaming ? (
+          <>
+            <Text color={theme.accent}>rename: </Text>
+            <Text>{nameBuf}</Text>
+            <Text color={theme.dim}>▊</Text>
+          </>
+        ) : deleting ? (
+          <>
+            <Text color={theme.warn}>Delete? </Text>
+            <Text color={theme.dim}>y/N ▊</Text>
+          </>
+        ) : (
+          <>
+            <Text>{query || <Dim>search or start something new…</Dim>}</Text>
+            <Text color={theme.dim}>▊</Text>
+          </>
+        )}
       </Box>
       <Text> </Text>
       <Box flexDirection="column" width={boxW}>
@@ -134,12 +263,20 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             {` ${cursorRow === handoffRow ? ic("›", ">") : " "} ⤴ session handoff from another machine (${new Date(offerAt(handoff)).toISOString().slice(0, 16).replace("T", " ")} UTC)${handoff.stale ? " · stale" : ""}`}
           </Text>
         ) : null}
+        {pertinent && pertinentRow >= 0 ? (
+          <Text
+            color={cursorRow === pertinentRow ? theme.bg : theme.accent}
+            backgroundColor={cursorRow === pertinentRow ? theme.accent : undefined}
+          >
+            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}${cursorRow === pertinentRow ? <Dim> rename (r) · delete (d)</Dim> : ""}`}
+          </Text>
+        ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
         {hits.slice(win.start, win.start + win.count).map((s, i) => {
           const selected = win.start + i === hitIndex;
           return (
             <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
-              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 4)}`}
+              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}${selected ? <Dim> rename (r) · delete (d)</Dim> : ""}`}
             </Text>
           );
         })}
@@ -147,6 +284,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         <Text> </Text>
       </Box>
+      {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}
+      {deleting ? <Dim>{"y confirm · enter/n/esc cancel"}</Dim> : null}
+      {deleteError ? <Text color={theme.warn}>{deleteError}</Text> : null}
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}

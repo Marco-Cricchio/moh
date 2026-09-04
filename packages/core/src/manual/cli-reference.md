@@ -20,7 +20,9 @@ commands:
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
-  update   self-update the binary to the latest stable release
+  compact  compact a session's context in place (see: moh compact --help)
+  sessions session management (rename, delete; see: moh sessions --help)
+  trash    the session trash (list, restore; see: moh trash --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -156,4 +158,40 @@ options:
   --notify-ticket  after a successful publish, comment only Wayfinder tickets
                    successfully claimed in this session (never implied)
   --cwd <dir>      project root (default: process.cwd())
+```
+
+## moh compact
+
+```
+usage: moh compact [--session <file>] [--cwd <dir>]
+
+Compacts a session's context in place: appends a compaction marker
+(a summary of the older turns plus a pointer), keeping the last 10
+turns verbatim. The log is append-only — nothing is ever deleted.
+
+  --session <file>   the session JSONL to compact
+                     (default: the project's most recent session)
+  --cwd <dir>        project root the session belongs to
+                     (default: process.cwd())
+
+Compacting never consumes a session: it can still be suggested and
+resumed as usual afterwards.
+```
+
+## moh sessions rename
+
+```
+usage: moh sessions rename <file|id> <name> [--cwd <dir>]
+       moh sessions delete <file|id> [--yes] [--cwd <dir>]
+
+Renames a session: the display name shows in the TUI home picker and
+overrides the derived first-message title. An empty name resets to the
+derived title. Display names never touch file names or slugs.
+
+  file|id   the session JSONL path, or a session id from \`moh run --list\`
+  name      the new display name (empty string resets)
+  --cwd     project root the session belongs to (default: process.cwd())
+
+delete moves the session's JSONL file into the trash
+(~/.moh/trash/projects/<slug>/ — restorable via \`moh trash restore\
 ```

@@ -67,6 +67,11 @@ export interface SlashContext {
    * config read, appending to the same session file (history kept).
    * Absent (headless callers): /reload explains it needs the TUI. */
   onReload?: () => void;
+  /** #468/ADR-0020: fork now — dispose + activate a full-history fork.
+   * Reachable only from the growth-warning state (no general fork). */
+  onForkNow?: () => void;
+  /** #468: whether the sticky growth banner is currently up. */
+  growthWarning?: () => boolean;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -375,6 +380,19 @@ const reloadCommand: SlashCommand = {
   },
 };
 
+/** #468/ADR-0020: the explicit fork action, reachable only while the
+ * session-file-growth warning is up — no general fork command. */
+const forkCommand: SlashCommand = {
+  name: "fork",
+  description: "fork now — recover from external session-file growth",
+  usage: "/fork",
+  run(ctx) {
+    if (!ctx.growthWarning?.()) return ctx.notify("/fork is available only while the session-file-growth warning is active");
+    if (!ctx.onForkNow) return ctx.notify("/fork needs the TUI session shell");
+    ctx.onForkNow();
+  },
+};
+
 /** Commands available regardless of workflow mode, alphabetical (the
  * completion popup lists exactly this order: ask-moh, commands, help,
  * mode, model, reload, settings, theme, thinking, wayfinder, workflow). */
@@ -449,10 +467,27 @@ const wayfinderCommand: SlashCommand = {
   },
 };
 
+/** #466: forced compaction through the session's own producer — the
+ * same path the auto trigger uses. Feedback rides the appended
+ * `compaction` event; the toast here covers the failure modes. */
+const compactCommand: SlashCommand = {
+  name: "compact",
+  description: "compact the session context (force a summary of the past)",
+  usage: "/compact",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/compact needs an open session");
+    void ctx.session.compact().then((result) => {
+      if (!result.ok) ctx.notify(`✗ compaction: ${result.error}`);
+    });
+  },
+};
+
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
   commandsCommand,
+  compactCommand,
+  forkCommand,
   helpCommand,
   modeCommand,
   modelCommand,

@@ -70,6 +70,12 @@ interface StatusProps {
   unsupportedLevel?: ThinkingLevel;
   workflowOn?: boolean;
   memoryFresh?: boolean;
+  /** #466/ADR-0022: sticky compaction-failure indicator — set by
+   * `compaction_failed`, cleared by the next successful marker. */
+  compactionFailed?: boolean;
+  /** #468/ADR-0020: sticky external-growth warning with the fork hint —
+   * set by `session_file_growth`, cleared by the explicit fork. */
+  growthWarning?: number | null;
   phase?: string;
   notice?: string;
   /** #377: yolo session (launch-only `--yolo`) — persistent unmissable
@@ -184,7 +190,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}</Box>
+        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — /fork` : "⚡"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (

@@ -292,6 +292,36 @@ describe("steering (mid-stream cancellation + re-send)", () => {
   });
 });
 
+describe("pertinent session (ADR-0021)", () => {
+  test("resume-open appends exactly one session_resumed before any turn", async () => {
+    const first = createSession({
+      provider: MockProvider.scripted([{ deltas: ["first answer"], finish: "stop" }]),
+    });
+    await first.send("first question");
+    const history = first.history();
+
+    const second = createSession({
+      provider: MockProvider.scripted([{ deltas: ["second answer"], finish: "stop" }]),
+      resume: { events: history },
+    });
+    await second.send("second question");
+    const log = second.history();
+    const resumedIdx = log.findIndex((e) => e.type === "session_resumed");
+    expect(resumedIdx).toBe(history.length); // right after the seeded history...
+    const firstUserAfter = log.findIndex((e, i) => i > resumedIdx && e.type === "user_message");
+    expect(firstUserAfter).toBeGreaterThan(resumedIdx); // ...before any turn
+    expect(log.filter((e) => e.type === "session_resumed")).toHaveLength(1);
+  });
+
+  test("a fresh session never appends session_resumed", async () => {
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["answer"], finish: "stop" }]),
+    });
+    await session.send("hi");
+    expect(session.history().some((e) => e.type === "session_resumed")).toBe(false);
+  });
+});
+
 describe("resume (#31)", () => {
   test("a session resumed from history continues the log and conversation without re-appending session_start", async () => {
     const first = createSession({
@@ -314,8 +344,9 @@ describe("resume (#31)", () => {
     expect(log.slice(0, history.length)).toEqual(history);
     const newTexts = log.filter((e: any) => e.type === "user_message").map((e: any) => e.text);
     expect(newTexts).toEqual(["first question", "second question"]);
-    // Only the new events reached the sink (the file already has the history).
-    expect(seen.map(([t]) => t)).toEqual(["user_message", "assistant_delta", "model_call", "done"]);
+    // Only the new events reached the sink (the file already has the
+    // history); the resume-open chrome marker (ADR-0021) leads them.
+    expect(seen.map(([t]) => t)).toEqual(["session_resumed", "user_message", "assistant_delta", "model_call", "done"]);
   });
 
   test("runtime permission rules are restored from the resumed history", async () => {

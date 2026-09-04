@@ -10,6 +10,9 @@ import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
 import { handoffCommand, HANDOFF_USAGE } from "./handoff";
 import { manualCommand, MANUAL_USAGE } from "./manual";
+import { compactCommand, COMPACT_USAGE } from "./compact";
+import { sessionsCommand, SESSIONS_USAGE } from "./sessions";
+import { trashCommand, TRASH_USAGE } from "./trash";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -26,7 +29,9 @@ commands:
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
-  update   self-update the binary to the latest stable release
+  compact  compact a session's context in place (see: moh compact --help)
+  sessions session management (rename, delete; see: moh sessions --help)
+  trash    the session trash (list, restore; see: moh trash --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -149,6 +154,27 @@ export async function main(
       return 0;
     }
     return updateCommand({ argv: rest });
+  }
+  if (command === "compact") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(COMPACT_USAGE + "\n");
+      return 0;
+    }
+    return compactCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
+  }
+  if (command === "sessions") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(SESSIONS_USAGE + "\n");
+      return 0;
+    }
+    return sessionsCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
+  }
+  if (command === "trash") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(TRASH_USAGE + "\n");
+      return 0;
+    }
+    return trashCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
   }
   if (command === "handoff") {
     if (rest.includes("--help") || rest.includes("-h")) {

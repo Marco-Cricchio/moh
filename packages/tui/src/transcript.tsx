@@ -369,6 +369,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });
         break;
+      case "compaction":
+        if (vibe) break;
+        blocks.push({ key, kind: "chrome", glyph: "▣", type: "context compacted", lines: [event.summary.split("\n").slice(0, 3).join("\n")] });
+        break;
+      case "session_resumed":
+        // ADR-0021: resume-open marker; visible on replay as chrome.
+        blocks.push({ key, kind: "chrome", glyph: "↻", type: "resumed", detail: "", lines: [] });
+        break;
+      case "session_renamed":
+        // #477: rename marker; visible on replay as chrome.
+        blocks.push({ key, kind: "chrome", glyph: "✎", type: "renamed", detail: event.name === "" ? "(reset)" : event.name, lines: [] });
+        break;
       case "session_file_growth":
         // #400 single-writer guard: visible on replay too (headless resume
         // of a file that once grew from elsewhere shows why history may
@@ -383,9 +395,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           state: "fail",
         });
         break;
-      case "compaction":
+      case "compaction_failed":
+        // #466/ADR-0022: chrome on replay too — why no marker exists yet.
         if (vibe) break;
-        blocks.push({ key, kind: "chrome", glyph: "◈", type: "context compacted", detail: `${event.upTo} events`, lines: [event.summary] });
+        blocks.push({ key, kind: "error", glyph: "⚠", type: "compaction failed", detail: event.reason, lines: ["The producer retries on later turns; /compact forces one now."] });
         break;
       case "extension_loaded":
         if (vibe) break;

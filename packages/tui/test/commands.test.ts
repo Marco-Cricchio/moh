@@ -32,9 +32,9 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 }
 
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
-  test("BASE_COMMANDS lists the eleven base commands alphabetically", () => {
+  test("BASE_COMMANDS lists the thirteen base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "commands", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "commands", "compact", "fork", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -139,7 +139,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "commands", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow",
+      "ask-moh", "commands", "compact", "fork", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
@@ -472,5 +472,32 @@ describe("/skills update result mapping (#344)", () => {
 
   test("a checked empty channel is a genuine up-to-date", () => {
     expect(upstreamCheckMessage({ ok: true, updates: [] })).toBe("skills up to date");
+  });
+});
+
+describe("/compact slash command (#466)", () => {
+  test("forces compaction through the session producer and reports the marker", async () => {
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ack"], finish: "stop" }]),
+      compaction: { summarizer: async () => "Task state: all green." },
+    });
+    for (let i = 0; i < 12; i++) await session.send(`turn ${i}`);
+    const ctx = makeCtx({ session });
+    expect(runSlashCommand("/compact", ctx)).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    const marker = [...session.history()].reverse().find((e) => e.type === "compaction");
+    expect(marker).toBeDefined();
+    expect(ctx.notices()).toHaveLength(0);
+    await session.dispose();
+  });
+
+  test("without a session it explains instead", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/compact", ctx)).toBe(true);
+    expect(ctx.notices()[0]).toContain("needs an open session");
+  });
+
+  test("is a base command: available with workflow mode off", () => {
+    expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toContain("compact");
   });
 });
