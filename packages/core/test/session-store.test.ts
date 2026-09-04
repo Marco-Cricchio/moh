@@ -444,7 +444,7 @@ describe("pertinent session (ADR-0021)", () => {
     const store = SessionStore.create(cwd, home);
     store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
     store.append({ type: "user_message", text: "hello" });
-    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, models: [] });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
     const [summary] = listSessionSummaries(cwd, home);
     expect(summary.consumed).toBe(false);
     expect(summary.title).toBe("hello");
@@ -456,7 +456,7 @@ describe("pertinent session (ADR-0021)", () => {
     const store = SessionStore.create(cwd, home);
     store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
     store.append({ type: "user_message", text: "hello" });
-    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, models: [] });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
     store.append({ type: "session_resumed" });
     const [summary] = listSessionSummaries(cwd, home);
     expect(summary.consumed).toBe(true);
@@ -469,7 +469,7 @@ describe("pertinent session (ADR-0021)", () => {
     store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
     store.append({ type: "session_resumed" });
     store.append({ type: "user_message", text: "back to work" });
-    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, models: [] });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
     const [summary] = listSessionSummaries(cwd, home);
     expect(summary.consumed).toBe(false);
     expect(summary.title).toBe("back to work");
