@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.png" alt="moh logo" width="420" />
+
 # moh
 
 **Your terminal, with a coding agent inside.**
