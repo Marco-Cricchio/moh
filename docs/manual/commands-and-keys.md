@@ -21,6 +21,10 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+y | cycle thinking level |
 | ctrl+s | settings panel |
 | ctrl+k / ? | this command list |
+| tab | focus chips: subagent chips first (when running), then action chips |
+| ← / → | move between chips (subagent chips clamp at the edges) |
+| enter on a subagent chip | toggle its live panel (read-only tail; freezes when done) |
+| esc on a chip | back to the composer (an open subagent panel stays) |
 | /workflow on\|off | toggle workflow mode (skills + frontier) |
 | ctrl+f | frontier panel (workflow mode on) |
 | @ (type it) | file mention popup: fuzzy path picker, attaches a snapshot/listing |
