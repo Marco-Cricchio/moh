@@ -39,6 +39,25 @@ derived title. From the CLI: `moh sessions rename <file|id> <name>`
 fork (it is inherited) and compaction carry it for free — and it never
 touches file names or slugs.
 
+## Delete and the trash
+
+Deleting a session (home screen: `d` on a selected session row, `y`
+confirms the `y/N` prompt; CLI: `moh sessions delete <file|id> [--yes]`)
+moves its JSONL file into the **session trash** at
+`~/.moh/trash/projects/<slug>/` — the same structure as the live project
+directory, so ids never collide. Only the file moves: forks keep their
+own copies of the history and project memory is untouched, and deleting
+the currently open session is refused. Trashed sessions rest for a
+retention window (30 days by default, configurable via
+`sessionTrash.retentionDays` in `~/.moh/config`) before a lazy prune
+removes them — checked at delete and listing time, no background job.
+Inspect and recover with `moh trash list` (id, title, age, days left)
+and `moh trash restore <file|id>`, which moves the file back into its
+project directory (refusing a collision with a live session — nothing
+is ever silently overwritten). A deleted session simply stops appearing
+in the home picker and listings; if it was the pertinent suggestion, the
+banner vanishes on refresh.
+
 ## Handoff between machines
 
 moh can carry a session between your machines with a **handoff**: a

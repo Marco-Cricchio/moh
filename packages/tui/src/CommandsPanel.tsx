@@ -54,6 +54,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["enter", "open selection / start the typed prompt"],
       ["n", "new session"],
       ["r / →", "rename the selected session (enter confirm, empty = reset, esc cancel)"],
+      ["d", "delete the selected session (y/N confirm; moves it to the trash)"],
       ["s", "settings panel"],
       ["?", "this command list"],
     ],
