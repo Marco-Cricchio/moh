@@ -56,13 +56,13 @@ describe("home session list", () => {
     const { cwd, home } = await homeWithSessions(8);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
-    for (const _ of Array.from({ length: 8 })) {
+    for (const _ of Array.from({ length: 10 })) {
       i.stdin.write(DOWN);
       await sleep(10);
     }
     const tail = stripAnsi(i.lastFrame() ?? "");
     expect(tail).toContain("s1"); // oldest reached by scrolling
-    expect(tail).not.toContain("s8"); // scrolled out of the window
+    expect(tail).not.toContain("s7"); // scrolled out of the window (s8 is the banner row, always visible)
     expect(tail).toContain("↑"); // hidden-above hint
     i.unmount();
   });
@@ -72,7 +72,7 @@ describe("home session list — configurable cap", () => {
   test("listMax prop raises the visible window", async () => {
     const { cwd, home } = await homeWithSessions(8);
     const i = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} listMax={8} />,
+      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} listMax={9} />,
     );
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
@@ -155,5 +155,74 @@ describe("home update notice (#273)", () => {
     const { lastFrame } = render(<Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).not.toContain("moh update");
+  });
+});
+
+describe("pertinent session banner (#470, ADR-0021)", () => {
+  test("the most recent unconsumed session renders as a pre-selected banner row", async () => {
+    const { cwd, home } = await homeWithSessions(3);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("▸"); // banner marker
+    expect(frame).toContain("title s3"); // the newest (unconsumed) session
+    i.unmount();
+  });
+
+  test("Enter opens the banner session", async () => {
+    const { cwd, home } = await homeWithSessions(2);
+    let opened: string | null | undefined;
+    const i = render(
+      <Home cwd={cwd} home={home} mode="vibe" onOpen={(s) => { opened = s?.title ?? null; }} />,
+    );
+    await sleep(60);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(opened).toBe("title s2"); // banner is pre-selected: enter resumes the pertinent session
+    i.unmount();
+  });
+
+  test("arrow-down from the banner moves into the list (banner is row 1)", async () => {
+    const { cwd, home } = await homeWithSessions(3);
+    let opened: string | null | undefined;
+    const i = render(
+      <Home cwd={cwd} home={home} mode="vibe" onOpen={(s) => { opened = s?.title ?? null; }} />,
+    );
+    await sleep(60);
+    i.stdin.write("\x1b[B"); // down: banner row → first hit
+    await sleep(10);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(opened).toBe("title s3"); // first hit is the newest session
+    i.unmount();
+  });
+
+  test("no banner when every session is consumed", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-banner-"));
+    const cwd = process.cwd();
+    const store = SessionStore.create(cwd, home);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      sink: (e) => store.append(e),
+    });
+    await session.send("consumed one");
+    store.append({ type: "session_resumed" }); // closed after a resume → consumed
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).not.toContain("▸");
+    expect(frame).toContain("consumed one"); // still listed, just not suggested
+    i.unmount();
+  });
+
+  test("filtering hides the banner (query mode)", async () => {
+    const { cwd, home } = await homeWithSessions(2);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("s1");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).not.toContain("▸");
+    i.unmount();
   });
 });

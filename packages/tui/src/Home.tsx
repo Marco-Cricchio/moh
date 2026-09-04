@@ -30,6 +30,19 @@ function offerAt(offer: Extract<HandoffOffer, { status: "offer" }>): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+/** Relative time for the pertinent-session banner (T3 #470). */
+export function relativeTime(mtimeMs: number, now = Date.now()): string {
+  const diff = now - mtimeMs;
+  if (diff < 60_000) return "adesso";
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}g`;
+  return new Date(mtimeMs).toISOString().slice(0, 10);
+}
+
 export interface HomeProps {
   cwd: string;
   home?: string;
@@ -71,30 +84,46 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
   const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
-  const [cursor, setCursor] = useState(0);
+  // Pre-select the pertinent banner row when present (#470): opening it is
+  // the suggested action; the first keystroke moves off it as usual. The
+  // rows are computed below, so the default rides a lazy state initializer
+  // over a ref-free closure: cursor === undefined means "not moved yet".
+  const [cursor, setCursor] = useState<number | null>(null);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
   const hits = sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
   // Row 0 is always "New session" (or "start <query>"); row 1 is the
   // handoff offer when present (T3 #436); rows after are the hits.
   const handoffRow = handoff?.status === "offer" && onOpenHandoff ? 1 : -1;
-  // Row 0 is always "New session" (or "start <query>"); rows 1..n are hits.
-  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + hits.length;
+  // The pertinent session (T3 #470, ADR-0021): the most recent not-yet-
+  // consumed session, suggested as a pre-selected banner row above the
+  // list — only when a query isn't filtering and the banner exists.
+  const pertinent = useMemo(
+    () => sessions.find((s) => !s.consumed && s.title !== "(unreadable session)"),
+    [sessions],
+  );
+  const pertinentRow = pertinent && !query ? (handoffRow >= 0 ? 2 : 1) : -1;
+  const effectiveCursor = cursor ?? (pertinentRow >= 0 ? pertinentRow : 0);
+  // Row 0 is always "New session" (or "start <query>"); row 1 is the
+  // handoff offer when present (T3 #436); row 2 the pertinent banner
+  // (#470); rows after are the hits.
+  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + (pertinentRow >= 0 ? 1 : 0) + hits.length;
   // A narrower filter can leave the cursor past the end: clamp in render.
-  const cursorRow = Math.min(cursor, totalRows - 1);
-  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0); // < 0 = new-session/handoff rows
+  const cursorRow = Math.min(effectiveCursor, totalRows - 1);
+  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0) - (pertinentRow >= 0 ? 1 : 0); // < 0 = new-session/handoff/pertinent rows
   const win = windowing(hits.length, Math.max(hitIndex, 0), visibleListHeight(listMax, viewport.rows));
 
   useInput((input, key) => {
     if (blocked) return;
     if (input === "q" && query === "") return; // q is just a search char; exit is double ctrl+c (App-level)
-    if (key.upArrow) return setCursor((c) => Math.max(0, Math.min(c, totalRows - 1) - 1));
-    if (key.downArrow) return setCursor((c) => Math.min(totalRows - 1, Math.max(c, 0) + 1));
+    if (key.upArrow) return setCursor(Math.max(0, Math.min(effectiveCursor, totalRows - 1) - 1));
+    if (key.downArrow) return setCursor(Math.min(totalRows - 1, Math.max(effectiveCursor, 0) + 1));
     if (key.return || input === "\n") {
       if (cursorRow === 0) return onOpen(null, query.trim() || undefined);
       if (cursorRow === handoffRow && handoff?.status === "offer" && onOpenHandoff) {
         if (query) return setQuery(""); // guard: enter while typing selects the query, not the handoff
         return onOpenHandoff(handoff);
       }
+      if (cursorRow === pertinentRow && pertinent) return onOpen(pertinent);
       const hit = hits[hitIndex];
       if (hit) return onOpen(hit);
       return;
@@ -132,6 +161,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             backgroundColor={cursorRow === handoffRow ? theme.warn : undefined}
           >
             {` ${cursorRow === handoffRow ? ic("›", ">") : " "} ⤴ session handoff from another machine (${new Date(offerAt(handoff)).toISOString().slice(0, 16).replace("T", " ")} UTC)${handoff.stale ? " · stale" : ""}`}
+          </Text>
+        ) : null}
+        {pertinent && pertinentRow >= 0 ? (
+          <Text
+            color={cursorRow === pertinentRow ? theme.bg : theme.accent}
+            backgroundColor={cursorRow === pertinentRow ? theme.accent : undefined}
+          >
+            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}`}
           </Text>
         ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
