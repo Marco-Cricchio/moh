@@ -14,15 +14,20 @@ export const CANCELLED_TOOL_OUTPUT = "turn cancelled before the tool returned";
 
 import { z } from "zod";
 import type { FilesystemScope, PermissionRule } from "./permissions";
+import type { MentionAttachment, MentionWarning } from "./mentions";
 
 export type TextPart = { kind: "text"; text: string };
+/** Vision note 4: an image riding a user message as a multimodal content
+ * block — bytes are the base64 of the `user_message` attachment (they must
+ * stay identical for replay to rebuild the exact provider context). */
+export type ImagePart = { kind: "image"; mime: string; base64: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
  * completed text plus the provider's opaque continuation artifacts
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
 export type ToolCallPart = ToolCall & { kind: "tool_call" };
 export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string };
-export type MessagePart = TextPart | ReasoningPart | ToolCallPart | ToolResultPart;
+export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
 
 /**
  * One message in the conversation fed to providers.
@@ -170,7 +175,14 @@ export type AgentEvent =
    * event so the log stays append-only and the reset is itself history.
    */
   | { type: "session_renamed"; name: string }
-  | { type: "user_message"; text: string }
+  | { type: "user_message"; text: string; /**
+   * #488 (vision note 3): structured snapshots of the `@path` mentions in
+   * `text` — file content snapshots and directory listings assembled by
+   * the core at send time, gated by read-permission rules. The log records
+   * what the model actually saw that turn; mentions stay in the text.
+   * Absent when the message carried no mentions. */
+      attachments?: MentionAttachment[] }
+  | { type: "mention_warnings"; warnings: MentionWarning[] }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall & {
       /** #300: the effective timeout (ms) this call runs under, resolved

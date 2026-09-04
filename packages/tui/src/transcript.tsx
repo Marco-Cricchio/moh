@@ -9,7 +9,8 @@ import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown"
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
 import type { ToolTimings } from "./tool-timing";
-export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent";
+import type { PreviewImage } from "./image-preview";
+export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
 export interface TranscriptBlock {
   key: string;
   kind: BlockKind;
@@ -37,6 +38,11 @@ export interface TranscriptBlock {
   callId?: string;
   timeoutMs?: number;
   durationMs?: number;
+  /** Vision note 4 (#490): the image attachment this user row cites, when
+   * the message carried one. The transcript renderer emits it place-once
+   * after the row's stable paint; identity rides the block itself so the
+   * caller never has to match log indices to projection keys. */
+  image?: PreviewImage;
 }
 
 /** Vibe phrasing for a tool call (#193): plain language, no raw command. */
@@ -184,8 +190,28 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
     const { event, index } = ordered[i]!;
     const key = `${keyBase + index}-${event.type}`;
     switch (event.type) {
-      case "user_message":
-        blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: sanitizeForDisplay(event.text).split("\n") });
+      case "user_message": {
+        // Vision note 4 (#490): an image attachment rides its citing row.
+        const image = (event.attachments ?? []).find((a) => a.kind === "image");
+        blocks.push({
+          key,
+          kind: "user",
+          glyph: "›",
+          type: "you",
+          lines: sanitizeForDisplay(event.text).split("\n"),
+          ...(image ? { image: { name: image.path, mime: image.mime, base64: image.content, width: image.width, height: image.height } } : {}),
+        });
+        break;
+      }
+      case "mention_warnings":
+        // #488: denied/missing @mentions surface visibly — never a silent drop.
+        blocks.push({
+          key,
+          kind: "info",
+          glyph: "!",
+          type: "mention",
+          lines: event.warnings.map((w) => sanitizeForDisplay(`@${w.path} — ${w.reason}`)),
+        });
         break;
       case "assistant_delta": {
         let text = sanitizeForDisplay(event.text);

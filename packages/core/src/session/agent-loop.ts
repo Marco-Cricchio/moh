@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import type { AssembledPrompt } from "../prompt-composer";
 import type { ExtensionRuntime } from "../extensions";
+import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall" | "dispatchAfterTurn">;
@@ -49,6 +50,15 @@ export interface AgentLoopOptions {
   lastPrompt: () => AssembledPrompt | null;
   /** Log append callback — the loop owns its event emission. */
   append: (event: AgentEvent) => void;
+  /** #488: mention expansion config — `@path` tokens in user messages
+   * become structured attachments riding the turn. Absent disables it. */
+  /** #488: mention expansion config — `@path` tokens in user messages
+   * become structured attachments riding the turn. Absent disables it.
+   * Vision note 4: `imageCapable` is the capability seam — a zero-arg
+   * probe of the *serving* model so mid-session switches are honored.
+   * Absent = assumed capable (custom/mock providers that always wire
+   * their own truth); the session always resolves it from the catalog. */
+  mentions?: { cwd: string; canRead?: (absPath: string) => boolean; imageCapable?: () => boolean };
   /** #253: live (ephemeral) reasoning relay — the stream lifecycle is
    * forwarded in real time while the model thinks, without touching the
    * persisted log (the completed block still lands there). */
@@ -81,6 +91,8 @@ export class AgentLoop {
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
   readonly #thinking: (() => { level: ThinkingLevel } | undefined) | undefined;
   readonly #onTurnSettled: ((result: TurnResult) => void) | undefined;
+  /** #488: mention expansion config (see AgentLoopOptions.mentions). */
+  readonly #mentions: AgentLoopOptions["mentions"];
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
   #usage = { inputTokens: 0, outputTokens: 0 };
   /** #83: the model call currently streaming (announced by `model_call_start`).
@@ -107,6 +119,7 @@ export class AgentLoop {
     this.#assemblePrompt = options.assemblePrompt;
     this.#lastPrompt = options.lastPrompt;
     this.#append = options.append;
+    this.#mentions = options.mentions;
     this.#emitLive = options.emitLive;
     this.#thinking = options.thinking;
     this.#onTurnSettled = options.onTurnSettled;
@@ -182,11 +195,46 @@ export class AgentLoop {
     // #363: a Route may probe its selected target once at a user-turn
     // boundary. Follow-up calls after tools keep the serving target.
     if ("beginTurn" in provider && typeof provider.beginTurn === "function") provider.beginTurn();
-    this.#append({ type: "user_message", text });
+    // #488: assemble mention attachments before anything is logged so the
+    // `user_message` event carries the snapshots the model will see.
+    let attachments: MentionAttachment[] | undefined;
+    if (this.#mentions && /\s@|"@|^\@/.test(text) === true) {
+      const assembled = await assembleMentions(text, {
+        cwd: this.#mentions.cwd,
+        ...(this.#mentions.canRead ? { canRead: this.#mentions.canRead } : {}),
+      });
+      if (assembled.attachments.length > 0) attachments = assembled.attachments;
+      if (assembled.warnings.length > 0) {
+        this.#append({ type: "mention_warnings", warnings: assembled.warnings });
+      }
+    }
+    this.#append({ type: "user_message", text, ...(attachments ? { attachments } : {}) });
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
     this.#turnModels = [];
-    this.#messages.push({ role: "user", parts: [{ kind: "text", text }] });
+    // #488: the attachment snapshots ride the turn as additional parts
+    // appended to the user message — the text itself stays as typed.
+    // Vision note 4: an image attachment becomes a typed image part when
+    // the serving model declares image input; otherwise the reference
+    // chip stays in the text flow and a visible warning fires — never a
+    // silent drop and never a turn error.
+    const userParts: Message["parts"] = [{ kind: "text", text }];
+    if (attachments) {
+      for (const attachment of attachments) {
+        if (attachment.kind === "image" && this.#mentions?.imageCapable?.() !== false) {
+          userParts.push({ kind: "image", mime: attachment.mime, base64: attachment.content });
+        } else {
+          if (attachment.kind === "image") {
+            this.#append({
+              type: "mention_warnings",
+              warnings: [{ path: attachment.path, reason: "provider/model does not support images — attachment skipped" }],
+            });
+          }
+          userParts.push({ kind: "text", text: renderMentionAttachment(attachment) });
+        }
+      }
+    }
+    this.#messages.push({ role: "user", parts: userParts });
     // MCP (#15): lazy start on first use — the first turn connects the
     // declared servers (consent-gated) so the prompt lists their tools.
     if (this.#mcp) await this.#mcp.ensureStarted();

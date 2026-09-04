@@ -19,7 +19,7 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
  * e2e via Bun.spawnSync against the real CLI path with an isolated HOME and
  * cwd: no API keys, no stdin, mock/cassette providers only (#31).
  */
-function harness() {
+export function harness() {
   const dir = `/tmp/moh-cli-e2e-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const cwd = join(dir, "project");
   const home = join(dir, "home");
@@ -61,14 +61,14 @@ function harness() {
   return { cwd, home, spawn, spawnIn };
 }
 
-function readEvents(raw: string): any[] {
+export function readEvents(raw: string): any[] {
   return raw
     .split("\n")
     .filter((l) => l.trim() !== "")
     .map((l) => JSON.parse(l));
 }
 
-function sessionFiles(home: string): string[] {
+export function sessionFiles(home: string): string[] {
   const projects = join(home, ".moh", "projects");
   if (!existsSync(projects)) return [];
   const out: string[] = [];

@@ -46,6 +46,10 @@ export interface CatalogModel {
   /** Wire the backend speaks for this model (#159 seam; the pi api name
    * mapped to WireApi). Absent = the kind's default wire. */
   wire?: WireApi;
+  /** Input modalities declared by the catalog (vision note 4): "image"
+   * present = the model accepts image content blocks. Absent (openai-compat
+   * and custom) = not image-capable — moh never invents capabilities. */
+  input?: string[];
   /** Per-model headers (copilot editor headers). */
   headers?: Record<string, string>;
   /** Provider compat flags (e.g. kimi allowEmptySignature) — carried as
@@ -62,6 +66,7 @@ interface PiAiEntry {
   contextWindow?: number;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
+  input?: string[];
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
 }
@@ -98,6 +103,7 @@ function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
     reasoning: entry.reasoning ?? false,
     wire,
     ...(entry.thinkingLevelMap ? { thinkingLevelMap: normalizeThinkingLevelMap(entry.thinkingLevelMap) } : {}),
+    ...(entry.input ? { input: entry.input } : {}),
     ...(entry.headers ? { headers: entry.headers } : {}),
     ...(entry.compat ? { compat: entry.compat } : {}),
   };
@@ -219,4 +225,25 @@ export function endpointModelCatalog(type: string, baseUrl?: string): CatalogMod
  */
 export function catalogEntryFor(type: string, modelId: string): CatalogModel | undefined {
   return subscriptionModelCatalog(type).find((m) => m.id === modelId);
+}
+
+/**
+ * Whether one model accepts image content blocks (vision note 4). Declared
+ * capability only, never inferred: a catalog entry carrying "image" in its
+ * input modalities is image-capable; every model WITHOUT a catalog entry
+ * (openai-compat, custom) is image-capable only when the endpoint declares
+ * it explicitly (`capabilities.multimodal: true` — mirroring
+ * `capabilities.thinking` for thinking); catalog-backed models without the
+ * modality are not, and `capabilities.multimodal: false` overrides the
+ * catalog. The caller warns visibly and sends the text chip instead.
+ */
+export function modelSupportsImages(
+  model: CatalogModel | undefined,
+  capabilities?: { multimodal?: boolean },
+): boolean {
+  if (capabilities?.multimodal === false) return false;
+  if (model) return model.input?.includes("image") ?? false;
+  // No catalog entry: the capability comes from the endpoint declaration
+  // alone — moh never invents it.
+  return capabilities?.multimodal === true;
 }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useApp, useInput, useStdout } from "ink";
+import { pasteAsPath } from "./Input";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
@@ -37,6 +38,8 @@ import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from 
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
 import { useViewport } from "./viewport";
+import { listFiles } from "./file-index";
+import { detectPreviewMode } from "./image-preview";
 import { trackExitWork } from "./exit";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
@@ -254,6 +257,33 @@ export function App({
   const completionOpenRef = useRef(completionOpen);
   completionOpenRef.current = completionOpen;
   const handleSuggestionsOpen = useCallback((open: boolean) => setCompletionOpen(open), []);
+  // #488: the @-popup's file index — resolved once per cwd (git ls-files,
+  // walk fallback); the popup filters it in-memory while open.
+  const [mentionCandidates, setMentionCandidates] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void listFiles(cwd).then((paths) => { if (alive) setMentionCandidates(paths); });
+    return () => { alive = false; };
+  }, [cwd]);
+  // Vision note 4 (#490): paste-as-path seam — a pasted terminal path
+  // (drag-and-drop) becomes an @mention. The index is checked first
+  // (async, reconciler-safe); anything unindexed falls back to a sync
+  // stat probe done OUTSIDE React effects (this runs in the input's
+  // key handler, never inside an effect).
+  const mentionCandidatesRef = useRef<string[]>([]);
+  mentionCandidatesRef.current = mentionCandidates;
+  const handlePastePath = useCallback((paste: string): string | null => {
+    return pasteAsPath(paste, (path) => {
+      if (mentionCandidatesRef.current.includes(path)) return true;
+      try { return statSync(join(cwd, path)).isFile(); } catch { return false; }
+    });
+  }, [cwd]);
+  // Vision note 4 (#490): resolved once per config/environment — the
+  // protocol the transcript emits image pixels with (`none` = chip only).
+  const imagePreviewMode = useMemo(
+    () => detectPreviewMode(process.env, config.images.preview),
+    [config.images.preview],
+  );
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
     const count = visibleChips(viewport.columns).chips.length;
@@ -776,6 +806,9 @@ export function App({
       })()}
       onOpenCommands={() => setOverlay("commands")}
       onSuggestionsOpen={handleSuggestionsOpen}
+      mentionCandidates={mentionCandidates}
+      onPastePath={handlePastePath}
+      previewMode={imagePreviewMode}
       onCommand={(text) => runSlashCommand(text, {
         cwd,
         mohHome,

@@ -5,6 +5,36 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.18.0] - 2026-09-04
+### Added
+
+- **File mentions** (#488): `@file` and `@dir` tokens attach a structured
+  snapshot on the `user_message` event — file content capped at ~200KB with a
+  declared truncation marker, directories a recursive path listing; `read:`
+  permission rules gate every snapshot (denied or missing paths produce a
+  visible `mention_warnings` chrome event); replay rebuilds the attachment
+  text parts, so resume and fork inherit exactly what the model saw. The TUI
+  adds a fuzzy `@` path popup over a git-aware file index; `expandMentions`/
+  `assembleMentions` are exported from `@moh/core` for headless use.
+- **Image mentions** (#490): `@` mentions of png/jpg/webp/gif attach bytes as
+  base64 (~5MB cap with visible refusal), promoted to typed image parts only
+  when the serving model declares image input — catalog modalities or an
+  explicit `capabilities.multimodal: true`; replay rebuilds the image parts.
+  The TUI renders inline pixel previews (kitty graphics or iTerm2 OSC 1337,
+  `images.preview: auto|on|off`) with a `[image: name WxH]` fallback chip, and
+  drag-and-drop pastes as an `@mention`.
+- **Multimodal capability declaration**: `capabilities.multimodal` on
+  endpoint profiles positively declares image input for catalog-less
+  openai-compat/custom endpoints; `false` vetoes even a catalog grant.
+- **Model catalogs** regenerated from pi-ai 0.85.0.
+
+### Fixed
+
+- Image preview reliability (#490): the preview is now attached to the
+  transcript's user block (key mismatch fixed) and iTerm2 payloads are no
+  longer double-encoded.
+- File-index git probe is async, unblocking App-based tests (#488).
+
 ## [Unreleased]
 
 ## [0.17.2] - 2026-09-04
@@ -484,7 +514,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.17.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.18.0...develop
+[0.18.0]: https://github.com/Marco-Cricchio/moh/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/Marco-Cricchio/moh/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/Marco-Cricchio/moh/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/Marco-Cricchio/moh/compare/v0.16.0...v0.17.0

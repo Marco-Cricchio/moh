@@ -21,6 +21,7 @@ import { replayMessages } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from "../compaction";
 import { resolveEndpointThinking } from "../thinking-preferences";
+import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 
 const DEFAULT_MAX_ITERATIONS = 50;
@@ -255,6 +256,28 @@ export class AgentSession {
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
       append: (event) => this.#append(event),
+      // #488: mention expansion — `@path` tokens in user messages become
+      // structured attachments at turn start, gated by the read-permission
+      // resolver (`@` is UX sugar, never a bypass).
+      mentions: {
+        cwd: this.#cwd,
+        canRead: (absPath: string) => this.#permissions.resolve("read", { path: absPath }) === "allow",
+        // Vision note 4: per-turn probe of the *serving* model — the
+        // catalog's declared input modalities (never inferred), with an
+        // explicit `capabilities.multimodal: false` endpoint override.
+        // A config `images.imageCapable` pin wins (tests/custom providers).
+        imageCapable: () => {
+          const pin = config.images?.imageCapable;
+          if (typeof pin === "boolean") return pin;
+          if (typeof pin === "function") return pin();
+          const ref = this.#provider.name;
+          const slash = ref.indexOf("/");
+          const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
+          const profile = this.#endpoints.find((e) => e.name === endpointName);
+          if (profile?.capabilities?.multimodal === false) return false;
+          return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
+        },
+      },
       // #253: live reasoning relay (ephemeral — never stored or sunk).
       emitLive: (event) => this.#eventLog.emitLive(event),
       // #240/#242: the neutral thinking-level request. An explicit config
