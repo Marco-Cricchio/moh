@@ -87,7 +87,11 @@ export function emitImage(
     return chunkKitty(placementId, image.base64, width, height, cols, rows);
   }
   const scale = itermSize(width, height, cell);
-  return `\x1b]1337;File=name=${b64(image.name)};size=${image.base64.length};inline=1${scale};preserveAspectRatio=1:${b64(image.base64)}\x07`;
+  // size= is the ORIGINAL file size in bytes (the base64 is 4/3 of it);
+  // the payload after ':' is the file's base64 — passed through as-is
+  // (only the filename is base64-encoded a second time).
+  const bytes = Math.floor((image.base64.length * 3) / 4);
+  return `\x1b]1337;File=name=${b64(image.name)};size=${bytes};inline=1${scale};preserveAspectRatio=1:${image.base64}\x07`;
 }
 
 function gridArgs(width?: number, height?: number, cols?: number, rows?: number): string {

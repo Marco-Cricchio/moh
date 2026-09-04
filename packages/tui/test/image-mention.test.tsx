@@ -62,6 +62,11 @@ describe("emitImage + chip", () => {
     expect(seq).toContain("\x1b]1337;File=");
     expect(seq).toContain("inline=1");
     expect(seq.endsWith("\x07")).toBe(true);
+    // The payload is the file's base64 passed through ONCE — never
+    // re-encoded (a double-encoded payload prints as raw base64 text).
+    expect(seq).toContain("preserveAspectRatio=1:QUJD");
+    // size= is the original byte size (3 bytes here), not the base64 length.
+    expect(seq).toContain("size=3;");
   });
   test("oversized payloads chunk with kitty m=1 continuation", () => {
     const big = { ...image, base64: "A".repeat(9000) };
