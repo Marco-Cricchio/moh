@@ -53,6 +53,10 @@ All keys are optional. Notes:
   `MOH_ENDPOINT_<NAME>_API_KEY`; keep moh.json gitignored when inlining.
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
   uses the plan's OAuth tokens.
+- `capabilities.multimodal` — declares image input for endpoints without
+  a catalog entry (openai-compat, custom); on catalog-backed endpoints
+  `false` vetoes even a catalog grant. Absent = declared capability only
+  (catalog modalities, else not multimodal) — never inferred (#490).
 - `capabilities.thinking.format` — one of `openai-effort`,
   `openrouter-effort`, `anthropic-effort`, `google-thinking-level`;
   `levels` are canonical thinking levels (`off`, `low`, `medium`,
@@ -73,7 +77,7 @@ preserved verbatim):
 
 | Section | Owner | Keys |
 | --- | --- | --- |
-| TUI chrome | TUI (`tui/src/user-config.ts`) | `onboarded`, `mode` (`vibe`/`dev`), `theme`, `icons`, `filePreview` (`always`/`on-demand`/`none`), `answerLanguage` (`auto`/`en`/`it`), `telemetry`, `permissionMode` (`normal`/`auto-accept`), `editor`, `homeListMax` (3–10), `workflow.enabled`, `workflowOffered`, `showReasoning`, `reasoningNoticeShown`, `updateCheck` |
+| TUI chrome | TUI (`tui/src/user-config.ts`) | `onboarded`, `mode` (`vibe`/`dev`), `theme`, `icons`, `filePreview` (`always`/`on-demand`/`none`), `answerLanguage` (`auto`/`en`/`it`), `telemetry`, `permissionMode` (`normal`/`auto-accept`), `editor`, `homeListMax` (3–10), `workflow.enabled`, `workflowOffered`, `showReasoning`, `reasoningNoticeShown`, `updateCheck`, `images.preview` (`auto`/`on`/`off`) |
 | `provider` / `endpoints` | core (`provider-config.ts`) | same shape as moh.json's; strict when present; merged per-field, project wins field-by-field |
 | `mcpServers` | core (`mcp/types.ts`) | user-scope servers — trusted, no consent prompt; stdio `{ command, args, env }` or http `{ url, headers }` |
 | `auth` | core (ADR-0006) | subscription tokens keyed by endpoint name, plus `auth.overrides` for captured client_ids/issuers; never in moh.json, never logged |

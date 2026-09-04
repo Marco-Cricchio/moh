@@ -155,3 +155,15 @@ describe("responses-wire providerOptions (ChatGPT-backend store invariant)", () 
     expect(calls[0].providerOptions?.openai?.store).toBeUndefined();
   });
 });
+
+describe("ai-sdk image parts (vision note 4 / #490)", () => {
+  it("maps a user image part to an image file content block", async () => {
+    const h = harness([finish("stop")]);
+    await h.run([{ role: "user", parts: [{ kind: "text", text: "what is this" }, { kind: "image", mime: "image/png", base64: "QUJD" }] }]);
+    const messages = h.calls[0]!.prompt as unknown as { role: string; content: unknown[] }[];
+    const content = messages[0]!.content as { type: string; mediaType?: string; data?: { type: string; data: string }; text?: string }[];
+    expect(content[0]).toEqual({ type: "text", text: "what is this" });
+    expect(content[1]).toMatchObject({ type: "file", mediaType: "image/png" });
+    expect((content[1].data as { data: string }).data).toBe("QUJD");
+  });
+});
