@@ -410,3 +410,28 @@ describe("session delete (#478)", () => {
     i.unmount();
   });
 });
+
+describe("session delete (#478) — refusal", () => {
+  test("deleting an open session shows the refusal error line and keeps the row", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-open-"));
+    const cwd = process.cwd();
+    const store = SessionStore.create(cwd, home);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      sink: (e) => store.append(e),
+    });
+    await session.send("title open");
+    // NB: no store.dispose() — the session stays open in this process.
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("d");
+    await sleep(30);
+    i.stdin.write("y");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("currently open");
+    expect(listSessionSummaries(cwd, home).length).toBe(1);
+    i.unmount();
+    store.dispose(); // teardown: release the registry entry
+  });
+});

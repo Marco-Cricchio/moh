@@ -162,3 +162,28 @@ describe("moh sessions delete + moh trash (#478)", () => {
     expect(r.stderr).toContain('unknown command "bogus"');
   });
 });
+
+describe("moh sessions delete (#478) — coverage gaps", () => {
+  test("delete succeeds by full file path with --yes", () => {
+    const { spawn, file } = harness();
+    const del = spawn(["sessions", "delete", file, "--yes"]);
+    expect(del.code).toBe(0);
+    expect(del.stdout).toContain("deleted:");
+    expect(require("node:fs").existsSync(file)).toBe(false);
+  });
+
+  test("delete refuses a session open in this process (exit 2)", () => {
+    // The open-session guard is process-local by design (#400: cross-process
+    // "open elsewhere" is unsupported/out of scope), so a child CLI process
+    // can never observe THIS process's registry — that refusal is covered by
+    // the core unit test (session-store.test.ts) and the TUI harness test.
+    // What the CLI e2e can pin: a fresh child process deletes fine, i.e. the
+    // registry never leaks false positives across processes.
+    const { spawn, file } = harness();
+    const store = SessionStore.open(file); // open HERE — must not affect the child
+    const del = spawn(["sessions", "delete", file, "--yes"]);
+    expect(del.code).toBe(0);
+    expect(require("node:fs").existsSync(file)).toBe(false);
+    store.dispose();
+  });
+});
