@@ -11,7 +11,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { listSessionSummaries, type SessionSummary } from "./sessions";
+import { listSessionSummaries, renameSession, type SessionSummary } from "./sessions";
 import { MOH_VERSION, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
@@ -90,7 +90,27 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // over a ref-free closure: cursor === undefined means "not moved yet".
   const [cursor, setCursor] = useState<number | null>(null);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
-  const hits = sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()));
+  // #477 rename: when non-null, the composer area becomes an inline edit
+  // for the display name (prefilled with the current name; Enter confirms,
+  // Esc cancels, Enter on empty resets). Owns input while open.
+  const [renaming, setRenaming] = useState<SessionSummary | null>(null);
+  const [nameBuf, setNameBuf] = useState("");
+  // Rename mutates the session file on disk; summaries are read once, so a
+  // confirmed rename re-reads them (a version bump invalidates the memo).
+  const [renamesDone, setRenamesDone] = useState(0);
+  const refreshKey = `${cwd}\0${home ?? ""}\0${renamesDone}`;
+  const refreshSessions = React.useCallback(
+    () => listSessionSummaries(cwd, home),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [refreshKey],
+  );
+  const sessionsList = renamesDone > 0 ? refreshSessions() : sessions;
+  // #477: filter double-match — display name AND derived (first-message)
+  // title both count as hits.
+  const hits = sessionsList.filter((s) => {
+    const q = query.toLowerCase();
+    return s.title.toLowerCase().includes(q) || s.derivedTitle.toLowerCase().includes(q);
+  });
   // Row 0 is always "New session" (or "start <query>"); row 1 is the
   // handoff offer when present (T3 #436); rows after are the hits.
   const handoffRow = handoff?.status === "offer" && onOpenHandoff ? 1 : -1;
@@ -114,9 +134,40 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
 
   useInput((input, key) => {
     if (blocked) return;
+    // #477: inline rename edit owns input while open.
+    if (renaming) {
+      if (key.return || input === "\n") {
+        renameSession(renaming.file, nameBuf);
+        setRenamesDone((n) => n + 1);
+        setRenaming(null);
+        setNameBuf("");
+        return;
+      }
+      if (key.escape) {
+        setRenaming(null);
+        setNameBuf("");
+        return;
+      }
+      if (key.backspace || key.delete) return setNameBuf((b) => b.slice(0, -1));
+      if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
+      return;
+    }
     if (input === "q" && query === "") return; // q is just a search char; exit is double ctrl+c (App-level)
     if (key.upArrow) return setCursor(Math.max(0, Math.min(effectiveCursor, totalRows - 1) - 1));
     if (key.downArrow) return setCursor(Math.min(totalRows - 1, Math.max(effectiveCursor, 0) + 1));
+    // #477: `r` or → on a selected session row (banner or list hit, never
+    // the handoff row) enters the inline rename.
+    const selectedSession =
+      pertinentRow >= 0 && cursorRow === pertinentRow && pertinent
+        ? pertinent
+        : hitIndex >= 0
+          ? hits[hitIndex]
+          : null;
+    if ((input === "r" || key.rightArrow) && query === "" && selectedSession) {
+      setRenaming(selectedSession);
+      setNameBuf(selectedSession.title);
+      return;
+    }
     if (key.return || input === "\n") {
       if (cursorRow === 0) return onOpen(null, query.trim() || undefined);
       if (cursorRow === handoffRow && handoff?.status === "offer" && onOpenHandoff) {
@@ -147,8 +198,18 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
-        <Text>{query || <Dim>search or start something new…</Dim>}</Text>
-        <Text color={theme.dim}>▊</Text>
+        {renaming ? (
+          <>
+            <Text color={theme.accent}>rename: </Text>
+            <Text>{nameBuf}</Text>
+            <Text color={theme.dim}>▊</Text>
+          </>
+        ) : (
+          <>
+            <Text>{query || <Dim>search or start something new…</Dim>}</Text>
+            <Text color={theme.dim}>▊</Text>
+          </>
+        )}
       </Box>
       <Text> </Text>
       <Box flexDirection="column" width={boxW}>
@@ -168,7 +229,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             color={cursorRow === pertinentRow ? theme.bg : theme.accent}
             backgroundColor={cursorRow === pertinentRow ? theme.accent : undefined}
           >
-            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}`}
+            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}${cursorRow === pertinentRow ? <Dim> rename (r)</Dim> : ""}`}
           </Text>
         ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
@@ -176,7 +237,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
           const selected = win.start + i === hitIndex;
           return (
             <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
-              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 4)}`}
+              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}${selected ? <Dim> rename (r)</Dim> : ""}`}
             </Text>
           );
         })}
@@ -184,6 +245,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         <Text> </Text>
       </Box>
+      {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
