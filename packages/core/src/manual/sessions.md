@@ -51,7 +51,7 @@ the currently open session is refused. Trashed sessions rest for a
 retention window (30 days by default, configurable via
 `sessionTrash.retentionDays` in `~/.moh/config`) before a lazy prune
 removes them — checked at delete and listing time, no background job.
-Inspect and recover with `moh trash list` (id, title, age, days left)
+Inspect and recover with `moh trash list` (id, project, age, days left)
 and `moh trash restore <file|id>`, which moves the file back into its
 project directory (refusing a collision with a live session — nothing
 is ever silently overwritten). A deleted session simply stops appearing

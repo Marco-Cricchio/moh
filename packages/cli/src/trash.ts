@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   listTrashedSessions,
+  projectSlug,
   restoreSession,
   type TrashedSessionSummary,
 } from "@moh/core";
@@ -21,7 +22,7 @@ The session trash: deleted sessions rest at
 configurable) before the lazy prune removes them.
 
 commands:
-  list                  show trashed sessions (id, title, age, days left)
+  list                  show trashed sessions (id, project, age, days left)
   restore <file|id>     move a trashed session back into its project directory
 
   --cwd                 project root the session belongs to (default: process.cwd())`;
@@ -63,7 +64,7 @@ export async function trashCommand({
       process.stdout.write("trash is empty\n");
       return 0;
     }
-    for (const t of entries) process.stdout.write(renderTrashEntry(t) + "\n");
+    for (const t of entries) process.stdout.write(renderTrashEntry(t, projectSlug(cwd, effectiveHome)) + "\n");
     return 0;
   }
 
@@ -91,9 +92,9 @@ export async function trashCommand({
   return 0;
 }
 
-function renderTrashEntry(t: TrashedSessionSummary): string {
+function renderTrashEntry(t: TrashedSessionSummary, project: string): string {
   const age = new Date(t.mtimeMs).toISOString().slice(0, 16).replace("T", " ");
-  return `${t.id}  ${age} UTC  ${t.daysRemaining}d left  ${t.title}`;
+  return `${t.id}  ${age} UTC  ${t.daysRemaining}d left  ${project}  ${t.title}`;
 }
 
 export { resolveSessionFile };

@@ -187,6 +187,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         : hitIndex >= 0
           ? hits[hitIndex]
           : null;
+    // #477 + #478: → opens the action chip for the selected session row —
+    // it enters the rename edit (the r shortcut's behavior, kept stable);
+    // delete stays on its direct `d` shortcut.
     if ((input === "r" || key.rightArrow) && query === "" && selectedSession) {
       setRenaming(selectedSession);
       setNameBuf(selectedSession.title);
