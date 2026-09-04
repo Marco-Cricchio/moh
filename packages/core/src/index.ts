@@ -37,7 +37,15 @@ import type {
   ThinkingLevel,
   Tool,
 } from "./types";
-import { SessionStore, listSessionSummaries, type SessionSummary } from "./session-store";
+import {
+  SessionStore,
+  listSessionSummaries,
+  type SessionSummary,
+  // #467: session-notes path primitives — the ADR-0004 reopening that lets
+  // clients resolve the canonical project directory without recomputing the slug.
+  projectSlug,
+  projectSessionsDir,
+} from "./session-store";
 import {
   formatRule,
   overridesFromFlags,
@@ -449,6 +457,10 @@ export {
   SessionStore,
   listSessionSummaries,
   type SessionSummary,
+  // #467: session-notes path primitives — the ADR-0004 reopening that lets
+  // clients resolve the canonical project directory without recomputing the slug.
+  projectSlug,
+  projectSessionsDir,
   splitCommandSegments,
   formatRule,
   parseRule,
