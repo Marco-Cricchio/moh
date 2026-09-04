@@ -230,15 +230,20 @@ export function catalogEntryFor(type: string, modelId: string): CatalogModel | u
 /**
  * Whether one model accepts image content blocks (vision note 4). Declared
  * capability only, never inferred: a catalog entry carrying "image" in its
- * input modalities is image-capable; catalog-backed models without it, and
- * every model without a catalog entry (openai-compat, custom), are not —
- * the caller warns visibly and sends the text chip instead. An explicit
- * `capabilities.multimodal: false` config override wins over the catalog.
+ * input modalities is image-capable; every model WITHOUT a catalog entry
+ * (openai-compat, custom) is image-capable only when the endpoint declares
+ * it explicitly (`capabilities.multimodal: true` — mirroring
+ * `capabilities.thinking` for thinking); catalog-backed models without the
+ * modality are not, and `capabilities.multimodal: false` overrides the
+ * catalog. The caller warns visibly and sends the text chip instead.
  */
 export function modelSupportsImages(
   model: CatalogModel | undefined,
   capabilities?: { multimodal?: boolean },
 ): boolean {
   if (capabilities?.multimodal === false) return false;
-  return model?.input?.includes("image") ?? false;
+  if (model) return model.input?.includes("image") ?? false;
+  // No catalog entry: the capability comes from the endpoint declaration
+  // alone — moh never invents it.
+  return capabilities?.multimodal === true;
 }

@@ -53,6 +53,10 @@ All keys are optional. Notes:
   `MOH_ENDPOINT_<NAME>_API_KEY`; keep moh.json gitignored when inlining.
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
   uses the plan's OAuth tokens.
+- `capabilities.multimodal` — declares image input for endpoints without
+  a catalog entry (openai-compat, custom); on catalog-backed endpoints
+  `false` vetoes even a catalog grant. Absent = declared capability only
+  (catalog modalities, else not multimodal) — never inferred (#490).
 - `capabilities.thinking.format` — one of `openai-effort`,
   `openrouter-effort`, `anthropic-effort`, `google-thinking-level`;
   `levels` are canonical thinking levels (`off`, `low`, `medium`,
