@@ -45,6 +45,7 @@ function HomeRow({
   bg,
   fg,
   selectedFg,
+  chipFg,
   label,
   chip = "",
   prefix = "",
@@ -57,6 +58,8 @@ function HomeRow({
   fg: string | undefined;
   /** Row color when selected (the theme bg, so it reads on `bg`). */
   selectedFg: string;
+  /** Chip color on the selected background — never the background token itself. */
+  chipFg: string;
   label: string;
   chip?: string;
   prefix?: string;
@@ -72,7 +75,7 @@ function HomeRow({
   return (
     <Text color={selected ? selectedFg : fg} backgroundColor={selected ? bg : undefined}>
       {` ${cursor} ${prefix}${shown}`}
-      {selected ? <Dim>{`${pad}${chip}`}</Dim> : null}
+      {selected ? <Text color={chipFg}>{`${pad}${chip}`}</Text> : null}
     </Text>
   );
 }
@@ -317,6 +320,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             bg={theme.accent}
             fg={theme.accent}
             selectedFg={theme.bg}
+            chipFg={theme.bg}
             prefix="▸ "
             label={`${relativeTime(pertinent.mtimeMs)} · ${pertinent.title}`}
             chip={ROW_CHIP}
@@ -333,6 +337,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
               bg={theme.dim}
               fg={selected ? theme.bg : undefined}
               selectedFg={theme.bg}
+              chipFg={theme.fg}
               label={s.title}
               chip={ROW_CHIP}
             />
