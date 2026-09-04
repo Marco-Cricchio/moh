@@ -143,4 +143,12 @@ export interface SessionConfig {
    * preferences from `~/.moh/config` when the active ref is a catalog
    * model (#241/#242). Absent resolution = no thinking request at all. */
   thinking?: { level: import("../types").ThinkingLevel } | (() => { level: import("../types").ThinkingLevel } | undefined);
+  /**
+   * Vision note 4 (#490): override for the image-mention capability probe.
+   * Default: resolved per turn from the serving model's catalog input
+   * modalities (`modelSupportsImages`), with an endpoint
+   * `capabilities.multimodal: false` winning. A boolean pins it (tests,
+   * custom providers the catalog cannot describe).
+   */
+  images?: { imageCapable?: boolean | (() => boolean) };
 }

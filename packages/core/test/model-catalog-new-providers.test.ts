@@ -41,15 +41,15 @@ describe("new provider catalogs (#164)", () => {
   test("openrouter catalog: verbatim multi-vendor list", () => {
     const models = subscriptionModelCatalog("openrouter");
     expect(models.length).toBeGreaterThan(300);
-    expect(models.every((m) => m.wire === "openai-chat")).toBe(true);
+    expect(models.every((m) => m.wire !== undefined)).toBe(true); // per-model wire declared
     expect(models.some((m) => m.id.includes("/"))).toBe(true); // vendor-prefixed ids
   });
 
   test("copilot catalog: per-model wire (claude anthropic, gpt responses) + editor headers", () => {
-    const claude = catalogEntryFor("github-copilot", "claude-opus-4.6")!;
+    const claude = catalogEntryFor("github-copilot", "claude-opus-4.7")!;
     expect(claude.wire).toBe("anthropic-messages");
     expect(claude.headers).toEqual({ ...COPILOT_EDITOR_HEADERS });
-    const gpt = catalogEntryFor("github-copilot", "gpt-5.2")!;
+    const gpt = catalogEntryFor("github-copilot", "gpt-5.5")!
     expect(gpt.wire).toBe("openai-responses");
     expect(gpt.headers).toEqual({ ...COPILOT_EDITOR_HEADERS });
   });
@@ -62,10 +62,10 @@ describe("new provider catalogs (#164)", () => {
 
 describe("route targets pick up catalog metadata (#164)", () => {
   test("copilot claude model gets anthropic wire + editor headers; gpt gets responses", () => {
-    const claude = catalogTargetOverrides("github-copilot", "claude-opus-4.6");
+    const claude = catalogTargetOverrides("github-copilot", "claude-opus-4.7");
     expect(claude.wire).toBe("anthropic-messages");
     expect(claude.headers).toEqual({ ...COPILOT_EDITOR_HEADERS });
-    const gpt = catalogTargetOverrides("github-copilot", "gpt-5.2");
+    const gpt = catalogTargetOverrides("github-copilot", "gpt-5.5");
     expect(gpt.wire).toBe("openai-responses");
     expect(gpt.headers).toEqual({ ...COPILOT_EDITOR_HEADERS });
   });

@@ -17,13 +17,17 @@ import type { FilesystemScope, PermissionRule } from "./permissions";
 import type { MentionAttachment, MentionWarning } from "./mentions";
 
 export type TextPart = { kind: "text"; text: string };
+/** Vision note 4: an image riding a user message as a multimodal content
+ * block — bytes are the base64 of the `user_message` attachment (they must
+ * stay identical for replay to rebuild the exact provider context). */
+export type ImagePart = { kind: "image"; mime: string; base64: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
  * completed text plus the provider's opaque continuation artifacts
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
 export type ToolCallPart = ToolCall & { kind: "tool_call" };
 export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string };
-export type MessagePart = TextPart | ReasoningPart | ToolCallPart | ToolResultPart;
+export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
 
 /**
  * One message in the conversation fed to providers.

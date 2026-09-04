@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { clampHomeListMax, HOME_LIST_DEFAULT } from "./viewport";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile as coreUserConfigFile } from "@moh/core";
 import { DEFAULT_THEME, THEMES, type ThemeName } from "./themes";
+import type { ImagePreviewSetting } from "./image-preview";
 
 export type VibeMode = "vibe" | "dev";
 export type FilePreview = "always" | "on-demand" | "none";
@@ -57,6 +58,9 @@ export interface UserConfig {
   reasoningNoticeShown: boolean;
   /** Opt out of the background update check (#273 / ADR-0014). Default on. */
   updateCheck: boolean;
+  /** Vision note 4 (#490): inline image preview policy. Default `auto`
+   * renders pixels only in detected kitty/iTerm2-family environments. */
+  images: { preview: ImagePreviewSetting };
 }
 
 export const DEFAULT_USER_CONFIG: UserConfig = {
@@ -74,6 +78,7 @@ export const DEFAULT_USER_CONFIG: UserConfig = {
   showReasoning: false,
   reasoningNoticeShown: false,
   updateCheck: DEFAULT_UPDATE_CHECK,
+  images: { preview: "auto" },
 };
 
 /** `~/.moh/config` — the core guardian's path constant (re-exported). */
@@ -118,6 +123,12 @@ function coerce(raw: unknown): Partial<UserConfig> {
   if (typeof src.showReasoning === "boolean") out.showReasoning = src.showReasoning;
   if (typeof src.reasoningNoticeShown === "boolean") out.reasoningNoticeShown = src.reasoningNoticeShown;
   if (typeof src.updateCheck === "boolean") out.updateCheck = src.updateCheck;
+  if (typeof src.images === "object" && src.images !== null) {
+    const img = src.images as Record<string, unknown>;
+    if (img.preview === "auto" || img.preview === "on" || img.preview === "off") {
+      out.images = { preview: img.preview };
+    }
+  }
   if (typeof src.workflow === "object" && src.workflow !== null) {
     const w = src.workflow as Record<string, unknown>;
     out.workflow = {

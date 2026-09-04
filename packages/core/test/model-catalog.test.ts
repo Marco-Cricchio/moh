@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog } from "../src/model-catalog";
+import { endpointModelCatalog, knownCompatEndpointMetadata, modelSupportsImages, subscriptionModelCatalog } from "../src/model-catalog";
 
 describe("subscriptionModelCatalog (#156)", () => {
   test("anthropic / openai / google each expose a non-empty list", () => {
@@ -52,5 +52,29 @@ describe("subscriptionModelCatalog (#156)", () => {
     expect(endpointModelCatalog("openai-compat", "https://api.deepseek.com/v1")).toEqual([]);
     expect(knownCompatEndpointMetadata("https://api.deepseek.com/v1")).toBeUndefined();
     expect(endpointModelCatalog("openai-compat", "not a url")).toEqual([]);
+  });
+});
+
+describe("modelSupportsImages — endpoint capability declaration (#490)", () => {
+  const noEntry = undefined; // openai-compat / custom: no catalog entry
+
+  test("absent declaration: not image-capable — never invented", () => {
+    expect(modelSupportsImages(noEntry)).toBe(false);
+    expect(modelSupportsImages(noEntry, {})).toBe(false);
+  });
+
+  test("explicit `multimodal: true` declares the capability", () => {
+    expect(modelSupportsImages(noEntry, { multimodal: true })).toBe(true);
+  });
+
+  test("catalog-backed: declaration can only veto, never grant", () => {
+    const entry = { id: "m", name: "m", contextWindow: 1, reasoning: false, input: ["text"] };
+    expect(modelSupportsImages(entry)).toBe(false);
+    // Cannot grant what the catalog denies.
+    expect(modelSupportsImages(entry, { multimodal: true })).toBe(false);
+    // But it can veto what the catalog grants.
+    const vision = { ...entry, input: ["text", "image"] };
+    expect(modelSupportsImages(vision)).toBe(true);
+    expect(modelSupportsImages(vision, { multimodal: false })).toBe(false);
   });
 });

@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-preview";
 import { Box, Static, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
-import { MultilineInput } from "./Input";
+import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
@@ -35,6 +36,12 @@ export interface ChatProps {
   onSuggestionsOpen?: (open: boolean) => void;
   /** #488: file paths for the `@` fuzzy popup (relative to cwd). */
   mentionCandidates?: readonly string[];
+  /** Vision note 4 (#490): paste seam — an existing path pastes as an
+   * `@path` mention (drag-and-drop). Optional; absent disables conversion. */
+  onPastePath?: (paste: string) => string | null;
+  /** Vision note 4 (#490): the resolved preview protocol (caller computes
+   * once from the `images.preview` setting + environment). */
+  previewMode?: ImagePreviewMode;
   onCommand?: (text: string) => boolean;
   width?: number;
   inputFocused?: boolean;
@@ -97,6 +104,8 @@ export function Chat({
   onOpenCommands,
   onSuggestionsOpen,
   mentionCandidates,
+  onPastePath,
+  previewMode = { protocol: "none" },
   onCommand,
   width,
   inputFocused = true,
@@ -408,6 +417,47 @@ export function Chat({
   }
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
+  // Vision note 4 (#490): place-once image emission. After the Static
+  // paint of a settled user row that cites an image (the block carries
+  // its own `image` payload), the pixels are written straight to stdout
+  // (kitty/iTerm2 protocols; `none` = chip only). Each image is emitted
+  // exactly once per placement — kitty placements are deleted and
+  // re-emitted on a whole-transcript repaint.
+  const emittedImagesRef = useRef<Map<string, number>>(new Map());
+  const imagePreviewsPlaceRef = useRef(1);
+  // The known place-once compromise — on a whole-transcript repaint the
+  // already-emitted image would sit duplicated in the scrollback. Where
+  // the protocol supports it (kitty), the placement is deleted first and
+  // the repaint re-emits at the new position; the chip never re-renders.
+  const repaintKeyRef = useRef(repaint);
+  useEffect(() => {
+    if (repaintKeyRef.current === repaint) return;
+    repaintKeyRef.current = repaint;
+    if (previewMode.protocol === "kitty" && emittedImagesRef.current.size > 0) {
+      for (const placement of emittedImagesRef.current.values()) stdout.write(deletePlacement(placement, previewMode));
+      emittedImagesRef.current.clear();
+    }
+  }, [repaint, previewMode, stdout]);
+  useEffect(() => {
+    if (previewMode.protocol === "none") return;
+    if (replaySettled || bufferFlipPending) return;
+    for (const block of staticItems) {
+      const image = block.kind === "user" ? block.image : undefined;
+      if (!image || emittedImagesRef.current.has(block.key)) continue;
+      const placement = imagePreviewsPlaceRef.current++;
+      emittedImagesRef.current.set(block.key, placement);
+      const seq = emitImage(image, previewMode, {
+        columns: cols,
+        rows: viewport.rows,
+        cellWidth: 0,
+        cellHeight: 0,
+      }, placement);
+      if (seq) stdout.write(seq + "\n");
+    }
+    // staticItems identity changes on every settled assembly — that is the
+    // trigger to look for newly settled citing rows.
+  });
+
   useInput((input, key) => {
     if (blocked || !inputFocused) return;
     if (key.escape) {
@@ -453,6 +503,7 @@ export function Chat({
         commands={commands}
         onSuggestionsOpen={onSuggestionsOpen}
         mentionCandidates={mentionCandidates}
+        onPastePath={onPastePath}
         submitSignal={submitSignal}
         prefill={prefill}
         onSubmit={(text) => {

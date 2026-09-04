@@ -6,6 +6,7 @@
  * model + connection test as usual, and no token/code material on screen.
  */
 import { describe, expect, test } from "bun:test";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
@@ -111,7 +112,9 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     const modelFrame = frame();
     expect(modelFrame).toContain("tokens stored in");
     expect(modelFrame).toContain("Pick your default model");
-    expect(modelFrame).toContain("enter a model id manually");
+    // The catalog may have grown past the viewport (scrollable, "↓ N more"):
+    // the manual row exists in the list but is not guaranteed visible.
+    expect(modelFrame).toMatch(/enter a model id manually|↓ \d+ more/);
     const first = subscriptionModelCatalog("anthropic")[0]!;
     expect(modelFrame).toContain(first.id);
     i.stdin.write("\r"); // select the first catalog entry
@@ -210,15 +213,16 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     await waitForFrame(frame, "********");
     i.stdin.write("\r");
     await waitForFrame(frame, "Pick your default model");
-    // Bottom row = free-text fallback (advanced).
+    // Bottom row = free-text fallback (advanced). Arrow past the visible
+    // viewport until the manual row is selected — the catalog may have
+    // grown (scrollable list), so never count keystrokes.
     const list = frame();
     expect(list).toContain("Pick your default model");
-    for (const model of subscriptionModelCatalog("anthropic").slice(1)) {
+    for (let k = 0; k < 40 && !frame().includes("› enter a model id manually"); k++) {
       i.stdin.write("\x1b[B");
-      await waitForFrame(frame, `› ${model.name}`);
+      await sleep(25);
     }
-    i.stdin.write("\x1b[B");
-    await waitForFrame(frame, "› enter a model id manually");
+    expect(frame()).toContain("› enter a model id manually");
     i.stdin.write("\r"); // manual entry
     await waitForFrame(frame, "Default model");
     expect(frame()).toContain("Default model");

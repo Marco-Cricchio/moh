@@ -377,7 +377,14 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
           // message exactly as the live turn saw them.
           parts: [
             { kind: "text", text: event.text },
-            ...(event.attachments ?? []).map((a) => ({ kind: "text" as const, text: renderMentionAttachment(a) })),
+            // #488/vision note 4: persisted attachments ride the rebuilt
+            // user message exactly as the live turn saw them — images as
+            // typed image parts, everything else as text blocks.
+            ...(event.attachments ?? []).map((a) =>
+              a.kind === "image"
+                ? ({ kind: "image", mime: a.mime, base64: a.content } as const)
+                : ({ kind: "text", text: renderMentionAttachment(a) } as const),
+            ),
           ],
         });
         break;

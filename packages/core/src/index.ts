@@ -75,6 +75,9 @@ export {
   parseMentions,
   mimeForPath,
   renderMentionAttachment,
+  imageDimensions,
+  IMAGE_MENTION_CAP,
+  IMAGE_MENTION_MIMES,
   MENTION_TEXT_CAP,
   MENTION_DIR_ENTRY_CAP,
   type ExpandedMention,
@@ -112,7 +115,7 @@ import {
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-export { catalogEntryFor, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { catalogEntryFor, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
 export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {

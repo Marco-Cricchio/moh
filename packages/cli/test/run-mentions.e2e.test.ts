@@ -53,3 +53,44 @@ describe("moh run file mentions (e2e)", () => {
     expect(JSON.stringify(events)).not.toContain("hunter2");
   });
 });
+
+describe("moh run image mentions (e2e, vision note 4)", () => {
+  function png(): Buffer {
+    const b = Buffer.alloc(40);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+    b.writeUInt32BE(10, 16);
+    b.writeUInt32BE(20, 20);
+    b[30] = 0x41;
+    return b;
+  }
+
+  test("@image.png attaches the typed image to the logged user_message", () => {
+    const { cwd, home, spawn } = harness();
+    writeFileSync(join(cwd, "shot.png"), png());
+    const res = spawn(["run", "describe @shot.png"]);
+    expect(res.code).toBe(0);
+    const events = readEvents(readFileSync(sessionFiles(home)[0]!, "utf8"));
+    const message = events.find((e: any) => e.type === "user_message")!;
+    expect(message.attachments).toHaveLength(1);
+    const a = message.attachments[0];
+    expect(a.kind).toBe("image");
+    expect(a.mime).toBe("image/png");
+    expect(a.width).toBe(10);
+    expect(a.height).toBe(20);
+    expect(Buffer.from(a.content, "base64").equals(png())).toBe(true);
+  });
+
+  test("an over-cap image yields the visible refusal, no attachment", () => {
+    const { cwd, home, spawn } = harness();
+    // > 5MB real image bytes (mock provider has no catalog entry, so this
+    // exercises the assembly-level cap refusal independent of the gate).
+    writeFileSync(join(cwd, "big.png"), Buffer.alloc(5 * 1024 * 1024 + 1, 1));
+    const res = spawn(["run", "describe @big.png"]);
+    expect(res.code).toBe(0);
+    const events = readEvents(readFileSync(sessionFiles(home)[0]!, "utf8"));
+    const warn = events.find((e: any) => e.type === "mention_warnings")!;
+    expect(warn.warnings[0].reason).toContain("exceeds the 5MB attachment cap");
+    const message = events.find((e: any) => e.type === "user_message")!;
+    expect(message.attachments).toBeUndefined();
+  });
+});

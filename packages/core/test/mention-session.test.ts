@@ -112,3 +112,63 @@ describe("file mentions (#488)", () => {
     }
   });
 });
+
+describe("image mentions (#490, vision note 4)", () => {
+  function png(): Buffer {
+    const b = Buffer.alloc(40);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+    b.writeUInt32BE(10, 16);
+    b.writeUInt32BE(20, 20);
+    b[30] = 0x41;
+    return b;
+  }
+
+  test("image-capable provider: the provider sees a typed image part; log carries base64", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-image-session-"));
+    try {
+      writeFileSync(join(dir, "pic.png"), png());
+      const { users, provider } = captureProvider();
+      const session = createSession({ provider, cwd: dir, images: { imageCapable: () => true } });
+      await session.send("what is @pic.png");
+
+      const last = users[users.length - 1]!;
+      const img = last.parts.find((p) => p.kind === "image") as any;
+      expect(img).toBeDefined();
+      expect(img.mime).toBe("image/png");
+      expect(img.base64).toBe(png().toString("base64"));
+      const event = session.history().find((e) => e.type === "user_message") as any;
+      expect(event.attachments[0].kind).toBe("image");
+      // Replay round-trips the image bytes into the same part.
+      const { replayMessages } = await import("../src/session-store");
+      const rebuilt = replayMessages(session.history()).at(-1)!;
+      expect(rebuilt.parts.some((p) => p.kind === "image" && p.base64 === img.base64)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("non-image provider: visible warning, chip text part, never a turn error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-image-nocap-"));
+    try {
+      writeFileSync(join(dir, "pic.png"), png());
+      const { users, provider } = captureProvider();
+      const session = createSession({ provider, cwd: dir, images: { imageCapable: () => false } });
+      const result = await session.send("what is @pic.png");
+      expect(result.status).toBe("done");
+
+      const warnAt = session.history().findIndex((e) => e.type === "mention_warnings");
+      expect(warnAt).toBeGreaterThanOrEqual(0);
+      expect((session.history()[warnAt] as any).warnings[0].reason).toContain("does not support images");
+
+      const last = users[users.length - 1]!;
+      expect(last.parts.some((p) => p.kind === "image")).toBe(false);
+      expect(JSON.stringify(last)).toContain("[image: pic.png 10x20]");
+      // The attachment still rides the log (TUI preview + replay for a
+      // capable model), only the wire part was downgraded.
+      const event = session.history().find((e) => e.type === "user_message") as any;
+      expect(event.attachments[0].kind).toBe("image");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
