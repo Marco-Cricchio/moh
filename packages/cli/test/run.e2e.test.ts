@@ -504,10 +504,14 @@ describe("moh run (e2e)", () => {
       // The resumed conversation, not a fresh session: the streamed events
       // are only the new turn's (no re-appended session_start), and the
       // file grew by exactly those events on top of the intact history.
-      expect(events[0].type).toBe("user_message");
+      // ADR-0021: resume-open appends session_resumed before any turn —
+      // first in both the file and the stdout event stream.
+      expect(events[0].type).toBe("session_resumed");
+      expect(events[1]!.type).toBe("user_message");
       expect(events.some((e) => e.type === "done")).toBe(true);
       const after = readEvents(readFileSync(file, "utf8"));
       expect(after.length).toBe(beforeStory.length + events.length);
+      expect(after[beforeStory.length]!.type).toBe("session_resumed");
       expect(after.slice(0, beforeStory.length)).toEqual(beforeStory);
     });
 

@@ -42,7 +42,8 @@ describe("reasoning lifecycle integration (#243)", () => {
     });
     const originalBytes = readFileSync(store.file, "utf8");
     const fork = store.fork();
-    expect(readFileSync(fork.file, "utf8")).toBe(originalBytes);
+    // ADR-0021: forks are born consumed — the fork appends session_resumed.
+    expect(readFileSync(fork.file, "utf8")).toBe(originalBytes + '{"type":"session_resumed"}\n');
 
     let resumedContext: Message[] = [];
     const capture: Provider = {
@@ -56,7 +57,7 @@ describe("reasoning lifecycle integration (#243)", () => {
     };
     const resumed = createSession({
       provider: capture,
-      resume: { events: fork.load() },
+      resume: { events: fork.load(), consume: false },
       sink: (event) => fork.append(event),
     });
     await resumed.send("continue");

@@ -57,12 +57,13 @@ function fakeTransport(result: FetchResult | "hang"): HandoffTransport {
   };
 }
 
-function local(overrides: Partial<SessionSummary> = {}): SessionSummary {
+function local(overrides: Partial<Omit<SessionSummary, "consumed">> & { consumed?: boolean } = {}): SessionSummary {
   return {
     file: "/tmp/x.jsonl",
     id: "local-1",
     title: "local session",
     mtimeMs: Date.parse("2026-09-02T12:00:00.000Z"),
+    consumed: false,
     ...overrides,
   };
 }
