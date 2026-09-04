@@ -37,6 +37,7 @@ import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from 
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
 import { useViewport } from "./viewport";
+import { listFiles } from "./file-index";
 import { trackExitWork } from "./exit";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
@@ -254,6 +255,14 @@ export function App({
   const completionOpenRef = useRef(completionOpen);
   completionOpenRef.current = completionOpen;
   const handleSuggestionsOpen = useCallback((open: boolean) => setCompletionOpen(open), []);
+  // #488: the @-popup's file index — resolved once per cwd (git ls-files,
+  // walk fallback); the popup filters it in-memory while open.
+  const [mentionCandidates, setMentionCandidates] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void listFiles(cwd).then((paths) => { if (alive) setMentionCandidates(paths); });
+    return () => { alive = false; };
+  }, [cwd]);
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
     const count = visibleChips(viewport.columns).chips.length;
@@ -776,6 +785,7 @@ export function App({
       })()}
       onOpenCommands={() => setOverlay("commands")}
       onSuggestionsOpen={handleSuggestionsOpen}
+      mentionCandidates={mentionCandidates}
       onCommand={(text) => runSlashCommand(text, {
         cwd,
         mohHome,

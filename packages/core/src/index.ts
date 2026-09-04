@@ -67,6 +67,25 @@ import {
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
+// #488: file mentions — the ADR-0004 reopening that lets clients expand
+// `@path` tokens (TUI popup plumbing, `moh run` headless sends).
+export {
+  assembleMentions,
+  expandMentions,
+  parseMentions,
+  mimeForPath,
+  renderMentionAttachment,
+  MENTION_TEXT_CAP,
+  MENTION_DIR_ENTRY_CAP,
+  type ExpandedMention,
+  type ExpandMentionsResult,
+  type MentionAttachment,
+  type MentionCanRead,
+  type MentionWarning,
+  type ParsedMention,
+  type AssembleMentionsOptions,
+  type AssembleMentionsResult,
+} from "./mentions";
 import { type SubagentOptions } from "./subagents";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";

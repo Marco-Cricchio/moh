@@ -18,6 +18,7 @@ import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
+import { renderMentionAttachment } from "./mentions";
 
 /** #400: observed external growth of a session file, as reported to the
  * session (and the `session_file_growth` chrome event) at an append boundary. */
@@ -372,7 +373,12 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
         flushAssistant();
         messages.push({
           role: "user",
-          parts: [{ kind: "text", text: event.text }],
+          // #488: persisted mention attachments ride the rebuilt user
+          // message exactly as the live turn saw them.
+          parts: [
+            { kind: "text", text: event.text },
+            ...(event.attachments ?? []).map((a) => ({ kind: "text" as const, text: renderMentionAttachment(a) })),
+          ],
         });
         break;
       case "reasoning":

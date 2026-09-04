@@ -146,6 +146,20 @@ prompt for exactly one turn — the user message (and its persisted event)
 stays the clean text, and a `skill_invoked` chrome event records the
 invocation. See `docs/extending/skills.md`.
 
+### File mentions (#488)
+
+Any sent text — TUI or headless — goes through mention expansion: a
+user-typed `@path` token stays in the message text while the core
+attaches a structured snapshot on the `user_message` event (file
+content capped at ~200KB with a truncation marker, binaries base64
+with a detected mime, directories a recursive path listing). `read:`
+permission rules gate every snapshot — a denied or missing path appends
+a `mention_warnings` chrome event instead of an attachment, never a
+turn error. The helpers are exported: `expandMentions(text, cwd)`
+parses and resolves tokens; `assembleMentions` builds the attachments
+with a custom `canRead` gate; `renderMentionAttachment` renders one
+attachment as a provider-facing text block (what replay rebuilds).
+
 ### 3. Permissions, headless
 
 Permission rules have one string grammar (ADR-0007), the same one the

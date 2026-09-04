@@ -255,6 +255,13 @@ export class AgentSession {
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
       append: (event) => this.#append(event),
+      // #488: mention expansion — `@path` tokens in user messages become
+      // structured attachments at turn start, gated by the read-permission
+      // resolver (`@` is UX sugar, never a bypass).
+      mentions: {
+        cwd: this.#cwd,
+        canRead: (absPath: string) => this.#permissions.resolve("read", { path: absPath }) === "allow",
+      },
       // #253: live reasoning relay (ephemeral — never stored or sunk).
       emitLive: (event) => this.#eventLog.emitLive(event),
       // #240/#242: the neutral thinking-level request. An explicit config

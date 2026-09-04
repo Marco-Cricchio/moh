@@ -14,6 +14,7 @@ export const CANCELLED_TOOL_OUTPUT = "turn cancelled before the tool returned";
 
 import { z } from "zod";
 import type { FilesystemScope, PermissionRule } from "./permissions";
+import type { MentionAttachment, MentionWarning } from "./mentions";
 
 export type TextPart = { kind: "text"; text: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
@@ -170,7 +171,14 @@ export type AgentEvent =
    * event so the log stays append-only and the reset is itself history.
    */
   | { type: "session_renamed"; name: string }
-  | { type: "user_message"; text: string }
+  | { type: "user_message"; text: string; /**
+   * #488 (vision note 3): structured snapshots of the `@path` mentions in
+   * `text` — file content snapshots and directory listings assembled by
+   * the core at send time, gated by read-permission rules. The log records
+   * what the model actually saw that turn; mentions stay in the text.
+   * Absent when the message carried no mentions. */
+      attachments?: MentionAttachment[] }
+  | { type: "mention_warnings"; warnings: MentionWarning[] }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall & {
       /** #300: the effective timeout (ms) this call runs under, resolved
