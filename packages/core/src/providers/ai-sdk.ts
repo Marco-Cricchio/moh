@@ -166,6 +166,9 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
     for (const part of msg.parts) {
       if (part.kind === "text") {
         content.push({ type: "text", text: part.text });
+      } else if (part.kind === "image") {
+        // Vision note 4: multimodal image content block (AI SDK v5 shape).
+        content.push({ type: "file", mediaType: part.mime, data: part.base64 });
       } else if (part.kind === "tool_call") {
         content.push({
           type: "tool-call",

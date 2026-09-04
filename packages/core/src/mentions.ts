@@ -13,6 +13,11 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 export const MENTION_TEXT_CAP = 200 * 1024;
 /** Safety cap for directory listings (entries). */
 export const MENTION_DIR_ENTRY_CAP = 5000;
+/** ~5MB cap for image attachments (vision note 4): above it the mention
+ * is refused with a visible warning, never a turn error. */
+export const IMAGE_MENTION_CAP = 5 * 1024 * 1024;
+/** Image formats promoted to image content blocks (vision note 4). */
+export const IMAGE_MENTION_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 /** One structured attachment on a `user_message` event (#488). */
 export type MentionAttachment =
@@ -28,6 +33,17 @@ export type MentionAttachment =
       truncated: boolean;
     }
   | {
+      kind: "image";
+      path: string;
+      /** One of IMAGE_MENTION_MIMES (jpg/png/webp/gif). */
+      mime: string;
+      /** Raw image bytes, base64-encoded. */
+      content: string;
+      /** Cheaply available pixel dimensions; absent when unknown. */
+      width?: number;
+      height?: number;
+    }
+  | {
       kind: "directory";
       path: string;
       /** Recursive listing of relative paths only — no contents. */
@@ -36,7 +52,9 @@ export type MentionAttachment =
       truncated: boolean;
     };
 
-/** A visible warning for a mention the core could not attach (#488). */
+/** A visible warning for a mention the core could not attach (#488).
+ * Vision note 4 reuses it for over-cap image refusals and unsupported-
+ * format notes — visible, never a turn error. */
 export interface MentionWarning {
   /** Path as written by the user. */
   path: string;
@@ -135,6 +153,8 @@ export interface AssembleMentionsOptions {
   textCap?: number;
   /** Directory listing cap override (tests). */
   dirCap?: number;
+  /** Image byte cap override (tests); default IMAGE_MENTION_CAP. */
+  imageCap?: number;
 }
 
 export interface AssembleMentionsResult {
@@ -222,6 +242,23 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
       warnings.push({ path: mention.displayPath, reason: `unreadable: ${err instanceof Error ? err.message : String(err)}` });
       continue;
     }
+    if (IMAGE_MENTION_MIMES.has(mime)) {
+      if (buf.length > (options.imageCap ?? IMAGE_MENTION_CAP)) {
+        warnings.push({
+          path: mention.displayPath,
+          reason: `image exceeds the ${Math.round((options.imageCap ?? IMAGE_MENTION_CAP) / (1024 * 1024))}MB attachment cap and was not attached`,
+        });
+        continue;
+      }
+      attachments.push({
+        kind: "image",
+        path: mention.displayPath,
+        mime,
+        content: buf.toString("base64"),
+        ...pngWebpGifDimensions(buf, mime),
+      });
+      continue;
+    }
     if (looksBinary(buf)) {
       attachments.push({ kind: "file", path: mention.displayPath, mime, content: buf.toString("base64"), truncated: false });
       continue;
@@ -241,8 +278,47 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
   return { text, attachments, warnings };
 }
 
-async function listDirectory(dir: string, cap: number): Promise<{ listing: string[]; truncated: boolean }> {
-  const listing: string[] = [];
+/** Cheap pixel dimensions from the format headers (best-effort; null when
+ * unrecognized — never a guess). Covers png, gif, webp (VP8/VP8L/VP8X) and
+ * jpeg (SOF scan). Used for previews and fallback chips (vision note 4). */
+export function pngWebpGifDimensions(
+  buf: Buffer,
+  mime: string,
+): { width?: number; height?: number } {
+  try {
+    if (mime === "image/png" && buf.subarray(0, 8).toString("latin1") === "\x89PNG\r\n\x1a\n") {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+    if (mime === "image/gif" && buf.subarray(0, 6).toString("latin1").startsWith("GIF")) {
+      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+    }
+    if (mime === "image/webp" && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP") {
+      const chunk = buf.subarray(12, 16).toString("latin1");
+      if (chunk === "VP8 ") return { width: buf.readUInt16LE(26) & 0x3fff, height: buf.readUInt16LE(28) & 0x3fff };
+      if (chunk === "VP8L") {
+        const b = buf.readUInt32LE(21);
+        return { width: (b & 0x3fff) + 1, height: ((b >> 14) & 0x3fff) + 1 };
+      }
+      if (chunk === "VP8X") return { width: 1 + buf.readUIntLE(24, 3), height: 1 + buf.readUIntLE(27, 3) };
+    }
+    if (mime === "image/jpeg") {
+      let off = 2;
+      while (off + 9 < buf.length) {
+        if (buf[off] !== 0xff) { off++; continue; }
+        const marker = buf[off + 1]!;
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { height: buf.readUInt16BE(off + 5), width: buf.readUInt16BE(off + 7) };
+        }
+        off += 2 + buf.readUInt16BE(off + 2);
+      }
+    }
+  } catch {
+    /* best-effort only */
+  }
+  return {};
+}
+
+async function listDirectory(dir: string, cap: number): Promise<{ listing: string[]; truncated: boolean }> {  const listing: string[] = [];
   const walk = async (current: string, prefix: string): Promise<void> => {
     if (listing.length >= cap) return;
     let entries;
@@ -267,8 +343,15 @@ async function listDirectory(dir: string, cap: number): Promise<{ listing: strin
   return { listing, truncated: listing.length >= cap };
 }
 
-/** Renders one attachment as a provider-facing text block (multimodal blocks are vision note 4, out of scope). */
+/** Renders one attachment as a provider-facing text block. Image attachments
+ * (vision note 4) never render as text: the provider path is a typed image
+ * content block (mapped in ai-sdk.ts); this fallback exists only for
+ * providers the gate dropped the part for — a plain reference line. */
 export function renderMentionAttachment(attachment: MentionAttachment): string {
+  if (attachment.kind === "image") {
+    const dims = attachment.width && attachment.height ? ` ${attachment.width}x${attachment.height}` : "";
+    return `[image: ${attachment.path}${dims} — ${attachment.mime}]`;
+  }
   if (attachment.kind === "directory") {
     const suffix = attachment.truncated ? `\n[truncated at ${MENTION_DIR_ENTRY_CAP} entries]` : "";
     return `<attachment kind="directory" path="${attachment.path}">\n${attachment.listing.join("\n")}${suffix}\n</attachment>`;

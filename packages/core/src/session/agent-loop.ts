@@ -52,7 +52,13 @@ export interface AgentLoopOptions {
   append: (event: AgentEvent) => void;
   /** #488: mention expansion config — `@path` tokens in user messages
    * become structured attachments riding the turn. Absent disables it. */
-  mentions?: { cwd: string; canRead?: (absPath: string) => boolean };
+  /** #488: mention expansion config — `@path` tokens in user messages
+   * become structured attachments riding the turn. Absent disables it.
+   * Vision note 4: `imageCapable` is the capability seam — a zero-arg
+   * probe of the *serving* model so mid-session switches are honored.
+   * Absent = assumed capable (custom/mock providers that always wire
+   * their own truth); the session always resolves it from the catalog. */
+  mentions?: { cwd: string; canRead?: (absPath: string) => boolean; imageCapable?: () => boolean };
   /** #253: live (ephemeral) reasoning relay — the stream lifecycle is
    * forwarded in real time while the model thinks, without touching the
    * persisted log (the completed block still lands there). */
@@ -206,11 +212,27 @@ export class AgentLoop {
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
     this.#turnModels = [];
-    // #488: the attachment snapshots ride the turn as additional text parts
+    // #488: the attachment snapshots ride the turn as additional parts
     // appended to the user message — the text itself stays as typed.
+    // Vision note 4: an image attachment becomes a typed image part when
+    // the serving model declares image input; otherwise the reference
+    // chip stays in the text flow and a visible warning fires — never a
+    // silent drop and never a turn error.
     const userParts: Message["parts"] = [{ kind: "text", text }];
     if (attachments) {
-      for (const attachment of attachments) userParts.push({ kind: "text", text: renderMentionAttachment(attachment) });
+      for (const attachment of attachments) {
+        if (attachment.kind === "image" && this.#mentions?.imageCapable?.() !== false) {
+          userParts.push({ kind: "image", mime: attachment.mime, base64: attachment.content });
+        } else {
+          if (attachment.kind === "image") {
+            this.#append({
+              type: "mention_warnings",
+              warnings: [{ path: attachment.path, reason: "provider/model does not support images — attachment skipped" }],
+            });
+          }
+          userParts.push({ kind: "text", text: renderMentionAttachment(attachment) });
+        }
+      }
     }
     this.#messages.push({ role: "user", parts: userParts });
     // MCP (#15): lazy start on first use — the first turn connects the

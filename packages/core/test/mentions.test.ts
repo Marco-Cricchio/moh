@@ -9,6 +9,7 @@ import {
   parseMentions,
   renderMentionAttachment,
   MENTION_TEXT_CAP,
+  pngWebpGifDimensions,
 } from "../src/mentions";
 
 function tmpProject(): string {
@@ -76,7 +77,7 @@ describe("assembleMentions", () => {
     try {
       writeFileSync(join(dir, "big.txt"), "x".repeat(MENTION_TEXT_CAP + 10));
       const r = await assembleMentions("@big.txt", { cwd: dir });
-      expect(r.attachments[0]!.truncated).toBe(true);
+      expect(r.attachments[0]!.kind === "file" && r.attachments[0]!.truncated).toBe(true);
       expect(r.attachments[0]!.kind === "file" && r.attachments[0]!.content.endsWith("[truncated: file exceeds the 204800-byte attachment cap]")).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -88,8 +89,9 @@ describe("assembleMentions", () => {
     try {
       writeFileSync(join(dir, "img.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]));
       const r = await assembleMentions("@img.png", { cwd: dir });
-      expect(r.attachments[0]).toMatchObject({ kind: "file", mime: "image/png", truncated: false });
-      expect(r.attachments[0]!.kind === "file" && Buffer.from(r.attachments[0]!.content, "base64").toString()).toBe(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]).toString());
+      // Vision note 4: a png now attaches as a typed image attachment.
+      const a = r.attachments[0]!;
+      expect(a.kind === "image" && Buffer.from(a.content, "base64").toString()).toBe(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]).toString());
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -157,5 +159,60 @@ describe("assembleMentions", () => {
     expect(mimeForPath("a.pdf")).toBe("application/pdf");
     expect(mimeForPath("a.PNG")).toBe("image/png");
     expect(mimeForPath("a.weird")).toBe("application/octet-stream");
+  });
+});
+
+describe("image mentions (vision note 4 / #490)", () => {
+  test("png attaches as a typed image with cheap dimensions", async () => {
+    const dir = tmpProject();
+    try {
+      // 1x1 png header + dimensions (bytes 16..24), rest arbitrary but
+      // null-free so the binary sniff keeps it binary.
+      const png = Buffer.alloc(40);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+      png.writeUInt32BE(1, 16);
+      png.writeUInt32BE(2, 20);
+      png[30] = 0x41; // non-null so looksBinary stays true
+      writeFileSync(join(dir, "pic.png"), png);
+      const r = await assembleMentions("look @pic.png", { cwd: dir });
+      expect(r.warnings).toEqual([]);
+      expect(r.attachments).toHaveLength(1);
+      const a = r.attachments[0]!;
+      expect(a.kind).toBe("image");
+      if (a.kind !== "image") return;
+      expect(a.mime).toBe("image/png");
+      expect(a.width).toBe(1);
+      expect(a.height).toBe(2);
+      expect(Buffer.from(a.content, "base64").equals(png)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("over-cap image is refused with a visible warning, not attached", async () => {
+    const dir = tmpProject();
+    try {
+      writeFileSync(join(dir, "big.png"), Buffer.alloc(100, 1));
+      const r = await assembleMentions("@big.png", { cwd: dir, imageCap: 10 });
+      expect(r.attachments).toEqual([]);
+      expect(r.warnings).toEqual([{ path: "big.png", reason: "image exceeds the 0MB attachment cap and was not attached" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("renderMentionAttachment of an image is a reference chip, never base64", async () => {
+    const chip = renderMentionAttachment({ kind: "image", path: "pic.png", mime: "image/png", content: "QUJD", width: 3, height: 4 });
+    expect(chip).toBe("[image: pic.png 3x4 — image/png]");
+    expect(chip).not.toContain("QUJD");
+  });
+
+  test("pngWebpGifDimensions reads gif and rejects junk", () => {
+    const gif = Buffer.alloc(12);
+    Buffer.from("GIF89a", "latin1").copy(gif, 0);
+    gif.writeUInt16LE(640, 6);
+    gif.writeUInt16LE(480, 8);
+    expect(pngWebpGifDimensions(gif, "image/gif")).toEqual({ width: 640, height: 480 });
+    expect(pngWebpGifDimensions(Buffer.alloc(10, 7), "image/png")).toEqual({});
   });
 });
