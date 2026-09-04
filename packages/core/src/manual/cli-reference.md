@@ -161,13 +161,14 @@ options:
 ## moh compact
 
 ```
-usage: moh compact --session <file> [--cwd <dir>]
+usage: moh compact [--session <file>] [--cwd <dir>]
 
 Compacts a session's context in place: appends a compaction marker
 (a summary of the older turns plus a pointer), keeping the last 10
 turns verbatim. The log is append-only — nothing is ever deleted.
 
-  --session <file>   the session JSONL to compact (required)
+  --session <file>   the session JSONL to compact
+                     (default: the project's most recent session)
   --cwd <dir>        project root the session belongs to
                      (default: process.cwd())
 

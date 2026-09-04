@@ -59,7 +59,7 @@ describe("moh compact (#466)", () => {
   test("--help prints the usage", async () => {
     const { code, out } = await run(["compact", "--help"]);
     expect(code).toBe(0);
-    expect(out).toContain("usage: moh compact --session <file>");
+    expect(out).toContain("usage: moh compact [--session <file>]");
   });
 
   test("requires --session when the project has no sessions (isolated HOME)", async () => {

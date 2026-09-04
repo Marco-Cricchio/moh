@@ -32,7 +32,7 @@ verbatim. The next turn starts against the rebuilt context.
 You can also force it:
 
 - `/compact` — in-session (TUI): compacts now, same producer.
-- `moh compact --session <file>` — from the shell: opens a closed
+- `moh compact [--session <file>]` — from the shell: opens a closed
   session file, compacts it, and closes it again. Compacting never
   consumes the session: it is still suggested and resumable as usual.
 
