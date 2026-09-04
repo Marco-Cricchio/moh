@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -54,16 +54,21 @@ function subsequenceScore(text: string, query: string, boundaryBonus: boolean): 
 const WALK_SKIP = new Set([".git", "node_modules", ".moh", "dist", ".next"]);
 
 /**
- * The popup's path list: git repositories resolve synchronously via
- * `git ls-files --cached --others --exclude-standard` (respects
- * gitignore); anything else falls back to a recursive walk (skipping
- * heavy/noise directories). Relative paths, `/`-separated.
+ * The popup's path list: git repositories resolve via `git ls-files
+ * --cached --others --exclude-standard` (respects gitignore); anything
+ * else falls back to a recursive walk (skipping heavy/noise directories).
+ * Relative paths, `/`-separated. Fully asynchronous: a spawn inside a
+ * React effect would block the reconciler's commit phase (Ink tests hang
+ * on "Should not already be working").
  */
 export async function listFiles(cwd: string): Promise<string[]> {
   try {
-    const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-      cwd,
-      maxBuffer: 64 * 1024 * 1024,
+    const out = await new Promise<Buffer>((resolve, reject) => {
+      const proc = spawn("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd });
+      const chunks: Buffer[] = [];
+      proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+      proc.on("error", reject);
+      proc.on("close", (code) => code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`git ls-files exited ${code}`)));
     });
     return out.toString().split("\n").filter(Boolean);
   } catch {
