@@ -202,13 +202,16 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
       warnings.push({ path: mention.displayPath, reason: "not found" });
       continue;
     }
-    if (options.canRead && !options.canRead(mention.absPath)) {
-      warnings.push({ path: mention.displayPath, reason: "denied by permission rule" });
-      continue;
-    }
+    // #488 decision: a directory listing is public metadata (like `ls`) —
+    // read rules do NOT gate it; denied paths are denied later at `read`
+    // time (one source of truth for deny). Only file contents are gated.
     if (mention.isDirectory) {
       const { listing, truncated } = await listDirectory(mention.absPath, dirCap);
       attachments.push({ kind: "directory", path: mention.displayPath, listing, truncated });
+      continue;
+    }
+    if (options.canRead && !options.canRead(mention.absPath)) {
+      warnings.push({ path: mention.displayPath, reason: "denied by permission rule" });
       continue;
     }
     const mime = mimeForPath(mention.absPath);

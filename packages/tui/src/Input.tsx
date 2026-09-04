@@ -338,7 +338,10 @@ export function MultilineInput({
     const acceptSuggestion = () => {
       if (mentionPopup) {
         const chosen = mentionEntries[Math.min(suggestionIndex, mentionEntries.length - 1)] ?? mentionEntries[0]!;
-        replaceText(`${queryBeforeKeys.slice(0, queryBeforeKeys.length - (mentionQ?.length ?? 0))}${chosen} `);
+        // Quoted form when the path contains whitespace — the core parser
+        // (parseMentions) otherwise splits it at the space.
+        const token = /[\s]/.test(chosen) ? `"${chosen}"` : chosen;
+        replaceText(`${queryBeforeKeys.slice(0, queryBeforeKeys.length - (mentionQ?.length ?? 0))}${token} `);
       } else {
         const chosen = slashEntries[Math.min(suggestionIndex, slashEntries.length - 1)]?.name ?? slashEntries[0]!.name;
         replaceText(`${chosen} `);

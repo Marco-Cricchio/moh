@@ -116,6 +116,24 @@ describe("assembleMentions", () => {
     }
   });
 
+  test("directory listing is public metadata: attached even when the dir itself is denied", async () => {
+    const dir = tmpProject();
+    try {
+      mkdirSync(join(dir, "pkg"));
+      writeFileSync(join(dir, "pkg", "b.ts"), "secret");
+      const r = await assembleMentions("@pkg", {
+        cwd: dir,
+        canRead: (p) => !p.endsWith("pkg"),
+      });
+      expect(r.warnings).toEqual([]);
+      expect(r.attachments[0]).toMatchObject({ kind: "directory", path: "pkg" });
+      // the listing itself stays content-free
+      expect(JSON.stringify(r.attachments)).not.toContain("secret");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("denied file: warning, no attachment; missing file warns too", async () => {
     const dir = tmpProject();
     try {
