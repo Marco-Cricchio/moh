@@ -20,7 +20,8 @@ commands:
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
-  update   self-update the binary to the latest stable release
+  compact  compact a session's context in place (see: moh compact --help)
+  sessions session management (rename; see: moh sessions --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -174,4 +175,18 @@ turns verbatim. The log is append-only — nothing is ever deleted.
 
 Compacting never consumes a session: it can still be suggested and
 resumed as usual afterwards.
+```
+
+## moh sessions rename
+
+```
+usage: moh sessions rename <file|id> <name> [--cwd <dir>]
+
+Renames a session: the display name shows in the TUI home picker and
+overrides the derived first-message title. An empty name resets to the
+derived title. Display names never touch file names or slugs.
+
+  file|id   the session JSONL path, or a session id from \`moh run --list\`
+  name      the new display name (empty string resets)
+  --cwd     project root the session belongs to (default: process.cwd())
 ```
