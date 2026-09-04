@@ -75,7 +75,7 @@ export {
   parseMentions,
   mimeForPath,
   renderMentionAttachment,
-  pngWebpGifDimensions,
+  imageDimensions,
   IMAGE_MENTION_CAP,
   IMAGE_MENTION_MIMES,
   MENTION_TEXT_CAP,

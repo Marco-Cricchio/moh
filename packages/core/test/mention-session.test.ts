@@ -162,7 +162,7 @@ describe("image mentions (#490, vision note 4)", () => {
 
       const last = users[users.length - 1]!;
       expect(last.parts.some((p) => p.kind === "image")).toBe(false);
-      expect(JSON.stringify(last)).toContain("[image: pic.png 10x20 — image/png]");
+      expect(JSON.stringify(last)).toContain("[image: pic.png 10x20]");
       // The attachment still rides the log (TUI preview + replay for a
       // capable model), only the wire part was downgraded.
       const event = session.history().find((e) => e.type === "user_message") as any;

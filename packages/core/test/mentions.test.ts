@@ -9,7 +9,7 @@ import {
   parseMentions,
   renderMentionAttachment,
   MENTION_TEXT_CAP,
-  pngWebpGifDimensions,
+  imageDimensions,
 } from "../src/mentions";
 
 function tmpProject(): string {
@@ -203,16 +203,16 @@ describe("image mentions (vision note 4 / #490)", () => {
 
   test("renderMentionAttachment of an image is a reference chip, never base64", async () => {
     const chip = renderMentionAttachment({ kind: "image", path: "pic.png", mime: "image/png", content: "QUJD", width: 3, height: 4 });
-    expect(chip).toBe("[image: pic.png 3x4 — image/png]");
+    expect(chip).toBe("[image: pic.png 3x4]");
     expect(chip).not.toContain("QUJD");
   });
 
-  test("pngWebpGifDimensions reads gif and rejects junk", () => {
+  test("imageDimensions reads gif and rejects junk", () => {
     const gif = Buffer.alloc(12);
     Buffer.from("GIF89a", "latin1").copy(gif, 0);
     gif.writeUInt16LE(640, 6);
     gif.writeUInt16LE(480, 8);
-    expect(pngWebpGifDimensions(gif, "image/gif")).toEqual({ width: 640, height: 480 });
-    expect(pngWebpGifDimensions(Buffer.alloc(10, 7), "image/png")).toEqual({});
+    expect(imageDimensions(gif, "image/gif")).toEqual({ width: 640, height: 480 });
+    expect(imageDimensions(Buffer.alloc(10, 7), "image/png")).toEqual({});
   });
 });

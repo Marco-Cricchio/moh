@@ -255,7 +255,7 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
         path: mention.displayPath,
         mime,
         content: buf.toString("base64"),
-        ...pngWebpGifDimensions(buf, mime),
+        ...imageDimensions(buf, mime),
       });
       continue;
     }
@@ -281,7 +281,7 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
 /** Cheap pixel dimensions from the format headers (best-effort; null when
  * unrecognized — never a guess). Covers png, gif, webp (VP8/VP8L/VP8X) and
  * jpeg (SOF scan). Used for previews and fallback chips (vision note 4). */
-export function pngWebpGifDimensions(
+export function imageDimensions(
   buf: Buffer,
   mime: string,
 ): { width?: number; height?: number } {
@@ -346,11 +346,12 @@ async function listDirectory(dir: string, cap: number): Promise<{ listing: strin
 /** Renders one attachment as a provider-facing text block. Image attachments
  * (vision note 4) never render as text: the provider path is a typed image
  * content block (mapped in ai-sdk.ts); this fallback exists only for
- * providers the gate dropped the part for — a plain reference line. */
+ * providers the gate dropped the part for — the universal reference chip
+ * (same format as the TUI's imageChip). */
 export function renderMentionAttachment(attachment: MentionAttachment): string {
   if (attachment.kind === "image") {
     const dims = attachment.width && attachment.height ? ` ${attachment.width}x${attachment.height}` : "";
-    return `[image: ${attachment.path}${dims} — ${attachment.mime}]`;
+    return `[image: ${attachment.path}${dims}]`;
   }
   if (attachment.kind === "directory") {
     const suffix = attachment.truncated ? `\n[truncated at ${MENTION_DIR_ENTRY_CAP} entries]` : "";

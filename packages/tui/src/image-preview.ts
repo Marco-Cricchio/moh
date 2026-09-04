@@ -6,7 +6,7 @@
  * Detection is environment-based only — never capability queries, never
  * blind attempts.
  */
-import { pngWebpGifDimensions } from "@moh/core";
+import { imageDimensions } from "@moh/core";
 
 /** `images.preview` setting: `auto` renders pixels only when the
  * environment supports them; `off` always degrades to the chip. */
@@ -75,7 +75,7 @@ export function emitImage(
   placementId: number,
 ): string | null {
   if (mode.protocol === "none") return null;
-  const dims = pngWebpGifDimensions(Buffer.from(image.base64, "base64"), image.mime);
+  const dims = imageDimensions(Buffer.from(image.base64, "base64"), image.mime);
   const width = image.width ?? dims.width;
   const height = image.height ?? dims.height;
   if (mode.protocol === "kitty") {
