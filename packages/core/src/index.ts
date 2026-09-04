@@ -90,6 +90,17 @@ export {
   type AssembleMentionsResult,
 } from "./mentions";
 import { type SubagentOptions } from "./subagents";
+// #497: child-log tail seam — the ADR-0004 reopening that lets clients
+// (TUI subagent chips + live panel) tail a running child session's log
+// without full replay and without holding the child AgentSession.
+export {
+  tailChildLog,
+  childTailLine,
+  CHILD_TAIL_MAX_LINES,
+  type ChildTailLine,
+  type ChildActivity,
+  type ChildTailResult,
+} from "./child-tail";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
