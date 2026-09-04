@@ -435,3 +435,47 @@ describe("session delete (#478) — refusal", () => {
     store.dispose(); // teardown: release the registry entry
   });
 });
+
+describe("home row rendering (#480 regression)", () => {
+  test("the selected session row never renders '[object Object]'", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    // The pertinent banner row (pre-selected) and a list row after moving down.
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("[object Object]");
+    i.stdin.write("\x1b[B"); // down to the list row
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("[object Object]");
+    i.unmount();
+  });
+});
+
+describe("home row chip alignment (#480)", () => {
+  test("the chip is right-aligned and fully visible on a short title", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-chip-"));
+    const cwd = process.cwd();
+    const store = SessionStore.create(cwd, home);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      sink: (e) => store.append(e),
+    });
+    await session.send("hi"); // short title
+    store.dispose();
+    void cwd;
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("\x1b[B"); // select the list row → chip appears
+    await sleep(30);
+    const lines = stripAnsi(i.lastFrame() ?? "").split("\n");
+    // The chip may wrap in narrow test terminals; assert both parts render
+    // and the second part closes the row's right edge (right-aligned).
+    // The chip sits on the same line, right-aligned: the row ends with the
+    // chip's last token and no wrap continuation follows.
+    const row = lines.find((l) => l.includes("rename (r) · del (d)"));
+    expect(row).toBeDefined();
+    expect(row!.trimEnd().endsWith("del (d)")).toBe(true);
+    const next = lines[lines.indexOf(row!) + 1] ?? "";
+    expect(next.trim()).not.toBe("(d)");
+        i.unmount();
+  });
+});

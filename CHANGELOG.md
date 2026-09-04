@@ -7,6 +7,13 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-04
+### Fixed
+
+- **Home session picker** (#480): selected session action chips are always
+  visible and right-aligned; session rows stay visible while moving the
+  selection; JSX chrome no longer renders as `[object Object]`.
+
 ## [0.17.0] - 2026-09-04
 ### Added
 
@@ -471,7 +478,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.17.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.17.1...develop
+[0.17.1]: https://github.com/Marco-Cricchio/moh/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/Marco-Cricchio/moh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Marco-Cricchio/moh/compare/v0.15.0...v0.16.0
 [0.14.0]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...v0.14.0
