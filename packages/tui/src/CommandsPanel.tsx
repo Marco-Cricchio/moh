@@ -36,6 +36,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
     keys: [
       ["/ask-moh", "router over moh skills + docs"],
       ["/commands", "this command list"],
+      ["/compact", "force context compaction (same producer as the auto trigger)"],
       ["/mode", "switch vibe / dev mode"],
       ["/model", "model picker (or /model <ref>)"],
       ["/reload", "hot-reload moh.json + user config"],

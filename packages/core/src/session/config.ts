@@ -7,6 +7,7 @@
  */
 import type { ExtensionRuntime } from "../extensions";
 import type { MemoryOptions } from "../memory";
+import type { CompactionOptions } from "../compaction";
 import type { HandoffOptions } from "../handoff";
 import type { McpRuntimeOptions } from "../mcp";
 import type { PermissionOverrides, PermissionRule } from "../permissions";
@@ -92,7 +93,11 @@ export interface SessionConfig {
    * The events seed the in-memory log and conversation; runtime permission
    * rules from the history are restored. Only new events are appended/sunk.
    */
-  resume?: { events: ReadonlyArray<AgentEvent> };
+  resume?: { events: ReadonlyArray<AgentEvent>; /**
+   * ADR-0021/ADR-0022: append the `session_resumed` consumption marker at
+   * resume-open. Default true. `moh compact` opens a closed file for
+   * compaction with `consume: false` — compacting never consumes. */
+  consume?: boolean };
   /**
    * Extensions (#34): the runtime owning loaded extension instances.
    * Load results land in the event log; hooks observe the loop; vetoes
@@ -120,6 +125,12 @@ export interface SessionConfig {
    * disables everything (no writes, no section, no subagent runs).
    */
   memory?: MemoryOptions;
+  /**
+   * Compaction (#466): the post-turn marker producer. Auto-triggered
+   * past the 80% context-window threshold, forceable via `/compact` /
+   * `moh compact`. `enabled: false` disables the runner entirely.
+   */
+  compaction?: CompactionOptions;
   /**
    * Session handoff (#433/#434): the raw post-turn artifact. Present =
    * the artifact is maintained locally (transport-independent; the

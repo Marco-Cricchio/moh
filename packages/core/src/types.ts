@@ -153,6 +153,14 @@ export interface EndpointCapabilities {
 
 export type AgentEvent =
   | { type: "session_start"; schemaVersion: number; promptVersion: string }
+  /**
+   * ADR-0021: appended by the core when a session with pre-existing events
+   * is opened in resume (TUI and `moh run --resume` alike, same seam), at
+   * resume-open before any turn; the store-level fork appends it to the new
+   * file (forks are born consumed). Chrome only: the sole marker of
+   * consumption for the pertinent-session suggestion.
+   */
+  | { type: "session_resumed" }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall & {
@@ -228,6 +236,14 @@ export type AgentEvent =
    * recovery path is forking the session.
    */
   | { type: "session_file_growth"; file: string; expectedBytes: number; actualBytes: number }
+  /**
+   * Compaction failure (#466, ADR-0022): a run (auto or forced) could not
+   * produce a marker. Chrome only — never provider context. Clients show
+   * a sticky warning until the next successful `compaction` marker or a
+   * user-forced retry clears it. The auto trigger keeps retrying with
+   * backoff on later turns; a failed run wrote no marker (not lossy).
+   */
+  | { type: "compaction_failed"; reason: string }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */

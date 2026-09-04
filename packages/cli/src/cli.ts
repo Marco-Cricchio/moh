@@ -10,6 +10,7 @@ import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
 import { handoffCommand, HANDOFF_USAGE } from "./handoff";
 import { manualCommand, MANUAL_USAGE } from "./manual";
+import { compactCommand, COMPACT_USAGE } from "./compact";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -149,6 +150,13 @@ export async function main(
       return 0;
     }
     return updateCommand({ argv: rest });
+  }
+  if (command === "compact") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(COMPACT_USAGE + "\n");
+      return 0;
+    }
+    return compactCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
   }
   if (command === "handoff") {
     if (rest.includes("--help") || rest.includes("-h")) {

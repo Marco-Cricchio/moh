@@ -449,10 +449,26 @@ const wayfinderCommand: SlashCommand = {
   },
 };
 
+/** #466: forced compaction through the session's own producer — the
+ * same path the auto trigger uses. Feedback rides the appended
+ * `compaction` event; the toast here covers the failure modes. */
+const compactCommand: SlashCommand = {
+  name: "compact",
+  description: "compact the session context (force a summary of the past)",
+  usage: "/compact",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/compact needs an open session");
+    void ctx.session.compact().then((result) => {
+      if (!result.ok) ctx.notify(`✗ compaction: ${result.error}`);
+    });
+  },
+};
+
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
   commandsCommand,
+  compactCommand,
   helpCommand,
   modeCommand,
   modelCommand,

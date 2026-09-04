@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statS
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, replayMessages } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, replayMessages } from "../src/session-store";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -146,7 +146,9 @@ describe("session store", () => {
     const fork = store.fork();
     expect(fork.file).not.toBe(store.file);
     expect(basename(fork.file, ".jsonl")).toMatch(SORTABLE_ID);
-    expect(readFileSync(fork.file, "utf8")).toBe(originalBytes);
+    // The inherited history is byte-identical, then the fork's born-consumed
+    // `session_resumed` marker (ADR-0021); the original file stays untouched.
+    expect(readFileSync(fork.file, "utf8")).toBe(originalBytes + '{"type":"session_resumed"}\n');
     expect(readFileSync(store.file, "utf8")).toBe(originalBytes);
 
     // The fork keeps appending to its own file.
@@ -420,5 +422,56 @@ describe("single-writer guard (#400)", () => {
     store.append(START);
     writeFileSync(store.file, readFileSync(store.file, "utf8"));
     expect(store.externalGrowth()).toBeNull();
+  });
+});
+
+describe("pertinent session (ADR-0021)", () => {
+  test("fork() is born consumed: the new file opens with one session_resumed", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const original = SessionStore.create(cwd, home);
+    original.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
+    const forked = original.fork();
+    const events = forked.load().map((e) => e.type);
+    expect(events).toEqual(["session_start", "session_resumed"]);
+    // The original file is untouched.
+    expect(original.load().map((e) => e.type)).toEqual(["session_start"]);
+  });
+
+  test("listSessionSummaries: never-resumed session is not consumed", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
+    store.append({ type: "user_message", text: "hello" });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
+    const [summary] = listSessionSummaries(cwd, home);
+    expect(summary.consumed).toBe(false);
+    expect(summary.title).toBe("hello");
+  });
+
+  test("listSessionSummaries: resumed then closed is consumed", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
+    store.append({ type: "user_message", text: "hello" });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
+    store.append({ type: "session_resumed" });
+    const [summary] = listSessionSummaries(cwd, home);
+    expect(summary.consumed).toBe(true);
+  });
+
+  test("listSessionSummaries: resumed then worked on is suggestible again (consumption re-openable)", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
+    store.append({ type: "session_resumed" });
+    store.append({ type: "user_message", text: "back to work" });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
+    const [summary] = listSessionSummaries(cwd, home);
+    expect(summary.consumed).toBe(false);
+    expect(summary.title).toBe("back to work");
   });
 });

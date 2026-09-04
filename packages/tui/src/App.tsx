@@ -230,6 +230,9 @@ export function App({
 
   const { toasts, push } = useToasts();
   const [memoryFresh, setMemoryFresh] = useState(false);
+  /** #466/ADR-0022: sticky compaction-failure flag — set by
+   * `compaction_failed`, cleared by a successful `compaction` marker. */
+  const [compactionFailed, setCompactionFailed] = useState(false);
   // `~/.moh` — computed once; the single spelling inside App (the core
   // guardian owns the config-file path constant itself).
   const mohHome = join(home ?? homedir(), ".moh");
@@ -272,6 +275,17 @@ export function App({
           if (event.type === "memory_updated") {
             setMemoryFresh(true);
             push(`memory updated · ${event.topics.join(", ")}`, "ok", "side");
+          }
+          // #466: the compaction producer appended a marker — the live
+          // prompt was rebuilt; the summary replaces the covered past.
+          if (event.type === "compaction") {
+            setCompactionFailed(false);
+            push("context compacted — older turns summarized, recent turns kept", "ok", "side");
+          }
+          // #466/ADR-0022: a failed run (no marker written). Sticky until a
+          // retry succeeds or the user compacts — the indicator stays.
+          if (event.type === "compaction_failed") {
+            setCompactionFailed(true);
           }
           // #400 single-writer guard: the session file grew from elsewhere
           // (another machine / a second process). Loud warning: concurrent
@@ -703,6 +717,7 @@ export function App({
       unsupportedThinkingLevel={thinkingStatus.unsupported}
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
+      compactionFailed={compactionFailed}
       yolo={yolo}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}

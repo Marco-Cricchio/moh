@@ -70,6 +70,9 @@ interface StatusProps {
   unsupportedLevel?: ThinkingLevel;
   workflowOn?: boolean;
   memoryFresh?: boolean;
+  /** #466/ADR-0022: sticky compaction-failure indicator — set by
+   * `compaction_failed`, cleared by the next successful marker. */
+  compactionFailed?: boolean;
   phase?: string;
   notice?: string;
   /** #377: yolo session (launch-only `--yolo`) — persistent unmissable
@@ -184,7 +187,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}</Box>
+        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (

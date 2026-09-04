@@ -19,6 +19,7 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost } from "../subagents";
 import { replayMessages } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
+import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from "../compaction";
 import { resolveEndpointThinking } from "../thinking-preferences";
 import { HandoffRunner } from "../handoff";
 
@@ -78,6 +79,8 @@ export class AgentSession {
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
   readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
   #memory: MemoryRunner | null = null;
+  /** Compaction (#466): the post-turn marker producer collaborator. */
+  #compaction: CompactionRunner | null = null;
   /** Session handoff (#434): the raw post-turn artifact runner. */
   #handoff: HandoffRunner | null = null;
   /** A successful bash `git push` occurred in the active turn (#437). */
@@ -200,6 +203,22 @@ export class AgentSession {
         onUpdated: () => this.#assemblePrompt(),
       });
     }
+    // Compaction (#466): on by default when the option is present
+    // (from-config passes it unconditionally); `enabled: false` turns it off.
+    const comp = config.compaction;
+    if (comp && (comp.enabled ?? true)) {
+      this.#compaction = new CompactionRunner({
+        sessionId: this.#sessionId,
+        provider: () => this.#provider,
+        endpointType: () => this.activeEndpointType,
+        append: (event) => this.#append(event),
+        onCompacted: () => this.#rebuildAfterCompaction(),
+        summarizer: comp.summarizer ?? createCompactionSummarizer(this.#provider, this.#cwd),
+        ...(comp.tailTurns !== undefined ? { tailTurns: comp.tailTurns } : {}),
+        ...(comp.threshold !== undefined ? { threshold: comp.threshold } : {}),
+        ...(comp.fallbackWindowTokens !== undefined ? { fallbackWindowTokens: comp.fallbackWindowTokens } : {}),
+      });
+    }
     // Session handoff (#434): the raw artifact is maintained whenever the
     // option is present (from-config passes it unconditionally — purely
     // additive, zero behavioral change when transport is Not Set).
@@ -253,6 +272,8 @@ export class AgentSession {
       // fail-silent, so a killed session keeps the last turn's state).
       onTurnSettled: (result) => {
         this.#maybeExtractMemory(result);
+        // #466: fire-and-forget auto compaction (fail-silent, never blocks).
+        this.#compaction?.maybeCompact(result, this.#eventLog.live(), this.#disposed);
         if (this.#handoff && result.status === "done") {
           this.#handoff.turnSettled(this.#turnSeq, this.#eventLog.live());
         }
@@ -296,6 +317,12 @@ export class AgentSession {
       // already has them); only new events reach the sink.
       this.#eventLog.seed(config.resume.events);
       this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
+      // ADR-0021: resume leaves a trace — one chrome event at resume-open,
+      // before any turn. The sole consumption marker for the pertinent-
+      // session suggestion; both TUI and `moh run --resume` ride this seam.
+      // ADR-0022: `moh compact` opens with consume: false — compacting
+      // never consumes.
+      if (config.resume.consume !== false) this.#append({ type: "session_resumed" });
       const restoredRules = runtimeRulesFromEvents(config.resume.events);
       for (const rule of restoredRules) this.#permissions.addRuntimeRule(rule);
       if (restoredRules.length > 0) {
@@ -511,6 +538,43 @@ export class AgentSession {
   }
 
   /**
+   * Forced compaction (#466): `/compact` and `moh compact` land here.
+   * Ignores threshold and stale-measurement guard, same tail/summarizer
+   * as the auto path, same producer. On success the live messages are
+   * rebuilt through the same replay path resume uses.
+   */
+  async compact(): Promise<
+    | { ok: true; summary: string; upTo: number; tailTurns: number; tokensBefore: number; tokensAfter: number }
+    | { ok: false; error: string }
+  > {
+    if (!this.#compaction) return { ok: false, error: "compaction is disabled for this session" };
+    if (this.#queue.pending()) return { ok: false, error: "a turn is in flight; compact when the session is idle" };
+    const events = this.#eventLog.live();
+    // Before/after context estimate for clients (#466): the largest
+    // measured inputTokens vs the tail the marker keeps.
+    const tokensBefore = CompactionRunner.lastMeasuredCall(events)?.inputTokens ?? 0;
+    const result = await this.#compaction.compactNow(events);
+    if (!result.ok) return result;
+    const tailStart = CompactionRunner.upToFor(events, DEFAULT_TAIL_TURNS) ?? result.upTo;
+    let tailTurns = 0;
+    for (let i = tailStart; i < events.length; i++) {
+      if (events[i]!.type === "user_message") tailTurns += 1;
+    }
+    const tokensAfter = CompactionRunner.turnTokens(events, tailStart, events.length);
+    return { ...result, tailTurns, tokensBefore, tokensAfter };
+  }
+
+  /** Rebuilds `#messages` from the log after a marker (#466): the same
+   * `replayMessages` path resume uses, then the system prompt is
+   * re-attached by `#assemblePrompt`. A fresh measurement (not the stale
+   * pre-compaction one) may re-trigger later. */
+  #rebuildAfterCompaction(): void {
+    const messages = replayMessages(this.#eventLog.live());
+    this.#messages.splice(0, this.#messages.length, ...messages);
+    this.#assemblePrompt();
+  }
+
+  /**
    * Post-turn memory trigger (#38): delegated to the MemoryRunner
    * collaborator (memory.ts) — every N completed turns, one discreet
    * `memory_updated` event on success, silence otherwise.
@@ -573,6 +637,7 @@ export class AgentSession {
   async dispose(options: { timeoutMs?: number } = {}): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    if (this.#compaction?.pending) await this.#compaction.pending.catch(() => {});
     if (this.#memory?.pending) {
       const flush = this.#memory.pending.catch(() => {});
       if (options.timeoutMs === undefined) {
