@@ -741,7 +741,7 @@ export function listTrashedSessions(cwd: string, home = homedir()): TrashedSessi
         id: name.slice(0, name.length - ".jsonl".length),
         title,
         mtimeMs,
-        daysRemaining: Math.max(0, Math.floor((retentionMs - ageMs) / (24 * 3600 * 1000))),
+        daysRemaining: Math.max(0, Math.ceil((retentionMs - ageMs) / (24 * 3600 * 1000))),
       };
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
