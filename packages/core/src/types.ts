@@ -161,6 +161,15 @@ export type AgentEvent =
    * consumption for the pertinent-session suggestion.
    */
   | { type: "session_resumed" }
+  /**
+   * #477 (vision note 31): appended by `renameSession()` when a user
+   * renames the session. Chrome only — never provider context. The last
+   * `session_renamed` in the log is the session's display name (a
+   * permanent override of the derived first-user_message title); an
+   * explicitly empty name resets the override, which also appends an
+   * event so the log stays append-only and the reset is itself history.
+   */
+  | { type: "session_renamed"; name: string }
   | { type: "user_message"; text: string }
   | { type: "assistant_delta"; text: string }
   | ({ type: "tool_call" } & ToolCall & {
