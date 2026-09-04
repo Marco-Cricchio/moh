@@ -48,6 +48,7 @@ import {
   deleteSession,
   restoreSession,
   listTrashedSessions,
+  type TrashedSessionSummary,
   type SessionSummary,
   // #467: session-notes path primitives — the ADR-0004 reopening that lets
   // clients resolve the canonical project directory without recomputing the slug.
@@ -471,6 +472,7 @@ export {
   deleteSession,
   restoreSession,
   listTrashedSessions,
+  type TrashedSessionSummary,
   type SessionSummary,
   // #467: session-notes path primitives — the ADR-0004 reopening that lets
   // clients resolve the canonical project directory without recomputing the slug.

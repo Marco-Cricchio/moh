@@ -87,3 +87,78 @@ describe("moh sessions rename (#477)", () => {
     expect(stderr).toContain("unknown command");
   });
 });
+
+describe("moh sessions delete + moh trash (#478)", () => {
+  test("--help prints the usages", () => {
+    const { spawn } = harness();
+    const s = spawn(["sessions", "--help"]);
+    expect(s.code).toBe(0);
+    expect(s.stdout).toContain("moh sessions delete");
+    const t = spawn(["trash", "--help"]);
+    expect(t.code).toBe(0);
+    expect(t.stdout).toContain("usage: moh trash");
+  });
+
+  test("delete --yes moves the file to the trash and out of the project; restore brings it back", () => {
+    const { spawn, home, cwd, file, id } = harness();
+    const content = readFileSync(file, "utf8");
+    const del = spawn(["sessions", "delete", id, "--yes"]);
+    expect(del.code).toBe(0);
+    expect(del.stdout).toContain("deleted:");
+    expect(require("node:fs").existsSync(file)).toBe(false);
+    // trash list shows it
+    const list = spawn(["trash", "list"]);
+    expect(list.code).toBe(0);
+    expect(list.stdout).toContain(id);
+    expect(list.stdout).toContain("d left");
+    // trash directory mirrors the project structure
+    expect(require("node:fs").existsSync(join(home, ".moh", "trash", "projects"))).toBe(true);
+    // restore round-trip
+    const res = spawn(["trash", "restore", id]);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("restored:");
+    expect(readFileSync(file, "utf8")).toBe(content);
+    const list2 = spawn(["trash", "list"]);
+    expect(list2.stdout).toContain("trash is empty");
+    void cwd;
+  });
+
+  test("delete without --yes and a closed stdin aborts (default No)", () => {
+    const { home, cwd, file } = harness();
+    const spawnWithStdin = (argv: string[], stdin: "ignore" | "pipe") => {
+      const proc = Bun.spawnSync(
+        ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
+        { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe", stdin },
+      );
+      return { code: proc.exitCode, stdout: new TextDecoder().decode(proc.stdout), stderr: new TextDecoder().decode(proc.stderr) };
+    };
+    const r = spawnWithStdin(["sessions", "delete", file], "ignore");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("aborted");
+    expect(require("node:fs").existsSync(file)).toBe(true);
+    // Non-interactive stdin (closed) = No → abort, session stays.
+    const proc = Bun.spawnSync(
+      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), "sessions", "delete", file],
+      { cwd: join(TMP_ROOT), env: { ...process.env, HOME: mkdtempSync(join(TMP_ROOT, "stdin-")) }, stdout: "pipe", stderr: "pipe", stdin: "ignore" },
+    );
+    void proc;
+  });
+
+  test("restore refuses an id collision", () => {
+    const { spawn, file, id } = harness();
+    const content = readFileSync(file, "utf8");
+    expect(spawn(["sessions", "delete", id, "--yes"]).code).toBe(0);
+    // Recreate a live session with the same id.
+    writeFileSync(file, content);
+    const res = spawn(["trash", "restore", id]);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain("already exists");
+  });
+
+  test("unknown trash subcommand errors with usage", () => {
+    const { spawn } = harness();
+    const r = spawn(["trash", "bogus"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('unknown command "bogus"');
+  });
+});
