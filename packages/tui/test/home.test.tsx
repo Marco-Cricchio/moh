@@ -435,3 +435,17 @@ describe("session delete (#478) — refusal", () => {
     store.dispose(); // teardown: release the registry entry
   });
 });
+
+describe("home row rendering (#480 regression)", () => {
+  test("the selected session row never renders '[object Object]'", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    // The pertinent banner row (pre-selected) and a list row after moving down.
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("[object Object]");
+    i.stdin.write("\x1b[B"); // down to the list row
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("[object Object]");
+    i.unmount();
+  });
+});

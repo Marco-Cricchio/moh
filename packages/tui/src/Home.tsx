@@ -268,7 +268,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             color={cursorRow === pertinentRow ? theme.bg : theme.accent}
             backgroundColor={cursorRow === pertinentRow ? theme.accent : undefined}
           >
-            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}${cursorRow === pertinentRow ? <Dim> rename (r) · delete (d)</Dim> : ""}`}
+            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}`}
+            {cursorRow === pertinentRow ? <Dim> rename (r) · delete (d)</Dim> : null}
           </Text>
         ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
@@ -276,7 +277,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
           const selected = win.start + i === hitIndex;
           return (
             <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
-              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}${selected ? <Dim> rename (r) · delete (d)</Dim> : ""}`}
+              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}`}
+              {selected ? <Dim> rename (r) · delete (d)</Dim> : null}
             </Text>
           );
         })}
