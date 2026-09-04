@@ -66,7 +66,7 @@ describe("file mentions (#488)", () => {
       const session = createSession({
         provider,
         cwd: dir,
-        permissions: { runtimeRules: [{ tool: "read", args: "secret.env", effect: "deny", tier: "runtime" }] },
+        permissions: { runtimeRules: [{ tool: "read", path: "secret.env", effect: "deny", tier: "runtime" }] },
       });
       await session.send("peek @secret.env");
 

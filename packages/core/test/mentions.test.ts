@@ -77,7 +77,7 @@ describe("assembleMentions", () => {
       writeFileSync(join(dir, "big.txt"), "x".repeat(MENTION_TEXT_CAP + 10));
       const r = await assembleMentions("@big.txt", { cwd: dir });
       expect(r.attachments[0]!.truncated).toBe(true);
-      expect(r.attachments[0]!.content.endsWith("[truncated: file exceeds the 204800-byte attachment cap]")).toBe(true);
+      expect(r.attachments[0]!.kind === "file" && r.attachments[0]!.content.endsWith("[truncated: file exceeds the 204800-byte attachment cap]")).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -89,7 +89,7 @@ describe("assembleMentions", () => {
       writeFileSync(join(dir, "img.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]));
       const r = await assembleMentions("@img.png", { cwd: dir });
       expect(r.attachments[0]).toMatchObject({ kind: "file", mime: "image/png", truncated: false });
-      expect(Buffer.from(r.attachments[0]!.content, "base64").toString()).toBe(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]).toString());
+      expect(r.attachments[0]!.kind === "file" && Buffer.from(r.attachments[0]!.content, "base64").toString()).toBe(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]).toString());
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
