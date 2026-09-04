@@ -44,7 +44,7 @@ Three things make it different:
   fail-fast.
 - **Workflow mode** — an optional first-party port of the Matt Pocock agent
   workflow (wayfinder, grilling, to-spec, to-tickets, tdd, code-review, …)
-  plus declarative GitHub repo management (`gh-manager`). One command to
+  plus declarative GitHub repo management ([gh-manager](https://github.com/ddlaws0n/gh-manager), by David Lawson). One command to
   turn it on: `/workflow on`.
 - **Skills** — progressive-disclosure capabilities you can author yourself;
   bundled ones are user-owned and only upgraded when you haven't modified
@@ -53,9 +53,41 @@ Three things make it different:
   automatically after each turn and consolidated in the background.
 - **Subagents & MCP** — in-process subagents with strict tool inheritance,
   and Model Context Protocol servers configured lazily per project.
+- **Handoff between machines** — carry a session from one machine to another
+  with a single command: moh publishes a structured synthesis plus a filtered
+  event-log extract as a secret GitHub gist, and offers it at the next startup
+  on the other machine (manual file export/import when `gh` isn't available).
 - **Always up to date** — moh quietly checks for new releases and skill
   updates while you work (never installing anything without your explicit
   consent; fully disableable).
+
+## Not sure where to start? Ask moh.
+
+Bundled with moh is **ask-moh**, a guide agent that knows every skill, command
+and page of documentation moh ships. When you don't know where to begin — or
+which tool fits your situation — just ask it in plain language: *"how do I
+plan a big feature?"*, *"something's broken, what do I do?"*, *"how do
+permissions work?"*. It routes you to the right skill or flow, walks you
+through the idea-to-shipped cycle (sharpen the idea → spec → tickets →
+implement → review), and answers questions about moh itself from the built-in
+user manual — grounded in the actual docs, never invented.
+
+## The user manual
+
+moh ships a complete user manual: ten pages bundled inside the binary and
+mirrored online in [`docs/manual/`](docs/manual/README.md) — getting started,
+sessions (resume, fork, trash, handoff), permissions, providers and models,
+memory and compaction, MCP, configuration reference, CLI reference, commands
+and keys. It's also readable in-app: the ask-moh agent answers from it directly.
+
+## Make it yours: extensions
+
+moh is built to be extended. The `@moh/extension` contract lets you observe
+and influence the agent loop through typed phase hooks (`beforeModelCall`,
+`onToolCall`, …) — including vetoing tool calls, never granting more than you
+allowed. You can also author your own skills, register custom providers
+programmatically, or embed the headless core as a library in your own
+application. See [`docs/extending/`](docs/extending/index.md).
 
 ## Install
 
