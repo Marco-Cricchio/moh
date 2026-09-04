@@ -16,6 +16,12 @@ export interface PtySpec {
   project?: Record<string, unknown>;
   /** Optional path to dump the raw PTY byte stream. */
   rawDump?: string;
+  /** Extra environment variables for the child (#490 image-preview
+   * detection: TERM_PROGRAM, KITTY_WINDOW_ID, …). */
+  env?: Record<string, string>;
+  /** Files written into the child's cwd (base64 name → content), so
+   * mentions can attach real project files. */
+  files?: Record<string, string>;
   steps: ReadonlyArray<{ wait?: number; send?: string; until?: string }>;
   tail?: number;
 }

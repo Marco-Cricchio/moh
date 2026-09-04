@@ -193,12 +193,24 @@ def main() -> None:
         os.makedirs(os.path.join(home, ".moh"), exist_ok=True)
         with open(os.path.join(home, ".moh", "config"), "w") as f:
             json.dump(spec["config"], f)
+    # Optional fixture files written into the child's cwd (mentions need
+    # real files under the session root to attach).
+    if isinstance(spec.get("files"), dict):
+        for name, content in spec["files"].items():
+            path = os.path.join(cwd, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(content))
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     # CI=true silences Ink entirely (it detects CI environments and skips
     # live frames) — strip it or every PTY test renders nothing on runners.
     env = { k: v for k, v in os.environ.items() if k != "CI" }
     env.update(HOME=home, TERM="xterm-256color", COLORTERM="truecolor")
+    # Optional env injection (image-preview detection tests, #490): the
+    # caller pins TERM_PROGRAM/KITTY_WINDOW_ID to simulate a terminal.
+    if isinstance(spec.get("env"), dict):
+        env.update(spec["env"])
 
     # The pty must be the child's CONTROLLING terminal (#236): bun on Linux
     # reads the window size from /dev/tty, not the stdout fd — without

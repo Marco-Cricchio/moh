@@ -39,7 +39,7 @@ import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
 import { useViewport } from "./viewport";
 import { listFiles } from "./file-index";
-import { detectPreviewMode, type PreviewImage } from "./image-preview";
+import { detectPreviewMode } from "./image-preview";
 import { trackExitWork } from "./exit";
 import { useSidebarState } from "./session-bridge";
 import { PermissionModal } from "./PermissionModal";
@@ -284,22 +284,6 @@ export function App({
     () => detectPreviewMode(process.env, config.images.preview),
     [config.images.preview],
   );
-  // Image attachments of the session log, keyed by the transcript block
-  // key of the user row that cites them (`<logIndex>-user_message`).
-  const imagePreviews = useMemo((): ReadonlyMap<string, PreviewImage> => {
-    if (!session) return new Map();
-    const out = new Map<string, PreviewImage>();
-    session.history().forEach((event, index) => {
-      if (event.type !== "user_message" || !("attachments" in event) || !event.attachments) return;
-      for (const a of event.attachments) {
-        if (a.kind === "image") {
-          out.set(`${index}-user_message`, { name: a.path, mime: a.mime, base64: a.content, width: a.width, height: a.height });
-          break; // one preview per citing row
-        }
-      }
-    });
-    return out;
-  }, [session, imagePreviewMode]);
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
     const count = visibleChips(viewport.columns).chips.length;
@@ -825,7 +809,6 @@ export function App({
       mentionCandidates={mentionCandidates}
       onPastePath={handlePastePath}
       previewMode={imagePreviewMode}
-      imagePreviews={imagePreviews}
       onCommand={(text) => runSlashCommand(text, {
         cwd,
         mohHome,

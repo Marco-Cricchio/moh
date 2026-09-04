@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { deletePlacement, detectPreviewMode, emitImage, type ImagePreviewMode, type PreviewImage } from "./image-preview";
+import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-preview";
 import { Box, Static, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
@@ -39,10 +39,6 @@ export interface ChatProps {
   /** Vision note 4 (#490): paste seam — an existing path pastes as an
    * `@path` mention (drag-and-drop). Optional; absent disables conversion. */
   onPastePath?: (paste: string) => string | null;
-  /** Vision note 4 (#490): image attachments to preview inline, keyed by
-   * the transcript block key of the user row that cites them. Emitted
-   * place-once after the row's stable paint. */
-  imagePreviews?: ReadonlyMap<string, PreviewImage>;
   /** Vision note 4 (#490): the resolved preview protocol (caller computes
    * once from the `images.preview` setting + environment). */
   previewMode?: ImagePreviewMode;
@@ -109,7 +105,6 @@ export function Chat({
   onSuggestionsOpen,
   mentionCandidates,
   onPastePath,
-  imagePreviews,
   previewMode = { protocol: "none" },
   onCommand,
   width,
@@ -423,34 +418,34 @@ export function Chat({
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
   // Vision note 4 (#490): place-once image emission. After the Static
-  // paint of a settled user row that cites an image, the pixels are
-  // written straight to stdout (kitty/iTerm2 protocols; `none` = chip
-  // only). Each image is emitted exactly once per session — the
-  // terminal's scrollback keeps them; repaints never re-emit.
-  const emittedImagesRef = useRef<Set<string>>(new Set());
+  // paint of a settled user row that cites an image (the block carries
+  // its own `image` payload), the pixels are written straight to stdout
+  // (kitty/iTerm2 protocols; `none` = chip only). Each image is emitted
+  // exactly once per placement — kitty placements are deleted and
+  // re-emitted on a whole-transcript repaint.
+  const emittedImagesRef = useRef<Map<string, number>>(new Map());
   const imagePreviewsPlaceRef = useRef(1);
-  // Vision note 4: the known place-once compromise — on a whole-transcript
-  // repaint the already-emitted image stays in the scrollback. Where the
-  // protocol supports it (kitty), the placement is deleted first so the
-  // duplicate never appears; the repaint re-emits at the new position.
+  // The known place-once compromise — on a whole-transcript repaint the
+  // already-emitted image would sit duplicated in the scrollback. Where
+  // the protocol supports it (kitty), the placement is deleted first and
+  // the repaint re-emits at the new position; the chip never re-renders.
   const repaintKeyRef = useRef(repaint);
   useEffect(() => {
     if (repaintKeyRef.current === repaint) return;
     repaintKeyRef.current = repaint;
     if (previewMode.protocol === "kitty" && emittedImagesRef.current.size > 0) {
-      for (const key of emittedImagesRef.current) stdout.write(deletePlacement(Number(key.split("|")[1] ?? 0), previewMode));
+      for (const placement of emittedImagesRef.current.values()) stdout.write(deletePlacement(placement, previewMode));
       emittedImagesRef.current.clear();
     }
   }, [repaint, previewMode, stdout]);
   useEffect(() => {
-    if (!imagePreviews || imagePreviews.size === 0) return;
     if (previewMode.protocol === "none") return;
     if (replaySettled || bufferFlipPending) return;
     for (const block of staticItems) {
-      const image = block.kind === "user" ? imagePreviews.get(block.key) : undefined;
+      const image = block.kind === "user" ? block.image : undefined;
       if (!image || emittedImagesRef.current.has(block.key)) continue;
       const placement = imagePreviewsPlaceRef.current++;
-      emittedImagesRef.current.add(`${block.key}|${placement}`);
+      emittedImagesRef.current.set(block.key, placement);
       const seq = emitImage(image, previewMode, {
         columns: cols,
         rows: viewport.rows,
