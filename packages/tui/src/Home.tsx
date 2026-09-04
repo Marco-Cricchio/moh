@@ -105,6 +105,12 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     [refreshKey],
   );
   const sessionsList = renamesDone > 0 ? refreshSessions() : sessions;
+  const pertinent = useMemo(
+    () => sessionsList.find((s) => !s.consumed && s.title !== "(unreadable session)"),
+    // sessionsList is a fresh array after every confirmed rename, so the
+    // banner follows a rename of the pertinent session too (#477).
+    [sessionsList],
+  );
   // #477: filter double-match — display name AND derived (first-message)
   // title both count as hits.
   const hits = sessionsList.filter((s) => {
@@ -114,13 +120,6 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Row 0 is always "New session" (or "start <query>"); row 1 is the
   // handoff offer when present (T3 #436); rows after are the hits.
   const handoffRow = handoff?.status === "offer" && onOpenHandoff ? 1 : -1;
-  // The pertinent session (T3 #470, ADR-0021): the most recent not-yet-
-  // consumed session, suggested as a pre-selected banner row above the
-  // list — only when a query isn't filtering and the banner exists.
-  const pertinent = useMemo(
-    () => sessions.find((s) => !s.consumed && s.title !== "(unreadable session)"),
-    [sessions],
-  );
   const pertinentRow = pertinent && !query ? (handoffRow >= 0 ? 2 : 1) : -1;
   const effectiveCursor = cursor ?? (pertinentRow >= 0 ? pertinentRow : 0);
   // Row 0 is always "New session" (or "start <query>"); row 1 is the

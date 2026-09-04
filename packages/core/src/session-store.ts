@@ -567,10 +567,6 @@ function peekSession(file: string): SessionPeek {
   };
 }
 
-function titleFrom(file: string): string {
-  return peekSession(file).title;
-}
-
 /**
  * #477: renames a session by appending a `session_renamed` chrome event to
  * its log — the log is the session, so resume, fork (the name rides the

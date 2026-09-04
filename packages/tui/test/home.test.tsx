@@ -301,3 +301,39 @@ describe("session rename (#477)", () => {
     i.unmount();
   });
 });
+
+describe("session rename (#477) — edges", () => {
+  test("right-arrow enters the rename edit", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("\x1b[C"); // right arrow
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename:");
+    i.unmount();
+  });
+
+  test("the handoff row never enters the rename edit (r falls through)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-handoff-"));
+    const offer: any = {
+      status: "offer",
+      source: { machine: "other", project: "p" },
+      payload: { slug: "p", sessionId: "s", updatedAt: new Date().toISOString(), synthesis: "syn", transcript: [] },
+      path: "/tmp/x.json",
+      stale: false,
+    };
+    const i = render(
+      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
+    );
+    await sleep(60);
+    // Cursor sits on the handoff row (row 1, pre-selected as first special row? no:
+    // pertinent banner absent, so effective cursor is 0 → New session). Move down once.
+    i.stdin.write("\x1b[B");
+    await sleep(20);
+    i.stdin.write("r");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).not.toContain("rename:");
+    i.unmount();
+  });
+});
