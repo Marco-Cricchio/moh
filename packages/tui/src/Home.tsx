@@ -53,8 +53,8 @@ function HomeRow({
   boxW: number;
   /** Row background when selected. */
   bg: string;
-  /** Row color when not selected. */
-  fg: string;
+  /** Row color when not selected; undefined = terminal default. */
+  fg: string | undefined;
   /** Row color when selected (the theme bg, so it reads on `bg`). */
   selectedFg: string;
   label: string;
@@ -62,11 +62,13 @@ function HomeRow({
   prefix?: string;
 }) {
   const cursor = selected ? ic("›", ">") : " ";
-  // Widths: 2 leading (space + cursor) + prefix + label + chip ≤ boxW.
+  // Widths: 2 leading (space + cursor) + prefix + label + chip stay at least
+  // one column short of `boxW` — an exactly-boxW line wraps in Ink on some
+  // terminals (trailing-newline reflow), pushing the chip to a second line.
   const chipW = selected ? chip.length : 0;
-  const maxLabel = Math.max(1, boxW - 2 - prefix.length - chipW);
+  const maxLabel = Math.max(1, boxW - 3 - prefix.length - chipW);
   const shown = label.length > maxLabel ? truncate(label, maxLabel) : label;
-  const pad = " ".repeat(Math.max(0, boxW - 2 - prefix.length - shown.length - chipW));
+  const pad = " ".repeat(Math.max(0, boxW - 3 - prefix.length - shown.length - chipW));
   return (
     <Text color={selected ? selectedFg : fg} backgroundColor={selected ? bg : undefined}>
       {` ${cursor} ${prefix}${shown}`}
@@ -313,10 +315,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             selected={cursorRow === pertinentRow}
             boxW={boxW}
             bg={theme.accent}
-            fg={cursorRow === pertinentRow ? theme.bg : theme.accent}
+            fg={theme.accent}
             selectedFg={theme.bg}
             prefix="▸ "
-            label={`${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 22)}`}
+            label={`${relativeTime(pertinent.mtimeMs)} · ${pertinent.title}`}
             chip={ROW_CHIP}
           />
         ) : null}
@@ -329,9 +331,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
               selected={selected}
               boxW={boxW}
               bg={theme.dim}
-              fg={theme.bg}
+              fg={selected ? theme.bg : undefined}
               selectedFg={theme.bg}
-              label={truncate(s.title, boxW - 18)}
+              label={s.title}
               chip={ROW_CHIP}
             />
           );

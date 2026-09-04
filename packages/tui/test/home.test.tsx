@@ -469,12 +469,13 @@ describe("home row chip alignment (#480)", () => {
     const lines = stripAnsi(i.lastFrame() ?? "").split("\n");
     // The chip may wrap in narrow test terminals; assert both parts render
     // and the second part closes the row's right edge (right-aligned).
-    // The wrapped chip fills the row up to the box edge before wrapping, so
-    // the line carries no trailing slack: it ends exactly at "del".
-    const row = lines.find((l) => l.includes("rename (r) ·"));
+    // The chip sits on the same line, right-aligned: the row ends with the
+    // chip's last token and no wrap continuation follows.
+    const row = lines.find((l) => l.includes("rename (r) · del (d)"));
     expect(row).toBeDefined();
-    expect(row!.trimEnd().endsWith("del")).toBe(true);
-    expect((lines[lines.indexOf(row!) + 1] ?? "").trim()).toBe("(d)");
+    expect(row!.trimEnd().endsWith("del (d)")).toBe(true);
+    const next = lines[lines.indexOf(row!) + 1] ?? "";
+    expect(next.trim()).not.toBe("(d)");
         i.unmount();
   });
 });
