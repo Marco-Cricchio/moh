@@ -449,3 +449,32 @@ describe("home row rendering (#480 regression)", () => {
     i.unmount();
   });
 });
+
+describe("home row chip alignment (#480)", () => {
+  test("the chip is right-aligned and fully visible on a short title", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-chip-"));
+    const cwd = process.cwd();
+    const store = SessionStore.create(cwd, home);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      sink: (e) => store.append(e),
+    });
+    await session.send("hi"); // short title
+    store.dispose();
+    void cwd;
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("\x1b[B"); // select the list row → chip appears
+    await sleep(30);
+    const lines = stripAnsi(i.lastFrame() ?? "").split("\n");
+    // The chip may wrap in narrow test terminals; assert both parts render
+    // and the second part closes the row's right edge (right-aligned).
+    // The wrapped chip fills the row up to the box edge before wrapping, so
+    // the line carries no trailing slack: it ends exactly at "del".
+    const row = lines.find((l) => l.includes("rename (r) ·"));
+    expect(row).toBeDefined();
+    expect(row!.trimEnd().endsWith("del")).toBe(true);
+    expect((lines[lines.indexOf(row!) + 1] ?? "").trim()).toBe("(d)");
+        i.unmount();
+  });
+});

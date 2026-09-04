@@ -30,6 +30,51 @@ function offerAt(offer: Extract<HandoffOffer, { status: "offer" }>): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+/** #478: the action chip rendered on a selected home row. */
+const ROW_CHIP = " rename (r) · del (d)";
+
+/**
+ * One home list row. The label truncates so label + cursor + chip always fit
+ * `boxW`, and the chip is right-aligned with explicit padding — it stays
+ * fully visible and pinned to the right edge on short labels too (#480).
+ * The cursor glyph takes the label's color slot so the chip never shifts it.
+ */
+function HomeRow({
+  selected,
+  boxW,
+  bg,
+  fg,
+  selectedFg,
+  label,
+  chip = "",
+  prefix = "",
+}: {
+  selected: boolean;
+  boxW: number;
+  /** Row background when selected. */
+  bg: string;
+  /** Row color when not selected. */
+  fg: string;
+  /** Row color when selected (the theme bg, so it reads on `bg`). */
+  selectedFg: string;
+  label: string;
+  chip?: string;
+  prefix?: string;
+}) {
+  const cursor = selected ? ic("›", ">") : " ";
+  // Widths: 2 leading (space + cursor) + prefix + label + chip ≤ boxW.
+  const chipW = selected ? chip.length : 0;
+  const maxLabel = Math.max(1, boxW - 2 - prefix.length - chipW);
+  const shown = label.length > maxLabel ? truncate(label, maxLabel) : label;
+  const pad = " ".repeat(Math.max(0, boxW - 2 - prefix.length - shown.length - chipW));
+  return (
+    <Text color={selected ? selectedFg : fg} backgroundColor={selected ? bg : undefined}>
+      {` ${cursor} ${prefix}${shown}`}
+      {selected ? <Dim>{`${pad}${chip}`}</Dim> : null}
+    </Text>
+  );
+}
+
 /** Relative time for the pertinent-session banner (T3 #470). */
 export function relativeTime(mtimeMs: number, now = Date.now()): string {
   const diff = now - mtimeMs;
@@ -264,22 +309,31 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
           </Text>
         ) : null}
         {pertinent && pertinentRow >= 0 ? (
-          <Text
-            color={cursorRow === pertinentRow ? theme.bg : theme.accent}
-            backgroundColor={cursorRow === pertinentRow ? theme.accent : undefined}
-          >
-            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}`}
-            {cursorRow === pertinentRow ? <Dim> rename (r) · delete (d)</Dim> : null}
-          </Text>
+          <HomeRow
+            selected={cursorRow === pertinentRow}
+            boxW={boxW}
+            bg={theme.accent}
+            fg={cursorRow === pertinentRow ? theme.bg : theme.accent}
+            selectedFg={theme.bg}
+            prefix="▸ "
+            label={`${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 22)}`}
+            chip={ROW_CHIP}
+          />
         ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
         {hits.slice(win.start, win.start + win.count).map((s, i) => {
           const selected = win.start + i === hitIndex;
           return (
-            <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
-              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}`}
-              {selected ? <Dim> rename (r) · delete (d)</Dim> : null}
-            </Text>
+            <HomeRow
+              key={s.id}
+              selected={selected}
+              boxW={boxW}
+              bg={theme.dim}
+              fg={theme.bg}
+              selectedFg={theme.bg}
+              label={truncate(s.title, boxW - 18)}
+              chip={ROW_CHIP}
+            />
           );
         })}
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
