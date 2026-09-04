@@ -7,6 +7,28 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-04
+### Added
+
+- **Compaction** (#466, ADR-0022): the CompactionRunner auto-triggers a
+  compaction marker when the last measured input crosses 80% of the model's
+  context window; `/compact` forces it from the TUI and `moh compact` compacts
+  a closed session file without consuming it; `compaction_failed` chrome keeps
+  a sticky warning on failure.
+- **Session rename** (#477): the `session_renamed` chrome event and exported
+  `renameSession()`; rename from the Home picker (`r` or right-arrow) or
+  `moh sessions rename <file|id> <name>` — an empty name resets to the derived
+  title.
+- **Session trash** (#478): `deleteSession`/`restoreSession`/`listTrashedSessions`
+  with lazy 30-day retention; Home picker delete chip (`d`, y/N confirm,
+  open-session refusal) and `moh sessions delete` + `moh trash list|restore`.
+- **Pertinent session banner** (#470, ADR-0021): the resume picker pre-selects
+  the most recent unconsumed session as a banner row.
+- **Detect-and-fork** (#468, ADR-0020): `session_file_growth` chrome warning
+  with a sticky TUI banner and `/fork` fork-now, plus a CLI recovery hint.
+- **Session notes** (#467): the notes path is exported and rendered in the
+  prompt environment; the core guarantees the path, never the content.
+
 ## [0.16.0] - 2026-09-03
 ### Added
 
@@ -449,7 +471,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.16.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.17.0...develop
+[0.17.0]: https://github.com/Marco-Cricchio/moh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Marco-Cricchio/moh/compare/v0.15.0...v0.16.0
 [0.14.0]: https://github.com/Marco-Cricchio/moh/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/Marco-Cricchio/moh/compare/v0.13.0...v0.13.1
