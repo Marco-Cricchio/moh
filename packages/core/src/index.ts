@@ -43,6 +43,11 @@ import {
   // #477: session rename — the ADR-0004 reopening that lets clients (TUI
   // Home picker, `moh sessions rename`) append the `session_renamed` event.
   renameSession,
+  // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
+  // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
+  deleteSession,
+  restoreSession,
+  listTrashedSessions,
   type SessionSummary,
   // #467: session-notes path primitives — the ADR-0004 reopening that lets
   // clients resolve the canonical project directory without recomputing the slug.
@@ -461,6 +466,11 @@ export {
   SessionStore,
   listSessionSummaries,
   renameSession,
+  // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
+  // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
+  deleteSession,
+  restoreSession,
+  listTrashedSessions,
   type SessionSummary,
   // #467: session-notes path primitives — the ADR-0004 reopening that lets
   // clients resolve the canonical project directory without recomputing the slug.

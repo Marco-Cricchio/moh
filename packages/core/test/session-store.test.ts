@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statS
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash } from "../src/session-store";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -541,5 +541,99 @@ describe("session rename (#477)", () => {
     const messages = replayMessages(events);
     expect(messages.length).toBe(1);
     expect(JSON.stringify(messages[0]).includes("renamed")).toBe(false);
+  });
+});
+
+describe("session trash (#478)", () => {
+  function seedTrash(): { home: string; cwd: string; file: string } {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
+    store.append({ type: "user_message", text: "doomed session" });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
+    store.dispose(); // trashed sessions are closed by definition
+    return { home, cwd, file: store.file };
+  }
+
+  test("deleteSession moves the file into the trash and out of the live listing", () => {
+    const { home, cwd, file } = seedTrash();
+    deleteSession(file, cwd, home);
+    expect(existsSync(file)).toBe(false);
+    const trashed = listTrashedSessions(cwd, home);
+    expect(trashed.length).toBe(1);
+    expect(trashed[0].id).toBe(basename(file, ".jsonl"));
+    expect(trashed[0].file).toBe(join(home, ".moh", "trash", "projects", projectSlug(cwd, home), basename(file)));
+    expect(existsSync(trashed[0].file)).toBe(true);
+    expect(listSessionSummaries(cwd, home).find((s) => s.file === file)).toBeUndefined();
+  });
+
+  test("deleteSession refuses a non-session or missing file", () => {
+    const { home, cwd } = seedTrash();
+    expect(() => deleteSession("/nope/missing.jsonl", cwd, home)).toThrow();
+    const notSession = join(mkdtempSync(join(tmpdir(), "moh-proj-")), "random.jsonl");
+    writeFileSync(notSession, "{}\n");
+    expect(() => deleteSession(notSession, cwd, home)).toThrow();
+  });
+
+  test("deleteSession refuses a session open in this process", () => {
+    const { home, cwd, file } = seedTrash();
+    const store = SessionStore.open(file);
+    expect(() => deleteSession(file, cwd, home)).toThrow(/open/);
+    void store;
+  });
+
+  test("restoreSession moves the file back with identical content", () => {
+    const { home, cwd, file } = seedTrash();
+    const content = readFileSync(file, "utf8");
+    deleteSession(file, cwd, home);
+    const [entry] = listTrashedSessions(cwd, home);
+    const restored = restoreSession(entry.file, cwd, home);
+    expect(restored).toBe(file);
+    expect(readFileSync(file, "utf8")).toBe(content);
+    expect(listSessionSummaries(cwd, home).length).toBe(1);
+    expect(listTrashedSessions(cwd, home).length).toBe(0);
+  });
+
+  test("restoreSession refuses an id collision with a live session", () => {
+    const { home, cwd, file } = seedTrash();
+    const content = readFileSync(file, "utf8");
+    deleteSession(file, cwd, home);
+    // Recreate a live session with the same id (simulated collision).
+    writeFileSync(file, content);
+    const [entry] = listTrashedSessions(cwd, home);
+    expect(() => restoreSession(entry.file, cwd, home)).toThrow(/collision|exists/i);
+  });
+
+  test("lazy prune removes only entries older than the retention window", () => {
+    const { home, cwd, file } = seedTrash();
+    deleteSession(file, cwd, home);
+    // A second, older entry beyond the 30-day window.
+    const oldId = "20200101T000000000Z-deadbeef";
+    const trashDir = join(home, ".moh", "trash", "projects", projectSlug(cwd, home));
+    const oldFile = join(trashDir, `${oldId}.jsonl`);
+    writeFileSync(oldFile, '{"type":"session_start","schemaVersion":1,"promptVersion":"abc"}\n');
+    const past = new Date(Date.now() - 40 * 24 * 3600 * 1000);
+    writeFileSync(oldFile, readFileSync(oldFile, "utf8")); // ensure content
+    const { utimesSync } = require("node:fs") as typeof import("node:fs");
+    utimesSync(oldFile, past, past);
+    pruneTrash(cwd, home);
+    expect(existsSync(oldFile)).toBe(false);
+    expect(listTrashedSessions(cwd, home).length).toBe(1);
+  });
+
+  test("retention days configurable via ~/.moh/config sessionTrash.retentionDays", () => {
+    const { home, cwd, file } = seedTrash();
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ sessionTrash: { retentionDays: 1 } }));
+    deleteSession(file, cwd, home);
+    const [entry] = listTrashedSessions(cwd, home);
+    expect(entry.daysRemaining).toBeGreaterThanOrEqual(1);
+    // Backdate it beyond 1 day and it prunes on the next touch.
+    const { utimesSync } = require("node:fs") as typeof import("node:fs");
+    const past = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+    utimesSync(entry.file, past, past);
+    pruneTrash(cwd, home);
+    expect(existsSync(entry.file)).toBe(false);
   });
 });
