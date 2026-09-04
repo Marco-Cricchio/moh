@@ -11,7 +11,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { listSessionSummaries, renameSession, type SessionSummary } from "./sessions";
+import { deleteSession, listSessionSummaries, renameSession, type SessionSummary } from "./sessions";
 import { MOH_VERSION, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
@@ -95,8 +95,11 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Esc cancels, Enter on empty resets). Owns input while open.
   const [renaming, setRenaming] = useState<SessionSummary | null>(null);
   const [nameBuf, setNameBuf] = useState("");
-  // Rename mutates the session file on disk; summaries are read once, so a
-  // confirmed rename re-reads them (a version bump invalidates the memo).
+  // #478 delete: when non-null, the composer area becomes the inline
+  // `Delete? y/N` confirm (default No; Esc cancels). Owns input while open.
+  const [deleting, setDeleting] = useState<SessionSummary | null>(null);
+  // Rename/delete mutate the session files on disk; summaries are read once,
+  // so a confirmed mutation re-reads them (a version bump invalidates the memo).
   const [renamesDone, setRenamesDone] = useState(0);
   const refreshKey = `${cwd}\0${home ?? ""}\0${renamesDone}`;
   const refreshSessions = React.useCallback(
@@ -105,6 +108,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     [refreshKey],
   );
   const sessionsList = renamesDone > 0 ? refreshSessions() : sessions;
+  // #478: refusal (open session) renders as a visible error line.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const pertinent = useMemo(
     () => sessionsList.find((s) => !s.consumed && s.title !== "(unreadable session)"),
     // sessionsList is a fresh array after every confirmed rename, so the
@@ -151,6 +156,26 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
       return;
     }
+    // #478: inline delete confirm owns input while open. Default No.
+    if (deleting) {
+      if (input === "y" || input === "Y") {
+        try {
+          deleteSession(deleting.file, cwd, home);
+          setRenamesDone((n) => n + 1); // bump the refresh counter: the row vanishes
+        } catch (e) {
+          setDeleteError(e instanceof Error ? e.message : String(e));
+        }
+        setDeleting(null);
+        return;
+      }
+      if (key.return || key.escape || input === "n" || input === "N") {
+        setDeleting(null);
+        return;
+      }
+      return;
+    }
+    // A dismissal clears a stale refusal line; any edit re-arms it.
+    if (deleteError && (key.escape || key.upArrow || key.downArrow)) setDeleteError(null);
     if (input === "q" && query === "") return; // q is just a search char; exit is double ctrl+c (App-level)
     if (key.upArrow) return setCursor(Math.max(0, Math.min(effectiveCursor, totalRows - 1) - 1));
     if (key.downArrow) return setCursor(Math.min(totalRows - 1, Math.max(effectiveCursor, 0) + 1));
@@ -162,9 +187,19 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         : hitIndex >= 0
           ? hits[hitIndex]
           : null;
+    // #477 + #478: → opens the action chip for the selected session row —
+    // it enters the rename edit (the r shortcut's behavior, kept stable);
+    // delete stays on its direct `d` shortcut.
     if ((input === "r" || key.rightArrow) && query === "" && selectedSession) {
       setRenaming(selectedSession);
       setNameBuf(selectedSession.title);
+      return;
+    }
+    // #478: `d` on a selected session row (banner or list hit, never the
+    // handoff row) enters the inline delete confirm. → stays rename.
+    if (input === "d" && query === "" && selectedSession) {
+      setDeleteError(null);
+      setDeleting(selectedSession);
       return;
     }
     if (key.return || input === "\n") {
@@ -203,6 +238,11 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             <Text>{nameBuf}</Text>
             <Text color={theme.dim}>▊</Text>
           </>
+        ) : deleting ? (
+          <>
+            <Text color={theme.warn}>Delete? </Text>
+            <Text color={theme.dim}>y/N ▊</Text>
+          </>
         ) : (
           <>
             <Text>{query || <Dim>search or start something new…</Dim>}</Text>
@@ -228,7 +268,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             color={cursorRow === pertinentRow ? theme.bg : theme.accent}
             backgroundColor={cursorRow === pertinentRow ? theme.accent : undefined}
           >
-            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}${cursorRow === pertinentRow ? <Dim> rename (r)</Dim> : ""}`}
+            {` ${cursorRow === pertinentRow ? ic("›", ">") : " "} ▸ ${relativeTime(pertinent.mtimeMs)} · ${truncate(pertinent.title, boxW - 20)}${cursorRow === pertinentRow ? <Dim> rename (r) · delete (d)</Dim> : ""}`}
           </Text>
         ) : null}
         {win.above > 0 ? <Dim>{` ↑ ${win.above} more`}</Dim> : null}
@@ -236,7 +276,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
           const selected = win.start + i === hitIndex;
           return (
             <Text key={s.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.dim : undefined}>
-              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}${selected ? <Dim> rename (r)</Dim> : ""}`}
+              {` ${selected ? ic("›", ">") : " "} ${truncate(s.title, boxW - 16)}${selected ? <Dim> rename (r) · delete (d)</Dim> : ""}`}
             </Text>
           );
         })}
@@ -245,6 +285,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         <Text> </Text>
       </Box>
       {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}
+      {deleting ? <Dim>{"y confirm · enter/n/esc cancel"}</Dim> : null}
+      {deleteError ? <Text color={theme.warn}>{deleteError}</Text> : null}
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}

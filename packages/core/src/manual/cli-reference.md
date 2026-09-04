@@ -21,7 +21,8 @@ commands:
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
-  sessions session management (rename; see: moh sessions --help)
+  sessions session management (rename, delete; see: moh sessions --help)
+  trash    the session trash (list, restore; see: moh trash --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -181,6 +182,7 @@ resumed as usual afterwards.
 
 ```
 usage: moh sessions rename <file|id> <name> [--cwd <dir>]
+       moh sessions delete <file|id> [--yes] [--cwd <dir>]
 
 Renames a session: the display name shows in the TUI home picker and
 overrides the derived first-message title. An empty name resets to the
@@ -189,4 +191,7 @@ derived title. Display names never touch file names or slugs.
   file|id   the session JSONL path, or a session id from \`moh run --list\`
   name      the new display name (empty string resets)
   --cwd     project root the session belongs to (default: process.cwd())
+
+delete moves the session's JSONL file into the trash
+(~/.moh/trash/projects/<slug>/ — restorable via \`moh trash restore\
 ```

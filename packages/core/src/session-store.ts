@@ -6,13 +6,16 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
+import { readUserConfigFile, userConfigFile } from "./user-config";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 
@@ -105,6 +108,7 @@ export class SessionStore {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = join(dir, `${newSessionId()}.jsonl`);
     writeFileSync(file, "", { mode: 0o600 });
+    registerOpenSession(file);
     return new SessionStore(file);
   }
 
@@ -112,7 +116,13 @@ export class SessionStore {
   static open(file: string): SessionStore {
     if (!isAbsolute(file))
       throw new Error(`session file path must be absolute: ${file}`);
+    registerOpenSession(file);
     return new SessionStore(file);
+  }
+
+  /** Releases this store's open-session registration (#478 delete guard). */
+  dispose(): void {
+    unregisterOpenSession(this.#file);
   }
 
   /**
@@ -596,4 +606,185 @@ export function lastAssistantText(events: ReadonlyArray<AgentEvent>): string {
     else if (event.type === "assistant_delta") text += event.text;
   }
   return text;
+}
+
+// ---------------------------------------------------------------------------
+// Session trash (#478)
+// ---------------------------------------------------------------------------
+
+/** Default retention window for trashed sessions, in days. */
+export const DEFAULT_TRASH_RETENTION_DAYS = 30;
+
+/**
+ * Directory holding the project's trashed session files:
+ * <home>/.moh/trash/projects/<slug> — the same directory structure as the
+ * live project dir, so restore is trivial and ids never collide.
+ */
+export function projectTrashDir(cwd: string, home = homedir()): string {
+  return join(home, ".moh", "trash", "projects", projectSlug(cwd, home));
+}
+
+/** One row of the trash listing. */
+export interface TrashedSessionSummary {
+  /** Absolute JSONL path inside the trash. */
+  file: string;
+  id: string;
+  /** Title peeked from the log (placeholder when unreadable). */
+  title: string;
+  /** Modification time (ms) — when the file was trashed or last touched. */
+  mtimeMs: number;
+  /** Whole days left before the lazy prune removes it. */
+  daysRemaining: number;
+}
+
+/**
+ * Retention window from the user config (`sessionTrash.retentionDays`,
+ * guardian-owned `~/.moh/config`). Tolerant: missing/corrupt values fall
+ * back to the 30-day default; a value < 1 falls back too.
+ */
+export function trashRetentionDays(home = homedir()): number {
+  try {
+    const section = readUserConfigFile(userConfigFile(home)).sessionTrash as
+      | { retentionDays?: unknown }
+      | undefined;
+    const days = section?.retentionDays;
+    return typeof days === "number" && Number.isFinite(days) && days >= 1
+      ? Math.floor(days)
+      : DEFAULT_TRASH_RETENTION_DAYS;
+  } catch {
+    return DEFAULT_TRASH_RETENTION_DAYS;
+  }
+}
+
+/**
+ * Sessions currently open in this process (open-session guard for delete).
+ * The #400 seam is per-writer size probing; cross-process "open elsewhere"
+ * is unsupported (#400), so a process-local registry covers the real case:
+ * the TUI deleting its own open session.
+ */
+const openSessionFiles = new Set<string>();
+
+// Registrar hooks for SessionStore.create/open/dispose.
+function registerOpenSession(file: string): void {
+  openSessionFiles.add(file);
+}
+function unregisterOpenSession(file: string): void {
+  openSessionFiles.delete(file);
+}
+
+/**
+ * #478: deletes a session by moving its file into the project trash
+ * (`~/.moh/trash/projects/<slug>/`). Only the `.jsonl` file moves — forks
+ * are independent files and project memory is untouched. Refuses when the
+ * session file is currently open in this process. Runs the lazy prune
+ * afterwards (retention checked at delete and listing time only — no
+ * background job).
+ */
+export function deleteSession(file: string, cwd: string, home = homedir()): void {
+  const name = basename(file);
+  if (!existsSync(file)) {
+    throw new Error(`deleteSession: session file not found: ${file}`);
+  }
+  if (!isSessionFile(name)) {
+    throw new Error(`deleteSession: not a session file: ${name}`);
+  }
+  if (openSessionFiles.has(file)) {
+    throw new Error(`deleteSession: session is currently open: ${name}`);
+  }
+  const trashDir = projectTrashDir(cwd, home);
+  mkdirSync(trashDir, { recursive: true, mode: 0o700 });
+  moveIntoTrash(file, join(trashDir, name));
+  pruneTrash(cwd, home);
+}
+
+/** rename when possible (atomic, same volume), copy+unlink across devices. */
+function moveIntoTrash(from: string, to: string): void {
+  try {
+    renameSync(from, to);
+  } catch {
+    copyFileSync(from, to);
+    unlinkSync(from);
+  }
+}
+
+/**
+ * Lists the project's trashed sessions, newest first. Runs the lazy prune
+ * first: this listing is one of the two retention touch points.
+ */
+export function listTrashedSessions(cwd: string, home = homedir()): TrashedSessionSummary[] {
+  pruneTrash(cwd, home);
+  const dir = projectTrashDir(cwd, home);
+  if (!existsSync(dir)) return [];
+  const retentionMs = trashRetentionDays(home) * 24 * 3600 * 1000;
+  const now = Date.now();
+  return readdirSync(dir)
+    .filter(isSessionFile)
+    .sort()
+    .reverse()
+    .map((name) => {
+      const file = join(dir, name);
+      let mtimeMs = 0;
+      try {
+        mtimeMs = statSync(file).mtimeMs;
+      } catch {
+        // keep 0
+      }
+      let title = "(unreadable session)";
+      try {
+        title = peekSession(file).title;
+      } catch {
+        // keep placeholder
+      }
+      const ageMs = Math.max(0, now - mtimeMs);
+      return {
+        file,
+        id: name.slice(0, name.length - ".jsonl".length),
+        title,
+        mtimeMs,
+        daysRemaining: Math.max(0, Math.ceil((retentionMs - ageMs) / (24 * 3600 * 1000))),
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+/**
+ * #478: restores a trashed session file back into its project directory.
+ * Refuses when a live session with the same id already exists — no silent
+ * overwrite of user data.
+ */
+export function restoreSession(file: string, cwd: string, home = homedir()): string {
+  const name = basename(file);
+  if (!isSessionFile(name)) {
+    throw new Error(`restoreSession: not a trashed session file: ${name}`);
+  }
+  if (!existsSync(file)) {
+    throw new Error(`restoreSession: trashed file not found: ${file}`);
+  }
+  const target = join(projectSessionsDir(cwd, home), name);
+  if (existsSync(target)) {
+    throw new Error(`restoreSession: a live session with this id already exists: ${name} — delete it first or remove the trash entry`);
+  }
+  mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+  moveIntoTrash(file, target);
+  return target;
+}
+
+/**
+ * Lazy prune: removes trashed files older than the retention window.
+ * Called at `deleteSession` and trash listing time; no background job.
+ */
+export function pruneTrash(cwd: string, home = homedir()): void {
+  const dir = projectTrashDir(cwd, home);
+  if (!existsSync(dir)) return;
+  const retentionMs = trashRetentionDays(home) * 24 * 3600 * 1000;
+  const cutoff = Date.now() - retentionMs;
+  for (const name of readdirSync(dir)) {
+    if (!isSessionFile(name)) continue;
+    const file = join(dir, name);
+    try {
+      if (statSync(file).mtimeMs < cutoff) unlinkSync(file);
+    } catch {
+      // best-effort prune: never crash a listing/delete on user data
+    }
+  }
 }

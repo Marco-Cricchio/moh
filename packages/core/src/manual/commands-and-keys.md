@@ -49,6 +49,7 @@ page is the same content in manual form, plus the manual's own entries
 | enter | open selection / start the typed prompt |
 | n | new session |
 | r / → | rename the selected session (enter confirm, empty = reset, esc cancel) |
+| d | delete the selected session (y/N confirm; moves it to the trash) |
 | s | settings panel |
 | ? | this command list |
 
