@@ -3,4 +3,4 @@
  * (#401): one seam shared with `moh run --resume`. This module keeps the
  * TUI-facing type re-export so existing imports stay stable.
  */
-export { listSessionSummaries, type SessionSummary } from "@moh/core";
+export { listSessionSummaries, renameSession, type SessionSummary } from "@moh/core";

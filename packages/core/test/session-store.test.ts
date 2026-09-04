@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statS
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, replayMessages } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages } from "../src/session-store";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -473,5 +473,73 @@ describe("pertinent session (ADR-0021)", () => {
     const [summary] = listSessionSummaries(cwd, home);
     expect(summary.consumed).toBe(false);
     expect(summary.title).toBe("back to work");
+  });
+});
+
+describe("session rename (#477)", () => {
+  function seedSession(): { home: string; cwd: string; file: string } {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc" });
+    store.append({ type: "user_message", text: "first user message" });
+    store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
+    return { home, cwd, file: store.file };
+  }
+
+  test("renameSession updates SessionSummary.title and keeps derivedTitle", () => {
+    const { home, cwd, file } = seedSession();
+    renameSession(file, "my cool name");
+    const [summary] = listSessionSummaries(cwd, home);
+    expect(summary.title).toBe("my cool name");
+    expect(summary.derivedTitle).toBe("first user message");
+  });
+
+  test("last rename wins; empty name resets to the derived title", () => {
+    const { home, cwd, file } = seedSession();
+    renameSession(file, "one");
+    renameSession(file, "two");
+    expect(listSessionSummaries(cwd, home)[0].title).toBe("two");
+    renameSession(file, "  ");
+    const [summary] = listSessionSummaries(cwd, home);
+    expect(summary.title).toBe("first user message");
+    expect(summary.derivedTitle).toBe("first user message");
+  });
+
+  test("the reset event is appended (append-only log), nothing is deleted", () => {
+    const { file } = seedSession();
+    const before = readFileSync(file, "utf8");
+    renameSession(file, "renamed");
+    renameSession(file, "");
+    const after = readFileSync(file, "utf8");
+    expect(after.startsWith(before)).toBe(true);
+    const events = after.trim().split("\n").map((l) => (JSON.parse(l) as AgentEvent).type);
+    expect(events.slice(-2)).toEqual(["session_renamed", "session_renamed"]);
+  });
+
+  test("fork inherits the display name", () => {
+    const { home, cwd, file } = seedSession();
+    renameSession(file, "inherited name");
+    const original = SessionStore.list(cwd, home)[0];
+    const forked = original.fork();
+    const events = forked.load();
+    expect(events.some((e) => e.type === "session_renamed" && e.name === "inherited name")).toBe(true);
+    void home;
+  });
+
+  test("renameSession validates the file", () => {
+    expect(() => renameSession("/nope/missing.jsonl", "x")).toThrow();
+    const notSession = join(mkdtempSync(join(tmpdir(), "moh-proj-")), "random.jsonl");
+    writeFileSync(notSession, "{}\n");
+    expect(() => renameSession(notSession, "x")).toThrow();
+  });
+
+  test("compaction/replay never treats the chrome event as content", () => {
+    const { file } = seedSession();
+    renameSession(file, "renamed");
+    const events = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l) as AgentEvent);
+    const messages = replayMessages(events);
+    expect(messages.length).toBe(1);
+    expect(JSON.stringify(messages[0]).includes("renamed")).toBe(false);
   });
 });

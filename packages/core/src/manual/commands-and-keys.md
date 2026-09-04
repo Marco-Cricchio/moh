@@ -32,7 +32,6 @@ page is the same content in manual form, plus the manual's own entries
 | /ask-moh | router over moh skills + docs |
 | /commands | this command list |
 | /compact | force context compaction (same producer as the auto trigger) |
-| /fork | fork now — recover from external session-file growth (only while that warning is active) |
 | /mode | switch vibe / dev mode |
 | /model | model picker (or /model `<ref>`) |
 | /reload | hot-reload moh.json + user config |
@@ -49,6 +48,7 @@ page is the same content in manual form, plus the manual's own entries
 | type | filter sessions or start a new one |
 | enter | open selection / start the typed prompt |
 | n | new session |
+| r / → | rename the selected session (enter confirm, empty = reset, esc cancel) |
 | s | settings panel |
 | ? | this command list |
 

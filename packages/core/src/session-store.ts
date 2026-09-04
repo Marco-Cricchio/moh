@@ -452,6 +452,9 @@ export interface SessionSummary {
   id: string;
   /** First user message, trimmed; placeholder when absent/unreadable. */
   title: string;
+  /** #477: the derived first-user_message title, kept so clients can
+   * double-match search against both the display name and the original. */
+  derivedTitle: string;
   /** Modification time (ms). */
   mtimeMs: number;
   /**
@@ -476,8 +479,11 @@ export function listSessionSummaries(
   return SessionStore.list(cwd, home)
     .map((store) => {
       let title = "(unreadable session)";
+      let displayName: string | null = null;
       try {
-        title = titleFrom(store.file);
+        const peek = peekSession(store.file);
+        title = peek.title;
+        displayName = peek.displayName;
       } catch {
         // keep placeholder
       }
@@ -496,7 +502,9 @@ export function listSessionSummaries(
       return {
         file: store.file,
         id: basename(store.file, ".jsonl"),
-        title,
+        // #477: display name (rename override) when present, else derived.
+        title: displayName ?? title,
+        derivedTitle: title,
         mtimeMs,
         consumed,
       };
@@ -506,6 +514,8 @@ export function listSessionSummaries(
 
 /** Result of the full-line parse of one session file (ADR-0021 read seam). */
 interface SessionPeek {
+  /** Display name: the last `session_renamed` name, or null when never renamed/reset. */
+  displayName: string | null;
   title: string;
   consumed: boolean;
 }
@@ -523,6 +533,7 @@ interface SessionPeek {
 function peekSession(file: string): SessionPeek {
   const raw = readFileSync(file, "utf8");
   let title: string | null = null;
+  let displayName: string | null = null;
   let lastTurnIdx = -1;
   let lastResumedIdx = -1;
   let idx = -1;
@@ -539,19 +550,42 @@ function peekSession(file: string): SessionPeek {
       const text = event.text.replace(/\s+/g, " ").trim();
       title = text.length > 60 ? text.slice(0, 57) + "…" : text || "(empty session)";
     }
+    // #477: the LAST `session_renamed` wins; an empty name is the explicit
+    // reset — the override clears and the derived title shows again.
+    if (event.type === "session_renamed") {
+      displayName = event.name === "" ? null : event.name;
+    }
     if (event.type === "user_message" || event.type === "done" || event.type === "error" || event.type === "cancelled") {
       lastTurnIdx = idx;
     }
     if (event.type === "session_resumed") lastResumedIdx = idx;
   }
   return {
+    displayName,
     title: title ?? "(empty session)",
     consumed: lastResumedIdx > lastTurnIdx,
   };
 }
 
-function titleFrom(file: string): string {
-  return peekSession(file).title;
+/**
+ * #477: renames a session by appending a `session_renamed` chrome event to
+ * its log — the log is the session, so resume, fork (the name rides the
+ * copied history) and compaction (nothing is deleted) all carry it for
+ * free. An empty/whitespace name is the explicit reset: it appends an
+ * empty-name event that clears the override, keeping the log append-only.
+ * `file` must be an existing session file. Display names never touch
+ * slugs or file names. Concurrent rename while open elsewhere is out of
+ * scope (#400).
+ */
+export function renameSession(file: string, name: string): void {
+  if (!existsSync(file)) {
+    throw new Error(`renameSession: session file not found: ${file}`);
+  }
+  if (!isSessionFile(basename(file))) {
+    throw new Error(`renameSession: not a session file: ${basename(file)}`);
+  }
+  const trimmed = name.trim();
+  appendFileSync(file, JSON.stringify({ type: "session_renamed", name: trimmed }) + "\n");
 }
 
 /** The final assistant text of the last turn: deltas after the last user_message. */

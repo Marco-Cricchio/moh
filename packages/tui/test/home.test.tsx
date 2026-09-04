@@ -4,7 +4,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionStore, createSession, MockProvider } from "@moh/core";
+import { SessionStore, createSession, MockProvider, listSessionSummaries } from "@moh/core";
 import { Home } from "../src/Home";
 import { homeBannerFits } from "../src/viewport";
 import { stripAnsi } from "./helpers";
@@ -223,6 +223,117 @@ describe("pertinent session banner (#470, ADR-0021)", () => {
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("▸");
+    i.unmount();
+  });
+});
+
+describe("session rename (#477)", () => {
+  test("r enters the inline edit, enter confirms, the name persists to disk", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("r");
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename:");
+    // Prefilled with the derived title; append a suffix and confirm.
+    for (const ch of "X") i.stdin.write(ch);
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("title s1X");
+    i.unmount();
+    const summaries = listSessionSummaries(cwd, home);
+    expect(summaries[0].title).toBe("title s1X");
+    expect(summaries[0].derivedTitle).toBe("title s1");
+  });
+
+  test("esc cancels the rename; enter on an empty buffer resets the name", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    // Rename to "ZZ".
+    i.stdin.write("r");
+    await sleep(20);
+    for (const ch of "\x7f".repeat(20) + "ZZ") i.stdin.write(ch); // clear prefill, type ZZ
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(listSessionSummaries(cwd, home)[0].title).toBe("ZZ");
+    // Esc cancels without writing.
+    i.stdin.write("r");
+    await sleep(20);
+    i.stdin.write("\x1b");
+    await sleep(20);
+    expect(listSessionSummaries(cwd, home)[0].title).toBe("ZZ");
+    // Enter on the emptied prefill (the current name "ZZ") resets.
+    i.stdin.write("r");
+    await sleep(20);
+    for (const _ of Array.from({ length: 10 })) i.stdin.write("\x7f");
+    await sleep(20);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(listSessionSummaries(cwd, home)[0].title).toBe("title s1");
+    i.unmount();
+  });
+
+  test("the filter double-matches display name and derived title", async () => {
+    const { cwd, home } = await homeWithSessions(2);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    // Rename the newest (s2, banner row) to "banana".
+    i.stdin.write("r");
+    await sleep(20);
+    for (const _ of Array.from({ length: 20 })) i.stdin.write("\x7f");
+    i.stdin.write("banana");
+    await sleep(40);
+    i.stdin.write("\r");
+    await sleep(30);
+    // Searching by the DISPLAY name hits it…
+    i.stdin.write("banana");
+    await sleep(80);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("banana");
+    // …and searching by the DERIVED title still finds the same session row.
+    for (const _ of Array.from({ length: 10 })) i.stdin.write("\x7f");
+    i.stdin.write("s2");
+    await sleep(80);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("banana");
+    i.unmount();
+  });
+});
+
+describe("session rename (#477) — edges", () => {
+  test("right-arrow enters the rename edit", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    i.stdin.write("\x1b[C"); // right arrow
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename:");
+    i.unmount();
+  });
+
+  test("the handoff row never enters the rename edit (r falls through)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-handoff-"));
+    const offer: any = {
+      status: "offer",
+      source: { machine: "other", project: "p" },
+      payload: { slug: "p", sessionId: "s", updatedAt: new Date().toISOString(), synthesis: "syn", transcript: [] },
+      path: "/tmp/x.json",
+      stale: false,
+    };
+    const i = render(
+      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
+    );
+    await sleep(60);
+    // Cursor sits on the handoff row (row 1, pre-selected as first special row? no:
+    // pertinent banner absent, so effective cursor is 0 → New session). Move down once.
+    i.stdin.write("\x1b[B");
+    await sleep(20);
+    i.stdin.write("r");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).not.toContain("rename:");
     i.unmount();
   });
 });

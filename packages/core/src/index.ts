@@ -40,6 +40,9 @@ import type {
 import {
   SessionStore,
   listSessionSummaries,
+  // #477: session rename — the ADR-0004 reopening that lets clients (TUI
+  // Home picker, `moh sessions rename`) append the `session_renamed` event.
+  renameSession,
   type SessionSummary,
   // #467: session-notes path primitives — the ADR-0004 reopening that lets
   // clients resolve the canonical project directory without recomputing the slug.
@@ -457,6 +460,7 @@ export {
   type SkillPrompt,
   SessionStore,
   listSessionSummaries,
+  renameSession,
   type SessionSummary,
   // #467: session-notes path primitives — the ADR-0004 reopening that lets
   // clients resolve the canonical project directory without recomputing the slug.

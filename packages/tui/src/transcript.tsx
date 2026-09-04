@@ -377,6 +377,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // ADR-0021: resume-open marker; visible on replay as chrome.
         blocks.push({ key, kind: "chrome", glyph: "↻", type: "resumed", detail: "", lines: [] });
         break;
+      case "session_renamed":
+        // #477: rename marker; visible on replay as chrome.
+        blocks.push({ key, kind: "chrome", glyph: "✎", type: "renamed", detail: event.name === "" ? "(reset)" : event.name, lines: [] });
+        break;
       case "session_file_growth":
         // #400 single-writer guard: visible on replay too (headless resume
         // of a file that once grew from elsewhere shows why history may

@@ -26,6 +26,19 @@ Forking copies history into a **new** session file and continues there —
 use it to branch a "what if" off a real session without touching the
 original. On the CLI: `moh run --session <file> --fork`.
 
+## Rename
+
+A session can carry a **display name**: a permanent override of the
+derived title (the first message), shown in the home picker and used by
+the search — which matches both the display name and the original
+derived title. Rename from the home screen with `r` or → on a selected
+session row (the pertinent banner included): edit the prefilled name,
+enter confirms, esc cancels, enter on an empty name resets to the
+derived title. From the CLI: `moh sessions rename <file|id> <name>`
+(an empty name resets). The name is a chrome event in the log — resume,
+fork (it is inherited) and compaction carry it for free — and it never
+touches file names or slugs.
+
 ## Handoff between machines
 
 moh can carry a session between your machines with a **handoff**: a

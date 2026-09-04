@@ -62,6 +62,7 @@ function local(overrides: Partial<Omit<SessionSummary, "consumed">> & { consumed
     file: "/tmp/x.jsonl",
     id: "local-1",
     title: "local session",
+    derivedTitle: "local session",
     mtimeMs: Date.parse("2026-09-02T12:00:00.000Z"),
     consumed: false,
     ...overrides,
