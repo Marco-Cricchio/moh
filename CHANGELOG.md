@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-09-04
+### Fixed
+
+- **Home session picker** (#480): action chips on selected list rows use a
+  contrasting foreground, so they remain visible on the selection background.
+
 ## [0.17.1] - 2026-09-04
 ### Fixed
 
@@ -478,7 +484,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.17.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.17.2...develop
+[0.17.2]: https://github.com/Marco-Cricchio/moh/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/Marco-Cricchio/moh/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/Marco-Cricchio/moh/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Marco-Cricchio/moh/compare/v0.15.0...v0.16.0
