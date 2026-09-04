@@ -11,6 +11,15 @@ import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
+import {
+  trackSubagents,
+  useSubagentTails,
+  subagentGlyph,
+  PANEL_MIN_COLUMNS,
+  panelWidth,
+  type TrackedSubagent,
+} from "./subagent-panel";
+import { SubagentPanel } from "./SubagentPanel";
 import { AskUserBlock, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
@@ -89,6 +98,13 @@ export interface ChatProps {
    * with popup-facing descriptions and provenance markers. Standalone
    * mounts default to the base list from the registry. */
   commands?: readonly CommandEntry[];
+  /** #497: index of the focused subagent chip (head of the chip cycle),
+   * or null when no subagent chip holds focus. */
+  focusedSubagent?: number | null;
+  /** #497: index of the subagent whose live panel is open (null = closed). */
+  panelSubagent?: number | null;
+  /** #497: toggles the selected subagent's live panel (Enter on a chip). */
+  onToggleSubagentPanel?: (index: number) => void;
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -127,6 +143,9 @@ export function Chat({
   replaySettled = false,
   askGate,
   bufferFlipPending = false,
+  focusedSubagent = null,
+  panelSubagent = null,
+  onToggleSubagentPanel,
   branch,
   yolo = false,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
@@ -270,6 +289,31 @@ export function Chat({
     const timer = setInterval(() => setTick((value) => value + 1), 90);
     return () => clearInterval(timer);
   }, [blocked, state.pending]);
+
+  // ── Subagent chips + live panel (#497, vision note 25) ────────────────
+  // Chrome-only: projection of the parent's subagent events plus the
+  // throttled child-log tails. Never touches the transcript projection
+  // (#194/#183). A 1Hz tick keeps elapsed counters and the ⏸ stalled
+  // marker honest while a panel is open, even outside a pending turn.
+  const subagents = useMemo(() => trackSubagents(state.events), [state.events]);
+  const subagentTails = useSubagentTails(subagents);
+  const [panelNow, setPanelNow] = useState(Date.now);
+  // #497: the panel is driven by `panelSubagent` (its own open/close state,
+  // toggled with Enter on a subagent chip) — NOT by chip focus: Esc from a
+  // focused chip returns to the composer and the panel stays put.
+  const panelOpen = panelSubagent !== null && panelSubagent >= 0 && panelSubagent < subagents.length;
+  const panelSub = panelOpen ? subagents[panelSubagent!] : undefined;
+  useEffect(() => {
+    if (!panelOpen) return;
+    setPanelNow(Date.now());
+    const timer = setInterval(() => setPanelNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [panelOpen, panelSub?.callId]);
+  // Panel layout: wide enough terminals split; narrower ones peek above
+  // the footer with the same content (no transcript re-wrap churn).
+  const splitPanel = panelOpen && cols >= PANEL_MIN_COLUMNS;
+  const panelCols = splitPanel ? panelWidth(cols) : cols - 2;
+  const panelRows = Math.max(3, Math.min(12, (viewport.rows ?? 24) - 14));
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
@@ -475,8 +519,36 @@ export function Chat({
     if (armed && (input !== undefined || key.return)) setArmed(false);
   });
 
+  const panel = panelOpen && panelSub ? (
+    <SubagentPanel sub={panelSub} tail={subagentTails.get(panelSub.callId)} now={panelNow} width={panelCols} rows={panelRows} />
+  ) : null;
+
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
+      {splitPanel ? (
+        <Box flexDirection="row" width={Math.max(1, cols - 1)}>
+          <Box flexDirection="column" width={Math.max(1, cols - 1 - panelCols)}>
+            <Static key={repaint} items={staticItems as TranscriptBlock[]}>
+              {(block) => <TranscriptBlockView key={block.key} block={block} width={Math.max(20, cols - 1 - panelCols)} />}
+            </Static>
+            {replaySettled && replayBlocks.map((block) => (
+              <TranscriptBlockView key={`replay-${block.key}`} block={block} width={Math.max(20, cols - 1 - panelCols)} />
+            ))}
+            {state.pending && <Box flexDirection="column">{liveTail.map((block) => (
+              <TranscriptBlockView
+                key={`live-${block.key}`}
+                block={block}
+                width={Math.max(20, cols - 1 - panelCols)}
+                {...(block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
+                  ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
+                  : {})}
+              />
+            ))}</Box>}
+          </Box>
+          <Box flexDirection="column" width={panelCols}><Box height={1} />{panel}</Box>
+        </Box>
+      ) : (
+        <>
         <Static key={repaint} items={staticItems as TranscriptBlock[]}>
           {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
         </Static>
@@ -493,6 +565,12 @@ export function Chat({
             : {})}
         />
       ))}</Box>}
+        </>
+      )}
+
+      {/* #497: narrow-terminal peek — the panel content rides the volatile
+          region above the footer instead of splitting the layout. */}
+      {!splitPanel && panelOpen && panel}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput

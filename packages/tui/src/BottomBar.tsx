@@ -207,22 +207,45 @@ function StatusRow(props: StatusProps) {
   );
 }
 
-function KeyRow({ width, focused }: { width: number; focused: number | null }) {
+function KeyRow({ width, focused, subagentChips }: { width: number; focused: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
   const theme = useTheme();
-  const { chips, graphic } = visibleChips(width);
+  const { chips: allChips, graphic } = visibleChips(width);
+  // #497: subagent chips lead the centered chip row, ahead of the action
+  // chips. Their focus indices precede the action chips (head of the tab
+  // cycle). They never drop; instead rightmost action chips yield from the
+  // same width budget (ctrl shortcuts remain available). Narrow terminals
+  // collapse the cluster to a bare count (⊙N).
+  const subs = subagentChips ?? [];
+  const compact = widthClass183(width) === "compact";
+  const budget = Math.max(1, width - 4);
+  const subChipWidth = (sub: { label: string }) => graphic ? 8 + sub.label.length : 5 + sub.label.length;
+  const subsWidth = subs.reduce((sum, sub) => sum + subChipWidth(sub) + 2, -2);
+  const chips = (() => {
+    const displayed = [...allChips];
+    const actionWidth = (list: typeof displayed) => list.reduce((sum, chip) => sum + (graphic ? graphicChipWidth(chip) + 2 : compactChipWidth(chip) + 1), -1);
+    while (displayed.length > 1 && subsWidth + actionWidth(displayed) > budget) displayed.pop();
+    return displayed;
+  })();
   return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={graphic ? 2 : 1} flexWrap="nowrap" marginTop={1}>
+    {subs.length > 0 && (compact ? (
+      <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexShrink={0}>
+        <Text color={theme.dim}>⊙{subs.length}</Text>
+      </Box>
+    ) : subs.map((sub, index) => (
+      <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focused === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
+        <Text color={sub.active ? theme.accent : theme.dim}>{sub.glyph} </Text><Text color={focused === index ? theme.accent : theme.fg} bold>{sub.label}</Text>
+      </Box>
+    )))}
     {chips.map((chip, index) => graphic ? (
-      <Box key={chip.label} borderStyle="round" borderColor={focused === index ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
-        <Text color={focused === index ? theme.accent : theme.fg} bold>{chip.key} </Text><Text color={chip.color === "purple" ? theme.purple : focused === index ? theme.accent : theme.dim}>{chip.label}</Text>
+      <Box key={chip.label} borderStyle="round" borderColor={focused === index + subs.length ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
+        <Text color={focused === index + subs.length ? theme.accent : theme.fg} bold>{chip.key} </Text><Text color={chip.color === "purple" ? theme.purple : focused === index + subs.length ? theme.accent : theme.dim}>{chip.label}</Text>
       </Box>
     ) : (
-      <Text key={chip.label} backgroundColor={focused === index ? theme.accent : undefined} color={focused === index ? theme.bg : theme.fg}>( <Text color={focused === index ? theme.bg : theme.accent}>{chip.key} </Text>{chip.label} )</Text>
+      <Text key={chip.label} backgroundColor={focused === index + subs.length ? theme.accent : undefined} color={focused === index + subs.length ? theme.bg : theme.fg}>( <Text color={focused === index + subs.length ? theme.bg : theme.accent}>{chip.key} </Text>{chip.label} )</Text>
     ))}
   </Box>;
 }
 
-export function BottomBar(props: StatusProps & { focusedChip: number | null }) {
-  return <Box flexDirection="column"><StatusRow {...props} /><KeyRow width={props.width} focused={props.focusedChip} /></Box>;
+export function BottomBar(props: StatusProps & { focusedChip: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
+  return <Box flexDirection="column"><StatusRow {...props} /><KeyRow width={props.width} focused={props.focusedChip} subagentChips={props.subagentChips} /></Box>;
 }
-
-export { CONTEXT_WINDOW_DEFAULT };

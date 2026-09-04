@@ -1,0 +1,206 @@
+import { describe, expect, test } from "bun:test";
+import React from "react";
+import { render } from "ink-testing-library";
+import { ThemeProvider, THEMES } from "../src/themes";
+import { BottomBar } from "../src/BottomBar";
+import { SubagentPanel } from "../src/SubagentPanel";
+import {
+  trackSubagents,
+  subagentGlyph,
+  subagentStateLabel,
+  panelHeader,
+  panelFreezeLine,
+  isStalled,
+  formatElapsed,
+  panelWidth,
+  STALLED_AFTER_MS,
+  PANEL_TAIL_LINES,
+  type TrackedSubagent,
+  type SubagentTail,
+} from "../src/subagent-panel";
+import { stripAnsi } from "./helpers";
+import type { AgentEvent } from "@moh/core";
+
+describe("trackSubagents", () => {
+  test("pairs spawn/result by callId and keeps order", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "1" },
+      { type: "subagent_spawn", callId: "a", name: "scout", preset: "research", log: "/x/a.jsonl" },
+      { type: "subagent_spawn", callId: "b", name: "worker", log: "/x/b.jsonl" },
+      { type: "subagent_result", callId: "a", name: "scout", status: "done", usage: { inputTokens: 100, outputTokens: 50 }, log: "/x/a.jsonl" },
+    ];
+    const subs = trackSubagents(events);
+    expect(subs.map((s) => s.name)).toEqual(["scout", "worker"]);
+    expect(subs[0]!.status).toBe("done");
+    expect(subs[0]!.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
+    expect(subs[1]!.status).toBe("running");
+    expect(subs[1]!.log).toBe("/x/b.jsonl");
+  });
+
+  test("empty log → no subagents", () => {
+    expect(trackSubagents([])).toEqual([]);
+  });
+});
+
+const runningSub: TrackedSubagent = {
+  callId: "a",
+  name: "scout",
+  log: "/x/a.jsonl",
+  status: "running",
+  startedAt: Date.now(),
+};
+
+const tailOf = (lines: string[], currentTool: string | null = "bash"): SubagentTail => ({
+  lines: lines.map((text, id) => ({ id: id + 1, text })),
+  currentTool,
+  lastActivityAt: Date.now(),
+});
+
+describe("glyphs and panel text", () => {
+  test("running is ◐, stalled ⏸, settled ✓/✗", () => {
+    expect(subagentGlyph(runningSub, tailOf(["● bash"]), Date.now())).toBe("◐");
+    const stalledTail: SubagentTail = { ...tailOf(["● bash"]), lastActivityAt: Date.now() - STALLED_AFTER_MS - 1000 };
+    expect(subagentGlyph(runningSub, stalledTail, Date.now())).toBe("⏸");
+    expect(subagentGlyph({ ...runningSub, status: "done" }, undefined, Date.now())).toBe("✓");
+    expect(subagentGlyph({ ...runningSub, status: "error" }, undefined, Date.now())).toBe("✗");
+    expect(isStalled(runningSub, stalledTail, Date.now())).toBe(true);
+    expect(isStalled({ ...runningSub, status: "done" }, stalledTail, Date.now())).toBe(false);
+  });
+
+  test("panel header carries name, elapsed, state, tool", () => {
+    const now = runningSub.startedAt + 67_000;
+    const tail = { ...tailOf(["● bash · git status"], "bash"), lastActivityAt: now };
+    const header = panelHeader(runningSub, tail, now);
+    expect(header).toContain("scout");
+    expect(header).toContain("1m07s");
+    expect(header).toContain("running");
+    expect(header).toContain("bash");
+    const stalled = panelHeader(runningSub, { ...tailOf([]), lastActivityAt: Date.now() - STALLED_AFTER_MS - 1 }, Date.now());
+    expect(stalled).toContain("stalled");
+  });
+
+  test("freeze line on settle; empty while running", () => {
+    expect(panelFreezeLine(runningSub)).toBe("");
+    const done: TrackedSubagent = { ...runningSub, status: "done", usage: { inputTokens: 1500, outputTokens: 600 } };
+    const line = panelFreezeLine(done);
+    expect(line).toContain("✓ done");
+    expect(line).toContain("2.1k tok");
+    expect(line).toContain("result in transcript");
+  });
+
+  test("elapsed formatting", () => {
+    expect(formatElapsed(0)).toBe("0s");
+    expect(formatElapsed(59_000)).toBe("59s");
+    expect(formatElapsed(67_000)).toBe("1m07s");
+  });
+
+  test("panel width clamps", () => {
+    expect(panelWidth(60)).toBe(28);
+    expect(panelWidth(200)).toBe(46);
+    expect(panelWidth(120)).toBe(36);
+  });
+});
+
+const base = {
+  width: 120,
+  pending: false,
+  spinner: "⠸",
+  model: "mock",
+  turns: 1,
+  tokens: { contextIn: 10_000, totalOut: 100, calls: 1 },
+  level: "medium" as const,
+  focusedChip: null,
+};
+
+function barFrame(props: Record<string, unknown>): string {
+  const ink = render(
+    <ThemeProvider value={THEMES["tokyo-night"]}>
+      <BottomBar {...base} {...(props as any)} />
+    </ThemeProvider>,
+  );
+  const frame = stripAnsi(ink.lastFrame() ?? "");
+  ink.unmount();
+  return frame;
+}
+
+describe("subagent chips in the bottom bar (#497)", () => {
+  const chips = [
+    { label: "scout", glyph: "◐", active: false },
+    { label: "worker", glyph: "✓", active: false },
+  ];
+
+  test("chips appear per subagent with state glyphs", () => {
+    const frame = barFrame({ subagentChips: chips });
+    expect(frame).toContain("scout");
+    expect(frame).toContain("✓ worker");
+    expect(frame).toContain("◐");
+  });
+
+  test("no subagents → no chips (footer unchanged)", () => {
+    const frame = barFrame({});
+    expect(frame).not.toContain("scout");
+    expect(frame).toContain("⏎ send");
+  });
+
+  test("overflow beyond 3 renders +N", () => {
+    const four = [
+      { label: "aa", glyph: "◐", active: false },
+      { label: "bb", glyph: "◐", active: false },
+      { label: "cc", glyph: "◐", active: false },
+      { label: "dd", glyph: "◐", active: false },
+    ];
+    const frame = barFrame({ subagentChips: four.slice(0, 3).concat([{ label: "+1", glyph: "", active: false }]) });
+    expect(frame).toContain("+1");
+    expect(frame).not.toContain("dd");
+  });
+
+  test("compact width collapses to a count (⊙N)", () => {
+    const frame = barFrame({ subagentChips: chips, width: 60 });
+    expect(frame).toContain("⊙2");
+    expect(frame).not.toContain("scout");
+  });
+
+  test("active chip highlights (accent border)", () => {
+    const frame = barFrame({ subagentChips: [{ label: "scout", glyph: "◐", active: true }] });
+    expect(frame).toContain("scout");
+    // Highlight rides ANSI color; the plain frame only proves presence.
+  });
+});
+
+describe("live panel rendering", () => {
+  test("shows header and tail lines", () => {
+    const ink = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <SubagentPanel sub={runningSub} tail={tailOf(["● bash · git status", "✓ done", "● read · src/a.ts"])} now={Date.now()} width={40} />
+      </ThemeProvider>,
+    );
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("scout");
+    expect(frame).toContain("● bash · git status");
+    expect(frame).toContain("✓ done");
+    ink.unmount();
+  });
+
+  test("empty tail shows a placeholder", () => {
+    const ink = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <SubagentPanel sub={runningSub} tail={undefined} now={Date.now()} width={40} />
+      </ThemeProvider>,
+    );
+    expect(stripAnsi(ink.lastFrame() ?? "")).toContain("no events yet");
+    ink.unmount();
+  });
+
+  test("settled panel freezes with the final line", () => {
+    const done: TrackedSubagent = { ...runningSub, status: "done", usage: { inputTokens: 1000, outputTokens: 1000 } };
+    const ink = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <SubagentPanel sub={done} tail={tailOf(["✓ done"])} now={Date.now()} width={60} />
+      </ThemeProvider>,
+    );
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("2.0k tok");
+    expect(frame.split("\n").map((l) => l.trim()).join(" ")).toContain("result in transcript");
+    ink.unmount();
+  });
+});
