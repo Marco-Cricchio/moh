@@ -163,7 +163,9 @@ describe("subagent chips in the bottom bar (#497)", () => {
   test("active chip highlights (accent border)", () => {
     const frame = barFrame({ subagentChips: [{ label: "scout", glyph: "◐", active: true }] });
     expect(frame).toContain("scout");
-    // Highlight rides ANSI color; the plain frame only proves presence.
+    // Highlight rides ANSI color; ink-testing-library's stdout strips color
+    // (chalk.level 0 under bun test), so the plain frame proves layout and
+    // presence; the accent wiring is asserted by focus handlers in App.
   });
 });
 

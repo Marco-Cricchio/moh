@@ -617,6 +617,12 @@ export function Chat({
         cwd={cwd}
         yolo={yolo}
         focusedChip={focusedChip}
+        focusedSubagent={focusedSubagent}
+        subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({
+          label: sub.name,
+          glyph: subagentGlyph(sub, subagentTails.get(sub.callId), panelNow),
+          active: focusedSubagent === index,
+        })).concat(subagents.length > 3 ? [{ label: `+${subagents.length - 3}`, glyph: "", active: false }] : []) : undefined}
       />
     </Box>
   );
