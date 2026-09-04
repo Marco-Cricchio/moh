@@ -73,7 +73,7 @@ preserved verbatim):
 
 | Section | Owner | Keys |
 | --- | --- | --- |
-| TUI chrome | TUI (`tui/src/user-config.ts`) | `onboarded`, `mode` (`vibe`/`dev`), `theme`, `icons`, `filePreview` (`always`/`on-demand`/`none`), `answerLanguage` (`auto`/`en`/`it`), `telemetry`, `permissionMode` (`normal`/`auto-accept`), `editor`, `homeListMax` (3–10), `workflow.enabled`, `workflowOffered`, `showReasoning`, `reasoningNoticeShown`, `updateCheck` |
+| TUI chrome | TUI (`tui/src/user-config.ts`) | `onboarded`, `mode` (`vibe`/`dev`), `theme`, `icons`, `filePreview` (`always`/`on-demand`/`none`), `answerLanguage` (`auto`/`en`/`it`), `telemetry`, `permissionMode` (`normal`/`auto-accept`), `editor`, `homeListMax` (3–10), `workflow.enabled`, `workflowOffered`, `showReasoning`, `reasoningNoticeShown`, `updateCheck`, `images.preview` (`auto`/`on`/`off`) |
 | `provider` / `endpoints` | core (`provider-config.ts`) | same shape as moh.json's; strict when present; merged per-field, project wins field-by-field |
 | `mcpServers` | core (`mcp/types.ts`) | user-scope servers — trusted, no consent prompt; stdio `{ command, args, env }` or http `{ url, headers }` |
 | `auth` | core (ADR-0006) | subscription tokens keyed by endpoint name, plus `auth.overrides` for captured client_ids/issuers; never in moh.json, never logged |

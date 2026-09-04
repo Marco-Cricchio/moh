@@ -24,6 +24,7 @@ page is the same content in manual form, plus the manual's own entries
 | /workflow on\|off | toggle workflow mode (skills + frontier) |
 | ctrl+f | frontier panel (workflow mode on) |
 | @ (type it) | file mention popup: fuzzy path picker, attaches a snapshot/listing |
+| paste a file path | drag-and-drop: pasted path inserts as an @mention; images preview inline where supported (images.preview) |
 | q | quit (home) |
 
 ## Slash commands (type / for the completion popup)
