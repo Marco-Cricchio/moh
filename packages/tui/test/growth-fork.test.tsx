@@ -71,7 +71,7 @@ describe("/fork command gating (#468, ADR-0020)", () => {
       mohHome: "/tmp",
       cwd: "/tmp",
       // no growthWarning → refused
-    } as any);
+    } as any, "");
     expect(notices[0]).toContain("only while the session-file-growth warning is active");
   });
 
@@ -85,7 +85,7 @@ describe("/fork command gating (#468, ADR-0020)", () => {
       cwd: "/tmp",
       growthWarning: () => true,
       onForkNow: () => { called = true; },
-    } as any);
+    } as any, "");
     expect(called).toBe(true);
   });
 });
