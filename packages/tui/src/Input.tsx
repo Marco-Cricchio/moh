@@ -28,6 +28,10 @@ export interface InputProps {
    * caller's index — git `ls-files` or a walk). Absent/empty disables
    * the popup; matching happens here, capped. */
   mentionCandidates?: readonly string[];
+  /** Vision note 4 (#490): paste seam — called with each completed
+   * bracketed paste; returning a path inserts it as an `@path` mention
+   * (terminal drag-and-drop), null inserts verbatim. */
+  onPastePath?: (paste: string) => string | null;
   onSubmit(text: string): void;
 }
 
@@ -102,6 +106,21 @@ export function mentionSuggestions(query: string | null, candidates: readonly st
 }
 
 /**
+ * Vision note 4: a bracketed paste that IS an existing path (terminal
+ * drag-and-drop) becomes an `@path` mention — the full #488 mechanism,
+ * popup included. Single-line, shell-unquoted, no whitespace unless the
+ * whole paste is one quoted path, and the existence probe is sync-free
+ * (the caller pre-checks against the file index / its own stat seam).
+ */
+export function pasteAsPath(paste: string, isFile: (path: string) => boolean): string | null {
+  const trimmed = paste.trim();
+  if (!trimmed || trimmed.includes("\n")) return null;
+  const unquoted = /^"(.*)"$/s.exec(trimmed)?.[1] ?? /^'(.*)'$/s.exec(trimmed)?.[1] ?? trimmed;
+  if (!unquoted || unquoted.includes("\n")) return null;
+  return isFile(unquoted) ? unquoted : null;
+}
+
+/**
  * Pi-like terminal editor: logical lines, visual wrapping, prompt history,
  * undo/redo, grapheme-aware navigation, bracketed paste, a blinking block
  * cursor, and a scrolling slash-command completion popup (arrows to move,
@@ -118,6 +137,7 @@ export function MultilineInput({
   commands = [],
   onSuggestionsOpen,
   mentionCandidates = [],
+  onPastePath,
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -133,6 +153,11 @@ export function MultilineInput({
   const [redo, setRedo] = useState<EditorSnapshot[]>([]);
   const [pasteBuffer, setPasteBuffer] = useState("");
   const [inPaste, setInPaste] = useState(false);
+  // Paste state mirror (ref): a bracketed paste often arrives as several
+  // stdin chunks inside ONE React tick — the useState values above are
+  // stale for every chunk but the first, so the routing guards below read
+  // the ref (updated synchronously) instead.
+  const pasteRef = useRef({ inPaste: false, buffer: "" });
   const [scrollOffset, setScrollOffset] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [cursorVisible, setCursorVisible] = useState(true);
@@ -283,29 +308,64 @@ export function MultilineInput({
 
     // Bracketed paste is atomic and preserves newlines. Ink may strip the
     // leading ESC from the marker, so accept both terminal spellings.
-    if (input.includes("[201~") && !input.includes("[200~")) {
-      insertText(input.slice(0, input.indexOf("[201~")));
+    // An end marker arriving alone (`[201~`, ESC stripped) during an open
+    // paste must fall through to the paste buffer below, never claim b1.
+    // All guards read pasteRef (synchronous), not the async state.
+    if (input.includes("[201~") && !input.includes("[200~") && !pasteRef.current.inPaste && !pasteRef.current.buffer) {
+      // Vision note 4: single-chunk paste (start+end in one read).
+      const pasted = input.slice(0, input.indexOf("[201~"));
+      const asPath = onPastePath ? onPastePath(pasted) : null;
+      if (asPath !== null) {
+        insertText(asPath.includes(" ") ? `@"${asPath}"` : `@${asPath}`);
+      } else {
+        insertText(pasted);
+      }
+      pasteRef.current = { inPaste: false, buffer: "" };
       setPasteBuffer("");
       setInPaste(false);
       return;
     }
     if (input.includes("\x1b[200~") || input.includes("[200~")) {
+      pasteRef.current = { inPaste: true, buffer: "" };
       setInPaste(true);
       const started = input.slice(input.indexOf("\x1b[200~") + 6);
       const endMatch = started.match(/\x1b?\[201~/);
-      if (endMatch?.index !== undefined) { insertText(started.slice(0, endMatch.index)); setInPaste(false); return; }
+      if (endMatch?.index !== undefined) {
+        const pasted = started.slice(0, endMatch.index);
+        const asPath = onPastePath ? onPastePath(pasted) : null;
+        if (asPath !== null) insertText(asPath.includes(" ") ? `@"${asPath}"` : `@${asPath}`);
+        else insertText(pasted);
+        pasteRef.current = { inPaste: false, buffer: "" };
+        setInPaste(false);
+        return;
+      }
+      pasteRef.current.buffer = started;
       setPasteBuffer(started);
       return;
     }
-    if (pasteBuffer || inPaste) {
-      const all = pasteBuffer + input;
+    if (pasteRef.current.inPaste || pasteRef.current.buffer) {
+      const all = pasteRef.current.buffer + input;
       const endMatch = all.match(/\x1b?\[201~/);
-      if (endMatch?.index === undefined) return setPasteBuffer(all);
-      insertText(all.slice(0, endMatch.index));
+      if (endMatch?.index === undefined) {
+        pasteRef.current.buffer = all;
+        return setPasteBuffer(all);
+      }
+      const pasted = all.slice(0, endMatch.index);
+      pasteRef.current = { inPaste: false, buffer: "" };
       setPasteBuffer("");
       setInPaste(false);
+      // Vision note 4: a paste that is an existing path (terminal
+      // drag-and-drop) inserts as an @mention. Quote when it contains
+      // whitespace (#488 quoting rule); otherwise insert verbatim.
+      const asPath = onPastePath ? onPastePath(pasted) : null;
+      if (asPath !== null) {
+        insertText(asPath.includes(" ") ? `@"${asPath}"` : `@${asPath}`);
+        return;
+      }
+      insertText(pasted);
       return;
     }
+
 
     if (key.ctrl && input === "z") {
       const previous = undo.at(-1); if (!previous) return;
