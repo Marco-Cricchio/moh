@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { useViewport, windowing } from "./viewport";
+import { fuzzyRank } from "./file-index";
 import type { CommandEntry } from "./commands";
 
 export interface InputProps {
@@ -23,6 +24,10 @@ export interface InputProps {
    * (a slash draft with candidates): the app-level Tab handler defers to
    * the popup so Tab completes instead of focusing the chips. */
   onSuggestionsOpen?: (open: boolean) => void;
+  /** #488: the file paths the `@` fuzzy popup lists (relative, from the
+   * caller's index — git `ls-files` or a walk). Absent/empty disables
+   * the popup; matching happens here, capped. */
+  mentionCandidates?: readonly string[];
   onSubmit(text: string): void;
 }
 
@@ -77,6 +82,25 @@ export function slashSuggestions(query: string, commands: readonly CommandEntry[
     .slice(0, 50);
 }
 
+/** The `@path` query under the cursor, when the cursor sits in (or right
+ * after) an `@` token started at a word boundary. Returns the text after
+ * the `@`, or null when no mention popup qualifies. */
+export function mentionQuery(text: string, cursor: number): string | null {
+  const before = text.slice(0, cursor);
+  const at = before.lastIndexOf("@");
+  if (at === -1) return null;
+  if (at > 0 && !/\s/.test(before[at - 1]!)) return null;
+  const query = before.slice(at + 1);
+  if (/[\s"]/.test(query)) return null;
+  return query;
+}
+
+/** Fuzzy-filters the file index for the current `@` query (#488). */
+export function mentionSuggestions(query: string | null, candidates: readonly string[]): string[] {
+  if (query === null) return [];
+  return fuzzyRank(candidates, query);
+}
+
 /**
  * Pi-like terminal editor: logical lines, visual wrapping, prompt history,
  * undo/redo, grapheme-aware navigation, bracketed paste, a blinking block
@@ -93,6 +117,7 @@ export function MultilineInput({
   prefill,
   commands = [],
   onSuggestionsOpen,
+  mentionCandidates = [],
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -290,30 +315,42 @@ export function MultilineInput({
       const next = redo.at(-1); if (!next) return;
       setUndo((stack) => [...stack, snapshot()]); setRedo((stack) => stack.slice(0, -1)); setEditor(next); return;
     }
-    // The completion popup owns the arrow keys while it is open: ↑/↓ move
-    // the selection, Tab completes it into the draft (focus stays in the
+    // The completion popups own the arrow keys while open (slash popup on
+    // a `/` draft, #488 mention popup on an `@` token): ↑/↓ move the
+    // selection, Tab completes it into the draft (focus stays in the
     // textarea — the input consumes the keypress), and Enter accepts the
-    // selection exactly like Tab: the command lands in the textarea
-    // followed by a space (the space ends the slash prefix, closing the
-    // popup), so the user types the prompt and the next Enter sends it.
-    // Escape closes.
+    // selection exactly like Tab: the completion lands in the textarea
+    // followed by a space (closing the popup), so the user types the
+    // prompt and the next Enter sends it. Escape closes.
     const queryBeforeKeys = lines.length === 1 ? lines[0] ?? "" : "";
-    const availableSuggestions = slashSuggestions(queryBeforeKeys, commands);
-    if (availableSuggestions.length > 0 && (key.upArrow || key.downArrow)) {
-      setSuggestionIndex((index) => (index + (key.downArrow ? 1 : -1) + availableSuggestions.length) % availableSuggestions.length);
+    const slashEntries = slashSuggestions(queryBeforeKeys, commands);
+    // #488: the mention query is cursor-scoped — typing `@` mid-draft opens
+    // the popup; a space (or moving the cursor out of the token) closes it.
+    const mentionQ = mentionQuery(queryBeforeKeys, queryBeforeKeys.length);
+    const mentionEntries = mentionSuggestions(mentionQ, mentionCandidates);
+    const mentionPopup = mentionEntries.length > 0;
+    const slashPopup = slashEntries.length > 0;
+    if ((slashPopup || mentionPopup) && (key.upArrow || key.downArrow)) {
+      const count = slashPopup ? slashEntries.length : mentionEntries.length;
+      setSuggestionIndex((index) => (index + (key.downArrow ? 1 : -1) + count) % count);
       return;
     }
     const acceptSuggestion = () => {
-      const chosen = availableSuggestions[Math.min(suggestionIndex, availableSuggestions.length - 1)]?.name ?? availableSuggestions[0]!.name;
-      replaceText(`${chosen} `);
+      if (mentionPopup) {
+        const chosen = mentionEntries[Math.min(suggestionIndex, mentionEntries.length - 1)] ?? mentionEntries[0]!;
+        replaceText(`${queryBeforeKeys.slice(0, queryBeforeKeys.length - (mentionQ?.length ?? 0))}${chosen} `);
+      } else {
+        const chosen = slashEntries[Math.min(suggestionIndex, slashEntries.length - 1)]?.name ?? slashEntries[0]!.name;
+        replaceText(`${chosen} `);
+      }
       setSuggestionIndex(0);
     };
-    if (availableSuggestions.length > 0 && key.tab) {
+    if ((slashPopup || mentionPopup) && key.tab) {
       acceptSuggestion();
       return;
     }
     if (key.return || input === "\r") {
-      if (availableSuggestions.length > 0) {
+      if (slashPopup || mentionPopup) {
         acceptSuggestion();
         return;
       }
@@ -419,15 +456,19 @@ export function MultilineInput({
 
   const query = lines.length === 1 ? lines[0] ?? "" : "";
   const suggestions = slashSuggestions(query, commands);
+  // #488: the mention popup is cursor-scoped; on a single-line draft the
+  // cursor is the end of the text.
+  const mentionEntries = mentionSuggestions(mentionQuery(query, query.length), mentionCandidates);
   // Popup-open state travels to the app (effect, not render): its Tab
   // handler must not race the state update that Tab itself triggers.
-  const popupOpen = suggestions.length > 0 && focused && !disabled;
+  const popupOpen = (suggestions.length > 0 || mentionEntries.length > 0) && focused && !disabled;
   useEffect(() => { onSuggestionsOpen?.(popupOpen); }, [popupOpen, onSuggestionsOpen]);
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
   const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
   // The popup scrolls with the selection instead of capping the list.
-  const popupRows = Math.min(5, suggestions.length);
+  const popupRows = Math.min(5, Math.max(suggestions.length, mentionEntries.length));
   const win = windowing(suggestions.length, Math.min(suggestionIndex, Math.max(0, suggestions.length - 1)), popupRows);
+  const mentionWin = windowing(mentionEntries.length, Math.min(suggestionIndex, Math.max(0, mentionEntries.length - 1)), popupRows);
 
   return (
     <Box flexDirection="column" width="100%" paddingX={1}>
@@ -472,6 +513,22 @@ export function MultilineInput({
             });
           })()}
           {win.below > 0 && <Text color={theme.dim}>{`  ↓ ${win.below} more (↑↓ scroll)`}</Text>}
+        </Box>
+      )}
+      {suggestions.length === 0 && mentionEntries.length > 0 && (
+        <Box flexDirection="column">
+          {mentionWin.above > 0 && <Text color={theme.dim}>{`  ↑ ${mentionWin.above} more`}</Text>}
+          {mentionEntries.slice(mentionWin.start, mentionWin.start + mentionWin.count).map((path, index) => {
+            const selected = mentionWin.start + index === suggestionIndex;
+            const budget = viewport.columns - 4;
+            const row = path.length > budget ? `${path.slice(0, Math.max(8, budget - 1))}…` : path;
+            return (
+              <Text key={path} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
+                {selected ? " ▶ " : "   "}{row}
+              </Text>
+            );
+          })}
+          {mentionWin.below > 0 && <Text color={theme.dim}>{`  ↓ ${mentionWin.below} more (↑↓ scroll)`}</Text>}
         </Box>
       )}
     </Box>

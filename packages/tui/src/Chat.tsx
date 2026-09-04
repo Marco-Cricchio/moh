@@ -33,6 +33,8 @@ export interface ChatProps {
   /** Popup-open signal from the input (#: Tab defers to the completion
    * popup instead of cycling the footer chips). */
   onSuggestionsOpen?: (open: boolean) => void;
+  /** #488: file paths for the `@` fuzzy popup (relative to cwd). */
+  mentionCandidates?: readonly string[];
   onCommand?: (text: string) => boolean;
   width?: number;
   inputFocused?: boolean;
@@ -94,6 +96,7 @@ export function Chat({
   filePreview = "on-demand",
   onOpenCommands,
   onSuggestionsOpen,
+  mentionCandidates,
   onCommand,
   width,
   inputFocused = true,
@@ -449,6 +452,7 @@ export function Chat({
         onAskCommands={onOpenCommands}
         commands={commands}
         onSuggestionsOpen={onSuggestionsOpen}
+        mentionCandidates={mentionCandidates}
         submitSignal={submitSignal}
         prefill={prefill}
         onSubmit={(text) => {

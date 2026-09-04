@@ -9,7 +9,7 @@ import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown"
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
 import type { ToolTimings } from "./tool-timing";
-export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent";
+export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
 export interface TranscriptBlock {
   key: string;
   kind: BlockKind;
@@ -186,6 +186,16 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
     switch (event.type) {
       case "user_message":
         blocks.push({ key, kind: "user", glyph: "›", type: "you", lines: sanitizeForDisplay(event.text).split("\n") });
+        break;
+      case "mention_warnings":
+        // #488: denied/missing @mentions surface visibly — never a silent drop.
+        blocks.push({
+          key,
+          kind: "info",
+          glyph: "!",
+          type: "mention",
+          lines: event.warnings.map((w) => sanitizeForDisplay(`@${w.path} — ${w.reason}`)),
+        });
         break;
       case "assistant_delta": {
         let text = sanitizeForDisplay(event.text);
