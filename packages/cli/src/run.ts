@@ -275,10 +275,12 @@ export async function runCommand(options: RunOptions): Promise<number> {
       sink: (event: AgentEvent) => {
         // #400 single-writer guard: the file grew from elsewhere between
         // appends — the JSON stream carries the event, and the human gets
-        // one stderr line (stdout stays pure JSONL).
+        // one stderr line (stdout stays pure JSONL). #468: the recovery
+        // hint names the exact command.
         if (event.type === "session_file_growth") {
+          const file = resumeStore?.file ?? "the session file";
           err.write(
-            `moh run: warning: session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to recover\n`,
+            `moh run: warning: session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to recover: moh run --session ${file} --fork\n`,
           );
         }
         out.write(JSON.stringify(event) + "\n");

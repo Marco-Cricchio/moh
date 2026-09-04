@@ -233,6 +233,10 @@ export function App({
   /** #466/ADR-0022: sticky compaction-failure flag — set by
    * `compaction_failed`, cleared by a successful `compaction` marker. */
   const [compactionFailed, setCompactionFailed] = useState(false);
+  /** #468/ADR-0020: sticky growth-warning state — set by
+   * `session_file_growth`; the fork chip projects the explicit recovery
+   * action. Counters update on repeat incidents; the banner never stacks. */
+  const [growth, setGrowth] = useState<{ count: number } | null>(null);
   // `~/.moh` — computed once; the single spelling inside App (the core
   // guardian owns the config-file path constant itself).
   const mohHome = join(home ?? homedir(), ".moh");
@@ -288,9 +292,11 @@ export function App({
             setCompactionFailed(true);
           }
           // #400 single-writer guard: the session file grew from elsewhere
-          // (another machine / a second process). Loud warning: concurrent
-          // same-file use is unsupported — fork the session to recover.
+          // (another machine / a second process). Loud warning; #468 makes
+          // it sticky with an actionable fork chip (ADR-0020: the fork is
+          // always the user's explicit action).
           if (event.type === "session_file_growth") {
+            setGrowth((g) => ({ count: (g?.count ?? 0) + 1 }));
             push(
               sanitizeForDisplay(
                 `session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to keep working safely`,
@@ -551,6 +557,39 @@ export function App({
     push(`✓ config reloaded · model ${result.session.activeModel} · history preserved`);
   };
 
+  // #468/ADR-0020 fork-now: the explicit recovery action behind the growth
+  // banner. Disposes the current session, forks the file (full-history
+  // byte copy; the original stays intact), and activates the forked
+  // session — the same assembly path /reload uses.
+  const forkNow = async () => {
+    const current = session;
+    if (!current) return push("fork needs an open session");
+    const file = current.sessionFile;
+    if (!file) return push("fork: session file unknown — open a session first");
+    const forkedStore = SessionStore.open(file).fork();
+    current.abort();
+    await current.dispose();
+    const result = makeSession({
+      cwd,
+      home,
+      provider,
+      workflow: configRef.current.workflow.enabled,
+      onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
+      onAskUser: askGate.ask,
+      permissionMode: configRef.current.permissionMode,
+      ...(yolo ? { yolo } : {}),
+      store: forkedStore,
+      resumeEvents: forkedStore.load(),
+    });
+    if ("error" in result) {
+      return push(assemblyErrorToast(result.error) + " — keeping the current session");
+    }
+    setModelLabel(result.session.activeModel);
+    setSession(result.session);
+    setGrowth(null);
+    push(`forked → ${forkedStore.file.split("/").at(-1)}`);
+  };
+
   const cycleMode = () => {
     const next: Mode = mode === "vibe" ? "dev" : "vibe";
     setMode(next);
@@ -718,6 +757,7 @@ export function App({
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
       compactionFailed={compactionFailed}
+      growthWarning={growth?.count ?? null}
       yolo={yolo}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
@@ -765,6 +805,8 @@ export function App({
         activeProviderType: () => session?.activeEndpointType,
         onModelSwitched: (model) => setModelLabel(model),
         onReload: () => void reload(),
+        onForkNow: () => void forkNow(),
+        growthWarning: () => growth !== null,
       })}
     />
   ) : null;
