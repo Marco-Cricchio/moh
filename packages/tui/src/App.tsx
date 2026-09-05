@@ -750,7 +750,9 @@ export function App({
       // Enter toggles that child's live panel; Esc returns to the composer
       // leaving the panel as-is.
       if (focusedChip === -1) {
-        if (key.escape) return setFocusedSubagent(null);
+        // #497: Esc leaves chip focus entirely — back to the composer
+        // (owner bug report: the composer stayed unreachable otherwise).
+        if (key.escape) { setFocusedChip(null); setFocusedSubagent(null); return; }
         if (key.leftArrow) return setFocusedSubagent((current) => Math.max(0, (current ?? 0) - 1));
         if (key.rightArrow) return setFocusedSubagent((current) => Math.min(subCount - 1, (current ?? 0) + 1));
         if (key.return) {
@@ -759,6 +761,9 @@ export function App({
           setPanelSubagent((prev) => prev === index ? null : index);
           return;
         }
+        // Any other key (typing) also returns to the composer so the
+        // textarea is never reachable-stuck behind the chip zone.
+        if (input !== undefined && input !== "") { setFocusedChip(null); setFocusedSubagent(null); return; }
         return;
       }
       if (focusedChip !== null) {

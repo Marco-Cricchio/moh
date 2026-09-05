@@ -105,6 +105,7 @@ const base = {
   width: 120,
   pending: false,
   spinner: "⠸",
+  mode: "dev" as const,
   model: "mock",
   turns: 1,
   tokens: { contextIn: 10_000, totalOut: 100, calls: 1 },
@@ -129,11 +130,19 @@ describe("subagent chips in the bottom bar (#497)", () => {
     { label: "worker", glyph: "✓", active: false },
   ];
 
-  test("chips appear per subagent with state glyphs", () => {
-    const frame = barFrame({ subagentChips: chips });
-    expect(frame).toContain("scout");
-    expect(frame).toContain("✓ worker");
-    expect(frame).toContain("◐");
+  test("chips appear per subagent with state glyphs, on their own row above the action chips", () => {
+    const ink = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <BottomBar {...base} subagentChips={chips} />
+      </ThemeProvider>,
+    );
+    const lines = stripAnsi(ink.lastFrame() ?? "").split("\n");
+    ink.unmount();
+    const subLine = lines.findIndex((l) => l.includes("scout"));
+    const actionLine = lines.findIndex((l) => l.includes("⏎ send"));
+    expect(subLine).toBeGreaterThanOrEqual(0);
+    expect(actionLine).toBeGreaterThan(subLine); // own row, above the actions
+    expect(stripAnsi(ink.lastFrame() ?? "")).toContain("◐");
   });
 
   test("no subagents → no chips (footer unchanged)", () => {
@@ -158,6 +167,8 @@ describe("subagent chips in the bottom bar (#497)", () => {
     const frame = barFrame({ subagentChips: chips, width: 60 });
     expect(frame).toContain("⊙2");
     expect(frame).not.toContain("scout");
+    // Action chips still render on their own row below.
+    expect(frame).toContain("⏎ send");
   });
 
   test("active chip highlights (accent border)", () => {

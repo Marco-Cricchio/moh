@@ -54,8 +54,9 @@ export function trackSubagents(events: ReadonlyArray<AgentEvent>): TrackedSubage
   return list;
 }
 
-/** Panel tail window: last N lines shown. */
-export const PANEL_TAIL_LINES = 12;
+/** Panel tail window: last N lines shown (hard cap — the peek must never
+ * swallow the viewport; the owner asked for a tight row budget). */
+export const PANEL_TAIL_LINES = 6;
 
 /** One live view of a child: accumulated tail lines + activity. */
 export interface SubagentTail {
@@ -81,6 +82,10 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
   // Offsets and accumulated lines live in a ref: they persist across polls
   // without re-rendering, and keyed renders read only the snapshot state.
   const stateRef = useRef(new Map<string, { offset: number; tail: SubagentTail }>());
+  // Monotonic line-id counter: tail lines must keep unique React keys
+  // across polls (a per-chunk counter would restart at 1 every poll and
+  // collide with the already-rendered lines).
+  const lineIdRef = useRef(0);
 
   useEffect(() => {
     if (subagents.length === 0) return;
@@ -95,7 +100,7 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
         if (stopped) return;
         let tail = entry.tail;
         if (result.lines.length > 0 || result.nextOffset !== entry.offset) {
-          const lines = [...tail.lines, ...result.lines];
+          const lines = [...tail.lines, ...result.lines.map((line) => ({ ...line, id: ++lineIdRef.current }))];
           tail = {
             lines: lines.length > PANEL_TAIL_LINES ? lines.slice(-PANEL_TAIL_LINES) : lines,
             currentTool: result.activity.currentTool ?? tail.currentTool,
@@ -128,8 +133,7 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
   return tails;
 }
 
-/** Stalled marker threshold: no log growth for ~60s (pi watchdog pattern). */
-export const STALLED_AFTER_MS = 60_000;
+/** Stalled marker threshold: no log growth for ~60s (pi watchdog pattern). */export const STALLED_AFTER_MS = 60_000;
 
 /** True when a running child has not appended to its log for a while. */
 export function isStalled(sub: TrackedSubagent, tail: SubagentTail | undefined, now: number): boolean {
@@ -155,11 +159,14 @@ export function subagentGlyph(sub: TrackedSubagent, tail: SubagentTail | undefin
   return isStalled(sub, tail, now) ? "⏸" : "◐";
 }
 
-/** Below this column count the layout does not split — the panel degrades
- * to a volatile peek region above the footer (Claude Code peek pattern). */
+/** (Deprecated) former split-layout thresholds — kept only because the
+ * owner's revision removed the split entirely; the peek is now the only
+ * layout. Kept exported for one release so clients importing them don't
+ * break; do not use in new code. */
 export const PANEL_MIN_COLUMNS = 100;
 
-/** Panel width: a percentage of the columns with sane bounds. */
+/** (Deprecated) former split-layout width; unused since the split was
+ * removed. Kept exported for one release. */
 export function panelWidth(columns: number): number {
   return Math.min(46, Math.max(28, Math.round(columns * 0.3)));
 }

@@ -15,8 +15,6 @@ import {
   trackSubagents,
   useSubagentTails,
   subagentGlyph,
-  PANEL_MIN_COLUMNS,
-  panelWidth,
   type TrackedSubagent,
 } from "./subagent-panel";
 import { SubagentPanel } from "./SubagentPanel";
@@ -309,11 +307,10 @@ export function Chat({
     const timer = setInterval(() => setPanelNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [panelOpen, panelSub?.callId]);
-  // Panel layout: wide enough terminals split; narrower ones peek above
-  // the footer with the same content (no transcript re-wrap churn).
-  const splitPanel = panelOpen && cols >= PANEL_MIN_COLUMNS;
-  const panelCols = splitPanel ? panelWidth(cols) : cols - 2;
-  const panelRows = Math.max(3, Math.min(12, (viewport.rows ?? 24) - 14));
+  // Panel layout: the peek is full-width chrome above the footer (the
+  // split layout is gone — see the return below). Rows stay tightly
+  // capped: panel header + tail must never crowd the transcript.
+  const panelRows = Math.max(3, Math.min(8, (viewport.rows ?? 24) - 16));
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
@@ -519,39 +516,21 @@ export function Chat({
     if (armed && (input !== undefined || key.return)) setArmed(false);
   });
 
+  // #497 (owner revision): the split right column never worked — ink's
+  // forward-only Static plus the row-sibling split made the layout lurch
+  // while subagents ran. The Claude-style peek (panel as volatile chrome
+  // above the footer, full width) is the ONLY layout, at every terminal
+  // size. Row cap stays tight (PANEL_TAIL_LINES) so scrollback never
+  // suffers.
   const panel = panelOpen && panelSub ? (
-    <SubagentPanel sub={panelSub} tail={subagentTails.get(panelSub.callId)} now={panelNow} width={panelCols} rows={panelRows} />
+    <SubagentPanel sub={panelSub} tail={subagentTails.get(panelSub.callId)} now={panelNow} width={Math.max(20, cols - 2)} rows={panelRows} />
   ) : null;
 
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
-      {splitPanel ? (
-        <Box flexDirection="row" width={Math.max(1, cols - 1)}>
-          <Box flexDirection="column" width={Math.max(1, cols - 1 - panelCols)}>
-            <Static key={repaint} items={staticItems as TranscriptBlock[]}>
-              {(block) => <TranscriptBlockView key={block.key} block={block} width={Math.max(20, cols - 1 - panelCols)} />}
-            </Static>
-            {replaySettled && replayBlocks.map((block) => (
-              <TranscriptBlockView key={`replay-${block.key}`} block={block} width={Math.max(20, cols - 1 - panelCols)} />
-            ))}
-            {state.pending && <Box flexDirection="column">{liveTail.map((block) => (
-              <TranscriptBlockView
-                key={`live-${block.key}`}
-                block={block}
-                width={Math.max(20, cols - 1 - panelCols)}
-                {...(block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
-                  ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
-                  : {})}
-              />
-            ))}</Box>}
-          </Box>
-          <Box flexDirection="column" width={panelCols}><Box height={1} />{panel}</Box>
-        </Box>
-      ) : (
-        <>
-        <Static key={repaint} items={staticItems as TranscriptBlock[]}>
-          {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
-        </Static>
+      <Static key={repaint} items={staticItems as TranscriptBlock[]}>
+        {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
+      </Static>
       {replaySettled && replayBlocks.map((block) => (
         <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
       ))}
@@ -565,12 +544,10 @@ export function Chat({
             : {})}
         />
       ))}</Box>}
-        </>
-      )}
 
-      {/* #497: narrow-terminal peek — the panel content rides the volatile
-          region above the footer instead of splitting the layout. */}
-      {!splitPanel && panelOpen && panel}
+      {/* #497: the subagent peek — the panel content rides the volatile
+          region above the footer (the only layout, at every width). */}
+      {panel}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
