@@ -165,7 +165,9 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
       em: (t: string) => `\x1b[3m${t}\x1b[23m`,
       del: (t: string) => `\x1b[9m${t}\x1b[29m`,
       codespan: (t: string) => `${fg(theme.accent)}${t}\x1b[39m`,
-      blockquote: (t: string) => `${fg(theme.dim)}\x1b[3m${t}\x1b[23m\x1b[39m`,
+      // `dim` falls below 3:1 on the tinted assistant block in every dark
+      // palette. Quotes are secondary prose, but must remain readable.
+      blockquote: (t: string) => `${fg(theme.muted)}\x1b[3m${t}\x1b[23m\x1b[39m`,
       html: (t: string) => `${fg(theme.dim)}${t}\x1b[39m`,
       link: (t: string) => `${fg(theme.accent)}${t}\x1b[39m`,
       href: (t: string) => `${fg(theme.dim)}${t}\x1b[39m`,
@@ -259,11 +261,17 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
         // Row budget: width minus the chat line's leading space and the nCols+1
         // border characters; each column gets an equal share (min 3).
         const colW = Math.max(3, Math.floor((width - 1 - (nCols + 1)) / nCols));
+        // cli-table3 defaults header cells to fixed ANSI red (#800000),
+        // near-invisible on every reply tint (1.1–1.5:1). Cells own their
+        // styling: bold theme accent, with cli-table3's own header styling
+        // disabled so its surrounding padding stays default foreground.
         const cell = (c: Tokens.TableCell) => this.parser.parseInline(c.tokens ?? []);
+        const head = (c: Tokens.TableCell) => `${fg(theme.accent)}\x1b[1m${cell(c)}\x1b[22m\x1b[39m`;
         const t = new Table({
-          head: token.header.map(cell),
+          head: token.header.map(head),
           colWidths: Array.from({ length: nCols }, () => colW),
           wordWrap: true,
+          style: { head: [], border: ["grey"] },
         });
         for (const row of token.rows) t.push(row.map(cell));
         return `${t.toString()}\n`;
