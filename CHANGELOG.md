@@ -5,6 +5,27 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.19.0] - 2026-09-05
+### Added
+
+- **Subagent chips / live panel** (#497): one footer chip per active/recent
+  child on its own compact chip row above the action chips (state glyph
+  `◐` running, `⏸` stalled after ~60s without log growth, `✓`/`✗` settled;
+  ordinal only for duplicate names, overflow `+N`, compact `⊙N` degradation
+  under ~100 columns); chips sit at the head of the tab cycle when any exist,
+  ←/→ clamp at their edges, Esc or typing returns to the composer. Enter
+  toggles the live peek panel: header (name, elapsed, state, current tool)
+  plus a live tail of the child's event stream through the new core
+  `tailChildLog` seam (ADR-0004 amendment) — consecutive assistant deltas
+  coalesce into one truncate-only preview with provider spaces preserved,
+  up to five live tail rows while the child runs, a one-line summary
+  (`✓ done · Xk tok · result in transcript`) on settle, and auto-dismiss of
+  panel and chip ~30s after settlement. The static `subagent` block remains
+  the only permanent transcript artifact.
+- **README refresh**: non-technical-first README with release/license badges,
+  logo, "What is moh?" intro, ask-moh and user-manual sections; CONTRIBUTING
+  link fixes (gitignored files no longer linked).
+
 ## [0.18.0] - 2026-09-04
 ### Added
 
@@ -514,7 +535,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.18.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.19.0...develop
+[0.19.0]: https://github.com/Marco-Cricchio/moh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/Marco-Cricchio/moh/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/Marco-Cricchio/moh/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/Marco-Cricchio/moh/compare/v0.17.0...v0.17.1

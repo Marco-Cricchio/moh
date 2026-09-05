@@ -11,6 +11,14 @@ import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
+import {
+  trackSubagents,
+  useSubagentTails,
+  useVisibleSubagents,
+  subagentGlyph,
+  type TrackedSubagent,
+} from "./subagent-panel";
+import { SubagentPanel } from "./SubagentPanel";
 import { AskUserBlock, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
@@ -89,6 +97,13 @@ export interface ChatProps {
    * with popup-facing descriptions and provenance markers. Standalone
    * mounts default to the base list from the registry. */
   commands?: readonly CommandEntry[];
+  /** #497: index of the focused subagent chip (head of the chip cycle),
+   * or null when no subagent chip holds focus. */
+  focusedSubagent?: number | null;
+  /** #497: index of the subagent whose live panel is open (null = closed). */
+  panelSubagent?: number | null;
+  /** #497: toggles the selected subagent's live panel (Enter on a chip). */
+  onToggleSubagentPanel?: (index: number) => void;
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -127,6 +142,9 @@ export function Chat({
   replaySettled = false,
   askGate,
   bufferFlipPending = false,
+  focusedSubagent = null,
+  panelSubagent = null,
+  onToggleSubagentPanel,
   branch,
   yolo = false,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
@@ -271,6 +289,43 @@ export function Chat({
     return () => clearInterval(timer);
   }, [blocked, state.pending]);
 
+  // ── Subagent chips + live panel (#497, vision note 25) ────────────────
+  // Chrome-only: projection of the parent's subagent events plus the
+  // throttled child-log tails. Never touches the transcript projection
+  // (#194/#183). A 1Hz tick keeps elapsed counters and the ⏸ stalled
+  // marker honest while a panel is open, even outside a pending turn.
+  const allSubagents = useMemo(() => trackSubagents(state.events), [state.events]);
+  const subagents = useVisibleSubagents(allSubagents);
+  const subagentTails = useSubagentTails(subagents);
+  const [panelNow, setPanelNow] = useState(Date.now);
+  // #497: the panel is driven by `panelSubagent` (its own open/close state,
+  // toggled with Enter on a subagent chip) — NOT by chip focus: Esc from a
+  // focused chip returns to the composer and the panel stays put.
+  const panelOpen = panelSubagent !== null && panelSubagent >= 0 && panelSubagent < subagents.length;
+  const panelSub = panelOpen ? subagents[panelSubagent!] : undefined;
+  useEffect(() => {
+    if (!panelOpen) return;
+    setPanelNow(Date.now());
+    const timer = setInterval(() => setPanelNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [panelOpen, panelSub?.callId]);
+  // Panel layout: the peek is full-width chrome above the footer (the
+  // split layout is gone — see the return below). Rows stay tightly
+  // capped: panel header + tail must never crowd the transcript.
+  // Five rows make the child’s live work readable; this is chrome budgeted
+  // out of the volatile transcript below, never unbounded panel growth.
+  const panelRows = 5;
+  // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
+  // rows from the volatile transcript budget rather than pushing composer,
+  // status and action chips down the terminal.
+  // Empty composer: separators (2) + composer (1) + spacer (1) + status
+  // (2) + bordered action row (3) = 9. The subagent row is itself a
+  // bordered three-row chip; the frameless running peek is header + five
+  // truncate-only previews (the settled peek is just its summary line).
+  // This intentionally over-reserves at tiny sizes: a stable footer takes
+  // precedence over one more volatile transcript row.
+  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0);
+
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
   // machine below must see the full thinking block before anything trims
@@ -364,8 +419,8 @@ export function Chat({
     )), reasoningHeadsRef.current);
   }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
-    () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
-    [replaySettled, settledBlocks, cols, viewport.rows],
+    () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - footerRows)) : settledBlocks,
+    [replaySettled, settledBlocks, cols, viewport.rows, footerRows],
   );
   // The volatile area is tail-capped to the viewport: ink rewrites the whole
   // interactive region every frame (no row diffing — that is what Static is
@@ -383,11 +438,11 @@ export function Chat({
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
   const askBudget = askOpen
-    ? Math.max(1, viewport.rows - 9 - askUserBlockRows(askGate!.current!.questions, cols))
+    ? Math.max(1, viewport.rows - footerRows - askUserBlockRows(askGate!.current!.questions, cols))
     : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - 9)),
-    [liveBlocks, cols, viewport.rows, askBudget],
+    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows)),
+    [liveBlocks, cols, viewport.rows, askBudget, footerRows],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items at their recorded insertion indices — never through the settled
@@ -475,11 +530,21 @@ export function Chat({
     if (armed && (input !== undefined || key.return)) setArmed(false);
   });
 
+  // #497 (owner revision): the split right column never worked — ink's
+  // forward-only Static plus the row-sibling split made the layout lurch
+  // while subagents ran. The Claude-style peek (panel as volatile chrome
+  // above the footer, full width) is the ONLY layout, at every terminal
+  // size. Row cap stays tight (PANEL_TAIL_LINES) so scrollback never
+  // suffers.
+  const panel = panelOpen && panelSub ? (
+    <SubagentPanel sub={panelSub} tail={subagentTails.get(panelSub.callId)} now={panelNow} width={Math.max(20, cols - 2)} rows={panelRows} />
+  ) : null;
+
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
-        <Static key={repaint} items={staticItems as TranscriptBlock[]}>
-          {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
-        </Static>
+      <Static key={repaint} items={staticItems as TranscriptBlock[]}>
+        {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
+      </Static>
       {replaySettled && replayBlocks.map((block) => (
         <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
       ))}
@@ -493,6 +558,10 @@ export function Chat({
             : {})}
         />
       ))}</Box>}
+
+      {/* #497: the subagent peek — the panel content rides the volatile
+          region above the footer (the only layout, at every width). */}
+      {panel}
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
@@ -539,6 +608,12 @@ export function Chat({
         cwd={cwd}
         yolo={yolo}
         focusedChip={focusedChip}
+        focusedSubagent={focusedSubagent}
+        subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({
+          label: sub.displayName ?? sub.name,
+          glyph: subagentGlyph(sub, subagentTails.get(sub.callId), panelNow),
+          active: focusedSubagent === index,
+        })).concat(subagents.length > 3 ? [{ label: `+${subagents.length - 3}`, glyph: "", active: false }] : []) : undefined}
       />
     </Box>
   );

@@ -207,6 +207,33 @@ function StatusRow(props: StatusProps) {
   );
 }
 
+/** #497: the subagent chips row (footer row 0, above the action chips).
+ * Owner spec: subagent chips live on their OWN row, not the action chips'
+ * row. They degrade to a bare count (⊙N) when the terminal narrows and
+ * disappear entirely when there are no subagents. */
+function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: number; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
+  const theme = useTheme();
+  const subs = subagentChips ?? [];
+  if (subs.length === 0) return null;
+  const compact = widthClass183(width) === "compact";
+  const overCap = subs.filter((sub) => sub.label.startsWith("+")).length;
+  const core = subs.filter((sub) => !sub.label.startsWith("+"));
+  if (compact) {
+    return <Box width={Math.max(1, width - 1)} justifyContent="center" flexShrink={0}>
+      <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexShrink={0}>
+        <Text color={theme.dim}>⊙{core.length + overCap}</Text>
+      </Box>
+    </Box>;
+  }
+  return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={2} flexWrap="nowrap" flexShrink={0}>
+    {subs.map((sub, index) => (
+      <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focusedSubagent === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
+        <Text color={sub.active ? theme.accent : theme.dim}>{sub.glyph} </Text><Text color={focusedSubagent === index ? theme.accent : theme.fg} bold>{sub.label}</Text>
+      </Box>
+    ))}
+  </Box>;
+}
+
 function KeyRow({ width, focused }: { width: number; focused: number | null }) {
   const theme = useTheme();
   const { chips, graphic } = visibleChips(width);
@@ -221,8 +248,10 @@ function KeyRow({ width, focused }: { width: number; focused: number | null }) {
   </Box>;
 }
 
-export function BottomBar(props: StatusProps & { focusedChip: number | null }) {
-  return <Box flexDirection="column"><StatusRow {...props} /><KeyRow width={props.width} focused={props.focusedChip} /></Box>;
+export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
+  return <Box flexDirection="column">
+    <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} />
+    <StatusRow {...props} />
+    <KeyRow width={props.width} focused={props.focusedChip} />
+  </Box>;
 }
-
-export { CONTEXT_WINDOW_DEFAULT };
