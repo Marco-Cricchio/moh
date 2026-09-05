@@ -11,7 +11,8 @@ import { QuotaModal, clearQuotaCache, type QuotaModalProps } from "../src/QuotaM
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi, waitForFrame } from "./helpers";
 
-const waitFor = (instance, text) => waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), text);
+const waitFor = (instance: { lastFrame: () => string | undefined }, text: string) =>
+  waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), text);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -4,9 +4,8 @@
  * reset times. Drifted shapes degrade to `null` inside the parser.
  */
 import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
+import { ANTHROPIC_USAGE_URL } from "../auth/lifecycle";
 import type { QuotaFetch, QuotaReport } from "./types";
-
-export const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 
 export async function probeAnthropic(
   accessToken: string,

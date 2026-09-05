@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Text, useInput } from "ink";
-import { getQuota, aggregateLocalUsage, type QuotaReport, type LocalUsageRow } from "@moh/core";
+import { getQuota, aggregateLocalUsage, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import { useTheme } from "./themes";
-import { Dialog, Dim, truncate } from "./ui";
+import { Dialog, Dim } from "./ui";
 import { SPINNER_FRAMES } from "./icons";
 
 /**
@@ -31,6 +31,12 @@ const CACHE_TTL_MS = 60_000;
 
 const moduleCache = new Map<string, { at: number; report: QuotaReport | null }>();
 
+/** Cache key: name + identity, so a re-pointed endpoint never serves
+ * stale numbers under the same name. */
+function cacheKey(e: EndpointProfile): string {
+  return `${e.name}|${e.type}|${e.baseUrl ?? ""}|${e.apiKey ? "key" : e.auth?.kind ?? "none"}`;
+}
+
 export function clearQuotaCache(): void {
   moduleCache.clear();
 }
@@ -47,14 +53,17 @@ export function QuotaModal({ endpoints, localUsage, probe, onClose }: QuotaModal
     let live = true;
     (async () => {
       for (const e of endpoints) {
-        const cached = moduleCache.get(e.name);
+        const key = cacheKey(e);
+        const cached = moduleCache.get(key);
         if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
           setReports((r) => ({ ...r, [e.name]: cached.report }));
           continue;
         }
         setReports((r) => ({ ...r, [e.name]: "loading" }));
         const report = await probeFn(e).catch(() => null);
-        moduleCache.set(e.name, { at: Date.now(), report });
+        // Only successes are cached: a transient failure must not read as
+        // "no quota source" for the whole TTL.
+        if (report !== null) moduleCache.set(key, { at: Date.now(), report });
         if (live) setReports((r) => ({ ...r, [e.name]: report }));
       }
     })();
@@ -108,7 +117,6 @@ export function QuotaModal({ endpoints, localUsage, probe, onClose }: QuotaModal
 }
 
 function QuotaEndpointRows({ name, state, spinner }: { name: string; state: QuotaReport | null | "loading" | undefined; spinner: string }) {
-  const theme = useTheme();
   if (state === undefined || state === "loading") {
     return (
       <Text>
@@ -135,7 +143,7 @@ function QuotaEndpointRows({ name, state, spinner }: { name: string; state: Quot
   );
 }
 
-function WindowRow({ name, window: w, source }: { name: string; window: { label: string; percent?: number; used?: number; limit?: number; resetAt?: number }; source: "official" | "undocumented" }) {
+function WindowRow({ name, window: w, source }: { name: string; window: { label: string; percent?: number; used?: number; limit?: number; resetAt?: number }; source: QuotaSource }) {
   const theme = useTheme();
   const badge = source === "official" ? <Text color={theme.ok}>●</Text> : <Text color={theme.dim}>○</Text>;
   const fraction = w.percent !== undefined ? w.percent / 100 : w.used !== undefined && w.limit ? w.used / w.limit : undefined;
@@ -158,9 +166,10 @@ function WindowRow({ name, window: w, source }: { name: string; window: { label:
 }
 
 function LocalRow({ row }: { row: LocalUsageRow }) {
+  const theme = useTheme();
   return (
     <Text>
-      <Text color="yellow">—</Text>
+      <Text color={theme.warn}>—</Text>
       {` ${row.model}: ${formatCount(row.inputTokens)} in · ${formatCount(row.outputTokens)} out (${row.calls} call${row.calls === 1 ? "" : "s"})`}
     </Text>
   );
@@ -199,7 +208,3 @@ function formatReset(at: number): string {
   if (h >= 1) return `${h}h${Math.floor((diffMs % 3_600_000) / 60_000) > 0 ? ` ${Math.floor((diffMs % 3_600_000) / 60_000)}m` : ""}`;
   return `${Math.max(1, Math.floor(diffMs / 60_000))}m`;
 }
-
-// `truncate` is re-exported use for narrow viewports; referenced to keep
-// the import honest if rows grow windowed later.
-void truncate;
