@@ -9,6 +9,7 @@
 import { resolve as pathResolve, join } from "node:path";
 import { homedir } from "node:os";
 import {
+  MAX_ITERATIONS_UNLIMITED,
   MockProvider,
   RuleError,
   SessionStore,
@@ -42,6 +43,9 @@ options:
                             from (a query may be a session id or title text)
   --fork                     with --session: copy history into a new session file
   --provider <ref>           "mock", a custom id, or endpoint/model-id (moh.json)
+  --max-iterations <n>       per-turn iteration cap override (#498): 50|100|200|500
+                            or "unlimited" (any integer 1-500 is also accepted);
+                            wins over moh.json maxIterations for this run
   --cassette <file>          run the mock provider from a JSON cassette (e2e/evals)
   --auto-accept              auto-accept every permission prompt
   --yolo                     no permission prompts, unrestricted filesystem (launch-only)
@@ -125,7 +129,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   let parsed;
   try {
     parsed = parseArgs(argv, {
-      strings: ["prompt", "session", "provider", "cassette", "cwd"],
+      strings: ["prompt", "session", "provider", "cassette", "cwd", "max-iterations"],
       lists: ["allow", "deny"],
       booleans: ["auto-accept", "fork", "yolo"],
     });
@@ -230,6 +234,26 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return 2;
   }
 
+  // #498: --max-iterations overrides moh.json for this run. Presets
+  // (50|100|200|500) and "unlimited" parse strictly; any integer 1–500 is
+  // also accepted (presets are a UI concern). Clear error otherwise.
+  let maxIterations: number | undefined;
+  if (parsed.strings["max-iterations"] !== undefined) {
+    const raw = parsed.strings["max-iterations"]!.trim().toLowerCase();
+    if (raw === "unlimited") {
+      maxIterations = MAX_ITERATIONS_UNLIMITED;
+    } else {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 1 || n > 500) {
+        err.write(
+          `moh run: --max-iterations expects 50|100|200|500|unlimited (or an integer 1–500), got "${parsed.strings["max-iterations"]}"\n`,
+        );
+        return 2;
+      }
+      maxIterations = n;
+    }
+  }
+
   let cassetteProvider;
   try {
     if (parsed.strings["cassette"])
@@ -267,6 +291,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       ? { providerRef: parsed.strings["provider"] }
       : {}),
     overrides: {
+      maxIterations,
       permissionFlags: cliOverrides,
       permissions: {
         mode: parsed.booleans["auto-accept"] ? "auto-accept" : "normal",

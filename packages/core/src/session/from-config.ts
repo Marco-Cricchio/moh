@@ -74,6 +74,9 @@ export interface SessionOverrides {
   /** ADR-0022: `moh compact` opens a closed file with `resumeConsume: false` —
    * the `session_resumed` marker is not appended (compacting never consumes). */
   resumeConsume?: boolean;
+  /** #498: per-turn iteration cap override (CLI `--max-iterations`); wins
+   * over moh.json `maxIterations`. `0` = unlimited sentinel. */
+  maxIterations?: number;
 }
 
 export interface SessionFromConfigOptions {
@@ -233,8 +236,11 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       },
       // Per-turn iteration cap (#190): moh.json `maxIterations`, default 50.
       // #498: `0` is the unlimited sentinel and must pass through (hence
-      // `!== undefined`, not a truthiness check).
-      ...(config.maxIterations !== undefined ? { maxIterations: config.maxIterations } : {}),
+      // `!== undefined`, not a truthiness check). A client override (CLI
+      // `--max-iterations`) wins over the config value.
+      ...(o.maxIterations !== undefined || config.maxIterations !== undefined
+        ? { maxIterations: o.maxIterations ?? config.maxIterations }
+        : {}),
       ...(resumeEvents?.length ? { resume: { events: resumeEvents, consume: o.resumeConsume !== false } } : {}),
     });
     return { session, store };
