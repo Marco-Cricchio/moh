@@ -51,6 +51,9 @@ options:
                             from (a query may be a session id or title text)
   --fork                     with --session: copy history into a new session file
   --provider <ref>           "mock", a custom id, or endpoint/model-id (moh.json)
+  --max-iterations <n>       per-turn iteration cap override (#498): 50|100|200|500
+                            or "unlimited" (any integer 1-500 is also accepted);
+                            wins over moh.json maxIterations for this run
   --cassette <file>          run the mock provider from a JSON cassette (e2e/evals)
   --auto-accept              auto-accept every permission prompt
   --yolo                     no permission prompts, unrestricted filesystem (launch-only)
