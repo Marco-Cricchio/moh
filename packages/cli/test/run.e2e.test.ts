@@ -311,6 +311,52 @@ describe("moh run (e2e)", () => {
     expect(res.stderr).toBeTruthy();
   });
 
+  // #498: --max-iterations overrides moh.json; strict parse; unlimited → 0.
+  describe("--max-iterations (#498)", () => {
+    test("flag override lets a looping script run past the config cap without wrap-up", () => {
+      const { cwd, spawn } = harness();
+      writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", maxIterations: 2 }));
+      const loop = { deltas: ["working "], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "true" } }] };
+      writeFileSync(
+        join(cwd, "cassette.json"),
+        JSON.stringify([loop, loop, loop, loop, { deltas: ["DONE"], finish: "stop" }]),
+      );
+      const res = spawn(["run", "--cassette", "cassette.json", "--yolo", "--max-iterations", "unlimited", "go"]);
+      expect(res.code).toBe(0);
+      const events = readEvents(res.stdout);
+      expect(events.filter((e) => e.type === "model_call").length).toBe(5);
+      expect(events.filter((e) => e.type === "error").length).toBe(0);
+    });
+
+    test("without the flag the moh.json cap wraps up after 2 calls", () => {
+      const { cwd, spawn } = harness();
+      writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", maxIterations: 2 }));
+      const loop = { deltas: ["working "], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "true" } }] };
+      writeFileSync(
+        join(cwd, "cassette.json"),
+        JSON.stringify([loop, loop, { deltas: ["WRAPUP"], finish: "stop" }]),
+      );
+      const res = spawn(["run", "--cassette", "cassette.json", "--yolo", "go"]);
+      expect(res.code).toBe(0);
+      // 2 capped loop calls + 1 wrap-up call.
+      expect(readEvents(res.stdout).filter((e) => e.type === "model_call").length).toBe(3);
+    });
+
+    test("invalid value errors clearly with exit code 2", () => {
+      const { spawn } = harness();
+      const res = spawn(["run", "--max-iterations", "banana", "hello"]);
+      expect(res.code).toBe(2);
+      expect(res.stderr).toContain("--max-iterations expects 50|100|200|500|unlimited");
+    });
+
+    test("out-of-range integers are rejected", () => {
+      const { spawn } = harness();
+      expect(spawn(["run", "--max-iterations", "501", "hello"]).code).toBe(2);
+      expect(spawn(["run", "--max-iterations", "0", "hello"]).code).toBe(2);
+      expect(spawn(["run", "--max-iterations", "-3", "hello"]).code).toBe(2);
+    });
+  });
+
   // #401: headless session discovery via --resume.
   describe("--resume (#401)", () => {
     test("no query lists the project's sessions newest first with ids and titles", () => {

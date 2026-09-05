@@ -50,6 +50,9 @@ one final **no-tools wrap-up call** — the model must reply with what it
 completed, what remains, and the next step — and the turn ends `done`
 instead of `error` (subagent children inherit the same behavior; a
 failing wrap-up call degrades to the historical `max_iterations` error).
+`maxIterations: 0` is the unlimited sentinel (#498): the guard never
+fires; resolve it with the exported `resolveMaxIterations` (absent → 50,
+`0` → `Infinity`, finite → itself).
 
 `AssemblyError.kind` tells you what to do: `config` / `provider` are
 user-fixable (surface the `message`); `session` is a startup validation
