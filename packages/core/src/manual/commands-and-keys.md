@@ -20,6 +20,7 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+t | cycle theme |
 | ctrl+y | cycle thinking level |
 | ctrl+s | settings panel |
+| ctrl+q | usage quota modal |
 | ctrl+k / ? | this command list |
 | tab | focus chips: subagent chips first (when running), then action chips |
 | ← / → | move between chips (subagent chips clamp at the edges) |
