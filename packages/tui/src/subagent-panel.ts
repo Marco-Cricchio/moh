@@ -16,6 +16,8 @@ export interface TrackedSubagent {
   callId: string;
   /** Display name (preset or model-chosen name). */
   name: string;
+  /** Name rendered in chrome: `name`, or `N name` when names collide. */
+  displayName?: string;
   /** Preset name, when the spawn declared one. */
   preset?: string;
   /** The child's own JSONL log — the tail seam's input. */
@@ -23,6 +25,8 @@ export interface TrackedSubagent {
   status: "running" | "done" | "error" | "cancelled";
   /** Settled usage from `subagent_result` (tokens), when done. */
   usage?: { inputTokens: number; outputTokens: number };
+  /** Wall-clock settlement time: drives the 30s ephemeral chrome grace. */
+  settledAt?: number;
   /** Monotonic spawn time, for the panel's elapsed counter. */
   startedAt: number;
 }
@@ -48,15 +52,30 @@ export function trackSubagents(events: ReadonlyArray<AgentEvent>): TrackedSubage
       if (item) {
         item.status = event.status;
         item.usage = event.usage;
+        item.settledAt = Date.now();
       }
     }
+  }
+  // Same-name children need an ordinal to be distinguishable in the footer
+  // and panel selector. Unique names stay uncluttered.
+  const totals = new Map<string, number>();
+  for (const sub of list) totals.set(sub.name, (totals.get(sub.name) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  for (const sub of list) {
+    const ordinal = (seen.get(sub.name) ?? 0) + 1;
+    seen.set(sub.name, ordinal);
+    if ((totals.get(sub.name) ?? 0) > 1) sub.displayName = `${ordinal} ${sub.name}`;
   }
   return list;
 }
 
-/** Panel tail window: last N lines shown (hard cap — the peek must never
- * swallow the viewport; the owner asked for a tight row budget). */
-export const PANEL_TAIL_LINES = 6;
+/** Panel tail window: last N *rendered* rows. Assistant deltas are
+ * coalesced below, then each is rendered truncate-only, so this is a real
+ * visual cap rather than an event-count cap. */
+export const PANEL_TAIL_LINES = 4;
+/** Settled chrome is intentionally ephemeral: its static transcript block
+ * remains permanent, but the chip and peek leave after this grace window. */
+export const SETTLED_SUBAGENT_GRACE_MS = 30_000;
 
 /** One live view of a child: accumulated tail lines + activity. */
 export interface SubagentTail {
@@ -100,7 +119,10 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
         if (stopped) return;
         let tail = entry.tail;
         if (result.lines.length > 0 || result.nextOffset !== entry.offset) {
-          const lines = [...tail.lines, ...result.lines.map((line) => ({ ...line, id: ++lineIdRef.current }))];
+          const lines = coalesceTailLines(
+            tail.lines,
+            result.lines.map((line) => ({ ...line, id: ++lineIdRef.current })),
+          );
           tail = {
             lines: lines.length > PANEL_TAIL_LINES ? lines.slice(-PANEL_TAIL_LINES) : lines,
             currentTool: result.activity.currentTool ?? tail.currentTool,
@@ -133,7 +155,51 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
   return tails;
 }
 
-/** Stalled marker threshold: no log growth for ~60s (pi watchdog pattern). */export const STALLED_AFTER_MS = 60_000;
+/** Coalesces consecutive assistant-delta tail lines into one evolving
+ * preview. `childTailLine` marks them with `· `; tool/status lines retain
+ * their own rows. The newest id wins, so React preserves one identity for
+ * the live prose preview rather than rendering a word per streaming event. */
+export function coalesceTailLines(previous: ChildTailLine[], appended: ChildTailLine[]): ChildTailLine[] {
+  const out = [...previous];
+  for (const line of appended) {
+    if (line.text.startsWith("· ") && out.at(-1)?.text.startsWith("· ")) {
+      const last = out[out.length - 1]!;
+      out[out.length - 1] = { id: line.id, text: `${last.text}${line.text.slice(2)}` };
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+/** Stalled marker threshold: no log growth for ~60s (pi watchdog pattern). */
+export const STALLED_AFTER_MS = 60_000;
+
+/**
+ * Makes settled child chrome ephemeral without touching the parent log or
+ * the static transcript projection. Settlement has no persisted wall-clock
+ * timestamp, so the local observation time starts the 30s grace window.
+ */
+export function useVisibleSubagents(all: TrackedSubagent[]): TrackedSubagent[] {
+  const settledAt = useRef(new Map<string, number>());
+  const [, rerender] = useState(0);
+  const now = Date.now();
+  for (const sub of all) {
+    if (sub.status === "running") settledAt.current.delete(sub.callId);
+    else if (!settledAt.current.has(sub.callId)) settledAt.current.set(sub.callId, now);
+  }
+  useEffect(() => {
+    const deadlines = all
+      .filter((sub) => sub.status !== "running")
+      .map((sub) => (settledAt.current.get(sub.callId) ?? now) + SETTLED_SUBAGENT_GRACE_MS - Date.now())
+      .filter((ms) => ms > 0);
+    if (deadlines.length === 0) return;
+    const timer = setTimeout(() => rerender((n) => n + 1), Math.min(...deadlines));
+    return () => clearTimeout(timer);
+  }, [all]);
+  return all.map((sub) => ({ ...sub, ...(settledAt.current.get(sub.callId) ? { settledAt: settledAt.current.get(sub.callId) } : {}) }))
+    .filter((sub) => sub.status === "running" || now - sub.settledAt! < SETTLED_SUBAGENT_GRACE_MS);
+}
 
 /** True when a running child has not appended to its log for a while. */
 export function isStalled(sub: TrackedSubagent, tail: SubagentTail | undefined, now: number): boolean {
@@ -148,8 +214,25 @@ export function isStalled(sub: TrackedSubagent, tail: SubagentTail | undefined, 
  * rides the coalesced sidebar subscription instead of a second one.
  */
 export function useSubagentCount(session: AgentSession | null): number {
+  // Keep App's keyboard projection in step with Chat's 30s settled-chip
+  // grace. Sidebar has no callId, but activity order is append-only, so an
+  // ordinal index is stable for the lifetime of this mounted session.
   const sidebar = useSidebarState(session);
-  return useMemo(() => sidebar.activity.filter((item) => item.kind === "subagent").length, [sidebar]);
+  const settledAt = useRef(new Map<number, number>());
+  const [, rerender] = useState(0);
+  const now = Date.now();
+  const subs = sidebar.activity.filter((item) => item.kind === "subagent");
+  for (const [index, sub] of subs.entries()) {
+    if (sub.status === "running") settledAt.current.delete(index);
+    else if (!settledAt.current.has(index)) settledAt.current.set(index, now);
+  }
+  useEffect(() => {
+    const deadlines = subs.map((sub, index) => sub.status === "running" ? 0 : (settledAt.current.get(index) ?? now) + SETTLED_SUBAGENT_GRACE_MS - Date.now()).filter((ms) => ms > 0);
+    if (deadlines.length === 0) return;
+    const timer = setTimeout(() => rerender((n) => n + 1), Math.min(...deadlines));
+    return () => clearTimeout(timer);
+  }, [subs.length, subs.map((sub) => sub.status).join(",")]);
+  return subs.filter((sub, index) => sub.status === "running" || now - (settledAt.current.get(index) ?? now) < SETTLED_SUBAGENT_GRACE_MS).length;
 }
 
 /** Chip state glyph: ◐ running, ⏸ stalled, ✓ ok, ✗ failed. */
@@ -190,7 +273,7 @@ export function panelHeader(sub: TrackedSubagent, tail: SubagentTail | undefined
   const elapsed = formatElapsed(now - sub.startedAt);
   const state = subagentStateLabel(sub, tail, now);
   const tool = sub.status === "running" && tail?.currentTool ? ` · ${tail.currentTool}` : "";
-  return `${glyph} ${sub.name} · ${elapsed} · ${state}${tool}`;
+  return `${glyph} ${sub.displayName ?? sub.name} · ${elapsed} · ${state}${tool}`;
 }
 
 /** The settled panel's freeze line: outcome, tokens, pointer to transcript. */

@@ -13,6 +13,7 @@ import {
   isStalled,
   formatElapsed,
   panelWidth,
+  coalesceTailLines,
   STALLED_AFTER_MS,
   PANEL_TAIL_LINES,
   type TrackedSubagent,
@@ -37,6 +38,15 @@ describe("trackSubagents", () => {
     expect(subs[1]!.log).toBe("/x/b.jsonl");
   });
 
+  test("adds ordinal only when child names collide", () => {
+    const duplicated = trackSubagents([
+      { type: "subagent_spawn", callId: "a", name: "subagent", log: "/x/a.jsonl" },
+      { type: "subagent_spawn", callId: "b", name: "subagent", log: "/x/b.jsonl" },
+      { type: "subagent_spawn", callId: "c", name: "scout", log: "/x/c.jsonl" },
+    ]);
+    expect(duplicated.map((sub) => sub.displayName ?? sub.name)).toEqual(["1 subagent", "2 subagent", "scout"]);
+  });
+
   test("empty log → no subagents", () => {
     expect(trackSubagents([])).toEqual([]);
   });
@@ -57,6 +67,18 @@ const tailOf = (lines: string[], currentTool: string | null = "bash"): SubagentT
 });
 
 describe("glyphs and panel text", () => {
+  test("coalesces consecutive assistant deltas into one tail preview", () => {
+    const coalesced = coalesceTailLines(
+      [{ id: 1, text: "● read · notes.md" }, { id: 2, text: "· one " }],
+      [{ id: 3, text: "· two " }, { id: 4, text: "· three" }, { id: 5, text: "✓ done" }],
+    );
+    expect(coalesced).toEqual([
+      { id: 1, text: "● read · notes.md" },
+      { id: 4, text: "· one two three" },
+      { id: 5, text: "✓ done" },
+    ]);
+  });
+
   test("running is ◐, stalled ⏸, settled ✓/✗", () => {
     expect(subagentGlyph(runningSub, tailOf(["● bash"]), Date.now())).toBe("◐");
     const stalledTail: SubagentTail = { ...tailOf(["● bash"]), lastActivityAt: Date.now() - STALLED_AFTER_MS - 1000 };
@@ -214,6 +236,9 @@ describe("live panel rendering", () => {
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame).toContain("2.0k tok");
     expect(frame.split("\n").map((l) => l.trim()).join(" ")).toContain("result in transcript");
+    // On settle only the header + one freeze acknowledgement remains; the
+    // live tail belongs to the static transcript block now.
+    expect(frame).not.toContain("✓ done\n│  ✓ done");
     ink.unmount();
   });
 });

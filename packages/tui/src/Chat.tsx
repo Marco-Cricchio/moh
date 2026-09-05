@@ -14,6 +14,7 @@ import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./Botto
 import {
   trackSubagents,
   useSubagentTails,
+  useVisibleSubagents,
   subagentGlyph,
   type TrackedSubagent,
 } from "./subagent-panel";
@@ -293,7 +294,8 @@ export function Chat({
   // throttled child-log tails. Never touches the transcript projection
   // (#194/#183). A 1Hz tick keeps elapsed counters and the ⏸ stalled
   // marker honest while a panel is open, even outside a pending turn.
-  const subagents = useMemo(() => trackSubagents(state.events), [state.events]);
+  const allSubagents = useMemo(() => trackSubagents(state.events), [state.events]);
+  const subagents = useVisibleSubagents(allSubagents);
   const subagentTails = useSubagentTails(subagents);
   const [panelNow, setPanelNow] = useState(Date.now);
   // #497: the panel is driven by `panelSubagent` (its own open/close state,
@@ -596,7 +598,7 @@ export function Chat({
         focusedChip={focusedChip}
         focusedSubagent={focusedSubagent}
         subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({
-          label: sub.name,
+          label: sub.displayName ?? sub.name,
           glyph: subagentGlyph(sub, subagentTails.get(sub.callId), panelNow),
           active: focusedSubagent === index,
         })).concat(subagents.length > 3 ? [{ label: `+${subagents.length - 3}`, glyph: "", active: false }] : []) : undefined}

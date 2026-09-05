@@ -32,21 +32,24 @@ export function SubagentPanel({
 }) {
   const theme = useTheme();
   const maxLines = Math.max(1, Math.min(PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
-  const lines = (tail?.lines ?? []).slice(-maxLines);
+  // A settled peek is deliberately a one-line acknowledgement only. The
+  // permanent subagent transcript block owns the result/preview; keeping
+  // old live deltas here duplicates information and wastes vertical space.
+  const lines = sub.status === "running" ? (tail?.lines ?? []).slice(-maxLines) : [];
   const freeze = panelFreezeLine(sub);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={sub.status === "running" ? theme.accent : theme.border} paddingX={1} width={Math.max(16, width)}>
       <Text color={sub.status === "running" ? theme.accent : theme.dim} bold>{panelHeader(sub, tail, now)}</Text>
-      {lines.length === 0 ? (
+      {sub.status === "running" && lines.length === 0 ? (
         <Text color={theme.dim}> (no events yet)</Text>
-      ) : (
+      ) : lines.length > 0 ? (
         lines.map((line) => (
           <Text key={line.id} color={line.text.startsWith("✗") ? theme.err : line.text.startsWith("●") ? theme.fg : theme.dim} wrap="truncate">
             {" "}
             {line.text}
           </Text>
         ))
-      )}
+      ) : null}
       {freeze !== "" && <Text color={freeze.startsWith("✓") ? theme.ok : theme.err}>{freeze}</Text>}
     </Box>
   );
