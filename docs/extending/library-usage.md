@@ -363,6 +363,19 @@ the path only — session-notes content stays entirely with the
 `session-memory` skill and is never read, written, or remembered by the
 core (no double store with Memory).
 
+## Usage quota probe (#499)
+
+`getQuota(endpoint)` probes one endpoint's usage quota and returns
+`{ source: "official" | "undocumented"; windows: [{ label, percent? | used/limit, resetAt? }] }`
+or `null` on any failure — no credentials, unsupported kind, HTTP error,
+or drifted schema. Credentials are reused from the endpoint profile and
+the auth stores; the probe is best-effort with a short timeout and never
+throws. Per-provider endpoint details stay internal: one module per
+provider under `core/src/quota/`, so schema churn is a local fix that
+never surfaces through the seam. `aggregateLocalUsage(events)` is the
+always-available fallback: per-model token totals summed from a session's
+`model_call` events. Both are exported from `@moh/core` (ADR-0004).
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,
