@@ -95,7 +95,7 @@ matching section here at tag time.
   longer double-encoded.
 - File-index git probe is async, unblocking App-based tests (#488).
 
-## [Unreleased]
+## [0.21.0] - 2026-09-05
 ### Added
 
 - **Max iterations per turn** (#498): TUI settings row cycling the
@@ -107,6 +107,15 @@ matching section here at tag time.
   clear usage error.
 - **`maxIterations: 0` unlimited sentinel** (#498): moh.json accepts any
   integer 0–500; `0` disables the per-turn cap (the default stays 50).
+
+### Fixed
+
+- **Skill update noise** (#517): upstream skill updates identical to the
+  bundled copy are suppressed — a first-party skill that matches the
+  bundle is no longer offered as an update on every launch.
+- **Docs discoverability**: the ask-moh repo-docs section is gated to the
+  moh repository and answers from `moh manual` (embedded pages) in any
+  directory.
 
 ## [0.17.2] - 2026-09-04
 ### Fixed
@@ -585,7 +594,9 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.20.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.21.0...develop
+[0.21.0]: https://github.com/Marco-Cricchio/moh/compare/v0.20.1...v0.21.0
+[0.20.1]: https://github.com/Marco-Cricchio/moh/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/Marco-Cricchio/moh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/Marco-Cricchio/moh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/Marco-Cricchio/moh/compare/v0.17.2...v0.18.0
