@@ -338,6 +338,9 @@ export interface CheckUpstreamOptions {
   fetchImpl?: (url: string) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
   /** Timeout applied to the default fetch. Default: 5s. */
   timeoutMs?: number;
+  /** The shipped first-party bundle to compare against (#517). Default:
+   * `bundledSkillSources()` — the same source launch sync installs from. */
+  bundledSources?: FirstPartySkillSource[];
 }
 
 /** Result of the upstream check (#344): a checked-but-empty channel is
@@ -355,6 +358,11 @@ export type UpstreamCheckResult =
  * are skipped by the hash check; min-version-gated ones are skipped.
  * Upstream failures are explicit (`{ ok: false, reason }`); callers decide
  * whether to stay silent (background check) or surface them (`/skills update`).
+ *
+ * #517: an entry whose content equals the *bundled* copy is not offered,
+ * even when the local disk copy differs from both — launch sync would
+ * revert the apply on the next launch, producing a perpetual update
+ * notice. The offer is real only when upstream differs from the bundle.
  */
 export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promise<UpstreamCheckResult> {
   const fetchImpl =
@@ -384,6 +392,9 @@ export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promi
   }
   if (!index || !Array.isArray(index.skills)) return { ok: false, reason: "invalid index" };
   const manifest = loadFirstPartyManifest(options.mohHome);
+  const bundledHashes = new Map(
+    (options.bundledSources ?? bundledSkillSources()).map((s) => [s.name, hashSkillFiles(s.files)]),
+  );
   const updates: UpstreamUpdate[] = [];
   for (const skill of index.skills) {
     if (typeof skill?.name !== "string" || typeof skill.files !== "object" || skill.files === null) continue;
@@ -398,6 +409,7 @@ export async function checkUpstreamUpdates(options: CheckUpstreamOptions): Promi
     const current = installedHash(options.mohHome, skill.name);
     if (current !== recorded) continue; // modified: skip
     if (current === upstreamHash) continue; // already current
+    if (bundledHashes.get(skill.name) === upstreamHash) continue; // #517: upstream equals the bundle — launch sync owns this copy
     updates.push({ name: skill.name, currentHash: current, upstreamHash, files: skill.files });
   }
   return { ok: true, updates };
