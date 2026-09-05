@@ -312,7 +312,16 @@ export function Chat({
   // Panel layout: the peek is full-width chrome above the footer (the
   // split layout is gone — see the return below). Rows stay tightly
   // capped: panel header + tail must never crowd the transcript.
-  const panelRows = Math.max(3, Math.min(8, (viewport.rows ?? 24) - 16));
+  const panelRows = Math.max(2, Math.min(3, (viewport.rows ?? 24) - 18));
+  // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
+  // rows from the volatile transcript budget rather than pushing composer,
+  // status and action chips down the terminal.
+  // Empty composer: separators (2) + composer (1) + spacer (1) + status
+  // (2) + bordered action row (3) = 9. The subagent row is itself a
+  // bordered three-row chip; the frameless peek is header + ≤2 previews.
+  // This intentionally over-reserves by at most one row at tiny sizes: a
+  // stable bottom edge beats squeezing one more volatile transcript row.
+  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + Math.min(2, panelRows) : 0);
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
@@ -407,8 +416,8 @@ export function Chat({
     )), reasoningHeadsRef.current);
   }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
-    () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - 9)) : settledBlocks,
-    [replaySettled, settledBlocks, cols, viewport.rows],
+    () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - footerRows)) : settledBlocks,
+    [replaySettled, settledBlocks, cols, viewport.rows, footerRows],
   );
   // The volatile area is tail-capped to the viewport: ink rewrites the whole
   // interactive region every frame (no row diffing — that is what Static is
@@ -426,11 +435,11 @@ export function Chat({
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
   const askBudget = askOpen
-    ? Math.max(1, viewport.rows - 9 - askUserBlockRows(askGate!.current!.questions, cols))
+    ? Math.max(1, viewport.rows - footerRows - askUserBlockRows(askGate!.current!.questions, cols))
     : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - 9)),
-    [liveBlocks, cols, viewport.rows, askBudget],
+    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows)),
+    [liveBlocks, cols, viewport.rows, askBudget, footerRows],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items at their recorded insertion indices — never through the settled

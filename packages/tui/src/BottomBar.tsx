@@ -219,13 +219,13 @@ function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: num
   const overCap = subs.filter((sub) => sub.label.startsWith("+")).length;
   const core = subs.filter((sub) => !sub.label.startsWith("+"));
   if (compact) {
-    return <Box width={Math.max(1, width - 1)} justifyContent="center" marginTop={1} flexShrink={0}>
+    return <Box width={Math.max(1, width - 1)} justifyContent="center" flexShrink={0}>
       <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexShrink={0}>
         <Text color={theme.dim}>⊙{core.length + overCap}</Text>
       </Box>
     </Box>;
   }
-  return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={2} flexWrap="nowrap" marginTop={1} flexShrink={0}>
+  return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={2} flexWrap="nowrap" flexShrink={0}>
     {subs.map((sub, index) => (
       <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focusedSubagent === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
         <Text color={sub.active ? theme.accent : theme.dim}>{sub.glyph} </Text><Text color={focusedSubagent === index ? theme.accent : theme.fg} bold>{sub.label}</Text>

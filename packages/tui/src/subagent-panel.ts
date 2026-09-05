@@ -164,7 +164,12 @@ export function coalesceTailLines(previous: ChildTailLine[], appended: ChildTail
   for (const line of appended) {
     if (line.text.startsWith("· ") && out.at(-1)?.text.startsWith("· ")) {
       const last = out[out.length - 1]!;
-      out[out.length - 1] = { id: line.id, text: `${last.text}${line.text.slice(2)}` };
+      const prior = last.text.slice(2);
+      const next = line.text.slice(2);
+      // Preserve the provider's exact whitespace. A delta may split inside
+      // a word (`Luna` + `nasialzò`), so inventing a word boundary here
+      // makes prose *less* faithful; childTailLine keeps whitespace intact.
+      out[out.length - 1] = { id: line.id, text: `· ${prior}${next}` };
     } else {
       out.push(line);
     }

@@ -211,18 +211,22 @@ describe("live panel rendering", () => {
     );
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame).toContain("scout");
-    expect(frame).toContain("● bash · git status");
+    // Compact peek retains only the newest two meaningful visual rows.
+    expect(frame).not.toContain("● bash · git status");
     expect(frame).toContain("✓ done");
+    expect(frame).toContain("● read · src/a.ts");
     ink.unmount();
   });
 
-  test("empty tail shows a placeholder", () => {
+  test("empty running tail stays header-only", () => {
     const ink = render(
       <ThemeProvider value={THEMES["tokyo-night"]}>
         <SubagentPanel sub={runningSub} tail={undefined} now={Date.now()} width={40} />
       </ThemeProvider>,
     );
-    expect(stripAnsi(ink.lastFrame() ?? "")).toContain("no events yet");
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("scout");
+    expect(frame).not.toContain("no events yet");
     ink.unmount();
   });
 

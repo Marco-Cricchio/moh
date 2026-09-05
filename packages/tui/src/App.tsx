@@ -732,7 +732,10 @@ export function App({
       if (key.tab && !completionOpenRef.current) {
         // #497: subagent chips sit at the head of the cycle (only when any
         // exist); tab from the composer reaches them first, then the action
-        // chips. shift+tab walks backwards into them last.
+        // chips. Entering the zone MUST initialise selection to its first
+        // visible chip: leaving a stale ordinal selected focused #6 on the
+        // owner's screenshot after a first Tab.
+        if (!key.shift && focusedChip === null && subCount > 0) setFocusedSubagent(0);
         setFocusedChip((current) => {
           if (key.shift) {
             if (current === null) return chips.length - 1;

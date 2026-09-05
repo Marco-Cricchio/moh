@@ -31,25 +31,24 @@ export function SubagentPanel({
   rows?: number;
 }) {
   const theme = useTheme();
-  const maxLines = Math.max(1, Math.min(PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
+  // Compact peek: header + no more than two meaningful preview lines.
+  // The footer stays visually anchored; live chrome must not consume it.
+  const maxLines = Math.max(1, Math.min(2, PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
   // A settled peek is deliberately a one-line acknowledgement only. The
   // permanent subagent transcript block owns the result/preview; keeping
   // old live deltas here duplicates information and wastes vertical space.
   const lines = sub.status === "running" ? (tail?.lines ?? []).slice(-maxLines) : [];
   const freeze = panelFreezeLine(sub);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={sub.status === "running" ? theme.accent : theme.border} paddingX={1} width={Math.max(16, width)}>
+    // Deliberately frameless: this is volatile footer-adjacent chrome, not
+    // a transcript card. The old border/padding consumed four empty rows.
+    <Box flexDirection="column" width={Math.max(16, width)} paddingX={1}>
       <Text color={sub.status === "running" ? theme.accent : theme.dim} bold>{panelHeader(sub, tail, now)}</Text>
-      {sub.status === "running" && lines.length === 0 ? (
-        <Text color={theme.dim}> (no events yet)</Text>
-      ) : lines.length > 0 ? (
-        lines.map((line) => (
-          <Text key={line.id} color={line.text.startsWith("✗") ? theme.err : line.text.startsWith("●") ? theme.fg : theme.dim} wrap="truncate">
-            {" "}
-            {line.text}
-          </Text>
-        ))
-      ) : null}
+      {sub.status === "running" && lines.length > 0 && lines.map((line) => (
+        <Text key={line.id} color={line.text.startsWith("✗") ? theme.err : line.text.startsWith("●") ? theme.fg : theme.dim} wrap="truncate">
+          {"  "}{line.text}
+        </Text>
+      ))}
       {freeze !== "" && <Text color={freeze.startsWith("✓") ? theme.ok : theme.err}>{freeze}</Text>}
     </Box>
   );
