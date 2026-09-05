@@ -50,6 +50,9 @@ one final **no-tools wrap-up call** — the model must reply with what it
 completed, what remains, and the next step — and the turn ends `done`
 instead of `error` (subagent children inherit the same behavior; a
 failing wrap-up call degrades to the historical `max_iterations` error).
+`maxIterations: 0` is the unlimited sentinel (#498): the guard never
+fires; resolve it with the exported `resolveMaxIterations` (absent → 50,
+`0` → `Infinity`, finite → itself).
 
 `AssemblyError.kind` tells you what to do: `config` / `provider` are
 user-fixable (surface the `message`); `session` is a startup validation
@@ -362,6 +365,19 @@ than recomputing the slug from the working directory. The core guarantees
 the path only — session-notes content stays entirely with the
 `session-memory` skill and is never read, written, or remembered by the
 core (no double store with Memory).
+
+## Usage quota probe (#499)
+
+`getQuota(endpoint)` probes one endpoint's usage quota and returns
+`{ source: "official" | "undocumented"; windows: [{ label, percent? | used/limit, resetAt? }] }`
+or `null` on any failure — no credentials, unsupported kind, HTTP error,
+or drifted schema. Credentials are reused from the endpoint profile and
+the auth stores; the probe is best-effort with a short timeout and never
+throws. Per-provider endpoint details stay internal: one module per
+provider under `core/src/quota/`, so schema churn is a local fix that
+never surfaces through the seam. `aggregateLocalUsage(events)` is the
+always-available fallback: per-model token totals summed from a session's
+`model_call` events. Both are exported from `@moh/core` (ADR-0004).
 
 ## What's intentionally not here
 

@@ -45,7 +45,8 @@ export interface SessionConfig {
    * against — the same merged profile list the initial provider came
    * from (passed by sessionFromConfig). */
   endpoints?: EndpointProfile[];
-  /** Per-turn iteration cap. Default 50. */
+  /** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
+   * cap — the anti-runaway safety net is off). */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */
   tools?: Record<string, Tool>;

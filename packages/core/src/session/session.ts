@@ -23,8 +23,7 @@ import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from
 import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
-
-const DEFAULT_MAX_ITERATIONS = 50;
+import { resolveMaxIterations } from "./agent-loop";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -116,7 +115,7 @@ export class AgentSession {
             this.#routeResolutionOptions,
           )
         : config.provider;
-    const maxIterations = config.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const maxIterations = resolveMaxIterations(config.maxIterations);
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
     const perms = config.permissions ?? {};

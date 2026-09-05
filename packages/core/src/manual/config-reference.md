@@ -68,7 +68,11 @@ All keys are optional. Notes:
   `mcp__<server>__<tool>`.
 - `handoff.transport` — absent = Not Set = off; `"gist"` enables
   publish-on-push session handoff.
-- `maxIterations` — per-turn tool-call iteration cap (default 50).
+- `maxIterations` — per-turn tool-call iteration cap (default 50). `0`
+  is the unlimited sentinel (#498): no cap — the anti-runaway wrap-up
+  never fires. Any integer 1–500 is accepted (the 50/100/200/500
+  presets are a UI concern): manage it from the TUI settings row
+  ("Max iterations/turn") or `moh run --max-iterations`.
 
 ## ~/.moh/config
 

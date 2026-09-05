@@ -22,6 +22,23 @@ import { assembleMentions, renderMentionAttachment, type MentionAttachment } fro
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall" | "dispatchAfterTurn">;
 
+/** Default per-turn iteration cap (#190), used when `maxIterations` is absent. */
+export const DEFAULT_MAX_ITERATIONS = 50;
+/** #498: `maxIterations: 0` means no cap (unlimited) — the user explicitly
+ * disables the anti-runaway safety net. Any other value is a finite cap. */
+export const MAX_ITERATIONS_UNLIMITED = 0;
+
+/**
+ * #498: resolve a configured `maxIterations` (or undefined) into the
+ * numeric cap the loop guard compares against. Absent → 50; the `0`
+ * sentinel → `Infinity` (the guard never fires); finite → itself.
+ */
+export function resolveMaxIterations(configured?: number): number {
+  if (configured === undefined) return DEFAULT_MAX_ITERATIONS;
+  if (configured === MAX_ITERATIONS_UNLIMITED) return Infinity;
+  return configured;
+}
+
 /** The tool-execution surface AgentLoop needs — satisfied by ToolRunner (#91). */
 export interface LoopToolRunner {
   run(

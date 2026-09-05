@@ -119,9 +119,11 @@ export const mohConfigSchema = z.object({
   handoff: handoffConfigSchema.optional(),
   /** Project label → workflow-command suggestions after a Frontier claim (#357). */
   skillRouting: skillRoutingSchema.optional(),
-  /** Per-turn tool-call iteration cap (#190). Default 50; the cap triggers
-   * a final no-tools wrap-up call instead of dropping the turn. */
-  maxIterations: z.number().int().positive().optional(),
+  /** Per-turn tool-call iteration cap (#190). Default 50 (when absent);
+   * the cap triggers a final no-tools wrap-up call instead of dropping the
+   * turn. `0` is the #498 unlimited sentinel: no cap at all. Any integer
+   * 1–500 is accepted (preset values 50/100/200/500 are a UI concern). */
+  maxIterations: z.number().int().min(0).max(500).optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;

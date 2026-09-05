@@ -101,7 +101,24 @@ export {
   type ChildActivity,
   type ChildTailResult,
 } from "./child-tail";
+// #499: quota seam — the ADR-0004 reopening that lets clients (TUI usage
+// quota modal, CLI) probe an endpoint's usage quota without knowing the
+// per-provider endpoints; any failure degrades to `null` (local row).
+export {
+  getQuota,
+  aggregateLocalUsage,
+  type QuotaReport,
+  type QuotaSource,
+  type QuotaWindow,
+  type QuotaOptions,
+  type QuotaFetch,
+  type LocalUsageRow,
+} from "./quota";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
+// #498: the unlimited sentinel for `maxIterations` is a user-facing config
+// surface (TUI settings row, CLI `--max-iterations`), so clients need the
+// sentinel constant and the shared resolver.
+export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
