@@ -58,8 +58,13 @@ A starting situation that generates work, then merges onto the main flow.
 
 ## The user manual (grounded answers about moh)
 
-moh ships a user manual: ten pages bundled in the binary, mirrored in
-**`docs/manual/`** in the repo (read them there; never guess). When the
+moh ships a user manual: ten pages bundled in the binary. **How to read it:**
+run **`moh manual [page]`** — this works everywhere, inside or outside the
+moh repo. `moh manual` with no argument prints the page index. (In the moh
+repo itself the same pages are mirrored at `docs/manual/` — there you may
+read the files directly.) Never guess.
+
+When the
 user's question is about how moh itself works — sessions, fork/resume,
 permissions, providers, MCP, workflow mode, config keys, CLI flags —
 open the page that covers it, answer **from that page**, and cite the
