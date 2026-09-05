@@ -101,6 +101,19 @@ export {
   type ChildActivity,
   type ChildTailResult,
 } from "./child-tail";
+// #499: quota seam — the ADR-0004 reopening that lets clients (TUI usage
+// quota modal, CLI) probe an endpoint's usage quota without knowing the
+// per-provider endpoints; any failure degrades to `null` (local row).
+export {
+  getQuota,
+  aggregateLocalUsage,
+  type QuotaReport,
+  type QuotaSource,
+  type QuotaWindow,
+  type QuotaOptions,
+  type QuotaFetch,
+  type LocalUsageRow,
+} from "./quota";
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
