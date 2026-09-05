@@ -232,7 +232,9 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         ...(o.onGitPush ? { onGitPush: o.onGitPush } : {}),
       },
       // Per-turn iteration cap (#190): moh.json `maxIterations`, default 50.
-      ...(config.maxIterations ? { maxIterations: config.maxIterations } : {}),
+      // #498: `0` is the unlimited sentinel and must pass through (hence
+      // `!== undefined`, not a truthiness check).
+      ...(config.maxIterations !== undefined ? { maxIterations: config.maxIterations } : {}),
       ...(resumeEvents?.length ? { resume: { events: resumeEvents, consume: o.resumeConsume !== false } } : {}),
     });
     return { session, store };
