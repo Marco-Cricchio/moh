@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
@@ -40,6 +40,12 @@ interface Row {
   value: string;
 }
 
+/** #498: the preset cycle for the max-iterations row. "unlimited" is the
+ * 0 sentinel; presets are a UI concern — moh.json accepts any integer. */
+const MAX_ITERATION_PRESETS = [50, 100, 200, 500, MAX_ITERATIONS_UNLIMITED] as const;
+
+const maxIterationsLabel = (v: number) => (v === MAX_ITERATIONS_UNLIMITED ? "unlimited" : String(v));
+
 /** #444: render a provider's bundled ToS card for the endpoint section.
  * Unknown/custom providers get a one-line "no bundled card" note. */
 function renderTosCardText(provider: string, width: number): string[] {
@@ -73,6 +79,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "remove"; options: string[]; cursor: number }
     | { kind: "tos"; provider: string };
   const [sub, setSub] = useState<Sub | null>(null);
+  // #498 max-iterations warning: shown when "unlimited" is selected in the
+  // row; any later keypress dismisses it, and it stays dismissed while the
+  // value remains unlimited — it reappears only if the value moves away
+  // and back to unlimited.
+  const [unlimitedWarning, setUnlimitedWarning] = useState(false);
+  const unlimitedDismissedRef = useRef(false);
   // Live-fetched model lists for openai-compat endpoints (#181 follow-up):
   // `GET <baseUrl>/models`, shown in the model level like a vendored
   // catalog. Failure = free-text entry only, as before.
@@ -101,6 +113,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
       { key: "handoff", label: "Session handoff", value: handoffTransport === "gist" ? "GitHub Gist" : handoffTransport === "none" ? "Disabled" : "Not Set" },
+      { key: "maxIterations", label: "Max iterations/turn", value: maxIterationsLabel(moh.maxIterations ?? 50) },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
@@ -191,7 +204,37 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub({ kind: "remove", options: (moh.endpoints ?? []).map((e) => e.name), cursor: 0 });
       case "handoff":
         return onConfigureHandoff?.();
+      case "maxIterations": {
+        // #498: → (enter) cycles forward, shift+tab cycles backward.
+        const current = moh.maxIterations ?? 50;
+        const index = MAX_ITERATION_PRESETS.indexOf(current as (typeof MAX_ITERATION_PRESETS)[number]);
+        const at = index === -1 ? 0 : index;
+        return setMaxIterations(MAX_ITERATION_PRESETS[(at + 1) % MAX_ITERATION_PRESETS.length]!);
+      }
     }
+  };
+
+  /** #498: persist the preset to project moh.json; selecting unlimited
+   * shows the one-time inline warning (re-armed only when the value moves
+   * away and back). */
+  const setMaxIterations = (next: number) => {
+    const project = loadMohConfig(configFile);
+    writeMohConfig(configFile, { ...project, maxIterations: next });
+    setMoh((m) => ({ ...m, maxIterations: next }));
+    if (next === MAX_ITERATIONS_UNLIMITED) {
+      if (!unlimitedDismissedRef.current) setUnlimitedWarning(true);
+    } else {
+      unlimitedDismissedRef.current = false;
+      setUnlimitedWarning(false);
+    }
+    onToast(`max iterations: ${maxIterationsLabel(next)} (new sessions)`);
+  };
+
+  const cycleMaxIterationsBackward = () => {
+    const current = moh.maxIterations ?? 50;
+    const index = MAX_ITERATION_PRESETS.indexOf(current as (typeof MAX_ITERATION_PRESETS)[number]);
+    const at = index === -1 ? 0 : index;
+    setMaxIterations(MAX_ITERATION_PRESETS[(at + MAX_ITERATION_PRESETS.length - 1) % MAX_ITERATION_PRESETS.length]!);
   };
 
   /** #181: model committed for one endpoint — rewrites `defaultModel` in
@@ -342,8 +385,19 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       }
       return;
     }
+    // #498: any keypress dismisses the unlimited warning (before any
+    // early-returning navigation handler).
+    if (unlimitedWarning) {
+      unlimitedDismissedRef.current = true;
+      setUnlimitedWarning(false);
+    }
     if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
     if (key.downArrow) return setCursor((c) => Math.min(rows.length - 1, c + 1));
+    // #498: shift+tab on the max-iterations row cycles presets backward.
+    if (key.tab && key.shift) {
+      if (rows[cursor]?.key === "maxIterations") return cycleMaxIterationsBackward();
+      return;
+    }
     if (key.return || input === "\n") return activate(rows[cursor]!);
   });
 
@@ -362,6 +416,17 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       })}
       {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
+      {unlimitedWarning && (
+        <>
+          <Text color={theme.warn}>
+            {truncate(" warning: running without a cap removes the anti-runaway", innerWidth)}
+          </Text>
+          <Text color={theme.warn}>
+            {truncate(" safety net; API costs can grow unbounded", innerWidth)}
+          </Text>
+          <Text> </Text>
+        </>
+      )}
       {sub ? (
         <>
           {sub.kind === "tos" ? (
@@ -411,7 +476,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           </Dim>
         </>
       ) : (
-        <Dim>enter change · esc close</Dim>
+        <Dim>
+          {rows[cursor]?.key === "maxIterations"
+            ? "enter/→ next · shift+tab back · iterations are send→tools→reply cycles, not tool calls"
+            : "enter change · esc close"}
+        </Dim>
       )}
     </Dialog>
   );

@@ -153,7 +153,7 @@ describe("settings panel (issue #33)", () => {
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
     await sleep(30);
-    await down(i, 12); // Provider reasoning (last row; handoff is row 10)
+    await down(i, 13); // Provider reasoning (maxIterations row inserted at 11; updateCheck at 12)
     i.stdin.write("\r");
     await sleep(10);
     expect(changes).toContainEqual({ showReasoning: true });
@@ -365,6 +365,87 @@ describe("merged provider endpoints (#129)", () => {
     await sleep(30);
     expect(readUserProviderConfig(userFile).endpoints?.some((e) => e.name === "zai")).toBe(false);
     expect(toasts.some((t) => t.includes("removed endpoint zai"))).toBe(true);
+    i.unmount();
+  });
+});
+
+describe("max iterations row (#498)", () => {
+  test("cycles presets forward on enter and persists to moh.json; unlimited shows warning once", async () => {
+    const cwd = setupCwd();
+    const { i, toasts } = mount(cwd);
+    await sleep(30);
+    // Row 11: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
+    // provider7 add8 remove9 handoff10 maxIterations11
+    await down(i, 11);
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
+    i.stdin.write("\r"); // 50 → 100
+    await sleep(30);
+    i.stdin.write("\r"); // 100 → 200
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(200);
+    // → unlimited (three more: 300? no: 200 → 500 → unlimited)
+    i.stdin.write("\r"); // 200 → 500
+    await sleep(30);
+    i.stdin.write("\r"); // 500 → unlimited
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(0);
+    let frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("unlimited");
+    expect(frame).toContain("anti-runaway");
+    // Any keypress dismisses the warning; it stays dismissed on revisit.
+    i.stdin.write("\x1b[B");
+    await sleep(30);
+    frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).not.toContain("anti-runaway");
+    expect(toasts.some((t) => t.includes("unlimited"))).toBe(true);
+    i.unmount();
+  });
+
+  test("cycles backward on shift+tab (wraps unlimited → 500)", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 11);
+    await sleep(30);
+    // shift+tab from 50 wraps back to unlimited (warning shows).
+    i.stdin.write("\x1b[Z");
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(0);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("anti-runaway");
+    i.stdin.write("\x1b[Z"); // unlimited → 500
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(500);
+    i.unmount();
+  });
+
+  test("warning re-arms after leaving unlimited and returning", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 11);
+    await sleep(30);
+    i.stdin.write("\r"); // 50 → 100
+    await sleep(30);
+    i.stdin.write("\x1b[Z"); // back to 50 (dismiss-armed reset happens on non-unlimited)
+    await sleep(30);
+    i.stdin.write("\x1b[Z"); // 50 → unlimited (wrap): warning must appear
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("anti-runaway");
+    i.unmount();
+  });
+
+  test("round-trips an existing unlimited config and shows the row value", async () => {
+    const cwd = setupCwd();
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({
+      provider: "anthropic/claude-sonnet-4-5",
+      endpoints: [{ name: "anthropic", type: "anthropic", defaultModel: "claude-sonnet-4-5" }],
+      maxIterations: 0,
+    }));
+    const { i } = mount(cwd);
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("unlimited");
     i.unmount();
   });
 });
