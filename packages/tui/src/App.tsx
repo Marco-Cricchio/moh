@@ -31,6 +31,7 @@ import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } fro
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
+import { useSubagentCount } from "./subagent-panel";
 import { Chat, type Mode } from "./Chat";
 import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel } from "./factory";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
@@ -250,6 +251,15 @@ export function App({
   // Native-scrollback focus model (#183): null = textarea, otherwise the
   // index of the visible bottom-bar chip.
   const [focusedChip, setFocusedChip] = useState<number | null>(null);
+  // #497: focused subagent chip — the head of the chip cycle (index within
+  // the subagent list). null = no subagent chip focus. Enter toggles the
+  // live panel for the focused child; ←/→ clamp at the edges.
+  const [focusedSubagent, setFocusedSubagent] = useState<number | null>(null);
+  // #497: the subagent whose live panel is open (index into the tracked
+  // list), or null when closed. Derived from the parent log's subagent
+  // events; the count follows the parallel spawn cap via the UI slice.
+  const [panelSubagent, setPanelSubagent] = useState<number | null>(null);
+  const subagentCount = useSubagentCount(session);
   // The input's completion popup owns Tab while open (a slash draft with
   // candidates): the chip-cycle Tab handler defers to it, so completing a
   // command never moves focus to the send chip.
@@ -287,7 +297,7 @@ export function App({
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
     const count = visibleChips(viewport.columns).chips.length;
-    setFocusedChip((focused) => focused !== null && focused >= count ? null : focused);
+    setFocusedChip((focused) => focused !== null && focused >= 0 && focused >= count ? null : focused);
   }, [viewport.columns]);
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
   useEffect(() => {
@@ -715,20 +725,57 @@ export function App({
     }
     if (session && !blocked) {
       const chips = visibleChips(viewport.columns).chips;
+      const subCount = subagentCount;
       // While the input's completion popup owns the Tab key (a slash draft
       // with candidates), the textarea keeps focus: Tab completes the
       // command instead of cycling the chips.
       if (key.tab && !completionOpenRef.current) {
-        setFocusedChip((current) => key.shift
-          ? current === null ? chips.length - 1 : current === 0 ? null : current - 1
-          : current === null ? 0 : current + 1 >= chips.length ? null : current + 1);
+        // #497: subagent chips sit at the head of the cycle (only when any
+        // exist); tab from the composer reaches them first, then the action
+        // chips. shift+tab walks backwards into them last.
+        setFocusedChip((current) => {
+          if (key.shift) {
+            if (current === null) return chips.length - 1;
+            if (current === 0) return subCount > 0 ? subCount - 1 : null;
+            return current - 1;
+          }
+          if (current === null) return subCount > 0 ? -1 : 0;
+          if (current === -1) return 0;
+          if (current + 1 >= chips.length) return subCount > 0 ? -1 : null;
+          return current + 1;
+        });
+        return;
+      }
+      // #497: subagent-chip focus — ←/→ clamp at the edges (never wrap);
+      // Enter toggles that child's live panel; Esc returns to the composer
+      // leaving the panel as-is.
+      if (focusedChip === -1) {
+        if (key.escape) return setFocusedSubagent(null);
+        if (key.leftArrow) return setFocusedSubagent((current) => Math.max(0, (current ?? 0) - 1));
+        if (key.rightArrow) return setFocusedSubagent((current) => Math.min(subCount - 1, (current ?? 0) + 1));
+        if (key.return) {
+          const index = focusedSubagent ?? 0;
+          setFocusedSubagent(index);
+          setPanelSubagent((prev) => prev === index ? null : index);
+          return;
+        }
         return;
       }
       if (focusedChip !== null) {
         if (key.escape) return setFocusedChip(null);
         if (key.leftArrow || key.rightArrow) {
           const delta = key.leftArrow ? -1 : 1;
-          return setFocusedChip((focusedChip + delta + chips.length) % chips.length);
+          // Edge → step into the subagent chips when any exist.
+          const next = focusedChip + delta;
+          if (next < 0) {
+            if (subCount > 0) { setFocusedChip(-1); setFocusedSubagent(subCount - 1); return; }
+            return setFocusedChip(0);
+          }
+          if (next >= chips.length) {
+            if (subCount > 0) { setFocusedChip(-1); setFocusedSubagent(0); return; }
+            return setFocusedChip(null);
+          }
+          return setFocusedChip(next);
         }
         if (key.return) return activateChip(chips[focusedChip]?.label ?? "send");
         return;
@@ -779,6 +826,9 @@ export function App({
       filePreview={config.filePreview}
       inputFocused={focusedChip === null}
       focusedChip={focusedChip}
+      focusedSubagent={focusedChip === -1 ? focusedSubagent : null}
+      panelSubagent={panelSubagent}
+      onToggleSubagentPanel={(index) => setPanelSubagent((prev) => prev === index ? null : index)}
       tokens={sidebar.tokens}
       contextLimit={contextLimit}
       workflowOn={workflowOn}
