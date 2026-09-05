@@ -280,6 +280,45 @@ describe("upstream updates", () => {
     expect(result).toEqual({ ok: true, updates: [] });
   });
 
+  test("#517: an upstream entry equal to the bundled copy is not offered, even when the disk copy differs", async () => {
+    const home = freshHome();
+    // installed stale at v1; bundle and upstream index both v2
+    install({ mohHome: home, sources: [skill("plan", "v1")] });
+    const bundled = skill("plan", "v2");
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      bundledSources: [bundled],
+      fetchImpl: fetchWith({ skills: [skill("plan", "v2")] }) as any,
+    });
+    expect(result).toEqual({ ok: true, updates: [] });
+  });
+
+  test("#517: upstream differing from both bundle and disk is still offered", async () => {
+    const home = freshHome();
+    install({ mohHome: home, sources: [skill("plan", "v1")] });
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      bundledSources: [skill("plan", "v2")],
+      fetchImpl: fetchWith({ skills: [skill("plan", "v3")] }) as any,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.updates.map((u) => u.name)).toEqual(["plan"]);
+  });
+
+  test("#517: a skill absent from the injected bundle is unaffected (default live-bundle behavior)", async () => {
+    const home = freshHome();
+    install({ mohHome: home, sources: [skill("plan", "v1")] });
+    const result = await checkUpstreamUpdates({
+      mohHome: home,
+      bundledSources: [skill("other", "v9")],
+      fetchImpl: fetchWith({ skills: [skill("plan", "v2")] }) as any,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.updates.map((u) => u.name)).toEqual(["plan"]);
+  });
+
   test("apply respects consent and skips modified copies", async () => {
     const home = freshHome();
     install({ mohHome: home, sources: [skill("plan", "v1"), skill("review", "v1")] });
