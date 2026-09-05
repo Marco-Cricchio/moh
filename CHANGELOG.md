@@ -5,6 +5,20 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.20.1] - 2026-09-05
+### Fixed
+
+- **Route fallback cooldown** (#506): when a fallback target is on cooldown,
+  moh now fails deterministically with a normalized `invalid_request`
+  ProviderError instead of an opaque failure; provider messages matching
+  "usage limit" are classified as `quota_exhausted`.
+
+### Changed
+
+- **Docs discoverability**: demo GIF slot and an honest comparison table in
+  the README; ADRs and CONTEXT.md are now published in the repo, and the
+  ask-moh repo-docs section is gated accordingly.
+
 ## [0.20.0] - 2026-09-05
 ### Added
 
