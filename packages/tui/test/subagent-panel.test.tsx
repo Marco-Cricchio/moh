@@ -241,9 +241,9 @@ describe("live panel rendering", () => {
     );
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame).toContain("scout");
-    // Compact peek retains only the newest two meaningful visual rows.
-    expect(frame).not.toContain("● bash · git status");
-    expect(frame).not.toContain("✓ done");
+    // Running peek retains up to five meaningful visual rows.
+    expect(frame).toContain("● bash · git status");
+    expect(frame).toContain("✓ done");
     expect(frame).toContain("● read · src/a.ts");
     ink.unmount();
   });

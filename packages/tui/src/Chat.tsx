@@ -312,15 +312,18 @@ export function Chat({
   // Panel layout: the peek is full-width chrome above the footer (the
   // split layout is gone — see the return below). Rows stay tightly
   // capped: panel header + tail must never crowd the transcript.
-  const panelRows = Math.max(2, Math.min(3, (viewport.rows ?? 24) - 18));
+  // Five rows make the child’s live work readable; this is chrome budgeted
+  // out of the volatile transcript below, never unbounded panel growth.
+  const panelRows = 5;
   // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
   // Empty composer: separators (2) + composer (1) + spacer (1) + status
   // (2) + bordered action row (3) = 9. The subagent row is itself a
-  // bordered three-row chip; the frameless peek is header + one evolving
-  // preview. This intentionally over-reserves by at most one row at tiny
-  // sizes: a stable bottom edge beats squeezing one more transcript row.
+  // bordered three-row chip; the frameless running peek is header + five
+  // truncate-only previews (the settled peek is just its summary line).
+  // This intentionally over-reserves at tiny sizes: a stable footer takes
+  // precedence over one more volatile transcript row.
   const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0);
 
   // ── Settled + live projection with #329 head promotion ────────────────
