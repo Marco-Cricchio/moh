@@ -5,6 +5,31 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.20.0] - 2026-09-05
+### Added
+
+- **Usage quota modal** (#499): ctrl+q from chat opens a TUI modal with one
+  row per provider quota window (5h / weekly / monthly, percent or
+  used/limit + reset) with a progress bar and a source badge (● documented /
+  ○ provider-reported / — local measured), plus the always-present local
+  section (this session's tokens per model from the event log). Backed by the
+  narrow `getQuota(endpoint)` core seam (ADR-0004 export): probes the
+  endpoint's usage endpoint reusing the auth stores; a broken remote degrades
+  to the local section with a discreet note, never an error. Probe is
+  on-open only (60s cache, `r` forces refresh); no background polling.
+- **Max iterations surface** (#498): the loop cap is now user-facing —
+  TUI settings row cycling 50/100/200/500/unlimited (shift+tab cycles back)
+  with a warn-at-selection for unlimited, persisted in moh.json;
+  `moh run --max-iterations` for headless runs; core sentinel
+  `maxIterations: 0` = unlimited (`resolveMaxIterations`/`MAX_ITERATIONS_UNLIMITED`
+  exported from `@moh/core`; absent still means 50).
+- **Community standards**: Code of Conduct and Security policy.
+
+### Fixed
+
+- **Markdown contrast** (#504): improved Markdown rendering contrast across
+  themes.
+
 ## [0.19.0] - 2026-09-05
 ### Added
 
@@ -546,7 +571,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.19.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.20.0...develop
+[0.20.0]: https://github.com/Marco-Cricchio/moh/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/Marco-Cricchio/moh/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/Marco-Cricchio/moh/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/Marco-Cricchio/moh/compare/v0.17.1...v0.17.2
