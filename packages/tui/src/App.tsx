@@ -974,8 +974,11 @@ export function App({
       <Box
         flexDirection="column"
         width={Math.max(1, viewport.columns - 1)}
-        height={alternateScreen ? Math.max(1, viewport.rows - 1) : undefined}
-        overflow={alternateScreen ? "hidden" : undefined}
+        // The session owns a viewport-sized frame even in the main buffer:
+        // transcript chrome above may scroll, but composer/footer must stay
+        // at the terminal bottom once reached. Overlays keep the same frame.
+        height={showChat || alternateScreen ? Math.max(1, viewport.rows - 1) : undefined}
+        overflow={showChat || alternateScreen ? "hidden" : undefined}
         position="relative"
         key={themeTick}
       >

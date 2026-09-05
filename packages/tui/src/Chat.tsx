@@ -318,10 +318,10 @@ export function Chat({
   // status and action chips down the terminal.
   // Empty composer: separators (2) + composer (1) + spacer (1) + status
   // (2) + bordered action row (3) = 9. The subagent row is itself a
-  // bordered three-row chip; the frameless peek is header + ≤2 previews.
-  // This intentionally over-reserves by at most one row at tiny sizes: a
-  // stable bottom edge beats squeezing one more volatile transcript row.
-  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + Math.min(2, panelRows) : 0);
+  // bordered three-row chip; the frameless peek is header + one evolving
+  // preview. This intentionally over-reserves by at most one row at tiny
+  // sizes: a stable bottom edge beats squeezing one more transcript row.
+  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0);
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state

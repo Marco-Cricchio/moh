@@ -150,7 +150,10 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
       stopped = true;
       clearInterval(timer);
     };
-  }, [subagents]);
+  // Parent projections are rebuilt on each render. Depend on a stable
+  // identity signature, not the array object, otherwise each tail repaint
+  // tears down the interval before its next 3Hz tick can fire.
+  }, [subagents.map((sub) => `${sub.callId}:${sub.status}:${sub.log}`).join("|")]);
 
   return tails;
 }

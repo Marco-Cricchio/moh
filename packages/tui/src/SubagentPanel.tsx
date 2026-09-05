@@ -31,9 +31,10 @@ export function SubagentPanel({
   rows?: number;
 }) {
   const theme = useTheme();
-  // Compact peek: header + no more than two meaningful preview lines.
-  // The footer stays visually anchored; live chrome must not consume it.
-  const maxLines = Math.max(1, Math.min(2, PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
+  // Compact peek: header + one evolving assistant preview. Using a single
+  // preview line makes streaming visibly replace/advance in place instead
+  // of looking like it appears only once at child completion.
+  const maxLines = Math.max(1, Math.min(1, PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
   // A settled peek is deliberately a one-line acknowledgement only. The
   // permanent subagent transcript block owns the result/preview; keeping
   // old live deltas here duplicates information and wastes vertical space.

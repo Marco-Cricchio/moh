@@ -213,7 +213,7 @@ describe("live panel rendering", () => {
     expect(frame).toContain("scout");
     // Compact peek retains only the newest two meaningful visual rows.
     expect(frame).not.toContain("● bash · git status");
-    expect(frame).toContain("✓ done");
+    expect(frame).not.toContain("✓ done");
     expect(frame).toContain("● read · src/a.ts");
     ink.unmount();
   });
