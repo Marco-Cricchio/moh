@@ -346,6 +346,88 @@ describe("capability downgrades", () => {
   });
 });
 
+describe("fallback target invalid_request cooldown (#506)", () => {
+  function quotaInvalidRoute(clock: { value: number }) {
+    const targets = [mockTarget("a"), mockTarget("b")];
+    const calls: string[] = [];
+    const providers = new Map<string, Provider>([
+      ["a", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])],
+      ["b", MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "invalid_request", message: "messages.content.type is invalid" } }])],
+    ]);
+    const route = createRoute({
+      target: targets[0]!, fallbacks: targets.slice(1), retries: 0, now: () => clock.value,
+      createStream: (target) => {
+        calls.push(target.endpoint.name);
+        const provider = providers.get(target.endpoint.name)!;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+    return { route, calls };
+  }
+
+  test("a fallback target that fails invalid_request is not re-probed next turn", async () => {
+    const clock = { value: 0 };
+    const { route, calls } = quotaInvalidRoute(clock);
+    const message: Message[] = [{ role: "user", parts: [{ kind: "text", text: "hi" }] }];
+    // Turn 1: quota on a -> fallback to b -> invalid_request throws.
+    try {
+      for await (const _ of route.stream(message, new AbortController().signal)) { /* consume */ }
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).kind).toBe("invalid_request");
+      expect((err as ProviderError).message).toContain("b/model-b");
+    }
+    expect(calls).toEqual(["a", "b"]);
+    // Turn 2 without beginTurn: b is cooled down, a (quota, also cooled down)
+    // is skipped too — the route throws rather than re-probing b.
+    try {
+      for await (const _ of route.stream(message, new AbortController().signal)) { /* consume */ }
+      expect.unreachable();
+    } catch (err) {
+      expect((err as ProviderError).kind).toBe("quota_exhausted");
+    }
+    expect(calls).toEqual(["a", "b", "a"]);
+    // After the 15-minute cooldown, b becomes viable again.
+    clock.value = 15 * 60_000;
+    route.beginTurn();
+    try {
+      for await (const _ of route.stream(message, new AbortController().signal)) { /* consume */ }
+      expect.unreachable();
+    } catch {
+      // both fail again — the point is that b was re-probed
+    }
+    expect(calls).toEqual(["a", "b", "a", "a", "b"]);
+  });
+
+  test("invalid_request on the user-selected target is not cooled down", async () => {
+    const clock = { value: 0 };
+    const targets = [mockTarget("solo")];
+    let calls = 0;
+    const provider = MockProvider.scripted([
+      { deltas: [], finish: "stop", error: { kind: "invalid_request", message: "bad shape" } },
+      { deltas: [], finish: "stop", error: { kind: "invalid_request", message: "bad shape" } },
+    ]);
+    const route = createRoute({
+      target: targets[0]!, retries: 0, now: () => clock.value,
+      createStream: () => {
+        calls += 1;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+    const message: Message[] = [{ role: "user", parts: [{ kind: "text", text: "hi" }] }];
+    for (let turn = 0; turn < 2; turn++) {
+      try {
+        for await (const _ of route.stream(message, new AbortController().signal)) { /* consume */ }
+        expect.unreachable();
+      } catch (err) {
+        expect((err as ProviderError).kind).toBe("invalid_request");
+      }
+    }
+    expect(calls).toBe(2); // probed every turn, no cooldown on the selected target
+  });
+});
+
 describe("billing-error normalization (z.ai code 1113)", () => {
   test("insufficient balance with HTTP 400 maps to quota_exhausted, not invalid_request", () => {
     expect(
@@ -355,5 +437,9 @@ describe("billing-error normalization (z.ai code 1113)", () => {
   test("SDK retry wrapper without statusCode still sniffs the cause", () => {
     const wrapped = new Error("Failed after 3 attempts. Last error: AI_APICallError: Insufficient balance or no resource package. Please recharge.");
     expect(normalizeProviderError(wrapped).kind).toBe("quota_exhausted");
+  });
+  test("'usage limit' classifies as quota_exhausted (#506)", () => {
+    expect(classifyStatus(0, "", "Failed after 3 attempts. Last error: AI_APICallError: The usage limit has been reached")).toBe("quota_exhausted");
+    expect(normalizeProviderError(new Error("Failed after 3 attempts. Last error: AI_APICallError: The usage limit has been reached")).kind).toBe("quota_exhausted");
   });
 });
