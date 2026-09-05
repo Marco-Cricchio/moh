@@ -1,6 +1,6 @@
 # 0004 — Public-surface criterion for @moh/core
 
-Date: 2026-08-24 · Status: accepted · Refs: `docs/spec/public-surface-curation.md`, ticket #98, `docs/principles.md` (1, 6)
+Date: 2026-08-24 · Status: accepted · Refs: ticket #98, `docs/principles.md` (1, 6)
 
 ## Context
 
