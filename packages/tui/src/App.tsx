@@ -52,7 +52,8 @@ import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { endpointModelCatalog } from "@moh/core";
+import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
+import { QuotaModal } from "./QuotaModal";
 import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
@@ -98,7 +99,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -803,6 +804,8 @@ export function App({
     // backspace keeps deleting in the composer).
     if (overlay === null && key.ctrl && input === "h") return setOverlay("manual");
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
+    // #499: usage quota modal from chat — instant check before long tasks.
+    if (overlay === null && key.ctrl && input === "q" && session) return setOverlay("quota");
     // The post-claim chooser owns Esc: it returns to Frontier rather than
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
@@ -1076,6 +1079,13 @@ export function App({
         )}
         {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
+        {overlay === "quota" && session && (
+          <QuotaModal
+            endpoints={session.endpointProfiles}
+            localUsage={aggregateLocalUsage(session.history())}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "model" && session && (
           <ModelPickerModal
             activeModel={session.activeModel}

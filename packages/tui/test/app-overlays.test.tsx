@@ -154,3 +154,20 @@ describe("App overlays (issue #33)", () => {
     i.unmount();
   });
 });
+
+describe("usage quota modal (#499)", () => {
+  test("ctrl+q opens the modal from chat, esc closes", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("usage quota");
+    i.stdin.write("\x11"); // ctrl+q
+    await sleep(80);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("usage quota");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("local measured");
+    i.stdin.write("\x1b"); // esc
+    await sleep(70); // 40ms alt-buffer flip
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("usage quota");
+    i.unmount();
+  });
+});
