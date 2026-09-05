@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { createSession, type Provider } from "@moh/core";
-import { Chat, embedReasoningHeads, nextReasoningHead, spliceReasoningChunks, REASONING_TAIL_LINES, type ReasoningHeadChain } from "../src/Chat";
+import { Chat, embedProseHeads, embedReasoningHeads, isPlainStreamingProse, nextProseHead, nextReasoningHead, promotablePlainPrefix, spliceReasoningChunks, trimProseHead, REASONING_TAIL_LINES, type ReasoningHeadChain } from "../src/Chat";
 import type { TranscriptBlock } from "../src/transcript";
 import { stripAnsi } from "./helpers";
 
@@ -69,6 +69,50 @@ describe("nextReasoningHead — incremental head promotion (#329)", () => {
     const chain: ReasoningHeadChain = { key: "live-reasoning", lines: 9, chunks: [], startIndex: 0 };
     const next = nextReasoningHead(chain, "live-reasoning", ["short"]);
     expect(next.lines).toBe(1);
+  });
+});
+
+describe("assistant prose Static promotion (vision note 33)", () => {
+  const prose = (markdown: string): TranscriptBlock => ({
+    key: "4-assistant_delta-p0",
+    kind: "moh",
+    glyph: "◆",
+    type: "moh",
+    lines: markdown.split("\n"),
+    lineKinds: markdown.split("\n").map(() => "body"),
+    markdown,
+  });
+
+  test("promotes completed visual rows and leaves the newest row live", () => {
+    const block = prose("one two three four five six seven eight nine ten eleven twelve");
+    const prefix = promotablePlainPrefix(block.markdown!, 12);
+    const chain = nextProseHead(null, block, 12);
+    expect(prefix.lines.length).toBeGreaterThan(0);
+    expect(chain.chars).toBe(prefix.chars);
+    expect(chain.chunks[0]!.lines).toEqual(prefix.lines);
+    expect(trimProseHead(block, chain.chars)).toMatchObject({ continuation: true });
+    expect(trimProseHead(block, chain.chars).markdown).not.toBe("");
+    expect(nextProseHead(chain, block, 12)).toEqual(chain);
+  });
+
+  test("settled projection removes exactly the source prefix already printed", () => {
+    const block = prose("one two three four five six seven eight nine ten eleven twelve");
+    const chain = nextProseHead(null, block, 12);
+    const deduped = embedProseHeads([block], new Map([[block.key, chain]]));
+    expect(deduped[0]!.markdown).toBe(block.markdown!.slice(chain.chars).trimStart());
+  });
+
+  test("explicit newlines stay distinct in promoted plain prose", () => {
+    expect(promotablePlainPrefix("alpha\nbeta gamma delta epsilon", 12).lines).toEqual(["alpha", "beta gamma", "delta"]);
+  });
+
+  test("short and structured Markdown stay volatile", () => {
+    expect(nextProseHead(null, prose("still streaming"), 80).chunks).toHaveLength(0);
+    expect(Boolean(isPlainStreamingProse("| table |\n| --- |"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("```ts\nconst x = 1"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("# heading"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("heading\n---"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("hard break  \nnext"))).toBe(false);
   });
 });
 

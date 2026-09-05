@@ -170,6 +170,11 @@ export function Chat({
   // (see the state machine further down and nextReasoningHead).
   const reasoningChainRef = useRef<ReasoningHeadChain | null>(null);
   const reasoningHeadsRef = useRef(new Map<string, SealedReasoningHead>());
+  // Vision note 33: completed visual rows of plain assistant prose move to
+  // Static immediately. Only the newest mutable row remains volatile, so
+  // streamed output grows native terminal scrollback exactly once.
+  const proseChainRef = useRef<ProseHeadChain | null>(null);
+  const proseHeadsRef = useRef(new Map<string, SealedProseHead>());
   const assembledCountRef = useRef(0);
   const sessionRef = useRef(session);
   const segmentsRef = useRef<Segment[]>([{ base: 0, mode, show: showReasoning }]);
@@ -180,6 +185,8 @@ export function Chat({
     // `${index}-reasoning` keys would collide with the new projection.
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
+    proseChainRef.current = null;
+    proseHeadsRef.current.clear();
   }
   // #326: the hold shrinks settledEnd while paragraphs already promoted
   // under display-off would sit before the reasoning group — safe because a
@@ -274,11 +281,13 @@ export function Chat({
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
+    proseChainRef.current = null;
+    proseHeadsRef.current.clear();
     // Clear screen + scrollback, cursor home: the whole visible transcript
     // (including anything printed before moh) goes away by owner decision.
     stdout.write("\x1b[H\x1b[2J\x1b[3J");
     setRepaint((value) => value + 1);
-  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout, widthTick]);
+  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout, widthTick, state.events.length]);
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked
@@ -405,18 +414,52 @@ export function Chat({
     }
   }
   const activeChain = reasoningChainRef.current;
-  const liveBlocks: readonly TranscriptBlock[] = activeChain && activeChain.lines > 0
-    ? rawLiveBlocks.map((block) => block.key === activeChain.key
-      ? { ...block, lines: block.lines.slice(activeChain.lines), continuation: true }
-      : block)
-    : rawLiveBlocks;
+  // Prose head promotion (vision note 33). Assistant block keys are stable
+  // across live and settled projections, unlike the separate reasoning
+  // channel, so sealing can dedup directly against the same key.
+  {
+    // Reasoning display projects above the reply only after the model call
+    // seals, so prose must stay live until then or Static would reverse that
+    // order. Structured Markdown stays on the semantic paragraph/fence path.
+    const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
+    const prose = !showReasoning && latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
+    const chain = proseChainRef.current;
+    if (latestProse && chain?.key === latestProse.key && !prose) {
+      // A later delta can turn previously plain text into Markdown whose
+      // meaning reaches backwards (setext/table/list). Rebuild from the
+      // canonical projection rather than freezing the obsolete rendering.
+      repaintRef.current = true;
+    } else if (prose) {
+      if (chain && chain.key !== prose.key) proseHeadsRef.current.set(chain.key, chain);
+      const previous = chain?.key === prose.key ? chain : null;
+      const advanced = nextProseHead(previous, prose, Math.max(8, cols - 6));
+      if (advanced.chunks.length > 0 && (previous?.chunks.length ?? 0) === 0) {
+        advanced.startIndex = assembledCountRef.current;
+      }
+      proseChainRef.current = replaySettled ? (previous ?? advanced) : advanced;
+    } else if (chain) {
+      proseHeadsRef.current.set(chain.key, chain);
+      proseChainRef.current = null;
+    }
+  }
+  const activeProse = proseChainRef.current;
+  const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.map((block) => {
+    if (activeChain && activeChain.lines > 0 && block.key === activeChain.key) {
+      return { ...block, lines: block.lines.slice(activeChain.lines), continuation: true };
+    }
+    if (activeProse && activeProse.chars > 0 && block.key === activeProse.key) {
+      return trimProseHead(block, activeProse.chars);
+    }
+    return block;
+  });
   const settledBlocks = useMemo((): readonly TranscriptBlock[] => {
     const segments = segmentsRef.current.filter((segment, index) =>
       segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
-    return embedReasoningHeads(segments.flatMap((segment, index) => projectTranscript(
+    const projected = segments.flatMap((segment, index) => projectTranscript(
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
       { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
-    )), reasoningHeadsRef.current);
+    ));
+    return embedProseHeads(embedReasoningHeads(projected, reasoningHeadsRef.current), proseHeadsRef.current);
   }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - footerRows)) : settledBlocks,
@@ -452,7 +495,12 @@ export function Chat({
   // right after the blocks that were settled when it started streaming.
   const assembledSettled: readonly TranscriptBlock[] = spliceReasoningChunks(
     settledBlocks,
-    [...reasoningHeadsRef.current.values(), ...(activeChain ? [activeChain] : [])],
+    [
+      ...reasoningHeadsRef.current.values(),
+      ...(activeChain ? [activeChain] : []),
+      ...proseHeadsRef.current.values(),
+      ...(activeProse ? [activeProse] : []),
+    ],
   );
   assembledCountRef.current = assembledSettled.length;
   // Static must stay MOUNTED across modal cycles: unmounting it (the old
@@ -617,6 +665,105 @@ export function Chat({
       />
     </Box>
   );
+}
+
+/** One live plain-prose promotion chain (vision note 33). `chars` is
+ * the source prefix already printed through Static; one wrapped row remains
+ * volatile so later text can still change its wrapping. */
+export interface ProseHeadChain {
+  key: string;
+  chars: number;
+  chunks: TranscriptBlock[];
+  startIndex: number;
+}
+
+export type SealedProseHead = Omit<ProseHeadChain, "key">;
+
+/** Conservative gate: Markdown constructs can change the interpretation of
+ * preceding lines, so they stay on the existing semantic paragraph/fence
+ * promotion path. The fast path is only for ordinary model prose. */
+export function isPlainStreamingProse(source: string | undefined): source is string {
+  if (!source) return false;
+  return !/[`*_[\]<>|&\\]/.test(source)
+    && !/ {2}\n/.test(source)
+    && !/^\s{0,3}(?:#{1,6}\s|>|[-+=]{3,}\s*$|[-+]\s|\d+[.)]\s|~{3,})/m.test(source);
+}
+
+/** Returns complete visual rows and their source boundary, retaining the
+ * newest row as the only mutable tail. It wraps at source whitespace, so a
+ * promoted prefix never cuts a word and remains valid as text is appended. */
+export function promotablePlainPrefix(source: string, width: number): { chars: number; lines: string[] } {
+  const rows: Array<{ end: number; text: string }> = [];
+  let base = 0;
+  for (const sourceLine of source.split("\n")) {
+    const tokens = [...sourceLine.matchAll(/\S+\s*/g)];
+    let text = "";
+    let end = base;
+    for (const token of tokens) {
+      const word = token[0].trimEnd();
+      if (!word) continue;
+      if (text && text.length + 1 + word.length > width) {
+        rows.push({ end, text });
+        text = word;
+      } else {
+        text = text ? `${text} ${word}` : word;
+      }
+      end = base + token.index + token[0].length;
+    }
+    if (text) rows.push({ end, text });
+    base += sourceLine.length + 1;
+  }
+  const stable = rows.slice(0, -1);
+  return { chars: stable.at(-1)?.end ?? 0, lines: stable.map((row) => row.text) };
+}
+
+/** Advances plain prose promotion in bounded batches. Chunks render as
+ * already-wrapped body rows (not independent Markdown documents), while the
+ * exact source-character boundary drives live and settled deduplication. */
+export function nextProseHead(chain: ProseHeadChain | null, block: TranscriptBlock, width: number): ProseHeadChain {
+  const next = chain?.key === block.key ? chain : { key: block.key, chars: 0, chunks: [], startIndex: 0 };
+  const source = block.markdown;
+  if (!isPlainStreamingProse(source)) return next;
+  const promoted = promotablePlainPrefix(source, Math.max(8, width));
+  if (promoted.chars <= next.chars) return next;
+  const prior = next.chunks.reduce((sum, chunk) => sum + chunk.lines.length, 0);
+  const lines = promoted.lines.slice(prior);
+  if (lines.length === 0) return next;
+  const first = next.chunks.length === 0;
+  const chunk: TranscriptBlock = {
+    key: `${block.key}-head-${next.chunks.length}`,
+    kind: "moh",
+    glyph: "◆",
+    type: "moh",
+    lines,
+    continuation: first ? block.continuation : true,
+  };
+  return { ...next, chars: promoted.chars, chunks: [...next.chunks, chunk] };
+}
+
+/** Removes an already-printed source prefix. Once a head exists the
+ * remainder always continues it; an empty remainder emits no body row. */
+export function trimProseHead(block: TranscriptBlock, chars: number): TranscriptBlock {
+  if (chars <= 0 || block.markdown === undefined) return block;
+  const markdown = block.markdown.slice(chars).trimStart();
+  return {
+    ...block,
+    lines: markdown ? markdown.split("\n") : [],
+    markdown,
+    ...(block.lineKinds ? { lineKinds: markdown ? block.lineKinds.slice(-markdown.split("\n").length) : [] } : {}),
+    continuation: true,
+  };
+}
+
+export function embedProseHeads(
+  blocks: readonly TranscriptBlock[],
+  heads: ReadonlyMap<string, SealedProseHead>,
+): TranscriptBlock[] {
+  if (heads.size === 0) return [...blocks];
+  return blocks.map((block) => {
+    const head = heads.get(block.key);
+    return head ? trimProseHead(block, head.chars) : block;
+  });
 }
 
 /** Lines of live reasoning kept volatile below the promoted head (#329). */

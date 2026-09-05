@@ -99,6 +99,77 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 
+  test("completed lines enter terminal scrollback once while a long response is still streaming", async () => {
+    const { server, url } = startLineStream();
+    const rawDump = "/tmp/moh-streaming-lines-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 20,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
+          endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
+        },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("line stream") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          // LAST-LIVE-LINE arrives before the provider sends finish_reason.
+          { wait: 6.0, until: "LAST-LIVE-LINE" },
+          // Let Ink finish the current frame under full-suite load. The fake
+          // provider still holds the stream open for three seconds.
+          { wait: 0.5 },
+        ],
+        tail: 20,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const raw = readFileSync(rawDump, "utf8");
+      expect(raw).toContain("LAST-LIVE-LINE");
+      expect(raw).not.toContain("STREAM-FINISHED");
+      // A completed row belongs to native terminal scrollback. Repainting it
+      // as part of the volatile viewport makes the response look like an
+      // internally scrolling box and produces duplicate terminal output.
+      expect(raw.match(/FIRST-COMPLETED-LINE/g)).toHaveLength(1);
+      // Newline-heavy streams must remain bounded too; otherwise moving
+      // rows into Static would fix the UX while recreating the old O(n²)
+      // PTY flood through a different path.
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
+      const screen = meta.lines.map((line) => line.text);
+      const input = screen.findIndex((line) => line.includes("type…"));
+      expect(input).toBeGreaterThanOrEqual(Math.floor(meta.lines.length / 2));
+    } finally {
+      server.stop(true);
+    }
+  }, 15_000);
+
+  test("final settlement does not reprint a prose prefix already in scrollback", async () => {
+    const { server, url } = startLineStream();
+    const rawDump = "/tmp/moh-streaming-lines-settled-raw.bin";
+    try {
+      await runPtyRaw({
+        cols: 120,
+        rows: 20,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
+          endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
+        },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("settled line stream") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 7.0, until: "STREAM-FINISHED" },
+          { wait: 0.5 },
+        ],
+        tail: 20,
+        rawDump,
+      });
+      expect(readFileSync(rawDump, "utf8").match(/FIRST-COMPLETED-LINE/g)).toHaveLength(1);
+    } finally {
+      server.stop(true);
+    }
+  }, 15_000);
+
   test("an unbroken oversized prose stream stays output-bounded (#203)", async () => {
     const { server, url } = startUnbrokenStream();
     const rawDump = "/tmp/moh-streaming-tail-raw.bin";
@@ -123,6 +194,35 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 });
+
+function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "line-stream", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          for (let i = 0; i < 24; i++) {
+            const marker = i === 0 ? "FIRST-COMPLETED-LINE" : i === 23 ? "LAST-LIVE-LINE" : `MIDDLE-LINE-${i}`;
+            send({ content: `${marker} ${"x".repeat(120)}\n` });
+            await Bun.sleep(20);
+          }
+          // Keep the response open long enough for the PTY assertion to
+          // sample the in-progress turn rather than its final Static block.
+          await Bun.sleep(3_000);
+          send({ content: "STREAM-FINISHED" });
+          send({}, "stop");
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
 
 function startUnbrokenStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({
