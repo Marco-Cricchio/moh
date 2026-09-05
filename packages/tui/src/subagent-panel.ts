@@ -98,6 +98,9 @@ export const TAIL_POLL_MS = 350;
  */
 export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, SubagentTail> {
   const [tails, setTails] = useState<Map<string, SubagentTail>>(new Map());
+  // trackSubagents/useVisibleSubagents return fresh arrays every render.
+  // The effect must not restart its poll timer after every tail repaint.
+  const signature = subagents.map((sub) => `${sub.callId}:${sub.status}:${sub.log}`).join("|");
   // Offsets and accumulated lines live in a ref: they persist across polls
   // without re-rendering, and keyed renders read only the snapshot state.
   const stateRef = useRef(new Map<string, { offset: number; tail: SubagentTail }>());

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import React from "react";
 import { render } from "ink-testing-library";
+import { Text } from "ink";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { BottomBar } from "../src/BottomBar";
 import { SubagentPanel } from "../src/SubagentPanel";
@@ -14,6 +18,8 @@ import {
   formatElapsed,
   panelWidth,
   coalesceTailLines,
+  useSubagentTails,
+  TAIL_POLL_MS,
   STALLED_AFTER_MS,
   PANEL_TAIL_LINES,
   type TrackedSubagent,
@@ -64,6 +70,30 @@ const tailOf = (lines: string[], currentTool: string | null = "bash"): SubagentT
   lines: lines.map((text, id) => ({ id: id + 1, text })),
   currentTool,
   lastActivityAt: Date.now(),
+});
+
+describe("live tail polling", () => {
+  test("repaints each appended child delta before the child settles", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "moh-live-tail-"));
+    const log = join(dir, "child.jsonl");
+    const sub: TrackedSubagent = { ...runningSub, log };
+    function Probe() {
+      const tail = useSubagentTails([sub]).get(sub.callId);
+      return <Text>{tail?.lines.at(-1)?.text ?? "waiting"}</Text>;
+    }
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><Probe /></ThemeProvider>);
+    try {
+      await writeFile(log, `${JSON.stringify({ type: "assistant_delta", text: "first " })}\n`);
+      await Bun.sleep(TAIL_POLL_MS * 2);
+      expect(stripAnsi(ink.lastFrame() ?? "")).toContain("first");
+      await appendFile(log, `${JSON.stringify({ type: "assistant_delta", text: "second" })}\n`);
+      await Bun.sleep(TAIL_POLL_MS * 2);
+      expect(stripAnsi(ink.lastFrame() ?? "")).toContain("first second");
+    } finally {
+      ink.unmount();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("glyphs and panel text", () => {
