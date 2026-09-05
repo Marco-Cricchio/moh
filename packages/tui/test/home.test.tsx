@@ -11,6 +11,17 @@ import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Polls until the frame matches (bounded); runner-speed-proof replacement
+ * for fixed sleeps around keystroke effects (#491 flake). */
+async function untilFrame(getFrame: () => string, predicate: (frame: string) => boolean, ms = 2000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (predicate(getFrame())) return;
+    if (Date.now() > deadline) throw new Error(`untilFrame timed out; last frame: ${JSON.stringify(getFrame())}`);
+    await sleep(20);
+  }
+}
+
 /** n sessions titled s1…sn (oldest first, so sN is the newest). */
 async function homeWithSessions(n: number): Promise<{ cwd: string; home: string }> {
   const home = mkdtempSync(join(tmpdir(), "moh-tui-home-list-"));
@@ -283,23 +294,23 @@ describe("session rename (#477)", () => {
     const { cwd, home } = await homeWithSessions(2);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
     // Rename the newest (s2, banner row) to "banana".
     i.stdin.write("r");
-    await sleep(20);
+    await untilFrame(frame, (f) => f.includes("rename:"));
     for (const _ of Array.from({ length: 20 })) i.stdin.write("\x7f");
     i.stdin.write("banana");
-    await sleep(40);
+    await untilFrame(frame, (f) => f.includes("rename: banana"));
     i.stdin.write("\r");
-    await sleep(30);
+    await untilFrame(frame, (f) => !f.includes("rename:"));
     // Searching by the DISPLAY name hits it…
     i.stdin.write("banana");
-    await sleep(80);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("banana");
+    await untilFrame(frame, (f) => f.includes("start “banana”"));
     // …and searching by the DERIVED title still finds the same session row.
     for (const _ of Array.from({ length: 10 })) i.stdin.write("\x7f");
     i.stdin.write("s2");
-    await sleep(80);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("banana");
+    await untilFrame(frame, (f) => f.includes("start “s2”"));
+    expect(frame()).toContain("banana");
     i.unmount();
   });
 });
