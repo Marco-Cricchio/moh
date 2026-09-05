@@ -68,7 +68,13 @@ point at the closest one rather than inventing detail.
 
 ## moh documentation (know where to look)
 
-Questions about moh itself are routing questions too. The docs live in the project root — read them, don't guess. The single source of truth for terminology is **`CONTEXT.md`** (the glossary above quotes it). Key entry points:
+**Scope gate first:** the paths below exist only **inside the moh repository
+itself** (contributor docs). If the current project is not the moh repo — a
+user project, a fresh directory, anything without `docs/extending/` — skip
+this section entirely: do not probe for these files, answer from the **user
+manual** above (it is bundled in the binary and always available).
+
+Inside the moh repo, the docs live in the project root — read them, don't guess. The single source of truth for terminology is **`CONTEXT.md`** (the glossary above quotes it). Key entry points:
 
 - **`docs/extending/index.md`** — the extending docs' front door, split by persona (extension writer vs library user). **`docs/extending/extensions.md`** is the authority on the `@moh/extension` contract: phase hooks (`beforeModelCall`, `onToolCall`, …), the restrict-only veto, lifecycle. **`docs/extending/skills.md`** covers skill format, discovery (`~/.moh/skills/` < `.moh/skills/`, project wins), progressive disclosure, and first-party skill ownership. **`docs/extending/library-usage.md`** covers embedding the core.
 - **`docs/principles.md`** — the seven architecture principles; a change that violates one needs an explicit ADR.

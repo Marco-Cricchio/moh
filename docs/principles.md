@@ -1,6 +1,6 @@
 # moh — Principles
 
-The seven principles below govern every change to moh. **Consult this file before any change**; if a change violates a principle, it needs an explicit ADR saying why. Each principle links to its origin in the spec (`docs/spec/v1.md`) and the ticket that holds the full decision record.
+The seven principles below govern every change to moh. **Consult this file before any change**; if a change violates a principle, it needs an explicit ADR saying why. Each principle links to its origin in the ticket that holds the full decision record.
 
 1. **Headless core, thin clients.** All agent logic lives in `@moh/core`; the TUI and CLI are in-process clients that never talk to providers directly. Nothing imports the TUI. *(Origin: spec §1, ticket #7, [ADR-0002](adr/0002-provider-neutral-types.md).)*
 

@@ -8,9 +8,7 @@ dist/
 # Internal-only artifacts (never publish)
 prototype/
 research/
-CONTEXT.md
 AGENTS.md
-docs/adr/
 docs/agents/
 docs/spec/
 docs/research/
