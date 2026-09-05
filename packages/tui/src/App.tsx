@@ -732,7 +732,10 @@ export function App({
       if (key.tab && !completionOpenRef.current) {
         // #497: subagent chips sit at the head of the cycle (only when any
         // exist); tab from the composer reaches them first, then the action
-        // chips. shift+tab walks backwards into them last.
+        // chips. Entering the zone MUST initialise selection to its first
+        // visible chip: leaving a stale ordinal selected focused #6 on the
+        // owner's screenshot after a first Tab.
+        if (!key.shift && focusedChip === null && subCount > 0) setFocusedSubagent(0);
         setFocusedChip((current) => {
           if (key.shift) {
             if (current === null) return chips.length - 1;
@@ -750,7 +753,9 @@ export function App({
       // Enter toggles that child's live panel; Esc returns to the composer
       // leaving the panel as-is.
       if (focusedChip === -1) {
-        if (key.escape) return setFocusedSubagent(null);
+        // #497: Esc leaves chip focus entirely — back to the composer
+        // (owner bug report: the composer stayed unreachable otherwise).
+        if (key.escape) { setFocusedChip(null); setFocusedSubagent(null); return; }
         if (key.leftArrow) return setFocusedSubagent((current) => Math.max(0, (current ?? 0) - 1));
         if (key.rightArrow) return setFocusedSubagent((current) => Math.min(subCount - 1, (current ?? 0) + 1));
         if (key.return) {
@@ -759,6 +764,9 @@ export function App({
           setPanelSubagent((prev) => prev === index ? null : index);
           return;
         }
+        // Any other key (typing) also returns to the composer so the
+        // textarea is never reachable-stuck behind the chip zone.
+        if (input !== undefined && input !== "") { setFocusedChip(null); setFocusedSubagent(null); return; }
         return;
       }
       if (focusedChip !== null) {

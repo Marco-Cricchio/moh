@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import React from "react";
 import { render } from "ink-testing-library";
+import { Text } from "ink";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { BottomBar } from "../src/BottomBar";
 import { SubagentPanel } from "../src/SubagentPanel";
@@ -13,6 +17,9 @@ import {
   isStalled,
   formatElapsed,
   panelWidth,
+  coalesceTailLines,
+  useSubagentTails,
+  TAIL_POLL_MS,
   STALLED_AFTER_MS,
   PANEL_TAIL_LINES,
   type TrackedSubagent,
@@ -37,6 +44,15 @@ describe("trackSubagents", () => {
     expect(subs[1]!.log).toBe("/x/b.jsonl");
   });
 
+  test("adds ordinal only when child names collide", () => {
+    const duplicated = trackSubagents([
+      { type: "subagent_spawn", callId: "a", name: "subagent", log: "/x/a.jsonl" },
+      { type: "subagent_spawn", callId: "b", name: "subagent", log: "/x/b.jsonl" },
+      { type: "subagent_spawn", callId: "c", name: "scout", log: "/x/c.jsonl" },
+    ]);
+    expect(duplicated.map((sub) => sub.displayName ?? sub.name)).toEqual(["1 subagent", "2 subagent", "scout"]);
+  });
+
   test("empty log → no subagents", () => {
     expect(trackSubagents([])).toEqual([]);
   });
@@ -56,7 +72,43 @@ const tailOf = (lines: string[], currentTool: string | null = "bash"): SubagentT
   lastActivityAt: Date.now(),
 });
 
+describe("live tail polling", () => {
+  test("repaints each appended child delta before the child settles", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "moh-live-tail-"));
+    const log = join(dir, "child.jsonl");
+    const sub: TrackedSubagent = { ...runningSub, log };
+    function Probe() {
+      const tail = useSubagentTails([sub]).get(sub.callId);
+      return <Text>{tail?.lines.at(-1)?.text ?? "waiting"}</Text>;
+    }
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><Probe /></ThemeProvider>);
+    try {
+      await writeFile(log, `${JSON.stringify({ type: "assistant_delta", text: "first " })}\n`);
+      await Bun.sleep(TAIL_POLL_MS * 2);
+      expect(stripAnsi(ink.lastFrame() ?? "")).toContain("first");
+      await appendFile(log, `${JSON.stringify({ type: "assistant_delta", text: "second" })}\n`);
+      await Bun.sleep(TAIL_POLL_MS * 2);
+      expect(stripAnsi(ink.lastFrame() ?? "")).toContain("first second");
+    } finally {
+      ink.unmount();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("glyphs and panel text", () => {
+  test("coalesces consecutive assistant deltas into one tail preview", () => {
+    const coalesced = coalesceTailLines(
+      [{ id: 1, text: "● read · notes.md" }, { id: 2, text: "· one " }],
+      [{ id: 3, text: "· two " }, { id: 4, text: "· three" }, { id: 5, text: "✓ done" }],
+    );
+    expect(coalesced).toEqual([
+      { id: 1, text: "● read · notes.md" },
+      { id: 4, text: "· one two three" },
+      { id: 5, text: "✓ done" },
+    ]);
+  });
+
   test("running is ◐, stalled ⏸, settled ✓/✗", () => {
     expect(subagentGlyph(runningSub, tailOf(["● bash"]), Date.now())).toBe("◐");
     const stalledTail: SubagentTail = { ...tailOf(["● bash"]), lastActivityAt: Date.now() - STALLED_AFTER_MS - 1000 };
@@ -105,6 +157,7 @@ const base = {
   width: 120,
   pending: false,
   spinner: "⠸",
+  mode: "dev" as const,
   model: "mock",
   turns: 1,
   tokens: { contextIn: 10_000, totalOut: 100, calls: 1 },
@@ -129,10 +182,22 @@ describe("subagent chips in the bottom bar (#497)", () => {
     { label: "worker", glyph: "✓", active: false },
   ];
 
-  test("chips appear per subagent with state glyphs", () => {
-    const frame = barFrame({ subagentChips: chips });
-    expect(frame).toContain("scout");
-    expect(frame).toContain("✓ worker");
+  test("chips appear per subagent with state glyphs, on their own row above the action chips", () => {
+    const ink = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <BottomBar {...base} subagentChips={chips} />
+      </ThemeProvider>,
+    );
+    // Capture before unmount: Ink's Linux renderer clears lastFrame during
+    // unmount (macOS happens to retain it), so querying it afterwards made
+    // this otherwise deterministic layout test flaky in CI.
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    const lines = frame.split("\n");
+    ink.unmount();
+    const subLine = lines.findIndex((l) => l.includes("scout"));
+    const actionLine = lines.findIndex((l) => l.includes("⏎ send"));
+    expect(subLine).toBeGreaterThanOrEqual(0);
+    expect(actionLine).toBeGreaterThan(subLine); // own row, above the actions
     expect(frame).toContain("◐");
   });
 
@@ -158,6 +223,8 @@ describe("subagent chips in the bottom bar (#497)", () => {
     const frame = barFrame({ subagentChips: chips, width: 60 });
     expect(frame).toContain("⊙2");
     expect(frame).not.toContain("scout");
+    // Action chips still render on their own row below.
+    expect(frame).toContain("⏎ send");
   });
 
   test("active chip highlights (accent border)", () => {
@@ -178,18 +245,22 @@ describe("live panel rendering", () => {
     );
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame).toContain("scout");
+    // Running peek retains up to five meaningful visual rows.
     expect(frame).toContain("● bash · git status");
     expect(frame).toContain("✓ done");
+    expect(frame).toContain("● read · src/a.ts");
     ink.unmount();
   });
 
-  test("empty tail shows a placeholder", () => {
+  test("empty running tail stays header-only", () => {
     const ink = render(
       <ThemeProvider value={THEMES["tokyo-night"]}>
         <SubagentPanel sub={runningSub} tail={undefined} now={Date.now()} width={40} />
       </ThemeProvider>,
     );
-    expect(stripAnsi(ink.lastFrame() ?? "")).toContain("no events yet");
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("scout");
+    expect(frame).not.toContain("no events yet");
     ink.unmount();
   });
 
@@ -203,6 +274,9 @@ describe("live panel rendering", () => {
     const frame = stripAnsi(ink.lastFrame() ?? "");
     expect(frame).toContain("2.0k tok");
     expect(frame.split("\n").map((l) => l.trim()).join(" ")).toContain("result in transcript");
+    // On settle only the header + one freeze acknowledgement remains; the
+    // live tail belongs to the static transcript block now.
+    expect(frame).not.toContain("✓ done\n│  ✓ done");
     ink.unmount();
   });
 });

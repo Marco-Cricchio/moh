@@ -207,35 +207,37 @@ function StatusRow(props: StatusProps) {
   );
 }
 
-function KeyRow({ width, focused, focusedSubagent, subagentChips }: { width: number; focused: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
+/** #497: the subagent chips row (footer row 0, above the action chips).
+ * Owner spec: subagent chips live on their OWN row, not the action chips'
+ * row. They degrade to a bare count (⊙N) when the terminal narrows and
+ * disappear entirely when there are no subagents. */
+function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: number; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
   const theme = useTheme();
-  const { chips: allChips, graphic } = visibleChips(width);
-  // #497: subagent chips lead the centered chip row, ahead of the action
-  // chips. Their focus indices precede the action chips (head of the tab
-  // cycle). They never drop; instead rightmost action chips yield from the
-  // same width budget (ctrl shortcuts remain available). Narrow terminals
-  // collapse the cluster to a bare count (⊙N).
   const subs = subagentChips ?? [];
+  if (subs.length === 0) return null;
   const compact = widthClass183(width) === "compact";
-  const budget = Math.max(1, width - 4);
-  const subChipWidth = (sub: { label: string }) => graphic ? 8 + sub.label.length : 5 + sub.label.length;
-  const subsWidth = subs.reduce((sum, sub) => sum + subChipWidth(sub) + 2, -2);
-  const chips = (() => {
-    const displayed = [...allChips];
-    const actionWidth = (list: typeof displayed) => list.reduce((sum, chip) => sum + (graphic ? graphicChipWidth(chip) + 2 : compactChipWidth(chip) + 1), -1);
-    while (displayed.length > 1 && subsWidth + actionWidth(displayed) > budget) displayed.pop();
-    return displayed;
-  })();
-  return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={graphic ? 2 : 1} flexWrap="nowrap" marginTop={1}>
-    {subs.length > 0 && (compact ? (
+  const overCap = subs.filter((sub) => sub.label.startsWith("+")).length;
+  const core = subs.filter((sub) => !sub.label.startsWith("+"));
+  if (compact) {
+    return <Box width={Math.max(1, width - 1)} justifyContent="center" flexShrink={0}>
       <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexShrink={0}>
-        <Text color={theme.dim}>⊙{subs.length}</Text>
+        <Text color={theme.dim}>⊙{core.length + overCap}</Text>
       </Box>
-    ) : subs.map((sub, index) => (
-      <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focused === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
-        <Text color={sub.active ? theme.accent : theme.dim}>{sub.glyph} </Text><Text color={focused === index ? theme.accent : theme.fg} bold>{sub.label}</Text>
+    </Box>;
+  }
+  return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={2} flexWrap="nowrap" flexShrink={0}>
+    {subs.map((sub, index) => (
+      <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focusedSubagent === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
+        <Text color={sub.active ? theme.accent : theme.dim}>{sub.glyph} </Text><Text color={focusedSubagent === index ? theme.accent : theme.fg} bold>{sub.label}</Text>
       </Box>
-    )))}
+    ))}
+  </Box>;
+}
+
+function KeyRow({ width, focused }: { width: number; focused: number | null }) {
+  const theme = useTheme();
+  const { chips, graphic } = visibleChips(width);
+  return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={graphic ? 2 : 1} flexWrap="nowrap" marginTop={1}>
     {chips.map((chip, index) => graphic ? (
       <Box key={chip.label} borderStyle="round" borderColor={focused === index ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
         <Text color={focused === index ? theme.accent : theme.fg} bold>{chip.key} </Text><Text color={chip.color === "purple" ? theme.purple : focused === index ? theme.accent : theme.dim}>{chip.label}</Text>
@@ -247,5 +249,9 @@ function KeyRow({ width, focused, focusedSubagent, subagentChips }: { width: num
 }
 
 export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
-  return <Box flexDirection="column"><StatusRow {...props} /><KeyRow width={props.width} focused={props.focusedChip} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} /></Box>;
+  return <Box flexDirection="column">
+    <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} />
+    <StatusRow {...props} />
+    <KeyRow width={props.width} focused={props.focusedChip} />
+  </Box>;
 }

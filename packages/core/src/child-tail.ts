@@ -74,8 +74,10 @@ export function childTailLine(id: number, event: AgentEvent): ChildTailLine | nu
     case "user_message":
       return { id, text: "▸ task" };
     case "assistant_delta": {
-      const words = firstWords(event.text, 8);
-      return words ? { id, text: `· ${words}` } : null;
+      // Keep provider whitespace intact. The TUI tail coalescer joins
+      // adjacent fragments; trimming here erased the only reliable word
+      // boundary and produced glued prose (`Theharbourwas…`).
+      return event.text ? { id, text: `· ${event.text}` } : null;
     }
     case "tool_call": {
       const summary = shortArgSummary(event);
