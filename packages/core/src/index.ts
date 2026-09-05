@@ -118,7 +118,7 @@ import { skillRecommendations, formatSkillCommand, type SkillRecommendation, typ
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.
-export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations } from "./session/agent-loop";
+export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,

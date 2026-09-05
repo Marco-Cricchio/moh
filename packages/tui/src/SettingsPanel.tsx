@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
@@ -113,7 +113,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
       { key: "handoff", label: "Session handoff", value: handoffTransport === "gist" ? "GitHub Gist" : handoffTransport === "none" ? "Disabled" : "Not Set" },
-      { key: "maxIterations", label: "Max iterations/turn", value: maxIterationsLabel(moh.maxIterations ?? 50) },
+      { key: "maxIterations", label: "Max iterations/turn", value: maxIterationsLabel(moh.maxIterations ?? DEFAULT_MAX_ITERATIONS) },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
@@ -206,7 +206,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onConfigureHandoff?.();
       case "maxIterations": {
         // #498: → (enter) cycles forward, shift+tab cycles backward.
-        const current = moh.maxIterations ?? 50;
+        const current = moh.maxIterations ?? DEFAULT_MAX_ITERATIONS;
         const index = MAX_ITERATION_PRESETS.indexOf(current as (typeof MAX_ITERATION_PRESETS)[number]);
         const at = index === -1 ? 0 : index;
         return setMaxIterations(MAX_ITERATION_PRESETS[(at + 1) % MAX_ITERATION_PRESETS.length]!);
@@ -231,7 +231,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   };
 
   const cycleMaxIterationsBackward = () => {
-    const current = moh.maxIterations ?? 50;
+    const current = moh.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     const index = MAX_ITERATION_PRESETS.indexOf(current as (typeof MAX_ITERATION_PRESETS)[number]);
     const at = index === -1 ? 0 : index;
     setMaxIterations(MAX_ITERATION_PRESETS[(at + MAX_ITERATION_PRESETS.length - 1) % MAX_ITERATION_PRESETS.length]!);
@@ -393,6 +393,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     }
     if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
     if (key.downArrow) return setCursor((c) => Math.min(rows.length - 1, c + 1));
+    // #498: → on the max-iterations row cycles presets forward.
+    if (key.rightArrow) {
+      if (rows[cursor]?.key === "maxIterations") return activate(rows[cursor]!);
+      return;
+    }
     // #498: shift+tab on the max-iterations row cycles presets backward.
     if (key.tab && key.shift) {
       if (rows[cursor]?.key === "maxIterations") return cycleMaxIterationsBackward();

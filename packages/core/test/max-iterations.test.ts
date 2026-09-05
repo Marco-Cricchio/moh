@@ -52,9 +52,9 @@ describe("#498 maxIterations unlimited sentinel", () => {
     try {
       writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", maxIterations: 0 }));
       const loopTurn = { deltas: ["working "], finish: "tool_calls" as const, toolCalls: [{ name: "bash", args: { command: "true" } }] };
-      // Six looping calls then a stop: past the default cap of 5? Use a
-      // scripted tail: the loop guard must never fire, so 6 tool
-      // iterations + final stop completes without any wrap-up.
+      // Six looping calls then a stop: the guard never fires under the
+      // sentinel, so all six tool iterations complete without any
+      // wrap-up call being inserted.
       const provider = MockProvider.scripted([
         loopTurn, loopTurn, loopTurn, loopTurn, loopTurn, loopTurn,
         { deltas: ["DONE"], finish: "stop" as const },

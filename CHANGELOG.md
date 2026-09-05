@@ -57,6 +57,17 @@ matching section here at tag time.
 - File-index git probe is async, unblocking App-based tests (#488).
 
 ## [Unreleased]
+### Added
+
+- **Max iterations per turn** (#498): TUI settings row cycling the
+  presets 50/100/200/500/unlimited (enter or → forward, shift+tab back);
+  selecting unlimited warns at selection time that the anti-runaway
+  safety net is off and persists to moh.json.
+- **`moh run --max-iterations <50|100|200|500|unlimited>`** (#498):
+  per-run override of moh.json's `maxIterations`; strict parse with a
+  clear usage error.
+- **`maxIterations: 0` unlimited sentinel** (#498): moh.json accepts any
+  integer 0–500; `0` disables the per-turn cap (the default stays 50).
 
 ## [0.17.2] - 2026-09-04
 ### Fixed

@@ -449,3 +449,20 @@ describe("max iterations row (#498)", () => {
     i.unmount();
   });
 });
+
+describe("max iterations row (#498) — right arrow", () => {
+  test("→ cycles presets forward like enter", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 11);
+    await sleep(30);
+    i.stdin.write("\x1b[C"); // →: 50 → 100
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(100);
+    i.stdin.write("\x1b[C"); // →: 100 → 200
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(200);
+    i.unmount();
+  });
+});
