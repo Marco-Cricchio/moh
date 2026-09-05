@@ -282,7 +282,7 @@ describe("upstream updates", () => {
 
   test("#517: an upstream entry equal to the bundled copy is not offered, even when the disk copy differs", async () => {
     const home = freshHome();
-    // installed = v1; bundle = v2; upstream index = v2 (stale index vs bundle... actually equal)
+    // installed stale at v1; bundle and upstream index both v2
     install({ mohHome: home, sources: [skill("plan", "v1")] });
     const bundled = skill("plan", "v2");
     const result = await checkUpstreamUpdates({
