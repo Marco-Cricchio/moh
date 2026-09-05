@@ -97,6 +97,28 @@ jobs:
           fi
           exit $status
 
+  # Skills-index drift guard: the upstream index.json IS the skills update
+  # channel served raw from main — a stale index shipped a downgrade offer
+  # to every install each launch (the #372-style apply/launch-sync loop).
+  # Fail (block) when the committed index does not match the bundled skills.
+  skills-index-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Fail when skills index.json is stale
+        run: |
+          bun scripts/gen-skills-index.ts >/dev/null
+          if ! git diff --quiet -- packages/core/assets/skills/index.json; then
+            echo "::error::packages/core/assets/skills/index.json is stale — run 'bun scripts/gen-skills-index.ts' and commit the result whenever a bundled skill changes."
+            git diff -- packages/core/assets/skills/index.json | head -20
+            exit 1
+          fi
+
   # Manual-drift heuristic (#457): warn — never block — when a PR changes a
   # user-visible door (slash commands, the COMMANDS panel, CLI usage texts,
   # the config schema) without touching docs/manual/. The light-alignment
