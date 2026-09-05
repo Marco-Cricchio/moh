@@ -188,13 +188,17 @@ describe("subagent chips in the bottom bar (#497)", () => {
         <BottomBar {...base} subagentChips={chips} />
       </ThemeProvider>,
     );
-    const lines = stripAnsi(ink.lastFrame() ?? "").split("\n");
+    // Capture before unmount: Ink's Linux renderer clears lastFrame during
+    // unmount (macOS happens to retain it), so querying it afterwards made
+    // this otherwise deterministic layout test flaky in CI.
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    const lines = frame.split("\n");
     ink.unmount();
     const subLine = lines.findIndex((l) => l.includes("scout"));
     const actionLine = lines.findIndex((l) => l.includes("⏎ send"));
     expect(subLine).toBeGreaterThanOrEqual(0);
     expect(actionLine).toBeGreaterThan(subLine); // own row, above the actions
-    expect(stripAnsi(ink.lastFrame() ?? "")).toContain("◐");
+    expect(frame).toContain("◐");
   });
 
   test("no subagents → no chips (footer unchanged)", () => {
