@@ -2,6 +2,7 @@ import type { Message, Provider, StreamEvent, StreamOptions, ToolSpec } from "./
 import type { AuthMethodKind } from "./auth/types";
 import type { EndpointAuthContext } from "./auth/resolve";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
+import { ProviderError } from "./types";
 import { aiSdkStreamFor, type AiSdkTransport } from "./providers/ai-sdk";
 import { resolveEndpointCredential } from "./auth/resolve";
 import type { EndpointCapabilities, ThinkingFormat } from "./types";
@@ -157,14 +158,21 @@ export function createRoute(config: RouteConfig): Route {
   const selected = refFor(config.target);
   let servingIndex = 0;
   let selectedRecoveryDue = false;
-  const failures = new Map<number, { kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network"; count: number; until: number }>();
-  const cooldownMs = (kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network", count: number) => {
+  const failures = new Map<number, { kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request"; count: number; until: number }>();
+  const cooldownMs = (kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request", count: number) => {
     if (kind === "quota_exhausted") return 15 * 60_000;
+    // #506: a deterministic invalid_request rejection (e.g. a text-only
+    // fallback target vs. multimodal history) is cooldown-worthy too:
+    // re-probing it every turn replays the same failure with zero progress.
+    if (kind === "invalid_request") return 15 * 60_000;
     const initial = kind === "rate_limited" ? 60_000 : kind === "overloaded" ? 30_000 : 15_000;
     const cap = kind === "rate_limited" ? 15 * 60_000 : kind === "overloaded" ? 5 * 60_000 : 2 * 60_000;
     return Math.min(initial * 2 ** (count - 1), cap);
   };
-  const recordFailure = (index: number, kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network") => {
+  const recordFailure = (
+    index: number,
+    kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request",
+  ) => {
     const prior = failures.get(index);
     const count = prior?.kind === kind ? prior.count + 1 : 1;
     failures.set(index, { kind, count, until: now() + cooldownMs(kind, count) });
@@ -244,6 +252,18 @@ export function createRoute(config: RouteConfig): Route {
                 yield { type: "fallback", from: refFor(target), to: refFor(chain[next]!), reason: normalized.kind };
                 break;
               }
+            }
+            // #506: a fallback stop that deterministically rejects the
+            // request shape (invalid_request, e.g. text-only model vs.
+            // multimodal history) is cooldown-worthy: record it so the
+            // next turn does not re-probe it, and throw once with a
+            // combined diagnostic that names the rejected target.
+            if (normalized.kind === "invalid_request" && i !== 0) {
+              recordFailure(i, "invalid_request");
+              throw new ProviderError(
+                "invalid_request",
+                `${refFor(target)} rejected the request: ${normalized.message}`,
+              );
             }
             throw normalized;
           }

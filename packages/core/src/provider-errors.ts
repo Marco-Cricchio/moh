@@ -119,6 +119,7 @@ const QUOTA_HINTS = [
   "balance",
   "payment required",
   "insufficient balance",
+  "usage limit",
   "recharge",
   "resource package",
 ];
