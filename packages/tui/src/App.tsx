@@ -877,6 +877,7 @@ export function App({
         updateConfig,
         session,
         notify: push,
+        renameSession: (name) => session?.rename(name),
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
         onOpenCommands: () => setOverlay("commands"),

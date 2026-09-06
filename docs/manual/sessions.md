@@ -34,8 +34,9 @@ the search — which matches both the display name and the original
 derived title. Rename from the home screen with `r` or → on a selected
 session row (the pertinent banner included): edit the prefilled name,
 enter confirms, esc cancels, enter on an empty name resets to the
-derived title. From the CLI: `moh sessions rename <file|id> <name>`
-(an empty name resets). The name is a chrome event in the log — resume,
+derived title. In an open session, `/rename <name>` sets the same display
+name. From the CLI: `moh sessions rename <file|id> <name>` (an empty name
+resets). The name is a chrome event in the log — resume,
 fork (it is inherited) and compaction carry it for free — and it never
 touches file names or slugs.
 
