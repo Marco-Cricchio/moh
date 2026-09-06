@@ -95,6 +95,25 @@ matching section here at tag time.
   longer double-encoded.
 - File-index git probe is async, unblocking App-based tests (#488).
 
+## [0.21.1] - 2026-09-06
+### Fixed
+
+- **Streaming viewport growth** (#526, vision note 33): during long model
+  output the volatile box no longer grows line-by-line pushing the footer
+  away — closed Markdown segments (paragraph, stable list item, closed fence)
+  and completed reasoning lines are promoted incrementally into scrollback
+  while only the current segment/line stays volatile; reasoning streams
+  wrapped at terminal width with a 1-line live tail; a clipped streaming
+  table keeps its header visible without flickering; fully promoted live
+  blocks disappear from the volatile area. Nothing is lost — the full text
+  is always in the event log and the settled transcript.
+- **Unreadable code blocks and heading rules** (#527): syntax-highlighted
+  fences now use the active theme's truecolor palette instead of
+  highlight.js's default ANSI-16 colors (keywords/strings were near-invisible
+  on the code-block tint in several themes); the heading rule renders in a
+  contrasting color. Contrast audit extended to every bundled theme
+  (24 checks, all ≥3:1).
+
 ## [0.21.0] - 2026-09-05
 ### Added
 
@@ -594,7 +613,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.21.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.21.1...develop
+[0.21.1]: https://github.com/Marco-Cricchio/moh/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/Marco-Cricchio/moh/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/Marco-Cricchio/moh/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/Marco-Cricchio/moh/compare/v0.19.0...v0.20.0
