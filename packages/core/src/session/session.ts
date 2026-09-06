@@ -534,6 +534,12 @@ export class AgentSession {
     return this.#sessionFile;
   }
 
+  /** Appends a session display-name event through the configured sink, so
+   * the live store retains its single-writer accounting. */
+  rename(name: string): void {
+    this.#append({ type: "session_renamed", name: name.trim() });
+  }
+
   /** MCP runtime owning external tool sources, when configured. */
   get mcp(): McpRuntime | undefined {
     return this.#mcp;

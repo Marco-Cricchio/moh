@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, createSession, readThinkingPreference, setThinkingPreference } from "@moh/core";
+import { MockProvider, createSession, listSessionSummaries, readThinkingPreference, SessionStore, setThinkingPreference } from "@moh/core";
 import { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, upstreamCheckMessage, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
@@ -34,7 +34,7 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
   test("BASE_COMMANDS lists the thirteen base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "commands", "compact", "fork", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "commands", "compact", "fork", "help", "mode", "model", "reload", "rename", "settings", "theme", "thinking", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -93,6 +93,39 @@ describe("new base slash commands (/commands /mode /theme /settings /wayfinder)"
   });
 });
 
+describe("/rename slash command", () => {
+  test("persists the display name read by the home session list", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-rename-cwd-"));
+    const home = mkdtempSync(join(tmpdir(), "moh-rename-home-"));
+    const store = SessionStore.create(cwd, home);
+    store.append({ type: "user_message", text: "derived title" });
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: [], finish: "stop" }]),
+      cwd,
+      mohHome: join(home, ".moh"),
+      sessionFile: store.file,
+      sink: (event) => store.append(event),
+    });
+    const ctx = makeCtx({ cwd, session, renameSession: (name) => session.rename(name) });
+
+    expect(runSlashCommand("/rename My exact session name", ctx)).toBe(true);
+    expect(ctx.notices().at(-1)).toBe("✓ session renamed to My exact session name");
+    expect(listSessionSummaries(cwd, home)[0]?.title).toBe("My exact session name");
+  });
+
+  test("without a name shows usage and leaves the display name unchanged", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/rename", ctx)).toBe(true);
+    expect(ctx.notices()).toEqual(["usage: /rename <name>"]);
+  });
+
+  test("without an open session explains the requirement", () => {
+    const ctx = makeCtx();
+    expect(runSlashCommand("/rename Name", ctx)).toBe(true);
+    expect(ctx.notices()).toEqual(["/rename needs an open session"]);
+  });
+});
+
 describe("workflow slash command", () => {
   test("/workflow on installs first-party skills and persists the toggle", () => {
     const ctx = makeCtx() as any;
@@ -139,7 +172,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "commands", "compact", "fork", "help", "mode", "model", "reload", "settings", "theme", "thinking", "wayfinder", "workflow",
+      "ask-moh", "commands", "compact", "fork", "help", "mode", "model", "reload", "rename", "settings", "theme", "thinking", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);

@@ -42,6 +42,7 @@ page is the same content in manual form, plus the manual's own entries
 | /mode | switch vibe / dev mode |
 | /model | model picker (or /model `<ref>`) |
 | /reload | hot-reload moh.json + user config |
+| /rename `<name>` | rename the current session |
 | /settings | settings panel |
 | /theme | cycle the color theme |
 | /thinking | reasoning display + thinking level |
