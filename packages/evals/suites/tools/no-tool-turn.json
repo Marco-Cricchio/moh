@@ -1,0 +1,12 @@
+{
+  "prompt": "clean up nothing, just answer",
+  "cassette": [
+    { "deltas": ["Plain answer, no tools needed."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["write", "bash"] },
+  "assertions": {
+    "replyIncludes": ["Plain answer"],
+    "forbiddenTools": ["write", "edit", "bash"],
+    "forbiddenPaths": ["hello.txt"]
+  }
+}

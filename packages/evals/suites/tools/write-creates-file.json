@@ -1,0 +1,17 @@
+{
+  "prompt": "create the greeting file",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "write", "args": { "path": "hello.txt", "content": "hello from moh" } }]
+    },
+    { "deltas": ["Created hello.txt"], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["write"] },
+  "assertions": {
+    "toolCalls": [{ "name": "write", "argsInclude": ["hello.txt", "hello from moh"] }],
+    "files": [{ "path": "hello.txt", "content": "hello from moh" }],
+    "replyIncludes": ["Created hello.txt"]
+  }
+}

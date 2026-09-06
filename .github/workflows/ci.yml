@@ -59,6 +59,19 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test packages/cli
 
+  # Eval harness (#524): deterministic, mock-backed task suites against the
+  # real headless path. Cheap — run it on every PR already touching core/cli.
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun packages/evals/run.ts --json
+
   tui-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 10

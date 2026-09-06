@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "prompt": "log a tool call",
+      "cassette": [
+        {
+          "deltas": [],
+          "finish": "tool_calls",
+          "toolCalls": [{ "name": "bash", "args": { "command": "echo logged" } }]
+        },
+        { "deltas": ["Logged."], "finish": "stop" }
+      ],
+      "permissions": { "allow": ["bash:echo"] },
+      "assertions": {}
+    }
+  ],
+  "sessionAssertions": {
+    "toolCallOrder": ["bash"],
+    "chromeEvents": ["session_start", "user_message", "tool_call", "tool_result", "done"],
+    "absentChromeEvents": ["session_resumed", "permission_denied"]
+  }
+}

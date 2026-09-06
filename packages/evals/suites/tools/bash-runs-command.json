@@ -1,0 +1,16 @@
+{
+  "prompt": "run the echo",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "bash", "args": { "command": "echo eval-marker-42" } }]
+    },
+    { "deltas": ["done"], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["bash:echo"] },
+  "assertions": {
+    "toolCalls": [{ "name": "bash", "argsInclude": ["echo eval-marker-42"] }],
+    "replyIncludes": ["done"]
+  }
+}
