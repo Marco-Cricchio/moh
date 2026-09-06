@@ -33,9 +33,10 @@ function gatedReasoningProvider(lines: string[], textGate: Promise<void>): Provi
 }
 
 describe("nextReasoningHead — incremental head promotion (#329)", () => {
-  test("promotes nothing while the block fits the tail budget", () => {
+  test("keeps only the newest visual row volatile by default", () => {
     const chain = nextReasoningHead(null, "live-reasoning", ["a", "b", "c"], 80);
-    expect(chain).toEqual({ key: "live-reasoning", chars: 0, source: "a\nb\nc", chunks: [], startIndex: 0 });
+    expect(chain.chunks.flatMap((chunk) => chunk.lines)).toEqual(["a", "b"]);
+    expect(chain.chars).toBe(4);
   });
 
   test("promotes everything past the tail as an immutable chunk", () => {
@@ -74,7 +75,8 @@ describe("nextReasoningHead — incremental head promotion (#329)", () => {
   test("a different log key starts a fresh chain, not a handover", () => {
     const chain: ReasoningHeadChain = { key: "3-reasoning", chars: 4, source: "old source", chunks: [], startIndex: 0 };
     const next = nextReasoningHead(chain, "live-reasoning", ["x", "y"], 80);
-    expect(next).toEqual({ key: "live-reasoning", chars: 0, source: "x\ny", chunks: [], startIndex: 0 });
+    expect(next).toMatchObject({ key: "live-reasoning", chars: 2, source: "x\ny", startIndex: 0 });
+    expect(next.chunks.flatMap((chunk) => chunk.lines)).toEqual(["x"]);
   });
 
   test("holds a capped moving window volatile after one rebuild, then promotes it at reasoning_end", () => {

@@ -801,7 +801,7 @@ export function embedProseHeads(
 }
 
 /** Lines of live reasoning kept volatile below the promoted head (#329). */
-export const REASONING_TAIL_LINES = 5;
+export const REASONING_TAIL_LINES = 1;
 
 /** One open live-reasoning promotion chain (#329): the volatile
  * thinking-block key being tracked ("live-reasoning" while the live
