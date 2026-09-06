@@ -55,6 +55,7 @@ class Screen:
     def __init__(self, cols: int, rows: int):
         self.cols, self.rows = cols, rows
         self.grid = [[" "] * cols for _ in range(rows)]
+        self.scrollback = []
         self.row = self.col = 0
         # Alternate-screen state (DECSET 1049): `main_saved` holds the main
         # buffer's grid + cursor while the alternate buffer is active.
@@ -68,6 +69,8 @@ class Screen:
 
     def _scroll(self) -> None:
         if self.row >= self.rows:
+            if not self.alt_active:
+                self.scrollback.append("".join(self.grid[0]).rstrip())
             self.grid.pop(0)
             self.grid.append([" "] * self.cols)
             self.row = self.rows - 1
@@ -145,7 +148,9 @@ class Screen:
                 self.grid[self.row][c] = " "
         elif final == "J":
             mode = p1 or 0
-            if mode >= 2:
+            if mode == 3:
+                self.scrollback.clear()
+            elif mode == 2:
                 self.grid = [[" "] * self.cols for _ in range(self.rows)]
             elif mode == 0:
                 for c in range(self.col, self.cols):
@@ -291,7 +296,9 @@ def main() -> None:
             fcntl.ioctl(master, termios.TIOCSWINSZ,
                         struct.pack("HHHH", resize["rows"], resize["cols"], 0, 0))
             os.kill(proc.pid, signal.SIGWINCH)
+            previous_scrollback = screen.scrollback
             screen = Screen(resize["cols"], resize["rows"])  # Ink fully repaints after SIGWINCH
+            screen.scrollback = previous_scrollback
             pump(2.0)
     finally:
         # aliveAtEnd (#236): sampled BEFORE the harness kills the process —
@@ -319,7 +326,7 @@ def main() -> None:
             f.write(bytes(buf))
     payload = out
     if spec.get("meta"):
-        payload = {"lines": out, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
+        payload = {"lines": out, "scrollback": screen.scrollback, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
     json.dump(payload, sys.stdout)
 
 

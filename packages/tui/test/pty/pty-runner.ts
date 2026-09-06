@@ -42,6 +42,8 @@ export async function runPty(spec: PtySpec): Promise<PtyLine[]> {
 
 export interface PtyMeta {
   lines: PtyLine[];
+  /** Rows that left the main screen through native terminal scrolling. */
+  scrollback?: string[];
   exited: boolean;
   exitCode: number | null;
   /** #236: sampled before the harness kills the process — unlike `exited`,

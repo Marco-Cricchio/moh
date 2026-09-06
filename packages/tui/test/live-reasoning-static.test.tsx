@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { createSession, type Provider } from "@moh/core";
-import { Chat, embedReasoningHeads, nextReasoningHead, spliceReasoningChunks, REASONING_TAIL_LINES, type ReasoningHeadChain } from "../src/Chat";
+import { Chat, embedProseHeads, embedReasoningHeads, isPlainStreamingProse, nextProseHead, nextReasoningHead, promotablePlainPrefix, spliceReasoningChunks, trimProseHead, REASONING_TAIL_LINES, type ReasoningHeadChain } from "../src/Chat";
 import type { TranscriptBlock } from "../src/transcript";
 import { stripAnsi } from "./helpers";
 
@@ -33,42 +33,115 @@ function gatedReasoningProvider(lines: string[], textGate: Promise<void>): Provi
 }
 
 describe("nextReasoningHead — incremental head promotion (#329)", () => {
-  test("promotes nothing while the block fits the tail budget", () => {
-    const chain = nextReasoningHead(null, "live-reasoning", ["a", "b", "c"]);
-    expect(chain).toEqual({ key: "live-reasoning", lines: 0, chunks: [], startIndex: 0 });
+  test("keeps only the newest visual row volatile by default", () => {
+    const chain = nextReasoningHead(null, "live-reasoning", ["a", "b", "c"], 80);
+    expect(chain.chunks.flatMap((chunk) => chunk.lines)).toEqual(["a", "b"]);
+    expect(chain.chars).toBe(4);
   });
 
   test("promotes everything past the tail as an immutable chunk", () => {
     const lines = Array.from({ length: 12 }, (_, i) => `l${i}`);
-    const chain = nextReasoningHead(null, "live-reasoning", lines);
-    expect(chain!.lines).toBe(lines.length - REASONING_TAIL_LINES);
+    const chain = nextReasoningHead(null, "live-reasoning", lines, 80);
+    expect(chain!.chars).toBeGreaterThan(0);
     expect(chain!.chunks).toHaveLength(1);
     expect(chain!.chunks[0]!.lines).toEqual(lines.slice(0, lines.length - REASONING_TAIL_LINES));
     // idempotent: re-running the same input promotes nothing new
-    const again = nextReasoningHead(chain, "live-reasoning", lines);
-    expect(again.lines).toBe(chain!.lines);
+    const again = nextReasoningHead(chain, "live-reasoning", lines, 80);
+    expect(again.chars).toBe(chain!.chars);
     expect(again.chunks).toHaveLength(1);
+  });
+
+  test("wraps an unbroken paragraph into promotable visual rows", () => {
+    const chain = nextReasoningHead(null, "live-reasoning", ["one two three four five six seven eight nine ten"], 10, 2);
+    expect(chain.chunks[0]!.lines.length).toBeGreaterThan(0);
+    expect(chain.chunks[0]!.lines.every((line) => line.length <= 10)).toBe(true);
+  });
+
+  test("counts blank lines and hard-splits oversized words", () => {
+    const chain = nextReasoningHead(null, "live-reasoning", ["alpha", "", "x".repeat(35), "tail"], 10, 1);
+    expect(chain.chunks.flatMap((chunk) => chunk.lines)).toContain("");
+    expect(chain.chunks.flatMap((chunk) => chunk.lines).every((line) => line.length <= 10)).toBe(true);
   });
 
   test("live → log handover keeps the promoted prefix (same text, new key)", () => {
     const lines = Array.from({ length: 10 }, (_, i) => `l${i}`);
-    const live = nextReasoningHead(null, "live-reasoning", lines);
-    const log = nextReasoningHead(live, "7-reasoning", lines);
+    const live = nextReasoningHead(null, "live-reasoning", lines, 80);
+    const log = nextReasoningHead(live, "7-reasoning", lines, 80);
     expect(log.key).toBe("7-reasoning");
-    expect(log.lines).toBe(live.lines);
+    expect(log.chars).toBe(live.chars);
     expect(log.chunks).toEqual(live.chunks);
   });
 
   test("a different log key starts a fresh chain, not a handover", () => {
-    const chain: ReasoningHeadChain = { key: "3-reasoning", lines: 4, chunks: [], startIndex: 0 };
-    const next = nextReasoningHead(chain, "live-reasoning", ["x", "y"]);
-    expect(next).toEqual({ key: "live-reasoning", lines: 0, chunks: [], startIndex: 0 });
+    const chain: ReasoningHeadChain = { key: "3-reasoning", chars: 4, source: "old source", chunks: [], startIndex: 0 };
+    const next = nextReasoningHead(chain, "live-reasoning", ["x", "y"], 80);
+    expect(next).toMatchObject({ key: "live-reasoning", chars: 2, source: "x\ny", startIndex: 0 });
+    expect(next.chunks.flatMap((chunk) => chunk.lines)).toEqual(["x"]);
   });
 
-  test("clamps when the block shrinks (multi-part reset, #240)", () => {
-    const chain: ReasoningHeadChain = { key: "live-reasoning", lines: 9, chunks: [], startIndex: 0 };
-    const next = nextReasoningHead(chain, "live-reasoning", ["short"]);
-    expect(next.lines).toBe(1);
+  test("holds a capped moving window volatile after one rebuild, then promotes it at reasoning_end", () => {
+    const before: ReasoningHeadChain = {
+      key: "live-reasoning", chars: 12, source: "old uncapped reasoning", chunks: [{ key: "head", kind: "thinking", glyph: "⋯", type: "thinking", lines: ["old"] }], startIndex: 2,
+    };
+    const capped = "… reasoning truncated — showing the last 64 KiB (full text stays in the session log) …\nnew tail";
+    const rollover = nextReasoningHead(before, "live-reasoning", capped.split("\n"), 20, 5);
+    expect(rollover.reset).toBe(true);
+    expect(rollover.chunks).toHaveLength(0);
+    const moving = nextReasoningHead(rollover, "live-reasoning", `${capped} grows`.split("\n"), 20, 5);
+    expect(moving.reset).toBe(true);
+    expect(moving.chunks).toHaveLength(0);
+    const ended = nextReasoningHead(moving, "live-reasoning", `${capped} grows`.split("\n"), 20, 0);
+    expect(ended.chunks.length).toBeGreaterThan(0);
+  });
+
+  test("requests a rebuild when a non-capped source stops being append-only", () => {
+    const chain: ReasoningHeadChain = { key: "live-reasoning", chars: 9, source: "old value", chunks: [], startIndex: 0 };
+    const next = nextReasoningHead(chain, "live-reasoning", ["short"], 80);
+    expect(next.reset).toBe(true);
+  });
+});
+
+describe("assistant prose Static promotion (vision note 33)", () => {
+  const prose = (markdown: string): TranscriptBlock => ({
+    key: "4-assistant_delta-p0",
+    kind: "moh",
+    glyph: "◆",
+    type: "moh",
+    lines: markdown.split("\n"),
+    lineKinds: markdown.split("\n").map(() => "body"),
+    markdown,
+  });
+
+  test("promotes completed visual rows and leaves the newest row live", () => {
+    const block = prose("one two three four five six seven eight nine ten eleven twelve");
+    const prefix = promotablePlainPrefix(block.markdown!, 12);
+    const chain = nextProseHead(null, block, 12);
+    expect(prefix.lines.length).toBeGreaterThan(0);
+    expect(chain.chars).toBe(prefix.chars);
+    expect(chain.chunks[0]!.lines).toEqual(prefix.lines);
+    expect(trimProseHead(block, chain.chars)).toMatchObject({ continuation: true });
+    expect(trimProseHead(block, chain.chars).markdown).not.toBe("");
+    expect(nextProseHead(chain, block, 12)).toEqual(chain);
+  });
+
+  test("settled projection removes exactly the source prefix already printed", () => {
+    const block = prose("one two three four five six seven eight nine ten eleven twelve");
+    const chain = nextProseHead(null, block, 12);
+    const deduped = embedProseHeads([block], new Map([[block.key, chain]]));
+    expect(deduped[0]!.markdown).toBe(block.markdown!.slice(chain.chars).trimStart());
+  });
+
+  test("explicit newlines stay distinct in promoted plain prose", () => {
+    expect(promotablePlainPrefix("alpha\nbeta gamma delta epsilon", 12).lines).toEqual(["alpha", "beta gamma", "delta"]);
+  });
+
+  test("short and structured Markdown stay volatile", () => {
+    expect(nextProseHead(null, prose("still streaming"), 80).chunks).toHaveLength(0);
+    expect(Boolean(isPlainStreamingProse("| table |\n| --- |"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("```ts\nconst x = 1"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("# heading"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("heading\n---"))).toBe(false);
+    expect(Boolean(isPlainStreamingProse("hard break  \nnext"))).toBe(false);
   });
 });
 
@@ -78,7 +151,7 @@ describe("settled dedup + chunk splicing (#329)", () => {
 
   test("embedReasoningHeads dedups a sealed block to its un-promoted remainder", () => {
     const blocks = [settled("0-user_message", ["hi"]), settled("3-reasoning", ["a", "b", "c", "d"])];
-    const heads = new Map([["3-reasoning", { chunks: [chunk("3-reasoning-head-0", ["a", "b"])], lines: 2, startIndex: 1 }]]);
+    const heads = new Map([["3-reasoning", { chunks: [chunk("3-reasoning-head-0", ["a", "b"])], chars: 4, source: "a\nb\nc\nd", startIndex: 1 }]]);
     const deduped = embedReasoningHeads(blocks, heads);
     expect(deduped.map((b) => b.key)).toEqual(["0-user_message", "3-reasoning"]);
     expect(deduped[1]!.lines).toEqual(["c", "d"]);

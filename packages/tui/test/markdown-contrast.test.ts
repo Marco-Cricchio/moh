@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createMarkdownRenderer, parseAnsiSegments } from "../src/markdown";
+import { createMarkdownRenderer, parseAnsiSegments, highlightThemeFor } from "../src/markdown";
 import { THEMES, type Theme, type ThemeName } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -66,6 +66,19 @@ const replyBackground = (theme: Theme): string => mix(theme.accent, theme.bg, 0.
 
 const THEME_NAMES = Object.keys(THEMES) as ThemeName[];
 
+/** #504 follow-up: fenced snippets render on the code-block tint (purple at
+ * 0.14 over bg — same math as blockTint), not the reply tint. cli-highlight
+ * used to emit fixed ANSI-16 colors there (1.0–1.6:1); the themed highlight
+ * map must clear 3:1 on that background in every palette. */
+const CODE_SNIPPET = [
+  "```ts",
+  "const x: number = 1; // comment line",
+  "function f(a: string): string { return `v-${a}`; }",
+  "class Foo { bar = true; baz = null; }",
+  "let re = /^[a-z]+$/g;",
+  "```",
+].join("\n");
+
 describe("markdown palette contrast audit", () => {
   for (const name of THEME_ORDER_SAFE()) {
     test(`all styled runs meet 3:1 on the reply tint — ${name}`, () => {
@@ -82,6 +95,39 @@ describe("markdown palette contrast audit", () => {
           const ratio = contrast(segment.color, bg);
           if (ratio < 3) failures.push(`${segment.color} on ${bg} = ${ratio.toFixed(2)} — "${segment.text.slice(0, 24)}"`);
         }
+      }
+      expect(failures.join("\n")).toBe("");
+    });
+
+    test(`highlighted snippet tokens meet 3:1 on the code-block tint — ${name}`, () => {
+      const theme = THEMES[name];
+      const md = createMarkdownRenderer(theme, 80);
+      const rendered = String(md.parse(CODE_SNIPPET));
+      const bg = mix(theme.purple, theme.bg, 0.14);
+      const failures: string[] = [];
+      for (const line of rendered.split("\n")) {
+        if (stripAnsi(line).trim() === "") continue;
+        for (const segment of parseAnsiSegments(line)) {
+          if (!segment.color) continue;
+          const ratio = contrast(segment.color, bg);
+          if (ratio < 3) failures.push(`${segment.color} on ${bg} = ${ratio.toFixed(2)} — "${segment.text.slice(0, 24)}"`);
+        }
+      }
+      expect(failures.length).toBe(0);
+    });
+
+    test(`every mapped highlight-theme color meets 3:1 on the code-block tint — ${name}`, () => {
+      const theme = THEMES[name];
+      const bg = mix(theme.purple, theme.bg, 0.14);
+      const failures: string[] = [];
+      const probe = "x";
+      for (const [role, style] of Object.entries(highlightThemeFor(theme))) {
+        // Each style emits `ESC[38;2;R;G;Bm` — decode the truecolor hex and
+        // audit it against the code-block tint.
+        const match = style(probe).match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/);
+        if (!match) { failures.push(`${role}: no truecolor emitted`); continue; }
+        const hex = `#${match.slice(1).map((v) => Number(v).toString(16).padStart(2, "0")).join("")}`;
+        if (contrast(hex, bg) < 3) failures.push(`${role}: ${hex} on ${bg} = ${contrast(hex, bg).toFixed(2)}`);
       }
       expect(failures.join("\n")).toBe("");
     });

@@ -76,6 +76,26 @@ describe("reasoning above the reply (#326)", () => {
     expect(failed.map((block) => block.kind)).toEqual(["user", "moh", "thinking", "error"]);
   });
 
+  test("a failed call rebuilds to the canonical partial-reply then failed-reasoning order", async () => {
+    const stream = async function* () {
+      yield { type: "model_call_start", model: "reasoner" };
+      yield { type: "reasoning_start" };
+      yield { type: "reasoning_delta", text: "reasoning that later fails" };
+      yield { type: "reasoning_end" };
+      yield { type: "text_delta", text: "partial reply before failure" };
+      throw new Error("provider exploded");
+    };
+    const session = createSession({ provider: { name: "reasoner", stream: stream as Provider["stream"] }, memory: { enabled: false } });
+    drain(session);
+    const ui = render(<Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="reasoner" width={80} showReasoning />);
+    await session.send("fail after text");
+    await nap(120);
+    const frame = stripAnsi(ui.lastFrame() ?? "");
+    expect(frame.lastIndexOf("partial reply before failure")).toBeLessThan(frame.lastIndexOf("reasoning that later fails"));
+    expect(frame).toContain("failed");
+    ui.unmount();
+  });
+
   test("a same-model retry after fallback is not stained failed by the reorder", () => {
     // After the reorder the retry's group sits beside the fallback event:
     // the failed-detection must use the ORIGINAL log neighbor, so a retry
