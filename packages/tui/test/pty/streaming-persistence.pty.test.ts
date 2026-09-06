@@ -99,6 +99,43 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 
+  test("a long unbroken reasoning paragraph grows scrollback before reasoning_end", async () => {
+    const { server, url } = startLongReasoningStream();
+    const rawDump = "/tmp/moh-streaming-long-reasoning-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("long reasoning") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 8.0, until: "LAST-LIVE-REASONING" },
+          { wait: 0.4 },
+        ],
+        tail: 24,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const raw = readFileSync(rawDump, "utf8");
+      expect(raw).not.toContain("REASONING-ENDED");
+      expect(meta.scrollback?.some((line) => line.includes("FIRST-LIVE-REASONING"))).toBe(true);
+      // It may repaint while still inside the five-row safety tail, but once
+      // promoted it must disappear from the later majority of raw frames.
+      expect(raw.slice(Math.floor(raw.length / 2))).not.toContain("FIRST-LIVE-REASONING");
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(750_000);
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+
   test("visible reasoning, a tool, and a long Markdown reply grow scrollback before done", async () => {
     const { server, url } = startRealisticReasoningStream();
     const rawDump = "/tmp/moh-streaming-realistic-raw.bin";
@@ -132,9 +169,8 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       // This is the owner's video seam: one initial volatile paint plus one
       // Static promotion is allowed; repainting the same completed section
       // on later deltas recreates the internally scrolling live box.
-      const firstSectionPaints = raw.match(/FIRST-MARKDOWN-SECTION/g)?.length ?? 0;
-      expect(firstSectionPaints).toBeGreaterThanOrEqual(1);
-      expect(firstSectionPaints).toBeLessThanOrEqual(2);
+      expect(raw).toContain("FIRST-MARKDOWN-SECTION");
+      expect(raw.slice(Math.floor(raw.length / 2))).not.toContain("FIRST-MARKDOWN-SECTION");
       expect(meta.scrollback?.some((line) => line.includes("FIRST-MARKDOWN-SECTION"))).toBe(true);
       const screen = meta.lines.map((line) => line.text);
       expect(screen.some((line) => line.includes("LAST-MARKDOWN-SECTION"))).toBe(true);
@@ -242,6 +278,33 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 });
+
+function startLongReasoningStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "long-reasoning", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          const words = ["FIRST-LIVE-REASONING", ...Array.from({ length: 220 }, (_, i) => `thought-${i}`), "LAST-LIVE-REASONING"];
+          for (const word of words) {
+            send({ reasoning_content: `${word} ` });
+            await Bun.sleep(8);
+          }
+          await Bun.sleep(3_000);
+          send({ content: "REASONING-ENDED" });
+          send({}, "stop");
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
 
 function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   let calls = 0;

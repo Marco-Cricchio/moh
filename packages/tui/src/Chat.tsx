@@ -6,6 +6,7 @@ import { useSessionState } from "./session-bridge";
 import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
+import { sanitizeLine } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
@@ -375,7 +376,7 @@ export function Chat({
           glyph: "⋯",
           type: "thinking",
           ...(liveReasoning.active ? { detail: "…", state: "run" as const } : {}),
-          lines: showReasoning ? liveReasoning.text.split("\n") : [],
+          lines: showReasoning ? liveReasoning.text.split("\n").map(sanitizeLine) : [],
         }]
       : [];
     return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning, toolTimings })];
@@ -395,7 +396,18 @@ export function Chat({
       // Once reasoning_end arrives the whole block is immutable. Promote its
       // remaining tail before any reply rows, preserving reasoning → reply
       // while allowing the reply itself to grow Static scrollback.
-      const advanced = nextReasoningHead(previous, thinking.key, thinking.lines, liveReasoning?.active === false ? 0 : REASONING_TAIL_LINES);
+      const advanced = sawResizeRef.current
+        ? (previous ?? { key: thinking.key, chars: 0, source: "", chunks: [], startIndex: 0 })
+        : nextReasoningHead(
+            previous,
+            thinking.key,
+            thinking.lines,
+            Math.max(8, cols - 5),
+            liveReasoning?.active === false ? 0 : REASONING_TAIL_LINES,
+          );
+      if (advanced.reset) {
+        repaintRef.current = true;
+      }
       // The chunks' Static insertion index is captured when the FIRST chunk
       // is promoted, at the settled length of the previous render: every
       // already-printed block stays before the chunks and later-settling
@@ -430,7 +442,7 @@ export function Chat({
         }
       }
       if (sealedKey !== null) {
-        reasoningHeadsRef.current.set(sealedKey, { chunks: chain.chunks, lines: chain.lines, startIndex: chain.startIndex });
+        reasoningHeadsRef.current.set(sealedKey, { chunks: chain.chunks, chars: chain.chars, source: chain.source, startIndex: chain.startIndex });
       }
       if (sealedKey !== null || !state.pending) reasoningChainRef.current = null;
     }
@@ -466,8 +478,8 @@ export function Chat({
   }
   const activeProse = proseChainRef.current;
   const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.map((block) => {
-    if (activeChain && activeChain.lines > 0 && block.key === activeChain.key) {
-      return { ...block, lines: block.lines.slice(activeChain.lines), continuation: true };
+    if (activeChain && activeChain.chars > 0 && block.key === activeChain.key) {
+      return trimReasoningHead(block, activeChain.chars);
     }
     if (activeProse && activeProse.chars > 0 && block.key === activeProse.key) {
       return trimProseHead(block, activeProse.chars);
@@ -798,8 +810,13 @@ export const REASONING_TAIL_LINES = 5;
  * far. */
 export interface ReasoningHeadChain {
   key: string;
-  lines: number;
+  /** Sanitized source-character prefix already rendered as immutable rows. */
+  chars: number;
+  /** Last sanitized source window, used to detect the 64 KiB cap rollover. */
+  source: string;
   chunks: TranscriptBlock[];
+  /** The source window stopped being append-only; caller rebuilds. */
+  reset?: boolean;
   /** #329: settledBlocks length when the chain opened — the stable Static
    * insertion index for the chunks (see Chat). Set by the caller. */
   startIndex: number;
@@ -809,7 +826,7 @@ export interface ReasoningHeadChain {
  * how many of its lines they cover, and where they sit in the Static items —
  * the settled block prints only the remainder, so a long reasoning stream
  * lands in scrollback exactly once. */
-export type SealedReasoningHead = Omit<ReasoningHeadChain, "key">;
+export type SealedReasoningHead = Omit<ReasoningHeadChain, "key" | "reset">;
 
 /** One #329 promotion step. Pure: takes the current chain and the leading
  * thinking block (key + lines), returns the advanced chain. Only lines past
@@ -822,31 +839,97 @@ export function nextReasoningHead(
   chain: ReasoningHeadChain | null,
   key: string,
   lines: readonly string[],
+  width: number,
   tailLines = REASONING_TAIL_LINES,
 ): ReasoningHeadChain {
   let next: ReasoningHeadChain;
-  if (!chain) next = { key, lines: 0, chunks: [], startIndex: 0 };
+  if (!chain) next = { key, chars: 0, source: "", chunks: [], startIndex: 0 };
   else if (chain.key === key) next = chain;
   else if (chain.key === "live-reasoning") next = { ...chain, key, chunks: [...chain.chunks] };
-  else next = { key, lines: 0, chunks: [], startIndex: 0 };
-  // The block may shrink (multi-part reasoning resets the live buffer,
-  // #240): clamp so promotion resumes from the new content.
-  if (lines.length < next.lines) next = { ...next, lines: lines.length };
-  const promotable = lines.length - tailLines - next.lines;
-  if (promotable <= 0) return next;
-  const slice = lines.slice(next.lines, next.lines + promotable);
+  else next = { key, chars: 0, source: "", chunks: [], startIndex: 0 };
+  const source = lines.join("\n");
+  const windowed = source.startsWith("… reasoning truncated — showing the last ");
+  // The 64 KiB display cap replaces the old prefix with a moving window.
+  // Remove previously printed chunks once, then keep that window volatile;
+  // at reasoning_end it is fixed and can be promoted before the reply.
+  if (windowed && tailLines > 0) {
+    return next.chunks.length > 0 || next.chars > 0
+      ? { key, chars: 0, source, chunks: [], startIndex: 0, reset: true }
+      : { ...next, chars: 0, source, chunks: [], reset: next.reset };
+  }
+  if (windowed) next = { key, chars: 0, source: "", chunks: [], startIndex: 0 };
+  else if (next.source && !source.startsWith(next.source)) {
+    return { key, chars: 0, source, chunks: [], startIndex: 0, reset: true };
+  }
+  const wrapped = visualTextRows(source, Math.max(8, width));
+  const stable = wrapped.slice(0, Math.max(0, wrapped.length - tailLines));
+  const chars = stable.at(-1)?.end ?? 0;
+  if (chars <= next.chars) return { ...next, source };
+  const priorRows = next.chunks.reduce((sum, chunk) => sum + chunk.lines.length, 0);
+  const slice = stable.slice(priorRows).map((row) => row.text);
+  if (slice.length === 0) return next;
   return {
     ...next,
-    lines: next.lines + slice.length,
+    chars,
+    source,
     chunks: [...next.chunks, {
       key: `${key}-head-${next.chunks.length}`,
       kind: "thinking",
       glyph: "⋯",
       type: "thinking",
       ...(next.chunks.length === 0 ? { detail: "…" } : { continuation: true }),
-      lines: [...slice],
+      lines: slice,
     }],
   };
+}
+
+interface VisualTextRow { end: number; text: string }
+
+/** Plain-text terminal wrapping with source boundaries. Reasoning has no
+ * Markdown semantics, so every row except the newest is immutable once the
+ * next word starts a later row. Explicit newlines force a row boundary. */
+function visualTextRows(source: string, width: number): VisualTextRow[] {
+  const rows: VisualTextRow[] = [];
+  let base = 0;
+  const sourceLines = source.split("\n");
+  for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex++) {
+    const sourceLine = sourceLines[lineIndex]!;
+    const tokens = [...sourceLine.matchAll(/\S+\s*/g)];
+    let text = "";
+    let end = base;
+    for (const token of tokens) {
+      const word = token[0].trimEnd();
+      if (!word) continue;
+      if (word.length > width) {
+        if (text) rows.push({ end, text });
+        for (let at = 0; at < word.length; at += width) {
+          const piece = word.slice(at, at + width);
+          rows.push({ end: base + token.index + Math.min(word.length, at + width), text: piece });
+        }
+        text = "";
+      } else if (text && text.length + 1 + word.length > width) {
+        rows.push({ end, text });
+        text = word;
+      } else {
+        text = text ? `${text} ${word}` : word;
+      }
+      end = base + token.index + token[0].length;
+    }
+    if (text) rows.push({ end, text });
+    if (lineIndex < sourceLines.length - 1) {
+      // Every explicit newline owns a terminal row, including blank lines.
+      if (!text && sourceLine.length === 0) rows.push({ end: base + 1, text: "" });
+      else if (rows.length > 0) rows[rows.length - 1]!.end = base + sourceLine.length + 1;
+    }
+    base += sourceLine.length + 1;
+  }
+  return rows;
+}
+
+export function trimReasoningHead(block: TranscriptBlock, chars: number): TranscriptBlock {
+  if (chars <= 0) return block;
+  const source = block.lines.join("\n").slice(chars).replace(/^ /, "");
+  return { ...block, lines: source ? source.split("\n") : [], continuation: true };
 }
 
 /** Dedups sealed #329 chains against the settled projection: each block
@@ -863,7 +946,7 @@ export function embedReasoningHeads(
   const deduped: TranscriptBlock[] = [];
   for (const block of blocks) {
     const head = heads.get(block.key);
-    deduped.push(head ? { ...block, lines: block.lines.slice(head.lines) } : block);
+    deduped.push(head ? trimReasoningHead(block, head.chars) : block);
   }
   return deduped;
 }
