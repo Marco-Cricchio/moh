@@ -510,7 +510,11 @@ export function Chat({
   const activeProse = proseChainRef.current;
   const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.flatMap((block) => {
     if (activeChain && activeChain.chars > 0 && block.key === activeChain.key) {
-      return [trimReasoningHead(block, activeChain.chars)];
+      // Fully promoted (reasoning ended, log handover pending): Static
+      // already carries the text — keeping the frozen block volatile would
+      // render it between promoted reply chunks and the streaming tail.
+      const trimmed = trimReasoningHead(block, activeChain.chars);
+      return trimmed.lines.length > 0 ? [trimmed] : [];
     }
     const proseHead = activeProse?.key === block.key ? activeProse : proseHeadsRef.current.get(block.key);
     const promotedChars = Math.max(proseHead?.chars ?? 0, markdownHeadsRef.current.get(block.key) ?? 0);

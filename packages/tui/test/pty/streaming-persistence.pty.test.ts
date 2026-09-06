@@ -179,6 +179,15 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       expect(history.some((line) => line.includes("Architecture"))).toBe(true);
       expect(history.some((line) => line.includes("replaceable"))).toBe(true);
       const screen = meta.lines.map((line) => line.text);
+      // Ordering oracle (owner report): the sealed thinking block must sit
+      // ABOVE the reply — never between a promoted heading chunk and the
+      // streaming tail. Its first occurrence must precede the reply's
+      // first section in the combined projection.
+      const reasoningAt = raw.indexOf("REALISTIC-REASONING compose");
+      const replyAt = raw.indexOf("FIRST-MARKDOWN-SECTION");
+      expect(reasoningAt).toBeGreaterThanOrEqual(0);
+      expect(replyAt).toBeGreaterThanOrEqual(0);
+      expect(reasoningAt).toBeLessThan(replyAt);
       expect(screen.some((line) => line.includes("LAST-MARKDOWN-SECTION"))).toBe(true);
       expect([...(meta.scrollback ?? []), ...screen].some((line) => line.includes("glob"))).toBe(true);
       const input = screen.findIndex((line) => line.includes("type…"));
