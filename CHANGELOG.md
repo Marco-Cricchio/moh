@@ -95,6 +95,22 @@ matching section here at tag time.
   longer double-encoded.
 - File-index git probe is async, unblocking App-based tests (#488).
 
+## [0.22.0] - 2026-09-06
+### Added
+
+- **Deterministic headless eval harness** (#524): first-party, cassette-driven
+  end-to-end scenarios exercise real core seams — tools, permissions, session
+  assembly, fork and resume — with deterministic scoring and a dedicated CI
+  `evals` job. The harness is extensible through a declarative scenario format
+  and continues later steps on the fork when a scenario branches.
+
+### Fixed
+
+- **Duplicate agentic replies with visible reasoning** (#531): structured
+  intermediate replies are now held until provider reasoning seals, so the
+  TUI no longer renders the same reply twice when reasoning display is on;
+  canonical rebuild still handles a failed model call after partial output.
+
 ## [0.21.1] - 2026-09-06
 ### Fixed
 
@@ -613,7 +629,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.21.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.22.0...develop
+[0.22.0]: https://github.com/Marco-Cricchio/moh/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/Marco-Cricchio/moh/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/Marco-Cricchio/moh/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/Marco-Cricchio/moh/compare/v0.20.0...v0.20.1
