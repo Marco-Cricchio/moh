@@ -240,26 +240,23 @@ export async function runMultiStepCase(suite: string, name: string, c: MultiRunC
   let lastExit = 0;
   let sessionFile: string | undefined;
   let forkedFile: string | undefined;
+  // The active session advances to a new file after a fork, so a later
+  // step continues the fork rather than accidentally reopening its parent.
+  let activeSessionFile: string | undefined;
   try {
     for (const [i, step] of c.steps.entries()) {
       const before = i === 0 ? [] : sessionFilesUnder(join(home, ".moh", "projects"));
-      const file = i === 0 ? undefined : sessionFile;
+      const file = i === 0 ? undefined : activeSessionFile;
       const run = await headlessRun(root, home, caseDir, step, file);
       lastExit = run.exitCode;
       if (i === 0) {
         const files = sessionFilesUnder(join(home, ".moh", "projects"));
         if (files.length === 0) failures.push("step 1: no session file created");
-        else sessionFile = files[0];
+        else activeSessionFile = sessionFile = files[0];
       } else if (step.fork) {
         const created = sessionFilesUnder(join(home, ".moh", "projects")).find((f) => !before.includes(f));
         if (!created) failures.push(`step ${i + 1}: fork produced no new session file`);
-        else forkedFile = created;
-      }
-      lastExit = run.exitCode;
-      if (i === 0) {
-        const files = sessionFilesUnder(join(home, ".moh", "projects"));
-        if (files.length === 0) failures.push("step 1: no session file created");
-        else sessionFile = files[0];
+        else activeSessionFile = forkedFile = created;
       }
       failures.push(...scoreAssertions(step.assertions ?? {}, run, root).map((f) => `step ${i + 1}: ${f}`));
     }
