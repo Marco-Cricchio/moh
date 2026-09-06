@@ -480,7 +480,13 @@ export function Chat({
     // Reasoning display projects above the reply only after the model call
     // seals, so prose must stay live until then or Static would reverse that
     // order. Structured Markdown stays on the semantic paragraph/fence path.
-    const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
+    // #326 (owner report 2026-09-06, second gap): the plain-prose fast path
+    // must obey the SAME hold as the Markdown segment chain — GLM persists
+    // the call's reasoning only after the whole delta run, so promoting
+    // plain rows below the frozen thinking block while the log catches up
+    // puts the thinking visually mid-reply and reorders printed items.
+    const replyHeld = showReasoning && liveReasoning !== null;
+    const latestProse = replyHeld ? null : ([...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null);
     const prose = latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
     const chain = proseChainRef.current;
     if (latestProse && chain?.key === latestProse.key && !prose) {
