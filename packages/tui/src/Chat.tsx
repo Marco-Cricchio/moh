@@ -216,7 +216,7 @@ export function Chat({
   // reasoning block exists at all (active or frozen awaiting its log
   // handover), which is exactly `liveReasoning !== null`.
   const settledEnd = useMemo(
-    () => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning && liveReasoning !== null }),
+    () => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning }),
     [state.events, state.pending, showReasoning, liveReasoning],
   );
   // #300: wall-clock ledger for tool calls — arrival time per live call,
@@ -512,7 +512,16 @@ export function Chat({
     // than letting transcriptTail repeatedly clip the whole growing reply.
     // Existing plain-prose heads are completed with their final remainder;
     // structured blocks are promoted whole with their Markdown intact.
-    const closed = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined).slice(0, -1);
+    // A persisted reasoning group is projected above the preceding reply
+    // deltas (#326). Markdown segments can only become closed while that
+    // reply is still live; printing one into Static here can therefore put
+    // it below a reasoning group that arrives later and force Ink's
+    // forward-only Static to re-emit the segment at settlement. This was
+    // visible as doubled/tripled intermediate agentic replies in production
+    // session 39276900. Plain prose has its own cursor-based append path;
+    // structured Markdown stays in the bounded volatile tail while provider
+    // reasoning is visible, then settles once in canonical order.
+    const closed = showReasoning ? [] : rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined).slice(0, -1);
     for (const block of closed) {
       const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (priorChars === block.markdown!.length) continue;
