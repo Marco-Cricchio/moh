@@ -343,7 +343,120 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       server.stop(true);
     }
   }, 30_000);
+
+  // Production session 9695c69c (v0.23.1, PR #537 active): the model emits a
+  // LONG streamed live reasoning paragraph, a long Markdown reply, then a
+  // SECOND reasoning part for the SAME call (GLM multi-part flush), then
+  // tools. The owner saw duplicated/triplicated thinking blocks and reply
+  // blocks split by identical thinking copies; a mode toggle (full repaint)
+  // normalized the screen — so the corruption is in the incremental chain
+  // state, not in the log.
+  test("multi-part late reasoning per call prints each thinking block exactly once", async () => {
+    const { server, url } = startMultiPartReasoningStream();
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        project: { permissions: { overrides: { tools: { glob: "allow" } } } },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("think through the cycles") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 4.0, checkpoint: "afterCycle1" },
+          { wait: 25.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 0.8 },
+        ],
+        tail: 24,
+        rawDump: "/tmp/moh-multipart-raw.bin",
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const c1 = meta.checkpoints?.afterCycle1;
+      const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
+      // Each call's thinking block is one physical emission, never
+      // duplicated by the live→log handover or the settled projection.
+      // NOTE: markers are matched WITHOUT the trailing index context, so
+      // `PART-THINK-0` never counts `PART-THINK-0-TAIL`-style strings (the
+      // tail part uses a distinct marker). On failure print which marker
+      // missed to keep the PTY diagnosis actionable.
+      for (let i = 0; i < 4; i++) {
+        const marker = `PART-THINK-${i}`;
+        const count = history.split(marker).length - 1;
+        expect(count).toBe(1);
+      }
+      for (let i = 0; i < 4; i++) {
+        const marker = `PART-REPLY-${i}`;
+        const count = history.split(marker).length - 1;
+        expect(count).toBe(1);
+      }
+      expect(history.split("FINAL-REPLY-MARKER").length - 1).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  }, 40_000);
 });
+
+function startMultiPartReasoningStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  // Faithful to 9695c69c: long streamed reasoning → long Markdown reply →
+  // a SECOND reasoning part for the same call → tool batch. 4 cycles, then
+  // a final reply. Reasoning text is one long no-newline paragraph (GLM
+  // style), so the live reasoning promotion wraps it visually.
+  let calls = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      calls += 1;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: `multipart-${calls}`, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          const isFinal = calls > 4;
+          if (isFinal) {
+            for (const word of "FINAL-REPLY-MARKER the multipart session is complete".split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(8);
+            }
+            send({}, "stop");
+          } else {
+            const cycle = calls - 1;
+            // Long streamed live reasoning (one paragraph, ~1000 chars).
+            const reasoning = `PART-THINK-${cycle} ${"thinking through the tool result carefully before answering. ".repeat(22)}`;
+            for (const word of reasoning.split(/(?<=\s)/)) {
+              send({ reasoning_content: word });
+              await Bun.sleep(4);
+            }
+            // Long Markdown reply.
+            const reply = `\n\n## PART-REPLY-${cycle}\n\n${"A closed Markdown section answering the cycle. ".repeat(16)}\n\n- first finding\n- second finding\n\n`;
+            for (const word of reply.split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(4);
+            }
+            // Second reasoning part for the SAME call, late (#240/GLM).
+            // Distinct marker (no shared prefix) so history counts cannot
+            // conflate the tail part with the main thinking block.
+            await Bun.sleep(120);
+            send({ reasoning_content: `${"final check of the cycle result before the tool runs. ".repeat(12)}TAILPART-${cycle}` });
+            for (let t = 0; t < 2; t++) {
+              send({ tool_calls: [{ index: t, id: `glob-part-${calls}-${t}`, type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: "*.md" }) } }] });
+            }
+            send({}, "tool_calls");
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
 
 function startToolCycleStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   // Faithful to session 39276900: 8 tool cycles, each model call emits

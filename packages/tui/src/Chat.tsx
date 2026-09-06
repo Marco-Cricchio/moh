@@ -170,6 +170,13 @@ export function Chat({
   // #329: incremental Static promotion state for the live-reasoning head
   // (see the state machine further down and nextReasoningHead).
   const reasoningChainRef = useRef<ReasoningHeadChain | null>(null);
+  // Instance-unique prefix for chunk keys: every live chain otherwise
+  // names its chunks "live-reasoning-head-N", and a second call's chunks
+  // would collide with the first call's already-emitted items inside the
+  // append-only Static ledger (duplicate key → first-print-wins → the
+  // second call's thinking vanishes).
+  const reasoningChainSeq = useRef(0);
+  const lastLiveChainRef = useRef<{ source: string; chars: number; chunks: TranscriptBlock[]; startIndex: number } | null>(null);
   const reasoningHeadsRef = useRef(new Map<string, SealedReasoningHead>());
   // Vision note 33: completed visual rows of plain assistant prose move to
   // Static immediately. Only the newest mutable row remains volatile, so
@@ -216,7 +223,7 @@ export function Chat({
   // reasoning block exists at all (active or frozen awaiting its log
   // handover), which is exactly `liveReasoning !== null`.
   const settledEnd = useMemo(
-    () => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning }),
+    () => settledBoundary(state.events, state.pending),
     [state.events, state.pending, showReasoning, liveReasoning],
   );
   // #300: wall-clock ledger for tool calls — arrival time per live call,
@@ -408,6 +415,82 @@ export function Chat({
     const chain = reasoningChainRef.current;
     const tracked = chain ? thinkingBlocks.find((block) => block.key === chain.key) : undefined;
     const thinking = tracked ?? thinkingBlocks.at(-1) ?? null;
+    if (thinking && chain && chain.key === "live-reasoning" && thinking.key !== "live-reasoning") {
+      // The live block vanished and the newest volatile thinking block is a
+      // SETTLED, log-keyed one from a possibly DIFFERENT call. Handing the
+      // chain over here would migrate it across calls and leave the old
+      // call's groups unsealed (their settled blocks then print full text —
+      // duplicated thinking). Seal what the live text covered and retire
+      // the chain; the next call starts fresh.
+      const covered: string[] = [];
+      const flatSource = chain.source.split("\n").join(" ").replace(/\s+/g, " ").trim();
+      for (let i = state.events.length - 1; i >= 0; i--) {
+        const event = state.events[i]!;
+        if (event.type !== "reasoning") continue;
+        const key = `${i}-reasoning`;
+        if (reasoningHeadsRef.current.has(key)) break;
+        const flatEvent = event.text.replace(/\s+/g, " ").trim();
+        if (!flatSource.includes(flatEvent)) continue;
+        covered.unshift(key);
+      }
+      if (covered.length > 0) {
+        covered.forEach((sealedKey, groupIndex) => {
+          reasoningHeadsRef.current.set(sealedKey, {
+            chunks: groupIndex === 0 ? chain.chunks : [],
+            chars: chain.chars,
+            source: chain.source,
+            startIndex: chain.startIndex,
+          });
+        });
+        reasoningChainSeq.current += 1;
+        reasoningChainRef.current = null;
+      }
+    }
+    // A live reasoning buffer can be silently REPLACED between provider
+    // calls: the volatile block re-opens as "live-reasoning" with the next
+    // call's text while the previous call's groups were never sealed (the
+    // clear→persist race). Before tracking the replacement, seal the old
+    // source's covered groups — otherwise the old call's settled blocks
+    // print full text (duplicated thinking) and the old chunks are lost.
+    // Snapshot the live chain BEFORE the state machine can reset it: the
+    // replacement render wipes chars/source, so the guard below must read
+    // the last non-empty snapshot to seal the previous call's groups.
+    if (chain && chain.key === "live-reasoning" && chain.chars > 0) {
+      lastLiveChainRef.current = { source: chain.source, chars: chain.chars, chunks: chain.chunks, startIndex: chain.startIndex };
+    }
+    const guardChain = chain && chain.chars > 0
+      ? chain
+      : (lastLiveChainRef.current ? { key: "live-reasoning", ...lastLiveChainRef.current } : null);
+    if (guardChain) {
+      const newSource = thinking?.lines.join("\n") ?? "";
+      const oldSource = guardChain.source;
+      if (oldSource && newSource && !newSource.startsWith(oldSource.slice(0, Math.min(40, oldSource.length)))) {
+        const flatOld = oldSource.split("\n").join(" ").replace(/\s+/g, " ").trim();
+        const covered: string[] = [];
+        for (let i = state.events.length - 1; i >= 0; i--) {
+          const event = state.events[i]!;
+          if (event.type !== "reasoning") continue;
+          const key = `${i}-reasoning`;
+          if (reasoningHeadsRef.current.has(key)) break;
+          const flatEvent = event.text.replace(/\s+/g, " ").trim();
+          if (!flatOld.includes(flatEvent)) continue;
+          covered.unshift(key);
+        }
+        if (covered.length > 0) {
+          covered.forEach((sealedKey, groupIndex) => {
+            reasoningHeadsRef.current.set(sealedKey, {
+              chunks: groupIndex === 0 ? guardChain.chunks : [],
+              chars: guardChain.chars,
+              source: guardChain.source,
+              startIndex: guardChain.startIndex,
+            });
+          });
+          reasoningChainSeq.current += 1;
+          reasoningChainRef.current = null;
+          lastLiveChainRef.current = null;
+        }
+      }
+    }
     if (thinking) {
       const previous = reasoningChainRef.current;
       // Once reasoning_end arrives the whole block is immutable. Promote its
@@ -434,6 +517,28 @@ export function Chat({
       if (advanced.chunks.length > 0 && (previous?.chunks.length ?? 0) === 0) {
         advanced.startIndex = assembledCountRef.current;
       }
+      // Live→log handover with the settled block already in this render's
+      // projection: seal immediately, otherwise the settled block prints
+      // its full text for the renders until the generic seal runs — and
+      // printed items are never revised, so that window becomes a
+      // permanent duplicate in scrollback.
+      if (previous && previous.key === "live-reasoning" && thinking.key !== "live-reasoning" && !reasoningHeadsRef.current.has(thinking.key)) {
+        reasoningHeadsRef.current.set(thinking.key, {
+          chunks: advanced.chunks,
+          chars: advanced.chars,
+          source: advanced.source,
+          startIndex: advanced.startIndex,
+        });
+      }
+      // Stamp chunk keys with this chain's instance id: chunk keys must be
+      // globally unique across calls (see reasoningChainSeq).
+      if (advanced !== previous) {
+        const uid = reasoningChainSeq.current;
+        advanced.chunks = advanced.chunks.map((chunk, index) => ({
+          ...chunk,
+          key: `live-reasoning-${uid}-head-${index}`,
+        }));
+      }
       reasoningChainRef.current = replaySettled
         ? (previous ?? advanced)
         : advanced;
@@ -447,29 +552,47 @@ export function Chat({
       // still pending the chain is HELD until the log catches up: the
       // handover or this seal then sees the event. If the turn ends
       // without persisting (abort), the chunks simply stay printed.
-      let sealedKey: string | null = null;
+      const sealAgainst: string[] = [];
       if (chain.key !== "live-reasoning") {
-        sealedKey = chain.key;
+        sealAgainst.push(chain.key);
       } else {
-        // The settled projection coalesces a call's contiguous reasoning
-        // parts into ONE block keyed by the FIRST event (#240). Sealing
-        // against the last part would miss the block's key and reprint
-        // the whole group — the duplicated end-of-stream thinking block.
-        let first = -1;
-        for (let i = Math.min(settledEnd, state.events.length) - 1; i >= 0; i--) {
-          if (state.events[i]!.type === "reasoning") { first = i; continue; }
-          if (first === -1) continue;
-          break;
-        }
-        if (first !== -1) {
-          const key = `${first}-reasoning`;
-          if (!reasoningHeadsRef.current.has(key)) sealedKey = key;
+        // GLM interleaves: one call's reasoning persists as MULTIPLE
+        // non-contiguous runs (reply deltas between them), each a separate
+        // settled thinking block, while the live channel kept ONE
+        // cumulative buffer whose chunks Static already printed. Seal
+        // against EVERY persisted reasoning event the live text covers —
+        // otherwise the unsealed block prints its full text again
+        // (duplicated thinking). Dedup-only heads (no chunks) cover the
+        // later blocks so they render as placeholders, never re-emit.
+        for (let i = state.events.length - 1; i >= 0; i--) {
+          const event = state.events[i]!;
+          if (event.type !== "reasoning") continue;
+          const key = `${i}-reasoning`;
+          if (!reasoningHeadsRef.current.has(key)) sealAgainst.unshift(key);
+          if (reasoningHeadsRef.current.has(key)) break; // reached an earlier sealed group
         }
       }
-      if (sealedKey !== null) {
-        reasoningHeadsRef.current.set(sealedKey, { chunks: chain.chunks, chars: chain.chars, source: chain.source, startIndex: chain.startIndex });
+      sealAgainst.forEach((sealedKey, groupIndex) => {
+        // Rekey sealed chunks: every live chain names its chunks
+        // "live-reasoning-head-N", so a second sealed chain would collide
+        // with the first inside the Static item keys (React duplicate-key
+        // reconciliation → re-created children → ink re-emits them, the
+        // v0.23.1 tripled thinking blocks). Sealed chunks are immutable,
+        // so renaming them here is safe. Only the FIRST covered group
+        // carries the chunks; the others are dedup-only placeholders.
+        const sealedChunks = groupIndex === 0 ? chain.chunks : [];
+        reasoningHeadsRef.current.set(sealedKey, { chunks: sealedChunks, chars: chain.chars, source: chain.source, startIndex: chain.startIndex });
+      });
+      if (sealAgainst.length > 0) {
+        reasoningChainSeq.current += 1;
+        reasoningChainRef.current = null;
+      } else if (!state.pending) {
+        // Nothing ever persisted to seal against (aborted call): the
+        // printed chunks simply stay as the only record.
+        reasoningChainRef.current = null;
       }
-      if (sealedKey !== null || !state.pending) reasoningChainRef.current = null;
+      // else: keep the chain held — the persisted events may lag one
+      // render behind the volatile clear; a later render seals them.
     }
   }
   const activeChain = reasoningChainRef.current;
@@ -547,15 +670,43 @@ export function Chat({
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
       { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
     ));
-    const deduped = embedProseHeads(embedReasoningHeads(projected, reasoningHeadsRef.current), proseHeadsRef.current);
+    const embeded = embedReasoningHeads(projected, reasoningHeadsRef.current);
+    // GLM interleave: one call's reasoning persists as multiple separate
+    // blocks while the live channel promoted ONE cumulative buffer. A
+    // block whose full text is already inside a sealed head's promoted
+    // source must not print again (duplicated thinking) — reduce it to a
+    // slot-keeping placeholder.
+    const coveredSources = [...reasoningHeadsRef.current.values()].filter((h) => h.chunks.length > 0).map((h) => h.source);
+    if (activeChain && activeChain.chars > 0) coveredSources.push(activeChain.source);
+    if (lastLiveChainRef.current && lastLiveChainRef.current.chars > 0) coveredSources.push(lastLiveChainRef.current.source);
+    const deduped = embeded.map((block) => {
+      if (block.kind !== "thinking" || block.lines.length === 0) return block;
+      const text = block.lines.join(" ");
+      if (text.trim().length === 0) return block;
+      const covered = coveredSources.some((hSource) => {
+        const src = hSource.split("\n").join(" ").replace(/\s+/g, " ").trim();
+        const flat = text.replace(/\s+/g, " ").trim();
+        const hit = src.includes(flat) || flat.includes(src);
+        return hit;
+      });
+      return covered ? { ...block, lines: [] } : block;
+    });
+    const result2 = embedProseHeads(deduped, proseHeadsRef.current);
     // Structured Markdown chunks promoted by #526 already live in Static.
     // When their call later settles, retain only a source suffix that was
     // not emitted through that chain; never append the same segment again.
-    return deduped.flatMap((block) => {
+    // IMPORTANT: fully-consumed blocks are kept as EMPTY placeholders (a
+    // rendered no-op) rather than dropped — dropping shrinks the Static
+    // items array below ink's forward-only printed cursor, and every item
+    // appended afterwards would land below the cursor and be silently
+    // skipped (lost thinking blocks).
+    return result2.flatMap((block) => {
       const chars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (chars === 0) return [block];
       const remainder = trimProseHead(block, chars);
-      return remainder.markdown?.trim() ? [remainder] : [];
+      return remainder.markdown?.trim()
+        ? [remainder]
+        : [{ ...block, lines: [], markdown: undefined, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
     });
   }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
@@ -585,11 +736,10 @@ export function Chat({
     [liveBlocks, cols, viewport.rows, askBudget, footerRows],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
-  // items at their recorded insertion indices — never through the settled
-  // projection — so their positions never shift and ink's forward-only
-  // Static counter sees only genuinely new items at the end. Whole-
-  // transcript reprints still read chronologically: each chunk group sits
-  // right after the blocks that were settled when it started streaming.
+  // items appended at the current end — never through the settled
+  // projection — and never below ink's forward-only Static cursor.
+  // Whole-transcript reprints still read chronologically: each chunk
+  // group sits after the blocks printed when it streamed.
   const assembledSettled: readonly TranscriptBlock[] = spliceReasoningChunks(
     settledBlocks,
     [
@@ -608,13 +758,29 @@ export function Chat({
   // the items so Static emits nothing into the alternate buffer; on close
   // it resumes and prints only items settled in the meantime.
   const frozenRef = useRef<readonly TranscriptBlock[] | null>(null);
+  // Append-only emission ledger (#537): the blocks ink has already been
+  // handed via Static, in emission order, content as at print time. Ink's
+  // Static prints items.slice(cursor) once and NEVER re-renders printed
+  // items, so any assembly that inserts a new block before the cursor
+  // loses it (skipped) and shifts printed items (re-emitted) — the
+  // v0.23.1 doubled/tripled thinking blocks. New blocks therefore always
+  // append: canonical order is kept while the projection itself stays
+  // append-only; a late-settling block that canonically belongs before
+  // printed history lands after it instead (physical constraint, decided
+  // in #537 — the log keeps the true order for replay).
+  const emittedRef = useRef<TranscriptBlock[]>([]);
+  {
+    const emittedKeys = new Set(emittedRef.current.map((b) => b.key));
+    const fresh = assembledSettled.filter((b) => !emittedKeys.has(b.key));
+    if (fresh.length > 0) emittedRef.current = [...emittedRef.current, ...fresh];
+  }
   let staticItems: readonly TranscriptBlock[];
   if (replaySettled) {
-    if (frozenRef.current === null) frozenRef.current = assembledSettled;
+    if (frozenRef.current === null) frozenRef.current = emittedRef.current;
     staticItems = frozenRef.current;
   } else {
     frozenRef.current = null;
-    staticItems = assembledSettled;
+    staticItems = emittedRef.current;
   }
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
@@ -1016,10 +1182,16 @@ export function embedReasoningHeads(
   return deduped;
 }
 
-/** Splices #329 head chunks into the Static items at their recorded indices.
- * Inserts run in ascending index order: each chunk group was recorded in
- * assembled coordinates that already include every earlier group, so the
- * positions line up as the array grows. */
+/** Splices #329 head chunks into the Static items. Each chunk group is
+ * appended at the CURRENT end of the settled list, in group order — never
+ * at the recorded `startIndex`. Ink's `<Static>` counter is forward-only
+ * and equals the emitted item count: any insertion below that cursor
+ * shifts already-printed items forward and makes ink re-emit each of them
+ * (one duplicate per shift per item — the v0.23.1 doubled/tripled thinking
+ * blocks). With #537's append-only projection, appended-at-end is also the
+ * semantically correct position: nothing may retro-insert above printed
+ * history. The `startIndex` field remains part of the chain contract
+ * (diagnostics) but no longer drives insertion. */
 export function spliceReasoningChunks(
   blocks: readonly TranscriptBlock[],
   inserts: ReadonlyArray<{ startIndex: number; chunks: readonly TranscriptBlock[] }>,
@@ -1028,7 +1200,7 @@ export function spliceReasoningChunks(
   if (active.length === 0) return [...blocks];
   const spliced = [...blocks];
   for (const insert of [...active].sort((a, b) => a.startIndex - b.startIndex)) {
-    spliced.splice(Math.min(insert.startIndex, spliced.length), 0, ...insert.chunks);
+    spliced.push(...insert.chunks);
   }
   return spliced;
 }
