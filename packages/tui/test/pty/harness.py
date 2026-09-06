@@ -314,6 +314,12 @@ def main() -> None:
             screen = Screen(resize["cols"], resize["rows"])  # Ink fully repaints after SIGWINCH
             screen.scrollback = previous_scrollback
             pump(2.0)
+            if resize.get("until"):
+                # Readiness wait for the post-resize repaint: a fixed pump can
+                # stop mid-frame on a slow host, leaving the last footer rows
+                # unpainted (#538 flake). Wait until the needle appears in the
+                # post-resize byte stream (or the budget expires).
+                pump_until(resize.get("untilWait", 10.0), resize["until"], since=len(buf))
     finally:
         # aliveAtEnd (#236): sampled BEFORE the harness kills the process —
         # `exited` alone can be false merely because the kill hasn't landed
