@@ -181,10 +181,12 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       const screen = meta.lines.map((line) => line.text);
       // Ordering oracle (owner report): the sealed thinking block must sit
       // ABOVE the reply — never between a promoted heading chunk and the
-      // streaming tail. Its first occurrence must precede the reply's
-      // first section in the combined projection.
+      // streaming tail — and appear exactly once (Static chunk + settled
+      // block both printing it is the duplicated end-of-stream symptom).
+      const reasoningCount = raw.match(/REALISTIC-REASONING compose/g)?.length ?? 0;
       const reasoningAt = raw.indexOf("REALISTIC-REASONING compose");
       const replyAt = raw.indexOf("FIRST-MARKDOWN-SECTION");
+      expect(reasoningCount).toBe(1);
       expect(reasoningAt).toBeGreaterThanOrEqual(0);
       expect(replyAt).toBeGreaterThanOrEqual(0);
       expect(reasoningAt).toBeLessThan(replyAt);
@@ -332,7 +334,15 @@ function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>
         async start(controller) {
           const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: `realistic-${calls}`, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
           send({ role: "assistant" });
-          send({ reasoning_content: calls === 1 ? "REALISTIC-REASONING inspect the manual before answering" : "REALISTIC-REASONING compose the final answer" });
+          if (calls === 1) {
+            send({ reasoning_content: "REALISTIC-REASONING inspect the manual before answering" });
+          } else {
+            // GLM persists multiple reasoning parts per call (#240): the
+            // fixture must exercise the coalesced-group seal, not a single
+            // part, or the duplicated end-of-stream block stays untested.
+            send({ reasoning_content: "REALISTIC-REASONING compose the final answer" });
+            send({ reasoning_content: " after checking every tool result twice" });
+          }
           if (calls === 1) {
             send({ tool_calls: [{ index: 0, id: "glob-realistic", type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: "docs/manual/*.md" }) } }] });
             send({}, "tool_calls");

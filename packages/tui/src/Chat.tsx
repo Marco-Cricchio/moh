@@ -443,11 +443,19 @@ export function Chat({
       if (chain.key !== "live-reasoning") {
         sealedKey = chain.key;
       } else {
+        // The settled projection coalesces a call's contiguous reasoning
+        // parts into ONE block keyed by the FIRST event (#240). Sealing
+        // against the last part would miss the block's key and reprint
+        // the whole group — the duplicated end-of-stream thinking block.
+        let first = -1;
         for (let i = Math.min(settledEnd, state.events.length) - 1; i >= 0; i--) {
-          if (state.events[i]!.type !== "reasoning") continue;
-          const key = `${i}-reasoning`;
-          if (!reasoningHeadsRef.current.has(key)) sealedKey = key;
+          if (state.events[i]!.type === "reasoning") { first = i; continue; }
+          if (first === -1) continue;
           break;
+        }
+        if (first !== -1) {
+          const key = `${first}-reasoning`;
+          if (!reasoningHeadsRef.current.has(key)) sealedKey = key;
         }
       }
       if (sealedKey !== null) {
