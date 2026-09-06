@@ -99,6 +99,54 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 
+  test("visible reasoning, a tool, and a long Markdown reply grow scrollback before done", async () => {
+    const { server, url } = startRealisticReasoningStream();
+    const rawDump = "/tmp/moh-streaming-realistic-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        project: { permissions: { overrides: { tools: { glob: "allow" } } } },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("realistic stream") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 8.0, until: "LAST-MARKDOWN-SECTION" },
+          { wait: 0.4 },
+        ],
+        tail: 24,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const raw = readFileSync(rawDump, "utf8");
+      expect(raw).toContain("REALISTIC-REASONING");
+      expect(raw).toContain("LAST-MARKDOWN-SECTION");
+      expect(raw).not.toContain("REALISTIC-FINISHED");
+      // This is the owner's video seam: one initial volatile paint plus one
+      // Static promotion is allowed; repainting the same completed section
+      // on later deltas recreates the internally scrolling live box.
+      const firstSectionPaints = raw.match(/FIRST-MARKDOWN-SECTION/g)?.length ?? 0;
+      expect(firstSectionPaints).toBeGreaterThanOrEqual(1);
+      expect(firstSectionPaints).toBeLessThanOrEqual(2);
+      expect(meta.scrollback?.some((line) => line.includes("FIRST-MARKDOWN-SECTION"))).toBe(true);
+      const screen = meta.lines.map((line) => line.text);
+      expect(screen.some((line) => line.includes("LAST-MARKDOWN-SECTION"))).toBe(true);
+      expect([...(meta.scrollback ?? []), ...screen].some((line) => line.includes("glob"))).toBe(true);
+      const input = screen.findIndex((line) => line.includes("type…"));
+      expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2));
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(750_000);
+    } finally {
+      server.stop(true);
+    }
+  }, 20_000);
+
   test("completed lines enter terminal scrollback once while a long response is still streaming", async () => {
     const { server, url } = startLineStream();
     const rawDump = "/tmp/moh-streaming-lines-raw.bin";
@@ -194,6 +242,48 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 });
+
+function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  let calls = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      calls += 1;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: `realistic-${calls}`, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          send({ reasoning_content: calls === 1 ? "REALISTIC-REASONING inspect the manual before answering" : "REALISTIC-REASONING compose the final answer" });
+          if (calls === 1) {
+            send({ tool_calls: [{ index: 0, id: "glob-realistic", type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: "docs/manual/*.md" }) } }] });
+            send({}, "tool_calls");
+          } else {
+            const sections = [
+              "## FIRST-MARKDOWN-SECTION\n\nMoh starts with an open headless core and keeps its clients deliberately thin. ",
+              "## Architecture\n\n1. The event log is the session.\n2. Providers remain replaceable.\n3. Permissions only narrow access.\n\n",
+              "## Workflow\n\nProfessional developers get reviewable stages while vibe coders get safe rails without learning every internal detail. ",
+              "## LAST-MARKDOWN-SECTION\n\nThe final section is still streaming while the first one should already be in terminal scrollback. ",
+            ];
+            for (const section of sections) {
+              for (const word of section.split(/(?<=\s)/)) {
+                send({ content: word });
+                await Bun.sleep(8);
+              }
+            }
+            await Bun.sleep(3_000);
+            send({ content: "REALISTIC-FINISHED" });
+            send({}, "stop");
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
 
 function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({

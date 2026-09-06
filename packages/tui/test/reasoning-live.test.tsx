@@ -66,6 +66,35 @@ describe("live reasoning rendering (#253)", () => {
     ui.unmount();
   });
 
+  test("multiple reasoning parts in one call remain visible as one cumulative block", async () => {
+    let releaseText: (() => void) | null = null;
+    const textGate = new Promise<void>((resolve) => { releaseText = resolve; });
+    const stream = async function* () {
+      yield { type: "model_call_start", model: "reasoner" };
+      yield { type: "reasoning_start" };
+      yield { type: "reasoning_delta", text: "first reasoning part" };
+      yield { type: "reasoning_end" };
+      yield { type: "reasoning_start" };
+      yield { type: "reasoning_delta", text: "second reasoning part" };
+      yield { type: "reasoning_end" };
+      await textGate;
+      yield { type: "text_delta", text: "answer" };
+      yield { type: "finish", reason: "stop" };
+    };
+    const session = createSession({ provider: { name: "reasoner", stream: stream as Provider["stream"] }, memory: { enabled: false } });
+    drain(session);
+    const ui = render(<Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="reasoner" width={80} showReasoning />);
+    const done = session.send("think twice");
+    await nap(120);
+    const frame = stripAnsi(ui.lastFrame() ?? "");
+    expect(frame).toContain("first reasoning part");
+    expect(frame).toContain("second reasoning part");
+    expect(frame.indexOf("first reasoning part")).toBeLessThan(frame.indexOf("second reasoning part"));
+    releaseText!();
+    await done;
+    ui.unmount();
+  });
+
   test("with display off, a pending reasoning turn shows only the static indicator, never the text", async () => {
     let releaseText: (() => void) | null = null;
     const textGate = new Promise<void>((resolve) => {

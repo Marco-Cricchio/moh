@@ -175,6 +175,7 @@ export function Chat({
   // streamed output grows native terminal scrollback exactly once.
   const proseChainRef = useRef<ProseHeadChain | null>(null);
   const proseHeadsRef = useRef(new Map<string, SealedProseHead>());
+  const failedCallsRef = useRef(0);
   const assembledCountRef = useRef(0);
   const sessionRef = useRef(session);
   const segmentsRef = useRef<Segment[]>([{ base: 0, mode, show: showReasoning }]);
@@ -187,12 +188,19 @@ export function Chat({
     reasoningHeadsRef.current.clear();
     proseChainRef.current = null;
     proseHeadsRef.current.clear();
+    failedCallsRef.current = 0;
   }
   // #326: the hold shrinks settledEnd while paragraphs already promoted
   // under display-off would sit before the reasoning group — safe because a
   // showReasoning toggle always forces the whole-transcript repaint below
   // (clear + remount), which reprints everything in the new order.
-  const settledEnd = useMemo((): number => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning }), [state.events, state.pending, showReasoning]);
+  // Live reasoning now seals wholly into Static at reasoning_end, before the
+  // first reply token. The reply may therefore promote closed Markdown
+  // segments without waiting for the later persisted reasoning/model group.
+  const settledEnd = useMemo(
+    () => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning && liveReasoning?.active === true }),
+    [state.events, state.pending, showReasoning, liveReasoning?.active],
+  );
   // #300: wall-clock ledger for tool calls — arrival time per live call,
   // final call→result duration once the result lands. Presentation-only
   // (never merged into the log); advanced incrementally from the cursor
@@ -216,6 +224,17 @@ export function Chat({
   const [repaint, setRepaint] = useState(0);
   const modeRef = useRef(mode);
   const repaintRef = useRef(false);
+  // A failed call is the one case whose canonical projection intentionally
+  // keeps reasoning below its partial reply and marks it failed. Success is
+  // the streaming fast path; failure rebuilds once its outcome lands.
+  const failedCalls = useMemo(
+    () => state.events.reduce((count, event) => count + (event.type === "model_call" && event.failed ? 1 : 0), 0),
+    [state.events],
+  );
+  if (failedCalls > failedCallsRef.current) {
+    failedCallsRef.current = failedCalls;
+    repaintRef.current = true;
+  }
   if (mode !== modeRef.current) {
     modeRef.current = mode;
     repaintRef.current = true;
@@ -373,7 +392,10 @@ export function Chat({
     const thinking = tracked ?? thinkingBlocks.at(-1) ?? null;
     if (thinking) {
       const previous = reasoningChainRef.current;
-      const advanced = nextReasoningHead(previous, thinking.key, thinking.lines);
+      // Once reasoning_end arrives the whole block is immutable. Promote its
+      // remaining tail before any reply rows, preserving reasoning → reply
+      // while allowing the reply itself to grow Static scrollback.
+      const advanced = nextReasoningHead(previous, thinking.key, thinking.lines, liveReasoning?.active === false ? 0 : REASONING_TAIL_LINES);
       // The chunks' Static insertion index is captured when the FIRST chunk
       // is promoted, at the settled length of the previous render: every
       // already-printed block stays before the chunks and later-settling
@@ -422,7 +444,7 @@ export function Chat({
     // seals, so prose must stay live until then or Static would reverse that
     // order. Structured Markdown stays on the semantic paragraph/fence path.
     const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
-    const prose = !showReasoning && latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
+    const prose = latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
     const chain = proseChainRef.current;
     if (latestProse && chain?.key === latestProse.key && !prose) {
       // A later delta can turn previously plain text into Markdown whose
