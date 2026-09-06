@@ -52,13 +52,24 @@ export function useLiveReasoning(session: AgentSession | null, pending: boolean)
     const off = session.onLiveEvent((event) => {
       const prev = current.current ?? { text: "", active: true };
       if (event.type === "reasoning_start") {
-        current.current = { text: "", active: true };
+        // One provider call may emit multiple reasoning parts. Keep one
+        // cumulative live display buffer, matching the settled projection's
+        // `texts.join("\n\n")`, so Static promotion remains monotonic.
+        current.current = { text: prev.text ? `${prev.text}\n\n` : "", active: true };
+        // Lifecycle edges are ordering barriers for Chat's append-only
+        // promotion: publish them immediately; only text deltas coalesce.
+        flush();
       } else if (event.type === "reasoning_delta") {
         current.current = { text: capReasoningText(prev.text + event.text), active: true };
+        schedule();
       } else if (event.type === "reasoning_end") {
         current.current = { text: prev.text, active: false };
+        if (timer.current !== null) {
+          clearTimeout(timer.current);
+          timer.current = null;
+        }
+        flush();
       }
-      schedule();
     });
     // The volatile block ends its life when the settled block (or the
     // call/turn boundary) reaches the persisted log. This is a second
