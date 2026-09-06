@@ -22,7 +22,9 @@ export interface PtySpec {
   /** Files written into the child's cwd (base64 name → content), so
    * mentions can attach real project files. */
   files?: Record<string, string>;
-  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string }>;
+  /** `checkpoint` snapshots physical screen + native scrollback after this
+   * step, letting one script assert a mid-stream viewport and final settle. */
+  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; checkpoint?: string }>;
   tail?: number;
 }
 
@@ -49,6 +51,8 @@ export interface PtyMeta {
   /** #236: sampled before the harness kills the process — unlike `exited`,
    * false here genuinely means the app died mid-script (OOM/kill). */
   aliveAtEnd?: boolean;
+  /** Named physical-screen snapshots captured at PTY script checkpoints. */
+  checkpoints?: Record<string, { lines: PtyLine[]; scrollback: string[] }>;
 }
 
 export async function runPtyRaw(spec: PtySpec): Promise<PtyMeta> {
