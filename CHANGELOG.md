@@ -5,6 +5,18 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.23.2] - 2026-09-06
+### Fixed
+
+- **Append-only Static emission across live-reasoning handovers** (#544):
+  Ink's forward-only `<Static>` counter no longer re-emits reordered chunks
+  when the live-reasoning chain hands over to the canonical projection — the
+  tail of a fix that closes the reprint/duplication family from the note-33
+  streaming work.
+- **PTY tests use readiness waits** (#543): fixed pump budgets in the PTY
+  harness are replaced by deterministic readiness waits, removing the
+  timing-related flake class from the TUI test suite.
+
 ## [0.23.1] - 2026-09-06
 ### Fixed
 

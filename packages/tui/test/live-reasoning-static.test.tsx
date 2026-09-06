@@ -162,13 +162,16 @@ describe("settled dedup + chunk splicing (#329)", () => {
     expect(embedReasoningHeads(blocks, new Map())).toEqual(blocks);
   });
 
-  test("spliceReasoningChunks inserts each group at its recorded index, ascending", () => {
+  test("spliceReasoningChunks appends groups at the end in group order", () => {
     const blocks = [settled("0-user_message", ["hi"]), settled("1-reasoning", ["tail"])];
     const spliced = spliceReasoningChunks(blocks, [
       { startIndex: 5, chunks: [chunk("late", ["x"])] },
       { startIndex: 1, chunks: [chunk("early", ["a", "b"])] },
     ]);
-    expect(spliced.map((b) => b.key)).toEqual(["0-user_message", "early", "1-reasoning", "late"]);
+    // Append-only contract (#537): chunks always land after the settled
+    // items, never below ink's forward-only Static cursor — an insertion
+    // below the cursor shifted printed items and re-emitted them.
+    expect(spliced.map((b) => b.key)).toEqual(["0-user_message", "1-reasoning", "early", "late"]);
   });
 
   test("spliceReasoningChunks with nothing to insert is a stable copy", () => {
