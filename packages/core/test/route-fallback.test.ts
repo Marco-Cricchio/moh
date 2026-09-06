@@ -56,6 +56,7 @@ describe("error taxonomy normalization", () => {
     });
     expect(normalizeProviderError(apiErr).kind).toBe("rate_limited");
     expect(normalizeProviderError(new ProviderError("auth", "bad key")).kind).toBe("auth");
+    expect(normalizeProviderError(42).message).toBe("42");
   });
 });
 
