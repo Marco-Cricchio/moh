@@ -277,6 +277,18 @@ def main() -> None:
     def send(b64: str) -> None:
         os.write(master, base64.b64decode(b64))
 
+    checkpoints = {}
+
+    def snapshot():
+        rendered = []
+        for line in screen.lines()[-spec.get("tail", rows):]:
+            rendered.append({
+                "lead": len(line) - len(line.lstrip()),
+                "width": len(line),
+                "text": line,
+            })
+        return {"lines": rendered, "scrollback": list(screen.scrollback)}
+
     try:
         pump(2.5)  # boot: onboarding appears
         for step in spec.get("steps", []):
@@ -287,10 +299,12 @@ def main() -> None:
                 if step.get("send"):
                     raise ValueError("pty step: 'until' and 'send' are mutually exclusive")
                 pump_until(step.get("wait", 5.0), step["until"], since=len(buf))
-                continue
-            if step.get("send"):
-                send(step["send"])
-            pump(step.get("wait", 0.3))
+            else:
+                if step.get("send"):
+                    send(step["send"])
+                pump(step.get("wait", 0.3))
+            if step.get("checkpoint"):
+                checkpoints[step["checkpoint"]] = snapshot()
         resize = spec.get("resize")
         if resize:
             fcntl.ioctl(master, termios.TIOCSWINSZ,
@@ -326,7 +340,7 @@ def main() -> None:
             f.write(bytes(buf))
     payload = out
     if spec.get("meta"):
-        payload = {"lines": out, "scrollback": screen.scrollback, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
+        payload = {"lines": out, "scrollback": screen.scrollback, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
     json.dump(payload, sys.stdout)
 
 
