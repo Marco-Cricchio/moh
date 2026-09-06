@@ -170,8 +170,14 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       // Static promotion is allowed; repainting the same completed section
       // on later deltas recreates the internally scrolling live box.
       expect(raw).toContain("FIRST-MARKDOWN-SECTION");
-      expect(raw.slice(Math.floor(raw.length / 2))).not.toContain("FIRST-MARKDOWN-SECTION");
-      expect(meta.scrollback?.some((line) => line.includes("FIRST-MARKDOWN-SECTION"))).toBe(true);
+      const lateRaw = raw.slice(Math.floor(raw.length / 2));
+      expect(lateRaw).not.toContain("FIRST-MARKDOWN-SECTION");
+      expect(lateRaw).not.toContain("## Event log");
+      expect(lateRaw).not.toContain("## Permissions");
+      const history = meta.scrollback ?? [];
+      expect(history.some((line) => line.includes("FIRST-MARKDOWN-SECTION"))).toBe(true);
+      expect(history.some((line) => line.includes("Architecture"))).toBe(true);
+      expect(history.some((line) => line.includes("replaceable"))).toBe(true);
       const screen = meta.lines.map((line) => line.text);
       expect(screen.some((line) => line.includes("LAST-MARKDOWN-SECTION"))).toBe(true);
       expect([...(meta.scrollback ?? []), ...screen].some((line) => line.includes("glob"))).toBe(true);
@@ -323,10 +329,10 @@ function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>
             send({}, "tool_calls");
           } else {
             const sections = [
-              "## FIRST-MARKDOWN-SECTION\n\nMoh starts with an open headless core and keeps its clients deliberately thin. ",
-              "## Architecture\n\n1. The event log is the session.\n2. Providers remain replaceable.\n3. Permissions only narrow access.\n\n",
-              "## Workflow\n\nProfessional developers get reviewable stages while vibe coders get safe rails without learning every internal detail. ",
-              "## LAST-MARKDOWN-SECTION\n\nThe final section is still streaming while the first one should already be in terminal scrollback. ",
+              "## FIRST-MARKDOWN-SECTION\n\nMoh starts with an open headless core and keeps its clients deliberately thin.",
+              "\n\n## Architecture\n\n1. The event log is the session.\n2. Providers remain replaceable.\n3. Permissions only narrow access.",
+              "\n\n## Workflow\n\nProfessional developers get reviewable stages while vibe coders get safe rails without learning every internal detail.",
+              "\n\n## LAST-MARKDOWN-SECTION\n\nThe final section is still streaming while the first one should already be in terminal scrollback. ",
             ];
             for (const section of sections) {
               for (const word of section.split(/(?<=\s)/)) {

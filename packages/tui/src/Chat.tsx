@@ -176,6 +176,12 @@ export function Chat({
   // streamed output grows native terminal scrollback exactly once.
   const proseChainRef = useRef<ProseHeadChain | null>(null);
   const proseHeadsRef = useRef(new Map<string, SealedProseHead>());
+  // Closed structured-Markdown segments have distinct projection keys but
+  // must enter Ink Static as one append-only reply chain. Per-block cursors
+  // dedup the canonical/live projections; only the chain owns the chunks.
+  const markdownChainRef = useRef<MarkdownReplyChain | null>(null);
+  const markdownChainsRef = useRef<MarkdownReplyChain[]>([]);
+  const markdownHeadsRef = useRef(new Map<string, number>());
   const failedCallsRef = useRef(0);
   const assembledCountRef = useRef(0);
   const sessionRef = useRef(session);
@@ -189,6 +195,9 @@ export function Chat({
     reasoningHeadsRef.current.clear();
     proseChainRef.current = null;
     proseHeadsRef.current.clear();
+    markdownChainRef.current = null;
+    markdownChainsRef.current = [];
+    markdownHeadsRef.current.clear();
     failedCallsRef.current = 0;
   }
   // #326: the hold shrinks settledEnd while paragraphs already promoted
@@ -475,16 +484,41 @@ export function Chat({
       proseHeadsRef.current.set(chain.key, chain);
       proseChainRef.current = null;
     }
+    // `projectTranscript` already splits one reply with assistantSegments.
+    // Every Markdown block before the newest one is therefore semantically
+    // closed and immutable. Move those blocks into Static immediately rather
+    // than letting transcriptTail repeatedly clip the whole growing reply.
+    // Existing plain-prose heads are completed with their final remainder;
+    // structured blocks are promoted whole with their Markdown intact.
+    const closed = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined).slice(0, -1);
+    for (const block of closed) {
+      const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
+      if (priorChars === block.markdown!.length) continue;
+      const remainder = trimProseHead(block, priorChars);
+      if (!remainder.markdown) continue;
+      const replyKey = block.key.replace(/-p\d+$/, "");
+      let markdownChain = markdownChainRef.current;
+      if (!markdownChain || markdownChain.key !== replyKey) {
+        markdownChain = { key: replyKey, startIndex: assembledCountRef.current, chunks: [] };
+        markdownChainRef.current = markdownChain;
+        markdownChainsRef.current.push(markdownChain);
+      }
+      markdownChain.chunks.push({ ...remainder, key: `${block.key}-markdown-head` });
+      markdownHeadsRef.current.set(block.key, block.markdown!.length);
+    }
   }
   const activeProse = proseChainRef.current;
-  const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.map((block) => {
+  const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.flatMap((block) => {
     if (activeChain && activeChain.chars > 0 && block.key === activeChain.key) {
-      return trimReasoningHead(block, activeChain.chars);
+      return [trimReasoningHead(block, activeChain.chars)];
     }
-    if (activeProse && activeProse.chars > 0 && block.key === activeProse.key) {
-      return trimProseHead(block, activeProse.chars);
+    const proseHead = activeProse?.key === block.key ? activeProse : proseHeadsRef.current.get(block.key);
+    const promotedChars = Math.max(proseHead?.chars ?? 0, markdownHeadsRef.current.get(block.key) ?? 0);
+    if (promotedChars > 0) {
+      const remainder = trimProseHead(block, promotedChars);
+      return remainder.markdown ? [remainder] : [];
     }
-    return block;
+    return [block];
   });
   const settledBlocks = useMemo((): readonly TranscriptBlock[] => {
     const segments = segmentsRef.current.filter((segment, index) =>
@@ -534,6 +568,7 @@ export function Chat({
       ...(activeChain ? [activeChain] : []),
       ...proseHeadsRef.current.values(),
       ...(activeProse ? [activeProse] : []),
+      ...markdownChainsRef.current,
     ],
   );
   assembledCountRef.current = assembledSettled.length;
@@ -712,6 +747,7 @@ export interface ProseHeadChain {
 }
 
 export type SealedProseHead = Omit<ProseHeadChain, "key">;
+interface MarkdownReplyChain { key: string; startIndex: number; chunks: TranscriptBlock[] }
 
 /** Conservative gate: Markdown constructs can change the interpretation of
  * preceding lines, so they stay on the existing semantic paragraph/fence
