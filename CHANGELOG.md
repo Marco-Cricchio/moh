@@ -638,7 +638,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.23.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.23.1...develop
+[0.23.1]: https://github.com/Marco-Cricchio/moh/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/Marco-Cricchio/moh/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/Marco-Cricchio/moh/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/Marco-Cricchio/moh/compare/v0.21.0...v0.21.1
