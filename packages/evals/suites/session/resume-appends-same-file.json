@@ -1,0 +1,35 @@
+{
+  "steps": [
+    {
+      "prompt": "first: read the note",
+      "cassette": [
+        {
+          "deltas": [],
+          "finish": "tool_calls",
+          "toolCalls": [{ "name": "read", "args": { "path": "note.txt" } }]
+        },
+        { "deltas": ["First turn done."], "finish": "stop" }
+      ],
+      "permissions": { "allow": ["read"] },
+      "assertions": { "replyIncludes": ["First turn done"] }
+    },
+    {
+      "prompt": "second: read it again",
+      "cassette": [
+        {
+          "deltas": [],
+          "finish": "tool_calls",
+          "toolCalls": [{ "name": "read", "args": { "path": "note.txt" } }]
+        },
+        { "deltas": ["Second turn done."], "finish": "stop" }
+      ],
+      "permissions": { "allow": ["read"] },
+      "assertions": { "replyIncludes": ["Second turn done"] }
+    }
+  ],
+  "setup": { "note.txt": "the note\n" },
+  "sessionAssertions": {
+    "toolCallOrder": ["read", "read"],
+    "chromeEvents": ["session_start", "session_resumed", "user_message", "assistant_delta"]
+  }
+}

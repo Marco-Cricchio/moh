@@ -1,0 +1,16 @@
+{
+  "prompt": "run bash",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "bash", "args": { "command": "echo nope" } }]
+    },
+    { "deltas": ["Okay, skipped."], "finish": "stop" }
+  ],
+  "assertions": {
+    "denials": [{ "tool": "bash", "reason": "headless" }],
+    "forbiddenTools": [],
+    "replyIncludes": ["skipped"]
+  }
+}

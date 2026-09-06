@@ -1,0 +1,19 @@
+{
+  "prompt": "fix the greeting",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [
+        { "name": "edit", "args": { "path": "hello.txt", "oldText": "helo", "newText": "hello" } }
+      ]
+    },
+    { "deltas": ["Fixed the typo."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["edit", "read"] },
+  "setup": { "hello.txt": "helo world\n" },
+  "assertions": {
+    "toolCalls": [{ "name": "edit", "argsInclude": ["helo", "hello"] }],
+    "files": [{ "path": "hello.txt", "content": "hello world\n" }]
+  }
+}

@@ -40,6 +40,10 @@
         "typescript": "^5",
       },
     },
+    "packages/evals": {
+      "name": "@moh/evals",
+      "version": "0.1.0",
+    },
     "packages/extension": {
       "name": "@moh/extension",
       "version": "0.1.0",
@@ -83,6 +87,8 @@
     "@moh/cli": ["@moh/cli@workspace:packages/cli"],
 
     "@moh/core": ["@moh/core@workspace:packages/core"],
+
+    "@moh/evals": ["@moh/evals@workspace:packages/evals"],
 
     "@moh/extension": ["@moh/extension@workspace:packages/extension"],
 

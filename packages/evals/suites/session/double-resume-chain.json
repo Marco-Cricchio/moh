@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "prompt": "say hello",
+      "cassette": [{ "deltas": ["Hello!"], "finish": "stop" }],
+      "assertions": { "replyIncludes": ["Hello"] }
+    },
+    {
+      "prompt": "say goodbye",
+      "cassette": [{ "deltas": ["Goodbye!"], "finish": "stop" }],
+      "assertions": { "replyIncludes": ["Goodbye"] }
+    },
+    {
+      "prompt": "say again",
+      "cassette": [{ "deltas": ["Again!"], "finish": "stop" }],
+      "assertions": { "replyIncludes": ["Again"] }
+    }
+  ],
+  "sessionAssertions": {
+    "chromeEvents": ["session_resumed"]
+  }
+}

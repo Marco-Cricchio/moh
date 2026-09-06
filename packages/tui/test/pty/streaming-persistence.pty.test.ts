@@ -287,7 +287,102 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       server.stop(true);
     }
   }, 15_000);
+
+  // Owner report on production session 39276900 (2026-09-06, post-0.21.1):
+  // outputs appeared doubled/tripled in an agentic turn — many model calls,
+  // each with brief intermediate text between tool calls and reasoning
+  // persisted at end of call (#326 pattern). Two calls were not enough to
+  // reproduce; the fixture must exercise a long tool cycle sequence.
+  test("a long tool cycle sequence prints each intermediate text exactly once", async () => {
+    const { server, url } = startToolCycleStream();
+    const rawDump = "/tmp/moh-streaming-toolcycles-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        project: { permissions: { overrides: { tools: { glob: "allow" } } } },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("run the cycles") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 3.0, until: "CYCLE-TEXT-0" },
+          { wait: 12.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 0.8 },
+        ],
+        tail: 24,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const raw = readFileSync(rawDump, "utf8");
+      expect(raw).toContain("FINAL-REPLY-MARKER");
+      // Settled duplicate oracle: each intermediate text appears exactly
+      // once in the terminal's final history (scrollback + screen).
+      const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
+      for (let i = 0; i < 8; i++) {
+        const marker = `CYCLE-TEXT-${i}`;
+        const count = history.split(marker).length - 1;
+        expect(count).toBe(1);
+      }
+      const finalCount = history.split("FINAL-REPLY-MARKER").length - 1;
+      expect(finalCount).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  }, 30_000);
 });
+
+function startToolCycleStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  // Faithful to session 39276900: 8 tool cycles, each model call emits
+  // brief intermediate text (plain prose, promoted early), reasoning
+  // persisted at end of call (after the text — the GLM/#326 ordering),
+  // then a tool call; the last call streams the final reply.
+  let calls = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      calls += 1;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: `cycles-${calls}`, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          const isFinal = calls > 8;
+          if (isFinal) {
+            for (const word of "FINAL-REPLY-MARKER the work is complete across every cycle and the answer settles here".split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(8);
+            }
+            send({}, "stop");
+          } else {
+            for (const word of `CYCLE-TEXT-${calls - 1} building \`step-${calls - 1}\` of the plan:\n\n- first bullet point of the step\n- second bullet point`.split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(8);
+            }
+            // Reasoning AFTER the text, persisted at call end (#326).
+            await Bun.sleep(150);
+            send({ reasoning_content: `CYCLE-THINKING-${calls - 1} check the tool result before continuing` });
+            // Parallel tool batch, as the real agentic session emits.
+            for (let t = 0; t < 3; t++) {
+              send({ tool_calls: [{ index: t, id: `glob-cycles-${calls}-${t}`, type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: `*.md` }) } }] });
+            }
+            send({}, "tool_calls");
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
 
 function startLongReasoningStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({
