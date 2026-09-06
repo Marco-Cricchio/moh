@@ -5,6 +5,18 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.23.1] - 2026-09-06
+### Fixed
+
+- **Streaming viewport with visible reasoning** (#537): restores the
+  incremental viewport growth of #526 when provider reasoning display is on —
+  #531 had disabled early structured-Markdown promotion to prevent duplicate
+  replies, pushing closed reply sections back into the volatile box
+  (grow/clip, displaced footer). Duplicate late-reasoning blocks are now
+  prevented by appending reasoning projections only (never replacing), keyed
+  on the coalesced first-event group, so reply promotion stays on and no
+  block renders twice. Validated against a real GLM production trace.
+
 ## [0.20.1] - 2026-09-05
 ### Fixed
 
