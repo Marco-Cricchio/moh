@@ -510,49 +510,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
   }));
 }
 
-/** #326: display-order pass — a completed call's reasoning group
- * (`reasoning` events + their `model_call`) is moved above the contiguous
- * `assistant_delta` run immediately preceding it in the log, so the thinking
- * block renders above the reply it produced. Pure projection: the log is
- * never rewritten, and each event keeps its original index so projection
- * keys (and #329 sealed heads keyed `${index}-reasoning`) stay stable.
- * Failed calls keep their position: their block renders in error state
- * beside the error/fallback that announces it (#242), below the partial
- * reply text it followed in the log. */
+/** Returns log order with stable absolute indices. A completed provider
+ * reasoning group is never retro-inserted above preceding deltas: once those
+ * deltas are in Ink Static, doing so violates append-only terminal history
+ * and caused the v0.21.1 duplicated agentic replies regression. */
 export function orderReasoningAboveReply(events: ReadonlyArray<AgentEvent>): Array<{ event: AgentEvent; index: number }> {
-  const out: Array<{ event: AgentEvent; index: number }> = [];
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i]!;
-    if (event.type !== "reasoning") {
-      out.push({ event, index: i });
-      continue;
-    }
-    // The call's unit: consecutive reasoning parts, then its model_call.
-    const group: Array<{ event: AgentEvent; index: number }> = [{ event, index: i }];
-    let j = i + 1;
-    while (events[j]?.type === "reasoning") {
-      group.push({ event: events[j]!, index: j });
-      j++;
-    }
-    const call = events[j]?.type === "model_call" ? events[j] : undefined;
-    if (call) {
-      group.push({ event: call, index: j });
-      j++;
-    }
-    const failedCall = call && call.type === "model_call" && call.failed === true;
-    const errorFollows = events[j]?.type === "error";
-    const movable = !failedCall && !errorFollows && out.at(-1)?.event.type === "assistant_delta";
-    if (movable) {
-      // Splice above the whole contiguous delta run of this call.
-      let runStart = out.length;
-      while (runStart > 0 && out[runStart - 1]!.event.type === "assistant_delta") runStart--;
-      out.splice(runStart, 0, ...group);
-    } else {
-      out.push(...group);
-    }
-    i = j - 1;
-  }
-  return out;
+  return events.map((event, index) => ({ event, index }));
 }
 
 /** #242: display buffer per reasoning call — 64 KiB. Projection-only:

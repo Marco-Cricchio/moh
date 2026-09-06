@@ -312,24 +312,31 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 3.0, until: "CYCLE-TEXT-0" },
-          { wait: 12.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 5.0, until: "CYCLE-LIVE-TAIL-0", checkpoint: "midStream" },
+          { wait: 20.0, until: "FINAL-REPLY-MARKER" },
           { wait: 0.8 },
         ],
         tail: 24,
         rawDump,
       });
       expect(meta.aliveAtEnd).toBe(true);
+      const mid = meta.checkpoints?.midStream;
+      expect(mid).toBeDefined();
+      // #526: by the pause before late reasoning, closed sections must have
+      // entered native scrollback. This is the physical append-only handoff;
+      // the parser's instantaneous screen frame may be between Ink repaints.
+      expect(mid!.scrollback.some((line) => line.includes("CYCLE-STATIC-0"))).toBe(true);
       const raw = readFileSync(rawDump, "utf8");
       expect(raw).toContain("FINAL-REPLY-MARKER");
       // Settled duplicate oracle: each intermediate text appears exactly
       // once in the terminal's final history (scrollback + screen).
       const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
-      for (let i = 0; i < 8; i++) {
+      for (let i = 1; i < 8; i++) {
         const marker = `CYCLE-TEXT-${i}`;
         const count = history.split(marker).length - 1;
         expect(count).toBe(1);
       }
+      expect(history.split("CYCLE-STATIC-0").length - 1).toBe(1);
       const finalCount = history.split("FINAL-REPLY-MARKER").length - 1;
       expect(finalCount).toBe(1);
     } finally {
@@ -361,10 +368,27 @@ function startToolCycleStream(): { server: ReturnType<typeof Bun.serve>; url: st
             }
             send({}, "stop");
           } else {
-            for (const word of `CYCLE-TEXT-${calls - 1} building \`step-${calls - 1}\` of the plan:\n\n- first bullet point of the step\n- second bullet point`.split(/(?<=\s)/)) {
-              send({ content: word });
-              await Bun.sleep(8);
+            const cycle = calls - 1;
+            // Only cycle zero needs enough rows to probe the #526 viewport;
+            // later cycles stay compact but retain the same Markdown + late-
+            // reasoning ordering that stresses deduplication. This keeps the
+            // combined oracle deterministic and below the PTY time budget.
+            const sections = cycle === 0
+              ? [
+                `## CYCLE-STATIC-${cycle}\n\n${"Closed Markdown section that must enter native scrollback before reasoning. ".repeat(18)}`,
+                `\n\n## CYCLE-MIDDLE-${cycle}\n\n${"A second closed section proves the append-only viewport does not rebuild its head. ".repeat(14)}`,
+                `\n\n## CYCLE-LIVE-TAIL-${cycle}\n\n${"The newest open segment remains volatile while this call has not sealed. ".repeat(8)}`,
+              ]
+              : [`## CYCLE-TEXT-${cycle}\n\ninline \`step-${cycle}\`\n\n- first item\n- second item\n\nopen tail`];
+            for (const section of sections) {
+              for (const word of section.split(/(?<=\s)/)) {
+                send({ content: word });
+                await Bun.sleep(5);
+              }
             }
+            // Freeze before late reasoning to make the #526 viewport state
+            // observable through the harness checkpoint.
+            if (cycle === 0) await Bun.sleep(2_500);
             // Reasoning AFTER the text, persisted at call end (#326).
             await Bun.sleep(150);
             send({ reasoning_content: `CYCLE-THINKING-${calls - 1} check the tool result before continuing` });

@@ -477,16 +477,10 @@ export function Chat({
   // across live and settled projections, unlike the separate reasoning
   // channel, so sealing can dedup directly against the same key.
   {
-    // Reasoning display projects above the reply only after the model call
-    // seals, so prose must stay live until then or Static would reverse that
-    // order. Structured Markdown stays on the semantic paragraph/fence path.
-    // #326 (owner report 2026-09-06, second gap): the plain-prose fast path
-    // must obey the SAME hold as the Markdown segment chain — GLM persists
-    // the call's reasoning only after the whole delta run, so promoting
-    // plain rows below the frozen thinking block while the log catches up
-    // puts the thinking visually mid-reply and reorders printed items.
-    const replyHeld = showReasoning && liveReasoning !== null;
-    const latestProse = replyHeld ? null : ([...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null);
+    // Provider reasoning that arrives before prose is already rendered above
+    // it by log order. Late persisted reasoning stays after emitted prose,
+    // so both plain and structured replies keep #526's append-only policy.
+    const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
     const prose = latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
     const chain = proseChainRef.current;
     if (latestProse && chain?.key === latestProse.key && !prose) {
@@ -512,16 +506,7 @@ export function Chat({
     // than letting transcriptTail repeatedly clip the whole growing reply.
     // Existing plain-prose heads are completed with their final remainder;
     // structured blocks are promoted whole with their Markdown intact.
-    // A persisted reasoning group is projected above the preceding reply
-    // deltas (#326). Markdown segments can only become closed while that
-    // reply is still live; printing one into Static here can therefore put
-    // it below a reasoning group that arrives later and force Ink's
-    // forward-only Static to re-emit the segment at settlement. This was
-    // visible as doubled/tripled intermediate agentic replies in production
-    // session 39276900. Plain prose has its own cursor-based append path;
-    // structured Markdown stays in the bounded volatile tail while provider
-    // reasoning is visible, then settles once in canonical order.
-    const closed = showReasoning ? [] : rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined).slice(0, -1);
+    const closed = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined).slice(0, -1);
     for (const block of closed) {
       const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (priorChars === block.markdown!.length) continue;
@@ -562,7 +547,16 @@ export function Chat({
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
       { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
     ));
-    return embedProseHeads(embedReasoningHeads(projected, reasoningHeadsRef.current), proseHeadsRef.current);
+    const deduped = embedProseHeads(embedReasoningHeads(projected, reasoningHeadsRef.current), proseHeadsRef.current);
+    // Structured Markdown chunks promoted by #526 already live in Static.
+    // When their call later settles, retain only a source suffix that was
+    // not emitted through that chain; never append the same segment again.
+    return deduped.flatMap((block) => {
+      const chars = markdownHeadsRef.current.get(block.key) ?? 0;
+      if (chars === 0) return [block];
+      const remainder = trimProseHead(block, chars);
+      return remainder.markdown?.trim() ? [remainder] : [];
+    });
   }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
     () => replaySettled ? transcriptTail(settledBlocks, cols, Math.max(1, viewport.rows - footerRows)) : settledBlocks,
