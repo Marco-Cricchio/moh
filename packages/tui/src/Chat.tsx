@@ -205,11 +205,19 @@ export function Chat({
   // showReasoning toggle always forces the whole-transcript repaint below
   // (clear + remount), which reprints everything in the new order.
   // Live reasoning now seals wholly into Static at reasoning_end, before the
-  // first reply token. The reply may therefore promote closed Markdown
-  // segments without waiting for the later persisted reasoning/model group.
+  // first reply token — while reasoning is active. NOTE (#326 correction,
+  // owner report 2026-09-06): with GLM the persisted reasoning event lands
+  // only at call end, AFTER the reply's deltas; the live buffer goes
+  // active=false already at reasoning_end. Holding only on active therefore
+  // left a whole reply-stream window where closed Markdown segments
+  // promoted BELOW the not-yet-persisted reasoning group — ink's forward-only
+  // Static then re-emitted the reordered items at done (duplicated thinking
+  // block and duplicated list items). The hold must last as long as the live
+  // reasoning block exists at all (active or frozen awaiting its log
+  // handover), which is exactly `liveReasoning !== null`.
   const settledEnd = useMemo(
-    () => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning && liveReasoning?.active === true }),
-    [state.events, state.pending, showReasoning, liveReasoning?.active],
+    () => settledBoundary(state.events, state.pending, { holdReplyForReasoning: showReasoning && liveReasoning !== null }),
+    [state.events, state.pending, showReasoning, liveReasoning],
   );
   // #300: wall-clock ledger for tool calls — arrival time per live call,
   // final call→result duration once the result lands. Presentation-only
