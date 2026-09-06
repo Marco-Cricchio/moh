@@ -1,0 +1,17 @@
+{
+  "prompt": "write the file",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "write", "args": { "path": "evil.txt", "content": "x" } }]
+    },
+    { "deltas": ["Understood, it was denied."], "finish": "stop" }
+  ],
+  "permissions": { "deny": ["write"] },
+  "assertions": {
+    "denials": [{ "tool": "write", "reason": "rule" }],
+    "files": [{ "path": "evil.txt", "absent": true }],
+    "replyIncludes": ["denied"]
+  }
+}

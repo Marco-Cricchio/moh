@@ -1,0 +1,20 @@
+{
+  "prompt": "try the read command",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [
+        { "name": "bash", "args": { "command": "cat notes.txt" } },
+        { "name": "bash", "args": { "command": "rm -rf /" } }
+      ]
+    },
+    { "deltas": ["One allowed, one denied."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["bash:cat"] },
+  "assertions": {
+    "toolCalls": [{ "name": "bash", "argsInclude": ["cat notes.txt"] }],
+    "denials": [{ "tool": "bash", "reason": "headless" }],
+    "forbiddenPaths": ["rm -rf"]
+  }
+}

@@ -286,6 +286,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // consent seams — project MCP servers and "ask" calls fail fast.
   const assembled = sessionFromConfig({
     cwd,
+    ...(options.home ? { home: options.home } : {}),
     ...(cassetteProvider ? { provider: cassetteProvider } : {}),
     ...(parsed.strings["provider"]
       ? { providerRef: parsed.strings["provider"] }

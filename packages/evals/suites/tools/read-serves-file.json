@@ -1,0 +1,17 @@
+{
+  "prompt": "say what the source file contains",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "read", "args": { "path": "src/app.ts" } }]
+    },
+    { "deltas": ["It exports main."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["read"] },
+  "setup": { "src/app.ts": "export function main() {}\n" },
+  "assertions": {
+    "toolCalls": [{ "name": "read", "argsInclude": ["src/app.ts"] }],
+    "replyIncludes": ["exports main"]
+  }
+}

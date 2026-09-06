@@ -1,0 +1,16 @@
+{
+  "prompt": "write into docs",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "write", "args": { "path": "docs/guide.md", "content": "# guide" } }]
+    },
+    { "deltas": ["Written."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["write:docs/**"] },
+  "assertions": {
+    "toolCalls": [{ "name": "write", "argsInclude": ["docs/guide.md"] }],
+    "files": [{ "path": "docs/guide.md" }]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "prompt": "call the tool then finish",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "write", "args": { "path": "a.txt", "content": "a" } }, { "name": "write", "args": { "path": "b.txt", "content": "b" } }]
+    },
+    { "deltas": ["Both written."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["write"] },
+  "assertions": {
+    "toolCalls": [
+      { "name": "write", "argsInclude": ["a.txt"] },
+      { "name": "write", "argsInclude": ["b.txt"] }
+    ],
+    "files": [{ "path": "a.txt" }, { "path": "b.txt" }]
+  }
+}

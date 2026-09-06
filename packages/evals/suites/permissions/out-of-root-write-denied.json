@@ -1,0 +1,17 @@
+{
+  "prompt": "write outside the tree",
+  "cassette": [
+    {
+      "deltas": [],
+      "finish": "tool_calls",
+      "toolCalls": [{ "name": "write", "args": { "path": "../escape.txt", "content": "x" } }]
+    },
+    { "deltas": ["Noted."], "finish": "stop" }
+  ],
+  "permissions": { "allow": ["write"] },
+  "assertions": {
+    "toolCalls": [{ "name": "write" }],
+    "denials": [{ "tool": "write", "reason": "headless" }],
+    "files": [{ "path": "../escape.txt", "absent": true }]
+  }
+}
