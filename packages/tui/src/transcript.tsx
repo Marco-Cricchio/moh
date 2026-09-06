@@ -820,7 +820,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         const body = stateGlyph
           ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={stateGlyph[2]!.includes("✓") ? theme.ok : stateGlyph[2]!.includes("✗") ? theme.err : theme.accent}>{stateGlyph[2]}</Text></>
           : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{line || " "}</Text>;
-        if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={4}>{body}</Row><Row width={width} bg={bg} indent={4}><Text color={theme.border}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
+        if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={4}>{body}</Row><Row width={width} bg={bg} indent={4}><Text color={theme.muted}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
         // Wrapped body continuations must keep the row color too (#213):
         // pre-wrap instead of relying on ink's Text wrap.
         const indent = lineKind === "bullet" ? 6 : 4;

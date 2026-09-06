@@ -91,6 +91,41 @@ const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i +
 
 const fg = (hex: string) => `\x1b[38;2;${hexToRgb(hex)}m`;
 
+/** #504 follow-up: cli-highlight's bundled theme emits fixed ANSI-16 colors
+ * (blue keywords #000080, red strings #800000) that measure 1.0–1.6:1 on
+ * the purple-tinted code-block background in every dark palette — snippets
+ * were effectively invisible. Map highlight.js token roles onto the theme
+ * palette instead, as plain (text) => ANSI string functions (the exact
+ * interface cli-highlight applies per token); every mapped color must clear
+ * 3:1 on the code tint (audited by markdown-contrast.test.ts). */
+export function highlightThemeFor(theme: Theme): Record<string, (text: string) => string> {
+  const c = (hex: string) => (text: string) => `${fg(hex)}${text}\x1b[39m`;
+  return {
+    keyword: c(theme.accent),
+    literal: c(theme.accent),
+    built_in: c(theme.muted),
+    type: c(theme.muted),
+    number: c(theme.warn),
+    string: c(theme.ok),
+    regexp: c(theme.warn),
+    comment: c(theme.muted),
+    title: c(theme.accent),
+    function: c(theme.accent),
+    class: c(theme.accent),
+    variable: c(theme.fg),
+    attr: c(theme.muted),
+    attribute: c(theme.muted),
+    params: c(theme.fg),
+    meta: c(theme.muted),
+    tag: c(theme.accent),
+    name: c(theme.accent),
+    symbol: c(theme.warn),
+    operator: c(theme.fg),
+    punctuation: c(theme.fg),
+    plain: c(theme.fg),
+  };
+}
+
 /** Common fence-language aliases models emit that highlight.js doesn't
  * register (#237): normalized before any hljs lookup happens. */
 const LANG_ALIASES: Record<string, string> = {
@@ -199,7 +234,7 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
         let body = token.text.replace(/\n$/, "");
         if (lang && supportsLanguage(lang)) {
           try {
-            body = cliHighlight(token.text, { language: lang }).replace(/\n$/, "");
+            body = cliHighlight(token.text, { language: lang, theme: highlightThemeFor(theme) }).replace(/\n$/, "");
           } catch {
             body = `${fg(theme.accent)}${token.text.replace(/\n$/, "")}\x1b[39m`;
           }
