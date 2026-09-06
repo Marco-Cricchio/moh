@@ -42,6 +42,8 @@ export interface SlashContext {
   session?: AgentSession | null;
   /** Toast / inline notice channel. */
   notify: (message: string) => void;
+  /** Appends a chrome event through the live session's store sink. */
+  renameSession?: (name: string) => void;
   onOpenFrontier?: () => void;
   /** Opens the /model picker modal (#181): called for bare `/model` when
    * a UI is present; the text list remains the headless fallback. */
@@ -482,6 +484,26 @@ const compactCommand: SlashCommand = {
   },
 };
 
+/** #477: persist a display-name override on the open session's event log.
+ * This is intentionally a client entry point over the core rename seam,
+ * matching Home and CLI without putting UI command handling in the core. */
+const renameCommand: SlashCommand = {
+  name: "rename",
+  description: "rename the current session",
+  usage: "/rename <name>",
+  run(ctx, args) {
+    const name = args.trim();
+    if (!name) return ctx.notify("usage: /rename <name>");
+    if (!ctx.session || !ctx.renameSession) return ctx.notify("/rename needs an open session");
+    try {
+      ctx.renameSession(name);
+      ctx.notify(`✓ session renamed to ${name}`);
+    } catch (error) {
+      ctx.notify(`✗ rename failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+};
+
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
@@ -492,6 +514,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   modeCommand,
   modelCommand,
   reloadCommand,
+  renameCommand,
   settingsCommand,
   themeCommand,
   thinkingCommand,
