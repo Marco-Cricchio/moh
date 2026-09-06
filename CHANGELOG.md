@@ -95,6 +95,15 @@ matching section here at tag time.
   longer double-encoded.
 - File-index git probe is async, unblocking App-based tests (#488).
 
+## [0.23.0] - 2026-09-06
+### Added
+
+- **In-session rename command** (#534): `/rename <name>` renames the current
+  session without leaving chat, persists the existing `session_renamed` chrome
+  event through the core seam, and confirms the exact display name; `/rename`
+  with no arguments is non-mutating and shows usage. The Home picker shows the
+  name after reopening.
+
 ## [0.22.0] - 2026-09-06
 ### Added
 
@@ -629,7 +638,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.22.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.23.0...develop
+[0.23.0]: https://github.com/Marco-Cricchio/moh/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/Marco-Cricchio/moh/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/Marco-Cricchio/moh/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/Marco-Cricchio/moh/compare/v0.20.1...v0.21.0
