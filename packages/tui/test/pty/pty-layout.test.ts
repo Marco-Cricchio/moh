@@ -28,7 +28,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const lines = await runPty({
         cols: 160,
         rows: 45,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 2.0 }],
+        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 1.0 }, { wait: 10.0, until: B("^k commands") }],
         tail: 45,
       });
       const input = lines.find((l) => l.text.includes("type…"));
@@ -54,7 +54,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const lines = await runPty({
         cols: 160,
         rows: 45,
-        steps: [...enterChat, { wait: 0.8, send: B("\x13") }],
+        steps: [...enterChat, { wait: 0.8, send: B("\x13") }, { wait: 10.0, until: B("Answer language") }],
         tail: 45,
       });
       const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("type…"));
@@ -136,7 +136,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
         cols: 120,
         rows: 35,
         steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("resize probe") }, { wait: 0.2, send: B("\r") }, { wait: 1.5 }],
-        resize: { cols: 80, rows: 24 },
+        resize: { cols: 80, rows: 24, until: B("^k commands") },
         tail: 24,
       });
       // The cumulative pty buffer still contains pre-resize frames:

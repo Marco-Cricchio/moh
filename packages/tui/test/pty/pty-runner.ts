@@ -7,7 +7,9 @@ export interface PtyLine {
 export interface PtySpec {
   cols: number;
   rows: number;
-  resize?: { cols: number; rows: number };
+  /** Optional mid-run resize; `until` names a readiness needle the post-resize
+   * repaint must reach before the harness stops pumping (#538 mid-frame flake). */
+  resize?: { cols: number; rows: number; until?: string; untilWait?: number };
   /** Optional user config written to the temp home's ~/.moh/config. */
   config?: Record<string, unknown>;
   /** When true, reports {lines, exited, exitCode} instead of bare lines. */
