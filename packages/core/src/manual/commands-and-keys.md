@@ -41,7 +41,7 @@ page is the same content in manual form, plus the manual's own entries
 | /commands | this command list |
 | /compact | force context compaction (same producer as the auto trigger) |
 | /mode | switch vibe / dev mode |
-| /model | model picker (or /model `<ref>`) |
+| /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |
 | /rename `<name>` | rename the current session |
 | /settings | settings panel |

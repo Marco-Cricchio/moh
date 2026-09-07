@@ -86,6 +86,7 @@ preserved verbatim):
 | `mcpServers` | core (`mcp/types.ts`) | user-scope servers — trusted, no consent prompt; stdio `{ command, args, env }` or http `{ url, headers }` |
 | `auth` | core (ADR-0006) | subscription tokens keyed by endpoint name, plus `auth.overrides` for captured client_ids/issuers; never in moh.json, never logged |
 | `mcpTrust` | core (`mcp/types.ts`) | recorded "always" consent for project MCP servers, keyed by project slug → server names (the repo's own `trusted` field is ignored) |
+| `liveModels` | core (`live-model-catalog.ts`) | `enabled` (default `true`; `false` restores the fully static model catalog), `ttlHours` (default 24) for the `~/.moh/live-models.json` picker cache |
 
 The file is always written through the guardian: read-modify-write of
 the whole JSON, temp file + rename, 0600 file / 0700 dir.

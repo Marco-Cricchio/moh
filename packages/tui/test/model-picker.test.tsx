@@ -93,6 +93,9 @@ describe("/model modal (#181)", () => {
             return { ok: true, model: ref.includes("/") ? ref : `alpha/${ref}` };
           }}
           onSwitched={() => {}}
+          liveCatalog={{}}
+          onRefreshLive={() => {}}
+          refreshingLive={false}
           onToast={(m) => toasts.push(m)}
           onClose={() => (closed += 1)}
           {...over}
@@ -101,6 +104,49 @@ describe("/model modal (#181)", () => {
     );
     return { i, switched, toasts, closed: () => closed };
   }
+
+  test("#551: live listings are merged additively; vendored wins on collision", async () => {
+    const { i } = mount({
+      liveCatalog: {
+        alpha: [
+          { id: "claude-sonnet-4-5", name: "Impostor", contextWindow: 1 },
+          { id: "claude-opus-5", name: "Claude Opus 5", contextWindow: 300_000 },
+        ],
+      },
+    });
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    // Vendored metadata preserved on collision.
+    expect(frame).toContain("alpha · Claude Sonnet 4.5 · 200k");
+    expect(frame).not.toContain("Impostor");
+    // Fetched-only model appended with its listing enrichment.
+    expect(frame).toContain("alpha · Claude Opus 5 · 300k");
+    i.unmount();
+  });
+
+  test("#551: r (empty query) forces a live refresh and shows the busy note", async () => {
+    let forced = 0;
+    const { i } = mount({ onRefreshLive: () => (forced += 1), refreshingLive: true });
+    await sleep(30);
+    i.stdin.write("r");
+    await sleep(30);
+    expect(forced).toBe(1);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("live refresh");
+    i.unmount();
+  });
+
+  test("#551: r while filtering types into the query instead of refreshing", async () => {
+    let forced = 0;
+    const { i } = mount({ onRefreshLive: () => (forced += 1) });
+    await sleep(30);
+    i.stdin.write("c"); // pre-seed the query without hitting the r key
+    await sleep(30);
+    i.stdin.write("r");
+    await sleep(30);
+    expect(forced).toBe(0);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("filter: cr");
+    i.unmount();
+  });
 
   test("shows the active model and the catalog with context windows", async () => {
     const { i } = mount();
@@ -260,6 +306,9 @@ describe("/model modal against a live session (#181 shared semantics)", () => {
           }))}
           onSwitch={(ref) => session.switchModel(ref)}
           onSwitched={() => {}}
+          liveCatalog={{}}
+          onRefreshLive={() => {}}
+          refreshingLive={false}
           onToast={() => {}}
           onClose={() => {}}
         />

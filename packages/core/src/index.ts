@@ -144,6 +144,10 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { catalogEntryFor, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
+export {
+  fetchLiveCatalogs,
+  type LiveModelListing,
+} from "./live-model-catalog";
 export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {
