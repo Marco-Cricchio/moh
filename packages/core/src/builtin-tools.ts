@@ -753,7 +753,10 @@ const askUserQuestionSchema = z.object({
     .min(2)
     .max(4),
   multiSelect: z.boolean().optional(),
-  suggested: z.string().min(1),
+  // Optional by contract (suggested is purely visual): GLM-class models
+  // routinely omit it and a hard failure here costs a full retry round —
+  // observed twice in a row in production (sessions a1dfb4c8/9695c69c).
+  suggested: z.string().min(1).optional(),
 });
 
 const askUserSchema = z
@@ -784,7 +787,7 @@ const askUserSchema = z
           message: `option labels must be unique within a question ("${q.question}")`,
         });
       }
-      if (!labels.has(q.suggested)) {
+      if (q.suggested !== undefined && !labels.has(q.suggested)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["questions"],
@@ -851,7 +854,7 @@ const askUser: Tool<z.infer<typeof askUserSchema>> = {
   name: "ask_user",
   interactive: true,
   description:
-    "Ask the user 1–4 questions in one round. Each question has full text (unique in the set), a required short header (≤12 chars, a chip label), 2–4 options (label + short description, optional preview), optional multiSelect, and `suggested` — the recommended option, purely visual. The user may answer with an option, options (multiSelect), or free text ('Other'). How many questions per round is your decision; prefer fewer. Prefer this over asking in plain chat when a decision has clear alternatives.",
+    "Ask the user 1–4 questions in one round. Each question has full text (unique in the set), a required short header (≤12 chars, a chip label shown ABOVE the question — never repeat the header or the keybinding inside the question text), 2–4 options (label + short description, optional preview), optional multiSelect, and an optional `suggested` — the recommended option label, purely visual. The user may answer with an option, options (multiSelect), or free text ('Other'). How many questions per round is your decision; prefer fewer. Prefer this over asking in plain chat when a decision has clear alternatives.",
   inputSchema: askUserSchema,
   async execute(args, ctx) {
     if (!ctx.askUser) {

@@ -89,6 +89,12 @@ describe("ask_user tool (question set, ADR-0019 / #411)", () => {
     expect(() => tools.ask_user.inputSchema!.parse({ questions: [{ ...single.questions[0]!, suggested: "Mongo" }] })).toThrow(
       /suggested must be one of the option labels/,
     );
+    // suggested is optional by contract: GLM-class models routinely omit
+    // it and a hard failure costs a full retry round (production sessions
+    // a1dfb4c8/9695c69c each lost two turns to this).
+    const noSuggested = { questions: [{ ...single.questions[0]! }] };
+    delete (noSuggested.questions[0] as { suggested?: string }).suggested;
+    expect(tools.ask_user.inputSchema!.parse(noSuggested)).toBeTruthy();
     expect(tools.ask_user.inputSchema!.parse(single)).toBeTruthy();
     expect(tools.ask_user.inputSchema!.parse(batch)).toBeTruthy();
   });
