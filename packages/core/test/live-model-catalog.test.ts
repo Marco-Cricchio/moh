@@ -116,7 +116,7 @@ describe("fetchLiveCatalogs", () => {
       let called = false;
       const countingFetch = async () => {
         called = true;
-        return fetchImpl("" as never, {});
+        return { status: 200, json: { data: [{ id: "brand-new-model", display_name: "Brand New" }] } };
       };
       const second = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl: countingFetch });
       expect(called).toBe(false);
