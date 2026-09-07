@@ -64,6 +64,13 @@ export function ModelPickerModal({
 
   const activeEndpoint = activeModel.includes("/") ? activeModel.slice(0, activeModel.indexOf("/")) : undefined;
 
+  // #551: opening the picker is a refresh point — serve from cache via a
+  // non-forced refresh (no-op when the App-level fetch is fresh/busy).
+  useEffect(() => {
+    onRefreshLive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Vendored catalogs are sync; openai-compat ones fetch on open. Failure
   // keeps the endpoint listed with free-text entry only — never blocks.
   useEffect(() => {

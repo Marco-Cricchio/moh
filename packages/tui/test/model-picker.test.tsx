@@ -128,9 +128,10 @@ describe("/model modal (#181)", () => {
     let forced = 0;
     const { i } = mount({ onRefreshLive: () => (forced += 1), refreshingLive: true });
     await sleep(30);
+    const onOpen = forced; // the mount-refresh effect fires once
     i.stdin.write("r");
     await sleep(30);
-    expect(forced).toBe(1);
+    expect(forced).toBe(onOpen + 1);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("live refresh");
     i.unmount();
   });
@@ -141,9 +142,10 @@ describe("/model modal (#181)", () => {
     await sleep(30);
     i.stdin.write("c"); // pre-seed the query without hitting the r key
     await sleep(30);
+    const onOpen = forced; // the mount-refresh effect fired
     i.stdin.write("r");
     await sleep(30);
-    expect(forced).toBe(0);
+    expect(forced).toBe(onOpen);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("filter: cr");
     i.unmount();
   });
