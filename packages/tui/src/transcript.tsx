@@ -260,7 +260,13 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // settled block is the compact record, not a replay of the whole
         // interactive block. Legacy single-question args still render.
         if (event.name === "ask_user") {
-          const entries = askUserProjectionEntries(event.args, result?.output, () => detailOf(event.args));
+          // Failed validation attempts render as a one-line retry record,
+          // NOT the full arguments: repeating the whole question for every
+          // failed attempt made the question appear N times before the
+          // inline popup (production session a1dfb4c8 — GLM retry loops).
+          const entries = result?.ok === false
+            ? [{ line: `retry — ${sanitizeLine(result.output.split("\n")[0] ?? "validation failed")}`, kind: "answer" as const }]
+            : askUserProjectionEntries(event.args, result?.output, () => detailOf(event.args));
           if (entries.length > 0) {
             blocks.push({
               key,
