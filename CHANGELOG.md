@@ -5,6 +5,24 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.25.0] - 2026-09-07
+### Added
+
+- **Live model-list augmentation** (#551): catalog-backed providers can
+  augment their vendored model catalog from the provider's live model list;
+  the `/model` picker shows discovered models alongside the curated catalog,
+  preserving catalog metadata where it exists and keeping unknown live models
+  selectable through a conservative projection. The core exposes the narrow
+  live-catalog seam and caches results; broken remote lookups degrade silently
+  to the vendored catalog.
+
+### Fixed
+
+- **Open Markdown during streaming** (#556): incomplete Markdown is kept out
+  of the volatile streaming block until it reaches a stable boundary, so
+  partial structured output no longer causes visual duplication or unstable
+  layout while a reply is still arriving.
+
 ## [0.24.1] - 2026-09-07
 ### Fixed
 
@@ -688,7 +706,9 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.24.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.25.0...develop
+[0.25.0]: https://github.com/Marco-Cricchio/moh/compare/v0.24.1...v0.25.0
+[0.24.1]: https://github.com/Marco-Cricchio/moh/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/Marco-Cricchio/moh/compare/v0.23.2...v0.24.0
 [0.23.2]: https://github.com/Marco-Cricchio/moh/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/Marco-Cricchio/moh/compare/v0.23.0...v0.23.1
