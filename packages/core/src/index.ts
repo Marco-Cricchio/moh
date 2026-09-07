@@ -145,21 +145,8 @@ import {
 } from "./provider-onboarding";
 export { catalogEntryFor, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
 export {
-  hasVendoredCatalog,
-  parseModelsResponse,
-  listProviderModels,
-  mergeLiveCatalog,
   fetchLiveCatalogs,
-  readLiveModelsConfig,
-  loadLiveModelCache,
-  saveLiveModelCache,
-  freshCacheEntries,
-  liveModelCacheFile,
   type LiveModelListing,
-  type LiveModelCacheEntry,
-  type LiveModelsConfig,
-  type ListingFetch,
-  type FetchLiveCatalogsOptions,
 } from "./live-model-catalog";
 export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";

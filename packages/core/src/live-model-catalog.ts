@@ -37,16 +37,20 @@ export interface LiveModelListing {
 /** Injectable fetch seam (tests). */
 export type ListingFetch = (url: string, headers: Record<string, string>) => Promise<{ status: number; json: unknown }>;
 
-/** Listing endpoints per provider kind. Undefined = no known listing
- * (kimi-coding) — the fetcher skips it and the picker stays static. */
+/** Entries whose cache age is within the TTL (or that were never
+ * fetched — those need no TTL gate; an empty list means no cache). */
+
+/** Listing endpoints per provider kind (base URLs — the caller appends
+ * `/models`). Undefined = no known listing (kimi-coding) — the fetcher
+ * skips it and the picker stays static. */
 const LISTING_URLS: Record<string, string | undefined> = {
-  anthropic: "https://api.anthropic.com/v1/models",
-  openai: `${CHATGPT_CODEX_BASE_URL}/models`,
-  google: "https://generativelanguage.googleapis.com/v1beta/models",
-  "github-copilot": `${OAUTH_BUILTIN_BASE_URLS["github-copilot"]}/models`,
-  openrouter: `${OAUTH_BUILTIN_BASE_URLS.openrouter}/models`,
-  xai: `${OAUTH_BUILTIN_BASE_URLS.xai}/models`,
-  zai: "https://api.z.ai/api/paas/v4/models",
+  anthropic: "https://api.anthropic.com/v1",
+  openai: CHATGPT_CODEX_BASE_URL,
+  google: "https://generativelanguage.googleapis.com/v1beta",
+  "github-copilot": OAUTH_BUILTIN_BASE_URLS["github-copilot"],
+  openrouter: OAUTH_BUILTIN_BASE_URLS.openrouter,
+  xai: OAUTH_BUILTIN_BASE_URLS.xai,
+  zai: "https://api.z.ai/api/paas/v4",
   "kimi-coding": undefined,
 };
 
@@ -203,10 +207,6 @@ export function liveModelCacheFile(home?: string): string {
   return join(home ?? homedir(), ".moh", "live-models.json");
 }
 
-export function readLiveModelCache(file: string = liveModelCacheFile()): Record<string, LiveModelCacheEntry> {
-  return {};
-}
-
 /** Cache entries keyed by endpoint name; missing/corrupt file = empty. */
 export async function loadLiveModelCache(file: string = liveModelCacheFile()): Promise<Record<string, LiveModelCacheEntry>> {
   let raw: string;
@@ -241,8 +241,9 @@ export async function saveLiveModelCache(entries: Record<string, LiveModelCacheE
   await writeFile(file, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
 }
 
-/** Entries whose cache age is within the TTL (or that were never
- * fetched — those need no TTL gate; an empty list means no cache). */
+/** Entries whose cache age is within the TTL. Expired entries are
+ * dropped from this projection but kept on disk — the orchestrator
+ * falls back to them when a refresh fails (offline). */
 export function freshCacheEntries(
   cache: Record<string, LiveModelCacheEntry>,
   ttlHours: number = DEFAULT_TTL_HOURS,
@@ -270,9 +271,12 @@ export interface FetchLiveCatalogsOptions {
  * The orchestrator the clients call at startup (fire-and-forget) and on
  * a forced picker refresh: for every endpoint with a vendored catalog,
  * serve from a fresh cache or fetch live, merge the results into the
- * cache, and return the live listings per endpoint name. Endpoints that
- * fail keep no entry — the caller's merge simply adds nothing. Honors
- * the `liveModels.enabled` config switch (default on).
+ * cache, and return the live listings per endpoint name. A failed
+ * refresh falls back to the stale cached list when one exists (offline
+ * with an expired cache still shows the last known live models);
+ * endpoints with neither keep no entry — the caller's merge simply
+ * adds nothing. Honors the `liveModels.enabled` config switch
+ * (default on).
  */
 export async function fetchLiveCatalogs(
   endpoints: { name: string; type: string; baseUrl?: string; apiKey?: string }[],
@@ -305,7 +309,11 @@ export async function fetchLiveCatalogs(
         });
         return [e.name, { fetchedAt: now, models }] as const;
       } catch {
-        return undefined;
+        // Refresh failed (offline, auth, remote error): fall back to the
+        // stale cache entry when one exists — better than nothing, still
+        // a silent degradation.
+        const stale = cache[e.name];
+        return stale ? ([e.name, { fetchedAt: stale.fetchedAt, models: stale.models }] as const) : undefined;
       }
     }),
   );

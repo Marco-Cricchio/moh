@@ -244,7 +244,10 @@ export function App({
       setLiveRefreshing(true);
       fetchLiveCatalogs(targets, { mohHome, force: opts.force })
         .then((result) => setLiveCatalog((prev) => ({ ...prev, ...result })))
-        .catch(() => {})
+        .catch(() => {
+          // Silent degradation is the #551 contract: a failed refresh
+          // leaves the previous state (cache/static) untouched.
+        })
         .finally(() => {
           liveBusyRef.current = false;
           setLiveRefreshing(false);

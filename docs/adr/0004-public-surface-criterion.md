@@ -103,3 +103,14 @@ aggregation helper is the always-available fallback over the event log.
 The sentinel semantics (0 = unlimited, absent = 50) live in one core
 resolver so the TUI cycle and the CLI strict parse project the same
 contract instead of duplicating it; the loop guard itself stays internal.
+
+## Amendment — 2026-09-07, #551 live model-catalog seam
+
+**Re-opened doors**: `fetchLiveCatalogs` and the `LiveModelListing` type
+(`core/src/live-model-catalog.ts`), consumed by `@moh/tui` (background
+model-list augmentation at startup and the `/model` picker's `r`
+refresh). One orchestrator function taking endpoint descriptors and
+returning per-endpoint live listings; the fetchers, the union parser,
+the merge projection, the cache file and the `liveModels` config reader
+stay internal to the defining module (core tests import it directly).
+The seam is deliberately fail-silent and never mutates the auth store.

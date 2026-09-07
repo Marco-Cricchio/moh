@@ -169,6 +169,26 @@ describe("fetchLiveCatalogs", () => {
     }
   });
 
+  test("expired cache + offline still serves the stale cached list (criterion 4)", async () => {
+    const dir = home();
+    try {
+      // Seed a cache entry that is already past the TTL.
+      await saveLiveModelCache(
+        { "my-xai": { fetchedAt: Date.now() - 48 * 3_600_000, models: [{ id: "stale-grok" }] } },
+        join(dir, ".moh", "live-models.json"),
+      );
+      const out = await fetchLiveCatalogs([{ name: "my-xai", type: "xai" }], {
+        mohHome: dir,
+        fetchImpl: async () => {
+          throw new Error("offline");
+        },
+      });
+      expect(out["my-xai"]).toEqual([{ id: "stale-grok" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a failing endpoint drops no entry and other endpoints still fetch", async () => {
     const dir = home();
     try {
@@ -208,6 +228,17 @@ describe("cache round-trip", () => {
 });
 
 describe("listProviderModels", () => {
+  test("appends /models exactly once to the provider's base URL", async () => {
+    let url = "";
+    await listProviderModels("anthropic", "e", {
+      fetchImpl: async (u) => {
+        url = u;
+        return { status: 200, json: { data: [{ id: "m" }] } };
+      },
+    });
+    expect(url).toBe("https://api.anthropic.com/v1/models");
+  });
+
   test("throws on no known listing endpoint (kimi-coding)", async () => {
     expect(listProviderModels("kimi-coding", "e")).rejects.toThrow("no model listing endpoint");
   });
