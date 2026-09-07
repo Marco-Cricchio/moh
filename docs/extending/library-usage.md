@@ -82,6 +82,19 @@ published model metadata (including context windows) without a live fetch.
 Onboarding a Z.ai URL automatically records the corresponding explicit
 thinking capability declaration.
 
+**Live catalog augmentation (#551).** Catalog-backed endpoints get their
+picker lists augmented with the provider's own live model list:
+`fetchLiveCatalogs(endpoints, opts)` in `@moh/core` fetches each
+provider's `/models` listing in the background (startup and picker open),
+caches results in `~/.moh/live-models.json` (TTL from the `liveModels`
+user-config section, default 24h; `enabled: false` restores the fully
+static catalog), and merges additively — the vendored catalog always wins
+on id collision, and fetched-only models carry conservative metadata
+(unknown context window, no thinking map, no modality claims: moh never
+invents capabilities). Any failure degrades silently to the static list.
+This is a picker/cache seam only: routing, `catalogEntryFor` and thinking
+resolution keep reading the vendored data.
+
 **Thinking capability declarations (#256).** An endpoint profile may
 declare a thinking capability in `capabilities`: `thinking` (endpoint-
 level: `{ format, levels }`) and `thinkingModels` (per-model overrides,
