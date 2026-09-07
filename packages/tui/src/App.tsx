@@ -54,6 +54,7 @@ import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
+import { SessionRenameModal } from "./SessionRenameModal";
 import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
@@ -99,7 +100,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -796,6 +797,9 @@ export function App({
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
+    // #534: rename without interrupting an active turn; the session keeps
+    // streaming behind the modal and the append stays on its normal sink.
+    if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     // #457: the user manual, from chat and home alike (slash fallback: /help).
     // ctrl+h spike finding: terminals with extended-key encoding (kitty,
     // CSI-u) deliver this as ctrl+h; legacy terminals send 0x08, which Ink
@@ -1080,6 +1084,13 @@ export function App({
         )}
         {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
+        {overlay === "rename" && session && (
+          <SessionRenameModal
+            initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}
+            onRename={(name) => session.rename(name)}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
