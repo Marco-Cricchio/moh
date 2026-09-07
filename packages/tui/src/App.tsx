@@ -54,6 +54,7 @@ import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
+import { SessionRenameModal } from "./SessionRenameModal";
 import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
@@ -99,7 +100,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -724,6 +725,9 @@ export function App({
       exitArmRef.current = now;
       return push("press ctrl+c again to exit");
     }
+    // #534: command-level binding takes precedence over chip focus and does
+    // not interrupt an active turn; streaming continues behind the modal.
+    if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     if (session && !blocked) {
       const chips = visibleChips(viewport.columns).chips;
       const subCount = subagentCount;
@@ -1080,6 +1084,13 @@ export function App({
         )}
         {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
+        {overlay === "rename" && session && (
+          <SessionRenameModal
+            initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}
+            onRename={(name) => session.rename(name)}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
