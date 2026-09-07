@@ -29,7 +29,12 @@ one is shown in the status bar.
 
 - `/model` in the TUI opens the picker: every configured endpoint's
   list (from the vendored catalog, or `GET /models` for openai-compat
-  endpoints). The switch takes effect from the next turn.
+  endpoints). For catalog-backed providers the vendored list is
+  augmented in the background with the provider's own live model list
+  (startup and picker open, cached in `~/.moh/live-models.json` with a
+  24h TTL; `r` in the picker forces a refresh), so newly released
+  models appear without waiting for a moh release. The switch takes
+  effect from the next turn.
 - `moh run --provider <endpoint/model-id>` picks the model per run.
 - The Settings panel's endpoint → model picker saves the default into
   moh.json (user-level endpoints are display-only there).

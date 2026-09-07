@@ -5,7 +5,7 @@
  * (persistent, moh.json). Both receive an endpoint-aware catalog — one
  * list story for builtin and recognized openai-compat providers.
  */
-import type { CatalogModel } from "@moh/core";
+import type { CatalogModel, LiveModelListing } from "@moh/core";
 
 /** One pickable row: a catalog entry or the free-text fallback. */
 export type PickerRow =
@@ -70,6 +70,20 @@ export interface EndpointPick {
 /** Fetched model ids → picker rows (name = id, no metadata available). */
 export function fetchedToCatalog(ids: string[]): CatalogModel[] {
   return ids.map((id) => ({ id, name: id, contextWindow: 0, reasoning: false }));
+}
+
+/** Merges a live listing (#551) into an endpoint's picker list,
+ * additively: existing entries win on id collision, fetched-only models
+ * are appended with the enrichment the listing carried. */
+export function mergePickCatalog(base: CatalogModel[], live: LiveModelListing[]): CatalogModel[] {
+  if (live.length === 0) return base;
+  const seen = new Set(base.map((m) => m.id));
+  return [
+    ...base,
+    ...live
+      .filter((m) => !seen.has(m.id))
+      .map((m) => ({ id: m.id, name: m.name ?? m.id, contextWindow: m.contextWindow ?? 0, reasoning: false })),
+  ];
 }
 
 /** Context window for an active-model label (`endpointName/modelId`,
