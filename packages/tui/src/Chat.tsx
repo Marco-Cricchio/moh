@@ -25,6 +25,7 @@ import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
 
+
 export type Mode = "vibe" | "dev";
 const ESC_WINDOW_MS = 1500;
 /** #329: debounce for the width-change transcript rebuild. */
@@ -744,10 +745,34 @@ export function Chat({
     // items array below ink's forward-only printed cursor, and every item
     // appended afterwards would land below the cursor and be silently
     // skipped (lost thinking blocks).
+    // The promoted-chunk keys embed the LIVE projection's index base
+    // (`keyBase: settledEnd`), while this settled projection rebuilds with
+    // keyBase 0 — after any earlier settled content the two namespaces
+    // diverge (`69-assistant_delta-p0-markdown-head` vs
+    // `3-assistant_delta-p0`) and a key lookup cannot pair them. Match by
+    // CONTENT too (same containment rule as the thinking blocks above):
+    // a settled segment whose full text a promoted chain already printed
+    // reduces to a placeholder; only an unprinted suffix may print
+    // (production 43cc494c / 666.mov: the whole bullet list duplicated).
+    const promotedMarkdown = [...markdownChainsRef.current.values()].flatMap((chain) => chain.chunks);
+    const normalized = (source: string) => source.replace(/\s+/g, " ").trim();
     return result2.flatMap((block) => {
       const chars = markdownHeadsRef.current.get(block.key) ?? 0;
-      if (chars === 0) return [block];
-      const remainder = trimProseHead(block, chars);
+      const remainder = chars > 0 ? trimProseHead(block, chars) : block;
+      if (remainder === block) {
+        if (chars > 0 || block.markdown === undefined) return [block];
+        const flat = normalized(block.markdown);
+        // Containment must be against a chunk's own Markdown source (a
+        // wrapped-lines chunk is the same prose, differently folded).
+        const covered = flat.length > 0 && promotedMarkdown.some((chunk) => {
+          const printed = chunk.markdown !== undefined ? normalized(chunk.markdown) : "";
+          return printed.length > 0 && (printed.includes(flat) || flat.includes(printed));
+        });
+        if (covered) {
+          return [{ ...block, lines: [], markdown: undefined, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
+        }
+        return [block];
+      }
       return remainder.markdown?.trim()
         ? [remainder]
         : [{ ...block, lines: [], markdown: undefined, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
@@ -816,7 +841,9 @@ export function Chat({
   {
     const emittedKeys = new Set(emittedRef.current.map((b) => b.key));
     const fresh = assembledSettled.filter((b) => !emittedKeys.has(b.key));
-    if (fresh.length > 0) emittedRef.current = [...emittedRef.current, ...fresh];
+    if (fresh.length > 0) {
+      emittedRef.current = [...emittedRef.current, ...fresh];
+    }
   }
   let staticItems: readonly TranscriptBlock[];
   if (replaySettled) {

@@ -288,6 +288,40 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 
+  // Owner report 2026-09-07 (666.mov): the session's bullet list rendered
+  // twice in vibe mode at the owner's real 149x40 geometry. The reply
+  // appears exactly once in the log; physical screen + scrollback must
+  // agree — the list items are the markers because the closing line could
+  // still stream when the PTY snapshot lands.
+  test("a session-style prose+list reply prints each bullet exactly once", async () => {
+    const { server, url } = startSessionReplyStream();
+    try {
+      const meta = await runPtyRaw({
+        cols: 149,
+        rows: 40,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "vibe", provider: "fake",
+          endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
+        },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("parliamo di moh") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 15.0, until: "Cosa ti incuriosisce?" },
+          { wait: 1.0 },
+        ],
+        tail: 40,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
+      for (const marker of ["Come funziona", "Architettura", "Stato del lavoro", "Issue aperte", "Cosa ti incuriosisce"]) {
+        expect(history.split(marker).length - 1, marker).toBe(1);
+      }
+    } finally {
+      server.stop(true);
+    }
+  }, 30_000);
+
   // Owner report on production session 39276900 (2026-09-06, post-0.21.1):
   // outputs appeared doubled/tripled in an agentic turn — many model calls,
   // each with brief intermediate text between tool calls and reasoning
@@ -589,6 +623,51 @@ function startOpenMarkdownToolCycleStream(): { server: ReturnType<typeof Bun.ser
             send({ tool_calls: [{ index: 0, id: `open-md-${cycle}`, type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: "*.md" }) } }] });
             send({}, "tool_calls");
           }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
+
+/**
+ * Owner report 2026-09-07 (docs/vision/666.mov, production session 43cc494c,
+ * vibe mode 149x40, GLM 5.3 Flash, reasoning hidden): a plain conversational
+ * answer — prose, then a bullet list, then a short closing line — rendered
+ * its list twice in screen+scrollback. The log carries the reply once, so
+ * the duplication is a rendering-path defect; the fixture replays the
+ * exact delta text of the recorded session.
+ */
+function startSessionReplyStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  const sections = [
+    "Certo! Con piacere — moh è il progetto qui in `/Users/mc/Documents/AI_Projects/moh`.",
+    "\n\nIn due parole: **moh è un agente di coding provider-agnostic** — un core headless (`@moh/core`) che gira il loop dell'agente, con client TUI e CLI sopra, e il tutto guidato da principi architetturali piuttosto rigidi (sette principi in `docs/principles.md`, decisioni registrate come ADR).",
+    "\n\nAlcuni temi di cui possiamo parlare:",
+    "\n\n- **Come funziona** — sessioni, resume/fork, event log, memory, permessi, provider (c'è una pagina del manuale per ognuno: `moh manual <pagina>`)",
+    "\n- **Architettura** — public surface del core, session assembly, phase hook per le estensioni",
+    "\n- **Stato del lavoro** — c'è la branch `test/streaming-viewport-growth` con sei commit sulla nota 33 (streaming del reasoning/reply in scrollback) che aspetta la tua verifica con un video reale prima di aprire la PR, più il thread di PR #555 sul discovery dei modelli live",
+    "\n- **Issue aperte** — posso listare la tracker",
+    "\n\nCosa ti incuriosisce?",
+  ];
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) =>
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "session-reply", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          for (const section of sections) {
+            for (const word of section.split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(25);
+            }
+          }
+          send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         },
