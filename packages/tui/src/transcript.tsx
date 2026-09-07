@@ -156,6 +156,19 @@ const detailOf = (args: unknown): string => {
   return truncate(sanitizeLine(rendered), 100);
 };
 
+/** Preserve source identity when a projection starts inside an assistant run. */
+export function assistantRunOrigin(events: readonly AgentEvent[], start: number): { startIndex: number; sourceOffset: number; previousLine: string } | undefined {
+  if (events[start]?.type !== "assistant_delta" || events[start - 1]?.type !== "assistant_delta") return undefined;
+  let first = start;
+  while (first > 0 && events[first - 1]?.type === "assistant_delta") first--;
+  let prefix = "";
+  for (let i = first; i < start; i++) {
+    const event = events[i]!;
+    if (event.type === "assistant_delta") prefix += sanitizeForDisplay(event.text);
+  }
+  return { startIndex: first, sourceOffset: prefix.length, previousLine: prefix.trimEnd().split("\n").at(-1) ?? "" };
+}
+
 /** Complete, deterministic projection of the append-only event log. Events
  * may be grouped (assistant deltas, tool call/result), but none disappear
  * without an intentional chrome representation.
@@ -165,7 +178,7 @@ const detailOf = (args: unknown): string => {
  * activity collapses to one plain-language line (unresolved calls keep
  * `state: "run"` so the pending marker stays live), failures always show.
  * The log itself is never filtered: this is a projection option only. */
-export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean; /** #242: render persisted provider reasoning blocks (display-only
+export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean; initialAssistantRun?: ReturnType<typeof assistantRunOrigin>; /** #242: render persisted provider reasoning blocks (display-only
    * projection; the log is never filtered). Default: hidden. */ showReasoning?: boolean; /** #300: wall-clock ledger for tool timing (limit + final duration);
    * presentation-only, never part of the log. */ toolTimings?: ToolTimings } = {}): TranscriptBlock[] {
   const vibe = options.mode === "vibe";
@@ -214,9 +227,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         });
         break;
       case "assistant_delta": {
+        const origin = index === 0 ? options.initialAssistantRun : undefined;
+        const runKey = origin ? `${origin.startIndex}-assistant_delta` : key;
+        const sourceOffset = origin?.sourceOffset ?? 0;
         let text = sanitizeForDisplay(event.text);
         while (ordered[i + 1]?.event.type === "assistant_delta") text += sanitizeForDisplay((ordered[++i] as { event: Extract<AgentEvent, { type: "assistant_delta" }> }).event.text);
-        let lastItemLine = "";
+        let lastItemLine = origin?.previousLine ?? "";
         // One reply, many append-only segments (#205): the terminal Markdown
         // renderer owns fences/tables/headings inline, but a whole reply as
         // ONE block would grow after Static promotion and ink never reprints
@@ -227,7 +243,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         for (const segment of assistantSegments(text)) {
           const first = segment.text.split("\n")[0] ?? "";
           const tight = tightItemBoundary(lastItemLine, first);
-          blocks.push(proseBlock(`${key}-p${segment.start}`, segment.text, segment.start > 0 || !!options.proseContinuation, tight));
+          blocks.push(proseBlock(`${runKey}-p${sourceOffset + segment.start}`, segment.text, sourceOffset + segment.start > 0 || !!options.proseContinuation, tight));
           lastItemLine = segment.text.trimEnd().split("\n").at(-1) ?? "";
         }
         break;

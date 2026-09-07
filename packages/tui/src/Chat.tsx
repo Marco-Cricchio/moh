@@ -9,7 +9,7 @@ import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
-import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import {
@@ -426,7 +426,7 @@ export function Chat({
           lines: showReasoning ? liveReasoning.text.split("\n").map(sanitizeLine) : [],
         }]
       : [];
-    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning, toolTimings })];
+    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings })];
   }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings]);
   // Head chain state machine (#329): track the leading thinking block —
   // the chain follows it across the live→log handover (same text, new
@@ -633,7 +633,10 @@ export function Chat({
       // A later delta can turn previously plain text into Markdown whose
       // meaning reaches backwards (setext/table/list). Rebuild from the
       // canonical projection rather than freezing the obsolete rendering.
-      repaintRef.current = true;
+      // No physical head means there is nothing immutable to invalidate:
+      // the volatile renderer can simply repaint the new Markdown in place.
+      if (chain.chars > 0) repaintRef.current = true;
+      else proseChainRef.current = null;
     } else if (prose) {
       if (chain && chain.key !== prose.key) proseHeadsRef.current.set(chain.key, chain);
       const previous = chain?.key === prose.key ? chain : null;
@@ -646,21 +649,11 @@ export function Chat({
       proseHeadsRef.current.set(chain.key, chain);
       proseChainRef.current = null;
     }
-    // Semantic segments before the newest Markdown block are immutable and
-    // stream through Static normally. The one newest structured segment is
-    // intentionally excluded: GFM can keep it mutable for hundreds of
-    // deltas, and rendering it through Ink's volatile tree lets repeated
-    // frames escape into native scrollback before settlement.
+    // Closed semantic segments enter Static once under their canonical
+    // run/offset identity. The newest segment stays visible in the bounded
+    // volatile tail until it closes; hiding it makes streamed replies stall.
     const markdownBlocks = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined);
-    const newestMarkdown = markdownBlocks.at(-1);
-    // Once a reply has an open structured tail, hold its earlier semantic
-    // pieces too. A GFM parser can re-segment that reply as later list/table
-    // syntax arrives; promoting an apparently closed prefix in the meantime
-    // created a second Static key for the same bullet at call settlement.
-    // Plain prose keeps its existing row-by-row promotion path.
-    const closed = newestMarkdown && !isPlainStreamingProse(newestMarkdown.markdown)
-      ? []
-      : markdownBlocks.slice(0, -1);
+    const closed = markdownBlocks.slice(0, -1);
     for (const block of closed) {
       const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (priorChars === block.markdown!.length) continue;
@@ -692,20 +685,6 @@ export function Chat({
       const remainder = trimProseHead(block, promotedChars);
       return remainder.markdown ? [remainder] : [];
     }
-    // Never paint an open structured-Markdown segment through Ink's
-    // volatile tree. Unlike plain prose, GFM can keep an item mutable for
-    // hundreds of deltas; its repaint frames may enter native scrollback
-    // before the segment closes, then the canonical settled projection
-    // prints the same rows again. Closed segments already move to Static
-    // above; the final open one waits for its semantic close/settlement.
-    // This is a deliberate one-physical-emission invariant, not a height
-    // estimate (production partial list/prose duplication, cca11370).
-    if (block.markdown && !isPlainStreamingProse(block.markdown)) {
-      // The associated model call has not settled yet. Do not let a
-      // structured block enter Ink's volatile repaint tree: it will be
-      // emitted exactly once from the settled projection at its boundary.
-      return [];
-    }
     return [block];
   });
   const settledBlocks = useMemo((): readonly TranscriptBlock[] => {
@@ -713,7 +692,7 @@ export function Chat({
       segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
     const projected = segments.flatMap((segment, index) => projectTranscript(
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
-      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
+      { filePreview, mode: segment.mode, keyBase: segment.base, initialAssistantRun: assistantRunOrigin(state.events, segment.base), showReasoning: segment.show, toolTimings },
     ));
     const embeded = embedReasoningHeads(projected, reasoningHeadsRef.current);
     // GLM interleave: one call's reasoning persists as multiple separate
@@ -745,34 +724,10 @@ export function Chat({
     // items array below ink's forward-only printed cursor, and every item
     // appended afterwards would land below the cursor and be silently
     // skipped (lost thinking blocks).
-    // The promoted-chunk keys embed the LIVE projection's index base
-    // (`keyBase: settledEnd`), while this settled projection rebuilds with
-    // keyBase 0 — after any earlier settled content the two namespaces
-    // diverge (`69-assistant_delta-p0-markdown-head` vs
-    // `3-assistant_delta-p0`) and a key lookup cannot pair them. Match by
-    // CONTENT too (same containment rule as the thinking blocks above):
-    // a settled segment whose full text a promoted chain already printed
-    // reduces to a placeholder; only an unprinted suffix may print
-    // (production 43cc494c / 666.mov: the whole bullet list duplicated).
-    const promotedMarkdown = [...markdownChainsRef.current.values()].flatMap((chain) => chain.chunks);
-    const normalized = (source: string) => source.replace(/\s+/g, " ").trim();
     return result2.flatMap((block) => {
       const chars = markdownHeadsRef.current.get(block.key) ?? 0;
-      const remainder = chars > 0 ? trimProseHead(block, chars) : block;
-      if (remainder === block) {
-        if (chars > 0 || block.markdown === undefined) return [block];
-        const flat = normalized(block.markdown);
-        // Containment must be against a chunk's own Markdown source (a
-        // wrapped-lines chunk is the same prose, differently folded).
-        const covered = flat.length > 0 && promotedMarkdown.some((chunk) => {
-          const printed = chunk.markdown !== undefined ? normalized(chunk.markdown) : "";
-          return printed.length > 0 && (printed.includes(flat) || flat.includes(printed));
-        });
-        if (covered) {
-          return [{ ...block, lines: [], markdown: undefined, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
-        }
-        return [block];
-      }
+      if (chars === 0) return [block];
+      const remainder = trimProseHead(block, chars);
       return remainder.markdown?.trim()
         ? [remainder]
         : [{ ...block, lines: [], markdown: undefined, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
