@@ -344,6 +344,48 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 30_000);
 
+  // Production session cca11370 (v0.24.1): a GLM-style stream writes an
+  // open Markdown list, late reasoning, then a tool batch. The event log has
+  // every delta once, but Ink's volatile reprints had put individual bullets
+  // into native scrollback twice before settlement. An open structured
+  // Markdown segment must not enter the volatile tree; it lands once when
+  // its call boundary settles into Static.
+  test("open Markdown tool cycles enter terminal history exactly once", async () => {
+    const { server, url } = startOpenMarkdownToolCycleStream();
+    try {
+      const meta = await runPtyRaw({
+        cols: 52,
+        rows: 18,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        project: { permissions: { overrides: { tools: { glob: "allow" } } } },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("run markdown cycles") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 25.0, until: "MARKDOWN-CYCLES-DONE" },
+          { wait: 1.0 },
+        ],
+        tail: 18,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
+      for (let cycle = 0; cycle < 6; cycle++) {
+        for (const marker of [`MD-${cycle}-ALPHA`, `MD-${cycle}-BETA`, `MD-THINK-${cycle}`]) {
+          expect(history.split(marker).length - 1, marker).toBe(1);
+        }
+      }
+      expect(history.split("MARKDOWN-CYCLES-DONE").length - 1).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  }, 35_000);
+
   // Production session 9695c69c (v0.23.1, PR #537 active): the model emits a
   // LONG streamed live reasoning paragraph, a long Markdown reply, then a
   // SECOND reasoning part for the SAME call (GLM multi-part flush), then
@@ -504,6 +546,47 @@ function startMultiPartReasoningStream(): { server: ReturnType<typeof Bun.serve>
             for (let t = 0; t < 2; t++) {
               send({ tool_calls: [{ index: t, id: `glob-part-${calls}-${t}`, type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: "*.md" }) } }] });
             }
+            send({}, "tool_calls");
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
+
+function startOpenMarkdownToolCycleStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  let calls = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      calls += 1;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: `open-markdown-${calls}`, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          if (calls > 6) {
+            for (const word of "MARKDOWN-CYCLES-DONE the final reply has settled".split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(6);
+            }
+            send({}, "stop");
+          } else {
+            const cycle = calls - 1;
+            const reply = `\n## Cycle ${cycle}\n\nThe item list remains open while this model call streams.\n\n- MD-${cycle}-ALPHA\n- MD-${cycle}-BETA\n\n`;
+            for (const word of reply.split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(4);
+            }
+            // GLM persists reasoning after reply deltas, immediately before
+            // the tool batch — the production ordering that exposed the
+            // volatile Markdown scrollback duplication.
+            send({ reasoning_content: `MD-THINK-${cycle} checking the tool result.` });
+            send({ tool_calls: [{ index: 0, id: `open-md-${cycle}`, type: "function", function: { name: "glob", arguments: JSON.stringify({ pattern: "*.md" }) } }] });
             send({}, "tool_calls");
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));

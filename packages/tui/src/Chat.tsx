@@ -645,13 +645,21 @@ export function Chat({
       proseHeadsRef.current.set(chain.key, chain);
       proseChainRef.current = null;
     }
-    // `projectTranscript` already splits one reply with assistantSegments.
-    // Every Markdown block before the newest one is therefore semantically
-    // closed and immutable. Move those blocks into Static immediately rather
-    // than letting transcriptTail repeatedly clip the whole growing reply.
-    // Existing plain-prose heads are completed with their final remainder;
-    // structured blocks are promoted whole with their Markdown intact.
-    const closed = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined).slice(0, -1);
+    // Semantic segments before the newest Markdown block are immutable and
+    // stream through Static normally. The one newest structured segment is
+    // intentionally excluded: GFM can keep it mutable for hundreds of
+    // deltas, and rendering it through Ink's volatile tree lets repeated
+    // frames escape into native scrollback before settlement.
+    const markdownBlocks = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined);
+    const newestMarkdown = markdownBlocks.at(-1);
+    // Once a reply has an open structured tail, hold its earlier semantic
+    // pieces too. A GFM parser can re-segment that reply as later list/table
+    // syntax arrives; promoting an apparently closed prefix in the meantime
+    // created a second Static key for the same bullet at call settlement.
+    // Plain prose keeps its existing row-by-row promotion path.
+    const closed = newestMarkdown && !isPlainStreamingProse(newestMarkdown.markdown)
+      ? []
+      : markdownBlocks.slice(0, -1);
     for (const block of closed) {
       const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (priorChars === block.markdown!.length) continue;
@@ -682,6 +690,20 @@ export function Chat({
     if (promotedChars > 0) {
       const remainder = trimProseHead(block, promotedChars);
       return remainder.markdown ? [remainder] : [];
+    }
+    // Never paint an open structured-Markdown segment through Ink's
+    // volatile tree. Unlike plain prose, GFM can keep an item mutable for
+    // hundreds of deltas; its repaint frames may enter native scrollback
+    // before the segment closes, then the canonical settled projection
+    // prints the same rows again. Closed segments already move to Static
+    // above; the final open one waits for its semantic close/settlement.
+    // This is a deliberate one-physical-emission invariant, not a height
+    // estimate (production partial list/prose duplication, cca11370).
+    if (block.markdown && !isPlainStreamingProse(block.markdown)) {
+      // The associated model call has not settled yet. Do not let a
+      // structured block enter Ink's volatile repaint tree: it will be
+      // emitted exactly once from the settled projection at its boundary.
+      return [];
     }
     return [block];
   });
