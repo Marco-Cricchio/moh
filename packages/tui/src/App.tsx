@@ -725,6 +725,9 @@ export function App({
       exitArmRef.current = now;
       return push("press ctrl+c again to exit");
     }
+    // #534: command-level binding takes precedence over chip focus and does
+    // not interrupt an active turn; streaming continues behind the modal.
+    if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     if (session && !blocked) {
       const chips = visibleChips(viewport.columns).chips;
       const subCount = subagentCount;
@@ -797,9 +800,6 @@ export function App({
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
-    // #534: rename without interrupting an active turn; the session keeps
-    // streaming behind the modal and the append stays on its normal sink.
-    if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     // #457: the user manual, from chat and home alike (slash fallback: /help).
     // ctrl+h spike finding: terminals with extended-key encoding (kitty,
     // CSI-u) deliver this as ctrl+h; legacy terminals send 0x08, which Ink

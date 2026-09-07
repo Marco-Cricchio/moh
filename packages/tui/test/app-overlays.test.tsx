@@ -200,6 +200,18 @@ describe("in-session rename modal (#534)", () => {
     i.unmount();
   });
 
+  test("ctrl+r opens while an action chip is focused", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("\t");
+    await sleep(30);
+    i.stdin.write("\x12");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
+    i.unmount();
+  });
+
   test("saving while streaming does not interrupt the active turn", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
