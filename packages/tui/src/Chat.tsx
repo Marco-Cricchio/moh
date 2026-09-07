@@ -320,13 +320,35 @@ export function Chat({
     return () => clearTimeout(timer);
   }, [cols, resizeTick]);
   useEffect(() => {
-    if (!repaintRef.current || replaySettled || blocked || bufferFlipPending) return;
+    // A mode/display change must repaint even when no other condition set
+    // the flag: a pure ctrl+o toggle used to be swallowed whenever
+    // repaintRef happened to be false (mode prop advanced, transcript kept
+    // the previous grammar — the unstable vibe/dev toggle). Detect the
+    // divergence directly instead of relying on the flag.
+    const segments = segmentsRef.current;
+    const grammarStale = segments.length !== 1
+      || segments[0]!.base !== 0
+      || segments[0]!.mode !== mode
+      || segments[0]!.show !== showReasoning;
+    if ((!repaintRef.current && !grammarStale) || replaySettled || blocked || bufferFlipPending) return;
     repaintRef.current = false;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
     proseChainRef.current = null;
     proseHeadsRef.current.clear();
+    markdownChainRef.current = null;
+    markdownChainsRef.current = [];
+    markdownHeadsRef.current.clear();
+    // The Static tree REMOUNTS on repaint (`key={repaint}`): ink's
+    // forward-only cursor restarts at zero and its layout effect swallows
+    // the first frame. Every emission-side ledger must reset with it — a
+    // stale emission ledger made the first post-repaint Static see old
+    // keys as already-printed (skipped blocks) and let previous-mode
+    // (e.g. vibe) blocks survive the wipe into the new scrollback
+    // (mixed-grammar transcript, duplicated lists after a mode toggle).
+    emittedRef.current = [];
+    assembledCountRef.current = 0;
     // Clear screen + scrollback, cursor home: the whole visible transcript
     // (including anything printed before moh) goes away by owner decision.
     stdout.write("\x1b[H\x1b[2J\x1b[3J");
