@@ -3,6 +3,8 @@ import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-previ
 import { Box, Static, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
+import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
+import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
@@ -190,6 +192,8 @@ export function Chat({
   const markdownChainRef = useRef<MarkdownReplyChain | null>(null);
   const markdownChainsRef = useRef<MarkdownReplyChain[]>([]);
   const markdownHeadsRef = useRef(new Map<string, number>());
+  // 777.mov: per-segment count of promoted rendered Markdown rows.
+  const markdownRowsRef = useRef(new Map<string, number>());
   const failedCallsRef = useRef(0);
   const assembledCountRef = useRef(0);
   const sessionRef = useRef(session);
@@ -341,6 +345,7 @@ export function Chat({
     markdownChainRef.current = null;
     markdownChainsRef.current = [];
     markdownHeadsRef.current.clear();
+    markdownRowsRef.current.clear();
     // The Static tree REMOUNTS on repaint (`key={repaint}`): ink's
     // forward-only cursor restarts at zero and its layout effect swallows
     // the first frame. Every emission-side ledger must reset with it — a
@@ -619,6 +624,12 @@ export function Chat({
     }
   }
   const activeChain = reasoningChainRef.current;
+  const theme = useTheme();
+  // 777.mov: one renderer per render; Markdown rows are produced by the
+  // same pipeline the settled view uses, so promoted rows and settled rows
+  // render identically.
+  const markdownRenderer = useMemo(() => createMarkdownRenderer(theme, Math.max(20, cols - 6)), [theme, cols]);
+  const renderRows = (source: string) => renderMarkdownRows(source, markdownRenderer, Math.max(20, cols - 6));
   // Prose head promotion (vision note 33). Assistant block keys are stable
   // across live and settled projections, unlike the separate reasoning
   // channel, so sealing can dedup directly against the same key.
@@ -627,63 +638,61 @@ export function Chat({
     // it by log order. Late persisted reasoning stays after emitted prose,
     // so both plain and structured replies keep #526's append-only policy.
     const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
-    const prose = latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
-    const chain = proseChainRef.current;
-    if (latestProse && chain?.key === latestProse.key && !prose) {
+    if (latestProse && proseChainRef.current?.key === latestProse.key && !isPlainStreamingProse(latestProse.markdown)) {
       // A later delta can turn previously plain text into Markdown whose
-      // meaning reaches backwards (setext/table/list). Rebuild from the
-      // canonical projection rather than freezing the obsolete rendering.
-      // No physical head means there is nothing immutable to invalidate:
-      // the volatile renderer can simply repaint the new Markdown in place.
-      if (chain.chars > 0) repaintRef.current = true;
+      // meaning reaches backwards (setext/table/list). No physical head
+      // means nothing immutable was emitted: repaint in place instead.
+      if (proseChainRef.current.chars > 0) repaintRef.current = true;
       else proseChainRef.current = null;
-    } else if (prose) {
-      if (chain && chain.key !== prose.key) proseHeadsRef.current.set(chain.key, chain);
-      const previous = chain?.key === prose.key ? chain : null;
-      const advanced = nextProseHead(previous, prose, Math.max(8, cols - 6));
-      if (advanced.chunks.length > 0 && (previous?.chunks.length ?? 0) === 0) {
-        advanced.startIndex = assembledCountRef.current;
-      }
-      proseChainRef.current = replaySettled ? (previous ?? advanced) : advanced;
-    } else if (chain) {
-      proseHeadsRef.current.set(chain.key, chain);
-      proseChainRef.current = null;
     }
-    // Closed semantic segments enter Static once under their canonical
-    // run/offset identity. The newest segment stays visible in the bounded
-    // volatile tail until it closes; hiding it makes streamed replies stall.
+    // Visual-row promotion of assistant Markdown (777.mov): a streamed
+    // reply must scroll like the reasoning block — rows that will not
+    // change again leave the volatile area for native scrollback while
+    // the reply is still open, and only a small tail stays editable.
+    // Coverage is keyed by canonical segment identity; rows are rendered
+    // once (same pipeline as the settled view) and never re-parsed.
+    // Coverage state: promotedRows per segment key. Retroactive GFM
+    // changes (late emphasis/setext) are handled by the plain->Markdown
+    // repaint above; promoted rows are frozen by design.
     const markdownBlocks = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined);
-    const closed = markdownBlocks.slice(0, -1);
-    for (const block of closed) {
-      const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
-      if (priorChars === block.markdown!.length) continue;
-      const remainder = trimProseHead(block, priorChars);
-      if (!remainder.markdown) continue;
-      const replyKey = block.key.replace(/-p\d+$/, "");
-      let markdownChain = markdownChainRef.current;
-      if (!markdownChain || markdownChain.key !== replyKey) {
-        markdownChain = { key: replyKey, startIndex: assembledCountRef.current, chunks: [] };
-        markdownChainRef.current = markdownChain;
-        markdownChainsRef.current.push(markdownChain);
+    for (const block of markdownBlocks) {
+      const key = block.key;
+      const prior = markdownRowsRef.current.get(key) ?? 0;
+      const rows = renderRows(block.markdown!);
+      // All but the final row are immutable while the segment stays open.
+      const stable = Math.max(0, rows.length - 1);
+      if (stable <= prior) continue;
+      const fresh = rows.slice(prior, stable);
+      const replyKey = key.replace(/-p\d+$/, "");
+      let chain = markdownChainRef.current;
+      if (!chain || chain.key !== replyKey) {
+        chain = { key: replyKey, startIndex: assembledCountRef.current, chunks: [] };
+        markdownChainRef.current = chain;
+        markdownChainsRef.current.push(chain);
       }
-      markdownChain.chunks.push({ ...remainder, key: `${block.key}-markdown-head` });
-      markdownHeadsRef.current.set(block.key, block.markdown!.length);
+      const opened = prior === 0 && chain.chunks.length === 0;
+      chain.chunks.push({ key: `${key}-rows-${prior}`, kind: "moh", glyph: "◆", type: "moh", lines: [], renderedMarkdownRows: fresh, continuation: opened ? block.continuation : true, tight: opened ? block.tight : true });
+      markdownRowsRef.current.set(key, stable);
+      // A closed segment (a following segment already exists) promotes its
+      // last row too.
+      if (markdownBlocks[markdownBlocks.length - 1] !== block) {
+        chain.chunks.push({ key: `${key}-rows-${stable}`, kind: "moh", glyph: "◆", type: "moh", lines: [], renderedMarkdownRows: rows.slice(stable), continuation: true, tight: true });
+        markdownRowsRef.current.set(key, rows.length);
+      }
     }
   }
-  const activeProse = proseChainRef.current;
   const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.flatMap((block) => {
     if (activeChain && activeChain.chars > 0 && block.key === activeChain.key) {
-      // Fully promoted (reasoning ended, log handover pending): Static
-      // already carries the text — keeping the frozen block volatile would
-      // render it between promoted reply chunks and the streaming tail.
       const trimmed = trimReasoningHead(block, activeChain.chars);
       return trimmed.lines.length > 0 ? [trimmed] : [];
     }
-    const proseHead = activeProse?.key === block.key ? activeProse : proseHeadsRef.current.get(block.key);
-    const promotedChars = Math.max(proseHead?.chars ?? 0, markdownHeadsRef.current.get(block.key) ?? 0);
-    if (promotedChars > 0) {
-      const remainder = trimProseHead(block, promotedChars);
-      return remainder.markdown ? [remainder] : [];
+    if (block.markdown !== undefined) {
+      const rows = renderRows(block.markdown!);
+      const promoted = markdownRowsRef.current.get(block.key) ?? 0;
+      const tail = rows.slice(promoted);
+      if (tail.length === 0 && promoted > 0) return [];
+      const untouched = promoted === 0;
+      return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: untouched ? block.continuation : true, tight: untouched ? block.tight : true }];
     }
     return [block];
   });
@@ -715,7 +724,7 @@ export function Chat({
       });
       return covered ? { ...block, lines: [] } : block;
     });
-    const result2 = embedProseHeads(deduped, proseHeadsRef.current);
+    const result2 = deduped;
     // Structured Markdown chunks promoted by #526 already live in Static.
     // When their call later settles, retain only a source suffix that was
     // not emitted through that chain; never append the same segment again.
@@ -725,6 +734,15 @@ export function Chat({
     // appended afterwards would land below the cursor and be silently
     // skipped (lost thinking blocks).
     return result2.flatMap((block) => {
+      if (block.markdown !== undefined) {
+        const rows = renderRows(block.markdown);
+        const promoted = markdownRowsRef.current.get(block.key) ?? 0;
+        const tail = rows.slice(promoted);
+        if (promoted >= rows.length) {
+          return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: [], kind: "info", glyph: "", type: "placeholder", detail: undefined }];
+        }
+        return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: promoted > 0 ? true : block.continuation, tight: promoted > 0 ? true : block.tight }];
+      }
       const chars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (chars === 0) return [block];
       const remainder = trimProseHead(block, chars);
@@ -769,8 +787,6 @@ export function Chat({
     [
       ...reasoningHeadsRef.current.values(),
       ...(activeChain ? [activeChain] : []),
-      ...proseHeadsRef.current.values(),
-      ...(activeProse ? [activeProse] : []),
       ...markdownChainsRef.current,
     ],
   );

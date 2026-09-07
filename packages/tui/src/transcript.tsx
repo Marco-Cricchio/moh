@@ -5,7 +5,7 @@ import type { Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { createMarkdownRenderer, Markdown, wrapRenderedLines } from "./markdown";
+import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
 import type { ToolTimings } from "./tool-timing";
@@ -20,6 +20,9 @@ export interface TranscriptBlock {
   lines: string[];
   /** Original assistant prose, retained for terminal Markdown rendering. */
   markdown?: string;
+  /** Pre-rendered terminal rows take precedence over source Markdown.
+   * Row chunks use continuation + tight to avoid adding spacing. */
+  readonly renderedMarkdownRows?: readonly string[];
   /** True for paragraphs that continue an assistant reply already started
    * above: they render without their own head row so one reply reads as one
    * continuous output (#205). */
@@ -714,7 +717,7 @@ function Row({ width, bg, indent = 0, children }: { width: number; bg?: string; 
   return <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={indent} flexShrink={0}><Text>{children}</Text></Box>;
 }
 
-const sameKinds = (a: string[] | undefined, b: string[] | undefined): boolean => {
+const sameKinds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean => {
   if (!a || !b) return !a && !b;
   return a.length === b.length && a.every((kind, i) => kind === b[i]);
 };
@@ -724,7 +727,8 @@ const sameBlock = (a: TranscriptBlock, b: TranscriptBlock): boolean =>
   && a.detail === b.detail && a.markdown === b.markdown && a.state === b.state && a.usage?.inputTokens === b.usage?.inputTokens
   && a.usage?.outputTokens === b.usage?.outputTokens && a.callId === b.callId && a.timeoutMs === b.timeoutMs && a.durationMs === b.durationMs
   && a.lines.length === b.lines.length && a.lines.every((line, i) => line === b.lines[i])
-  && sameKinds(a.lineKinds, b.lineKinds);
+  && sameKinds(a.lineKinds, b.lineKinds)
+  && sameKinds(a.renderedMarkdownRows, b.renderedMarkdownRows);
 
 /** Right-aligned timer on the tool-block head (#300). `⏱ elapsed · limit`
  * while the call runs (decision 2 format); the limit drops when the tool
@@ -765,7 +769,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
     ? wrapRenderedLines(detail, detailBudget).flatMap((line) =>
         line.length > detailBudget ? (line.match(new RegExp(`.{1,${detailBudget}}`, "g")) ?? [line]) : [line])
     : [];
-  const markdown = useMemo(() => block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.markdown, theme, contentWidth]);
+  const markdown = useMemo(() => block.renderedMarkdownRows === undefined && block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.renderedMarkdownRows, block.markdown, theme, contentWidth]);
   // #300: the right-aligned timer shares the head row with the label.
   // Without a timer the head renders exactly as before; with one, the
   // detail budget shrinks so the label never crowds the timer.
@@ -790,13 +794,15 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
           ))}
         </>
       )}
-      {block.markdown && markdown ? (
+      {block.renderedMarkdownRows !== undefined || (block.markdown && markdown) ? (
         <>
           {/* Segments split exactly at blank lines (trimmed per segment),
               so restore the single GFM inter-block blank row here — heading
               and hr paragraphs get their spacing back without doubles. */}
           {block.continuation && !block.tight ? <Box width={Math.max(1, width - 1)} backgroundColor={bg} flexShrink={0}><Text> </Text></Box> : null}
-          <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} />
+          {block.renderedMarkdownRows !== undefined
+            ? <MarkdownRows rows={block.renderedMarkdownRows} rowWidth={width} bg={bg} />
+            : block.markdown && markdown ? <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} /> : null}
         </>
       ) : block.lines.map((line, index) => {
         const lineKind = block.lineKinds?.[index];
