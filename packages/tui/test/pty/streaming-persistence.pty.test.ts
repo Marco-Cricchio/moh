@@ -351,6 +351,64 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
   // blocks split by identical thinking copies; a mode toggle (full repaint)
   // normalized the screen — so the corruption is in the incremental chain
   // state, not in the log.
+  // Owner report on v0.23.2: after a vibe->dev->vibe toggle the transcript
+  // mixed grammars (vibe "ran a command · …" boxes visible in dev),
+  // duplicated list items, and the toggle result was unstable. Cause: the
+  // full-repaint path reset the projection state but not the Static
+  // emission ledger, so the remounted Static (cursor restarts at zero)
+  // saw stale keys as already-printed and old-grammar blocks survived the
+  // screen wipe. The toggle must yield a coherent single-grammar
+  // transcript at every step.
+  test("mode toggle repaints one coherent grammar (no stale vibe/dev mixing)", async () => {
+    const { server, url } = startToolCycleStream();
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "vibe", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        project: { permissions: { overrides: { tools: { glob: "allow" } } } },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("run the cycles") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          // Toggle mid-stream, then back, then once more after settle.
+          { wait: 3.0, send: encodeBase64("\x0f") },
+          { wait: 1.0, send: encodeBase64("\x0f") },
+          { wait: 20.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 0.5, send: encodeBase64("\x0f") },
+          { wait: 1.2, send: encodeBase64("\x0f") },
+          { wait: 1.2, send: encodeBase64("\x0f") },
+          { wait: 1.2 },
+        ],
+        tail: 24,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const finalFrame = meta.lines.map((line) => line.text).join("\n");
+      // Final mode is dev (3 toggles from vibe): the screen must show the
+      // dev grammar coherently — no vibe-phrase tool lines may survive the
+      // last repaint — and the final reply must be present.
+      expect(finalFrame).not.toContain("looked for files");
+      expect(finalFrame).toContain("FINAL-REPLY-MARKER");
+      const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
+      // Cycle markers stay unique across the whole terminal history despite
+      // the three mid-stream/post-settle repaints.
+      for (let i = 1; i < 4; i++) {
+        const marker = `CYCLE-TEXT-${i}`;
+        const count = history.split(marker).length - 1;
+        expect(count).toBe(1);
+      }
+      expect(history.split("FINAL-REPLY-MARKER").length - 1).toBe(1);
+    } finally {
+      server.stop(true);
+    }
+  }, 45_000);
+
   test("multi-part late reasoning per call prints each thinking block exactly once", async () => {
     const { server, url } = startMultiPartReasoningStream();
     try {

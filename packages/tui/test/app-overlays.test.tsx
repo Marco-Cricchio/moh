@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig, MockProvider } from "@moh/core";
+import { listSessionSummaries, loadMohConfig, MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { stripAnsi } from "./helpers";
 
@@ -151,6 +151,108 @@ describe("App overlays (issue #33)", () => {
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("all commands");
     expect(frame).toContain("type…"); // chat still alive under the closed overlay
+    i.unmount();
+  });
+});
+
+describe("in-session rename modal (#534)", () => {
+  test("ctrl+r renames the live session and the restarted home shows the exact name", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const home = tempHome();
+    const i = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("\x12"); // ctrl+r
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
+    i.stdin.write("Release checklist");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(70);
+    expect(listSessionSummaries(cwd, home)[0]?.title).toBe("Release checklist");
+    i.unmount();
+
+    const reopened = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding />);
+    await sleep(50);
+    expect(stripAnsi(reopened.lastFrame() ?? "")).toContain("Release checklist");
+    reopened.unmount();
+  });
+
+  test("ctrl+r starts empty for an unrenamed session; empty confirmation resets an existing name", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const home = tempHome();
+    const i = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("\x12");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("name: Name");
+    i.stdin.write("Name");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(50);
+    i.stdin.write("\x12");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("renamed Name");
+    i.stdin.write("\x1b[3~".repeat(4));
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(50);
+    expect(listSessionSummaries(cwd, home)[0]?.title).toBe("(empty session)");
+    i.unmount();
+  });
+
+  test("ctrl+r opens while an action chip is focused", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("\t");
+    await sleep(30);
+    i.stdin.write("\x12");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
+    i.unmount();
+  });
+
+  test("saving while streaming does not interrupt the active turn", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const home = tempHome();
+    const provider = MockProvider.scripted([{ deltas: ["FIRST", "SECOND"], deltaDelayMs: 100, finish: "stop" }]);
+    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("reply");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(130); // the first delta is live; the turn has not settled
+    i.stdin.write("\x12");
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
+    i.stdin.write("Streaming name");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(180);
+    const summary = listSessionSummaries(cwd, home)[0];
+    expect(summary?.title).toBe("Streaming name");
+    expect(readFileSync(summary!.file, "utf8")).toContain('"text":"SECOND"');
+    i.unmount();
+  });
+
+  test("esc cancels without changing the current display name", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const home = tempHome();
+    const i = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("\x12");
+    await sleep(50);
+    i.stdin.write("Keep me");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(50);
+    i.stdin.write("\x12");
+    await sleep(50);
+    i.stdin.write(" changed");
+    await sleep(30);
+    i.stdin.write("\x1b");
+    await sleep(50);
+    expect(listSessionSummaries(cwd, home)[0]?.title).toBe("Keep me");
     i.unmount();
   });
 });
