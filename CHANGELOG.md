@@ -5,6 +5,18 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.25.1] - 2026-09-07
+### Fixed
+
+- **Verified per-provider live model listing contracts** (#551 follow-up):
+  the generic `/models` assumption is replaced with verified provider-specific
+  adapters (ChatGPT-Codex slug-shaped listing, Anthropic, Google, OpenRouter,
+  xAI), a shared cache/merge layer, and a conservative metadata projection —
+  never hardcoded model backfills. Live catalog results now also surface
+  discreetly in pickers as a cached/static fallback notice instead of being
+  fully fail-silent, and `/model` and Settings share the same live-catalog
+  projection (the Settings catalog-only read is corrected).
+
 ## [0.25.0] - 2026-09-07
 ### Added
 
