@@ -53,6 +53,7 @@ import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
+import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { contextWindowForLabel } from "./model-picker";
@@ -128,6 +129,9 @@ export function App({
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  // `~/.moh` — computed once; the single spelling inside App (the core
+  // guardian owns the config-file path constant itself).
+  const mohHome = join(home ?? homedir(), ".moh");
   // Double ctrl+c is the only way out (see useInput; exitOnCtrlC is off in
   // main.tsx): the first press arms, the second within the window exits.
   const exitArmRef = useRef(0);
@@ -168,6 +172,8 @@ export function App({
   const [session, setSession] = useState<AgentSession | null>(() =>
     initialSession && "session" in initialSession ? initialSession.session : null,
   );
+  const sessionRef = useRef<AgentSession | null>(session);
+  sessionRef.current = session;
 
   // First-run onboarding (#33): only when nothing is configured — an
   // explicit provider prop or a moh.json provider reference counts as
@@ -222,6 +228,36 @@ export function App({
   const [thinkingPreferenceRevision, setThinkingPreferenceRevision] = useState(0);
   const [skillUpdatePlan, setSkillUpdatePlan] = useState<UpstreamUpdate[] | null>(null);
 
+  // #551: live model-list augmentation — fetched once per process in the
+  // background at mount (cache-backed, never blocking), refreshable from
+  // the model picker. Failure is silent: the static catalog stands.
+  const [liveCatalog, setLiveCatalog] = useState<Record<string, LiveModelListing[]>>({});
+  const [liveRefreshing, setLiveRefreshing] = useState(false);
+  const liveBusyRef = useRef(false);
+  const refreshLiveCatalog = useCallback(
+    (opts: { force?: boolean } = {}) => {
+      const s = sessionRef.current;
+      if (!s || liveBusyRef.current) return;
+      const targets = s.endpointProfiles.map((e) => ({ name: e.name, type: e.type, baseUrl: e.baseUrl, apiKey: e.apiKey }));
+      if (targets.length === 0) return;
+      liveBusyRef.current = true;
+      setLiveRefreshing(true);
+      fetchLiveCatalogs(targets, { mohHome, force: opts.force })
+        .then((result) => setLiveCatalog((prev) => ({ ...prev, ...result })))
+        .catch(() => {})
+        .finally(() => {
+          liveBusyRef.current = false;
+          setLiveRefreshing(false);
+        });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mohHome],
+  );
+  useEffect(() => {
+    refreshLiveCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const gateRef = useRef<PermissionGate | null>(null);
   if (gateRef.current === null) gateRef.current = new PermissionGate();
   const gate = gateRef.current;
@@ -243,9 +279,6 @@ export function App({
    * `session_file_growth`; the fork chip projects the explicit recovery
    * action. Counters update on repeat incidents; the banner never stacks. */
   const [growth, setGrowth] = useState<{ count: number } | null>(null);
-  // `~/.moh` — computed once; the single spelling inside App (the core
-  // guardian owns the config-file path constant itself).
-  const mohHome = join(home ?? homedir(), ".moh");
 
   // Right-sidebar feed (#118): a coalesced event subscription (separate from
   // Chat's) serves the header token label and the Activity/Tokens sections.
@@ -1109,6 +1142,9 @@ export function App({
               apiKey: e.apiKey,
               catalog: endpointModelCatalog(e.type, e.baseUrl),
             }))}
+            liveCatalog={liveCatalog}
+            onRefreshLive={() => refreshLiveCatalog({ force: true })}
+            refreshingLive={liveRefreshing}
             onSwitch={(ref) => session.switchModel(ref)}
             onSwitched={(model) => setModelLabel(model)}
             onToast={push}

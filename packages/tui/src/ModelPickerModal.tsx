@@ -8,8 +8,10 @@ import {
   fetchedToCatalog,
   filterCatalog,
   freeTextRow,
+  mergePickCatalog,
   type EndpointPick,
 } from "./model-picker";
+import type { LiveModelListing } from "@moh/core";
 
 /**
  * The `/model` modal (#181, #166 semantics): every endpoint configured in
@@ -28,6 +30,13 @@ export interface ModelPickerModalProps {
   /** Performs the switch (AgentSession.switchModel). */
   onSwitch: (ref: string) => { ok: true; model: string } | { ok: false; error: string };
   onSwitched: (model: string) => void;
+  /** Live listings per endpoint name (#551), merged additively into
+   * catalog-backed endpoints' lists (vendored wins on collision). */
+  liveCatalog: Record<string, LiveModelListing[]>;
+  /** Forces a background live refresh (the `r` key). */
+  onRefreshLive: () => void;
+  /** True while a live refresh is in flight. */
+  refreshingLive: boolean;
   onToast: (message: string) => void;
   onClose: () => void;
 }
@@ -39,6 +48,9 @@ export function ModelPickerModal({
   endpoints,
   onSwitch,
   onSwitched,
+  liveCatalog,
+  onRefreshLive,
+  refreshingLive,
   onToast,
   onClose,
 }: ModelPickerModalProps) {
@@ -87,12 +99,14 @@ export function ModelPickerModal({
     const modelQuery = slash > 0 ? query.trim().slice(slash + 1) : query;
     for (const e of endpoints) {
       if (endpointPrefix !== null && !e.name.toLowerCase().startsWith(endpointPrefix)) continue;
-      const list =
+      const list = mergePickCatalog(
         e.catalog.length > 0
           ? e.catalog
           : Array.isArray(remote[e.name])
             ? (remote[e.name] as CatalogModel[])
-            : [];
+            : [],
+        liveCatalog[e.name] ?? [],
+      );
       for (const model of filterCatalog(list, modelQuery)) {
         out.push({
           endpoint: e.name,
@@ -106,7 +120,7 @@ export function ModelPickerModal({
       out.push({ endpoint: activeEndpoint ?? "", type: "", free: query.trim() });
     }
     return out;
-  }, [endpoints, remote, query, activeEndpoint, activeModel]);
+  }, [endpoints, remote, query, activeEndpoint, activeModel, liveCatalog]);
 
   const visibleRows = rows;
 
@@ -139,6 +153,7 @@ export function ModelPickerModal({
 
   useInput((input, key) => {
     if (key.escape) return onClose();
+    if (input === "r" && !query) return onRefreshLive();
     if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
     if (key.downArrow) return setCursor((c) => Math.min(visibleRows.length - 1, c + 1));
     if (key.backspace || key.delete) {
@@ -182,12 +197,14 @@ export function ModelPickerModal({
       {visibleRows.length === 0 && !loading.length && (
         <Dim> no models yet — type a model id (free text)</Dim>
       )}
-      {loading.length > 0 && <Dim>{` fetching models: ${loading.join(", ")}…`}</Dim>}
+      {loading.length > 0 || refreshingLive ? (
+        <Dim>{` fetching models${refreshingLive && !loading.length ? " (live refresh)" : `: ${loading.join(", ")}`}…`}</Dim>
+      ) : null}
       {failed.length > 0 && (
         <Dim>{` no list from ${failed.map((e) => e.name).join(", ")} — free text works`}</Dim>
       )}
       <Text> </Text>
-      <Dim>type to filter (endpoint or model) · ↑↓ select · enter switch · esc close</Dim>
+      <Dim>type to filter (endpoint or model) · r refresh live · ↑↓ select · enter switch · esc close</Dim>
     </Dialog>
   );
 }
