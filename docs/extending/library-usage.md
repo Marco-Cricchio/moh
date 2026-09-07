@@ -82,18 +82,28 @@ published model metadata (including context windows) without a live fetch.
 Onboarding a Z.ai URL automatically records the corresponding explicit
 thinking capability declaration.
 
-**Live catalog augmentation (#551).** Catalog-backed endpoints get their
-picker lists augmented with the provider's own live model list:
-`fetchLiveCatalogs(endpoints, opts)` in `@moh/core` fetches each
-provider's `/models` listing in the background (startup and picker open),
-caches results in `~/.moh/live-models.json` (TTL from the `liveModels`
-user-config section, default 24h; `enabled: false` restores the fully
-static catalog), and merges additively — the vendored catalog always wins
-on id collision, and fetched-only models carry conservative metadata
-(unknown context window, no thinking map, no modality claims: moh never
-invents capabilities). Any failure degrades silently to the static list.
-This is a picker/cache seam only: routing, `catalogEntryFor` and thinking
-resolution keep reading the vendored data.
+**Live catalog augmentation (#551).** Catalog-backed endpoints get
+their picker lists augmented with the provider's own live model list —
+one **verified contract per provider**, never a generic guess:
+`openai` rides the ChatGPT/Codex backend (`/models?client_version=…`,
+`originator` header, `models[].slug`, only `visibility: "list"` +
+`supported_in_api` rows); `anthropic` and `google` paginate
+(`has_more`/`after_id`, `nextPageToken`); `openrouter`, `xai` and
+`github-copilot` speak the OpenAI-like `data[].id` shape (copilot with
+its full editor-header client profile). `kimi-coding` and the Z.ai
+Coding Plan have **no verified listing contract and are deliberately
+static** — the regen-from-pi-ai path remains their update story.
+`fetchLiveCatalogs(endpoints, opts)` in `@moh/core` is the single
+orchestrator (startup and picker open), caching results in
+`~/.moh/live-models.json` (TTL from the `liveModels` user-config
+section, default 24h; `enabled: false` restores the fully static
+catalog) and merging additively — the vendored catalog always wins on
+id collision, and fetched-only models carry conservative metadata (moh
+never invents capabilities). Any failure degrades silently to the
+static list. Both the `/model` modal and the Settings panel's model
+picker consume the same live projection. This is a picker/cache seam
+only: routing, `catalogEntryFor` and thinking resolution keep reading
+the vendored data.
 
 **Thinking capability declarations (#256).** An endpoint profile may
 declare a thinking capability in `capabilities`: `thinking` (endpoint-

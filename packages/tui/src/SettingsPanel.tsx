@@ -1,14 +1,14 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
-import { endpointModelCatalog, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
-import { fetchedToCatalog, filterCatalog, freeTextRow, modelRow } from "./model-picker";
+import { fetchedToCatalog, filterCatalog, freeTextRow, mergePickCatalog, modelRow } from "./model-picker";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
@@ -90,6 +90,32 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // catalog. Failure = free-text entry only, as before.
   const [remote, setRemote] = useState<Record<string, string[] | "error" | "loading">>({});
 
+  // #551: the same live overlay /model uses, for catalog-backed
+  // endpoints. Fetched once per panel mount (cache-backed, never
+  // blocking); vendored entries still win on collision.
+  const [liveCatalog, setLiveCatalog] = useState<Record<string, LiveModelListing[]>>({});
+  useEffect(() => {
+    let live = true;
+    const endpoints = [...(moh.endpoints ?? [])].map((e) => ({ name: e.name, type: e.type, baseUrl: e.baseUrl, apiKey: e.apiKey }));
+    if (endpoints.length > 0) {
+      fetchLiveCatalogs(endpoints)
+        .then((result) => {
+          if (live && Object.keys(result).length > 0) setLiveCatalog((prev) => ({ ...prev, ...result }));
+        })
+        .catch(() => {
+          // Silent degradation is the #551 contract.
+        });
+    }
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** The model list for one endpoint: vendored catalog + live overlay. */
+  const modelListFor = (type: string, baseUrl: string | undefined, name: string) =>
+    mergePickCatalog(endpointModelCatalog(type, baseUrl), liveCatalog[name] ?? []);
+
   const fetchRemoteModels = (endpoint: { name: string; baseUrl?: string; apiKey?: string }) => {
     if (!endpoint.baseUrl || remote[endpoint.name]) return;
     setRemote((r) => ({ ...r, [endpoint.name]: "loading" }));
@@ -141,8 +167,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (sub.kind === "endpoint")
       return ["mock", ...(moh.endpoints ?? []).map((e) => (projectNames.has(e.name) ? e.name : `${e.name} (user)`))];
     if (sub.kind === "model") {
-      // Vendored catalog when one exists; otherwise the fetched list.
-      const vendored = endpointModelCatalog(sub.type, sub.baseUrl);
+      // Vendored catalog + #551 live overlay; otherwise the fetched list.
+      const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
       const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
       const rows = filterCatalog(list, sub.query).map((m) => modelRow(m, m.id === sub.current));
       rows.push(sub.query.trim() ? freeTextRow(sub.query) : "+ other… (type a model id)");
@@ -336,7 +362,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current: endpoint.defaultModel, userOwned, cursor: 0, query: "" });
         }
         if (sub.kind === "model") {
-          const vendored = endpointModelCatalog(sub.type, sub.baseUrl);
+          const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
           const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
           const catalog = filterCatalog(list, sub.query);
           if (index < catalog.length) {
