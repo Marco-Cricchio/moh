@@ -5,6 +5,22 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.24.0] - 2026-09-07
+### Added
+
+- **Rename with ctrl+r** (#547): sessions can be renamed in-chat — ctrl+r
+  opens the rename prompt from the composer (with usage hint and cancel via
+  Esc), the rename stays reachable from session chips, and the display name
+  updates in place without leaving the session.
+
+### Fixed
+
+- **Markdown duplication and unstable mode toggle** (#548): resets emission
+  state and forces a repaint on grammar changes (vibe→dev→vibe) — the same
+  Static cursor discipline of #544 applied to the repaint path, fixing
+  duplicated bullet/numbered lists and unstable display toggling reported on
+  v0.23.2.
+
 ## [0.23.2] - 2026-09-06
 ### Fixed
 
@@ -662,7 +678,9 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.23.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.24.0...develop
+[0.24.0]: https://github.com/Marco-Cricchio/moh/compare/v0.23.2...v0.24.0
+[0.23.2]: https://github.com/Marco-Cricchio/moh/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/Marco-Cricchio/moh/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/Marco-Cricchio/moh/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/Marco-Cricchio/moh/compare/v0.21.1...v0.22.0
