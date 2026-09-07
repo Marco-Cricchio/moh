@@ -63,6 +63,51 @@ function legacySession(): { cwd: string; home: string; file: string } {
   return { cwd, home, file: store.file };
 }
 
+describe("failed ask_user validation attempts (#548 follow-up)", () => {
+  test("a failed attempt renders a one-line retry record, not the full question", () => {
+    const args = {
+      questions: [{
+        question: "Ora che hai provato il modal di rinomina inline con ctrl+r, cosa ne pensi di questa funzionalità?",
+        header: "Rename ctrl+r",
+        options: [{ label: "Funziona bene", description: "ok" }],
+        multiSelect: false,
+      }],
+    };
+    const history: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "fixture-prompt" },
+      { type: "user_message", text: "go" },
+      { type: "tool_call", callId: "c1", name: "ask_user", args } as AgentEvent,
+      { type: "tool_result", callId: "c1", ok: false, output: "invalid arguments for ask_user: questions.0.suggested: Invalid input: expected string, received undefined" } as AgentEvent,
+    ];
+    const blocks = projectTranscript(history, { showReasoning: true });
+    const rendered = blocks.map((b) => b.lines.join("\n")).join("\n");
+    // The question text appears nowhere; the retry line carries the reason.
+    expect(rendered).not.toContain("modal di rinomina");
+    expect(rendered).toContain("retry — invalid arguments for ask_user: questions.0.suggested");
+  });
+
+  test("a successful ask_user still renders the compact question + answer block", () => {
+    const args = {
+      questions: [{
+        question: "Proceed with the rename feature?",
+        header: "Rename",
+        options: [{ label: "Yes", description: "ok" }, { label: "No", description: "no" }],
+        multiSelect: false,
+      }],
+    };
+    const history: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "fixture-prompt" },
+      { type: "user_message", text: "go" },
+      { type: "tool_call", callId: "c1", name: "ask_user", args } as AgentEvent,
+      { type: "tool_result", callId: "c1", ok: true, output: "Proceed with the rename feature?: Yes" } as AgentEvent,
+    ];
+    const blocks = projectTranscript(history, { showReasoning: true });
+    const rendered = blocks.map((b) => b.lines.join("\n")).join("\n");
+    expect(rendered).toContain("Proceed with the rename feature?");
+    expect(rendered).toContain("↳ you: Yes");
+  });
+});
+
 describe("legacy ask_user replay (#415)", () => {
   test("projection translates legacy single-question events in memory to the compact block", () => {
     const blocks = projectTranscript(legacyHistory);

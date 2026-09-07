@@ -5,6 +5,16 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.24.1] - 2026-09-07
+### Fixed
+
+- **ask_user tolerance for omitted `suggested`** (#552): GLM-class providers
+  emit `ask_user` arguments that fail zod validation when `suggested` is
+  omitted, producing failed tool calls and repeated retry boxes in the
+  transcript. The schema now defaults the field, so the tool call succeeds
+  and the model's fallback-to-chat path is no longer triggered by validation.
+- **Compact retry records**: retry records keep less payload per attempt.
+
 ## [0.24.0] - 2026-09-07
 ### Added
 
