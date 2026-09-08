@@ -163,19 +163,21 @@ export function Chat({
   // promoted-but-unrevealed row reaches scrollback at most one promotion
   // batch ahead of the cursor). On settle the budget snaps open: a
   // completed turn never lags its own done (headless tests rely on this).
-  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 160);
-  const REVEAL_ROWS_PER_TICK = 1;
+  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 50);
+  // Chars per tick scales with width (~ one visual row per ~5 ticks ≈
+  // 2 rows/s at 100 cols): smooth typing, not row jumps.
+  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 10);
   const [revealTick, setRevealTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => {
-      revealRef.current.budgetRows += REVEAL_ROWS_PER_TICK;
-      revealAllowanceRef.current = revealRef.current.budgetRows;
+      revealRef.current.budgetChars += REVEAL_CHARS_PER_TICK;
+      revealAllowanceRef.current = revealRef.current.budgetChars;
       setRevealTick((v) => v + 1);
     }, REVEAL_TICK_MS);
     return () => clearInterval(timer);
   }, []);
   void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
-  const revealRef = useRef({ budgetRows: 0, lastTurnStart: -1, revealedRows: 0, wasPending: false });
+  const revealRef = useRef({ budgetChars: 0, lastTurnStart: -1, wasPending: false });
   const revealAllowanceRef = useRef(Number.MAX_SAFE_INTEGER);
   {
     // The budget is counted in VISUAL ROWS: measure the live slice's
@@ -189,14 +191,14 @@ export function Chat({
     const info = revealRef.current;
     const newTurn = turnStart < info.lastTurnStart || (state.pending && !info.wasPending);
     if (newTurn) {
-      info.budgetRows = 0;
+      info.budgetChars = 0;
       revealAllowanceRef.current = 0;
     }
     info.wasPending = state.pending;
     info.lastTurnStart = turnStart;
     if (!state.pending) {
-      info.budgetRows = Number.MAX_SAFE_INTEGER; // settle: drain instantly
-      revealAllowanceRef.current = info.budgetRows;
+      info.budgetChars = Number.MAX_SAFE_INTEGER; // settle: drain instantly
+      revealAllowanceRef.current = info.budgetChars;
     }
   }
   // #253: live provider reasoning in the volatile area (display-gated in
