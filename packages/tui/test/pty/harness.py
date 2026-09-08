@@ -126,16 +126,16 @@ class Screen:
         # BEGIN/END. A snapshot taken mid-bracket shows a half-cleared
         # frame the real terminal never displays; buffer the writes and
         # commit atomically on END.
-        if seq == "\x1b[?2026h":
+        if os.environ.get("MOH_SYNC_DEBUG") and "2026" in seq:
+            sys.stderr.write(f"SYNC {seq!r}\n")
+        if re.fullmatch(r"\x1b\[\?2026;?\d*h", seq):
             self.sync_active = True
+            self.sync_opened = time.time()
             self.sync_grid = [row[:] for row in self.grid]
-            self.sync_scrollback_len = len(self.scrollback)
             return
-        if seq == "\x1b[?2026l":
-            if self.sync_active:
-                self.sync_active = False
-                self.sync_grid = None
-                self.sync_scrollback_len = None
+        if re.fullmatch(r"\x1b\[\?2026;?\d*l", seq):
+            self.sync_active = False
+            self.sync_grid = None
             return
         params = re.findall(r"\d+", seq)
         p1 = int(params[0]) if params else None
@@ -221,13 +221,18 @@ class Screen:
         # SGR (m), OSC and anything else: styling or unsupported → ignore
 
     def lines(self) -> list[str]:
-        grid = self.sync_grid if self.sync_active and self.sync_grid is not None else self.grid
+        # A real terminal displays the COMMITTED frame; a mid-block snapshot
+        # shows the last committed state. A block open for >2s is a parser
+        # bug (real sync blocks are single repaints): fall through to live.
+        stale = self.sync_active and (time.time() - self.sync_opened > 2.0)
+        grid = self.sync_grid if self.sync_active and self.sync_grid is not None and not stale else self.grid
         return ["".join(row).rstrip() for row in grid]
 
     @property
     def scrollback_view(self) -> list[str]:
-        if self.sync_active and self.sync_scrollback_len is not None:
-            return self.scrollback[: self.sync_scrollback_len]
+        # Scrollback rows pushed inside a sync block are committed by the
+        # block's END in a real terminal; the grid buffers, the scrollback
+        # does not need to.
         return self.scrollback
 
 
@@ -398,8 +403,9 @@ def main() -> None:
         with open(spec["rawDump"], "wb") as f:
             f.write(bytes(buf))
     payload = out
-    if spec.get("meta"):
-        payload = {"lines": out, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
+    if os.environ.get("MOH_PTY_DUMP"):
+        json.dump(checkpoints, open(os.environ["MOH_PTY_DUMP"], "w"), default=str)
+    payload = {"lines": out, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
     json.dump(payload, sys.stdout)
 
 

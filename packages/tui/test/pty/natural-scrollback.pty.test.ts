@@ -55,9 +55,10 @@ test.skipIf(!hasPython)("reasoning and an open long Markdown reply advance nativ
         // chars in) after ~11s of reveal — wait it out; the checkpoint is
         // exactly the mid-typing state this oracle exists to freeze.
         { wait: 30, until: "REPLY-LIVE-TAIL" },
-        // The reveal cursor trails the stream; wait until it has typed the
-        // tail into the viewport, then freeze the frame.
-        { wait: 20, until: "REPLY-LIVE-TAIL", checkpoint: "longOpenReply" },
+        // The reveal cursor types at its own pace; give the reasoning
+        // group time to seal and its rows to promote before freezing the
+        // mid-stream frame (this oracle freezes mid-REPLY, mid-typing).
+        { wait: 22, checkpoint: "longOpenReply" },
       ],
       tail: 24,
       rawDump: "/tmp/moh-natural-scrollback.bin",
