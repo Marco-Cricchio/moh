@@ -478,8 +478,28 @@ export function Chat({
           lines: showReasoning ? liveReasoning.text.split("\n").map(sanitizeLine) : [],
         }]
       : [];
-    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings })];
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings]);
+    const projected = projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings });
+    // Typewriter (char-level): the forming reply reveals its SOURCE up to
+    // the wall-clock char cursor. Truncating here means promotion, the
+    // volatile tail and the settled boundary all see the same prefix — a
+    // row can promote only once its source is fully revealed, and the
+    // last row grows char by char (true typewriter, no row jumps).
+    const budgetChars = revealAllowanceRef.current;
+    if (state.pending && budgetChars !== Number.MAX_SAFE_INTEGER) {
+      const revealed = projected.map((block) => {
+        if (block.kind !== "moh" || block.markdown === undefined) return block;
+        const offset = Number(block.key.match(/-p(\d+)$/)?.[1] ?? 0);
+        const limit = budgetChars - offset;
+        if (limit >= block.markdown.length) return block;
+        if (limit <= 0) return { ...block, markdown: "", lines: [], renderedMarkdownRows: [] };
+        return { ...block, markdown: block.markdown.slice(0, limit) };
+      });
+      return [...liveReasoningBlock, ...revealed];
+    }
+    return [...liveReasoningBlock, ...projected];
+  // revealTick in deps: the char cursor advances via a ref mutation, which
+  // React cannot observe — the tick is the re-render + recompute trigger.
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings, revealTick]);
   // Head chain state machine (#329): track the leading thinking block —
   // the chain follows it across the live→log handover (same text, new
   // key) and promotes its head line-by-line into Static chunks. Promotion
@@ -705,14 +725,13 @@ export function Chat({
     for (const block of markdownBlocks) {
       const key = block.key;
       const prior = markdownRowsRef.current.get(key) ?? 0;
-      const rows = renderRows(block.markdown!);
-      // Typewriter gate: only rows the reveal cursor has shown may leave
-      // for scrollback. `shown` = promoted prefix + tail allowance; the
-      // last shown row stays volatile (its wrap may still change).
-      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
-      const stable = state.pending
-        ? Math.max(prior, Math.min(shown - 1, rows.length - 1))
-        : Math.max(0, rows.length - 1);
+      const source = block.markdown!;
+      const rows = renderRows(source);
+      // Typewriter: the source is already truncated to the revealed
+      // prefix. A row may promote only when its source is complete — a
+      // mid-line cursor keeps the growing last row volatile.
+      const cutMidRow = state.pending && !source.endsWith("\n");
+      const stable = Math.max(0, rows.length - (cutMidRow ? 1 : 0) - (state.pending ? 1 : 0));
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");

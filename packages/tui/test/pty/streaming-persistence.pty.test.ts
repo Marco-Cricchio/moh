@@ -210,7 +210,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
           // The typewriter paces row reveal; wait until the tail has
           // visibly advanced, then snapshot the dock geometry mid-stream.
-          { wait: 9.0, until: "MIDDLE-LINE-5", checkpoint: "midStream" },
+          { wait: 14.0, until: "MIDDLE-LINE-5", checkpoint: "midStream" },
         ],
         tail: 20,
         rawDump,
@@ -841,9 +841,10 @@ function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string 
             send({ content: `${marker} ${"x".repeat(120)}\n` });
             await Bun.sleep(20);
           }
-          // Keep the response open long enough for the PTY assertion to
-          // sample the in-progress turn rather than its final Static block.
-          await Bun.sleep(3_000);
+          // Hold well past the paced reveal (~200 chars/s): the midStream
+          // checkpoint must land while the provider is still streaming,
+          // before the settle snap-open paints everything at once.
+          await Bun.sleep(25_000);
           send({ content: "STREAM-FINISHED" });
           send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
