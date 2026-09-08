@@ -11,6 +11,7 @@ test.skipIf(!hasPython)("reasoning and an open long Markdown reply advance nativ
   const held = new Promise<void>((resolve) => { release = resolve; });
   const server = Bun.serve({
     port: 0,
+    idleTimeout: 60,
     fetch() {
       const encoder = new TextEncoder();
       return new Response(new ReadableStream({

@@ -163,21 +163,19 @@ export function Chat({
   // promoted-but-unrevealed row reaches scrollback at most one promotion
   // batch ahead of the cursor). On settle the budget snaps open: a
   // completed turn never lags its own done (headless tests rely on this).
-  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 50);
-  // Chars per tick scales with width (~ one visual row per ~5 ticks ≈
-  // 2 rows/s at 100 cols): smooth typing, not row jumps.
-  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 10);
+  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 160);
+  const REVEAL_ROWS_PER_TICK = 1;
   const [revealTick, setRevealTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => {
-      revealRef.current.budgetChars += REVEAL_CHARS_PER_TICK;
-      revealAllowanceRef.current = revealRef.current.budgetChars;
+      revealRef.current.budgetRows += REVEAL_ROWS_PER_TICK;
+      revealAllowanceRef.current = revealRef.current.budgetRows;
       setRevealTick((v) => v + 1);
     }, REVEAL_TICK_MS);
     return () => clearInterval(timer);
   }, []);
   void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
-  const revealRef = useRef({ budgetChars: 0, lastTurnStart: -1, wasPending: false });
+  const revealRef = useRef({ budgetRows: 0, lastTurnStart: -1, revealedRows: 0, wasPending: false });
   const revealAllowanceRef = useRef(Number.MAX_SAFE_INTEGER);
   {
     // The budget is counted in VISUAL ROWS: measure the live slice's
@@ -191,17 +189,14 @@ export function Chat({
     const info = revealRef.current;
     const newTurn = turnStart < info.lastTurnStart || (state.pending && !info.wasPending);
     if (newTurn) {
-      info.budgetChars = 0;
+      info.budgetRows = 0;
       revealAllowanceRef.current = 0;
     }
     info.wasPending = state.pending;
     info.lastTurnStart = turnStart;
-    // Snap open ONLY on a real settle (a turn was pacing). Before a turn
-    // starts, pending is false on every render; opening here would bypass
-    // the reveal entirely (the 8s-oracle flake).
-    if (info.wasPending && !state.pending) {
-      info.budgetChars = Number.MAX_SAFE_INTEGER; // settle: drain instantly
-      revealAllowanceRef.current = info.budgetChars;
+    if (!state.pending) {
+      info.budgetRows = Number.MAX_SAFE_INTEGER; // settle: drain instantly
+      revealAllowanceRef.current = info.budgetRows;
     }
   }
   // #253: live provider reasoning in the volatile area (display-gated in
@@ -481,28 +476,8 @@ export function Chat({
           lines: showReasoning ? liveReasoning.text.split("\n").map(sanitizeLine) : [],
         }]
       : [];
-    const projected = projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings });
-    // Typewriter (char-level): the forming reply reveals its SOURCE up to
-    // the wall-clock char cursor. Truncating here means promotion, the
-    // volatile tail and the settled boundary all see the same prefix — a
-    // row can promote only once its source is fully revealed, and the
-    // last row grows char by char (true typewriter, no row jumps).
-    const budgetChars = revealAllowanceRef.current;
-    if (state.pending && budgetChars !== Number.MAX_SAFE_INTEGER) {
-      const revealed = projected.map((block) => {
-        if (block.kind !== "moh" || block.markdown === undefined) return block;
-        const offset = Number(block.key.match(/-p(\d+)$/)?.[1] ?? 0);
-        const limit = budgetChars - offset;
-        if (limit >= block.markdown.length) return block;
-        if (limit <= 0) return { ...block, markdown: "", lines: [], renderedMarkdownRows: [] };
-        return { ...block, markdown: block.markdown.slice(0, limit) };
-      });
-      return [...liveReasoningBlock, ...revealed];
-    }
-    return [...liveReasoningBlock, ...projected];
-  // revealTick in deps: the char cursor advances via a ref mutation, which
-  // React cannot observe — the tick is the re-render + recompute trigger.
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings, revealTick]);
+    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings })];
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings]);
   // Head chain state machine (#329): track the leading thinking block —
   // the chain follows it across the live→log handover (same text, new
   // key) and promotes its head line-by-line into Static chunks. Promotion
@@ -728,13 +703,14 @@ export function Chat({
     for (const block of markdownBlocks) {
       const key = block.key;
       const prior = markdownRowsRef.current.get(key) ?? 0;
-      const source = block.markdown!;
-      const rows = renderRows(source);
-      // Typewriter: the source is already truncated to the revealed
-      // prefix. A row may promote only when its source is complete — a
-      // mid-line cursor keeps the growing last row volatile.
-      const cutMidRow = state.pending && !source.endsWith("\n");
-      const stable = Math.max(0, rows.length - (cutMidRow ? 1 : 0) - (state.pending ? 1 : 0));
+      const rows = renderRows(block.markdown!);
+      // Typewriter gate: only rows the reveal cursor has shown may leave
+      // for scrollback. `shown` = promoted prefix + tail allowance; the
+      // last shown row stays volatile (its wrap may still change).
+      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
+      const stable = state.pending
+        ? Math.max(prior, Math.min(shown - 1, rows.length - 1))
+        : Math.max(0, rows.length - 1);
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");

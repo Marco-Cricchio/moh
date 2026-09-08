@@ -11,6 +11,7 @@ test.skipIf(!hasPython)("a burst reply is revealed progressively, not in one blo
   const held = new Promise<void>((resolve) => { setTimeout(resolve, 9000); });
   const server = Bun.serve({
     port: 0,
+    idleTimeout: 60,
     fetch() {
       const encoder = new TextEncoder();
       return new Response(new ReadableStream({

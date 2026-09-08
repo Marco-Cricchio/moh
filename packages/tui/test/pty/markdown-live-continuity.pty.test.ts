@@ -9,6 +9,7 @@ test.skipIf(!hasPython)("an open Markdown item is readable before its semantic c
   const held = new Promise<void>((resolve) => { release = resolve; });
   const server = Bun.serve({
     port: 0,
+    idleTimeout: 60,
     fetch() {
       const encoder = new TextEncoder();
       return new Response(new ReadableStream({

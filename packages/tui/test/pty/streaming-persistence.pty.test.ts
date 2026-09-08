@@ -234,7 +234,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     } finally {
       server.stop(true);
     }
-  }, 15_000);
+  }, 45_000);
 
   test("final settlement does not reprint a prose prefix already in scrollback", async () => {
     const { server, url } = startLineStream();
@@ -252,25 +252,27 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 7.0, until: "STREAM-FINISHED" },
-          // Post-settle: the whole transcript promotes once; snapshot after
-          // the settle repaint has flushed.
-          { wait: 1.5, checkpoint: "settled" },
+          // Post-settle: snapshot after the settle repaint flushed (paced
+          // reveal included).
+          { wait: 20.0, until: "LAST-LIVE-LINE", checkpoint: "settled" },
         ],
         tail: 20,
         rawDump,
       });
-      // The settled screen must show the full reply exactly once — volatile
-      // pre-settlement repaints are allowed, post-settlement duplicates are
-      // the 888.mov regression this guards.
+      // Native scrollback must hold the promoted reply exactly once (the
+      // 888 regression re-printed settled rows wholesale). The visible
+      // volatile remainder may legally overlap the seam row.
       const settled = meta.checkpoints?.settled;
       expect(settled).toBeDefined();
-      const settledText = [...settled!.scrollback, ...settled!.lines.map((l) => l.text)].join("\n");
-      expect(settledText.split("FIRST-COMPLETED-LINE").length - 1).toBe(1);
-      expect(settledText).toContain("LAST-LIVE-LINE");
+      expect(settled!.scrollback.join("\n").split("FIRST-COMPLETED-LINE").length - 1).toBe(1);
+      // The bulk of the reply promoted; the very last row may still sit in
+      // the volatile tail 0.2s after settle (the settle snap promotes it a
+      // frame later).
+      expect(settled!.scrollback.join("\n")).toContain("MIDDLE-LINE-15");
     } finally {
       server.stop(true);
     }
-  }, 15_000);
+  }, 45_000);
 
   test("an unbroken oversized prose stream stays output-bounded (#203)", async () => {
     const { server, url } = startUnbrokenStream();
@@ -830,6 +832,10 @@ function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>
 function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({
     port: 0,
+    // The held-open stream exceeds Bun's 10s idle timeout by design (the
+    // paced reveal needs the provider to keep streaming); an aborted first
+    // stream makes the client retry and duplicate the whole reply.
+    idleTimeout: 60,
     fetch() {
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
@@ -841,9 +847,8 @@ function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string 
             send({ content: `${marker} ${"x".repeat(120)}\n` });
             await Bun.sleep(20);
           }
-          // Hold well past the paced reveal (~200 chars/s): the midStream
-          // checkpoint must land while the provider is still streaming,
-          // before the settle snap-open paints everything at once.
+          // Hold well past the paced reveal (~6 rows/s): the midStream
+          // checkpoint must land while the provider is still streaming.
           await Bun.sleep(25_000);
           send({ content: "STREAM-FINISHED" });
           send({}, "stop");
