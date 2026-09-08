@@ -154,6 +154,51 @@ export function Chat({
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
+  // Typewriter reveal (777.mov owner acceptance, ported from the fork
+  // trial to the native-scrollback model): provider deltas arrive in
+  // giant chunks; text should form at a human pace. A wall-clock budget
+  // truncates the LIVE tail's newest delta run — projection-only. The
+  // log, Static promotion and the settled boundary keep consuming the
+  // full log, so promotion can never duplicate or lose content (a
+  // promoted-but-unrevealed row reaches scrollback at most one promotion
+  // batch ahead of the cursor). On settle the budget snaps open: a
+  // completed turn never lags its own done (headless tests rely on this).
+  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 160);
+  const REVEAL_ROWS_PER_TICK = 1;
+  const [revealTick, setRevealTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      revealRef.current.budgetRows += REVEAL_ROWS_PER_TICK;
+      revealAllowanceRef.current = revealRef.current.budgetRows;
+      setRevealTick((v) => v + 1);
+    }, REVEAL_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
+  const revealRef = useRef({ budgetRows: 0, lastTurnStart: -1, revealedRows: 0, wasPending: false });
+  const revealAllowanceRef = useRef(Number.MAX_SAFE_INTEGER);
+  {
+    // The budget is counted in VISUAL ROWS: measure the live slice's
+    // rendered rows (same width as the tail) each frame and advance the
+    // allowance by rows per tick — a row is the unit the reader sees, so
+    // wide vs narrow replies reveal at the same cadence.
+    let turnStart = state.events.length;
+    for (let i = state.events.length - 1; i >= 0; i--) {
+      if (state.events[i]!.type === "user_message") { turnStart = i; break; }
+    }
+    const info = revealRef.current;
+    const newTurn = turnStart < info.lastTurnStart || (state.pending && !info.wasPending);
+    if (newTurn) {
+      info.budgetRows = 0;
+      revealAllowanceRef.current = 0;
+    }
+    info.wasPending = state.pending;
+    info.lastTurnStart = turnStart;
+    if (!state.pending) {
+      info.budgetRows = Number.MAX_SAFE_INTEGER; // settle: drain instantly
+      revealAllowanceRef.current = info.budgetRows;
+    }
+  }
   // #253: live provider reasoning in the volatile area (display-gated in
   // the projection below: head-only indicator when reasoning display is
   // off — the text itself is never rendered then).
@@ -659,8 +704,13 @@ export function Chat({
       const key = block.key;
       const prior = markdownRowsRef.current.get(key) ?? 0;
       const rows = renderRows(block.markdown!);
-      // All but the final row are immutable while the segment stays open.
-      const stable = Math.max(0, rows.length - 1);
+      // Typewriter gate: only rows the reveal cursor has shown may leave
+      // for scrollback. `shown` = promoted prefix + tail allowance; the
+      // last shown row stays volatile (its wrap may still change).
+      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
+      const stable = state.pending
+        ? Math.max(prior, Math.min(shown - 1, rows.length - 1))
+        : Math.max(0, rows.length - 1);
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");
@@ -689,7 +739,19 @@ export function Chat({
     if (block.markdown !== undefined) {
       const rows = renderRows(block.markdown!);
       const promoted = markdownRowsRef.current.get(block.key) ?? 0;
-      const tail = rows.slice(promoted);
+      let tail = rows.slice(promoted);
+      // Typewriter: rows beyond the reveal allowance are simply not drawn
+      // this frame (the newest markdown block is the only one still
+      // forming). Rows already promoted to Static scrollback are never
+      // re-hidden — the allowance applies to the volatile tail only.
+      // Typewriter: while the turn is pending, rows beyond the reveal
+      // allowance are not drawn this frame. The allowance grows by
+      // REVEAL_ROWS each reveal tick and snaps open at settle.
+      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
+      const visibleTail = Math.max(1, shown - promoted);
+      if (state.pending && visibleTail < tail.length) {
+        tail = tail.slice(0, visibleTail);
+      }
       if (tail.length === 0 && promoted > 0) return [];
       const untouched = promoted === 0;
       return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: untouched ? block.continuation : true, tight: untouched ? block.tight : true }];

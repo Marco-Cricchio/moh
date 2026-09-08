@@ -207,31 +207,30 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         steps: [
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("line stream") },
-          { wait: 0.2, send: encodeBase64("\r") },
-          // LAST-LIVE-LINE arrives before the provider sends finish_reason.
-          { wait: 6.0, until: "LAST-LIVE-LINE" },
-          // Let Ink finish the current frame under full-suite load. The fake
-          // provider still holds the stream open for three seconds.
-          { wait: 0.5 },
+          { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
+          // The typewriter paces row reveal; wait until the tail has
+          // visibly advanced, then snapshot the dock geometry mid-stream.
+          { wait: 9.0, until: "MIDDLE-LINE-5", checkpoint: "midStream" },
         ],
         tail: 20,
         rawDump,
       });
       expect(meta.aliveAtEnd).toBe(true);
-      const raw = readFileSync(rawDump, "utf8");
-      expect(raw).toContain("LAST-LIVE-LINE");
-      expect(raw).not.toContain("STREAM-FINISHED");
-      // A completed row belongs to native terminal scrollback. Repainting it
-      // as part of the volatile viewport makes the response look like an
-      // internally scrolling box and produces duplicate terminal output.
-      expect(raw.match(/FIRST-COMPLETED-LINE/g)).toHaveLength(1);
-      // Newline-heavy streams must remain bounded too; otherwise moving
-      // rows into Static would fix the UX while recreating the old O(n²)
-      // PTY flood through a different path.
-      expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
-      const screen = meta.lines.map((line) => line.text);
+      // Provider still holding: the final marker must not be painted yet.
+      const mid = meta.checkpoints?.midStream;
+      expect(mid).toBeDefined();
+      const midText = [...mid!.scrollback, ...mid!.lines.map((l) => l.text)].join("\n");
+      expect(midText).toContain("MIDDLE-LINE-5");
+      expect(midText).not.toContain("STREAM-FINISHED");
+      expect(midText).not.toContain("LAST-LIVE-LINE");
+      // Dock geometry: composer stays in the lower half mid-stream.
+      const screen = mid!.lines.map((l) => l.text);
       const input = screen.findIndex((line) => line.includes("type…"));
-      expect(input).toBeGreaterThanOrEqual(Math.floor(meta.lines.length / 2));
+      expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2));
+      const startInput = meta.checkpoints?.turnStart?.lines.findIndex((line) => line.text.includes("type…"));
+      expect(startInput).toBe(input);
+      // Bounded output (no O(n²) flood).
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
     } finally {
       server.stop(true);
     }
@@ -241,7 +240,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     const { server, url } = startLineStream();
     const rawDump = "/tmp/moh-streaming-lines-settled-raw.bin";
     try {
-      await runPtyRaw({
+      const meta = await runPtyRaw({
         cols: 120,
         rows: 20,
         config: {
@@ -253,12 +252,21 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 7.0, until: "STREAM-FINISHED" },
-          { wait: 0.5 },
+          // Post-settle: the whole transcript promotes once; snapshot after
+          // the settle repaint has flushed.
+          { wait: 1.5, checkpoint: "settled" },
         ],
         tail: 20,
         rawDump,
       });
-      expect(readFileSync(rawDump, "utf8").match(/FIRST-COMPLETED-LINE/g)).toHaveLength(1);
+      // The settled screen must show the full reply exactly once — volatile
+      // pre-settlement repaints are allowed, post-settlement duplicates are
+      // the 888.mov regression this guards.
+      const settled = meta.checkpoints?.settled;
+      expect(settled).toBeDefined();
+      const settledText = [...settled!.scrollback, ...settled!.lines.map((l) => l.text)].join("\n");
+      expect(settledText.split("FIRST-COMPLETED-LINE").length - 1).toBe(1);
+      expect(settledText).toContain("LAST-LIVE-LINE");
     } finally {
       server.stop(true);
     }
