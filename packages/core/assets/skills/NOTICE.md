@@ -55,6 +55,10 @@ facts live in memory, current-effort state in session notes).
 - `moh-implementation-flow` is a moh-native companion skill (not an upstream
 port; #366): it keeps moh's implementation execution discipline separate
 from the upstream `implement` workflow.
+- `prototype` ported from upstream `skills/engineering/prototype` (SKILL.md,
+  LOGIC.md, UI.md; commit `321658273cb1d20b76026717d027d505790106d4`):
+  `minMohVersion` frontmatter added; upstream `agents/openai.yaml` sidecar not
+  bundled.
 - `pr-review` was considered and dropped (#79): upstream `code-review`
   covers inbound PR review; no upstream pr-review text exists to port.
 - `gh-manager` is a moh-native skill (#378) porting the ideas of David

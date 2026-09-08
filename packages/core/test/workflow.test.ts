@@ -94,6 +94,7 @@ describe("first-party skill install", () => {
       "grilling",
       "implement",
       "moh-implementation-flow",
+      "prototype",
       "session-memory",
       "tdd",
       "to-spec",
