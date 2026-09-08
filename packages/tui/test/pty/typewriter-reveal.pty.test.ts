@@ -40,7 +40,10 @@ test.skipIf(!hasPython)("a burst reply is revealed progressively, not in one blo
       steps: [
         { wait: 1 }, { send: btoa("burst"), wait: 0.2 }, { send: btoa("\r"), wait: 0.2 },
         { wait: 5, until: "BURST-START" },
-        { wait: 1.2, checkpoint: "midReveal" },
+        // Mid-reveal snapshot: the cursor (~200 chars/s) needs ~13s for the
+        // full burst; interval drift under PTY load can run ~2x fast, so
+        // sample soon after the head appears.
+        { wait: 0.6, checkpoint: "midReveal" },
         { wait: 8, checkpoint: "lateReveal" },
       ],
       tail: 30,

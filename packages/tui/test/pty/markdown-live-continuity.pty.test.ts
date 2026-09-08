@@ -40,7 +40,9 @@ test.skipIf(!hasPython)("an open Markdown item is readable before its semantic c
       },
       steps: [
         { wait: 1 }, { send: btoa("architecture"), wait: 0.2 }, { send: btoa("\r"), wait: 0.2 },
-        { wait: 4, until: "OPEN-ITEM-ALREADY-SENT", checkpoint: "openItem" },
+        { wait: 12, until: "OPEN-ITEM-ALREADY-SENT" },
+        // Reveal cursor trails the stream; give it time to surface the tail.
+        { wait: 3, checkpoint: "openItem" },
       ],
       tail: 40,
     });
@@ -54,4 +56,4 @@ test.skipIf(!hasPython)("an open Markdown item is readable before its semantic c
     release?.();
     server.stop(true);
   }
-}, 15_000);
+}, 30_000);

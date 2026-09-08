@@ -163,40 +163,71 @@ export function Chat({
   // promoted-but-unrevealed row reaches scrollback at most one promotion
   // batch ahead of the cursor). On settle the budget snaps open: a
   // completed turn never lags its own done (headless tests rely on this).
-  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 160);
-  const REVEAL_ROWS_PER_TICK = 1;
+  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 80);
+  // Horizontal (word-flow) reveal: the forming line grows rightward — no
+  // per-row lag. ~10 chars/50ms ≈ 2 rows/s at 100 cols.
+  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 25);
+  // Max chars the cursor may trail the provider stream by.
+  const REVEAL_CATCHUP_CHARS = 400;
   const [revealTick, setRevealTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => {
-      revealRef.current.budgetRows += REVEAL_ROWS_PER_TICK;
-      revealAllowanceRef.current = revealRef.current.budgetRows;
+      // Pace, with catch-up: the cursor trails the stream by at most
+      // REVEAL_CATCHUP_CHARS so long bursts eventually surface (a slow
+      // reader cursor must never strand content the provider finished
+      // long ago).
+      const streamed = streamedCharsRef.current;
+      const prev = revealAllowanceRef.current;
+      // The cursor always trails the stream by at most REVEAL_CATCHUP
+      // chars — including at mount (a remount seeds from the CURRENT
+      // stream position, so already-shown content is never re-hidden:
+      // the floor reads live streamed chars, not stale state).
+      // Behind = how far the cursor trails the provider stream. The cursor
+      // keeps its base typing speed and ACCELERATES with the deficit
+      // (Codex-style catch-up): word-flow continues to the end of the
+      // turn instead of collapsing into row dumps once the buffered
+      // prefix is drained. The deficit is measured in ticks-equivalents
+      // so the speedup is bounded (2.5x max) — always readable.
+      // Accelerate with the deficit (bounded 2.5x): a long buffer drains
+      // at visibly-faster word-flow and ALWAYS completes — the cursor is
+      // capped only by the stream itself, never stranded short of it.
+      const boost = 1 + Math.min(1.5, Math.max(0, streamed - prev) / 600);
+      revealRef.current.budgetChars = Math.max(prev, Math.min(streamed, prev + REVEAL_CHARS_PER_TICK * boost));
+      revealAllowanceRef.current = revealRef.current.budgetChars;
       setRevealTick((v) => v + 1);
     }, REVEAL_TICK_MS);
     return () => clearInterval(timer);
   }, []);
   void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
-  const revealRef = useRef({ budgetRows: 0, lastTurnStart: -1, revealedRows: 0, wasPending: false });
-  const revealAllowanceRef = useRef(Number.MAX_SAFE_INTEGER);
+  // Char-level typewriter state. The cursor lives in revealAllowanceRef;
+  // the interval below advances it and bumps revealTick (the re-render
+  // trigger React can observe). Reset ONLY on a new user turn: multi-call
+  // turns flip pending false between calls, and a pending-edge reset would
+  // freeze the next call's reveal at a crawl.
+  const revealRef = useRef({ budgetChars: 0, lastTurnStart: -1 });
+  const streamedCharsRef = useRef(0);
+  const revealAllowanceRef = useRef(0);
   {
-    // The budget is counted in VISUAL ROWS: measure the live slice's
-    // rendered rows (same width as the tail) each frame and advance the
-    // allowance by rows per tick — a row is the unit the reader sees, so
-    // wide vs narrow replies reveal at the same cadence.
     let turnStart = state.events.length;
     for (let i = state.events.length - 1; i >= 0; i--) {
       if (state.events[i]!.type === "user_message") { turnStart = i; break; }
     }
     const info = revealRef.current;
-    const newTurn = turnStart < info.lastTurnStart || (state.pending && !info.wasPending);
-    if (newTurn) {
-      info.budgetRows = 0;
+    // Streamed chars since the turn began (the catch-up ceiling).
+    let streamed = 0;
+    for (let i = turnStart; i < state.events.length; i++) {
+      const e = state.events[i]!;
+      if (e.type === "assistant_delta") streamed += e.text.length;
+    }
+    streamedCharsRef.current = streamed;
+    if (turnStart < info.lastTurnStart) {
+      info.budgetChars = 0;
       revealAllowanceRef.current = 0;
     }
-    info.wasPending = state.pending;
     info.lastTurnStart = turnStart;
     if (!state.pending) {
-      info.budgetRows = Number.MAX_SAFE_INTEGER; // settle: drain instantly
-      revealAllowanceRef.current = info.budgetRows;
+      info.budgetChars = Number.MAX_SAFE_INTEGER; // settle: drain instantly
+      revealAllowanceRef.current = info.budgetChars;
     }
   }
   // #253: live provider reasoning in the volatile area (display-gated in
@@ -476,8 +507,32 @@ export function Chat({
           lines: showReasoning ? liveReasoning.text.split("\n").map(sanitizeLine) : [],
         }]
       : [];
-    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings })];
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings]);
+    const projected = projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings });
+    // Horizontal typewriter: the forming reply reveals its SOURCE up to
+    // the char cursor. Truncating at this single seam means promotion,
+    // the volatile tail and the settled boundary all share the prefix —
+    // a row can promote only once its source is fully revealed, and the
+    // open line grows rightward instead of appearing row by row.
+    const budgetChars = revealAllowanceRef.current;
+    if (state.pending && budgetChars !== Number.MAX_SAFE_INTEGER) {
+      // Cumulative source offsets across THIS projection's moh blocks —
+      // never key-derived (-pN includes reasoning chars, which would
+      // freeze the reply after a long reasoning phase).
+      let base = 0;
+      const revealed = projected.map((block) => {
+        if (block.kind !== "moh" || block.markdown === undefined) return block;
+        const limit = budgetChars - base;
+        base += block.markdown.length;
+        if (limit >= block.markdown.length) return block;
+        if (limit <= 0) return { ...block, markdown: "", lines: [], renderedMarkdownRows: [] };
+        return { ...block, markdown: block.markdown.slice(0, limit) };
+      });
+      return [...liveReasoningBlock, ...revealed];
+    }
+    return [...liveReasoningBlock, ...projected];
+  // revealTick in deps: the cursor advances via a ref mutation, which
+  // React cannot observe — the tick is the recompute trigger.
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings, revealTick]);
   // Head chain state machine (#329): track the leading thinking block —
   // the chain follows it across the live→log handover (same text, new
   // key) and promotes its head line-by-line into Static chunks. Promotion
@@ -703,14 +758,16 @@ export function Chat({
     for (const block of markdownBlocks) {
       const key = block.key;
       const prior = markdownRowsRef.current.get(key) ?? 0;
-      const rows = renderRows(block.markdown!);
-      // Typewriter gate: only rows the reveal cursor has shown may leave
-      // for scrollback. `shown` = promoted prefix + tail allowance; the
-      // last shown row stays volatile (its wrap may still change).
-      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
-      const stable = state.pending
-        ? Math.max(prior, Math.min(shown - 1, rows.length - 1))
-        : Math.max(0, rows.length - 1);
+      const source = block.markdown!;
+      const rows = renderRows(source);
+      // The source is already truncated to the revealed prefix. The open
+      // tail paragraph must stay ENTIRELY volatile: its rows re-wrap as
+      // it grows (promoting any of them would freeze a stale wrap). Only
+      // paragraphs closed by a blank line are wrap-stable.
+      const lastParaStart = state.pending ? source.lastIndexOf("\n\n") + 1 : 0;
+      const stablePrefix = state.pending ? source.slice(0, lastParaStart) : source;
+      const stableRows = renderRows(stablePrefix);
+      const stable = Math.max(0, stableRows.length - (state.pending ? 1 : 0));
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");
@@ -740,13 +797,6 @@ export function Chat({
       const rows = renderRows(block.markdown!);
       const promoted = markdownRowsRef.current.get(block.key) ?? 0;
       let tail = rows.slice(promoted);
-      // Typewriter: rows beyond the reveal allowance are simply not drawn
-      // this frame (the newest markdown block is the only one still
-      // forming). Rows already promoted to Static scrollback are never
-      // re-hidden — the allowance applies to the volatile tail only.
-      // Typewriter: while the turn is pending, rows beyond the reveal
-      // allowance are not drawn this frame. The allowance grows by
-      // REVEAL_ROWS each reveal tick and snaps open at settle.
       const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
       const visibleTail = Math.max(1, shown - promoted);
       if (state.pending && visibleTail < tail.length) {

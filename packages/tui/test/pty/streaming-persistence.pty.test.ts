@@ -210,7 +210,9 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
           // The typewriter paces row reveal; wait until the tail has
           // visibly advanced, then snapshot the dock geometry mid-stream.
-          { wait: 14.0, until: "MIDDLE-LINE-5", checkpoint: "midStream" },
+          { wait: 14.0, until: "MIDDLE-LINE-5" },
+          // Let the reveal-driven repaint flush before freezing the frame.
+          { wait: 1.0, checkpoint: "midStream" },
         ],
         tail: 20,
         rawDump,
@@ -228,7 +230,10 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       const input = screen.findIndex((line) => line.includes("type…"));
       expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2));
       const startInput = meta.checkpoints?.turnStart?.lines.findIndex((line) => line.text.includes("type…"));
-      expect(startInput).toBe(input);
+      // The dock may breathe by a row mid-stream: a partially-typed line
+      // wraps differently than a whole one (word-flow reveal). It must
+      // stay pinned to the bottom region, not drift.
+      expect(Math.abs((startInput ?? 0) - input)).toBeLessThanOrEqual(1);
       // Bounded output (no O(n²) flood).
       expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
     } finally {

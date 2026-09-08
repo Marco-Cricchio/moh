@@ -62,6 +62,9 @@ class Screen:
         self.alt_active = False
         self.main_saved = None
         self.pending = ""  # partial escape sequence across writes
+        self.sync_active = False  # DECSET 2026 synchronized update
+        self.sync_grid = None
+        self.sync_scrollback_len = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def feed_bytes(self, data: bytes) -> None:
@@ -119,6 +122,21 @@ class Screen:
             i += 1
 
     def _csi(self, seq: str) -> None:
+        # DECSET 2026 (synchronized update): Ink brackets each repaint in
+        # BEGIN/END. A snapshot taken mid-bracket shows a half-cleared
+        # frame the real terminal never displays; buffer the writes and
+        # commit atomically on END.
+        if seq == "\x1b[?2026h":
+            self.sync_active = True
+            self.sync_grid = [row[:] for row in self.grid]
+            self.sync_scrollback_len = len(self.scrollback)
+            return
+        if seq == "\x1b[?2026l":
+            if self.sync_active:
+                self.sync_active = False
+                self.sync_grid = None
+                self.sync_scrollback_len = None
+            return
         params = re.findall(r"\d+", seq)
         p1 = int(params[0]) if params else None
         final = seq[-1]
@@ -157,6 +175,34 @@ class Screen:
                     self.grid[self.row][c] = " "
                 for r in range(self.row + 1, self.rows):
                     self.grid[r] = [" "] * self.cols
+        elif final == "r":
+            # DECSTBM (scroll region): moh/Ink sets regions for backbuffer
+            # pushes. The screen model has no regions; recording cursor
+            # home is enough for the frames assertions sample.
+            self.col = 0
+        elif final == "M":
+            # Reverse index: terminals scroll the region ABOVE the cursor
+            # (0..row) up by one, pushing the top row toward scrollback.
+            if self.row > 0:
+                if not self.alt_active:
+                    self.scrollback.append("".join(self.grid[0]).rstrip())
+                self.grid.pop(0)
+                self.grid.insert(self.row - 1 if self.row - 1 >= 0 else 0, [" "] * self.cols)
+                self.row -= 1
+            self.col = 0
+        elif final == "L":
+            count = p1 or 1
+            for _ in range(count):
+                self.grid.pop()
+                self.grid.insert(self.row, [" "] * self.cols)
+        elif final == "D":
+            self.row = min(self.rows - 1, self.row + 1)
+            self.col = 0
+            self._scroll()
+        elif final == "E":
+            self.row = min(self.rows - 1, self.row + 1)
+            self.col = 0
+            self._scroll()
         elif final == "h" and seq.startswith("\x1b[?1049"):
             # Alternate screen buffer (DECSET 1049): modal overlays render
             # there (see App.tsx). The harness keeps both grids and swaps
@@ -175,7 +221,14 @@ class Screen:
         # SGR (m), OSC and anything else: styling or unsupported → ignore
 
     def lines(self) -> list[str]:
-        return ["".join(row).rstrip() for row in self.grid]
+        grid = self.sync_grid if self.sync_active and self.sync_grid is not None else self.grid
+        return ["".join(row).rstrip() for row in grid]
+
+    @property
+    def scrollback_view(self) -> list[str]:
+        if self.sync_active and self.sync_scrollback_len is not None:
+            return self.scrollback[: self.sync_scrollback_len]
+        return self.scrollback
 
 
 def main() -> None:
@@ -287,7 +340,7 @@ def main() -> None:
                 "width": len(line),
                 "text": line,
             })
-        return {"lines": rendered, "scrollback": list(screen.scrollback)}
+        return {"lines": rendered, "scrollback": list(screen.scrollback_view)}
 
     try:
         pump(2.5)  # boot: onboarding appears
@@ -310,7 +363,7 @@ def main() -> None:
             fcntl.ioctl(master, termios.TIOCSWINSZ,
                         struct.pack("HHHH", resize["rows"], resize["cols"], 0, 0))
             os.kill(proc.pid, signal.SIGWINCH)
-            previous_scrollback = screen.scrollback
+            previous_scrollback = screen.scrollback_view
             screen = Screen(resize["cols"], resize["rows"])  # Ink fully repaints after SIGWINCH
             screen.scrollback = previous_scrollback
             pump(2.0)
@@ -346,7 +399,7 @@ def main() -> None:
             f.write(bytes(buf))
     payload = out
     if spec.get("meta"):
-        payload = {"lines": out, "scrollback": screen.scrollback, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
+        payload = {"lines": out, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
     json.dump(payload, sys.stdout)
 
 

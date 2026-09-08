@@ -51,7 +51,13 @@ test.skipIf(!hasPython)("reasoning and an open long Markdown reply advance nativ
       },
       steps: [
         { wait: 1 }, { send: btoa("explain the architecture"), wait: 0.2 }, { send: btoa("\r"), wait: 0.2 },
-        { wait: 10, until: "REPLY-LIVE-TAIL", checkpoint: "longOpenReply" },
+        // The char cursor (~200 chars/s) reaches the stream tail (~2.2k
+        // chars in) after ~11s of reveal — wait it out; the checkpoint is
+        // exactly the mid-typing state this oracle exists to freeze.
+        { wait: 30, until: "REPLY-LIVE-TAIL" },
+        // The reveal cursor trails the stream; wait until it has typed the
+        // tail into the viewport, then freeze the frame.
+        { wait: 20, until: "REPLY-LIVE-TAIL", checkpoint: "longOpenReply" },
       ],
       tail: 24,
       rawDump: "/tmp/moh-natural-scrollback.bin",
@@ -73,4 +79,4 @@ test.skipIf(!hasPython)("reasoning and an open long Markdown reply advance nativ
     release?.();
     server.stop(true);
   }
-}, 20_000);
+}, 45_000);
