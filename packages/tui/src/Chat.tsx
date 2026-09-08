@@ -196,7 +196,10 @@ export function Chat({
     }
     info.wasPending = state.pending;
     info.lastTurnStart = turnStart;
-    if (!state.pending) {
+    // Snap open ONLY on a real settle (a turn was pacing). Before a turn
+    // starts, pending is false on every render; opening here would bypass
+    // the reveal entirely (the 8s-oracle flake).
+    if (info.wasPending && !state.pending) {
       info.budgetChars = Number.MAX_SAFE_INTEGER; // settle: drain instantly
       revealAllowanceRef.current = info.budgetChars;
     }
