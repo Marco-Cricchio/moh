@@ -163,10 +163,10 @@ export function Chat({
   // promoted-but-unrevealed row reaches scrollback at most one promotion
   // batch ahead of the cursor). On settle the budget snaps open: a
   // completed turn never lags its own done (headless tests rely on this).
-  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 80);
+  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 60);
   // Horizontal (word-flow) reveal: the forming line grows rightward — no
   // per-row lag. ~10 chars/50ms ≈ 2 rows/s at 100 cols.
-  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 25);
+  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 20);
   // Max chars the cursor may trail the provider stream by.
   const REVEAL_CATCHUP_CHARS = 400;
   const [revealTick, setRevealTick] = useState(0);
@@ -188,10 +188,12 @@ export function Chat({
       // turn instead of collapsing into row dumps once the buffered
       // prefix is drained. The deficit is measured in ticks-equivalents
       // so the speedup is bounded (2.5x max) — always readable.
-      // Accelerate with the deficit (bounded 2.5x): a long buffer drains
-      // at visibly-faster word-flow and ALWAYS completes — the cursor is
-      // capped only by the stream itself, never stranded short of it.
-      const boost = 1 + Math.min(1.5, Math.max(0, streamed - prev) / 600);
+      // Accelerate with the deficit: a long buffer drains at visibly-
+      // faster word-flow and ALWAYS completes — the cursor is capped only
+      // by the stream itself, never stranded short of it. The cap keeps
+      // the drain readable (~1600 c/s max) while bounding worst-case
+      // reveal time to streamed/1600 s.
+      const boost = 1 + Math.min(4, Math.max(0, streamed - prev) / 500);
       revealRef.current.budgetChars = Math.max(prev, Math.min(streamed, prev + REVEAL_CHARS_PER_TICK * boost));
       revealAllowanceRef.current = revealRef.current.budgetChars;
       setRevealTick((v) => v + 1);
