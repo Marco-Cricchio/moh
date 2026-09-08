@@ -351,6 +351,11 @@ export function wrapRenderedLines(text: string, width: number): string[] {
   return out;
 }
 
+/** Render once before slicing into row chunks; preserves the Markdown layout. */
+export function renderMarkdownRows(text: string, md: Marked, width: number): string[] {
+  return wrapRenderedLines(String(md.parse(closeOpenFences(text))).replace(/\n+$/, ""), width);
+}
+
 /** Streaming-safe markdown, rendered with the current theme. Each terminal
  * row is its own full-width Box so the tint paints blank lines and padding
  * too; styled runs render as ink-native Text segments — raw ANSI inside a
@@ -359,10 +364,15 @@ export function wrapRenderedLines(text: string, width: number): string[] {
  * every wrapped paragraph (#205). */
 export function Markdown({ text, md, width, rowWidth, bg }: { text: string; md: Marked; width: number; rowWidth: number; bg?: string }) {
   const lines = useMemo(
-    () => wrapRenderedLines(String(md.parse(closeOpenFences(text))).replace(/\n+$/, ""), width),
+    () => renderMarkdownRows(text, md, width),
     [text, md, width],
   );
-  return <>{lines.map((line, index) => (
+  return <MarkdownRows rows={lines} rowWidth={rowWidth} bg={bg} />;
+}
+
+/** Paint pre-rendered rows without parsing, wrapping, or trimming chunks. */
+export function MarkdownRows({ rows, rowWidth, bg }: { rows: readonly string[]; rowWidth: number; bg?: string }) {
+  return <>{rows.map((line, index) => (
     <Box key={index} width={Math.max(1, rowWidth - 1)} backgroundColor={bg} paddingLeft={4} flexShrink={0}>
       <Text>{parseAnsiSegments(line).map((segment, s) => (
         <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>

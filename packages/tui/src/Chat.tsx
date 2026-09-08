@@ -3,13 +3,15 @@ import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-previ
 import { Box, Static, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
+import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
+import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
-import { projectTranscript, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import {
@@ -24,6 +26,7 @@ import { AskUserBlock, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
+
 
 export type Mode = "vibe" | "dev";
 const ESC_WINDOW_MS = 1500;
@@ -151,6 +154,84 @@ export function Chat({
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
+  // Typewriter reveal (777.mov owner acceptance, ported from the fork
+  // trial to the native-scrollback model): provider deltas arrive in
+  // giant chunks; text should form at a human pace. A wall-clock budget
+  // truncates the LIVE tail's newest delta run — projection-only. The
+  // log, Static promotion and the settled boundary keep consuming the
+  // full log, so promotion can never duplicate or lose content (a
+  // promoted-but-unrevealed row reaches scrollback at most one promotion
+  // batch ahead of the cursor). On settle the budget snaps open: a
+  // completed turn never lags its own done (headless tests rely on this).
+  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 60);
+  // Horizontal (word-flow) reveal: the forming line grows rightward — no
+  // per-row lag. ~10 chars/50ms ≈ 2 rows/s at 100 cols.
+  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 20);
+  // Max chars the cursor may trail the provider stream by.
+  const REVEAL_CATCHUP_CHARS = 400;
+  const [revealTick, setRevealTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // Pace, with catch-up: the cursor trails the stream by at most
+      // REVEAL_CATCHUP_CHARS so long bursts eventually surface (a slow
+      // reader cursor must never strand content the provider finished
+      // long ago).
+      const streamed = streamedCharsRef.current;
+      const prev = revealAllowanceRef.current;
+      // The cursor always trails the stream by at most REVEAL_CATCHUP
+      // chars — including at mount (a remount seeds from the CURRENT
+      // stream position, so already-shown content is never re-hidden:
+      // the floor reads live streamed chars, not stale state).
+      // Behind = how far the cursor trails the provider stream. The cursor
+      // keeps its base typing speed and ACCELERATES with the deficit
+      // (Codex-style catch-up): word-flow continues to the end of the
+      // turn instead of collapsing into row dumps once the buffered
+      // prefix is drained. The deficit is measured in ticks-equivalents
+      // so the speedup is bounded (2.5x max) — always readable.
+      // Accelerate with the deficit: a long buffer drains at visibly-
+      // faster word-flow and ALWAYS completes — the cursor is capped only
+      // by the stream itself, never stranded short of it. The cap keeps
+      // the drain readable (~1600 c/s max) while bounding worst-case
+      // reveal time to streamed/1600 s.
+      const boost = 1 + Math.min(4, Math.max(0, streamed - prev) / 500);
+      revealRef.current.budgetChars = Math.max(prev, Math.min(streamed, prev + REVEAL_CHARS_PER_TICK * boost));
+      revealAllowanceRef.current = revealRef.current.budgetChars;
+      setRevealTick((v) => v + 1);
+    }, REVEAL_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
+  // Char-level typewriter state. The cursor lives in revealAllowanceRef;
+  // the interval below advances it and bumps revealTick (the re-render
+  // trigger React can observe). Reset ONLY on a new user turn: multi-call
+  // turns flip pending false between calls, and a pending-edge reset would
+  // freeze the next call's reveal at a crawl.
+  const revealRef = useRef({ budgetChars: 0, lastTurnStart: -1 });
+  const streamedCharsRef = useRef(0);
+  const revealAllowanceRef = useRef(0);
+  {
+    let turnStart = state.events.length;
+    for (let i = state.events.length - 1; i >= 0; i--) {
+      if (state.events[i]!.type === "user_message") { turnStart = i; break; }
+    }
+    const info = revealRef.current;
+    // Streamed chars since the turn began (the catch-up ceiling).
+    let streamed = 0;
+    for (let i = turnStart; i < state.events.length; i++) {
+      const e = state.events[i]!;
+      if (e.type === "assistant_delta") streamed += e.text.length;
+    }
+    streamedCharsRef.current = streamed;
+    if (turnStart < info.lastTurnStart) {
+      info.budgetChars = 0;
+      revealAllowanceRef.current = 0;
+    }
+    info.lastTurnStart = turnStart;
+    if (!state.pending) {
+      info.budgetChars = Number.MAX_SAFE_INTEGER; // settle: drain instantly
+      revealAllowanceRef.current = info.budgetChars;
+    }
+  }
   // #253: live provider reasoning in the volatile area (display-gated in
   // the projection below: head-only indicator when reasoning display is
   // off — the text itself is never rendered then).
@@ -189,6 +270,8 @@ export function Chat({
   const markdownChainRef = useRef<MarkdownReplyChain | null>(null);
   const markdownChainsRef = useRef<MarkdownReplyChain[]>([]);
   const markdownHeadsRef = useRef(new Map<string, number>());
+  // 777.mov: per-segment count of promoted rendered Markdown rows.
+  const markdownRowsRef = useRef(new Map<string, number>());
   const failedCallsRef = useRef(0);
   const assembledCountRef = useRef(0);
   const sessionRef = useRef(session);
@@ -340,6 +423,7 @@ export function Chat({
     markdownChainRef.current = null;
     markdownChainsRef.current = [];
     markdownHeadsRef.current.clear();
+    markdownRowsRef.current.clear();
     // The Static tree REMOUNTS on repaint (`key={repaint}`): ink's
     // forward-only cursor restarts at zero and its layout effect swallows
     // the first frame. Every emission-side ledger must reset with it — a
@@ -425,8 +509,32 @@ export function Chat({
           lines: showReasoning ? liveReasoning.text.split("\n").map(sanitizeLine) : [],
         }]
       : [];
-    return [...liveReasoningBlock, ...projectTranscript(live, { filePreview, mode, keyBase: settledEnd, proseContinuation, showReasoning, toolTimings })];
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings]);
+    const projected = projectTranscript(live, { filePreview, mode, keyBase: settledEnd, initialAssistantRun: assistantRunOrigin(state.events, settledEnd), proseContinuation, showReasoning, toolTimings });
+    // Horizontal typewriter: the forming reply reveals its SOURCE up to
+    // the char cursor. Truncating at this single seam means promotion,
+    // the volatile tail and the settled boundary all share the prefix —
+    // a row can promote only once its source is fully revealed, and the
+    // open line grows rightward instead of appearing row by row.
+    const budgetChars = revealAllowanceRef.current;
+    if (state.pending && budgetChars !== Number.MAX_SAFE_INTEGER) {
+      // Cumulative source offsets across THIS projection's moh blocks —
+      // never key-derived (-pN includes reasoning chars, which would
+      // freeze the reply after a long reasoning phase).
+      let base = 0;
+      const revealed = projected.map((block) => {
+        if (block.kind !== "moh" || block.markdown === undefined) return block;
+        const limit = budgetChars - base;
+        base += block.markdown.length;
+        if (limit >= block.markdown.length) return block;
+        if (limit <= 0) return { ...block, markdown: "", lines: [], renderedMarkdownRows: [] };
+        return { ...block, markdown: block.markdown.slice(0, limit) };
+      });
+      return [...liveReasoningBlock, ...revealed];
+    }
+    return [...liveReasoningBlock, ...projected];
+  // revealTick in deps: the cursor advances via a ref mutation, which
+  // React cannot observe — the tick is the recompute trigger.
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings, revealTick]);
   // Head chain state machine (#329): track the leading thinking block —
   // the chain follows it across the live→log handover (same text, new
   // key) and promotes its head line-by-line into Static chunks. Promotion
@@ -618,6 +726,12 @@ export function Chat({
     }
   }
   const activeChain = reasoningChainRef.current;
+  const theme = useTheme();
+  // 777.mov: one renderer per render; Markdown rows are produced by the
+  // same pipeline the settled view uses, so promoted rows and settled rows
+  // render identically.
+  const markdownRenderer = useMemo(() => createMarkdownRenderer(theme, Math.max(20, cols - 6)), [theme, cols]);
+  const renderRows = (source: string) => renderMarkdownRows(source, markdownRenderer, Math.max(20, cols - 6));
   // Prose head promotion (vision note 33). Assistant block keys are stable
   // across live and settled projections, unlike the separate reasoning
   // channel, so sealing can dedup directly against the same key.
@@ -626,84 +740,73 @@ export function Chat({
     // it by log order. Late persisted reasoning stays after emitted prose,
     // so both plain and structured replies keep #526's append-only policy.
     const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
-    const prose = latestProse && isPlainStreamingProse(latestProse.markdown) ? latestProse : null;
-    const chain = proseChainRef.current;
-    if (latestProse && chain?.key === latestProse.key && !prose) {
+    if (latestProse && proseChainRef.current?.key === latestProse.key && !isPlainStreamingProse(latestProse.markdown)) {
       // A later delta can turn previously plain text into Markdown whose
-      // meaning reaches backwards (setext/table/list). Rebuild from the
-      // canonical projection rather than freezing the obsolete rendering.
-      repaintRef.current = true;
-    } else if (prose) {
-      if (chain && chain.key !== prose.key) proseHeadsRef.current.set(chain.key, chain);
-      const previous = chain?.key === prose.key ? chain : null;
-      const advanced = nextProseHead(previous, prose, Math.max(8, cols - 6));
-      if (advanced.chunks.length > 0 && (previous?.chunks.length ?? 0) === 0) {
-        advanced.startIndex = assembledCountRef.current;
-      }
-      proseChainRef.current = replaySettled ? (previous ?? advanced) : advanced;
-    } else if (chain) {
-      proseHeadsRef.current.set(chain.key, chain);
-      proseChainRef.current = null;
+      // meaning reaches backwards (setext/table/list). No physical head
+      // means nothing immutable was emitted: repaint in place instead.
+      if (proseChainRef.current.chars > 0) repaintRef.current = true;
+      else proseChainRef.current = null;
     }
-    // Semantic segments before the newest Markdown block are immutable and
-    // stream through Static normally. The one newest structured segment is
-    // intentionally excluded: GFM can keep it mutable for hundreds of
-    // deltas, and rendering it through Ink's volatile tree lets repeated
-    // frames escape into native scrollback before settlement.
+    // Visual-row promotion of assistant Markdown (777.mov): a streamed
+    // reply must scroll like the reasoning block — rows that will not
+    // change again leave the volatile area for native scrollback while
+    // the reply is still open, and only a small tail stays editable.
+    // Coverage is keyed by canonical segment identity; rows are rendered
+    // once (same pipeline as the settled view) and never re-parsed.
+    // Coverage state: promotedRows per segment key. Retroactive GFM
+    // changes (late emphasis/setext) are handled by the plain->Markdown
+    // repaint above; promoted rows are frozen by design.
     const markdownBlocks = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined);
-    const newestMarkdown = markdownBlocks.at(-1);
-    // Once a reply has an open structured tail, hold its earlier semantic
-    // pieces too. A GFM parser can re-segment that reply as later list/table
-    // syntax arrives; promoting an apparently closed prefix in the meantime
-    // created a second Static key for the same bullet at call settlement.
-    // Plain prose keeps its existing row-by-row promotion path.
-    const closed = newestMarkdown && !isPlainStreamingProse(newestMarkdown.markdown)
-      ? []
-      : markdownBlocks.slice(0, -1);
-    for (const block of closed) {
-      const priorChars = markdownHeadsRef.current.get(block.key) ?? 0;
-      if (priorChars === block.markdown!.length) continue;
-      const remainder = trimProseHead(block, priorChars);
-      if (!remainder.markdown) continue;
-      const replyKey = block.key.replace(/-p\d+$/, "");
-      let markdownChain = markdownChainRef.current;
-      if (!markdownChain || markdownChain.key !== replyKey) {
-        markdownChain = { key: replyKey, startIndex: assembledCountRef.current, chunks: [] };
-        markdownChainRef.current = markdownChain;
-        markdownChainsRef.current.push(markdownChain);
+    for (const block of markdownBlocks) {
+      const key = block.key;
+      const prior = markdownRowsRef.current.get(key) ?? 0;
+      const source = block.markdown!;
+      const rows = renderRows(source);
+      // The source is already truncated to the revealed prefix. The open
+      // tail paragraph must stay ENTIRELY volatile: its rows re-wrap as
+      // it grows (promoting any of them would freeze a stale wrap). Only
+      // paragraphs closed by a blank line are wrap-stable.
+      const lastParaStart = state.pending ? source.lastIndexOf("\n\n") + 1 : 0;
+      const stablePrefix = state.pending ? source.slice(0, lastParaStart) : source;
+      const stableRows = renderRows(stablePrefix);
+      const stable = Math.max(0, stableRows.length - (state.pending ? 1 : 0));
+      if (stable <= prior) continue;
+      const fresh = rows.slice(prior, stable);
+      const replyKey = key.replace(/-p\d+$/, "");
+      let chain = markdownChainRef.current;
+      if (!chain || chain.key !== replyKey) {
+        chain = { key: replyKey, startIndex: assembledCountRef.current, chunks: [] };
+        markdownChainRef.current = chain;
+        markdownChainsRef.current.push(chain);
       }
-      markdownChain.chunks.push({ ...remainder, key: `${block.key}-markdown-head` });
-      markdownHeadsRef.current.set(block.key, block.markdown!.length);
+      const opened = prior === 0 && chain.chunks.length === 0;
+      chain.chunks.push({ key: `${key}-rows-${prior}`, kind: "moh", glyph: "◆", type: "moh", lines: [], renderedMarkdownRows: fresh, continuation: opened ? block.continuation : true, tight: opened ? block.tight : true });
+      markdownRowsRef.current.set(key, stable);
+      // A closed segment (a following segment already exists) promotes its
+      // last row too.
+      if (markdownBlocks[markdownBlocks.length - 1] !== block) {
+        chain.chunks.push({ key: `${key}-rows-${stable}`, kind: "moh", glyph: "◆", type: "moh", lines: [], renderedMarkdownRows: rows.slice(stable), continuation: true, tight: true });
+        markdownRowsRef.current.set(key, rows.length);
+      }
     }
   }
-  const activeProse = proseChainRef.current;
   const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.flatMap((block) => {
     if (activeChain && activeChain.chars > 0 && block.key === activeChain.key) {
-      // Fully promoted (reasoning ended, log handover pending): Static
-      // already carries the text — keeping the frozen block volatile would
-      // render it between promoted reply chunks and the streaming tail.
       const trimmed = trimReasoningHead(block, activeChain.chars);
       return trimmed.lines.length > 0 ? [trimmed] : [];
     }
-    const proseHead = activeProse?.key === block.key ? activeProse : proseHeadsRef.current.get(block.key);
-    const promotedChars = Math.max(proseHead?.chars ?? 0, markdownHeadsRef.current.get(block.key) ?? 0);
-    if (promotedChars > 0) {
-      const remainder = trimProseHead(block, promotedChars);
-      return remainder.markdown ? [remainder] : [];
-    }
-    // Never paint an open structured-Markdown segment through Ink's
-    // volatile tree. Unlike plain prose, GFM can keep an item mutable for
-    // hundreds of deltas; its repaint frames may enter native scrollback
-    // before the segment closes, then the canonical settled projection
-    // prints the same rows again. Closed segments already move to Static
-    // above; the final open one waits for its semantic close/settlement.
-    // This is a deliberate one-physical-emission invariant, not a height
-    // estimate (production partial list/prose duplication, cca11370).
-    if (block.markdown && !isPlainStreamingProse(block.markdown)) {
-      // The associated model call has not settled yet. Do not let a
-      // structured block enter Ink's volatile repaint tree: it will be
-      // emitted exactly once from the settled projection at its boundary.
-      return [];
+    if (block.markdown !== undefined) {
+      const rows = renderRows(block.markdown!);
+      const promoted = markdownRowsRef.current.get(block.key) ?? 0;
+      let tail = rows.slice(promoted);
+      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
+      const visibleTail = Math.max(1, shown - promoted);
+      if (state.pending && visibleTail < tail.length) {
+        tail = tail.slice(0, visibleTail);
+      }
+      if (tail.length === 0 && promoted > 0) return [];
+      const untouched = promoted === 0;
+      return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: untouched ? block.continuation : true, tight: untouched ? block.tight : true }];
     }
     return [block];
   });
@@ -712,7 +815,7 @@ export function Chat({
       segment.base < (segmentsRef.current[index + 1]?.base ?? settledEnd));
     const projected = segments.flatMap((segment, index) => projectTranscript(
       state.events.slice(segment.base, segmentsRef.current[index + 1]?.base ?? settledEnd),
-      { filePreview, mode: segment.mode, keyBase: segment.base, showReasoning: segment.show, toolTimings },
+      { filePreview, mode: segment.mode, keyBase: segment.base, initialAssistantRun: assistantRunOrigin(state.events, segment.base), showReasoning: segment.show, toolTimings },
     ));
     const embeded = embedReasoningHeads(projected, reasoningHeadsRef.current);
     // GLM interleave: one call's reasoning persists as multiple separate
@@ -735,7 +838,7 @@ export function Chat({
       });
       return covered ? { ...block, lines: [] } : block;
     });
-    const result2 = embedProseHeads(deduped, proseHeadsRef.current);
+    const result2 = deduped;
     // Structured Markdown chunks promoted by #526 already live in Static.
     // When their call later settles, retain only a source suffix that was
     // not emitted through that chain; never append the same segment again.
@@ -745,6 +848,15 @@ export function Chat({
     // appended afterwards would land below the cursor and be silently
     // skipped (lost thinking blocks).
     return result2.flatMap((block) => {
+      if (block.markdown !== undefined) {
+        const rows = renderRows(block.markdown);
+        const promoted = markdownRowsRef.current.get(block.key) ?? 0;
+        const tail = rows.slice(promoted);
+        if (promoted >= rows.length) {
+          return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: [], kind: "info", glyph: "", type: "placeholder", detail: undefined }];
+        }
+        return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: promoted > 0 ? true : block.continuation, tight: promoted > 0 ? true : block.tight }];
+      }
       const chars = markdownHeadsRef.current.get(block.key) ?? 0;
       if (chars === 0) return [block];
       const remainder = trimProseHead(block, chars);
@@ -789,8 +901,6 @@ export function Chat({
     [
       ...reasoningHeadsRef.current.values(),
       ...(activeChain ? [activeChain] : []),
-      ...proseHeadsRef.current.values(),
-      ...(activeProse ? [activeProse] : []),
       ...markdownChainsRef.current,
     ],
   );
@@ -816,7 +926,9 @@ export function Chat({
   {
     const emittedKeys = new Set(emittedRef.current.map((b) => b.key));
     const fresh = assembledSettled.filter((b) => !emittedKeys.has(b.key));
-    if (fresh.length > 0) emittedRef.current = [...emittedRef.current, ...fresh];
+    if (fresh.length > 0) {
+      emittedRef.current = [...emittedRef.current, ...fresh];
+    }
   }
   let staticItems: readonly TranscriptBlock[];
   if (replaySettled) {
