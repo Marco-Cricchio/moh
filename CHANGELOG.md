@@ -5,6 +5,30 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.26.0] - 2026-09-08
+### Added
+
+- **Native-scrollback streaming with typewriter reveal** (#562): the
+  human-scroll architecture lands — finalized lines are pushed into the
+  terminal's native scrollback, the volatile tail shrinks to the row still
+  forming, and replies reveal at a human pace: char-level horizontal
+  word-flow (~300 chars/s with bounded catch-up acceleration, configurable
+  via `MOH_TYPEWRITER_CHARS`), cutting only at clean boundaries (end of
+  source line, word boundaries inside paragraphs, table cell edges) so
+  partial tables never re-interpret. Late reasoning chunks render below the
+  forming reply, the reveal cursor opens only on a real settle, and the
+  reveal drain scales with the buffer so a long reply is never visibly
+  behind. Settled Markdown is deduplicated against promoted chunks by
+  content, open Markdown stays visible while streaming, and reply identity
+  is preserved across the promotion handover. Streaming oracles were
+  rebuilt for the reveal era and the PTY harness commits scrollback with
+  sync blocks for deterministic checkpoints.
+
+### Fixed
+
+- Late reasoning chunks no longer interleave above the forming reply;
+  reasoning seal + promotion are waited out before scrollback checkpoints.
+
 ## [0.25.1] - 2026-09-07
 ### Fixed
 
@@ -718,7 +742,9 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.25.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.26.0...develop
+[0.26.0]: https://github.com/Marco-Cricchio/moh/compare/v0.25.1...v0.26.0
+[0.25.1]: https://github.com/Marco-Cricchio/moh/compare/v0.25.0...v0.25.1
 [0.25.0]: https://github.com/Marco-Cricchio/moh/compare/v0.24.1...v0.25.0
 [0.24.1]: https://github.com/Marco-Cricchio/moh/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/Marco-Cricchio/moh/compare/v0.23.2...v0.24.0
