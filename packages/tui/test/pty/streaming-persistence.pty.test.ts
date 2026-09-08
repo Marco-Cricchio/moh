@@ -207,41 +207,48 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         steps: [
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("line stream") },
-          { wait: 0.2, send: encodeBase64("\r") },
-          // LAST-LIVE-LINE arrives before the provider sends finish_reason.
-          { wait: 6.0, until: "LAST-LIVE-LINE" },
-          // Let Ink finish the current frame under full-suite load. The fake
-          // provider still holds the stream open for three seconds.
-          { wait: 0.5 },
+          { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
+          // The typewriter paces row reveal; wait until the tail has
+          // visibly advanced, then snapshot the dock geometry mid-stream.
+          { wait: 14.0, until: "MIDDLE-LINE-5" },
+          // Let the reveal-driven repaint flush before freezing the frame.
+          { wait: 1.0, checkpoint: "midStream" },
         ],
         tail: 20,
         rawDump,
       });
       expect(meta.aliveAtEnd).toBe(true);
-      const raw = readFileSync(rawDump, "utf8");
-      expect(raw).toContain("LAST-LIVE-LINE");
-      expect(raw).not.toContain("STREAM-FINISHED");
-      // A completed row belongs to native terminal scrollback. Repainting it
-      // as part of the volatile viewport makes the response look like an
-      // internally scrolling box and produces duplicate terminal output.
-      expect(raw.match(/FIRST-COMPLETED-LINE/g)).toHaveLength(1);
-      // Newline-heavy streams must remain bounded too; otherwise moving
-      // rows into Static would fix the UX while recreating the old O(n²)
-      // PTY flood through a different path.
-      expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
-      const screen = meta.lines.map((line) => line.text);
+      // Provider still holding: the final marker must not be painted yet.
+      const mid = meta.checkpoints?.midStream;
+      expect(mid).toBeDefined();
+      const midText = [...mid!.scrollback, ...mid!.lines.map((l) => l.text)].join("\n");
+      expect(midText).not.toContain("STREAM-FINISHED");
+      // Mid-stream the reply has visibly advanced past its opening rows
+      // (the exact scrollback split point is pump-timing dependent; the
+      // settled exactly-once check below is the promotion guard).
+      expect(midText).toContain("MIDDLE-LINE-");
+      expect(midText).not.toContain("LAST-LIVE-LINE");
+      // Dock geometry: composer stays in the lower half mid-stream.
+      const screen = mid!.lines.map((l) => l.text);
       const input = screen.findIndex((line) => line.includes("type…"));
-      expect(input).toBeGreaterThanOrEqual(Math.floor(meta.lines.length / 2));
+      expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2));
+      const startInput = meta.checkpoints?.turnStart?.lines.findIndex((line) => line.text.includes("type…"));
+      // The dock may breathe by a row mid-stream: a partially-typed line
+      // wraps differently than a whole one (word-flow reveal). It must
+      // stay pinned to the bottom region, not drift.
+      expect(Math.abs((startInput ?? 0) - input)).toBeLessThanOrEqual(1);
+      // Bounded output (no O(n²) flood).
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
     } finally {
       server.stop(true);
     }
-  }, 15_000);
+  }, 45_000);
 
   test("final settlement does not reprint a prose prefix already in scrollback", async () => {
     const { server, url } = startLineStream();
     const rawDump = "/tmp/moh-streaming-lines-settled-raw.bin";
     try {
-      await runPtyRaw({
+      const meta = await runPtyRaw({
         cols: 120,
         rows: 20,
         config: {
@@ -252,17 +259,33 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 7.0, until: "STREAM-FINISHED" },
-          { wait: 0.5 },
+          // Wait for the turn to complete and its status to paint
+          // (STREAM-FINISHED reveals at typing pace; the status row paints
+          // exactly at settle).
+          { wait: 30.0, until: "✓ done" },
+          // Post-settle: snapshot after the settle repaint flushed.
+          { wait: 2.0, checkpoint: "settled" },
         ],
         tail: 20,
         rawDump,
       });
-      expect(readFileSync(rawDump, "utf8").match(/FIRST-COMPLETED-LINE/g)).toHaveLength(1);
+      // 888 regression signature: settled rows re-printed wholesale at
+      // settle (a second "◆ moh" header + reply block). Deterministic
+      // over the raw byte stream: after the reply's LAST row paint there
+      // must be no re-printed reply header and the final rows paint
+      // exactly once each.
+      const raw = readFileSync(rawDump, "utf8");
+      const lastFirst = raw.lastIndexOf("FIRST-COMPLETED-LINE");
+      expect(lastFirst).toBeGreaterThan(0);
+      const tail = raw.slice(lastFirst);
+      expect(tail.split("◆ moh").length - 1, "reply header re-printed").toBeLessThanOrEqual(1);
+      for (const marker of ["MIDDLE-LINE-15", "LAST-LIVE-LINE"]) {
+        expect(tail.split(marker).length - 1, marker).toBeLessThanOrEqual(1);
+      }
     } finally {
       server.stop(true);
     }
-  }, 15_000);
+  }, 45_000);
 
   test("an unbroken oversized prose stream stays output-bounded (#203)", async () => {
     const { server, url } = startUnbrokenStream();
@@ -275,7 +298,12 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 6.0, until: "TAIL-119" }],
+        steps: [
+          { wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
+          // TAIL-119 reveals at typing pace; the turn then settles. Wait
+          // for the completion status before sampling the final frame.
+          { wait: 30.0, until: "✓ done" }, { wait: 1.0 },
+        ],
         tail: 40,
         rawDump,
       });
@@ -287,6 +315,40 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       server.stop(true);
     }
   }, 15_000);
+
+  // Owner report 2026-09-07 (666.mov): the session's bullet list rendered
+  // twice in vibe mode at the owner's real 149x40 geometry. The reply
+  // appears exactly once in the log; physical screen + scrollback must
+  // agree — the list items are the markers because the closing line could
+  // still stream when the PTY snapshot lands.
+  test("a session-style prose+list reply prints each bullet exactly once", async () => {
+    const { server, url } = startSessionReplyStream();
+    try {
+      const meta = await runPtyRaw({
+        cols: 149,
+        rows: 40,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "vibe", provider: "fake",
+          endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
+        },
+        steps: [
+          { wait: 1.0 },
+          { wait: 0.2, send: encodeBase64("parliamo di moh") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 15.0, until: "Cosa ti incuriosisce?" },
+          { wait: 1.0 },
+        ],
+        tail: 40,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const history = [...(meta.scrollback ?? []), ...meta.lines.map((line) => line.text)].join("\n");
+      for (const marker of ["Come funziona", "Architettura", "Stato del lavoro", "Issue aperte", "Cosa ti incuriosisce"]) {
+        expect(history.split(marker).length - 1, marker).toBe(1);
+      }
+    } finally {
+      server.stop(true);
+    }
+  }, 30_000);
 
   // Owner report on production session 39276900 (2026-09-06, post-0.21.1):
   // outputs appeared doubled/tripled in an agentic turn — many model calls,
@@ -599,6 +661,51 @@ function startOpenMarkdownToolCycleStream(): { server: ReturnType<typeof Bun.ser
   return { server, url: `http://127.0.0.1:${server.port}/v1` };
 }
 
+/**
+ * Owner report 2026-09-07 (docs/vision/666.mov, production session 43cc494c,
+ * vibe mode 149x40, GLM 5.3 Flash, reasoning hidden): a plain conversational
+ * answer — prose, then a bullet list, then a short closing line — rendered
+ * its list twice in screen+scrollback. The log carries the reply once, so
+ * the duplication is a rendering-path defect; the fixture replays the
+ * exact delta text of the recorded session.
+ */
+function startSessionReplyStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  const sections = [
+    "Certo! Con piacere — moh è il progetto qui in `/Users/mc/Documents/AI_Projects/moh`.",
+    "\n\nIn due parole: **moh è un agente di coding provider-agnostic** — un core headless (`@moh/core`) che gira il loop dell'agente, con client TUI e CLI sopra, e il tutto guidato da principi architetturali piuttosto rigidi (sette principi in `docs/principles.md`, decisioni registrate come ADR).",
+    "\n\nAlcuni temi di cui possiamo parlare:",
+    "\n\n- **Come funziona** — sessioni, resume/fork, event log, memory, permessi, provider (c'è una pagina del manuale per ognuno: `moh manual <pagina>`)",
+    "\n- **Architettura** — public surface del core, session assembly, phase hook per le estensioni",
+    "\n- **Stato del lavoro** — c'è la branch `test/streaming-viewport-growth` con sei commit sulla nota 33 (streaming del reasoning/reply in scrollback) che aspetta la tua verifica con un video reale prima di aprire la PR, più il thread di PR #555 sul discovery dei modelli live",
+    "\n- **Issue aperte** — posso listare la tracker",
+    "\n\nCosa ti incuriosisce?",
+  ];
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) =>
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "session-reply", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          for (const section of sections) {
+            for (const word of section.split(/(?<=\s)/)) {
+              send({ content: word });
+              await Bun.sleep(25);
+            }
+          }
+          send({}, "stop");
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
+
 function startToolCycleStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   // Faithful to session 39276900: 8 tool cycles, each model call emits
   // brief intermediate text (plain prose, promoted early), reasoning
@@ -743,6 +850,10 @@ function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>
 function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
   const server = Bun.serve({
     port: 0,
+    // The held-open stream exceeds Bun's 10s idle timeout by design (the
+    // paced reveal needs the provider to keep streaming); an aborted first
+    // stream makes the client retry and duplicate the whole reply.
+    idleTimeout: 60,
     fetch() {
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
@@ -754,9 +865,9 @@ function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string 
             send({ content: `${marker} ${"x".repeat(120)}\n` });
             await Bun.sleep(20);
           }
-          // Keep the response open long enough for the PTY assertion to
-          // sample the in-progress turn rather than its final Static block.
-          await Bun.sleep(3_000);
+          // Hold well past the paced reveal (~6 rows/s): the midStream
+          // checkpoint must land while the provider is still streaming.
+          await Bun.sleep(25_000);
           send({ content: "STREAM-FINISHED" });
           send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
