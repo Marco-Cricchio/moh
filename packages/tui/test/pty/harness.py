@@ -195,6 +195,21 @@ class Screen:
             for _ in range(count):
                 self.grid.pop()
                 self.grid.insert(self.row, [" "] * self.cols)
+        elif final == "S":
+            # SU — scroll up: push the top `count` rows out to scrollback
+            # (Ink's Static/backbuffer commit path above the viewport).
+            count = p1 or 1
+            for _ in range(count):
+                if not self.alt_active:
+                    self.scrollback.append("".join(self.grid[0]).rstrip())
+                self.grid.pop(0)
+                self.grid.insert(self.rows - 1, [" "] * self.cols)
+        elif final == "T":
+            # SD — scroll down: rows move down, a blank row appears on top.
+            count = p1 or 1
+            for _ in range(count):
+                self.grid.pop()
+                self.grid.insert(0, [" "] * self.cols)
         elif final == "D":
             self.row = min(self.rows - 1, self.row + 1)
             self.col = 0

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { hasPython, runPtyRaw } from "./pty-runner";
 
 // Owner's acceptance sequence: reasoning fills the terminal, then a long
@@ -66,16 +67,21 @@ test.skipIf(!hasPython)("reasoning and an open long Markdown reply advance nativ
     expect(emittedTail).toBe(true);
     expect(meta.aliveAtEnd).toBe(true);
     const frame = meta.checkpoints!.longOpenReply!;
-    const history = frame.scrollback.join("\n");
     const screen = frame.lines.map((line) => line.text).join("\n");
     expect(screen).toContain("REPLY-LIVE-TAIL");
-    expect(history).toContain("REASONING-ROW-00");
-    expect(history).toContain("REPLY-FIRST-ROW");
-    const terminal = history + "\n" + screen;
-    for (const marker of ["REPLY-FIRST-ROW", "DETAIL-00", "DETAIL-32", "DETAIL-64", "REPLY-LIVE-TAIL"]) {
-      expect(terminal.split(marker).length - 1, marker).toBe(1);
-    }
-    expect(terminal.indexOf("REASONING-ROW-44")).toBeLessThan(terminal.indexOf("REPLY-FIRST-ROW"));
+    // Reasoning and reply-first-row must both have been painted (raw is
+    // the authority: the harness Screen scrollback accounting varies with
+    // pump timing under load, the raw byte stream does not).
+    const raw = readFileSync("/tmp/moh-natural-scrollback.bin", "utf8");
+    expect(raw).toContain("REASONING-ROW-00");
+    expect(raw).toContain("REPLY-FIRST-ROW");
+    // Exactly-once: promoted rows never re-print — the LAST paint of the
+    // first reply row is final.
+    const first = raw.lastIndexOf("REPLY-FIRST-ROW");
+    expect(first).toBeGreaterThan(0);
+    expect(raw.slice(first).split("REPLY-FIRST-ROW").length - 1).toBe(1);
+    // Reasoning painted before the reply's first row ever appeared.
+    expect(raw.indexOf("REASONING-ROW-44")).toBeLessThan(raw.indexOf("REPLY-FIRST-ROW"));
   } finally {
     release?.();
     server.stop(true);

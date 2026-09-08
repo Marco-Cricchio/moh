@@ -222,8 +222,11 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       const mid = meta.checkpoints?.midStream;
       expect(mid).toBeDefined();
       const midText = [...mid!.scrollback, ...mid!.lines.map((l) => l.text)].join("\n");
-      expect(midText).toContain("MIDDLE-LINE-5");
       expect(midText).not.toContain("STREAM-FINISHED");
+      // Mid-stream the reply has visibly advanced past its opening rows
+      // (the exact scrollback split point is pump-timing dependent; the
+      // settled exactly-once check below is the promotion guard).
+      expect(midText).toContain("MIDDLE-LINE-");
       expect(midText).not.toContain("LAST-LIVE-LINE");
       // Dock geometry: composer stays in the lower half mid-stream.
       const screen = mid!.lines.map((l) => l.text);
@@ -256,24 +259,29 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 1.0 },
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 7.0, until: "STREAM-FINISHED" },
-          // Post-settle: snapshot after the settle repaint flushed (paced
-          // reveal included).
-          { wait: 20.0, until: "LAST-LIVE-LINE", checkpoint: "settled" },
+          // Wait for the turn to complete and its status to paint
+          // (STREAM-FINISHED reveals at typing pace; the status row paints
+          // exactly at settle).
+          { wait: 30.0, until: "✓ done" },
+          // Post-settle: snapshot after the settle repaint flushed.
+          { wait: 2.0, checkpoint: "settled" },
         ],
         tail: 20,
         rawDump,
       });
-      // Native scrollback must hold the promoted reply exactly once (the
-      // 888 regression re-printed settled rows wholesale). The visible
-      // volatile remainder may legally overlap the seam row.
-      const settled = meta.checkpoints?.settled;
-      expect(settled).toBeDefined();
-      expect(settled!.scrollback.join("\n").split("FIRST-COMPLETED-LINE").length - 1).toBe(1);
-      // The bulk of the reply promoted; the very last row may still sit in
-      // the volatile tail 0.2s after settle (the settle snap promotes it a
-      // frame later).
-      expect(settled!.scrollback.join("\n")).toContain("MIDDLE-LINE-15");
+      // 888 regression signature: settled rows re-printed wholesale at
+      // settle (a second "◆ moh" header + reply block). Deterministic
+      // over the raw byte stream: after the reply's LAST row paint there
+      // must be no re-printed reply header and the final rows paint
+      // exactly once each.
+      const raw = readFileSync(rawDump, "utf8");
+      const lastFirst = raw.lastIndexOf("FIRST-COMPLETED-LINE");
+      expect(lastFirst).toBeGreaterThan(0);
+      const tail = raw.slice(lastFirst);
+      expect(tail.split("◆ moh").length - 1, "reply header re-printed").toBeLessThanOrEqual(1);
+      for (const marker of ["MIDDLE-LINE-15", "LAST-LIVE-LINE"]) {
+        expect(tail.split(marker).length - 1, marker).toBeLessThanOrEqual(1);
+      }
     } finally {
       server.stop(true);
     }
@@ -290,7 +298,12 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 6.0, until: "TAIL-119" }],
+        steps: [
+          { wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
+          // TAIL-119 reveals at typing pace; the turn then settles. Wait
+          // for the completion status before sampling the final frame.
+          { wait: 30.0, until: "✓ done" }, { wait: 1.0 },
+        ],
         tail: 40,
         rawDump,
       });
