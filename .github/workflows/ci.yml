@@ -97,20 +97,21 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       # Parallel runner (scripts/test-pty-parallel.sh): the 12 PTY files
-      # are independent (own harness, own fake provider, own PTY), so they
-      # parallelize safely. The 2-vCPU runner oversubscribes at 12-way
-      # (CPU starvation misses the tests' readiness deadlines), so CI
-      # batches 4-way (~200s wall). Same retry-once policy: a green run
-      # pays no retry cost.
+      # are independent (own harness, own fake provider, own PTY). The
+      # runner's 2 vCPU starve higher fan-outs (CPU contention misses the
+      # tests' readiness deadlines: at 12-way and 4-way the ask-user
+      # question never painted within its until budget), so CI batches
+      # 2-way — one worker per vCPU, matching the old serial wall or
+      # better. Local machines (8+ cores) default to all-at-once.
       - name: PTY tests in parallel (retry once)
         run: |
           set +e
-          MOH_PTY_JOBS=4 bash scripts/test-pty-parallel.sh
+          MOH_PTY_JOBS=2 bash scripts/test-pty-parallel.sh
           status=$?
           if [ $status -ne 0 ]; then
             echo "::warning::PTY suite failed on first attempt — retrying once"
             sleep 5
-            MOH_PTY_JOBS=4 bash scripts/test-pty-parallel.sh
+            MOH_PTY_JOBS=2 bash scripts/test-pty-parallel.sh
             status=$?
           fi
           exit $status
