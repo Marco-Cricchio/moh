@@ -279,7 +279,7 @@ function gitSnapshot(cwd: string): string | null {
   }
 }
 
-const bashTool = (ledger: RunLedger): Tool<z.infer<typeof bashSchema>> => ({
+const bashTool = (ledger: RunLedger, rerunMinMs = RERUN_MIN_MS): Tool<z.infer<typeof bashSchema>> => ({
   name: "bash",
   description:
     "Run a shell command in the project root and capture its output. " +
@@ -385,7 +385,7 @@ const bashTool = (ledger: RunLedger): Tool<z.infer<typeof bashSchema>> => ({
     // never record — the ledger only ever short-circuits a proven-green
     // expensive rerun.
     let pointer = "";
-    if (durationMs >= RERUN_MIN_MS && isSuiteLike(rawCommand)) {
+    if (durationMs >= rerunMinMs && isSuiteLike(rawCommand)) {
       try {
         const dir = ledgerOutputDir(ledger);
         const file = join(dir, `run-${started}-${Math.random().toString(36).slice(2)}.log`);
@@ -875,6 +875,10 @@ function joinSafe(root: string, rel: string): string {
 export interface BuiltinToolsOptions {
   /** Root for secure, per-session bash capture directories. */
   ledgerRoot?: string;
+  /** #304 test seam: minimum duration for a run to count as expensive
+   * (default 10s). Tests inject a small value so the capture/re-run
+   * paths run against sub-second fake suites. */
+  rerunMinMs?: number;
 }
 
 export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, Tool> {
@@ -882,6 +886,6 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
   // tool's re-run interception (#304) share this session scope only.
   const readLedger = new Map<string, ServedRead>();
   const runLedger = createRunLedger(options.ledgerRoot);
-  const all = [bashTool(runLedger), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
+  const all = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));
 }
