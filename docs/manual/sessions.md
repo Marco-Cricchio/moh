@@ -71,13 +71,3 @@ fires if it happens anyway; forking is the recovery). Configure it under
 `handoff.transport` in moh.json; `moh handoff export/import` is the
 manual file fallback when `gh` is unavailable. With a single machine
 nothing is ever published — the feature is opt-in per project.
-
-Each published handoff carries `repoUrl`, the canonical public https
-clone URL of the project's git origin, so the receiving machine can
-clone straight from the handoff; it is absent for projects without an
-origin. When the remote gist is strictly newer than the session being
-published (another machine moved the work forward), moh warns and asks
-before overwriting: `moh handoff` prompts y/N in the terminal, while
-the automatic exit-time publish declines with a warning instead of
-destroying the newer handoff — publish explicitly to confirm. Local
-sessions are never touched by the guard.
