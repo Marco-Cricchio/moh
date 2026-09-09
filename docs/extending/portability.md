@@ -11,11 +11,13 @@ moh is **sync-tolerant**, not sync-owning ([ADR-0018](../adr/0018-project-identi
 1. Arrange for your chosen channel to copy the portable parts of `~/.moh/`
    between machines. Do not copy it blindly: use the allowlist and ignore-list
    below.
-2. Keep `.moh/project.json` when cloning or sharing the project. moh creates
-   it silently on the first open if it is absent. It contains only an opaque
-   project id, no absolute path or user data. moh does not gitignore it;
-   committing it is optional, but makes a fresh clone resolve the same session
-   and memory directory.
+2. When the project has no git `origin` remote, keep `.moh/project.json`
+   when cloning or sharing the project. moh creates it silently on the
+   first open if it is absent. It contains only an opaque project id, no
+   absolute path or user data. moh does not gitignore it; committing it is
+   optional, but makes a fresh clone resolve the same session and memory
+   directory. When `origin` exists, the slug derives from its canonical
+   `host/owner/repo` form instead (#591) and no identity file is needed.
 3. On every machine, authenticate each endpoint locally with
    `moh provider login <endpoint>`. Credentials deliberately do not travel.
 4. Use a session serially. Before working on the same session from another

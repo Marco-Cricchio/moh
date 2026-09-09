@@ -378,8 +378,10 @@ create never destroys the remote copy.
 ## Session notes path (#467)
 
 The core owns the canonical project directory: `projectSlug(cwd, home)`
-resolves the slug from the `.moh/project.json` identity, and
-`projectSessionsDir(cwd, home)` appends it under `<home>/.moh/projects/`.
+resolves the slug — from the canonical `host/owner/repo` form of the git
+`origin` remote when one exists (#591), otherwise from the
+`.moh/project.json` identity — and `projectSessionsDir(cwd, home)`
+appends it under `<home>/.moh/projects/`.
 Both are exported from `@moh/core` (an explicit, minimal ADR-0004
 reopening, decided in #467). The assembled prompt's environment section
 already renders the session-notes path (`~/.moh/projects/<slug>/session.md`);
