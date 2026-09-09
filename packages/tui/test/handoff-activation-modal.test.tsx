@@ -21,7 +21,7 @@ describe("handoff activation modal (#438)", () => {
   test("enables GitHub Gist only after a successful inline gh verification", async () => {
     const dir = cwd();
     let verified = 0;
-    const i = mount(dir, { verifyGh: () => { verified += 1; return { ok: true, user: "octo" }; } });
+    const i = mount(dir, { verifyGh: async () => { verified += 1; return { ok: true, user: "octo" }; } });
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("same account on both machines");
     i.stdin.write("\r");
@@ -33,7 +33,7 @@ describe("handoff activation modal (#438)", () => {
 
   test("a missing gh leaves the project transport Not Set", async () => {
     const dir = cwd();
-    const i = mount(dir, { verifyGh: () => ({ ok: false, error: { reason: "gh-missing" } }) });
+    const i = mount(dir, { verifyGh: async () => ({ ok: false, error: { reason: "gh-missing" } }) });
     await sleep(30);
     i.stdin.write("\r");
     await sleep(30);
@@ -44,7 +44,7 @@ describe("handoff activation modal (#438)", () => {
 
   test("failed verification leaves the project transport Not Set", async () => {
     const dir = cwd();
-    const i = mount(dir, { verifyGh: () => ({ ok: false, error: { reason: "not-logged-in" } }) });
+    const i = mount(dir, { verifyGh: async () => ({ ok: false, error: { reason: "not-logged-in" } }) });
     await sleep(30);
     i.stdin.write("\r");
     await sleep(30);
@@ -56,7 +56,7 @@ describe("handoff activation modal (#438)", () => {
   test("Settings can explicitly disable or reset the per-project transport without gh", async () => {
     const dir = cwd();
     let checks = 0;
-    const i = mount(dir, { verifyGh: () => { checks += 1; return { ok: true, user: "unused" }; } });
+    const i = mount(dir, { verifyGh: async () => { checks += 1; return { ok: true, user: "unused" }; } });
     await sleep(30);
     i.stdin.write("\x1b[B");
     await sleep(30);
@@ -85,7 +85,7 @@ describe("handoff activation modal (#438)", () => {
     const dir = cwd();
     const file = join(dir, "moh.json");
     writeFileSync(file, JSON.stringify({ handoff: { onboarding: "dismissed" } }));
-    const i = mount(dir, { verifyGh: () => ({ ok: true, user: "octo" }) });
+    const i = mount(dir, { verifyGh: async () => ({ ok: true, user: "octo" }) });
     await sleep(30);
     i.stdin.write("\r");
     await sleep(30);

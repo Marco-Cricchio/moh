@@ -19,7 +19,7 @@ import {
   type HandoffTransport,
   type HandoffTransportError,
 } from "../src/handoff-transport";
-import { createGistHandoffTransport, handoffGistTag, type GhCall, type GhRunner } from "../src/handoff-gist";
+import { createGistHandoffTransport, handoffGistTag, spawnGh, type GhCall, type GhRunner } from "../src/handoff-gist";
 import type { RawHandoff } from "../src/handoff";
 
 const TMP = join(import.meta.dir, "tmp-handoff-t2");
@@ -137,7 +137,7 @@ function fakeGh(
   behavior: Array<{ args: string[]; exitCode?: number; stdout?: string; stderr?: string }>,
 ): GhRunner & { calls: GhCall[] } {
   const calls: GhCall[] = [];
-  const runner: GhRunner = (call) => {
+  const runner: GhRunner = async (call) => {
     calls.push(call);
     const hit = behavior.find((b) => b.args.every((a, i) => call.args[i] === a));
     if (!hit) return { exitCode: 1, stdout: "", stderr: `unhandled gh call: ${call.args.join(" ")}` };

@@ -38,27 +38,35 @@ export interface GhResult {
   stderr: string;
 }
 
-/** Injected for tests: one `gh` invocation. */
-export type GhRunner = (call: GhCall) => GhResult;
+/** Injected for tests: one `gh` invocation. Async so the real runner can
+ * await the child process — a sync spawn inside an Ink effect froze the
+ * reconciler (the 3b40b5e class of bug: never block the event loop from
+ * React effects). */
+export type GhRunner = (call: GhCall) => Promise<GhResult>;
 
-/** The real runner: synchronous `gh` child process. */
-export const spawnGh: GhRunner = (call) => {
-  let proc: ReturnType<typeof Bun.spawnSync> | undefined;
+/** The real runner: async `gh` child process. Awaited by the transport's
+ * async methods, so the TUI's event loop stays free while gh runs. */
+export const spawnGh: GhRunner = async (call) => {
   try {
-    proc = Bun.spawnSync(["gh", ...call.args], {
+    const proc = Bun.spawn(["gh", ...call.args], {
       stdout: "pipe",
       stderr: "pipe",
-      // Synchronous stdin is bytes, not a stream: hand the payload over
-      // at spawn time (gh gist create reads content from `-`).
-      stdin: call.stdin === undefined ? "ignore" : new TextEncoder().encode(call.stdin),
+      // stdin is bytes handed over at spawn time (gh gist create reads
+      // content from `-`); the pipe closes on exit.
+      stdin: call.stdin === undefined ? "ignore" : new Blob([call.stdin]),
     });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { exitCode, stdout, stderr };
   } catch (e) {
     // ENOENT (no gh in PATH) surfaces as a thrown Bun error, not an exit
     // code — normalize so classification sees gh-missing, not a crash.
     const message = e instanceof Error ? e.message : String(e);
     return { exitCode: 127, stdout: "", stderr: message };
   }
-  return { exitCode: proc.exitCode, stdout: proc.stdout?.toString() ?? "", stderr: proc.stderr?.toString() ?? "" };
 };
 
 export interface GistHandoffTransportOptions {
@@ -75,8 +83,8 @@ export function handoffGistTag(cwd: string, ghUser: string, home?: string): stri
 }
 
 /** Resolves the logged-in gh username, or why it cannot. */
-export function ghUsername(gh: GhRunner): { ok: true; user: string } | { ok: false; error: HandoffTransportError } {
-  const proc = gh({ args: ["api", "user", "--jq", ".login"] });
+export async function ghUsername(gh: GhRunner): Promise<{ ok: true; user: string } | { ok: false; error: HandoffTransportError }> {
+  const proc = await gh({ args: ["api", "user", "--jq", ".login"] });
   if (proc.exitCode !== 0) return classifyGhFailure(proc);
   const user = proc.stdout.trim();
   if (!user) return { ok: false, error: { reason: "not-logged-in" } };
@@ -117,9 +125,9 @@ const GIST_LIST_LIMIT = "200";
  */
 export function createGistHandoffTransport(options: GistHandoffTransportOptions): HandoffTransport {
   const gh = options.gh ?? spawnGh;
-  const findTaggedGist = (user: string): { ok: true; id: string | undefined } | { ok: false; error: HandoffTransportError } => {
+  const findTaggedGist = async (user: string): Promise<{ ok: true; id: string | undefined } | { ok: false; error: HandoffTransportError }> => {
     const tag = handoffGistTag(options.cwd, user, options.home);
-    const list = gh({ args: ["gist", "list", "--limit", GIST_LIST_LIMIT] });
+    const list = await gh({ args: ["gist", "list", "--limit", GIST_LIST_LIMIT] });
     if (list.exitCode !== 0) return { ok: false, error: classifyGhFailure(list).error };
     // gh gist list prints tab-separated rows; in non-interactive runs
     // there is no header row, so parse every non-empty line and match the
@@ -132,8 +140,8 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
   };
 
   /** Views one gist by id — the shared path of fetch() and fetchByUrl(). */
-  const viewGist = (id: string) => {
-    const proc = gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
+  const viewGist = async (id: string) => {
+    const proc = await gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
     if (proc.exitCode !== 0) return { ok: false as const, error: classifyGhFailure(proc).error };
     try {
       return {
@@ -148,12 +156,12 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
 
   return {
     async publish(payload) {
-      const user = ghUsername(gh);
+      const user = await ghUsername(gh);
       if (!user.ok) return { ok: false, error: user.error };
       // Stamp the author (#451) at the seam that knows it: the payload
       // leaving the machine always records the publishing gh user.
       const authored: HandoffPayload = { ...payload, author: user.user, version: 2 };
-      const tagged = findTaggedGist(user.user);
+      const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
       // Non-destructive replace (#451): create first, delete the old
       // tagged gist only after the create succeeded. A failed delete
@@ -162,18 +170,18 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       // gh gist create reads content from stdin (`-`) with `-f` naming
       // the gist file; gists are secret by default (there is no --secret
       // flag — only --public, which we never pass).
-      const proc = gh({
+      const proc = await gh({
         args: ["gist", "create", "-d", handoffGistTag(options.cwd, user.user, options.home), "-f", "handoff.json", "-"],
         stdin: `${JSON.stringify(authored, null, 2)}\n`,
       });
       if (proc.exitCode !== 0) return { ok: false, error: classifyGhFailure(proc).error };
-      if (tagged.id) gh({ args: ["gist", "delete", tagged.id, "--yes"] });
+      if (tagged.id) await gh({ args: ["gist", "delete", tagged.id, "--yes"] });
       return { ok: true, url: proc.stdout.trim() };
     },
     async fetch() {
-      const user = ghUsername(gh);
+      const user = await ghUsername(gh);
       if (!user.ok) return { ok: false, error: user.error };
-      const tagged = findTaggedGist(user.user);
+      const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
       if (!tagged.id) return { ok: false, error: { reason: "failed", message: "no handoff gist found" } };
       return viewGist(tagged.id);
@@ -182,7 +190,8 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       // Accept the bare gist id as well as the full URL.
       const id = url.trim().replace(/^https?:\/\/gist\.github\.com\//, "");
       if (!/^[\w-]+$/.test(id)) return { ok: false, error: { reason: "failed", message: `not a gist url: ${url}` } };
-      return viewGist(id);
+      return await viewGist(id);
     },
   };
 }
+  

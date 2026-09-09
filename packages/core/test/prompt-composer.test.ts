@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PromptComposer, SECTION_ORDER, type PromptContext } from "../src/prompt-composer";
@@ -166,13 +167,13 @@ describe("PromptComposer", () => {
   });
 
   test("environment section renders the session-notes path under the resolved project slug (#467)", () => {
+    // An explicit git origin pins the slug deterministically (#591).
     const projectDir = tmp();
-    // Declare the identity explicitly so the slug is deterministic.
-    mkdirSync(join(projectDir, ".moh"), { recursive: true });
-    writeFileSync(join(projectDir, ".moh", "project.json"), `${JSON.stringify({ id: "467-identity" })}\n`);
+    execFileSync("git", ["init", "-q", projectDir]);
+    execFileSync("git", ["-C", projectDir, "remote", "add", "origin", "git@github.com:owner/repo.git"]);
     const composer = new PromptComposer({ projectDir, mohHome: tmp() });
     const env = composer.sections.environment(baseCtx({ cwd: projectDir }));
-    expect(env).toMatch(/- Session notes: .+\/projects\/project-[0-9a-f]{16}\/session\.md$/m);
+    expect(env).toMatch(/- Session notes: .+\/projects\/github\.com\/owner\/repo\/session\.md$/m);
     // No path re-computation hint for the skill: the Core renders the path.
     expect(env).not.toContain("<project-slug>");
   });
