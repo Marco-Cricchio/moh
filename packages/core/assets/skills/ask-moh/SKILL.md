@@ -32,6 +32,10 @@ The route most work travels. You have an idea and want it built.
 
    Either way, **`/implement`** builds each issue by driving **`/tdd`** internally — one red-green slice at a time — then closes out by running **`/code-review`**, a two-axis review (Standards + Spec) of the diff, before committing. Reach for **`/tdd`** on its own for a concrete behaviour test-first, and **`/code-review`** whenever a branch or PR needs reviewing against a fixed point.
 
+### Design detour: `/prototype`
+
+Before committing to an implementation, if the design question is still open — "does this state model feel right?", "what should this screen look like?" — **`/prototype`** builds throwaway code that answers it: a shareable HTML state-machine walkthrough (logic) or multi-variant UI route (UI). Only the validated decision lands in real code; the prototype itself is captured on a throwaway branch. Use it between grilling/spec and implement whenever the answer would change what gets built.
+
 ### Context hygiene
 
 Keep steps 1–2 in one unbroken context window — don't compact or clear until after `/to-tickets` — so the grilling, spec, and tickets build on the same thinking. Each `/implement` then starts fresh, working from the ticket. If the session bloats before that, compact at the nearest phase boundary, never mid-phase.
