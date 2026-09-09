@@ -10,7 +10,8 @@
 #   typecheck  — bun run typecheck (~30s)
 #   core       — packages/core + packages/extension
 #   tui-unit   — TUI component/ink tests (non-PTY)
-#   tui-pty    — PTY integration tests, the slow tail (~3min), one retry on
+#   tui-pty    — PTY integration tests, the slow tail, all 12 files in
+#                parallel (~155s wall vs ~330s serial), one retry on
 #                failure (known load-dependent flakes pass in isolation)
 #
 # Release PRs (CHANGELOG.md + version bump only) skip CI via paths-ignore:
@@ -95,17 +96,20 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # One retry on failure: the PTY suite has known load-dependent flakes
-      # that pass in isolation; a green run pays no retry cost.
-      - name: PTY tests (retry once)
+      # Parallel runner (scripts/test-pty-parallel.sh): the 12 PTY files
+      # are independent (own harness, own fake provider, own PTY) and
+      # wait-dominated, so all-at-once concurrency is safe — ~330s of
+      # serial PTY time in ~155s on this runner. Same retry-once policy:
+      # a green run pays no retry cost.
+      - name: PTY tests in parallel (retry once)
         run: |
           set +e
-          bun test packages/tui/test/pty
+          MOH_PTY_PARALLEL=1 bash scripts/test-pty-parallel.sh
           status=$?
           if [ $status -ne 0 ]; then
             echo "::warning::PTY suite failed on first attempt — retrying once"
             sleep 5
-            bun test packages/tui/test/pty
+            MOH_PTY_PARALLEL=1 bash scripts/test-pty-parallel.sh
             status=$?
           fi
           exit $status
