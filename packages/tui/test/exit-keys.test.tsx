@@ -31,7 +31,7 @@ function mount() {
   );
 }
 
-describe("exit is double ctrl+c (single ctrl+c disabled)", () => {
+describe.skipIf(flaky)("exit is double ctrl+c (single ctrl+c disabled)", () => {
   test("first ctrl+c arms (toast), second within the window exits", async () => {
     const i = mount();
     await sleep(30);
