@@ -324,7 +324,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
               artifactFile: HandoffRunner.artifactFile(cwd, join(options.home ?? homedir(), ".moh")),
               transport: createGistHandoffTransport({ cwd, home: options.home }),
             }).then((published) => {
-              if (!published.ok) err.write(`moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
+              if (!published.ok) err.write(published.error.reason === "newer-remote" ? `moh run: warning: handoff publish declined — the remote handoff is newer (${published.error.remoteUpdatedAt}), not overwritten\n` : `moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
             });
           }, 0).unref?.();
         } catch {
@@ -362,7 +362,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
         transport: createGistHandoffTransport({ cwd, home: options.home }),
         enrich: async (payload) => enrichHandoffWithWayfinder(payload, await resolveTracker({ cwd })),
       });
-      if (!published.ok) err.write(`moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
+      if (!published.ok) err.write(published.error.reason === "newer-remote" ? `moh run: warning: handoff publish declined — the remote handoff is newer (${published.error.remoteUpdatedAt}), not overwritten\n` : `moh run: warning: handoff publish failed (${published.error.reason}) — handoff kept local only\n`);
     }
   } catch {
     // Transport wiring must never fail the run.

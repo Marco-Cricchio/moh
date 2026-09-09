@@ -170,6 +170,8 @@ export function handoffWarning(error: HandoffTransportError): string {
       return "handoff: gh is not logged in — handoff kept local only";
     case "timeout":
       return "handoff: publish exceeded the exit budget — handoff kept local only";
+    case "newer-remote":
+      return `handoff: the remote handoff is newer (${error.remoteUpdatedAt}) — not overwritten; publish explicitly to confirm`;
     case "failed":
       return `handoff: publish failed (${error.message}) — handoff kept local only`;
   }

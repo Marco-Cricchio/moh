@@ -37,6 +37,7 @@ function verificationMessage(error: HandoffTransportError): string {
     case "gh-missing": return "GitHub CLI (gh) is not installed. Install it, then try again.";
     case "not-logged-in": return "GitHub CLI is not logged in. Run `gh auth login`, then try again.";
     case "timeout": return "GitHub verification timed out. Try again.";
+    case "newer-remote": return "GitHub verification failed.";
     case "no-artifact": return "GitHub verification failed.";
     case "failed": return `GitHub verification failed: ${error.message}`;
   }
