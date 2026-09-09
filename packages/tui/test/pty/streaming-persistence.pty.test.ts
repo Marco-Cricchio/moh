@@ -33,7 +33,7 @@ function startSlowStream(withTool = false): { server: ReturnType<typeof Bun.serv
             controller.enqueue(chunk({ content: withTool ? "AFTER-TOOL-STREAMING-TAIL" : "FIRST-PARAGRAPH\n\n" }));
             await Bun.sleep(350);
             controller.enqueue(chunk({ content: withTool ? "" : "SECOND-STREAMING-TAIL" }));
-            await Bun.sleep(3_000);
+            await Bun.sleep(600);
             controller.enqueue(chunk({}, "stop"));
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -61,7 +61,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Readiness wait (#236): assert only once the second paragraph's
@@ -88,7 +88,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 1.0 }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
+        steps: [{ wait: 5.0, until: "type…" }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
         tail: 40,
       });
       const frame = lines.map((line) => line.text).join("\n");
@@ -114,10 +114,10 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("long reasoning") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 8.0, until: "LAST-LIVE-REASONING" },
+          { wait: 5.0, until: "LAST-LIVE-REASONING" },
           { wait: 0.4 },
         ],
         tail: 24,
@@ -152,10 +152,10 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("realistic stream") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 8.0, until: "LAST-MARKDOWN-SECTION" },
+          { wait: 5.0, until: "LAST-MARKDOWN-SECTION" },
           { wait: 0.4 },
         ],
         tail: 24,
@@ -205,12 +205,12 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("line stream") },
           { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
           // The typewriter paces row reveal; wait until the tail has
           // visibly advanced, then snapshot the dock geometry mid-stream.
-          { wait: 14.0, until: "MIDDLE-LINE-5" },
+          { wait: 5.0, until: "MIDDLE-LINE-5" },
           // Let the reveal-driven repaint flush before freezing the frame.
           { wait: 1.0, checkpoint: "midStream" },
         ],
@@ -256,13 +256,13 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Wait for the turn to complete and its status to paint
           // (STREAM-FINISHED reveals at typing pace; the status row paints
           // exactly at settle).
-          { wait: 30.0, until: "✓ done" },
+          { wait: 15.0, until: "✓ done" },
           // Post-settle: snapshot after the settle repaint flushed.
           { wait: 2.0, checkpoint: "settled" },
         ],
@@ -299,10 +299,10 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 1.0 }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 5.0, until: "type…" }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
           // TAIL-119 reveals at typing pace; the turn then settles. Wait
           // for the completion status before sampling the final frame.
-          { wait: 30.0, until: "✓ done" }, { wait: 1.0 },
+          { wait: 15.0, until: "✓ done" }, { wait: 1.0 },
         ],
         tail: 40,
         rawDump,
@@ -332,10 +332,10 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("parliamo di moh") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 15.0, until: "Cosa ti incuriosisce?" },
+          { wait: 5.0, until: "Cosa ti incuriosisce?" },
           { wait: 1.0 },
         ],
         tail: 40,
@@ -371,11 +371,11 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "CYCLE-LIVE-TAIL-0", checkpoint: "midStream" },
-          { wait: 20.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 10.0, until: "FINAL-REPLY-MARKER" },
           { wait: 0.8 },
         ],
         tail: 24,
@@ -427,10 +427,10 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("run markdown cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 25.0, until: "MARKDOWN-CYCLES-DONE" },
+          { wait: 12.0, until: "MARKDOWN-CYCLES-DONE" },
           { wait: 1.0 },
         ],
         tail: 18,
@@ -478,13 +478,13 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Toggle mid-stream, then back, then once more after settle.
           { wait: 3.0, send: encodeBase64("\x0f") },
           { wait: 1.0, send: encodeBase64("\x0f") },
-          { wait: 20.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 10.0, until: "FINAL-REPLY-MARKER" },
           { wait: 0.5, send: encodeBase64("\x0f") },
           { wait: 1.2, send: encodeBase64("\x0f") },
           { wait: 1.2, send: encodeBase64("\x0f") },
@@ -528,11 +528,11 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 1.0 },
+          { wait: 5.0, until: "type…" },
           { wait: 0.2, send: encodeBase64("think through the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 4.0, checkpoint: "afterCycle1" },
-          { wait: 25.0, until: "FINAL-REPLY-MARKER" },
+          { wait: 12.0, until: "FINAL-REPLY-MARKER" },
           { wait: 0.8 },
         ],
         tail: 24,
@@ -783,7 +783,10 @@ function startLongReasoningStream(): { server: ReturnType<typeof Bun.serve>; url
             send({ reasoning_content: `${word} ` });
             await Bun.sleep(8);
           }
-          await Bun.sleep(3_000);
+          // Hold streaming long enough that the harness samples the
+          // raw stream strictly before reasoning_end (the checkpoint
+          // assert reads the dump mid-stream).
+          await Bun.sleep(1_200);
           send({ content: "REASONING-ENDED" });
           send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -833,7 +836,7 @@ function startRealisticReasoningStream(): { server: ReturnType<typeof Bun.serve>
                 await Bun.sleep(8);
               }
             }
-            await Bun.sleep(3_000);
+            await Bun.sleep(600);
             send({ content: "REALISTIC-FINISHED" });
             send({}, "stop");
           }
@@ -865,9 +868,11 @@ function startLineStream(): { server: ReturnType<typeof Bun.serve>; url: string 
             send({ content: `${marker} ${"x".repeat(120)}\n` });
             await Bun.sleep(20);
           }
-          // Hold well past the paced reveal (~6 rows/s): the midStream
-          // checkpoint must land while the provider is still streaming.
-          await Bun.sleep(25_000);
+          // Hold past the paced reveal (~6 rows/s → 24 lines reveal in
+          // ~4s): the midStream checkpoint must land while the provider
+          // is still streaming. 8s covers slow hosts without stretching
+          // every downstream wait.
+          await Bun.sleep(8_000);
           send({ content: "STREAM-FINISHED" });
           send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
