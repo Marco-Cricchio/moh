@@ -157,6 +157,14 @@ Scaffold agent docs for your repo (AGENTS.md + `docs/agents/` tracker layout):
 moh init
 ```
 
+## Found a bug? Report it from the session
+
+Run `/report-bug` (workflow mode) — the agent collects your version and
+environment, drafts the issue, and files it through your own authenticated
+`gh` after showing you the draft. Prefer the browser? Open
+[an issue](https://github.com/Marco-Cricchio/moh/issues/new/choose) —
+templates will guide you.
+
 ## How it's built
 
 moh is a monorepo of four packages built around one rule: **all agent logic

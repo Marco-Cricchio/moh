@@ -95,6 +95,7 @@ describe("first-party skill install", () => {
       "implement",
       "moh-implementation-flow",
       "prototype",
+      "report-bug",
       "session-memory",
       "tdd",
       "to-spec",
