@@ -5,6 +5,27 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.27.0] - 2026-09-09
+### Added
+
+- **`/report-bug` skill and GitHub issue templates** (#573): turns a broken
+  experience into a reproducible, agent-ready GitHub bug report — it gathers
+  environment and evidence, asks only the questions needed to make the report
+  actionable, and opens the issue through the matching template. Bundled
+  bug-report and feature-request templates provide a consistent public
+  contribution path.
+- **`/prototype` skill** (#571): a first-party workflow skill for exploring
+  an interface or interaction before implementation, with dedicated logic and
+  UI guidance; discoverable through ask-moh and the workflow manual.
+- **Session tree decision record** (ADR-0023): ratifies the session-tree
+  direction and its in-place branching model.
+
+### Fixed
+
+- **Markdown table widths** (#583): table columns are allocated from actual
+  cell content rather than an even split, so narrow columns no longer waste
+  terminal width while long content wraps where it belongs.
+
 ## [0.26.0] - 2026-09-08
 ### Added
 
