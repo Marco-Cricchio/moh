@@ -109,6 +109,28 @@ describe("createMarkdownRenderer", () => {
     expect(visible).toMatch(/-{20,}/); // thematic break
   });
 
+  test("tables: adaptive widths give descriptive columns the residual space", () => {
+    const md = createMarkdownRenderer(THEMES["tokyo-night"], 92);
+    const source = [
+      "| # | Ticket | Blocked by |",
+      "|---|---|---|",
+      "| #575 | ULID identity + id/parentId on AgentEvent | - Cfrontier) |",
+      "| #576 | branch_switched writer seam, head resolution, payload growth | #575 |",
+      "| #577 | Active-path projection (replay/peek/compaction) | #576 |",
+    ].join("\n");
+    const visible = String(md.parse(source)).replace(/\u001b\[[0-9;]*m/g, "");
+    const rows = visible.split("\n").filter((line) => line.includes("│"));
+    // Compact identifier/dependency columns leave the description enough
+    // measure to stay readable (the screenshot regression was equal thirds).
+    expect(rows.find((line) => line.includes("ULID identity"))?.length).toBeGreaterThan(60);
+    expect(rows).toContainEqual(expect.stringContaining("#575"));
+    expect(rows).toContainEqual(expect.stringContaining("Cfrontier"));
+    // The long Ticket column may wrap, but its first line is substantially
+    // wider than the equally-divided 25-character legacy column.
+    const ticket = rows.find((line) => line.includes("branch_switched"))!;
+    expect(ticket).toContain("head resolution");
+  });
+
   test("tables: long cell text wraps inside the column budget, not truncated", () => {
     const md = createMarkdownRenderer(THEMES["tokyo-night"], 40);
     const long = "supercalifragilisticexpialidocious padding text that keeps going";

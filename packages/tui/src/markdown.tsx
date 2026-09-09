@@ -185,6 +185,43 @@ export function normalizeTableSeparators(text: string): string {
  * The markdown renderer captures theme colors at construction, so it must be
  * regenerated per theme (docs/tui-style-guide.md §5, implementation lessons).
  */
+/** Visible terminal-cell width of an ANSI-styled table cell. cli-table3
+ * uses string-width internally; Markdown output only needs to discount our
+ * SGR styling here to allocate columns before handing cells to it. */
+function tableCellWidth(text: string): number {
+  return text.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+/**
+ * Allocate table columns from their actual contents rather than equal thirds.
+ * Identifier columns stay compact; descriptive columns receive the remaining
+ * measure. Every column still has enough room to wrap a word, and excessive
+ * intrinsic widths are capped so one URL cannot starve its neighbours.
+ */
+export function adaptiveTableWidths(total: number, columns: readonly number[]): number[] {
+  const count = columns.length;
+  if (count === 0) return [];
+  const min = 3;
+  const available = Math.max(count * min, total);
+  const desired = columns.map((value) => Math.max(min, Math.min(value + 2, Math.floor(available * 0.62))));
+  const desiredTotal = desired.reduce((sum, value) => sum + value, 0);
+  if (desiredTotal <= available) {
+    // Give all spare space to the column with the greatest unmet demand.
+    const widest = columns.reduce((best, value, index) => value > columns[best]! ? index : best, 0);
+    desired[widest]! += available - desiredTotal;
+    return desired;
+  }
+  // Constrained terminal: proportionally shrink while respecting minima.
+  const flexible = desired.map((value) => value - min);
+  const flexibleTotal = flexible.reduce((sum, value) => sum + value, 0);
+  let remaining = available - count * min;
+  return flexible.map((value, index) => {
+    const share = index === count - 1 ? remaining : Math.min(value, Math.floor(remaining * value / Math.max(1, flexibleTotal)));
+    remaining -= share;
+    return min + share;
+  });
+}
+
 export function createMarkdownRenderer(theme: Theme, width: number): Marked {
   const marked = new Marked(
     { gfm: true },
@@ -293,18 +330,26 @@ export function createMarkdownRenderer(theme: Theme, width: number): Marked {
       },
       table(this: { parser: { parseInline(t: unknown): string } }, token: Tokens.Table): string {
         const nCols = Math.max(1, token.header.length);
-        // Row budget: width minus the chat line's leading space and the nCols+1
-        // border characters; each column gets an equal share (min 3).
-        const colW = Math.max(3, Math.floor((width - 1 - (nCols + 1)) / nCols));
+        // Row budget: width minus the chat line's leading space and borders.
+        // Unlike the old equal-third split, allocate each column from its
+        // header + cell content: IDs/dependencies stay compact and the
+        // descriptive column gains the residual measure.
+        const tableBudget = width - 1 - (nCols + 1);
+        const cellSource = (c: Tokens.TableCell) => this.parser.parseInline(c.tokens ?? []);
+        const intrinsic = token.header.map((header, index) => Math.max(
+          tableCellWidth(cellSource(header)),
+          ...token.rows.map((row) => tableCellWidth(cellSource(row[index]!))),
+        ));
+        const colWidths = adaptiveTableWidths(tableBudget, intrinsic);
         // cli-table3 defaults header cells to fixed ANSI red (#800000),
         // near-invisible on every reply tint (1.1–1.5:1). Cells own their
         // styling: bold theme accent, with cli-table3's own header styling
         // disabled so its surrounding padding stays default foreground.
-        const cell = (c: Tokens.TableCell) => this.parser.parseInline(c.tokens ?? []);
+        const cell = cellSource;
         const head = (c: Tokens.TableCell) => `${fg(theme.accent)}\x1b[1m${cell(c)}\x1b[22m\x1b[39m`;
         const t = new Table({
           head: token.header.map(head),
-          colWidths: Array.from({ length: nCols }, () => colW),
+          colWidths,
           wordWrap: true,
           style: { head: [], border: ["grey"] },
         });
