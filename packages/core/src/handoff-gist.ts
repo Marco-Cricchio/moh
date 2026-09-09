@@ -143,10 +143,13 @@ const GIST_LIST_LIMIT = "200";
  */
 export function createGistHandoffTransport(options: GistHandoffTransportOptions): HandoffTransport {
   const gh = options.gh ?? spawnGh;
-  // #593: the canonical https clone URL from the remote slug
-  // (`host/owner/repo` → `https://host/owner/repo.git`); null = no origin.
-  const repoUrl = options.repoUrl !== undefined ? options.repoUrl : canonicalRemoteUrl(options.cwd);
   const confirmOverwrite = options.confirmOverwrite;
+  // #593: repoUrl is resolved lazily at publish time, never at construction:
+  // the canonical-slug probe shells out synchronously, and construction runs
+  // inside Ink effects (discoverHandoffForHome) where a sync child process
+  // freezes the reconciler (the 3b40b5e class of bug). publish() runs in the
+  // bounded exit path instead. `host/owner/repo` → `https://host/owner/repo.git`.
+  const resolveRepoUrl = () => (options.repoUrl !== undefined ? options.repoUrl : canonicalRemoteUrl(options.cwd));
   const findTaggedGist = async (user: string): Promise<{ ok: true; id: string | undefined } | { ok: false; error: HandoffTransportError }> => {
     const tag = handoffGistTag(options.cwd, user, options.home);
     const list = await gh({ args: ["gist", "list", "--limit", GIST_LIST_LIMIT] });
@@ -188,7 +191,7 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
         ...payload,
         author: user.user,
         version: 2,
-        ...(repoUrl ? { repoUrl } : {}),
+        ...(resolveRepoUrl() ? { repoUrl: resolveRepoUrl() } : {}),
       };
       const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
