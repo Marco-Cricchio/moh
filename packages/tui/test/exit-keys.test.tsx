@@ -6,22 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider } from "@moh/core";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-exit-"));
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Known-flaky: intermittently hits the Ink reconciler "Should not already
-// be working" race and then hangs the bun process. scripts/test.sh sets
-// MOH_SKIP_FLAKY=1 to exclude it from full-suite checks.
-const flaky = process.env.MOH_SKIP_FLAKY === "1";
-
-/** After App exit the tree is frozen: typed text never renders. */
-async function typedShowsUp(i: { stdin: { write(s: string): void }; lastFrame(): string | undefined }, text: string) {
-  i.stdin.write(text);
-  await sleep(60);
-  return stripAnsi(i.lastFrame() ?? "").includes(text);
-}
+const frame = (i: { lastFrame(): string | undefined }) => () => stripAnsi(i.lastFrame() ?? "");
 
 function mount() {
   return render(
@@ -31,27 +20,33 @@ function mount() {
   );
 }
 
-describe.skipIf(flaky)("exit is double ctrl+c (single ctrl+c disabled)", () => {
+describe("exit is double ctrl+c (single ctrl+c disabled)", () => {
   test("first ctrl+c arms (toast), second within the window exits", async () => {
     const i = mount();
-    await sleep(30);
     i.stdin.write("\x03"); // ctrl+c
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("press ctrl+c again to exit");
-    expect(await typedShowsUp(i, "still-alive")).toBe(true); // not exited yet
+    await waitForFrame(frame(i), "press ctrl+c again to exit");
+    i.stdin.write("still-alive");
+    // Not exited yet: the toast stays and typing still renders.
+    await waitForFrame(frame(i), "still-alive");
     i.stdin.write("\x03");
-    await sleep(50);
-    expect(await typedShowsUp(i, "gone")).toBe(false); // tree frozen: exited
+    // The tree is frozen after exit: typed text never renders.
+    i.stdin.write("gone");
+    await new Promise((r) => setTimeout(r, 80));
+    expect(frame(i)()).not.toContain("gone");
+    i.unmount();
   });
 
   test("a lone ctrl+c does not exit", async () => {
     const i = mount();
-    await sleep(30);
     i.stdin.write("\x03");
-    await sleep(1600); // past the 1.5s arm window
+    await waitForFrame(frame(i), "press ctrl+c again to exit");
+    // Wait past the 1.5s arm window (the toast itself lives 3.5s —
+    // Toasts.TOAST_MS — so its disappearance is not the signal; the
+    // second press landing after the window is).
+    await new Promise((r) => setTimeout(r, 1_600));
     i.stdin.write("\x03");
-    await sleep(30);
-    expect(await typedShowsUp(i, "still-here")).toBe(true);
+    i.stdin.write("still-here");
+    await waitForFrame(frame(i), "still-here");
     i.unmount();
   });
 });

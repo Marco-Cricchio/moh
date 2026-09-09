@@ -7,31 +7,25 @@ import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { loadUserConfig } from "../src/user-config";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForFrame } from "./helpers";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-settings-live-"));
 
-// Known-flaky: intermittently hits the Ink reconciler "Should not already
-// be working" race and then hangs the bun process. scripts/test.sh sets
-// MOH_SKIP_FLAKY=1 to exclude it from full-suite checks.
-const flaky = process.env.MOH_SKIP_FLAKY === "1";
-
-describe.skipIf(flaky)("settings changes apply live (#196)", () => {
+describe("settings changes apply live (#196)", () => {
   test("toggling mode in the settings panel flips the session label immediately", async () => {
     const provider = MockProvider.demo();
     const home = tempHome();
     const i = render(<App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "○ vibe");
     i.stdin.write("\x13"); // ctrl+s → settings
-    await sleep(150);
+    await waitForFrame(frame, "settings");
+    await new Promise((r) => setTimeout(r, 60)); // let the panel's useInput attach
     i.stdin.write("\r"); // activate the Mode row → dev
-    await sleep(150);
+    await waitForFrame(frame, "│   › Mode                      dev ");
     i.stdin.write("\x1b"); // close
-    await sleep(150);
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("◉ dev");
+    await waitForFrame(frame, "◉ dev");
+    expect(frame()).toContain("◉ dev");
     expect(loadUserConfig(join(home, ".moh", "config")).mode).toBe("dev");
     i.unmount();
   });
@@ -40,22 +34,23 @@ describe.skipIf(flaky)("settings changes apply live (#196)", () => {
     const provider = MockProvider.demo();
     const home = tempHome();
     const i = render(<App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
-    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "type…");
     i.stdin.write("draft"); // a draft in the input proves the remount below
-    await sleep(50);
+    await waitForFrame(frame, "draft");
     i.stdin.write("\x13"); // ctrl+s → settings
-    await sleep(150);
+    await waitForFrame(frame, "settings");
+    await new Promise((r) => setTimeout(r, 60)); // let the panel's useInput attach
     i.stdin.write("\x1b[B"); // down → Theme row
-    await sleep(100);
+    await new Promise((r) => setTimeout(r, 20));
     i.stdin.write("\r"); // activate → next theme (catppuccin)
-    await sleep(200);
+    await waitForFrame(frame, "Catppuccin Mocha", { timeoutMs: 3_000 });
     i.stdin.write("\x1b"); // close
-    await sleep(300);
-    // themeTick remount clears the volatile input draft — with the bug
+    // The remount clears the volatile input draft — with the bug
     // (persist-only) the draft survives and no color changes.
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).not.toContain("draft");
-    expect(frame).toContain("type…");
+    await waitForFrame(frame, "type…");
+    const final = frame();
+    expect(final).not.toContain("draft");
     expect(loadUserConfig(join(home, ".moh", "config")).theme).toBe("catppuccin");
     i.unmount();
   });

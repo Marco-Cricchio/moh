@@ -8,12 +8,7 @@ import { MultilineInput, slashSuggestions } from "../src/Input";
 import type { CommandEntry } from "../src/commands";
 import { App } from "../src/App";
 import { MockProvider } from "@moh/core";
-import { stripAnsi } from "./helpers";
-
-// Known-flaky: the App-level group intermittently hits the Ink reconciler
-// "Should not already be working" race and then hangs the bun process.
-// scripts/test.sh sets MOH_SKIP_FLAKY=1 to exclude it from full-suite checks.
-const flaky = process.env.MOH_SKIP_FLAKY === "1";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -205,7 +200,7 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
   });
 });
 
-describe.skipIf(flaky)("slash popup at App level (Tab defers to the popup)", () => {
+describe("slash popup at App level (Tab defers to the popup)", () => {
   test("Tab with the popup open completes the command and keeps the textarea focused (no chip focus)", async () => {
     const i = render(
       <App cwd={process.cwd()} home={mkdtempSync(join(tmpdir(), "moh-tabfocus-"))} provider={MockProvider.demo()} startInChat skipOnboarding />,
