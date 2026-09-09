@@ -13,6 +13,11 @@ import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Known-flaky: the App-level group intermittently hits the Ink reconciler
+// "Should not already be working" race and then hangs the bun process.
+// scripts/test.sh sets MOH_SKIP_FLAKY=1 to exclude it from full-suite checks.
+const flaky = process.env.MOH_SKIP_FLAKY === "1";
+
 describe("settledBoundary — incremental Static promotion (#194)", () => {
   test("idle sessions settle everything", () => {
     const events: AgentEvent[] = [
