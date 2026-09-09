@@ -134,6 +134,79 @@ describe("session store", () => {
     expect(existsSync(join(home, ".moh", "projects", "gitlab.com", "group", "sub", "repo"))).toBe(true);
   });
 
+  test("#592: first resolution of a UUID project that gains origin migrates its data directory once", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig592-"));
+    // Born without git: uuid identity + data.
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "old.jsonl"), "session");
+    mkdirSync(join(uuidDir, "memory"), { recursive: true });
+    writeFileSync(join(uuidDir, "memory", "facts.md"), "fact");
+    // Later gains origin.
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const slug = projectSlug(cwd, home);
+    expect(slug).toBe("github.com/owner/repo");
+    const target = join(home, ".moh", "projects", slug);
+    expect(existsSync(uuidDir)).toBe(false);
+    expect(readFileSync(join(target, "old.jsonl"), "utf8")).toBe("session");
+    expect(readFileSync(join(target, "memory", "facts.md"), "utf8")).toBe("fact");
+    expect(readFileSync(join(target, "migration.log"), "utf8")).toContain(`Migrated project directory ${uuidSlug} to ${slug}`);
+    // Exactly once.
+    projectSlug(cwd, home);
+    expect(readFileSync(join(target, "migration.log"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("#592: the remote directory wins when it already exists; the uuid directory is left untouched", () => {
+    const home = tempHome();
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "remote.jsonl"), "remote-session");
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig592b-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "local.jsonl"), "local-session");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "https://github.com/owner/repo.git"]);
+    expect(projectSlug(cwd, home)).toBe("github.com/owner/repo");
+    expect(readFileSync(join(remote, "remote.jsonl"), "utf8")).toBe("remote-session");
+    expect(readFileSync(join(home, ".moh", "projects", uuidSlug, "local.jsonl"), "utf8")).toBe("local-session");
+    expect(existsSync(join(remote, "migration.log"))).toBe(false);
+  });
+
+  test("#592: a project without origin is never migrated", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig592c-"));
+    const slug = projectSlug(cwd, home);
+    mkdirSync(join(home, ".moh", "projects", slug), { recursive: true });
+    writeFileSync(join(home, ".moh", "projects", slug, "s.jsonl"), "x");
+    projectSlug(cwd, home);
+    expect(existsSync(join(home, ".moh", "projects", slug, "migration.log"))).toBe(false);
+  });
+
+  test("#592: two openers racing the migration resolve to the same directory without corruption", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig592d-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "old.jsonl"), "session");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "https://github.com/owner/repo.git"]);
+    // Opener A performs the migration; opener B then re-resolves and must see
+    // the migrated directory, not a second attempt or split data.
+    const first = projectSlug(cwd, home);
+    const second = projectSlug(cwd, home);
+    expect(first).toBe("github.com/owner/repo");
+    expect(second).toBe(first);
+    expect(existsSync(uuidDir)).toBe(false);
+    expect(readFileSync(join(home, ".moh", "projects", first, "old.jsonl"), "utf8")).toBe("session");
+    expect(readFileSync(join(home, ".moh", "projects", first, "migration.log"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
   test("#591: canonicalRemoteSlug returns null for non-repo URLs and missing git", () => {
     // No git at all.
     expect(canonicalRemoteSlug("/definitely/not/a/real/cwd-591")).toBeNull();

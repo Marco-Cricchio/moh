@@ -117,7 +117,13 @@ export function resolveProjectIdentity(cwd: string, home: string): { slug: strin
   const legacySlug = legacyProjectSlug(cwd);
   const key = `${pathResolve(cwd)}\u0000${pathResolve(home)}`;
   const pinned = pinnedSlugs.get(key);
-  if (pinned) return pinned;
+  if (pinned) {
+    // The pin binds only while a session file under the pinned slug is open:
+    // re-resolution is deterministic and safe once nothing is open, so a
+    // project that gains a git origin later still migrates (#592).
+    if (anyOpenSessionInDir(join(home, ".moh", "projects", pinned.slug))) return pinned;
+    pinnedSlugs.delete(key);
+  }
 
   const result = resolveProjectIdentityUncached(cwd, home, legacySlug);
   pinnedSlugs.set(key, result);
@@ -142,6 +148,27 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
       }
     }
     if (!existsSync(dir)) {
+      // One-time migration of an existing uuid-derived data directory (#592):
+      // a project born without git that later gains `origin` keeps its data.
+      // The durable note precedes the atomic rename, so a crash cannot leave
+      // a completed migration without its record; a racing opener losing the
+      // rename (ENOENT) finds the winner's directory and moves on.
+      const uuidId = declaredId(file);
+      if (uuidId) {
+        const uuidDir = join(projects, identitySlug(uuidId));
+        if (uuidDir !== dir && existsSync(uuidDir)) {
+          writeFileSync(join(uuidDir, "migration.log"), `Migrated project directory ${identitySlug(uuidId)} to ${remoteSlug}.\n`, { flag: "a", mode: 0o600 });
+          try {
+            // The remote slug may be a nested path (`host/owner/repo`).
+            mkdirSync(join(dir, ".."), { recursive: true, mode: 0o700 });
+            renameSync(uuidDir, dir);
+          } catch (error) {
+            // Another opener may have completed the same one-time rename first.
+            if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT" || !existsSync(dir)) throw error;
+          }
+          return { slug: remoteSlug, legacySlug, declared: true };
+        }
+      }
       // Materialize the project directory (owner-only) so the first session
       // or memory write cannot race with the mode-tightening rules: only
       // newly created directories get 0o700, existing ones are untouched.
