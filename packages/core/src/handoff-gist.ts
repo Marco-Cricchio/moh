@@ -187,11 +187,12 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       // leaving the machine always records the publishing gh user.
       // repoUrl (#593) rides the same seam: the canonical public https
       // clone URL of origin, absent when the project has no origin.
+      const repoUrl = resolveRepoUrl();
       const authored: HandoffPayload = {
         ...payload,
         author: user.user,
         version: 2,
-        ...(resolveRepoUrl() ? { repoUrl: resolveRepoUrl() } : {}),
+        ...(repoUrl ? { repoUrl } : {}),
       };
       const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
@@ -204,7 +205,14 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
         if (remote.ok) {
           const remoteUpdatedAt = typeof remote.payload.updatedAt === "string" ? remote.payload.updatedAt : "";
           const localUpdatedAt = authored.updatedAt;
-          if (remoteUpdatedAt > localUpdatedAt) {
+          // Strictly newer only (equal = normal republish). Compared as
+          // instants when both parse, so non-canonical ISO spellings
+          // (+02:00 offsets, missing millis) cannot misorder; a remote
+          // stamp that does not parse at all is never treated as newer.
+          const remoteMs = Date.parse(remoteUpdatedAt);
+          const localMs = Date.parse(localUpdatedAt);
+          const newer = Number.isFinite(remoteMs) && Number.isFinite(localMs) ? remoteMs > localMs : remoteUpdatedAt > localUpdatedAt;
+          if (newer) {
             const confirmed = confirmOverwrite ? await confirmOverwrite({ remoteUpdatedAt, localUpdatedAt }) : false;
             if (!confirmed) {
               return { ok: false, error: { reason: "newer-remote", remoteUpdatedAt, localUpdatedAt } };

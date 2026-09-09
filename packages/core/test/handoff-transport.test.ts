@@ -365,6 +365,23 @@ describe("gist transport", () => {
     expect(gh.calls.some((c) => c.args[1] === "create")).toBe(false);
   });
 
+  test("an equal remote updatedAt is a normal republish, never a guard ask (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const { handoff } = artifact(true); // updatedAt 2026-09-02T10:00:00.000Z
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      { args: ["gist", "view"], stdout: JSON.stringify({ ...handoff, sessionId: "s-remote", updatedAt: "2026-09-02T10:00:00.000Z" }) },
+      { args: ["gist", "delete"], stdout: "" },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new10\n" },
+    ]);
+    let asked = 0;
+    const transport = createGistHandoffTransport({ cwd, gh, confirmOverwrite: async () => { asked += 1; return true; } });
+    const result = await transport.publish(handoff);
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/new10" });
+    expect(asked).toBe(0);
+  });
+
   test("an unviewable tagged gist (race delete) falls through to a plain replace (#593)", async () => {
     const tag = handoffGistTag(cwd, "dev");
     const gh = fakeGh([
