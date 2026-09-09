@@ -176,7 +176,7 @@ describe("workflow skill aliases", () => {
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
-    for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "to-spec", "to-tickets", "triage", "skills"]) {
+    for (const n of ["implement", "tdd", "code-review", "diagnosing-bugs", "grilling", "prototype", "to-spec", "to-tickets", "triage", "skills"]) {
       expect(names).toContain(n);
     }
   });

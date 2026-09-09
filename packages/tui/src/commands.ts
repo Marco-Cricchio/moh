@@ -114,6 +114,7 @@ const ALIASES: { name: string; skill: string }[] = [
   { name: "code-review", skill: "code-review" },
   { name: "diagnosing-bugs", skill: "diagnosing-bugs" },
   { name: "grilling", skill: "grilling" },
+  { name: "prototype", skill: "prototype" },
   { name: "domain-modeling", skill: "domain-modeling" },
   { name: "to-spec", skill: "to-spec" },
   { name: "to-tickets", skill: "to-tickets" },
