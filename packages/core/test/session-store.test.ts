@@ -118,6 +118,22 @@ describe("session store", () => {
     expect(existsSync(join(cwd, ".moh", "project.json"))).toBe(true);
   });
 
+  test("#591: nested-group remotes (GitLab subgroups) keep the full repo path in the slug", () => {
+    const home = tempHome();
+    const a = mkdtempSync(join(tmpdir(), "moh-origin-"));
+    const b = mkdtempSync(join(tmpdir(), "moh-origin-"));
+    for (const [dir, url] of [
+      [a, "git@gitlab.com:group/sub/Repo.git"],
+      [b, "https://gitlab.com/group/sub/repo.git"],
+    ] as const) {
+      execFileSync("git", ["init", "-q", dir]);
+      execFileSync("git", ["-C", dir, "remote", "add", "origin", url]);
+      expect(projectSlug(dir, home)).toBe("gitlab.com/group/sub/repo");
+    }
+    // Both clones share one nested directory under projects/.
+    expect(existsSync(join(home, ".moh", "projects", "gitlab.com", "group", "sub", "repo"))).toBe(true);
+  });
+
   test("#591: canonicalRemoteSlug returns null for non-repo URLs and missing git", () => {
     // No git at all.
     expect(canonicalRemoteSlug("/definitely/not/a/real/cwd-591")).toBeNull();

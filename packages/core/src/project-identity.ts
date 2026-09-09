@@ -79,7 +79,7 @@ export function canonicalRemoteSlug(cwd: string): string | null {
     const parsed = new URL(url);
     if (parsed.protocol === "ssh:" || parsed.protocol === "https:" || parsed.protocol === "http:") {
       const host = parsed.hostname;
-      if (host && /^[\w.-]+\/[\w.-]+$/.test(parsed.pathname.slice(1))) {
+      if (host && /^[\w.-]+(\/[\w.-]+)+$/.test(parsed.pathname.slice(1))) {
         return normalizeRemoteHostRepo(host, parsed.pathname.slice(1));
       }
     }
@@ -90,8 +90,12 @@ export function canonicalRemoteSlug(cwd: string): string | null {
 }
 
 function normalizeRemoteHostRepo(host: string, repoPath: string): string | null {
+  // The full repository path is kept, so GitLab-style nested groups
+  // (`host/group/sub/repo`) resolve to their own slug; it becomes a nested
+  // directory under `~/.moh/projects/`, which the directory builders create
+  // recursively. Trailing `.git` is stripped; case is normalized away.
   const repo = repoPath.replace(/\.git$/i, "").toLowerCase();
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
+  if (!/^[\w.-]+(\/[\w.-]+)+$/.test(repo)) return null;
   return `${host.toLowerCase()}/${repo}`;
 }
 
@@ -127,7 +131,8 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
     const dir = join(projects, remoteSlug);
     // A session file of this project is already open in this process: keep
     // its identity (uuid-derived when the session predates #591) so the
-    // slug switch never orphans an open session file.
+    // slug switch never orphans an open session file. The directory is not
+    // created eagerly here beyond what the callers already do.
     const file = identityFile(cwd);
     const uuidId = declaredId(file);
     if (uuidId) {
@@ -137,8 +142,9 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
       }
     }
     if (!existsSync(dir)) {
-      // Materialize the project directory with owner-only permissions, so
-      // slug existence alone never gates anything: data migrates as usual.
+      // Materialize the project directory (owner-only) so the first session
+      // or memory write cannot race with the mode-tightening rules: only
+      // newly created directories get 0o700, existing ones are untouched.
       mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
     return { slug: remoteSlug, legacySlug, declared: true };

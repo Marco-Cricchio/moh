@@ -5,6 +5,17 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+### Changed
+
+- Project identity: a project with a git `origin` remote now derives its
+  slug from the canonical `host/owner/repo` form (case-insensitive; the
+  protocol, trailing `.git`, and embedded credentials are ignored), so
+  two clones of the same repository share one
+  `~/.moh/projects/<slug>/` directory — sessions, memory, and handoff
+  discovery no longer require committing `.moh/project.json` (#591).
+  Projects without `origin` keep the uuid-derived identity unchanged.
+
 ## [0.26.0] - 2026-09-08
 ### Added
 
