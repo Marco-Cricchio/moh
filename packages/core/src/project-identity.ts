@@ -96,6 +96,9 @@ function normalizeRemoteHostRepo(host: string, repoPath: string): string | null 
   // recursively. Trailing `.git` is stripped; case is normalized away.
   const repo = repoPath.replace(/\.git$/i, "").toLowerCase();
   if (!/^[\w.-]+(\/[\w.-]+)+$/.test(repo)) return null;
+  // `.`/`..` segments pass the shape check but would let a crafted origin
+  // move data outside ~/.moh/projects/ once joined; reject them.
+  if (repo.split("/").some((segment) => segment === "." || segment === "..")) return null;
   return `${host.toLowerCase()}/${repo}`;
 }
 
@@ -153,7 +156,6 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
       // The durable note precedes the atomic rename, so a crash cannot leave
       // a completed migration without its record; a racing opener losing the
       // rename (ENOENT) finds the winner's directory and moves on.
-      const uuidId = declaredId(file);
       if (uuidId) {
         const uuidDir = join(projects, identitySlug(uuidId));
         if (uuidDir !== dir && existsSync(uuidDir)) {

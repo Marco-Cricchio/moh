@@ -218,6 +218,9 @@ describe("session store", () => {
     // origin without an owner/repo path shape.
     execFileSync("git", ["-C", cwd, "remote", "add", "origin", "https://example.com/solo.git"]);
     expect(canonicalRemoteSlug(cwd)).toBeNull();
+    // dot / dot-dot path segments must never become a slug (path escape).
+    execFileSync("git", ["-C", cwd, "remote", "set-url", "origin", "git@github.com:../../elsewhere.git"]);
+    expect(canonicalRemoteSlug(cwd)).toBeNull();
     expect(projectSlug(cwd, home)).toMatch(/^project-[0-9a-f]{16}$/);
   });
 
