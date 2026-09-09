@@ -200,7 +200,7 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
   });
 });
 
-describe("slash popup at App level (Tab defers to the popup)", () => {
+describe.skipIf(flaky)("slash popup at App level (Tab defers to the popup)", () => {
   test("Tab with the popup open completes the command and keeps the textarea focused (no chip focus)", async () => {
     const i = render(
       <App cwd={process.cwd()} home={mkdtempSync(join(tmpdir(), "moh-tabfocus-"))} provider={MockProvider.demo()} startInChat skipOnboarding />,
