@@ -52,7 +52,8 @@ block:
 - Install: <binary|source>
 ```
 
-For bugs, include **Steps to reproduce**, **Expected**, **Actual**. For
+For bugs, include **What happened?** (plus what you expected), **Steps to
+reproduce**, and **Actual** — mirroring the repo's bug template. For
 feature requests, include **Problem** and **Proposed solution**.
 
 Show the full draft to the user — title, body, and the exact command you will
