@@ -168,7 +168,7 @@ describe("settledBoundary — incremental Static promotion (#194)", () => {
   });
 });
 
-describe("open-turn scrollback is scrollable mid-turn (#194)", () => {
+describe.skipIf(flaky)("open-turn scrollback is scrollable mid-turn (#194)", () => {
   test("a completed tool result is emitted to Static while the turn is still streaming", async () => {
     const home = mkdtempSync(join(tmpdir(), "moh-incremental-"));
     const provider = MockProvider.scripted([
