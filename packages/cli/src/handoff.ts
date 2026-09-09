@@ -212,7 +212,7 @@ async function handoffPullCommand(
   if (options.ghUser) {
     expectedAuthor = options.ghUser;
   } else {
-    const resolved = ghUsername(spawnGh);
+    const resolved = await ghUsername(spawnGh);
     if (resolved.ok) expectedAuthor = resolved.user;
   }
   const result = await importHandoffFile({
