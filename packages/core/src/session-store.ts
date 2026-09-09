@@ -68,6 +68,20 @@ export function projectSessionsDir(cwd: string, home = homedir()): string {
 
 export { legacyProjectSlug, resolveProjectIdentity };
 
+// #591: process-local open-session registry, shared with the identity
+// resolver so a slug switch mid-session cannot orphan an open file.
+// Function-level indirection breaks the module cycle (session-store →
+// project-identity → session-store): the binding is resolved at call time.
+const openSessionFiles = new Set<string>();
+
+/** Whether any session file under `dir` is open in this process. */
+export function anyOpenSessionInDir(dir: string): boolean {
+  for (const file of openSessionFiles) {
+    if (file.startsWith(dir.endsWith("/") ? dir : `${dir}/`)) return true;
+  }
+  return false;
+}
+
 function isSessionFile(name: string): boolean {
   return (
     name.endsWith(".jsonl") &&
@@ -675,7 +689,6 @@ export function trashRetentionDays(home = homedir()): number {
  * is unsupported (#400), so a process-local registry covers the real case:
  * the TUI deleting its own open session.
  */
-const openSessionFiles = new Set<string>();
 
 // Registrar hooks for SessionStore.create/open/dispose.
 function registerOpenSession(file: string): void {

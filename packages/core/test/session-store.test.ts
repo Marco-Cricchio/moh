@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
 import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash } from "../src/session-store";
+import { canonicalRemoteSlug } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -83,6 +85,51 @@ describe("session store", () => {
     expect(readFileSync(join(target, "migration.log"), "utf8")).toContain("Migrated legacy project directory");
     projectSlug(cwd, home);
     expect(readFileSync(join(target, "migration.log"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("#591: an origin remote derives a canonical host/owner/repo slug shared by SSH, HTTPS and ssh-URL spellings", () => {
+    const home = tempHome();
+    const spellings = [
+      "git@github.com:Owner/Repo.git",
+      "https://github.com/Owner/Repo.git",
+      "https://user:token@github.com/Owner/Repo",
+      "ssh://git@github.com/Owner/Repo.git",
+      "https://GitHub.com/owner/REPO.Git",
+    ];
+    const slugs = spellings.map((url) => {
+      const cwd = mkdtempSync(join(tmpdir(), "moh-origin-"));
+      execFileSync("git", ["init", "-q", cwd]);
+      execFileSync("git", ["-C", cwd, "remote", "add", "origin", url]);
+      const slug = projectSlug(cwd, home);
+      expect(slug).toMatch(/^github\.com\/owner\/repo$/);
+      expect(existsSync(join(cwd, ".moh", "project.json"))).toBe(false);
+      return slug;
+    });
+    expect(new Set(slugs).size).toBe(1);
+    expect(existsSync(join(home, ".moh", "projects", slugs[0]))).toBe(true);
+  });
+
+  test("#591: a project without origin keeps the UUID-derived identity slug", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-noorigin-"));
+    execFileSync("git", ["init", "-q", cwd]);
+    const slug = projectSlug(cwd, home);
+    expect(slug).toMatch(/^project-[0-9a-f]{16}$/);
+    expect(existsSync(join(cwd, ".moh", "project.json"))).toBe(true);
+  });
+
+  test("#591: canonicalRemoteSlug returns null for non-repo URLs and missing git", () => {
+    // No git at all.
+    expect(canonicalRemoteSlug("/definitely/not/a/real/cwd-591")).toBeNull();
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-origin-"));
+    execFileSync("git", ["init", "-q", cwd]);
+    // No origin remote.
+    expect(canonicalRemoteSlug(cwd)).toBeNull();
+    // origin without an owner/repo path shape.
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "https://example.com/solo.git"]);
+    expect(canonicalRemoteSlug(cwd)).toBeNull();
+    expect(projectSlug(cwd, home)).toMatch(/^project-[0-9a-f]{16}$/);
   });
 
   test("append is one JSON line per event; load() round-trips a real session log", async () => {

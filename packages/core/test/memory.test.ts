@@ -5,6 +5,7 @@
  * fail-silent, injected as a system-prompt section, disabled by config.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentSession, MockProvider } from "../src/index";
@@ -87,10 +88,15 @@ describe("MemoryStore", () => {
     const home = join(root, "home", ".moh");
     const a = join(root, "a");
     const b = join(root, "b");
-    mkdirSync(a, { recursive: true });
+    // Each checkout is its own git repo with the same origin: #591 gives
+    // both the canonical remote slug, so memory lands in one directory.
+    const origin = "git@github.com:owner/repo.git";
+    for (const dir of [a, b]) {
+      mkdirSync(dir, { recursive: true });
+      execFileSync("git", ["init", "-q", dir]);
+      execFileSync("git", ["-C", dir, "remote", "add", "origin", origin]);
+    }
     const first = MemoryStore.forProject(a, home);
-    mkdirSync(join(b, ".moh"), { recursive: true });
-    writeFileSync(join(b, ".moh", "project.json"), readFileSync(join(a, ".moh", "project.json")));
     expect(MemoryStore.forProject(b, home).dir).toBe(first.dir);
   });
 
