@@ -5,7 +5,27 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.28.0] - 2026-09-10
+### Added
+
+- **Cold-directory wizard** (#595): launching moh in a directory that is not
+  an initialized project now offers to clone a repository — the wizard
+  discovers the handoff gist, clones, pulls the referenced session, and seeds
+  a session so you land inside the ongoing conversation. Core seams: cold
+  gate, clone, pull-to-import; production gist fetch wired into the pull.
+- **Handoff hardening** (#593/#594): publish resolves the repo URL lazily at
+  publish time (never sync git probes at transport construction) and a
+  newer-remote guard prevents publishing a stale handoff over a newer one;
+  gist discovery scans across projects with pagination, so a handoff
+  published from another machine is found regardless of which project it
+  belongs to.
+- **Test suite ~480s → ~275s**: the PTY job runs through a parallel runner
+  (2 workers on the 2-vCPU CI runner), the #304 re-run ledger is driven
+  through a `rerunMinMs` test seam instead of real sleeps, and the six
+  previously skipped flaky TUI groups were rewritten from fixed sleeps to
+  frame-condition waits and un-skipped — the `MOH_SKIP_FLAKY` mechanism is
+  retired (`gh` runs through an async spawn, unblocking the event loop).
+
 ### Changed
 
 - Project identity: a project with a git `origin` remote now derives its
@@ -14,7 +34,16 @@ matching section here at tag time.
   two clones of the same repository share one
   `~/.moh/projects/<slug>/` directory — sessions, memory, and handoff
   discovery no longer require committing `.moh/project.json` (#591).
-  Projects without `origin` keep the uuid-derived identity unchanged.
+  Projects without `origin` keep the uuid-derived identity unchanged. A
+  UUID project that later gains an origin migrates once, atomically, to
+  the remote slug with a durable migration note (#592; dot-segment path
+  escapes rejected).
+
+### Fixed
+
+- **Bash tool title with leading comments** (#600): commands preceded by
+  comment lines show the actual command in the tool title instead of the
+  comments.
 
 ## [0.27.0] - 2026-09-09
 ### Added
@@ -774,7 +803,9 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.26.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.28.0...develop
+[0.28.0]: https://github.com/Marco-Cricchio/moh/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/Marco-Cricchio/moh/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/Marco-Cricchio/moh/compare/v0.25.1...v0.26.0
 [0.25.1]: https://github.com/Marco-Cricchio/moh/compare/v0.25.0...v0.25.1
 [0.25.0]: https://github.com/Marco-Cricchio/moh/compare/v0.24.1...v0.25.0
