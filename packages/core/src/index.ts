@@ -84,6 +84,12 @@ import {
   // the session-tree ADR, #571).
   compactionProjection,
   replayWarnings,
+  // #580: the client-facing tree projection (spec §1) — the single seam
+  // the TUI /tree panel and the CLI renderer both consume. Returns the
+  // TreeView or { error }; never throws.
+  sessionTree,
+  type TreeView,
+  type TreeNode,
 } from "./session-store";
 import {
   formatRule,
@@ -741,4 +747,7 @@ export {
   // #579: bookmark writer seam (see the import comment above).
   bookmarkNode,
   localTipAt,
+  sessionTree,
+  type TreeView,
+  type TreeNode,
 };
