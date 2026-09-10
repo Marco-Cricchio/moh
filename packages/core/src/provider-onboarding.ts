@@ -64,7 +64,7 @@ export const KNOWN_COMPAT_ENDPOINTS: readonly KnownCompatEndpoint[] = [
   { name: "Ollama", local: true, url: "http://localhost:11434/v1" },
   { name: "LM Studio", local: true, url: "http://localhost:1234/v1" },
   { name: "Omniroute", local: true, url: "http://localhost:PORT/v1" },
-  { name: "z.ai", local: false, url: "https://api.z.ai/api/paas/v4" },
+  { name: "z.ai", local: false, url: "https://api.z.ai/api/coding/paas/v4" },
   { name: "DeepSeek", local: false, url: "https://api.deepseek.com/v1" },
   { name: "Mistral", local: false, url: "https://api.mistral.ai/v1" },
   { name: "Groq", local: false, url: "https://api.groq.com/openai/v1" },

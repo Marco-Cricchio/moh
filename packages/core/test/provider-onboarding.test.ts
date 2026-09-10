@@ -105,7 +105,7 @@ describe("known compat endpoints (#295)", () => {
       { name: "Ollama", local: true, url: "http://localhost:11434/v1" },
       { name: "LM Studio", local: true, url: "http://localhost:1234/v1" },
       { name: "Omniroute", local: true, url: "http://localhost:PORT/v1" },
-      { name: "z.ai", local: false, url: "https://api.z.ai/api/paas/v4" },
+      { name: "z.ai", local: false, url: "https://api.z.ai/api/coding/paas/v4" },
       { name: "DeepSeek", local: false, url: "https://api.deepseek.com/v1" },
       { name: "Mistral", local: false, url: "https://api.mistral.ai/v1" },
       { name: "Groq", local: false, url: "https://api.groq.com/openai/v1" },
@@ -138,7 +138,7 @@ describe("known compat endpoints (#295)", () => {
   test("a Z.ai URL persists its explicit reasoning capability declaration", async () => {
     const io = ioWith(["openai-compat", "", "", "4", "glm-5.3"]);
     const profile = await runProviderAdd(io, okTest());
-    expect(profile.baseUrl).toBe("https://api.z.ai/api/paas/v4");
+    expect(profile.baseUrl).toBe("https://api.z.ai/api/coding/paas/v4");
     expect(profile.capabilities?.thinking).toEqual({ format: "openai-effort", levels: ["off", "low", "high", "max"] });
   });
 
