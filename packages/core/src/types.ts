@@ -1,7 +1,25 @@
 /**
  * Schema version of the AgentEvent log. Bump on breaking event-shape changes.
+ *
+ * #575: v2 adds event identity — every newly appended event carries a ULID
+ * `id` and a `parentId` referencing the branch head it follows. Reading is
+ * backward-compatible: a v1 log is the degenerate (linear) tree.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+/**
+ * #575 (format decision 8): identity/reference fields shared by every
+ * AgentEvent variant. `id` is the event's ULID, stamped by the writer on
+ * every appended event. `parentId` is the id (or, for pre-tree events, the
+ * read-only `line:N` bridge) of the event this one follows; absent =
+ * child of the current branch (the `to` of the last `branch_switched`,
+ * else the last event). New events never carry `line:N` ids — the bridge
+ * is read-only and only ever appears as a referenced value.
+ */
+export interface EventIdentity {
+  id?: string;
+  parentId?: string;
+}
 
 /**
  * The single wording for a tool result synthesized because the turn was
@@ -156,7 +174,9 @@ export interface EndpointCapabilities {
   multimodal: boolean;
 }
 
-export type AgentEvent =
+export type AgentEvent = AgentEventBase & EventIdentity;
+
+type AgentEventBase =
   | { type: "session_start"; schemaVersion: number; promptVersion: string }
   /**
    * ADR-0021: appended by the core when a session with pre-existing events

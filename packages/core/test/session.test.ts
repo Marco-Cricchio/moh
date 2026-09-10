@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { builtinTools, createSession, MockProvider, PromptComposer } from "../src/index";
+import { builtinTools, createSession, MockProvider, PromptComposer, SCHEMA_VERSION } from "../src/index";
 import { hashPrompt } from "../src/prompt-composer";
 import type { Provider } from "../src/index";
 import type { Message } from "../src/types";
@@ -148,7 +148,7 @@ describe("core agent loop", () => {
 
     const log = session.history();
     expect(log[0]!.type).toBe("session_start");
-    expect((log[0] as any).schemaVersion).toBe(1);
+    expect((log[0] as any).schemaVersion).toBe(SCHEMA_VERSION);
     expect((log[0] as any).promptVersion).toMatch(/^[0-9a-f]{16}$/);
     expect(log.map((e) => e.type)).toEqual([
       "session_start",
@@ -380,7 +380,7 @@ describe("resume (#31)", () => {
     const result = log.find((e: any) => e.type === "tool_result")!;
     expect((result as any).ok).toBe(true);
     const notice = log.slice(history.length).find((e) => e.type === "permission_rules_restored");
-    expect(notice).toEqual({ type: "permission_rules_restored", rules: ["bash:echo hi"] });
+    expect(notice).toMatchObject({ type: "permission_rules_restored", rules: ["bash:echo hi"] });
   });
 
   test("resume without runtime rules emits no restored-rule notice", () => {

@@ -25,11 +25,19 @@ describe("EventLog", () => {
     const b: AgentEvent = { type: "session_mode", mode: "normal" };
     eventLog.append(a);
     eventLog.append(b);
-    expect(eventLog.history()).toEqual([a, b]);
-    expect(sunk).toEqual([a, b]);
+    // #575: appended events gain writer-stamped identity — compare on
+    // shape, not reference.
+    expect(eventLog.history().map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual([
+      { ...a, id: undefined, parentId: undefined },
+      { ...b, id: undefined, parentId: undefined },
+    ]);
+    expect(sunk.map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual([
+      { ...a, id: undefined, parentId: undefined },
+      { ...b, id: undefined, parentId: undefined },
+    ]);
     // New appends stream to an already-open iterator (listener path).
     const iter = eventLog.events[Symbol.asyncIterator]();
-    expect((await iter.next()).value).toBe(a);
+    expect((await iter.next()).value).toEqual(eventLog.history()[0]);
     await iter.return?.();
   });
 
@@ -52,8 +60,9 @@ describe("EventLog", () => {
     // The live log array is the seeded one — appends continue after it.
     const next: AgentEvent = { type: "session_mode", mode: "normal" };
     eventLog.append(next);
-    expect(eventLog.history()).toEqual([...seeded, next]);
-    expect(sunk).toEqual([next]);
+    expect(eventLog.history()).toEqual([...seeded, eventLog.history().at(-1)!]);
+    expect(eventLog.history().at(-1)!.id).toBeDefined();
+    expect(sunk).toEqual([eventLog.history().at(-1)!]);
   });
 
   test("extension dispatch is serial and errors become extension_failed events", async () => {
@@ -76,7 +85,7 @@ describe("EventLog", () => {
     await eventLog.idle();
     expect(order).toEqual(["dispatch:user_message", "dispatch:user_message"]);
     // The hook error was appended (sink + history) but not re-dispatched.
-    expect(eventLog.history().at(-1)).toEqual(failure);
+    expect({ ...eventLog.history().at(-1)!, id: undefined, parentId: undefined }).toEqual({ ...failure, id: undefined, parentId: undefined });
     expect(order.filter((t) => t === "dispatch:extension_failed")).toHaveLength(0);
   });
 
@@ -85,11 +94,11 @@ describe("EventLog", () => {
     const first: AgentEvent = { type: "session_mode", mode: "normal" };
     eventLog.append(first);
     const iter = eventLog.events[Symbol.asyncIterator]();
-    expect((await iter.next()).value).toBe(first);
+    expect((await iter.next()).value).toEqual(eventLog.history()[0]);
     const second: AgentEvent = { type: "cancelled" };
     const pendingNext = iter.next();
     eventLog.append(second);
-    expect((await pendingNext).value).toBe(second);
+    expect((await pendingNext).value).toEqual(eventLog.history().at(-1));
     await iter.return?.();
   });
 
@@ -97,5 +106,56 @@ describe("EventLog", () => {
     const eventLog = new EventLog();
     eventLog.append({ type: "session_mode", mode: "normal" });
     await eventLog.idle();
+  });
+});
+
+describe("EventLog identity (#575)", () => {
+  test("every appended event carries a fresh ULID id", () => {
+    const eventLog = new EventLog();
+    const a: AgentEvent = { type: "session_start", schemaVersion: 2, promptVersion: "v" };
+    const b: AgentEvent = { type: "session_mode", mode: "normal" };
+    eventLog.append(a);
+    eventLog.append(b);
+    const [ha, hb] = eventLog.history();
+    expect(ha.id).toMatch(/^[0-7][0-9ABCDEFGHJKMNPQRSTVWXYZ]{25}$/);
+    expect(hb.id).toMatch(/^[0-7][0-9ABCDEFGHJKMNPQRSTVWXYZ]{25}$/);
+    expect(hb.id).not.toBe(ha.id);
+  });
+
+  test("parentId defaults to the previous event's id (linear head)", () => {
+    const eventLog = new EventLog();
+    eventLog.append({ type: "session_start", schemaVersion: 2, promptVersion: "v" });
+    eventLog.append({ type: "session_mode", mode: "normal" });
+    const [a, b] = eventLog.history();
+    expect(b.parentId).toBe(a.id);
+  });
+
+  test("an explicit parentId is preserved (off-head appends)", () => {
+    const eventLog = new EventLog();
+    eventLog.append({ type: "session_start", schemaVersion: 2, promptVersion: "v" });
+    eventLog.append({ type: "session_mode", mode: "normal", parentId: "line:5" });
+    const [, b] = eventLog.history();
+    expect(b.parentId).toBe("line:5");
+  });
+
+  test("a purely legacy tail leaves parentId absent", () => {
+    const seeded: AgentEvent[] = [{ type: "session_start", schemaVersion: 1, promptVersion: "v" }];
+    const eventLog = new EventLog();
+    eventLog.seed(seeded);
+    eventLog.append({ type: "session_mode", mode: "normal" });
+    const [, next] = eventLog.history();
+    expect(next.parentId).toBeUndefined();
+    expect(next.id).toBeDefined();
+  });
+
+  test("sink and listeners see the stamped event, not the bare input", () => {
+    const sunk: AgentEvent[] = [];
+    const eventLog = new EventLog({ sink: (e) => sunk.push(e) });
+    const bare: AgentEvent = { type: "session_mode", mode: "normal" };
+    eventLog.append(bare);
+    const [stamped] = eventLog.history();
+    expect(sunk[0]).toBe(stamped);
+    expect(stamped.id).toBeDefined();
+    expect(bare.id).toBeUndefined();
   });
 });

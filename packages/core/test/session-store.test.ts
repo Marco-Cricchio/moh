@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef } from "../src/session-store";
 import { canonicalRemoteSlug } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
@@ -237,7 +237,14 @@ describe("session store", () => {
     const raw = readFileSync(store.file, "utf8");
     const lines = raw.trimEnd().split("\n");
     expect(lines.length).toBe(session.history().length);
-    expect(lines.map((l) => JSON.parse(l))).toEqual(session.history());
+    // #575: the persisted lines carry identity (fresh ULID + parent head);
+    // compare on everything else.
+    expect(lines.map((l) => {
+      const e = JSON.parse(l);
+      delete e.id;
+      delete e.parentId;
+      return e;
+    })).toEqual(session.history().map((e) => ({ ...e, id: undefined, parentId: undefined })));
 
     // Append-only: existing bytes unchanged after more events.
     const before = raw;
@@ -286,9 +293,14 @@ describe("session store", () => {
     expect(fork.file).not.toBe(store.file);
     expect(basename(fork.file, ".jsonl")).toMatch(SORTABLE_ID);
     // The inherited history is byte-identical, then the fork's born-consumed
-    // `session_resumed` marker (ADR-0021); the original file stays untouched.
-    expect(readFileSync(fork.file, "utf8")).toBe(originalBytes + '{"type":"session_resumed"}\n');
+    // `session_resumed` marker (ADR-0021) — #575: identity-stamped (fresh
+    // ULID, parent = the copied log's head); the original stays untouched.
+    expect(readFileSync(fork.file, "utf8").startsWith(originalBytes)).toBe(true);
     expect(readFileSync(store.file, "utf8")).toBe(originalBytes);
+    const resumed = JSON.parse(readFileSync(fork.file, "utf8").split("\n").at(-2)!) as AgentEvent;
+    expect(resumed.type).toBe("session_resumed");
+    expect(resumed.id).toMatch(/^[0-7][0-9ABCDEFGHJKMNPQRSTVWXYZ]{25}$/);
+    expect(resumed.parentId).toBeDefined();
 
     // The fork keeps appending to its own file.
     const forked = createSession({
@@ -316,7 +328,16 @@ describe("session store", () => {
     const latest = SessionStore.latest(cwd, home)!;
     expect(latest.file).toBe(store.file);
     const loaded = latest.load();
-    expect(loaded).toEqual(events);
+    // #575: direct store appends are identity-stamped on the tail.
+    expect(loaded.map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual(
+      events.map((e) => ({ ...e, id: undefined, parentId: undefined })),
+    );
+    // The legacy first line had no id to chain to: parentId is absent
+    // (degenerate linear tree); later events chain by ULID.
+    expect(loaded[0]!.parentId).toBeUndefined();
+    for (let i = 1; i < loaded.length; i += 1) {
+      expect(loaded[i]!.parentId).toBe(loaded[i - 1]!.id);
+    }
 
     const runtimeRules = runtimeRulesFromEvents(loaded);
     expect(runtimeRules).toEqual([
@@ -334,7 +355,9 @@ describe("session store", () => {
     const full = latest.load();
     // The resumed session re-appends session_start/session_mode plus the turn events.
     expect(full.length).toBe(events.length + 6); // session_start, session_mode, user_message, assistant_delta, model_call, done
-    expect(full.slice(0, events.length)).toEqual(events);
+    expect(full.slice(0, events.length).map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual(
+      events.map((e) => ({ ...e, id: undefined, parentId: undefined })),
+    );
   });
 
   test("load() rejects too-old and too-new schema versions with clear errors", () => {
@@ -355,7 +378,9 @@ describe("session store", () => {
     const store = SessionStore.create(process.cwd(), home);
     store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" });
     appendFileSync(store.file, "\n");
-    expect(store.load()).toEqual([{ type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" }]);
+    expect(store.load().map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual([
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1", id: undefined, parentId: undefined },
+    ]);
   });
 
   test("replayMessages() repairs a tool_call whose tool_result never arrived (aborted turn) #237", () => {
@@ -531,7 +556,9 @@ describe("single-writer guard (#400)", () => {
     store.append({ type: "user_message", text: "local" });
     const growth = store.externalGrowth();
     expect(growth).not.toBeNull();
-    const localLine = JSON.stringify({ type: "user_message", text: "local" }) + "\n";
+    // #575: the local line is identity-stamped (ULID + parentId) — its
+    // byte length is computed from what was actually written.
+    const localLine = JSON.stringify(store.load().at(-1)!) + "\n";
     expect(growth!.expectedBytes).toBe(before + Buffer.byteLength(localLine));
     expect(growth!.actualBytes).toBe(statSync(store.file).size);
     expect(store.externalGrowth()).toBeNull();
@@ -774,5 +801,66 @@ describe("session trash (#478)", () => {
     utimesSync(entry.file, past, past);
     pruneTrash(cwd, home);
     expect(existsSync(entry.file)).toBe(false);
+  });
+});
+
+describe("event identity (#575)", () => {
+  test("line:N bridge resolves legacy events read-only; ULIDs resolve by id; dangling refs are null", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "v" },
+      { type: "session_mode", mode: "normal" },
+    ];
+    const bridged = resolveEventRef("line:2", events);
+    expect(bridged?.type).toBe("session_mode");
+    // The bridge value rides `parentId` (a reference, never an id — d8).
+    expect(bridged?.parentId).toBe("line:2");
+    expect(bridged?.id).toBeUndefined();
+    // The underlying log is untouched — the bridge is read-only.
+    expect(events[1]!.id).toBeUndefined();
+    expect(resolveEventRef("line:9", events)).toBeNull();
+    expect(resolveEventRef("nope", events)).toBeNull();
+
+    const identified: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 2, promptVersion: "v", id: "01ABCDEFABCDEFGHJKMNPQRSTV" },
+    ];
+    expect(resolveEventRef("01ABCDEFABCDEFGHJKMNPQRSTV", identified)?.type).toBe("session_start");
+    expect(resolveEventRef("01ABCDEFABCDEFGHJKMNPQRSTW", identified)).toBeNull();
+  });
+
+  test("renameSession stamps identity: fresh ULID, parent = log head", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
+      sink: (e) => store.append(e),
+    });
+    session.dispose();
+    const before = store.load();
+    renameSession(store.file, "my name");
+    const after = store.load();
+    const renamed = after.at(-1)!;
+    expect(renamed.type).toBe("session_renamed");
+    expect(renamed.id).toMatch(/^[0-7][0-9ABCDEFGHJKMNPQRSTVWXYZ]{25}$/);
+    expect(renamed.parentId).toBe(after.at(-2)!.id);
+    expect(before.length + 1).toBe(after.length);
+  });
+
+  test("appending to a legacy log stamps id without a line:N parent; appends to a v2 log chain by ULID", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    appendFileSync(store.file, '{"type":"session_start","schemaVersion":1,"promptVersion":"v"}\n');
+    store.append({ type: "session_mode", mode: "normal" });
+    const lines = readFileSync(store.file, "utf8").trimEnd().split("\n");
+    expect(lines).toHaveLength(2);
+    const first = JSON.parse(lines[1]!) as AgentEvent;
+    expect(first.id).toMatch(/^[0-7][0-9ABCDEFGHJKMNPQRSTVWXYZ]{25}$/);
+    // A purely legacy tail has no id: parentId is absent (same rule as
+    // EventLog.append) — no `line:N` is ever written (d8).
+    expect(first.parentId).toBeUndefined();
+    store.append({ type: "session_mode", mode: "auto-accept" });
+    const [, second, third] = store.load();
+    expect(third!.parentId).toBe(second!.id);
   });
 });

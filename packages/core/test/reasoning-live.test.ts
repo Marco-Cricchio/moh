@@ -122,6 +122,6 @@ describe("core live reasoning channel (#253)", () => {
     expect(liveSeen).toEqual(["live one ", "live two"]);
     // persistence semantics unchanged: completed block only, no deltas
     expect(logged.some((e) => (e as { type: string }).type === "reasoning_delta")).toBe(false);
-    expect(logged).toContainEqual({ type: "reasoning", text: "live one live two" });
+    expect(logged).toContainEqual(expect.objectContaining({ type: "reasoning", text: "live one live two" }));
   });
 });

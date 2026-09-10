@@ -35,15 +35,16 @@ describe("reasoning lifecycle integration (#243)", () => {
     await original.send("first");
 
     const persisted = store.load();
-    expect(persisted).toContainEqual({
+    expect(persisted).toContainEqual(expect.objectContaining({
       type: "reasoning",
       text: "persisted thought",
       continuation: { signature: "opaque-1" },
-    });
+    }));
     const originalBytes = readFileSync(store.file, "utf8");
     const fork = store.fork();
-    // ADR-0021: forks are born consumed — the fork appends session_resumed.
-    expect(readFileSync(fork.file, "utf8")).toBe(originalBytes + '{"type":"session_resumed"}\n');
+    // ADR-0021: forks are born consumed — the fork appends session_resumed
+    // (#575: identity-stamped, parent = the copied log's head).
+    expect(readFileSync(fork.file, "utf8").startsWith(originalBytes)).toBe(true);
 
     let resumedContext: Message[] = [];
     const capture: Provider = {
@@ -149,17 +150,17 @@ describe("reasoning lifecycle integration (#243)", () => {
     const session = createSession({ provider: route });
     await session.send("use fallback");
 
-    expect(session.history().filter((event) => event.type === "reasoning")).toEqual([
+    expect(session.history().filter((event) => event.type === "reasoning")).toMatchObject([
       { type: "reasoning", text: "primary thought" },
       { type: "reasoning", text: "secondary thought", continuation: { signature: "secondary-signature" } },
     ]);
-    expect(session.history()).toContainEqual({ type: "model_call", model: "primary/model-a", usage: { inputTokens: 0, outputTokens: 0 }, thinkingLevel: "high", failed: true });
-    expect(session.history()).toContainEqual({
+    expect(session.history()).toContainEqual(expect.objectContaining({ type: "model_call", model: "primary/model-a", usage: { inputTokens: 0, outputTokens: 0 }, thinkingLevel: "high", failed: true }));
+    expect(session.history()).toContainEqual(expect.objectContaining({
       type: "fallback",
       from: "primary/model-a",
       to: "secondary/model-b",
       reason: "quota_exhausted",
-    });
+    }));
     expect(
       session.history().filter((event) => event.type === "model_call").map((event) => ({ model: event.model, thinkingLevel: event.thinkingLevel })),
     ).toEqual([
@@ -250,12 +251,12 @@ describe("reasoning lifecycle integration (#243)", () => {
     // Log retention without checkpointing: the reasoning text stays in the
     // log (no continuation), marked by a failed model_call; replay excludes
     // it from provider context.
-    expect(session.history().filter((event) => event.type === "reasoning")).toEqual([
+    expect(session.history().filter((event) => event.type === "reasoning")).toMatchObject([
       { type: "reasoning", text: "unfinalized thought" },
     ]);
-    expect(session.history()).toContainEqual({ type: "model_call", model: "reasoner", usage: { inputTokens: 0, outputTokens: 0 }, failed: true });
+    expect(session.history()).toContainEqual(expect.objectContaining({ type: "model_call", model: "reasoner", usage: { inputTokens: 0, outputTokens: 0 }, failed: true }));
     expect(replayMessages(session.history()).flatMap((message) => message.parts)).not.toContainEqual({ kind: "reasoning", text: "unfinalized thought" });
-    expect(session.history().at(-1)).toEqual({ type: "cancelled" });
+    expect(session.history().at(-1)).toMatchObject({ type: "cancelled" });
   });
 
   test("a failed same-target retry is log-only: its partial content never enters replay context", async () => {
@@ -289,7 +290,7 @@ describe("reasoning lifecycle integration (#243)", () => {
     expect(await session.send("retry me")).toEqual({ status: "done" });
 
     const log = session.history();
-    expect(log).toContainEqual({ type: "model_call", model: "reasoner", usage: { inputTokens: 0, outputTokens: 0 }, thinkingLevel: "low", failed: true });
+    expect(log).toContainEqual(expect.objectContaining({ type: "model_call", model: "reasoner", usage: { inputTokens: 0, outputTokens: 0 }, thinkingLevel: "low", failed: true }));
     const replayedParts = replayMessages(log).flatMap((message) => message.parts);
     expect(replayedParts).not.toContainEqual({ kind: "reasoning", text: "doomed attempt thought" });
     expect(replayedParts).not.toContainEqual({ kind: "text", text: "doomed partial" });
@@ -331,11 +332,11 @@ describe("reasoning lifecycle integration (#243)", () => {
     // The interrupted call's reasoning stays in the append-only log for
     // audit/display, but without its continuation and marked failed — it
     // never becomes resumable provider context.
-    expect(reasoning).toEqual([
+    expect(reasoning).toMatchObject([
       { type: "reasoning", text: "completed thought", continuation: { signature: "completed-signature" } },
       { type: "reasoning", text: "interrupted thought" },
     ]);
-    expect(persisted).toContainEqual({ type: "model_call", model: "reasoner", usage: { inputTokens: 0, outputTokens: 0 }, failed: true });
+    expect(persisted).toContainEqual(expect.objectContaining({ type: "model_call", model: "reasoner", usage: { inputTokens: 0, outputTokens: 0 }, failed: true }));
 
     let resumedContext: Message[] = [];
     const resumedProvider: Provider = {
@@ -387,11 +388,11 @@ describe("reasoning lifecycle integration (#243)", () => {
       const result = await session.send("think only");
       expect(result).toEqual({ status: "done" });
       const persisted = session.history();
-      expect(persisted).toContainEqual({
+      expect(persisted).toContainEqual(expect.objectContaining({
         type: "reasoning",
         text: "silent thinking",
         continuation: { openrouter: { reasoningDetails: [{ type: "reasoning.text", text: "silent thinking" }] } },
-      });
+      }));
       expect(persisted.filter((e) => e.type === "error")).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -435,7 +436,7 @@ describe("openrouter reasoning end-to-end (#251)", () => {
       const modelCallIdx = persisted.findIndex((e) => e.type === "model_call");
       expect(reasoningIdx).toBeGreaterThan(-1);
       expect(modelCallIdx).toBeGreaterThan(reasoningIdx);
-      expect(persisted[reasoningIdx]).toEqual({
+      expect(persisted[reasoningIdx]).toMatchObject({
         type: "reasoning",
         text: "or thought",
         continuation: { openrouter: { reasoningDetails: [{ type: "reasoning.text", text: "or thought" }] } },

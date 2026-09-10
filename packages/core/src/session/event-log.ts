@@ -1,8 +1,18 @@
 import type { AgentEvent, ReasoningStreamEvent } from "../types";
+import { newUlid } from "./ulid";
 
 /** The dispatch surface EventLog needs from the extension runtime. */
 export interface EventDispatcher {
   dispatchEvent(event: AgentEvent): Promise<AgentEvent[]>;
+}
+
+/** #575: the id of the log's last identified event (the current branch
+ * head as the writer sees it); undefined on a purely legacy tail. */
+export function headId(log: ReadonlyArray<AgentEvent>): string | undefined {
+  for (let i = log.length - 1; i >= 0; i -= 1) {
+    if (log[i]!.id !== undefined) return log[i]!.id;
+  }
+  return undefined;
 }
 
 export interface EventLogOptions {
@@ -48,11 +58,27 @@ export class EventLog {
   }
 
   append(event: AgentEvent): void {
-    this.#log.push(event);
-    this.#sink?.(event);
-    for (const listener of this.#listeners) listener(event);
-    if (this.#extensions && event.type !== "extension_failed") {
-      this.#queue.push(event);
+    // #575: every appended event carries identity — a fresh ULID `id` and
+    // a `parentId` chaining it to the branch head (the last identified
+    // event in the log; legacy tails have none, so the field is simply
+    // absent there — the degenerate linear tree). An explicitly supplied
+    // `parentId` (mandatory when appending off-head, format decision 3)
+    // is preserved; the `id` is always writer-stamped, never trusted from
+    // the caller.
+    const stamped: AgentEvent = {
+      ...event,
+      id: newUlid(),
+      ...(event.parentId !== undefined
+        ? { parentId: event.parentId }
+        : headId(this.#log) !== undefined
+          ? { parentId: headId(this.#log) }
+          : {}),
+    };
+    this.#log.push(stamped);
+    this.#sink?.(stamped);
+    for (const listener of this.#listeners) listener(stamped);
+    if (this.#extensions && stamped.type !== "extension_failed") {
+      this.#queue.push(stamped);
       this.#drain();
     }
   }

@@ -27,11 +27,12 @@ describe("model_call logging (#83)", () => {
 
     const modelCalls = session.history().filter((e) => e.type === "model_call");
     expect(modelCalls).toHaveLength(2);
-    expect(modelCalls[0]).toEqual({ type: "model_call", model: "mock", usage: { inputTokens: 10, outputTokens: 5 } });
-    expect(modelCalls[1]).toEqual({ type: "model_call", model: "mock", usage: { inputTokens: 20, outputTokens: 8 } });
+    // #575: appended events carry identity — compare on payload fields.
+    expect(modelCalls[0]).toMatchObject({ type: "model_call", model: "mock", usage: { inputTokens: 10, outputTokens: 5 } });
+    expect(modelCalls[1]).toMatchObject({ type: "model_call", model: "mock", usage: { inputTokens: 20, outputTokens: 8 } });
 
     const done = session.history().at(-1);
-    expect(done).toEqual({ type: "done", usage: { inputTokens: 30, outputTokens: 13 }, models: ["mock"] });
+    expect(done).toMatchObject({ type: "done", usage: { inputTokens: 30, outputTokens: 13 }, models: ["mock"] });
   });
 
   test("replay ignores model_call events: replayMessages is unchanged", () => {
@@ -90,7 +91,7 @@ describe("model_call logging (#83)", () => {
     await session.send("a");
     await session.send("b");
     const dones = session.history().filter((e) => e.type === "done");
-    expect(dones).toEqual([
+    expect(dones).toMatchObject([
       { type: "done", usage: { inputTokens: 5, outputTokens: 2 }, models: ["mock"] },
       { type: "done", usage: { inputTokens: 7, outputTokens: 3 }, models: ["mock"] },
     ]);
