@@ -170,6 +170,24 @@ describe("semantic transcript projection (#183)", () => {
     }
   });
 
+  test("bash technical titles skip leading comments but preserve the logged command", () => {
+    const command = "  # explain the test\n\n# retain this note\nbun test packages/tui/test/transcript.test.tsx";
+    const event: AgentEvent = { type: "tool_call", callId: "commented", name: "bash", args: { command } };
+    const [block] = projectTranscript([event], { mode: "dev" });
+    expect(block?.detail).toBe("bun test packages/tui/test/transcript.test.tsx");
+    expect((event.args as { command: string }).command).toBe(command);
+
+    const [plain] = projectTranscript([
+      { type: "tool_call", callId: "plain", name: "bash", args: { command: "git status --short" } },
+    ], { mode: "dev" });
+    expect(plain?.detail).toBe("git status --short");
+
+    const [commentOnly] = projectTranscript([
+      { type: "tool_call", callId: "comment-only", name: "bash", args: { command: "\n  # no executable command\n\n" } },
+    ], { mode: "dev" });
+    expect(commentOnly?.detail).toBe("  # no executable command");
+  });
+
   test("vibe command hint is a short synthesis, never the full command line (#215)", () => {
     const events: AgentEvent[] = [
       { type: "tool_call", callId: "h1", name: "bash", args: { command: "FOO=1 bun test packages/tui" } },
