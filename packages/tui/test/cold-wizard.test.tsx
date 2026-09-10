@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ColdWizard, type ColdWizardSeams } from "../src/ColdWizard";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { waitForCondition, stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -74,7 +74,9 @@ describe("cold-directory wizard (#595)", () => {
     const flat = (s: string) => stripAnsi(s).replace(/\s+/g, "");
     expect(flat(i.lastFrame() ?? "")).toContain(dir.slice(0, 30));
     i.stdin.write("\r"); // confirm the proposed location
-    await sleep(50);
+    // Poll, don't sleep: the clone→pull→proceed chain includes sync git
+    // probes that blow fixed waits under full-suite load.
+    await waitForCondition(() => proceeded !== null, () => "wizard to proceed with the seeded payload");
     expect(proceeded).not.toBeNull();
     expect(proceeded!.path).toBe(join(dir, "project-a"));
     expect(proceeded!.stale).toBe(true); // the temp clone has no .git: the anchor can never match
@@ -148,8 +150,11 @@ describe("cold-directory wizard (#595)", () => {
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("\r");
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("repository not found");
+    // Poll for the error frame: same load-resistance as the proceed test.
+    await waitForCondition(
+      () => stripAnsi(i.lastFrame() ?? "").includes("repository not found"),
+      () => "the clone error to appear",
+    );
     expect(proceeded).toBe(0);
     i.unmount();
   });
