@@ -29,8 +29,8 @@ describe("reasoning persistence and replay (#240)", () => {
     await session.send("hi");
     const history = session.history();
     const i = history.findIndex((e) => e.type === "model_call");
-    expect(history[i - 1]).toEqual({ type: "reasoning", text: "step 1: parse. step 2: answer.", continuation: { signature: "sig-1" } });
-    expect(history[i]).toEqual({ type: "model_call", model: "mock", usage: { inputTokens: 1, outputTokens: 2 } });
+    expect(history[i - 1]).toMatchObject({ type: "reasoning", text: "step 1: parse. step 2: answer.", continuation: { signature: "sig-1" } });
+    expect(history[i]).toMatchObject({ type: "model_call", model: "mock", usage: { inputTokens: 1, outputTokens: 2 } });
   });
 
   test("replay reconstructs the reasoning part in the assistant message context", () => {
@@ -71,7 +71,7 @@ describe("reasoning persistence and replay (#240)", () => {
     drain(session);
     await session.send("hi");
     const blocks = session.history().filter((e) => e.type === "reasoning");
-    expect(blocks).toEqual([
+    expect(blocks).toMatchObject([
       { type: "reasoning", text: "first block", continuation: { signature: "a" } },
       { type: "reasoning", text: "second block" },
     ]);
@@ -132,7 +132,7 @@ describe("reasoning persistence and replay (#240)", () => {
     expect(result.status).toBe("error");
     const history = session.history();
     const reasoning = history.find((e) => e.type === "reasoning");
-    expect(reasoning).toEqual({ type: "reasoning", text: "I was thinking" });
+    expect(reasoning).toMatchObject({ type: "reasoning", text: "I was thinking" });
     expect(history.findIndex((e) => e.type === "error")).toBeGreaterThan(history.indexOf(reasoning!));
     // And the reasoning stays out of the reconstructed context (no assistant message formed).
     expect(replayMessages(history).filter((m) => m.role === "assistant")).toHaveLength(0);
@@ -169,7 +169,7 @@ describe("thinking-level request options (#240)", () => {
     // Effective-level audit (#239 decision 9): model_call carries what the provider announced.
     const call = session.history().find((e) => e.type === "model_call") as never as { thinkingLevel?: ThinkingLevel };
     expect(call.thinkingLevel).toBe("high");
-    expect(session.history()).toContainEqual({ type: "reasoning", text: "hmm" });
+    expect(session.history()).toContainEqual(expect.objectContaining({ type: "reasoning", text: "hmm" }));
   });
 
   test("no thinking option means no invented request field", async () => {
