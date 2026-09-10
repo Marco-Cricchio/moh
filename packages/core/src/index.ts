@@ -246,6 +246,7 @@ import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, 
 import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, spawnGit, type CloneHandoffRepoOptions, type CloneHandoffRepoResult, type GitCall, type GitRunner, type PullHandoffOptions, type PullHandoffResult } from "./handoff-coldstart";
 import {
   discoverHandoff,
+  isHandoffStale,
   handoffSeedPrompt,
   handoffSeedMessage,
   type HandoffOffer,
@@ -619,6 +620,7 @@ export {
   type PullHandoffResult,
   // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
+  isHandoffStale,
   handoffSeedPrompt,
   handoffSeedMessage,
   enrichHandoffWithWayfinder,

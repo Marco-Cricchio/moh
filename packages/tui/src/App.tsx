@@ -33,7 +33,9 @@ import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { useSubagentCount } from "./subagent-panel";
 import { Chat, type Mode } from "./Chat";
-import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel } from "./factory";
+import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel, transportActiveFor } from "./factory";
+import { ColdWizard } from "./ColdWizard";
+import { isColdDirectory, discoverGistHandoffs, type GistHandoffOffer } from "@moh/core";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
@@ -101,7 +103,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -514,9 +516,11 @@ export function App({
     initialPrompt?: string,
     turnPrompt?: { name: string; text: string },
     handoffOffer?: Extract<HandoffOffer, { status: "offer" }>,
+    /** #595: a session assembled in a DIFFERENT cwd (the clone). */
+    cwdOverride?: string,
   ) => {
     const base = {
-      cwd,
+      cwd: cwdOverride ?? cwd,
       home,
       provider,
       workflow: configRef.current.workflow.enabled,
@@ -551,6 +555,31 @@ export function App({
       void made.session.send(initialPrompt);
     }
   };
+
+  // #595 cold-directory wizard: scan state, trigger gate, and completion.
+  const [coldOffers, setColdOffers] = useState<GistHandoffOffer[] | null>(null);
+  const coldScanDone = useRef(false);
+  /** Scans the authenticated user's gists broadly (#594) and opens the
+   * wizard with the offers. Failures degrade to an empty list (no wizard). */
+  const startColdWizard = useCallback(() => {
+    const scan = coldOffers !== null ? Promise.resolve(coldOffers) : discoverGistHandoffs();
+    void scan.then((offers) => {
+      if (offers.length === 0) return push("no published handoffs found on your gists");
+      setColdOffers(offers);
+      setOverlay("cold-wizard");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coldOffers]);
+  // Auto-offer only in a truly cold directory (no .git above, no local
+  // sessions): anywhere else the Home action is the explicit door.
+  useEffect(() => {
+    if (startInChat || needsOnboarding || handoffStartupOffer || coldScanDone.current) return;
+    if (!isColdDirectory(cwd, home)) return;
+    if (!transportActiveFor(cwd, home)) return;
+    coldScanDone.current = true;
+    startColdWizard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // T3 #436: startup handoff discovery — runs once when the home screen
   // mounts. Bounded and fail-silent: offline / gh-less / off machines
@@ -1044,6 +1073,7 @@ export function App({
               lastOffer.current = offer;
               open(null, undefined, handoffSeedPrompt(offer), offer);
             }}
+            onOpenColdWizard={startColdWizard}
           />
         )}
         </Box>
@@ -1119,6 +1149,28 @@ export function App({
           />
         )}
         {overlay === "commands" && <CommandsPanel onClose={() => setOverlay(null)} />}
+        {overlay === "cold-wizard" && coldOffers && (
+          <ColdWizard
+            offers={coldOffers}
+            cwd={cwd}
+            home={home}
+            onClose={() => setOverlay(null)}
+            onToast={push}
+            onProceed={({ path, payload, stale }) => {
+              setOverlay(null);
+              // The clone becomes the working directory of the seeded
+              // session: same assembly path, new cwd, reception seeding
+              // unchanged (newest-wins + staleness live in the payload).
+              lastOffer.current = {
+                status: "offer",
+                payload,
+                url: "cloned handoff",
+                stale,
+              };
+              open(null, undefined, handoffSeedPrompt(lastOffer.current), lastOffer.current, path);
+            }}
+          />
+        )}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
         {overlay === "rename" && session && (
           <SessionRenameModal
