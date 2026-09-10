@@ -26,7 +26,7 @@ import {
 } from "@moh/core";
 import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
-import { SessionStore, handoffSeedMessage, handoffSeedPrompt } from "@moh/core";
+import { SessionStore, handoffSeedMessage, handoffSeedPrompt, createGistHandoffTransport } from "@moh/core";
 import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
@@ -563,11 +563,13 @@ export function App({
    * wizard with the offers. Failures degrade to an empty list (no wizard). */
   const startColdWizard = useCallback(() => {
     const scan = coldOffers !== null ? Promise.resolve(coldOffers) : discoverGistHandoffs();
-    void scan.then((offers) => {
-      if (offers.length === 0) return push("no published handoffs found on your gists");
-      setColdOffers(offers);
-      setOverlay("cold-wizard");
-    });
+    void scan
+      .then((offers) => {
+        if (offers.length === 0) return push("no published handoffs found on your gists");
+        setColdOffers(offers);
+        setOverlay("cold-wizard");
+      })
+      .catch(() => push("handoff scan failed — try again from the home screen (o)"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coldOffers]);
   // Auto-offer only in a truly cold directory (no .git above, no local
@@ -1154,6 +1156,10 @@ export function App({
             offers={coldOffers}
             cwd={cwd}
             home={home}
+            fetchPayload={async (url) => {
+              const fetched = await createGistHandoffTransport({ cwd, home }).fetchByUrl?.(url);
+              return fetched?.ok ? { ok: true, payload: fetched.payload } : { ok: false };
+            }}
             onClose={() => setOverlay(null)}
             onToast={push}
             onProceed={({ path, payload, stale }) => {

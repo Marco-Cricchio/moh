@@ -15,7 +15,6 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { importHandoffFile } from "./handoff-file";
 import { readRawHandoffText, type HandoffPayload, type HandoffTransportError } from "./handoff-transport";
-import { isHandoffStale } from "./handoff-reception";
 import { listSessionSummaries } from "./session-store";
 import type { GistHandoffOffer } from "./handoff-gist";
 import type { RawHandoff } from "./handoff";
@@ -152,11 +151,6 @@ export async function pullHandoffTo(options: PullHandoffOptions): Promise<PullHa
     return { ok: false, message };
   }
   return { ok: true, payload: readRawHandoffText(payload) ?? (payload as RawHandoff) };
-}
-
-/** Staleness of a scanned offer against the clone (or declared) directory. */
-export function offerStaleness(payload: RawHandoff, cwd: string): boolean {
-  return isHandoffStale(payload, cwd);
 }
 
 function handoffErrorMessage(error: HandoffTransportError): string {

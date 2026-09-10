@@ -243,7 +243,7 @@ import {
   type PublishHandoffResult,
 } from "./handoff-transport";
 import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, type GistHandoffOffer, type DiscoverGistHandoffsOptions } from "./handoff-gist";
-import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, spawnGit, type CloneHandoffRepoOptions, type CloneHandoffRepoResult, type GitCall, type GitRunner, type PullHandoffOptions, type PullHandoffResult } from "./handoff-coldstart";
+import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type CloneHandoffRepoOptions, type CloneHandoffRepoResult, type GitCall, type GitRunner, type PullHandoffOptions, type PullHandoffResult } from "./handoff-coldstart";
 import {
   discoverHandoff,
   isHandoffStale,
@@ -609,7 +609,6 @@ export {
   isColdDirectory,
   cloneHandoffRepo,
   pullHandoffTo,
-  spawnGit,
   type GistHandoffOffer,
   type DiscoverGistHandoffsOptions,
   type GitCall,

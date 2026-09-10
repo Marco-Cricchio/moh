@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Text, useInput } from "ink";
 import {
   cloneHandoffRepo,
+  createGistHandoffTransport,
   pullHandoffTo,
   ghUsername,
   spawnGh,
@@ -29,6 +30,9 @@ export interface ColdWizardProps {
   /** The directory moh was launched in: the proposed clone destination. */
   cwd: string;
   home?: string;
+  /** Resolves the payload of a scanned offer's gist (production: the
+   * gist transport's fetchByUrl; tests inject it). */
+  fetchPayload?: (url: string) => Promise<{ ok: true; payload: RawHandoff } | { ok: false }>;
   seams?: ColdWizardSeams;
   /** Opens the seeded session in the clone (the App's open() on the new cwd). */
   onProceed: (args: { path: string; payload: RawHandoff; stale: boolean }) => void;
@@ -54,7 +58,7 @@ function offerTitle(offer: GistHandoffOffer): string {
  * any step leaves nothing half-done beyond the clone itself, which is a
  * plain git clone the user owns.
  */
-export function ColdWizard({ offers, cwd, home, seams, onProceed, onClose, onToast }: ColdWizardProps) {
+export function ColdWizard({ offers, cwd, home, fetchPayload, seams, onProceed, onClose, onToast }: ColdWizardProps) {
   const theme = useTheme();
   const [phase, setPhase] = useState<Phase>({ step: "pick" });
   const [cursor, setCursor] = useState(0);
@@ -86,20 +90,29 @@ export function ColdWizard({ offers, cwd, home, seams, onProceed, onClose, onToa
       return name.ok ? { ok: true as const, user: name.user } : { ok: false as const };
     });
     const user = await resolveUser();
-    const fetchByUrl = seams?.fetchPayload
-      ? async () => {
+    // Production payload source: the prop (wired to the gist transport's
+    // fetchByUrl); tests inject their own via seams.fetchPayload.
+    const resolveFetch = seams?.fetchPayload
+      ? async (): Promise<{ ok: true; payload: RawHandoff } | { ok: false; error: { reason: "failed"; message: string } }> => {
           const fetched = await seams.fetchPayload!(offer.url);
           return fetched.ok
             ? { ok: true as const, payload: fetched.payload }
             : { ok: false as const, error: { reason: "failed" as const, message: "fetch failed" } };
         }
-      : undefined;
+      : fetchPayload
+        ? async (): Promise<{ ok: true; payload: RawHandoff } | { ok: false; error: { reason: "failed"; message: string } }> => {
+            const fetched = await fetchPayload(offer.url);
+            return fetched.ok
+              ? { ok: true as const, payload: fetched.payload }
+              : { ok: false as const, error: { reason: "failed" as const, message: "fetch failed" } };
+          }
+        : undefined;
     const pulled = await pull({
       cwd: path,
       home,
       offer,
       ...(user.ok ? { expectedAuthor: user.user } : {}),
-      ...(fetchByUrl ? { fetchByUrl } : {}),
+      ...(resolveFetch ? { fetchByUrl: resolveFetch } : {}),
     });
     if (!pulled.ok) {
       return setPhase({ step: "error", offer, message: pulled.message });
