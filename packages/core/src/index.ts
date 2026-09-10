@@ -63,6 +63,11 @@ import {
   // tail after divergence and resolve references. Session-level:
   // `session.switchBranch(to)`.
   switchBranch,
+  // #579: bookmarks — the ADR-0004 reopening that lets clients (TUI /tree
+  // `b`/`B`, `moh sessions bookmark`) set/rename/clear a node bookmark by
+  // appending the `tree_bookmarked` event. Live-writer path:
+  // `session.bookmarkNode(to, name?)`.
+  bookmarkNode,
   localTipAt,
   resolveEventRef,
   lineRef,

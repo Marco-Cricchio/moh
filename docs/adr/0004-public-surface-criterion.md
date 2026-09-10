@@ -132,3 +132,15 @@ that defines what the model context sees. The session-tree ADR is
 ADR-0023; the specs (`docs/spec/session-tree-*.md`) remain the normative
 semantics source. Future client-facing projections (`sessionTree`,
 #580) build on `activePath` and will record their own doors.
+
+## Amendment — 2026-09-10, #579 bookmark writer seam
+
+**Re-opened door**: `bookmarkNode(file, to, name?)` (`core/src/session-store.ts`)
+— the writer seam that appends the `tree_bookmarked { to, name? }` chrome
+event (ADR-0023 §4, spec `session-tree-surfaces.md` §4): append-only,
+last-wins per node, an explicitly empty name is the reset, `to` resolves
+as ULID or `line:N` bridge (write-time validated, same discipline as
+`switchBranch`). Chrome only: never provider context, never compaction
+input; the event is itself a tree node counted for topology. The
+live-writer twin is `session.bookmarkNode(to, name?)`; consumed by the
+TUI `/tree` panel (#581) and `moh sessions bookmark` (#582).

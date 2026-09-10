@@ -917,6 +917,61 @@ export function switchBranch(file: string, to: string): string {  if (!existsSyn
   return stamped.id!;
 }
 
+/**
+ * #579 (spec §4): bookmarks a node by appending a `tree_bookmarked
+ * { to, name? }` chrome event to the session's log — same append
+ * discipline as `renameSession`/`switchBranch` (resume, fork and
+ * compaction carry it for free through the copied/compacted log).
+ * `to` must reference a node already in the file: a ULID present in the
+ * log, or a `line:N` bridge to a pre-tree event (bookmarking a legacy
+ * turn works). With a non-empty (trimmed) `name` the bookmark is set or
+ * renamed; with an empty/whitespace name the bookmark is cleared — the
+ * explicit reset event appends, keeping the log append-only (last-wins:
+ * the LAST `tree_bookmarked` for a node is its state). Omitting `name`
+ * sets an unnamed bookmark. Chrome only: never provider context,
+ * never compaction input; counted for topology. Returns the id of the
+ * appended event. Rejection is an error: callers surface it, never a
+ * silent no-op. Concurrent bookmark while open elsewhere is out of scope
+ * (#400) — the live-writer path is `session.bookmarkNode()`.
+ */
+export function bookmarkNode(file: string, to: string, name?: string): string {
+  if (!existsSync(file)) {
+    throw new Error(`bookmarkNode: session file not found: ${file}`);
+  }
+  if (!isSessionFile(basename(file))) {
+    throw new Error(`bookmarkNode: not a session file: ${basename(file)}`);
+  }
+  // Write-time validation: same rule as `switchBranch` — the log never
+  // learns to dangle from its own writer.
+  {
+    let store: SessionStore | null = null;
+    let events: AgentEvent[];
+    try {
+      store = SessionStore.open(file);
+      events = store.load();
+    } catch (err) {
+      throw new Error(
+        `bookmarkNode: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      store?.dispose();
+    }
+    if (resolveEventRef(to, events) === null) {
+      throw new Error(`bookmarkNode: target event not found in session: ${to}`);
+    }
+  }
+  const trimmed = name?.trim() ?? "";
+  const event: AgentEvent =
+    name === undefined
+      ? { type: "tree_bookmarked", to }
+      : trimmed === ""
+        ? { type: "tree_bookmarked", to, name: "" }
+        : { type: "tree_bookmarked", to, name: trimmed };
+  const stamped = stampEvent(event, file);
+  appendFileSync(file, JSON.stringify(stamped) + "\n");
+  return stamped.id!;
+}
+
 /** The final assistant text of the last turn: deltas after the last user_message. */
 export function lastAssistantText(events: ReadonlyArray<AgentEvent>): string {
   let text = "";
