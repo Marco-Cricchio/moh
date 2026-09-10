@@ -31,6 +31,7 @@ export type HandoffTransportError =
   | { reason: "gh-missing" }
   | { reason: "not-logged-in" }
   | { reason: "timeout" }
+  | { reason: "newer-remote"; remoteUpdatedAt: string; localUpdatedAt: string }
   | { reason: "failed"; message: string };
 
 /** The one transport seam (#433): publish/fetch, injected by clients.

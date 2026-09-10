@@ -58,8 +58,20 @@ describe("moh handoff (#439)", () => {
     expect(io.read().stdout).toContain("notified 1 claimed Wayfinder ticket");
   });
 
-  test("a failed publish cannot notify a tracker ticket", async () => {
+  test("a declined newer-remote publish reports the decline, not a failure", async () => {
     const fixture = setup(); const io = streams();
+    const transport: HandoffTransport = {
+      ...fixture.transport,
+      async publish() {
+        return { ok: false, error: { reason: "newer-remote", remoteUpdatedAt: "2026-09-03T00:00:00.000Z", localUpdatedAt: "2026-09-02T00:00:00.000Z" } };
+      },
+    };
+    expect(await handoffCommand({ argv: [], ...fixture, transport, ...io })).toBe(1);
+    expect(io.read().stderr).toContain("publish declined");
+    expect(io.read().stderr).not.toContain("publish failed");
+  });
+
+  test("a failed publish cannot notify a tracker ticket", async () => {    const fixture = setup(); const io = streams();
     const transport: HandoffTransport = { ...fixture.transport, async publish() { return { ok: false, error: { reason: "failed", message: "offline" } }; } };
     expect(await handoffCommand({ argv: ["--notify-ticket"], ...fixture, transport, ...io })).toBe(1);
     expect(fixture.comments).toEqual([]);

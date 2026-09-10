@@ -13,6 +13,8 @@ import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// "Should not already be working" race and then hangs the bun process.
+
 describe("settledBoundary — incremental Static promotion (#194)", () => {
   test("idle sessions settle everything", () => {
     const events: AgentEvent[] = [

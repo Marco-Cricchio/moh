@@ -20,6 +20,23 @@ import {
   type TrackerBackend,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
+import { createInterface } from "node:readline/promises";
+
+/** One y/N confirmation line from the terminal (publish guard, #593). */
+async function confirmLine(prompt: string): Promise<boolean> {
+  try {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const answer = (await rl.question(prompt)).trim().toLowerCase();
+      return answer === "y" || answer === "yes";
+    } finally {
+      rl.close();
+    }
+  } catch {
+    // Non-interactive stdin: never overwrite.
+    return false;
+  }
+}
 
 export const HANDOFF_USAGE = `usage: moh handoff [--notify-ticket] [--cwd <dir>]
        moh handoff export <file> [--cwd <dir>]
@@ -100,10 +117,27 @@ export async function handoffCommand(options: HandoffCommandOptions): Promise<nu
   }
   const tracker = options.tracker === undefined ? await resolveTracker({ cwd }) : options.tracker;
   const payload = await enrichHandoffWithWayfinder(artifact, tracker);
-  const transport = options.transport ?? createGistHandoffTransport({ cwd, home: options.home });
+  const transport =
+    options.transport ??
+    createGistHandoffTransport({
+      cwd,
+      home: options.home,
+      // CLI publish guard (#593): the terminal prompt IS the consent seam.
+      confirmOverwrite: async ({ remoteUpdatedAt, localUpdatedAt }) => {
+        out.write(
+          `moh handoff: the remote handoff gist is newer (remote ${remoteUpdatedAt} > local ${localUpdatedAt}).\n` +
+            "Publishing replaces it — another machine may have moved the work forward.\n",
+        );
+        return await confirmLine("Overwrite the remote handoff? [y/N] ");
+      },
+    });
   const published = await transport.publish(payload);
   if (!published.ok) {
-    err.write(`moh handoff: publish failed (${published.error.reason}) — handoff kept local only\n`);
+    if (published.error.reason === "newer-remote") {
+      err.write("moh handoff: publish declined — the newer remote handoff is untouched\n");
+    } else {
+      err.write(`moh handoff: publish failed (${published.error.reason}) — handoff kept local only\n`);
+    }
     return 1;
   }
   out.write(`handoff published: ${published.url}\n`);
@@ -212,7 +246,7 @@ async function handoffPullCommand(
   if (options.ghUser) {
     expectedAuthor = options.ghUser;
   } else {
-    const resolved = ghUsername(spawnGh);
+    const resolved = await ghUsername(spawnGh);
     if (resolved.ok) expectedAuthor = resolved.user;
   }
   const result = await importHandoffFile({

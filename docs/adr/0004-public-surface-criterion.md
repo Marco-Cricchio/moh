@@ -104,6 +104,10 @@ The sentinel semantics (0 = unlimited, absent = 50) live in one core
 resolver so the TUI cycle and the CLI strict parse project the same
 contract instead of duplicating it; the loop guard itself stays internal.
 
+## Amendment — 2026-09-10, #594 broad handoff discovery seam
+
+**Re-opened doors**: `discoverGistHandoffs` and the `GistHandoffOffer`/`DiscoverGistHandoffsOptions` types (`core/src/handoff-gist.ts`), consumed by the TUI cold-start wizard and CLI. The seam deliberately returns only a compact, typed offer list and fail-silently returns `[]`; authenticated secret-gist enumeration, tag validation, candidate fetches, pagination, and `gh` details remain internal. This lets each client choose its own offer UI without duplicating remote discovery or exposing raw artifacts at the package boundary.
+
 ## Amendment — 2026-09-07, #551 live model-catalog seam
 
 **Re-opened doors**: `fetchLiveCatalogs` and the `LiveModelListing` type

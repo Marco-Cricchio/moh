@@ -8,7 +8,7 @@ import { MultilineInput, slashSuggestions } from "../src/Input";
 import type { CommandEntry } from "../src/commands";
 import { App } from "../src/App";
 import { MockProvider } from "@moh/core";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -62,6 +62,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["type", "filter sessions or start a new one"],
       ["enter", "open selection / start the typed prompt"],
       ["n", "new session"],
+      ["o", "resume from another machine (cold-start wizard: pick a published handoff, clone, pull, open the seeded session)"],
       ["r / →", "rename the selected session (enter confirm, empty = reset, esc cancel)"],
       ["d", "delete the selected session (y/N confirm; moves it to the trash)"],
       ["s", "settings panel"],

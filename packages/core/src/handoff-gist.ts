@@ -22,6 +22,7 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { canonicalRemoteSlug } from "./project-identity";
 import { projectSlug } from "./session-store";
 import type { HandoffPayload, HandoffTransport, HandoffTransportError } from "./handoff-transport";
 
@@ -38,27 +39,35 @@ export interface GhResult {
   stderr: string;
 }
 
-/** Injected for tests: one `gh` invocation. */
-export type GhRunner = (call: GhCall) => GhResult;
+/** Injected for tests: one `gh` invocation. Async so the real runner can
+ * await the child process — a sync spawn inside an Ink effect froze the
+ * reconciler (the 3b40b5e class of bug: never block the event loop from
+ * React effects). */
+export type GhRunner = (call: GhCall) => Promise<GhResult>;
 
-/** The real runner: synchronous `gh` child process. */
-export const spawnGh: GhRunner = (call) => {
-  let proc: ReturnType<typeof Bun.spawnSync> | undefined;
+/** The real runner: async `gh` child process. Awaited by the transport's
+ * async methods, so the TUI's event loop stays free while gh runs. */
+export const spawnGh: GhRunner = async (call) => {
   try {
-    proc = Bun.spawnSync(["gh", ...call.args], {
+    const proc = Bun.spawn(["gh", ...call.args], {
       stdout: "pipe",
       stderr: "pipe",
-      // Synchronous stdin is bytes, not a stream: hand the payload over
-      // at spawn time (gh gist create reads content from `-`).
-      stdin: call.stdin === undefined ? "ignore" : new TextEncoder().encode(call.stdin),
+      // stdin is bytes handed over at spawn time (gh gist create reads
+      // content from `-`); the pipe closes on exit.
+      stdin: call.stdin === undefined ? "ignore" : new Blob([call.stdin]),
     });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { exitCode, stdout, stderr };
   } catch (e) {
     // ENOENT (no gh in PATH) surfaces as a thrown Bun error, not an exit
     // code — normalize so classification sees gh-missing, not a crash.
     const message = e instanceof Error ? e.message : String(e);
     return { exitCode: 127, stdout: "", stderr: message };
   }
-  return { exitCode: proc.exitCode, stdout: proc.stdout?.toString() ?? "", stderr: proc.stderr?.toString() ?? "" };
 };
 
 export interface GistHandoffTransportOptions {
@@ -66,6 +75,16 @@ export interface GistHandoffTransportOptions {
   /** Home dir for slug derivation; the artifact layout lives under `<home>/.moh`. */
   home?: string;
   gh?: GhRunner;
+  /** Canonical origin remote override (tests). Default: the https URL
+   * derived from `canonicalRemoteSlug(cwd)`; undefined = no origin =
+   * the payload carries no `repoUrl` at all. */
+  repoUrl?: string;
+  /** Publish guard seam (#593): asked before replacing a tagged gist
+   * whose payload is strictly newer than the one being published.
+   * Resolves true = overwrite anyway; false/absent seam = decline and
+   * publish nothing. Production wires the client's consent UI; tests
+   * script the answer. */
+  confirmOverwrite?: (info: { remoteUpdatedAt: string; localUpdatedAt: string }) => Promise<boolean>;
 }
 
 /** The deterministic gist description: `moh:handoff:<slug>:<gh-user>`. */
@@ -74,9 +93,16 @@ export function handoffGistTag(cwd: string, ghUser: string, home?: string): stri
   return `moh:handoff:${slug}:${ghUser}`;
 }
 
-/** Resolves the logged-in gh username, or why it cannot. */
-export function ghUsername(gh: GhRunner): { ok: true; user: string } | { ok: false; error: HandoffTransportError } {
-  const proc = gh({ args: ["api", "user", "--jq", ".login"] });
+/** #593: canonical public https clone URL from the origin's canonical
+ * slug, e.g. `github.com/owner/repo` → `https://github.com/owner/repo.git`.
+ * Null when the project has no parsable origin. */
+export function canonicalRemoteUrl(cwd: string): string | undefined {
+  const slug = canonicalRemoteSlug(cwd);
+  return slug ? `https://${slug}.git` : undefined;
+}
+
+/** Resolves the logged-in gh username, or why it cannot. */export async function ghUsername(gh: GhRunner): Promise<{ ok: true; user: string } | { ok: false; error: HandoffTransportError }> {
+  const proc = await gh({ args: ["api", "user", "--jq", ".login"] });
   if (proc.exitCode !== 0) return classifyGhFailure(proc);
   const user = proc.stdout.trim();
   if (!user) return { ok: false, error: { reason: "not-logged-in" } };
@@ -108,6 +134,93 @@ function classifyGhFailure(proc: GhResult): { ok: false; error: HandoffTransport
  * publish creates a fresh tagged gist (duplicate tag, old one left) —
  * acceptable in v1, T3 discovery tolerates it by taking the newest hit. */
 const GIST_LIST_LIMIT = "200";
+interface GistApiRow {
+  id?: string;
+  description?: string | null;
+  updated_at?: string;
+  public?: boolean;
+}
+
+/** A handoff available to a cold-start client. This intentionally exposes
+ * only the offer-list headline — the full artifact is fetched again only
+ * when the user accepts it. */
+export interface GistHandoffOffer {
+  projectSlug: string;
+  updatedAt: string;
+  git: HandoffPayload["git"];
+  lastUserMessage: string;
+  repoUrl?: string;
+  url: string;
+}
+
+export interface DiscoverGistHandoffsOptions {
+  /** Injectable for tests; production defaults to the asynchronous gh runner. */
+  gh?: GhRunner;
+}
+
+interface GistListCandidate {
+  id: string;
+  projectSlug: string;
+  gistUpdatedAt: string;
+}
+
+/** Lists handoffs published by the authenticated user across projects.
+ * Listing is metadata-only; candidate content is fetched only after its
+ * tag has matched, and every remote failure deliberately degrades to no
+ * offers so cold start never becomes dependent on GitHub availability. */
+export async function discoverGistHandoffs(options: DiscoverGistHandoffsOptions = {}): Promise<GistHandoffOffer[]> {
+  const gh = options.gh ?? spawnGh;
+  const user = await ghUsername(gh);
+  if (!user.ok) return [];
+
+  try {
+    // The REST endpoint is paginated by gh until exhausted, unlike `gh gist
+    // list --limit`, so discovery cannot silently miss an older handoff.
+    const listed = await gh({ args: ["api", "--paginate", "--slurp", "user/gists?per_page=100"] });
+    if (listed.exitCode !== 0) return [];
+    const rows = JSON.parse(listed.stdout) as GistApiRow[][];
+    const tag = new RegExp(`^moh:handoff:([^:]+):${escapeRegExp(user.user)}(?:\s|$)`);
+    const newestByTag = new Map<string, GistListCandidate>();
+    for (const row of rows.flat()) {
+      const match = row.description?.match(tag);
+      if (!row.id || !match?.[1] || row.public) continue;
+      const candidate = { id: row.id, projectSlug: match[1], gistUpdatedAt: row.updated_at ?? "" };
+      const key = `moh:handoff:${candidate.projectSlug}:${user.user}`;
+      const prior = newestByTag.get(key);
+      if (!prior || newerGist(candidate.gistUpdatedAt, prior.gistUpdatedAt)) newestByTag.set(key, candidate);
+    }
+    const offers = await Promise.all([...newestByTag.values()].map(async (candidate) => {
+      const payload = await viewGistPayload(gh, candidate.id);
+      if (!payload || typeof payload.updatedAt !== "string" || !payload.git || typeof payload.lastUserMessage !== "string") return undefined;
+      return {
+        projectSlug: candidate.projectSlug, updatedAt: payload.updatedAt, git: payload.git,
+        lastUserMessage: payload.lastUserMessage,
+        ...(typeof payload.repoUrl === "string" ? { repoUrl: payload.repoUrl } : {}),
+        url: `https://gist.github.com/${candidate.id}`,
+      };
+    }));
+    return offers.filter((offer): offer is GistHandoffOffer => offer !== undefined)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  } catch {
+    return [];
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function newerGist(left: string, right: string): boolean {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) ? leftMs > rightMs : left > right;
+}
+
+async function viewGistPayload(gh: GhRunner, id: string): Promise<HandoffPayload | undefined> {
+  const proc = await gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
+  if (proc.exitCode !== 0) return undefined;
+  try { return JSON.parse(proc.stdout) as HandoffPayload; } catch { return undefined; }
+}
 
 /**
  * Builds the secret-gist transport. The gh user and tag are resolved
@@ -117,9 +230,16 @@ const GIST_LIST_LIMIT = "200";
  */
 export function createGistHandoffTransport(options: GistHandoffTransportOptions): HandoffTransport {
   const gh = options.gh ?? spawnGh;
-  const findTaggedGist = (user: string): { ok: true; id: string | undefined } | { ok: false; error: HandoffTransportError } => {
+  const confirmOverwrite = options.confirmOverwrite;
+  // #593: repoUrl is resolved lazily at publish time, never at construction:
+  // the canonical-slug probe shells out synchronously, and construction runs
+  // inside Ink effects (discoverHandoffForHome) where a sync child process
+  // freezes the reconciler (the 3b40b5e class of bug). publish() runs in the
+  // bounded exit path instead. `host/owner/repo` → `https://host/owner/repo.git`.
+  const resolveRepoUrl = () => (options.repoUrl !== undefined ? options.repoUrl : canonicalRemoteUrl(options.cwd));
+  const findTaggedGist = async (user: string): Promise<{ ok: true; id: string | undefined } | { ok: false; error: HandoffTransportError }> => {
     const tag = handoffGistTag(options.cwd, user, options.home);
-    const list = gh({ args: ["gist", "list", "--limit", GIST_LIST_LIMIT] });
+    const list = await gh({ args: ["gist", "list", "--limit", GIST_LIST_LIMIT] });
     if (list.exitCode !== 0) return { ok: false, error: classifyGhFailure(list).error };
     // gh gist list prints tab-separated rows; in non-interactive runs
     // there is no header row, so parse every non-empty line and match the
@@ -132,8 +252,8 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
   };
 
   /** Views one gist by id — the shared path of fetch() and fetchByUrl(). */
-  const viewGist = (id: string) => {
-    const proc = gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
+  const viewGist = async (id: string) => {
+    const proc = await gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
     if (proc.exitCode !== 0) return { ok: false as const, error: classifyGhFailure(proc).error };
     try {
       return {
@@ -148,13 +268,47 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
 
   return {
     async publish(payload) {
-      const user = ghUsername(gh);
+      const user = await ghUsername(gh);
       if (!user.ok) return { ok: false, error: user.error };
       // Stamp the author (#451) at the seam that knows it: the payload
       // leaving the machine always records the publishing gh user.
-      const authored: HandoffPayload = { ...payload, author: user.user, version: 2 };
-      const tagged = findTaggedGist(user.user);
+      // repoUrl (#593) rides the same seam: the canonical public https
+      // clone URL of origin, absent when the project has no origin.
+      const repoUrl = resolveRepoUrl();
+      const authored: HandoffPayload = {
+        ...payload,
+        author: user.user,
+        version: 2,
+        ...(repoUrl ? { repoUrl } : {}),
+      };
+      const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
+      // Publish guard (#593): when the tagged gist holds a strictly
+      // newer handoff (another machine published after this session's
+      // last turn), ask before destroying it. Declining (or no consent
+      // seam wired) publishes nothing; local artifacts are never touched.
+      if (tagged.id) {
+        const remote = await viewGist(tagged.id);
+        if (remote.ok) {
+          const remoteUpdatedAt = typeof remote.payload.updatedAt === "string" ? remote.payload.updatedAt : "";
+          const localUpdatedAt = authored.updatedAt;
+          // Strictly newer only (equal = normal republish). Compared as
+          // instants when both parse, so non-canonical ISO spellings
+          // (+02:00 offsets, missing millis) cannot misorder; a remote
+          // stamp that does not parse at all is never treated as newer.
+          const remoteMs = Date.parse(remoteUpdatedAt);
+          const localMs = Date.parse(localUpdatedAt);
+          const newer = Number.isFinite(remoteMs) && Number.isFinite(localMs) ? remoteMs > localMs : remoteUpdatedAt > localUpdatedAt;
+          if (newer) {
+            const confirmed = confirmOverwrite ? await confirmOverwrite({ remoteUpdatedAt, localUpdatedAt }) : false;
+            if (!confirmed) {
+              return { ok: false, error: { reason: "newer-remote", remoteUpdatedAt, localUpdatedAt } };
+            }
+          }
+        }
+        // A view failure here (race: gist deleted between list and view)
+        // falls through to the plain replace — nothing newer to protect.
+      }
       // Non-destructive replace (#451): create first, delete the old
       // tagged gist only after the create succeeded. A failed delete
       // leaves a duplicate tag the receiver resolves by newest-updated;
@@ -162,18 +316,18 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       // gh gist create reads content from stdin (`-`) with `-f` naming
       // the gist file; gists are secret by default (there is no --secret
       // flag — only --public, which we never pass).
-      const proc = gh({
+      const proc = await gh({
         args: ["gist", "create", "-d", handoffGistTag(options.cwd, user.user, options.home), "-f", "handoff.json", "-"],
         stdin: `${JSON.stringify(authored, null, 2)}\n`,
       });
       if (proc.exitCode !== 0) return { ok: false, error: classifyGhFailure(proc).error };
-      if (tagged.id) gh({ args: ["gist", "delete", tagged.id, "--yes"] });
+      if (tagged.id) await gh({ args: ["gist", "delete", tagged.id, "--yes"] });
       return { ok: true, url: proc.stdout.trim() };
     },
     async fetch() {
-      const user = ghUsername(gh);
+      const user = await ghUsername(gh);
       if (!user.ok) return { ok: false, error: user.error };
-      const tagged = findTaggedGist(user.user);
+      const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
       if (!tagged.id) return { ok: false, error: { reason: "failed", message: "no handoff gist found" } };
       return viewGist(tagged.id);
@@ -182,7 +336,8 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       // Accept the bare gist id as well as the full URL.
       const id = url.trim().replace(/^https?:\/\/gist\.github\.com\//, "");
       if (!/^[\w-]+$/.test(id)) return { ok: false, error: { reason: "failed", message: `not a gist url: ${url}` } };
-      return viewGist(id);
+      return await viewGist(id);
     },
   };
 }
+  

@@ -113,6 +113,8 @@ export interface HomeProps {
   handoff?: HandoffOffer | null;
   /** Opens the seeded session from the discovered handoff (T3 #436). */
   onOpenHandoff?: (offer: Extract<HandoffOffer, { status: "offer" }>) => void;
+  /** #595: opens the "resume from another machine" cold-start wizard. */
+  onOpenColdWizard?: () => void;
   /** Version shown under the logo (#292; defaults to MOH_VERSION). */
   version?: string;
 }
@@ -124,7 +126,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -266,6 +268,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     if (input === "h" && query === "" && handoffRow >= 0 && handoff?.status === "offer" && onOpenHandoff)
       return onOpenHandoff(handoff);
     if (input === "n" && query === "") return onOpen(null);
+    // #595: explicit "resume from another machine" — reaches the cold-start
+    // wizard from any home (covers cloned-repo-but-zero-sessions too).
+    if (input === "o" && query === "" && onOpenColdWizard) return onOpenColdWizard();
     if (input === "s" && query === "" && onOpenSettings) return onOpenSettings();
     if (input === "?" && query === "" && onOpenCommands) return onOpenCommands();
     if (key.backspace || key.delete) return setQuery((q) => q.slice(0, -1));
@@ -345,6 +350,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         })}
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
+        {onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
         <Text> </Text>
       </Box>
       {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}

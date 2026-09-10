@@ -76,6 +76,12 @@ export interface RawHandoff {
    * time; file imports from a different author are declined — handoffs
    * are per-persona (#433 Q6). Absent only in v1 payloads. */
   author?: string;
+  /** The canonical public https clone URL of the project's origin
+   * remote (#593), stamped at publish time from the canonical remote
+   * slug — never the raw remote, which may be an SSH spelling another
+   * machine cannot use. Absent when the project has no origin; older
+   * payloads without it stay valid (consumers tolerate its absence). */
+  repoUrl?: string;
   /** Immediate predecessor when this session was seeded from a handoff.
    * The singleton gist holds the newest tip; this edge keeps the logical
    * handoff chain append-only across A → B → A transfers. */

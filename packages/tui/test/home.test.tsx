@@ -6,8 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore, createSession, MockProvider, listSessionSummaries } from "@moh/core";
 import { Home } from "../src/Home";
+
 import { homeBannerFits } from "../src/viewport";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -355,33 +356,32 @@ describe("session delete (#478)", () => {
   test("d enters the confirm, default No (enter/n), y deletes and refreshes", async () => {
     const { cwd, home } = await homeWithSessions(1);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
-    await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "title s1");
     i.stdin.write("d");
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Delete?");
+    await waitForFrame(frame, "Delete?");
     // Default No: enter cancels, the row stays.
     i.stdin.write("\r");
-    await sleep(30);
+    await waitForFrame(frame, "Delete?", { absent: true });
     expect(listSessionSummaries(cwd, home).length).toBe(1);
     // Confirm with y.
     i.stdin.write("d");
-    await sleep(30);
+    await waitForFrame(frame, "Delete?");
     i.stdin.write("y");
-    await sleep(30);
-    expect(listSessionSummaries(cwd, home).length).toBe(0);
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("title s1");
+    await waitForCondition(() => listSessionSummaries(cwd, home).length === 0, () => "confirmed delete never removed the session");
+    await waitForFrame(frame, "title s1", { absent: true });
     i.unmount();
   });
 
   test("esc cancels the delete", async () => {
     const { cwd, home } = await homeWithSessions(1);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
-    await sleep(60);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "title s1");
     i.stdin.write("d");
-    await sleep(30);
+    await waitForFrame(frame, "Delete?");
     i.stdin.write("\x1b");
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("Delete?");
+    await waitForFrame(frame, "Delete?", { absent: true });
     expect(listSessionSummaries(cwd, home).length).toBe(1);
     i.unmount();
   });
@@ -389,13 +389,11 @@ describe("session delete (#478)", () => {
   test("the deleted pertinent banner row disappears on refresh", async () => {
     const { cwd, home } = await homeWithSessions(1);
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
-    await sleep(60);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("▸"); // pertinent banner
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "▸"); // pertinent banner
     i.stdin.write("d"); // cursor pre-selects the banner row
-    await sleep(30);
     i.stdin.write("y");
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("▸");
+    await waitForFrame(frame, "▸", { absent: true });
     i.unmount();
   });
 

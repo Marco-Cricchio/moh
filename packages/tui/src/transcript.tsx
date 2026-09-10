@@ -148,11 +148,21 @@ const vibeCommandHint = (args: unknown): string => {
   return hint.length > 32 ? `${hint.slice(0, 31)}…` : hint;
 };
 
-const detailOf = (args: unknown): string => {
+/** Compact bash titles lead with the executable line rather than narration.
+ * The command itself stays untouched on the event, for expansion and replay. */
+const bashDetail = (command: string): string => {
+  const lines = sanitizeLine(command).split("\n");
+  const executable = lines.find((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
+  return executable ?? lines.find((line) => line.trim() !== "") ?? "";
+};
+
+const detailOf = (args: unknown, toolName?: string): string => {
   if (!args || typeof args !== "object") return "";
   const rec = args as Record<string, unknown>;
   for (const key of ["command", "path", "file", "pattern", "query", "url"]) {
-    if (typeof rec[key] === "string") return sanitizeLine(String(rec[key])).split("\n")[0]!;
+    if (typeof rec[key] === "string") return key === "command" && toolName === "bash"
+      ? bashDetail(rec[key])
+      : sanitizeLine(String(rec[key])).split("\n")[0]!;
   }
   let rendered: string;
   try { rendered = JSON.stringify(args); } catch { rendered = String(args); }
@@ -270,7 +280,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
             blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [vibeDetail("fetch", event.args) ? `fetched a page · ${vibeDetail("fetch", event.args)}` : "fetched a page"], state });
             break;
           }
-          blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args), lines: result?.output.split("\n").slice(0, 5).map(sanitizeLine) ?? [], state: "fail" });
+          blocks.push({ key, kind: "error", glyph: "✗", type: "fetch", detail: detailOf(event.args, event.name), lines: result?.output.split("\n").slice(0, 5).map(sanitizeLine) ?? [], state: "fail" });
           break;
         }
         // ask_user (#70, set shape #411, Static projection #413): one row
@@ -307,7 +317,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
             blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [target ? `${action} · ${target}` : action], state, ...timingFields });
             break;
           }
-          blocks.push({ key, kind: "error", glyph: "✗", type: event.name, detail: detailOf(event.args), lines: result?.ok === false ? result.output.split("\n").slice(0, 5).map(sanitizeLine) : [], state: "fail" });
+          blocks.push({ key, kind: "error", glyph: "✗", type: event.name, detail: detailOf(event.args, event.name), lines: result?.ok === false ? result.output.split("\n").slice(0, 5).map(sanitizeLine) : [], state: "fail" });
           break;
         }
         blocks.push({
@@ -315,7 +325,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           kind: "tool",
           glyph: state === "ok" ? "✓" : state === "fail" ? "✗" : "◌",
           type: event.name,
-          detail: detailOf(event.args),
+          detail: detailOf(event.args, event.name),
           lines: event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
           state,
           ...timingFields,
@@ -323,7 +333,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (event.name === "read" && result?.ok && options.filePreview !== "none") {
           const start = event.args && typeof event.args === "object" && typeof (event.args as { offset?: unknown }).offset === "number" ? (event.args as { offset: number }).offset : 1;
           const previewLines = result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5);
-          blocks.push({ key: `${key}-preview`, kind: "code", glyph: "⌨", type: "preview", detail: `${detailOf(event.args)} · ${start}–${start + Math.max(0, previewLines.length - 1)}`, lines: previewLines.map((line, lineIndex) => `${String(start + lineIndex).padStart(3)} │ ${sanitizeLine(line)}`) });
+          blocks.push({ key: `${key}-preview`, kind: "code", glyph: "⌨", type: "preview", detail: `${detailOf(event.args, event.name)} · ${start}–${start + Math.max(0, previewLines.length - 1)}`, lines: previewLines.map((line, lineIndex) => `${String(start + lineIndex).padStart(3)} │ ${sanitizeLine(line)}`) });
         }
         break;
       }

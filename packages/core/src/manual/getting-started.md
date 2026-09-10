@@ -38,7 +38,20 @@ moh keeps everything user-side:
 - Memory (facts kept across sessions): `~/.moh/projects/<slug>/memory/`.
 - User configuration and auth tokens: `~/.moh/config`.
 
-Nothing about your project is uploaded anywhere by moh itself.
+For a Git project with an `origin`, `<project-slug>` is the canonical
+lowercase remote name (`host/owner/repo`), rather than the checkout path.
+SSH and HTTPS clones of the same remote therefore use the same moh data
+on a machine. Projects without a usable `origin` keep a local UUID in
+`.moh/project.json` to identify their data.
+
+After upgrading, a project that already has UUID-identified data and now
+has an `origin` moves that data once to the remote-derived directory. If
+that destination already contains data, moh keeps the remote-derived
+version and leaves the old UUID directory untouched; it never merges two
+project directories. This migration does not upload anything.
+
+This identity migration does not upload anything. Optional features such as
+an explicitly configured handoff can publish the data they describe.
 
 ## Reading further
 

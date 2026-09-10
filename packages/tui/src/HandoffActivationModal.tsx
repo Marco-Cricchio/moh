@@ -4,7 +4,7 @@ import { ghUsername, loadMohConfig, spawnGh, writeMohConfig, type HandoffTranspo
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
 
-export type GhVerification = () => { ok: true; user: string } | { ok: false; error: HandoffTransportError };
+export type GhVerification = () => Promise<{ ok: true; user: string } | { ok: false; error: HandoffTransportError }>;
 
 export interface HandoffActivationModalProps {
   cwd: string;
@@ -37,6 +37,7 @@ function verificationMessage(error: HandoffTransportError): string {
     case "gh-missing": return "GitHub CLI (gh) is not installed. Install it, then try again.";
     case "not-logged-in": return "GitHub CLI is not logged in. Run `gh auth login`, then try again.";
     case "timeout": return "GitHub verification timed out. Try again.";
+    case "newer-remote": return "GitHub verification failed.";
     case "no-artifact": return "GitHub verification failed.";
     case "failed": return `GitHub verification failed: ${error.message}`;
   }
@@ -45,15 +46,14 @@ function verificationMessage(error: HandoffTransportError): string {
 /** Per-project session-handoff transport choice (#438). Gist activation is
  * deliberately preflighted before moh.json changes, so an active setting
  * never starts life known-broken. */
-export function HandoffActivationModal({ cwd, startup = false, verifyGh = () => ghUsername(spawnGh), onDone, onClose }: HandoffActivationModalProps) {
-  const theme = useTheme();
+export function HandoffActivationModal({ cwd, startup = false, verifyGh = () => ghUsername(spawnGh), onDone, onClose }: HandoffActivationModalProps) {  const theme = useTheme();
   const [cursor, setCursor] = useState(0);
   const [notice, setNotice] = useState<string>();
   const choices: readonly Option[] = startup ? ["GitHub Gist"] : options;
 
-  const choose = (choice: Option) => {
+  const choose = async (choice: Option) => {
     if (choice === "GitHub Gist") {
-      const verified = verifyGh();
+      const verified = await verifyGh();
       if (!verified.ok) return setNotice(verificationMessage(verified.error));
       writeTransport(cwd, "gist");
       return onDone("gist");
