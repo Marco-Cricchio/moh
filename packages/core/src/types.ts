@@ -267,11 +267,16 @@ type AgentEventBase =
    * fallback. Emitted only for fallback/recovery transitions. */
   | { type: "route_serving"; selected: string; serving: string; previous: string }
   /**
-   * Compaction marker: replay uses `summary` in place of the events before
-   * index `upTo` (exclusive), while retaining the recent tail; the log
-   * itself is never truncated.
+   * Compaction marker: replay uses `summary` in place of the covered
+   * prefix while retaining the recent tail; the log itself is never
+   * truncated. #578 (core spec d5/d7): the pointer is `upToId` — the ULID
+   * (or legacy `line:N` bridge) of the last covered event on the
+   * root→head path at marker time; markers resolve on-path, so a marker
+   * on an abandoned branch is invisible until that branch is active
+   * again. Legacy numeric `upTo` markers (pre-tree logs) read as
+   * `line:N` and resolve positionally.
    */
-  | { type: "compaction"; summary: string; upTo: number }
+  | { type: "compaction"; summary: string; upTo?: number; upToId?: string }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /** MCP lifecycle (#15): lazy start, per-server failures, session-end stop. */
@@ -306,6 +311,13 @@ type AgentEventBase =
    * backoff on later turns; a failed run wrote no marker (not lossy).
    */
   | { type: "compaction_failed"; reason: string }
+  /**
+   * #578 (head semantics d6): the newest on-path compaction marker's
+   * `upToId` does not resolve on the active path (truncation,
+   * corruption). Replay restarts context from the path start; this
+   * visible warning chrome is appended at resume-open. Chrome only.
+   */
+  | { type: "compaction_dangling" }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */

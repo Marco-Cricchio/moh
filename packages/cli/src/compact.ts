@@ -85,7 +85,7 @@ export async function compactCommand({
       return 1;
     }
     process.stdout.write(
-      `compacted: summary appended (upTo ${result.upTo}); ${result.tailTurns} turns kept verbatim (~${result.tokensAfter} of ~${result.tokensBefore} input tokens) — ${store.file}\n`,
+      `compacted: summary appended (upToId ${result.upToId ?? result.upTo}); ${result.tailTurns} turns kept verbatim (~${result.tokensAfter} of ~${result.tokensBefore} input tokens) — ${store.file}\n`,
     );
     return 0;
   } finally {

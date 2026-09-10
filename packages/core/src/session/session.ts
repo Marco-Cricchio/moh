@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
-import { activePath, resolveHead } from "./event-log";
+import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
@@ -19,7 +19,7 @@ import { ToolRunner } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
 import { SubagentHost } from "../subagents";
-import { replayMessages } from "../session-store";
+import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from "../compaction";
 import { resolveEndpointThinking } from "../thinking-preferences";
@@ -231,6 +231,16 @@ export class AgentSession {
         provider: () => this.#provider,
         endpointType: () => this.activeEndpointType,
         append: (event) => this.#append(event),
+        // #578 (d3/d7): cover the path pinned to the turn's head — the
+        // branch actually summarized — so a mid-turn switch (effective
+        // next turn) or a concurrent head move never puts a marker on a
+        // path it does not describe. No pin (between turns): the live
+        // log's active path.
+        pathFn: () => {
+          const live = this.#eventLog.live();
+          const pin = this.#turnHead ?? (this.#diverged ? this.#localTip : undefined);
+          return pin !== undefined ? (pathTo(live, pin) ?? activePath(live)) : activePath(live);
+        },
         onCompacted: () => this.#rebuildAfterCompaction(),
         summarizer: comp.summarizer ?? createCompactionSummarizer(this.#provider, this.#cwd),
         ...(comp.tailTurns !== undefined ? { tailTurns: comp.tailTurns } : {}),
@@ -365,6 +375,12 @@ export class AgentSession {
       // already has them); only new events reach the sink.
       this.#eventLog.seed(resumeEvents);
       this.#messages.splice(0, 0, ...replayMessages(resumeEvents));
+      // #578 (d6): a compaction pointer that does not resolve on the
+      // active path (corruption, truncation) restarts context from the
+      // path start — surfaced as visible warning chrome, never silent.
+      if (replayWarnings(resumeEvents).length > 0) {
+        this.#append({ type: "compaction_dangling" });
+      }
       // ADR-0021: resume leaves a trace — one chrome event at resume-open,
       // before any turn. The sole consumption marker for the pertinent-
       // session suggestion; both TUI and `moh run --resume` ride this seam.
@@ -615,23 +631,25 @@ export class AgentSession {
    * rebuilt through the same replay path resume uses.
    */
   async compact(): Promise<
-    | { ok: true; summary: string; upTo: number; tailTurns: number; tokensBefore: number; tokensAfter: number }
+    | { ok: true; summary: string; upTo: number; upToId?: string; tailTurns: number; tokensBefore: number; tokensAfter: number }
     | { ok: false; error: string }
   > {
     if (!this.#compaction) return { ok: false, error: "compaction is disabled for this session" };
     if (this.#queue.pending()) return { ok: false, error: "a turn is in flight; compact when the session is idle" };
     const events = this.#eventLog.live();
     // Before/after context estimate for clients (#466): the largest
-    // measured inputTokens vs the tail the marker keeps.
+    // measured inputTokens vs the tail the marker keeps. Estimated on
+    // the same projection the producer covers (#578 d3).
     const tokensBefore = CompactionRunner.lastMeasuredCall(events)?.inputTokens ?? 0;
     const result = await this.#compaction.compactNow(events);
     if (!result.ok) return result;
-    const tailStart = CompactionRunner.upToFor(events, DEFAULT_TAIL_TURNS) ?? result.upTo;
+    const path = activePath(events);
+    const tailStart = CompactionRunner.upToFor(path, DEFAULT_TAIL_TURNS) ?? result.upTo;
     let tailTurns = 0;
-    for (let i = tailStart; i < events.length; i++) {
-      if (events[i]!.type === "user_message") tailTurns += 1;
+    for (let i = tailStart; i < path.length; i++) {
+      if (path[i]!.type === "user_message") tailTurns += 1;
     }
-    const tokensAfter = CompactionRunner.turnTokens(events, tailStart, events.length);
+    const tokensAfter = CompactionRunner.turnTokens(path, tailStart, path.length);
     return { ...result, tailTurns, tokensBefore, tokensAfter };
   }
 

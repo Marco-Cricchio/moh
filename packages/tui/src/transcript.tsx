@@ -487,6 +487,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "error", glyph: "⚠", type: "compaction failed", detail: event.reason, lines: ["The producer retries on later turns; /compact forces one now."] });
         break;
+      case "compaction_dangling":
+        // #578 (d6): the newest on-path marker's pointer does not resolve —
+        // context restarted from the session start, visibly.
+        blocks.push({
+          key,
+          kind: "error",
+          glyph: "⚠",
+          type: "dangling compaction pointer",
+          lines: ["The compaction pointer does not resolve on this session's active path (truncated or corrupted file); context was rebuilt from the session start."],
+          state: "fail",
+        });
+        break;
       case "extension_loaded":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "extension loaded", detail: `${event.name} ${event.version}`, lines: [] });
