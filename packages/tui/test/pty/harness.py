@@ -405,6 +405,30 @@ def main() -> None:
             pass
         time.sleep(0.3)
         proc.terminate()
+        # Bounded, best-effort reap: the child may be mid-tool-call and take
+        # seconds to die (its own exit-work budget). Shutdown slowness is not
+        # a crash — a hard kill is enough here; the runner-level 45s budget
+        # owns real timeouts (#595 flake).
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+    # Normal exits: the double-ctrl+c quit (0), an already-exited child
+    # (None), or our own shutdown signals. -9 and -15 mean WE killed it
+    # (runner budget or the shutdown path above), never a child crash.
+    if proc.returncode not in (0, None, -signal.SIGINT, -signal.SIGTERM, -9, -15):
+        # #595 flake: when the TUI child crashes mid-script (an uncaught
+        # error on stderr), the readiness `pump_until` budgets would keep
+        # draining on a dead screen and the test would fail later on an
+        # unrelated assertion — or look hung. Fail fast with the child's
+        # output so the diagnosis lands in the failure message.
+        text = bytes(buf).decode("utf-8", "replace")
+        clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]", "", text)
+        raise RuntimeError(f"moh TUI crashed under the PTY harness (exit {proc.returncode}):\n{clean[-4000:]}")
 
     lines = screen.lines()[-spec.get("tail", rows):]
     out = []

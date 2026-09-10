@@ -63,6 +63,16 @@ function identitySlug(id: string): string {
  * (#591). Returns null when there is no origin or it cannot be parsed.
  */
 export function canonicalRemoteSlug(cwd: string): string | null {
+  // NOTE: deliberately NOT memoized (#595 flake investigation): a spawn here
+  // is safe as long as it never re-enters React's reconciler mid-commit —
+  // the TUI warms the first resolution before the first frame (renderTui)
+  // and the #591 pin keeps later resolutions off the startup paths. A
+  // process-lifetime cache would also leak stale slugs for temp dirs that
+  // appear/disappear under a repo (git searches upward).
+  return canonicalRemoteSlugUncached(cwd);
+}
+
+function canonicalRemoteSlugUncached(cwd: string): string | null {
   let url: string;
   try {
     url = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
