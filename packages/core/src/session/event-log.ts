@@ -100,7 +100,10 @@ export class EventLog {
     for (const event of events) this.#log.push(event);
   }
 
-  append(event: AgentEvent): void {
+  /** Appends one event; returns the stamped event as stored (its ULID is
+   * writer-minted, so callers that need to reference the event — e.g. the
+   * local-tip tracking of #576 — read it here). */
+  append(event: AgentEvent): AgentEvent {
     // #575: every appended event carries identity — a fresh ULID `id` and
     // a `parentId` chaining it to the branch head (the last identified
     // event in the log; legacy tails have none, so the field is simply
@@ -110,8 +113,7 @@ export class EventLog {
     // the caller.
     const stamped: AgentEvent = {
       ...event,
-      id: newUlid(),
-      ...(event.parentId !== undefined
+      id: newUlid(),      ...(event.parentId !== undefined
         ? { parentId: event.parentId }
         : (() => {
             const head = resolveHead(this.#log).head;
@@ -125,6 +127,7 @@ export class EventLog {
       this.#queue.push(stamped);
       this.#drain();
     }
+    return stamped;
   }
 
   /** Snapshot of the append-only log. */

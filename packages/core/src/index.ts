@@ -58,6 +58,17 @@ import {
   // clients resolve the canonical project directory without recomputing the slug.
   projectSlug,
   projectSessionsDir,
+  // #576: branch switching + head resolution — the ADR-0004 reopening
+  // that lets clients (TUI /tree, `moh` CLI) move the head, adopt a local
+  // tail after divergence and resolve references. Session-level:
+  // `session.switchBranch(to)`.
+  switchBranch,
+  localTipAt,
+  resolveEventRef,
+  lineRef,
+  parseLineRef,
+  // #576: head resolution (branch-aware) lives in session/event-log.
+  resolveHead,
 } from "./session-store";
 import {
   formatRule,
@@ -704,4 +715,11 @@ export {
   type AskUserSetResult,
   type Provider,
   type Tool,
+  // #576: session-tree surface — head resolution + reference helpers.
+  resolveHead,
+  resolveEventRef,
+  lineRef,
+  parseLineRef,
+  switchBranch,
+  localTipAt,
 };

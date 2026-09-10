@@ -143,6 +143,9 @@ export function projectSessionsDir(cwd: string, home = homedir()): string {
 export { legacyProjectSlug, resolveProjectIdentity };
 // #575: re-exported so `@moh/core` can surface the identity helpers.
 export { isUlid } from "./session/ulid";
+// #576: branch-aware head resolution, re-exported here so clients read the
+// whole session-tree read/write surface from one module.
+export { resolveHead } from "./session/event-log";
 
 // #591: process-local open-session registry, shared with the identity
 // resolver so a slug switch mid-session cannot orphan an open file.
@@ -733,6 +736,39 @@ export function renameSession(file: string, name: string): void {
 }
 
 /**
+ * #576 (head semantics d8): the last event whose bytes end at or before
+ * `bytes` in the file — the local writer's tip at divergence-detection
+ * time (the #400 `expectedBytes` baseline). The foreign tail lives after
+ * those bytes. Null when the prefix cannot be read/parsed or holds no
+ * identified event (a legacy tail has no tip to name).
+ */
+export function localTipAt(file: string, bytes: number): string | null {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  let tip: string | null = null;
+  let offset = 0;
+  for (const line of raw.split("\n")) {
+    // Buffer.byteLength accounts for multi-byte characters; the newline
+    // belongs to this line's span.
+    const span = Buffer.byteLength(line, "utf8") + 1;
+    if (offset + span > bytes) break;
+    offset += span;
+    if (line.trim() === "") continue;
+    try {
+      const event = JSON.parse(line) as AgentEvent;
+      if (event.id !== undefined) tip = event.id;
+    } catch {
+      break; // corrupt prefix: stop at the first bad line
+    }
+  }
+  return tip;
+}
+
+/**
  * #576 (head semantics d2): moves the head by appending one validated
  * `branch_switched { to }` chrome event — the same discipline as
  * `renameSession`: validate the file, append a single JSON line
@@ -749,8 +785,7 @@ export function renameSession(file: string, name: string): void {
  * Returns the id of the appended switch event. Rejection is an error:
  * callers (TUI /tree, CLI) surface it, never a silent no-op.
  */
-export function switchBranch(file: string, to: string): string {
-  if (!existsSync(file)) {
+export function switchBranch(file: string, to: string): string {  if (!existsSync(file)) {
     throw new Error(`switchBranch: session file not found: ${file}`);
   }
   if (!isSessionFile(basename(file))) {
