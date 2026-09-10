@@ -71,3 +71,25 @@ fires if it happens anyway; forking is the recovery). Configure it under
 `handoff.transport` in moh.json; `moh handoff export/import` is the
 manual file fallback when `gh` is unavailable. With a single machine
 nothing is ever published — the feature is opt-in per project.
+
+Each published handoff carries the canonical HTTPS clone URL of the
+project's Git `origin`, when one is available. A **truly cold** directory
+(no Git checkout in it or a parent, and no local sessions for the project)
+can offer published handoffs automatically at startup when
+`handoff.transport` is set to `"gist"`. Select one, choose where to clone
+it, and moh clones the repository, pulls the handoff, and opens the normal
+seeded session. The Home picker also offers `o` — **resume
+from another machine** — as an explicit path at any time, including for an
+already-cloned repository with no local sessions.
+
+Older handoffs without a repository URL cannot be cloned automatically.
+For one of these, choose the path of an existing checkout; moh pulls the
+handoff into that project and opens the seeded session. If discovery cannot
+reach GitHub, finds no authenticated `gh` user, or finds no valid handoffs,
+it simply has nothing to offer.
+
+If a remote handoff is strictly newer than the one you are publishing,
+moh protects it: `moh handoff` shows an `y/N` overwrite prompt. Automatic
+publish on exit declines instead and warns you to run `moh handoff`
+explicitly. Equal timestamps publish normally. This guard never changes
+local sessions.
