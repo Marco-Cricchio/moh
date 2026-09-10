@@ -143,6 +143,21 @@ describe("session.bookmarkNode live writer (#579)", () => {
     session.dispose();
   });
 
+  test("accepts a line:N bridge target (legacy logs, live path)", () => {
+    const { session, store } = openSession();
+    // Prepend a legacy (identity-less) first line: the live log then holds
+    // it at line 1 and the tree-era events after it.
+    const raw = readFileSync(store.file, "utf8");
+    const legacyLine = JSON.stringify({ type: "session_start", schemaVersion: 1, promptVersion: "v" }) + "\n";
+    writeFileSync(store.file, legacyLine + raw);
+    expect(session.bookmarkNode(lineRef(1), "legacy")).toEqual({ ok: true });
+    const last = store.load().at(-1) as { type: string; to: string; name?: string };
+    expect(last.type).toBe("tree_bookmarked");
+    expect(last.to).toBe(lineRef(1));
+    expect(last.name).toBe("legacy");
+    session.dispose();
+  });
+
   test("refuses an unresolved target and a disposed session", () => {
     const { session, store } = openSession();
     expect(session.bookmarkNode(newUlid())).toEqual({

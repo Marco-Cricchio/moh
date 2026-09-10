@@ -885,33 +885,41 @@ export function fileTailId(file: string): string | null {
  * Returns the id of the appended switch event. Rejection is an error:
  * callers (TUI /tree, CLI) surface it, never a silent no-op.
  */
-export function switchBranch(file: string, to: string): string {  if (!existsSync(file)) {
-    throw new Error(`switchBranch: session file not found: ${file}`);
+/**
+ * #576/#579 shared write-time validation for the file-based tree writers
+ * (`switchBranch`, `bookmarkNode`): the file must exist and be a session
+ * file, and `to` must reference a node already in it (ULID present, or a
+ * `line:N` bridge to a pre-tree event). The log never learns to dangle
+ * from its own writer — dangling references can only come from external
+ * truncation/corruption, which readers warn about (head semantics d10).
+ * The open probe is always disposed (the #478 registry stays clean).
+ */
+function validateWriterTarget(file: string, fn: string, to: string): void {
+  if (!existsSync(file)) {
+    throw new Error(`${fn}: session file not found: ${file}`);
   }
   if (!isSessionFile(basename(file))) {
-    throw new Error(`switchBranch: not a session file: ${basename(file)}`);
+    throw new Error(`${fn}: not a session file: ${basename(file)}`);
   }
-  // Write-time validation: `to` must reference a node already in the file
-  // (ULID present, or a `line:N` bridge to a pre-tree event). The log never
-  // learns to dangle from its own writer — dangling switches can only come
-  // from external truncation/corruption, which readers warn about (d10).
-  {
-    let store: SessionStore | null = null;
-    let events: AgentEvent[];
-    try {
-      store = SessionStore.open(file);
-      events = store.load();
-    } catch (err) {
-      throw new Error(
-        `switchBranch: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      store?.dispose();
-    }
-    if (resolveEventRef(to, events) === null) {
-      throw new Error(`switchBranch: target event not found in session: ${to}`);
-    }
+  let store: SessionStore | null = null;
+  let events: AgentEvent[];
+  try {
+    store = SessionStore.open(file);
+    events = store.load();
+  } catch (err) {
+    throw new Error(
+      `${fn}: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    store?.dispose();
   }
+  if (resolveEventRef(to, events) === null) {
+    throw new Error(`${fn}: target event not found in session: ${to}`);
+  }
+}
+
+export function switchBranch(file: string, to: string): string {
+  validateWriterTarget(file, "switchBranch", to);
   const stamped = stampEvent({ type: "branch_switched", to }, file);
   appendFileSync(file, JSON.stringify(stamped) + "\n");
   return stamped.id!;
@@ -935,31 +943,7 @@ export function switchBranch(file: string, to: string): string {  if (!existsSyn
  * (#400) — the live-writer path is `session.bookmarkNode()`.
  */
 export function bookmarkNode(file: string, to: string, name?: string): string {
-  if (!existsSync(file)) {
-    throw new Error(`bookmarkNode: session file not found: ${file}`);
-  }
-  if (!isSessionFile(basename(file))) {
-    throw new Error(`bookmarkNode: not a session file: ${basename(file)}`);
-  }
-  // Write-time validation: same rule as `switchBranch` — the log never
-  // learns to dangle from its own writer.
-  {
-    let store: SessionStore | null = null;
-    let events: AgentEvent[];
-    try {
-      store = SessionStore.open(file);
-      events = store.load();
-    } catch (err) {
-      throw new Error(
-        `bookmarkNode: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      store?.dispose();
-    }
-    if (resolveEventRef(to, events) === null) {
-      throw new Error(`bookmarkNode: target event not found in session: ${to}`);
-    }
-  }
+  validateWriterTarget(file, "bookmarkNode", to);
   const trimmed = name?.trim() ?? "";
   const event: AgentEvent =
     name === undefined

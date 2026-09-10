@@ -52,7 +52,7 @@ for a node wins, and a bookmark with an **empty name clears** the node's
 bookmark. In the `/tree` panel: `b` toggles a bookmark on the selected
 row, `B` sets a name. From the CLI (when the `moh sessions bookmark`
 command lands, #582): `moh sessions bookmark <file|id> <node> [name]`,
-where an empty name clears and `node` accepts an event id or `line:N`.
+where an empty (or blank) name clears and `node` accepts an event id or `line:N`.
 Bookmarking never changes what the model sees — it is chrome in the log,
 carried by resume and fork like any other event.
 

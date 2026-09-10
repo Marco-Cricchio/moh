@@ -738,5 +738,7 @@ export {
   lineRef,
   parseLineRef,
   switchBranch,
+  // #579: bookmark writer seam (see the import comment above).
+  bookmarkNode,
   localTipAt,
 };
