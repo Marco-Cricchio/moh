@@ -50,7 +50,8 @@ that destination already contains data, moh keeps the remote-derived
 version and leaves the old UUID directory untouched; it never merges two
 project directories. This migration does not upload anything.
 
-Nothing about your project is uploaded anywhere by moh itself.
+This identity migration does not upload anything. Optional features such as
+an explicitly configured handoff can publish the data they describe.
 
 ## Reading further
 
