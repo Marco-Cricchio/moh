@@ -183,7 +183,10 @@ describe("forced compaction", () => {
     expect(result.ok).toBe(true);
     expect(appended).toHaveLength(1);
     const marker = appended[0] as Extract<AgentEvent, { type: "compaction" }>;
-    expect(marker.upTo).toBe(CompactionRunner.upToFor(events, 10)!);
+    const upTo = CompactionRunner.upToFor(events, 10)!;
+    // #578: the marker carries `upToId` — the id (or legacy bridge) of
+    // the last covered event on the path.
+    expect(marker.upToId).toBe(events[upTo - 1]!.id ?? `line:${upTo}`);
   });
 
   test("refuses when there is nothing to compact", async () => {
@@ -219,7 +222,15 @@ describe("forced compaction", () => {
     if (!result.ok) throw new Error(`second compaction failed: ${result.error}`);
     expect(result.ok).toBe(true);
     const second = appended[1] as Extract<AgentEvent, { type: "compaction" }>;
-    expect(second.upTo).toBeGreaterThan(first.upTo);
+    expect(second.upToId).toBeDefined();
+    expect(first.upToId).toBeDefined();
+    // Chained pointers advance along the path (ids or `line:N` bridges
+    // for a legacy identity-less log — the format d8 bridge rule).
+    const pos = (ref: string | undefined): number => {
+      const m = ref !== undefined ? /^line:([1-9]\d*)$/.exec(ref) : null;
+      return m ? Number(m![1]) - 1 : events.findIndex((e) => e.id === ref);
+    };
+    expect(pos(second.upToId)).toBeGreaterThan(pos(first.upToId));
     // scriptedSummarizer echoes `previous` — proof of chaining.
     expect(result.ok && result.summary).toContain("after: SUMMARY of");
   });

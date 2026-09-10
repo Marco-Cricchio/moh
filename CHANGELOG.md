@@ -5,6 +5,20 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+### Added
+
+- **Compaction on the session tree** (#578): the compaction marker now
+  carries an `upToId` pointer and covers only the **active root→head
+  path** — markers resolve on-path (last marker on the path wins; a
+  marker on an abandoned branch is invisible until that branch becomes
+  active again) and land on the branch actually summarized, even if the
+  head has already moved. A dangling pointer restarts context from the
+  session start with a visible warning (`compaction_dangling` chrome in
+  replay and the TUI). Legacy numeric `upTo` markers keep reading
+  positionally. `/compact` and `moh compact` are unchanged in shape;
+  `moh compact` still never consumes a session.
+
 ## [0.28.0] - 2026-09-10
 ### Added
 

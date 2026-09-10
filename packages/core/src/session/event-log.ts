@@ -129,6 +129,21 @@ export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
   if (events.length === 0 || events[0]!.id === undefined) return [...events];
   const { head, dangling } = resolveHead(events);
   if (head === undefined) return [...events];
+  return pathTo(events, head) ?? [...events];
+}
+
+/**
+ * #578 (core spec d7): the root→`nodeId` projection — the same
+ * linearization as `activePath` but anchored at an explicit node instead
+ * of the resolved head. The compaction producer uses it to summarize the
+ * branch the turn was actually pinned to, even when the head has already
+ * moved. Null when the node is unknown or its parent chain does not
+ * anchor at the file's root (same certification rules as `activePath`).
+ */
+export function pathTo(events: ReadonlyArray<AgentEvent>, nodeId: string): AgentEvent[] | null {
+  if (events.length === 0 || events[0]!.id === undefined) return null;
+  const { head, dangling } = resolveHead(events);
+  const anchorHead = nodeId === head;
   // The base chain is the root→head chain from the head's parent links.
   // byId + positional parent resolution (`line:N` bridges).
   const byId = new Map<string, AgentEvent>();
@@ -161,8 +176,15 @@ export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
     }
     return null; // cycle or broken chain: no certified path
   };
-  const base = walk(head);
-  if (base === null) return [...events];
+  // An unknown anchor has no base chain to certify.
+  const base = walk(nodeId);
+  if (base === null) return null;
+  // An interior anchor (compaction of the turn's pinned branch, #578
+  // d7) projects exactly the root→anchor chain: events after the anchor
+  // in file order belong to later turns or other branches — the
+  // summarized span ends at the anchor. Only the log's real head gets
+  // the in-order continuation (that continuation IS `activePath`).
+  if (!anchorHead) return base;
   // After the base chain's tip, the branch continues in file order: every
   // subsequent event whose parent is the running tip extends the path
   // (this is how appends follow a switch to an interior node — the head
@@ -170,6 +192,11 @@ export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
   // the active-path tip). Chrome stays in the path (format d4); `switch`
   // lines ride the tip they interrupted. Anything that does not chain to
   // the running tip is off-path: excluded, never silently merged.
+  // A `branch_switched` on this branch moves the projection's continuation
+  // only when it is the log's active head (`activePath`); for an interior
+  // anchor (compaction of a past branch, #578) switch markers after the
+  // anchor end the path there — the summarized branch is what the turn
+  // pinned, not where the head later went.
   const path = [...base];
   const started = new Set(base.map((e) => e.id!));
   for (const e of events.slice(events.indexOf(base[base.length - 1]!) + 1)) {
@@ -178,13 +205,16 @@ export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
     const parentRef = e.parentId;
     const parentOk =
       parentRef !== undefined &&
-      (started.has(parentRef) || path[path.length - 1]!.id === parentRef);
+      (path[path.length - 1]!.id === parentRef || started.has(parentRef));
     if (isSwitch) {
       // A switch is a topological marker on the branch it interrupted:
       // on-path only when its parent is the current tip. The head then
       // moves to its `to` (unless dangling — resolveHead already fell
       // back and warned); the path from there follows new chaining.
-      if (parentOk) {
+      // For an interior anchor the summarized branch ends at the anchor:
+      // switches past it describe where the *head* went, not the branch
+      // the projection certifies (#578 d7).
+      if (parentOk && anchorHead) {
         path.push(e);
         started.add(e.id!);
         if (dangling === undefined) {

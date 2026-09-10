@@ -372,6 +372,74 @@ function readWholeFile(file: string): string {
   return readFileSync(file, "utf8");
 }
 
+/** The on-path compaction projection replay builds its context from
+ * (#578, core spec d4–d6). */
+export interface CompactionProjection {
+  summary: string;
+  /** Position on the given array (the projection — spec d1: replay is
+   * always fed the active-path array) of the first uncovered event. */
+  upToIndex: number;
+  /** True when the marker's `upToId` did not resolve on the path (d6):
+   * replay restarts from the path start and surfaces a visible warning. */
+  dangling: boolean;
+}
+
+/**
+ * Resolves the newest compaction marker on the given (active-path)
+ * array (#578): last-marker-on-path-wins. `upToId` is resolved by id on
+ * the projection, then clamped at the marker's own position (a pointer
+ * past the marker cannot erase events appended after compaction —
+ * same clamp semantics as the legacy numeric form). Legacy markers
+ * (`upTo: N`) resolve positionally via the `line:N` bridge rule.
+ */
+export function compactionProjection(
+  path: ReadonlyArray<AgentEvent>,
+): CompactionProjection | undefined {
+  let markerIndex = -1;
+  let marker: Extract<AgentEvent, { type: "compaction" }> | undefined;
+  for (let i = path.length - 1; i >= 0; i -= 1) {
+    if (path[i]!.type === "compaction") {
+      markerIndex = i;
+      marker = path[i] as Extract<AgentEvent, { type: "compaction" }>;
+      break;
+    }
+  }
+  if (!marker) return undefined;
+  const line = marker.upToId !== undefined ? parseLineRef(marker.upToId) : null;
+  let upToIndex: number | null = null;
+  if (marker.upToId !== undefined) {
+    if (line !== null) {
+      upToIndex = line - 1;
+    } else {
+      upToIndex = path.findIndex((e) => e.id === marker!.upToId);
+    }
+  } else if (marker.upTo !== undefined) {
+    // Legacy numeric pointer (pre-tree log): positional by contract.
+    upToIndex = marker.upTo;
+  }
+  // Dangling pointer (d6): restart from the path start, visibly.
+  if (upToIndex === null || upToIndex < 0) {
+    return { summary: marker.summary, upToIndex: 0, dangling: true };
+  }
+  // Clamp at the marker's own position.
+  upToIndex = Math.min(upToIndex, markerIndex);
+  return { summary: marker.summary, upToIndex, dangling: false };
+}
+
+/** Visible warning lines for the replay context (spec d6): emitted when
+ * the newest on-path marker's pointer did not resolve — the context
+ * restarts from the path start rather than silently mis-replaying. */
+export function replayWarnings(path: ReadonlyArray<AgentEvent>): string[] {
+  const p = compactionProjection(path);
+  if (!p?.dangling) return [];
+  const marker = [...path].reverse().find((e) => e.type === "compaction") as
+    | Extract<AgentEvent, { type: "compaction" }>
+    | undefined;
+  return [
+    `[warning: the compaction pointer (${marker?.upToId ?? marker?.upTo}) does not resolve on this session's active path — context restarted from the session start]`,
+  ];
+}
+
 /**
  * Reconstructs the provider-facing conversation from a session log.
  * Mirrors what AgentSession accumulates in memory: user messages as-is,
@@ -384,33 +452,29 @@ function readWholeFile(file: string): string {
  */
 export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
   const messages: Message[] = [];
-  // The newest marker is the active compaction projection. Its summary
-  // replaces only the pointed-to prefix; the append-only log remains
-  // integral and the recent tail (including reasoning metadata) replays
-  // normally. Clamp corrupt pointers at the marker so they cannot erase
-  // events that were appended after compaction.
-  let compactionIndex = -1;
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i]!.type === "compaction") {
-      compactionIndex = i;
-      break;
-    }
+  // #578 (core spec d4/d5): markers resolve on the active path — the
+  // newest marker ON THIS PATH wins; a marker on an abandoned sibling
+  // branch is invisible to context and reactivates when that branch is
+  // active again. The pointer is `upToId` (format d7); legacy numeric
+  // `upTo` markers read as `line:N` and resolve positionally. The
+  // covered prefix is clamped at the marker's own position (a pointer
+  // past the marker cannot erase events appended after compaction); a
+  // dangling pointer (corruption, truncation) restarts context from the
+  // path start with a visible warning — never silent mis-replay.
+  const warnings = replayWarnings(events);
+  for (const text of warnings) {
+    messages.push({ role: "user", parts: [{ kind: "text", text }] });
   }
-  let replayEvents = events;
-  if (compactionIndex >= 0) {
-    const compaction = events[compactionIndex] as Extract<
-      AgentEvent,
-      { type: "compaction" }
-    >;
-    const upTo = Math.min(Math.max(0, compaction.upTo), compactionIndex);
+  const projection = compactionProjection(events);
+  if (projection && !projection.dangling) {
     messages.push({
       role: "user",
       parts: [
-        { kind: "text", text: `[Compaction summary]\n${compaction.summary}` },
+        { kind: "text", text: `[Compaction summary]\n${projection.summary}` },
       ],
     });
-    replayEvents = events.slice(upTo);
   }
+  const replayEvents = projection && !projection.dangling ? events.slice(projection.upToIndex) : events;
   let text = "";
   const toolCalls: Message["parts"] = [];
   let sawContent = false;

@@ -116,9 +116,10 @@ describe("moh compact (#466)", () => {
     expect(after.startsWith(before)).toBe(true);
     const markers = after.split("\n").filter((l) => l.includes('"compaction"'));
     expect(markers).toHaveLength(1);
-    const marker = JSON.parse(markers[0]!) as { type: string; summary: string; upTo: number };
+    const marker = JSON.parse(markers[0]!) as { type: string; summary: string; upToId?: string };
     expect(marker.summary.length).toBeGreaterThan(0);
-    expect(marker.upTo).toBeGreaterThan(0);
+    // #578: the pointer is `upToId` (id or legacy `line:N` bridge).
+    expect(marker.upToId).toBeTruthy();
     // Compacting never consumes (ADR-0022): no session_resumed at all.
     expect(after).not.toContain("session_resumed");
   });

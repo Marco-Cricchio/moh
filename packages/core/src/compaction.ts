@@ -19,6 +19,7 @@
  */
 import type { AgentEvent, Provider, TurnResult } from "./types";
 import { catalogEntryFor } from "./model-catalog";
+import { activePath } from "./session/event-log";
 import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
 
@@ -88,6 +89,10 @@ export interface CompactionRunnerOptions {
   endpointType?: () => string | undefined;
   /** Appends the `compaction` marker to the session log. */
   append: (event: AgentEvent) => void;
+  /** #578 (d3/d7): the path compaction covers — the session supplies the
+   * projection anchored at the turn's pinned head (the branch actually
+   * summarized); the runner falls back to the live log's active path. */
+  pathFn?: () => ReadonlyArray<AgentEvent>;
   /** Called after a successful append (the host rebuilds its messages). */
   onCompacted: () => void;
   summarizer: CompactionSummarizer;
@@ -158,6 +163,7 @@ export class CompactionRunner {
   readonly #provider: () => Provider;
   readonly #endpointType: (() => string | undefined) | undefined;
   readonly #append: (event: AgentEvent) => void;
+  readonly #pathFn: (() => ReadonlyArray<AgentEvent>) | undefined;
   readonly #onCompacted: () => void;
   readonly #summarizer: CompactionSummarizer;
   readonly #tailTurns: number;
@@ -178,6 +184,7 @@ export class CompactionRunner {
     this.#provider = opts.provider;
     this.#endpointType = opts.endpointType;
     this.#append = opts.append;
+    this.#pathFn = opts.pathFn;
     this.#onCompacted = opts.onCompacted;
     this.#summarizer = opts.summarizer;
     this.#tailTurns = opts.tailTurns ?? DEFAULT_TAIL_TURNS;
@@ -198,11 +205,12 @@ export class CompactionRunner {
     }
   }
 
-  /** The newest compaction marker in the log, or undefined. */
-  static latestMarker(events: ReadonlyArray<AgentEvent>): { index: number; upTo: number; summary: string } | undefined {
+  /** The newest compaction marker in the log, or undefined. `upToId` is
+   * the writer's pointer form (#578); `upTo` remains for legacy logs. */
+  static latestMarker(events: ReadonlyArray<AgentEvent>): { index: number; upTo?: number; upToId?: string; summary: string } | undefined {
     for (let i = events.length - 1; i >= 0; i -= 1) {
       const e = events[i]!;
-      if (e.type === "compaction") return { index: i, upTo: e.upTo, summary: e.summary };
+      if (e.type === "compaction") return { index: i, upTo: e.upTo, upToId: e.upToId, summary: e.summary };
     }
     return undefined;
   }
@@ -303,7 +311,7 @@ export class CompactionRunner {
 
   /** Forced compaction (/compact, `moh compact`): ignores the threshold
    * and the stale-measurement guard, same tail and summarizer. */
-  compactNow(events: ReadonlyArray<AgentEvent>): Promise<{ ok: true; summary: string; upTo: number } | { ok: false; error: string }> {
+  compactNow(events: ReadonlyArray<AgentEvent>): Promise<{ ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }> {
     if (this.#busy) return Promise.resolve({ ok: false, error: "a compaction run is already in progress" });
     const call = CompactionRunner.lastMeasuredCall(events);
     if (call) this.#lastSeenCallIndex = call.index;
@@ -315,26 +323,39 @@ export class CompactionRunner {
   #run(
     events: ReadonlyArray<AgentEvent>,
     forced: boolean,
-    resolve?: (r: { ok: true; summary: string; upTo: number } | { ok: false; error: string }) => void,
+    resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }) => void,
   ): void {
     const live = events as AgentEvent[];
     const window = contextWindowFor(this.#provider().name, this.#endpointType?.()) || this.#fallbackWindow;
-    const newUpTo = CompactionRunner.upToFor(live, this.#tailTurns, window);
+    // #578 (core spec d3): compaction covers only the active path —
+    // every index computation runs on the projected array; abandoned
+    // branches are untouched. The projection is anchored at the turn's
+    // pinned head (the branch actually summarized) when supplied — a
+    // switch that landed during the turn moves the head only from the
+    // next turn, so the marker stays a truthful node of the path it
+    // describes (d7). Without a pin (direct runner tests, `moh compact`
+    // on a closed file) the live log's active path is used.
+    const path = this.#pathFn ? this.#pathFn() : activePath(live);
+    const newUpTo = CompactionRunner.upToFor(path, this.#tailTurns, window);
     if (newUpTo === undefined) {
       resolve?.({ ok: false, error: `nothing to compact: fewer than ${this.#tailTurns + 1} turns in the log` });
       return;
     }
-    const marker = CompactionRunner.latestMarker(live);
-    const from = marker ? marker.upTo : 0;
+    const marker = CompactionRunner.latestMarker(path);
+    const from = marker ? (marker.upToId !== undefined ? path.findIndex((e) => e.id === marker.upToId) : marker.upTo ?? 0) : 0;
     if (!forced && !marker && newUpTo <= 0) {
       resolve?.({ ok: false, error: "nothing to compact" });
       return;
     }
-    if (!markerSpanNonEmpty(live, from, newUpTo)) {
+    if (!markerSpanNonEmpty(path, from, newUpTo)) {
       resolve?.({ ok: false, error: "nothing to compact: the covered span has no turns" });
       return;
     }
-    const transcript = compactionTranscript(live, from, newUpTo);
+    // The marker's pointer: the id (or legacy `line:N` bridge for an
+    // identity-less prefix) of the last covered event on the path (d5).
+    const anchor = path[newUpTo - 1]!;
+    const upToId = anchor.id ?? `line:${newUpTo}`;
+    const transcript = compactionTranscript(path, from, newUpTo);
     const summarizer = this.#summarizer;
     const controller = new AbortController();
     this.#controller = controller;
@@ -349,10 +370,19 @@ export class CompactionRunner {
           });
           const text = summary.trim();
           if (!text) throw new Error("empty compaction summary");
-          this.#append({ type: "compaction", summary: text, upTo: newUpTo });
+          // d7: the marker is an ordinary append on the summarized
+          // branch — an explicit parent pins it to the summarized
+          // path's tip even if the head has already moved.
+          const pathTip = [...path].reverse().find((e) => e.id !== undefined);
+          this.#append({
+            type: "compaction",
+            summary: text,
+            upToId,
+            ...(pathTip?.id !== undefined ? { parentId: pathTip.id } : {}),
+          });
           this.#onCompacted();
           this.#consecutiveFailures = 0;
-          resolve?.({ ok: true, summary: text, upTo: newUpTo });
+          resolve?.({ ok: true, summary: text, upTo: newUpTo, upToId });
           return;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
