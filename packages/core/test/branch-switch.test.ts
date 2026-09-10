@@ -8,7 +8,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import { SessionStore, lineRef, resolveEventRef, switchBranch } from "../src/session-store";
+import { SessionStore, lineRef, resolveEventRef, switchBranch, deleteSession } from "../src/session-store";
 import { resolveHead } from "../src/session/event-log";
 import { newUlid } from "../src/session/ulid";
 import type { AgentEvent } from "../src/types";
@@ -150,7 +150,6 @@ describe("switchBranch (#576, head semantics d2)", () => {
     store.dispose();
     // No throw, and the #478 open-session registry is clean afterwards.
     expect(switchBranch(file, store.load()[0]!.id!)).toBeDefined();
-    const { deleteSession } = require("../src/session-store") as typeof import("../src/session-store");
     // If switchBranch leaked its probe into the registry, this delete would refuse.
     expect(() => deleteSession(file, process.cwd(), tmpdir())).not.toThrow();
   });

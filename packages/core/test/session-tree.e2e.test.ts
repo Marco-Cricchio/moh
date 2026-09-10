@@ -25,6 +25,12 @@ function load(file: string): AgentEvent[] {
     .map((l) => JSON.parse(l) as AgentEvent);
 }
 
+/** Simulates external truncation/corruption: appends a switch to a
+ * non-existent id directly (bypassing the writer's validation). */
+function appendDangling(file: string, ghostId: string): void {
+  writeFileSync(file, readFileSync(file, "utf8") + JSON.stringify({ type: "branch_switched", to: ghostId }) + "\n");
+}
+
 describe("turn pinning (#576, head semantics d6)", () => {
   test("a mid-turn switch applies from the next turn; the running turn keeps its head", async () => {
     const home = tempHome();
@@ -89,6 +95,43 @@ describe("turn pinning (#576, head semantics d6)", () => {
     for (let i = 1; i < switchIdx; i += 1) {
       expect(events[i]!.parentId).toBe(events[i - 1]!.id);
     }
+    // Turn pinning (d6): the turn's own events keep chaining from the
+    // turn-start head even after the mid-turn switch — the delta after
+    // the switch line still parents to the turn's previous event (which
+    // is on the old branch), never to the switch's `to` target.
+    const turnStartIdx = events.findIndex((e) => e.type === "user_message");
+    for (let i = turnStartIdx + 1; i < events.length; i += 1) {
+      if (events[i]!.type === "branch_switched") continue;
+      const prev = events[i - 1]!.type === "branch_switched" ? events[i - 2]! : events[i - 1]!;
+      expect(events[i]!.parentId, `event ${i} (${events[i]!.type})`).toBe(prev.id);
+    }
+  });
+
+  test("a dangling switch target surfaces visible warning chrome at resume (d10)", async () => {
+    const home = tempHome();
+    const store = SessionStore.create(mkdtempSync(join(tmpdir(), "moh-proj-")), home);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
+      sink: (e) => store.append(e),
+    });
+    await session.send("go");
+    await session.dispose({ timeoutMs: 5_000 });
+    const file = store.file;
+    // Corrupt the log: a switch to an id that does not exist (external
+    // truncation, not the writer — write-time validation prevents this).
+    const ghostId = newUlid(); // not present in the file
+    appendDangling(file, ghostId);
+    const store2 = SessionStore.open(file);
+    const resumed = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      sink: (e) => store2.append(e),
+      sessionFile: file,
+      resume: { events: store2.load() },
+    });
+    await resumed.dispose({ timeoutMs: 5_000 });
+    const warning = load(file).find((e) => e.type === "branch_dangling") as { to: string } | undefined;
+    expect(warning).toBeDefined();
+    expect(warning!.to).toBe(ghostId);
   });
 });
 
@@ -106,8 +149,8 @@ describe("session_file_growth payload + explicit local parents (#576, d7/d8)", (
     // the divergence (machine B's tail) lands while A's store is open.
     const file = storeA.file;
     const preGrowthBytes = statSync(file).size;
-    const localTip = localTipAt(file, preGrowthBytes);
-    expect(localTip).not.toBeNull();
+    const localTip = localTipAt(file, preGrowthBytes)!;
+    expect(localTip).toBeDefined();
 
     // Machine A reopens (baseline = A's own bytes, pre-divergence).
     const storeB = SessionStore.open(file);
@@ -146,7 +189,8 @@ describe("session_file_growth payload + explicit local parents (#576, d7/d8)", (
     expect(sessionB.switchBranch(localTip!)).toEqual({ ok: true });
     await sessionB.dispose({ timeoutMs: 5_000 });
     const after = load(file);
-    const adoption = after.findLast((e) => e.type === "branch_switched") as { to: string };
+    const switches = after.filter((e) => e.type === "branch_switched") as Array<{ to: string }>;
+    const adoption = switches.at(-1)!;
     expect(adoption.to).toBe(localTip);
   });
 });
@@ -158,11 +202,11 @@ describe("localTipAt (#576)", () => {
     store.append({ type: "user_message", text: "hi" });
     const file = store.file;
     const all = load(file);
-    expect(localTipAt(file, statSync(file).size)).toBe(all.at(-1)!.id);
+    expect(localTipAt(file, statSync(file).size)).toBe(all.at(-1)!.id!);
     // Zero-window before the first event: no tip.
-    expect(localTipAt(file, 0)).toBeNull();
+    expect(localTipAt(file, 0)).toBe(null);
     // Missing file: null, never a throw.
-    expect(localTipAt(join(tmpdir(), "moh-nope.jsonl"), 100)).toBeNull();
+    expect(localTipAt(join(tmpdir(), "moh-nope.jsonl"), 100)).toBe(null);
   });
 });
 

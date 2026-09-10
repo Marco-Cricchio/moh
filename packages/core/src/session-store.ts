@@ -76,7 +76,7 @@ function stampEvent(event: AgentEvent, file: string): AgentEvent {
   let store: SessionStore | null = null;
   try {
     store = SessionStore.open(file);
-    head = headId(store.load());
+    head = resolveHead(store.load()).head;
   } catch {
     // unreadable log: stamp with no parent rather than refusing to write
   } finally {
@@ -146,6 +146,7 @@ export { isUlid } from "./session/ulid";
 // #576: branch-aware head resolution, re-exported here so clients read the
 // whole session-tree read/write surface from one module.
 export { resolveHead } from "./session/event-log";
+import { resolveHead } from "./session/event-log";
 
 // #591: process-local open-session registry, shared with the identity
 // resolver so a slug switch mid-session cannot orphan an open file.
@@ -763,6 +764,33 @@ export function localTipAt(file: string, bytes: number): string | null {
       if (event.id !== undefined) tip = event.id;
     } catch {
       break; // corrupt prefix: stop at the first bad line
+    }
+  }
+  return tip;
+}
+
+/**
+ * #576: the file's actual tail — the last identified event id in the whole
+ * file, regardless of byte windows. Used by the live writer to name the
+ * foreign tip of a #400 divergence (the in-memory log stops at the
+ * writer's own last append, so it cannot see the foreign tail). Null on a
+ * purely legacy tail or an unreadable file.
+ */
+export function fileTailId(file: string): string | null {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  let tip: string | null = null;
+  for (const line of raw.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const event = JSON.parse(line) as AgentEvent;
+      if (event.id !== undefined) tip = event.id;
+    } catch {
+      break; // corrupt tail: stop at the first bad line
     }
   }
   return tip;

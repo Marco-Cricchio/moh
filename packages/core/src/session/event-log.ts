@@ -1,6 +1,10 @@
 import type { AgentEvent, ReasoningStreamEvent } from "../types";
 import { newUlid } from "./ulid";
 
+// Local copy of the `line:N` bridge shape (session-store owns the parser):
+// a local import would close a module cycle (session-store → event-log).
+const LINE_REF_RE = /^line:([1-9]\d*)$/;
+
 /** The dispatch surface EventLog needs from the extension runtime. */
 export interface EventDispatcher {
   dispatchEvent(event: AgentEvent): Promise<AgentEvent[]>;
@@ -39,10 +43,10 @@ export function resolveHead(log: ReadonlyArray<AgentEvent>): {
   }
   if (switched === undefined) return { head: lastId, dangling: undefined };
   const known = log.some((e) => e.id === switched);
-  // Self-referential safety: a switch event written on a legacy tail
-  // (its own id unstamped) targeting a legacy event resolves through the
-  // `line:N` bridge only as a read; a switch never targets itself.
-  if (known || switched.startsWith("line:")) return { head: switched, dangling: undefined };
+  // A `line:N` bridge target always resolves (it points at a written line
+  // by construction — the writer validated it; an out-of-range bridge is
+  // caught by resolveEventRef at the use site).
+  if (known || LINE_REF_RE.test(switched)) return { head: switched, dangling: undefined };
   return { head: lastId, dangling: switched };
 }
 
