@@ -134,9 +134,12 @@ function classifyGhFailure(proc: GhResult): { ok: false; error: HandoffTransport
  * publish creates a fresh tagged gist (duplicate tag, old one left) —
  * acceptable in v1, T3 discovery tolerates it by taking the newest hit. */
 const GIST_LIST_LIMIT = "200";
-/** Broad cold-start discovery must inspect every gist the gh CLI returns,
- * rather than the bounded current-project lookup above. */
-const GIST_SCAN_LIMIT = "1000";
+interface GistApiRow {
+  id?: string;
+  description?: string | null;
+  updated_at?: string;
+  public?: boolean;
+}
 
 /** A handoff available to a cold-start client. This intentionally exposes
  * only the offer-list headline — the full artifact is fetched again only
@@ -171,17 +174,20 @@ export async function discoverGistHandoffs(options: DiscoverGistHandoffsOptions 
   if (!user.ok) return [];
 
   try {
-    const listed = await gh({ args: ["gist", "list", "--limit", GIST_SCAN_LIMIT] });
+    // The REST endpoint is paginated by gh until exhausted, unlike `gh gist
+    // list --limit`, so discovery cannot silently miss an older handoff.
+    const listed = await gh({ args: ["api", "--paginate", "--slurp", "user/gists?per_page=100"] });
     if (listed.exitCode !== 0) return [];
-    const tag = new RegExp(`^moh:handoff:(.+):${escapeRegExp(user.user)}$`);
+    const rows = JSON.parse(listed.stdout) as GistApiRow[][];
+    const tag = new RegExp(`^moh:handoff:([^:]+):${escapeRegExp(user.user)}(?:\s|$)`);
     const newestByTag = new Map<string, GistListCandidate>();
-    for (const line of listed.stdout.split("\n")) {
-      const [id, description, , , gistUpdatedAt = ""] = line.split("\t");
-      const match = description?.match(tag);
-      if (!id || !match?.[1]) continue;
-      const candidate = { id, projectSlug: match[1], gistUpdatedAt };
-      const prior = newestByTag.get(description);
-      if (!prior || newerGist(candidate.gistUpdatedAt, prior.gistUpdatedAt)) newestByTag.set(description, candidate);
+    for (const row of rows.flat()) {
+      const match = row.description?.match(tag);
+      if (!row.id || !match?.[1] || row.public) continue;
+      const candidate = { id: row.id, projectSlug: match[1], gistUpdatedAt: row.updated_at ?? "" };
+      const key = `moh:handoff:${candidate.projectSlug}:${user.user}`;
+      const prior = newestByTag.get(key);
+      if (!prior || newerGist(candidate.gistUpdatedAt, prior.gistUpdatedAt)) newestByTag.set(key, candidate);
     }
     const offers = await Promise.all([...newestByTag.values()].map(async (candidate) => {
       const payload = await viewGistPayload(gh, candidate.id);
