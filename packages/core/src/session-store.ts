@@ -133,6 +133,8 @@ export function projectSessionsDir(cwd: string, home = homedir()): string {
 }
 
 export { legacyProjectSlug, resolveProjectIdentity };
+// #575: re-exported so `@moh/core` can surface the identity helpers.
+export { isUlid } from "./session/ulid";
 
 // #591: process-local open-session registry, shared with the identity
 // resolver so a slug switch mid-session cannot orphan an open file.
