@@ -243,6 +243,7 @@ import {
   type PublishHandoffResult,
 } from "./handoff-transport";
 import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, type GistHandoffOffer, type DiscoverGistHandoffsOptions } from "./handoff-gist";
+import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, spawnGit, type CloneHandoffRepoOptions, type CloneHandoffRepoResult, type GitCall, type GitRunner, type PullHandoffOptions, type PullHandoffResult } from "./handoff-coldstart";
 import {
   discoverHandoff,
   handoffSeedPrompt,
@@ -603,8 +604,19 @@ export {
   discoverGistHandoffs,
   ghUsername,
   spawnGh,
+  // Cold-directory wizard (#595): the gate, clone and pull steps.
+  isColdDirectory,
+  cloneHandoffRepo,
+  pullHandoffTo,
+  spawnGit,
   type GistHandoffOffer,
   type DiscoverGistHandoffsOptions,
+  type GitCall,
+  type GitRunner,
+  type CloneHandoffRepoOptions,
+  type CloneHandoffRepoResult,
+  type PullHandoffOptions,
+  type PullHandoffResult,
   // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
   handoffSeedPrompt,
