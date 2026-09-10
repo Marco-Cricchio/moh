@@ -90,6 +90,7 @@ export const BASE_PROMPT = [
   "- Explore economically: do not re-read a file you have already read this session unless it changed; resolve each git question with one targeted command (git log --diff-filter, one git show) instead of repeated probes.",
   "- Follow the project instructions below when they do not conflict with these rules.",
   "- Reply in the user's language.",
+  "- Keep bash command payloads comment-free; put narration in assistant text before the tool call.",
 ].join("\n");
 
 export interface PromptComposerConfig {

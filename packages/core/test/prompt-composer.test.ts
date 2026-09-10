@@ -76,6 +76,12 @@ describe("PromptComposer", () => {
     expect(base).toContain("Reply in the user's language");
   });
 
+  test("shipped base prompt keeps bash payloads free of narration", () => {
+    const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
+    expect(composer.sections.base(baseCtx())).toContain("Keep bash command payloads comment-free");
+    expect(composer.sections.base(baseCtx())).toContain("put narration in assistant text before the tool call");
+  });
+
   test("CLAUDE.md is a silent fallback when AGENTS.md is absent", () => {
     const project = tmp();
     writeFileSync(join(project, "CLAUDE.md"), "Claude-only rules.");
