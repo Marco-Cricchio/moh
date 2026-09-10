@@ -142,8 +142,8 @@ export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
  */
 export function pathTo(events: ReadonlyArray<AgentEvent>, nodeId: string): AgentEvent[] | null {
   if (events.length === 0 || events[0]!.id === undefined) return null;
-  const { dangling } = resolveHead(events);
-  const head = nodeId;
+  const { head, dangling } = resolveHead(events);
+  const anchorHead = nodeId === head;
   // The base chain is the root→head chain from the head's parent links.
   // byId + positional parent resolution (`line:N` bridges).
   const byId = new Map<string, AgentEvent>();
@@ -176,15 +176,15 @@ export function pathTo(events: ReadonlyArray<AgentEvent>, nodeId: string): Agent
     }
     return null; // cycle or broken chain: no certified path
   };
-  const base = walk(head);
+  // An unknown anchor has no base chain to certify.
+  const base = walk(nodeId);
   if (base === null) return null;
   // An interior anchor (compaction of the turn's pinned branch, #578
   // d7) projects exactly the root→anchor chain: events after the anchor
   // in file order belong to later turns or other branches — the
   // summarized span ends at the anchor. Only the log's real head gets
   // the in-order continuation (that continuation IS `activePath`).
-  const isActiveHead = nodeId === resolveHead(events).head;
-  if (!isActiveHead) return base;
+  if (!anchorHead) return base;
   // After the base chain's tip, the branch continues in file order: every
   // subsequent event whose parent is the running tip extends the path
   // (this is how appends follow a switch to an interior node — the head
@@ -214,7 +214,7 @@ export function pathTo(events: ReadonlyArray<AgentEvent>, nodeId: string): Agent
       // For an interior anchor the summarized branch ends at the anchor:
       // switches past it describe where the *head* went, not the branch
       // the projection certifies (#578 d7).
-      if (parentOk && isActiveHead) {
+      if (parentOk && anchorHead) {
         path.push(e);
         started.add(e.id!);
         if (dangling === undefined) {

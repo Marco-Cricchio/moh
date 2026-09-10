@@ -75,7 +75,8 @@ import {
   activePath,
   // #578: on-path marker resolution + the dangling-pointer warning —
   // clients projecting their own replay need the same compaction
-  // semantics the core applies.
+  // semantics the core applies (ADR-0004 reopening; to be recorded in
+  // the session-tree ADR, #571).
   compactionProjection,
   replayWarnings,
 } from "./session-store";
