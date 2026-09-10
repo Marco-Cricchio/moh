@@ -1,13 +1,60 @@
 import type { AgentEvent, ReasoningStreamEvent } from "../types";
 import { newUlid } from "./ulid";
 
+// Local copy of the `line:N` bridge shape (session-store owns the parser):
+// a local import would close a module cycle (session-store → event-log).
+const LINE_REF_RE = /^line:([1-9]\d*)$/;
+
 /** The dispatch surface EventLog needs from the extension runtime. */
 export interface EventDispatcher {
   dispatchEvent(event: AgentEvent): Promise<AgentEvent[]>;
 }
 
-/** #575: the id of the log's last identified event (the current branch
- * head as the writer sees it); undefined on a purely legacy tail. */
+/**
+ * #576 (head semantics d4): the head of the active path — the `to` of the
+ * last `branch_switched` in the log, else the last event. A dangling `to`
+ * (the referenced id is absent: truncation, corruption) falls back to the
+ * last valid event and yields a `branch_dangling` warning so readers can
+ * surface it visibly — never silent corruption.
+ *
+ * Returns `{ head, dangling }`: `head` is undefined on a purely legacy
+ * tail (identity-less events — the degenerate linear tree); `dangling` is
+ * the unmatched `to` when, and only when, the fallback fired.
+ */
+export function resolveHead(log: ReadonlyArray<AgentEvent>): {
+  head: string | undefined;
+  dangling: string | undefined;
+} {
+  let lastId: string | undefined;
+  let switched: string | undefined;
+  for (let i = log.length - 1; i >= 0; i -= 1) {
+    const event = log[i]!;
+    // The fallback tip never lands on a switch event: on a dangling `to`
+    // the head falls back to the last valid non-switch node (the branch
+    // the file was actually on before the bad switch).
+    if (lastId === undefined && event.id !== undefined && event.type !== "branch_switched") {
+      lastId = event.id;
+    }
+    if (switched === undefined && event.type === "branch_switched") {
+      switched = (event as { type: "branch_switched"; to: string }).to;
+      if (lastId !== undefined) break;
+    }
+    if (lastId !== undefined && switched !== undefined) break;
+  }
+  if (switched === undefined) return { head: lastId, dangling: undefined };
+  const known = log.some((e) => e.id === switched);
+  // A `line:N` bridge target always resolves (it points at a written line
+  // by construction — the writer validated it; an out-of-range bridge is
+  // caught by resolveEventRef at the use site).
+  if (known || LINE_REF_RE.test(switched)) return { head: switched, dangling: undefined };
+  return { head: lastId, dangling: switched };
+}
+
+/**
+ * #576: the id of the log's last identified event. Kept for the legacy
+ * default-parent rule of direct appends (rename/fork stamping) where no
+ * `branch_switched` exists; tree-aware callers use `resolveHead`.
+ */
 export function headId(log: ReadonlyArray<AgentEvent>): string | undefined {
   for (let i = log.length - 1; i >= 0; i -= 1) {
     if (log[i]!.id !== undefined) return log[i]!.id;
@@ -57,7 +104,10 @@ export class EventLog {
     for (const event of events) this.#log.push(event);
   }
 
-  append(event: AgentEvent): void {
+  /** Appends one event; returns the stamped event as stored (its ULID is
+   * writer-minted, so callers that need to reference the event — e.g. the
+   * local-tip tracking of #576 — read it here). */
+  append(event: AgentEvent): AgentEvent {
     // #575: every appended event carries identity — a fresh ULID `id` and
     // a `parentId` chaining it to the branch head (the last identified
     // event in the log; legacy tails have none, so the field is simply
@@ -67,12 +117,12 @@ export class EventLog {
     // the caller.
     const stamped: AgentEvent = {
       ...event,
-      id: newUlid(),
-      ...(event.parentId !== undefined
+      id: newUlid(),      ...(event.parentId !== undefined
         ? { parentId: event.parentId }
-        : headId(this.#log) !== undefined
-          ? { parentId: headId(this.#log) }
-          : {}),
+        : (() => {
+            const head = resolveHead(this.#log).head;
+            return head !== undefined ? { parentId: head } : {};
+          })()),
     };
     this.#log.push(stamped);
     this.#sink?.(stamped);
@@ -81,6 +131,7 @@ export class EventLog {
       this.#queue.push(stamped);
       this.#drain();
     }
+    return stamped;
   }
 
   /** Snapshot of the append-only log. */

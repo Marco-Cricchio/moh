@@ -195,6 +195,22 @@ type AgentEventBase =
    * event so the log stays append-only and the reset is itself history.
    */
   | { type: "session_renamed"; name: string }
+  /**
+   * #576 (format decision 6): the head moves — `to` is the ULID of the
+   * event that becomes the new head (any node: tips and interior; an
+   * interior target makes subsequent appends split implicitly). Appended
+   * immediately and validated by the writer seam (`switchBranch`); the
+   * LAST `branch_switched` in the log wins. Chrome only — never provider
+   * context. Also the adoption action for #400 divergence (semantics d9).
+   */
+  | { type: "branch_switched"; to: string }
+  /**
+   * #576 (head semantics d10): the last `branch_switched.to` references an
+   * id absent from the file (truncation, corruption). Readers fall back to
+   * the last valid event and surface this visible warning chrome — a
+   * session never silently reads the wrong branch. Chrome only.
+   */
+  | { type: "branch_dangling"; to: string }
   | { type: "user_message"; text: string; /**
    * #488 (vision note 3): structured snapshots of the `@path` mentions in
    * `text` — file content snapshots and directory listings assembled by
@@ -276,7 +292,12 @@ type AgentEventBase =
    * visible warning; concurrent same-file use is unsupported — the
    * recovery path is forking the session.
    */
-  | { type: "session_file_growth"; file: string; expectedBytes: number; actualBytes: number }
+  | { type: "session_file_growth"; file: string; expectedBytes: number; actualBytes: number; /**
+   * #576 (head semantics d8): the local writer's own tip and the foreign
+   * writer's tip (ULIDs) at divergence-detection time — the event is
+   * self-describing in replay and the recovery action needs no rescan.
+   * Absent on a legacy (identity-less) foreign tail. */
+      localTip?: string; foreignTip?: string }
   /**
    * Compaction failure (#466, ADR-0022): a run (auto or forced) could not
    * produce a marker. Chrome only — never provider context. Clients show

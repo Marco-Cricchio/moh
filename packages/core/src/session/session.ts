@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
+import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
+import { resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
@@ -74,6 +76,23 @@ export class AgentSession {
   readonly #sessionFile: string | undefined;
   /** #400: external-growth probe (from-config: `SessionStore.externalGrowth`). */
   readonly #externalGrowth: (() => { expectedBytes: number; actualBytes: number } | null) | undefined;
+  /**
+   * #576: this writer's own last-appended event id (ULID). While divergence
+   * (#400) is unresolved, appends carry an explicit local-tip parent (head
+   * semantics d7) — the head never moves on its own.
+   */
+  #localTip: string | undefined;
+  /** #576: set when a `session_file_growth` is observed, cleared by an
+   * explicit `switchBranch` (the adoption action, head semantics d9). */
+  #diverged = false;
+  /**
+   * #576 (head semantics d6): the running turn's current parent tip.
+   * Captured at send time from the resolved head (or the local tip while
+   * diverged) and advanced only by the turn's own events — a mid-turn
+   * switch never moves it, so a turn is never split across branches.
+   * Null outside a turn (chrome appends follow the live head).
+   */
+  #turnHead: string | undefined;
   #promptVersion = "";
   readonly #messages: Message[];
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
@@ -345,6 +364,13 @@ export class AgentSession {
       // ADR-0022: `moh compact` opens with consume: false — compacting
       // never consumes.
       if (config.resume.consume !== false) this.#append({ type: "session_resumed" });
+      // #576 (head semantics d10): a dangling switch target (truncation,
+      // corruption) falls back to the last valid event — the fallback is
+      // surfaced as visible warning chrome, never silent.
+      const resumeHead = resolveHead(config.resume.events);
+      if (resumeHead.dangling !== undefined) {
+        this.#append({ type: "branch_dangling", to: resumeHead.dangling });
+      }
       const restoredRules = runtimeRulesFromEvents(config.resume.events);
       for (const rule of restoredRules) this.#permissions.addRuntimeRule(rule);
       if (restoredRules.length > 0) {
@@ -562,7 +588,17 @@ export class AgentSession {
     // starts (the loop reassembles the prompt before every model call,
     // so the skills section picks it up) and recorded as chrome in the
     // log — the user_message stays the clean text.
-    return this.#queue.send(text, options?.prompt);
+    // #576 (d6): the turn pins its head here — every event of the turn
+    // will parent to it even if a mid-turn switch moves the head; the
+    // pin clears when the turn settles.
+    const pending = this.#queue.pending();
+    if (!pending) {
+      const head = resolveHead(this.#eventLog.live()).head;
+      this.#turnHead = this.#diverged ? (this.#localTip ?? head) : head;
+    }
+    return this.#queue.send(text, options?.prompt).finally(() => {
+      this.#turnHead = undefined;
+    });
   }
 
   /**
@@ -643,17 +679,77 @@ export class AgentSession {
     // *before* the pending event — chronologically honest in the log.
     // `sessionFile` is always set when `externalGrowth` is (the from-config
     // seam pairs them), so the fallback is unreachable in practice.
+    // #576 (head semantics d7/d8): the payload names both tips — the local
+    // writer's own tip and the foreign tail's tip (the log's last
+    // identified event at detection time) — and while divergence is
+    // unresolved the local writer stamps explicit local-tip parents, so
+    // the two writers can never merge into one branch by accident and the
+    // head never moves on its own.
     if (this.#externalGrowth) {
       const growth = this.#externalGrowth();
       if (growth) {
+        // The local tip at divergence time is the last event within the
+        // expected (pre-growth) bytes — the foreign tail lives after them.
+        // Lazily derived once: before the first growth this writer's own
+        // appends keep `#localTip` fresh already.
+        this.#localTip ??= localTipAt(this.#sessionFile ?? "", growth.expectedBytes) ?? undefined;
+        // The foreign tip is the file's actual tail (last identified event),
+        // not this writer's in-memory log — the in-memory history stopped
+        // at the writer's own last append.
+        const foreignTip = fileTailId(this.#sessionFile ?? "");
         this.#eventLog.append({
           type: "session_file_growth",
           file: this.#sessionFile ?? "",
           ...growth,
-        });
+          ...(this.#localTip && foreignTip ? { localTip: this.#localTip, foreignTip } : {}),
+        });        if (this.#localTip) this.#diverged = true;
       }
     }
-    this.#eventLog.append(event);
+    // #576 (head semantics d7): while divergence is unresolved, every
+    // local event carries an explicit parent — its own previous local tip.
+    // Off-head parents are mandatory-parent-rule writes, never head moves.
+    // Same mechanism pins a turn to its head (d6): within a turn the pin
+    // follows the turn's own events (the ordinary chain), but a mid-turn
+    // switch never moves it — the running turn's events keep chaining on
+    // the turn-start branch and the switch takes effect next turn.
+    const pinned =
+      event.parentId === undefined && event.type !== "branch_switched"
+        ? (this.#turnHead ?? (this.#diverged ? this.#localTip : undefined))
+        : undefined;
+    const stamped = this.#eventLog.append(
+      pinned ? { ...event, parentId: pinned } : event,
+    );
+    // The pin advances through the turn's own events only — a switch line
+    // rides the old branch without moving the turn's head.
+    if (this.#turnHead !== undefined && event.type !== "branch_switched") {
+      this.#turnHead = stamped.id;
+    }
+    // The local tip only advances through this writer's own appends.
+    if (stamped.type !== "session_file_growth" || stamped.localTip !== undefined) {
+      this.#localTip = stamped.id;
+    }
+  }
+  /**
+   * #576: moves the head for this live session by appending one validated
+   * `branch_switched { to }` through the sink (the live store keeps its
+   * single-writer accounting, same as `rename`). `to` must resolve against
+   * the live log. Switching to an interior node makes subsequent appends
+   * split implicitly; the change takes effect from the next turn — the
+   * in-flight turn stays pinned to its turn-start head (head semantics d6).
+   * Also the adoption action for #400 divergence: switching to the local
+   * tip resolves the divergence and clears the explicit-local-parent mode.
+   */
+  switchBranch(to: string): { ok: true } | { ok: false; error: string } {
+    if (this.#disposed) return { ok: false, error: "session is disposed" };
+    if (resolveEventRef(to, this.#eventLog.live()) === null) {
+      return { ok: false, error: `branch target not found in this session: ${to}` };
+    }
+    this.#append({ type: "branch_switched", to });
+    // Adoption (head semantics d9): an explicit switch — any switch — is
+    // the user resolving where the head belongs; the divergence guard
+    // lifts and the writer returns to head-following appends.
+    this.#diverged = false;
+    return { ok: true };
   }
 
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent.
