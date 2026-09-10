@@ -20,7 +20,7 @@ import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 import { renderMentionAttachment } from "./mentions";
 import { isUlid, newUlid } from "./session/ulid";
-import { headId } from "./session/event-log";
+import { activePath } from "./session/event-log";
 
 /**
  * #575 (format decision 8): a read-only bridge value referencing a
@@ -145,7 +145,7 @@ export { legacyProjectSlug, resolveProjectIdentity };
 export { isUlid } from "./session/ulid";
 // #576: branch-aware head resolution, re-exported here so clients read the
 // whole session-tree read/write surface from one module.
-export { resolveHead } from "./session/event-log";
+export { resolveHead, activePath } from "./session/event-log";
 import { resolveHead } from "./session/event-log";
 
 // #591: process-local open-session registry, shared with the identity
@@ -680,11 +680,9 @@ interface SessionPeek {
  */
 function peekSession(file: string): SessionPeek {
   const raw = readFileSync(file, "utf8");
+  const events: AgentEvent[] = [];
   let title: string | null = null;
   let displayName: string | null = null;
-  let lastTurnIdx = -1;
-  let lastResumedIdx = -1;
-  let idx = -1;
   for (const line of raw.split("\n")) {
     if (line.trim() === "") continue;
     let event: AgentEvent;
@@ -693,7 +691,6 @@ function peekSession(file: string): SessionPeek {
     } catch {
       break; // corrupt tail: stop at the first bad line
     }
-    idx++;
     if (event.type === "user_message" && title === null) {
       const text = event.text.replace(/\s+/g, " ").trim();
       title = text.length > 60 ? text.slice(0, 57) + "…" : text || "(empty session)";
@@ -703,10 +700,21 @@ function peekSession(file: string): SessionPeek {
     if (event.type === "session_renamed") {
       displayName = event.name === "" ? null : event.name;
     }
+    events.push(event);
+  }
+  // #577 (core spec d8): the consumption predicate runs on the active-path
+  // projection — an abandoned branch's turn no longer consumes the head.
+  // Same predicate, new array: consumed iff the last `session_resumed` on
+  // the path comes after the last turn event on the path.
+  const path = activePath(events);
+  let lastTurnIdx = -1;
+  let lastResumedIdx = -1;
+  for (let i = 0; i < path.length; i++) {
+    const event = path[i]!;
     if (event.type === "user_message" || event.type === "done" || event.type === "error" || event.type === "cancelled") {
-      lastTurnIdx = idx;
+      lastTurnIdx = i;
     }
-    if (event.type === "session_resumed") lastResumedIdx = idx;
+    if (event.type === "session_resumed") lastResumedIdx = i;
   }
   return {
     displayName,

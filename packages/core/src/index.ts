@@ -69,6 +69,10 @@ import {
   parseLineRef,
   // #576: head resolution (branch-aware) lives in session/event-log.
   resolveHead,
+  // #577: the active-path projection (root→head linearization) — the
+  // ADR-0004 reopening that lets clients (TUI /tree, CLI renderers,
+  // tooling) read the same linear path the model context sees.
+  activePath,
 } from "./session-store";
 import {
   formatRule,
@@ -717,6 +721,8 @@ export {
   type Tool,
   // #576: session-tree surface — head resolution + reference helpers.
   resolveHead,
+  // #577: active-path projection (root→head linearization).
+  activePath,
   resolveEventRef,
   lineRef,
   parseLineRef,

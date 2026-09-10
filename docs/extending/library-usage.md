@@ -154,7 +154,11 @@ await session.dispose();
 Every event is also persisted (the `sink` you can add via
 `overrides.sink` fans out on top of the store append) to
 `store.file` — one append-only JSONL per session, which you can `load()`
-to resume or `fork()` to branch later.
+to resume or `fork()` to branch later. Since the session tree (#577), a
+file may hold abandoned branches: `sessionFromConfig` and every core
+consumer replay the **active path only** (the `activePath(events)`
+projection exported from `@moh/core`) — switching branches is how the
+model sees a different past.
 
 Session files are **single-writer** (#400): an open session probes its
 file's size at every append boundary, and growth from elsewhere (another

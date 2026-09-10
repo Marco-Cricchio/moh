@@ -118,3 +118,17 @@ returning per-endpoint live listings; the fetchers, the union parser,
 the merge projection, the cache file and the `liveModels` config reader
 stay internal to the defining module (core tests import it directly).
 The seam is deliberately fail-silent and never mutates the auth store.
+
+## Amendment — 2026-09-10, #575/#576/#577 session-tree identity and projection seams
+
+**Re-opened doors**: `resolveEventRef`, `lineRef`, `parseLineRef`,
+`resolveHead` (#575/#576) and `activePath` (#577)
+(`core/src/session/event-log.ts`, re-exported via `core/src/session-store.ts`),
+consumed by `@moh/tui` / `@moh/cli` (tree surfaces, divergence adoption,
+`moh compact` readers) and available to library embedders. These are the
+read-side complements of the `switchBranch` writer seam (#576): reference
+resolution, branch-aware head resolution, and the active-path projection
+that defines what the model context sees. The session-tree ADR is
+ADR-0023; the specs (`docs/spec/session-tree-*.md`) remain the normative
+semantics source. Future client-facing projections (`sessionTree`,
+#580) build on `activePath` and will record their own doors.

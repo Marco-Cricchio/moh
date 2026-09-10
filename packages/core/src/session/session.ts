@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
-import { resolveHead } from "./event-log";
+import { activePath, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
@@ -353,11 +353,18 @@ export class AgentSession {
       },
     });
     if (config.resume?.events.length) {
+      // #577 (core spec d1/d2): the resumed file may hold abandoned
+      // branches — the session seeds and replays the active-path
+      // projection only (root→head), never the raw array. Switching
+      // branches is how the model sees a different past; whole-tree
+      // context does not exist. The projection is the single pass that
+      // linearizes once; everything downstream keeps its index logic.
+      const resumeEvents = activePath(config.resume.events);
       // Resume (#31): the log continues in a new AgentSession over the same
       // persisted history. Seeded events are never re-appended (the file
       // already has them); only new events reach the sink.
-      this.#eventLog.seed(config.resume.events);
-      this.#messages.splice(0, 0, ...replayMessages(config.resume.events));
+      this.#eventLog.seed(resumeEvents);
+      this.#messages.splice(0, 0, ...replayMessages(resumeEvents));
       // ADR-0021: resume leaves a trace — one chrome event at resume-open,
       // before any turn. The sole consumption marker for the pertinent-
       // session suggestion; both TUI and `moh run --resume` ride this seam.
@@ -633,7 +640,10 @@ export class AgentSession {
    * re-attached by `#assemblePrompt`. A fresh measurement (not the stale
    * pre-compaction one) may re-trigger later. */
   #rebuildAfterCompaction(): void {
-    const messages = replayMessages(this.#eventLog.live());
+    // #577: the rebuilt context is the active-path projection (d2) — an
+    // in-session switch before the rebuild must not resurface off-path
+    // events into the model context.
+    const messages = replayMessages(activePath(this.#eventLog.live()));
     this.#messages.splice(0, this.#messages.length, ...messages);
     this.#assemblePrompt();
   }
