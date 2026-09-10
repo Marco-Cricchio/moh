@@ -202,6 +202,16 @@ export async function discoverHandoffForHome(
   });
 }
 
+/** #595: whether gist handoff is active for `cwd` (merged config), for the
+ * cold-directory auto-scan gate. Fail-silent: a broken config is no scan. */
+export function transportActiveFor(cwd: string, home?: string): boolean {
+  try {
+    return transportActive(loadMergedConfig(cwd, { home })?.handoff);
+  } catch {
+    return false;
+  }
+}
+
 /** Merged provider view (project moh.json + user config, #129) for the
  * status-line label. Display-only and warning-only (decision 6): a broken
  * config still surfaces loudly at session assembly; here it just shows a
