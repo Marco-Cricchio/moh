@@ -2,8 +2,9 @@ import React from "react";
 import { render } from "ink";
 import { App, type AppProps } from "./App";
 import { installAiSdkWarningSink } from "./ai-sdk-warnings";
-import { projectSlug } from "@moh/core";
+import { projectSlug, resolveTrackerSync } from "@moh/core";
 import { homedir } from "node:os";
+import { loadUserConfig, userConfigFile } from "./user-config";
 
 /** Clears the terminal once before the first frame (#292): the home screen
  * opens on a clean viewport instead of below the shell's scrollback. Plain
@@ -32,17 +33,26 @@ export function kittyKeyboardOptions(env: Record<string, string | undefined> = p
  * input's shift+enter newline). On every other terminal nothing changes —
  * ctrl+j remains the newline fallback everywhere. */
 export function renderTui(options: AppProps) {
-  // #595 flake: project-identity resolution spawns `git remote get-url`
-  // synchronously; startup paths reach it from React passive effects
-  // (cold-directory scan, handoff offer). A spawn re-entering the
+  // #595 flake: project-identity and tracker resolution spawn `git remote
+  // get-url` synchronously; startup paths reach them from React renders and
+  // passive effects (cold-directory scan, handoff offer, Home's session
+  // list, the workflow tracker lazy useState). A spawn re-entering the
   // reconciler scheduler mid-commit crashes Ink ("Should not already be
-  // working."). Warm the memoized resolution before the first frame so no
-  // spawn ever lands inside a commit. Failures fall through: the resolver
-  // keeps its own fallbacks.
+  // working."). Warm both before the first frame so no spawn ever lands
+  // inside a commit. Failures fall through: both resolvers keep their own
+  // fallbacks.
   try {
     projectSlug(options.cwd, options.home ?? homedir());
   } catch {
     // The resolver is fail-soft by design; nothing to do here.
+  }
+  try {
+    const cfgFile = userConfigFile(options.home ?? homedir());
+    if (loadUserConfig(cfgFile).workflow.enabled) {
+      resolveTrackerSync({ cwd: options.cwd });
+    }
+  } catch {
+    // Same: resolveTrackerSync already degrades to null.
   }
   // #347: capture AI SDK warnings before the first provider call can
   // print them — the sink routes them to the App's toast channel instead

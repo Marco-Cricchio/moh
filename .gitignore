@@ -16,3 +16,4 @@ docs/research/
 # Private vision notes (never commit to the official repository)
 docs/vision/
 .moh/
+__pycache__/

@@ -141,7 +141,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // rows are computed below, so the default rides a lazy state initializer
   // over a ref-free closure: cursor === undefined means "not moved yet".
   const [cursor, setCursor] = useState<number | null>(null);
-  const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home]);
+  // Rename/delete mutate the session files on disk; summaries are read once,
+  // so a confirmed mutation re-reads them (the memo dependency below
+  // invalidates). Calling listSessionSummaries in the render body instead —
+  // the pre-fix form — re-ran the project-identity spawn and a double parse
+  // per session on EVERY render: sync work inside React commits is the
+  // #595 crash window ("Should not already be working." in Ink).
+  const [renamesDone, setRenamesDone] = useState(0);
+  const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home, renamesDone]);
   // #477 rename: when non-null, the composer area becomes an inline edit
   // for the display name (prefilled with the current name; Enter confirms,
   // Esc cancels, Enter on empty resets). Owns input while open.
@@ -150,16 +157,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // #478 delete: when non-null, the composer area becomes the inline
   // `Delete? y/N` confirm (default No; Esc cancels). Owns input while open.
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
-  // Rename/delete mutate the session files on disk; summaries are read once,
-  // so a confirmed mutation re-reads them (a version bump invalidates the memo).
-  const [renamesDone, setRenamesDone] = useState(0);
-  const refreshKey = `${cwd}\0${home ?? ""}\0${renamesDone}`;
-  const refreshSessions = React.useCallback(
-    () => listSessionSummaries(cwd, home),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [refreshKey],
-  );
-  const sessionsList = renamesDone > 0 ? refreshSessions() : sessions;
+  const sessionsList = sessions;
   // #478: refusal (open session) renders as a visible error line.
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const pertinent = useMemo(
