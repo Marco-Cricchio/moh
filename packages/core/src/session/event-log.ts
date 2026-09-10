@@ -5,6 +5,48 @@ import { newUlid } from "./ulid";
 // a local import would close a module cycle (session-store → event-log).
 const LINE_REF_RE = /^line:([1-9]\d*)$/;
 
+/** Local `line:N` parser — same grammar as session-store's `parseLineRef`
+ * (kept local for the same cycle-avoidance reason as LINE_REF_RE). */
+function parseLineRefLocal(ref: string): number | null {
+  const m = LINE_REF_RE.exec(ref);
+  return m ? Number(m[1]) : null;
+}
+
+/** Whether `event`'s parent chain anchors at the log's root (`log[0]`):
+ * true for legacy parentless events and for every node of a chain that
+ * reaches the file's first event; false for orphan/divergence nodes whose
+ * parent is absent (a #400 foreign tail, a #577 off-path write). A
+ * parentless event whose preceding log is entirely legacy (no identified
+ * ancestor exists to name) anchors too — it IS the identified branch tip
+ * (format d8: no `line:N` is ever written). */
+function activePathAnchored(event: AgentEvent, log: ReadonlyArray<AgentEvent>): boolean {
+  const index = log.indexOf(event);
+  const byId = new Map<string, AgentEvent>();
+  for (let i = 0; i <= index; i++) {
+    const e = log[i]!;
+    if (e.id !== undefined) byId.set(e.id, e);
+  }
+  const seen = new Set<AgentEvent>();
+  let cursor: AgentEvent | undefined = event;
+  while (cursor !== undefined && !seen.has(cursor)) {
+    seen.add(cursor);
+    if (cursor === log[0]) return true;
+    const parentRef: string | undefined = cursor.parentId;
+    if (parentRef === undefined) {
+      // Anchor — unless an earlier identified event exists that this node
+      // silently abandoned (an orphan dropped mid-file on an identified
+      // log; on a legacy tail it is the legitimate identified tip).
+      for (let i = 0; i < index; i++) {
+        if (log[i]!.id !== undefined) return false;
+      }
+      return true;
+    }
+    const line = parseLineRefLocal(parentRef);
+    cursor = line !== null ? log[line - 1] : byId.get(parentRef);
+  }
+  return false;
+}
+
 /** The dispatch surface EventLog needs from the extension runtime. */
 export interface EventDispatcher {
   dispatchEvent(event: AgentEvent): Promise<AgentEvent[]>;
@@ -31,8 +73,11 @@ export function resolveHead(log: ReadonlyArray<AgentEvent>): {
     const event = log[i]!;
     // The fallback tip never lands on a switch event: on a dangling `to`
     // the head falls back to the last valid non-switch node (the branch
-    // the file was actually on before the bad switch).
-    if (lastId === undefined && event.id !== undefined && event.type !== "branch_switched") {
+    // the file was actually on before the bad switch). Divergence-line
+    // orphans (#400 foreign tails, #577 off-path writes) are skipped too:
+    // their parent chains do not reach the root, so the head would
+    // otherwise dangle into a discarded branch.
+    if (lastId === undefined && event.id !== undefined && event.type !== "branch_switched" && activePathAnchored(event, log)) {
       lastId = event.id;
     }
     if (switched === undefined && event.type === "branch_switched") {
@@ -60,6 +105,108 @@ export function headId(log: ReadonlyArray<AgentEvent>): string | undefined {
     if (log[i]!.id !== undefined) return log[i]!.id;
   }
   return undefined;
+}
+
+/**
+ * #577 (core spec d1): the active-path projection — one pass turns the
+ * file's event array into the linear root→head path. The head follows
+ * `resolveHead` (the `to` of the last `branch_switched`, else the last
+ * event); within the path the order is file order. Every event is
+ * on-path iff its `parentId` chain reaches the root (the first event);
+ * orphans — parents not in the file or off-path — are excluded, never
+ * silently merged. Chrome events stay in the path (they are tree nodes,
+ * format d4); `replayMessages` already drops them downstream.
+ *
+ * A purely legacy tail (no ids) is the degenerate linear tree: the input
+ * array projects to itself. A dangling switch target falls back per
+ * `resolveHead`; the switch node itself stays on-path (it was appended on
+ * the branch it interrupted), so the visible-warning marker survives to
+ * replay.
+ */
+export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
+  // Degenerate legacy log (or empty): identity-less events have no
+  // chains to follow — the file order IS the path.
+  if (events.length === 0 || events[0]!.id === undefined) return [...events];
+  const { head, dangling } = resolveHead(events);
+  if (head === undefined) return [...events];
+  // The base chain is the root→head chain from the head's parent links.
+  // byId + positional parent resolution (`line:N` bridges).
+  const byId = new Map<string, AgentEvent>();
+  for (const e of events) {
+    if (e.id !== undefined) byId.set(e.id, e);
+  }
+  const parentOf = (e: AgentEvent): AgentEvent | null | undefined => {
+    if (e.parentId === undefined) return null; // anchor reached
+    const line = parseLineRefLocal(e.parentId);
+    if (line !== null) return events[line - 1] ?? null;
+    return byId.get(e.parentId!) ?? null; // null = dangling: chain broken
+  };
+  // Walks the parent chain from `start` back toward the root. Returns
+  // null when the chain is broken or does not anchor at the file's root
+  // (a parentless node other than `events[0]` is a foreign root — a #400
+  // divergence tail, an orphan line — never a path of its own).
+  const walk = (start: string): AgentEvent[] | null => {
+    const chain: AgentEvent[] = [];
+    const seen = new Set<AgentEvent>();
+    let event = byId.get(start);
+    while (event !== undefined && !seen.has(event)) {
+      seen.add(event);
+      chain.push(event);
+      const parent = parentOf(event);
+      if (parent === null) {
+        chain.reverse();
+        return chain[0] === events[0] ? chain : null;
+      }
+      event = parent ?? undefined;
+    }
+    return null; // cycle or broken chain: no certified path
+  };
+  const base = walk(head);
+  if (base === null) return [...events];
+  // After the base chain's tip, the branch continues in file order: every
+  // subsequent event whose parent is the running tip extends the path
+  // (this is how appends follow a switch to an interior node — the head
+  // id stays at the `to` until the next switch, but the writer chains to
+  // the active-path tip). Chrome stays in the path (format d4); `switch`
+  // lines ride the tip they interrupted. Anything that does not chain to
+  // the running tip is off-path: excluded, never silently merged.
+  const path = [...base];
+  const started = new Set(base.map((e) => e.id!));
+  for (const e of events.slice(events.indexOf(base[base.length - 1]!) + 1)) {
+    if (e.id === undefined) continue; // legacy interleaved nodes: file order
+    const isSwitch = e.type === "branch_switched";
+    const parentRef = e.parentId;
+    const parentOk =
+      parentRef !== undefined &&
+      (started.has(parentRef) || path[path.length - 1]!.id === parentRef);
+    if (isSwitch) {
+      // A switch is a topological marker on the branch it interrupted:
+      // on-path only when its parent is the current tip. The head then
+      // moves to its `to` (unless dangling — resolveHead already fell
+      // back and warned); the path from there follows new chaining.
+      if (parentOk) {
+        path.push(e);
+        started.add(e.id!);
+        if (dangling === undefined) {
+          const lineTo = parseLineRefLocal(e.to ?? "");
+          const target = lineTo !== null ? events[lineTo - 1] : byId.get(e.to ?? "");
+          if (target) {
+            const targetChain = walk(target.id!);
+            if (targetChain !== null) {
+              path.length = 0;
+              path.push(...targetChain);
+            }
+          }
+        }
+      }
+      continue;
+    }
+    if (parentOk && !started.has(e.id!)) {
+      path.push(e);
+      started.add(e.id!);
+    }
+  }
+  return path;
 }
 
 export interface EventLogOptions {
@@ -117,7 +264,8 @@ export class EventLog {
     // the caller.
     const stamped: AgentEvent = {
       ...event,
-      id: newUlid(),      ...(event.parentId !== undefined
+      id: newUlid(),
+      ...(event.parentId !== undefined
         ? { parentId: event.parentId }
         : (() => {
             const head = resolveHead(this.#log).head;
