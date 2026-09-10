@@ -45,7 +45,10 @@ describe.skipIf(!hasPython)("ask_user invalid-then-valid (PTY regression)", () =
             { wait: 0.4, send: B("\r") },
             // First ask_user: invalid (header > 12) → error result; the fake
             // model then sends the valid 4-question set.
-            { wait: 15.0, until: "Q1 — which way?" },
+            // The CI PTY batch runs two full TUI processes on a 2-vCPU
+            // runner. Leave enough wall time for the fake-provider retry to
+            // reach this readiness signal under that contention.
+            { wait: 30.0, until: "Q1 — which way?" },
             // Stress: rapid arrows (the first ↑ loads the long history
             // draft into the composer while the block is open) + typed chars.
             { wait: 0.5, send: UP },
