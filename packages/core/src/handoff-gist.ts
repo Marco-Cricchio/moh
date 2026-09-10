@@ -134,6 +134,93 @@ function classifyGhFailure(proc: GhResult): { ok: false; error: HandoffTransport
  * publish creates a fresh tagged gist (duplicate tag, old one left) —
  * acceptable in v1, T3 discovery tolerates it by taking the newest hit. */
 const GIST_LIST_LIMIT = "200";
+interface GistApiRow {
+  id?: string;
+  description?: string | null;
+  updated_at?: string;
+  public?: boolean;
+}
+
+/** A handoff available to a cold-start client. This intentionally exposes
+ * only the offer-list headline — the full artifact is fetched again only
+ * when the user accepts it. */
+export interface GistHandoffOffer {
+  projectSlug: string;
+  updatedAt: string;
+  git: HandoffPayload["git"];
+  lastUserMessage: string;
+  repoUrl?: string;
+  url: string;
+}
+
+export interface DiscoverGistHandoffsOptions {
+  /** Injectable for tests; production defaults to the asynchronous gh runner. */
+  gh?: GhRunner;
+}
+
+interface GistListCandidate {
+  id: string;
+  projectSlug: string;
+  gistUpdatedAt: string;
+}
+
+/** Lists handoffs published by the authenticated user across projects.
+ * Listing is metadata-only; candidate content is fetched only after its
+ * tag has matched, and every remote failure deliberately degrades to no
+ * offers so cold start never becomes dependent on GitHub availability. */
+export async function discoverGistHandoffs(options: DiscoverGistHandoffsOptions = {}): Promise<GistHandoffOffer[]> {
+  const gh = options.gh ?? spawnGh;
+  const user = await ghUsername(gh);
+  if (!user.ok) return [];
+
+  try {
+    // The REST endpoint is paginated by gh until exhausted, unlike `gh gist
+    // list --limit`, so discovery cannot silently miss an older handoff.
+    const listed = await gh({ args: ["api", "--paginate", "--slurp", "user/gists?per_page=100"] });
+    if (listed.exitCode !== 0) return [];
+    const rows = JSON.parse(listed.stdout) as GistApiRow[][];
+    const tag = new RegExp(`^moh:handoff:([^:]+):${escapeRegExp(user.user)}(?:\s|$)`);
+    const newestByTag = new Map<string, GistListCandidate>();
+    for (const row of rows.flat()) {
+      const match = row.description?.match(tag);
+      if (!row.id || !match?.[1] || row.public) continue;
+      const candidate = { id: row.id, projectSlug: match[1], gistUpdatedAt: row.updated_at ?? "" };
+      const key = `moh:handoff:${candidate.projectSlug}:${user.user}`;
+      const prior = newestByTag.get(key);
+      if (!prior || newerGist(candidate.gistUpdatedAt, prior.gistUpdatedAt)) newestByTag.set(key, candidate);
+    }
+    const offers = await Promise.all([...newestByTag.values()].map(async (candidate) => {
+      const payload = await viewGistPayload(gh, candidate.id);
+      if (!payload || typeof payload.updatedAt !== "string" || !payload.git || typeof payload.lastUserMessage !== "string") return undefined;
+      return {
+        projectSlug: candidate.projectSlug, updatedAt: payload.updatedAt, git: payload.git,
+        lastUserMessage: payload.lastUserMessage,
+        ...(typeof payload.repoUrl === "string" ? { repoUrl: payload.repoUrl } : {}),
+        url: `https://gist.github.com/${candidate.id}`,
+      };
+    }));
+    return offers.filter((offer): offer is GistHandoffOffer => offer !== undefined)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  } catch {
+    return [];
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function newerGist(left: string, right: string): boolean {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) ? leftMs > rightMs : left > right;
+}
+
+async function viewGistPayload(gh: GhRunner, id: string): Promise<HandoffPayload | undefined> {
+  const proc = await gh({ args: ["gist", "view", id, "--filename", "handoff.json", "--raw"] });
+  if (proc.exitCode !== 0) return undefined;
+  try { return JSON.parse(proc.stdout) as HandoffPayload; } catch { return undefined; }
+}
 
 /**
  * Builds the secret-gist transport. The gh user and tag are resolved

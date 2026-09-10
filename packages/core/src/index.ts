@@ -242,7 +242,7 @@ import {
   type PublishHandoffOptions,
   type PublishHandoffResult,
 } from "./handoff-transport";
-import { createGistHandoffTransport, ghUsername, spawnGh } from "./handoff-gist";
+import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, type GistHandoffOffer, type DiscoverGistHandoffsOptions } from "./handoff-gist";
 import {
   discoverHandoff,
   handoffSeedPrompt,
@@ -600,8 +600,11 @@ export {
   type HandoffGitAnchor,
   transportActive,
   createGistHandoffTransport,
+  discoverGistHandoffs,
   ghUsername,
   spawnGh,
+  type GistHandoffOffer,
+  type DiscoverGistHandoffsOptions,
   // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
   handoffSeedPrompt,
