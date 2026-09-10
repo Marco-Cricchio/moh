@@ -59,7 +59,7 @@ describe("event identity end-to-end (#575)", () => {
     // Same log as above but with stamped identity — an old reader that
     // ignores unknown fields replays the exact same conversation.
     const stamped: AgentEvent[] = [
-      { type: "session_start", schemaVersion: 2, promptVersion: "v", id: "01ABCDEFGHJKMNPQRSTVWXYZ000", parentId: "line:0" },
+      { type: "session_start", schemaVersion: 2, promptVersion: "v", id: "01ABCDEFGHJKMNPQRSTVWXYZ000" },
       { type: "user_message", text: "hi", id: "01ABCDEFGHJKMNPQRSTVWXYZ001", parentId: "01ABCDEFGHJKMNPQRSTVWXYZ000" },
       { type: "assistant_delta", text: "hello", id: "01ABCDEFGHJKMNPQRSTVWXYZ002", parentId: "01ABCDEFGHJKMNPQRSTVWXYZ001" },
       { type: "done", id: "01ABCDEFGHJKMNPQRSTVWXYZ003", parentId: "01ABCDEFGHJKMNPQRSTVWXYZ002" },

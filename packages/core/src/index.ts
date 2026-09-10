@@ -40,7 +40,6 @@ import type {
 import { SCHEMA_VERSION } from "./types";
 // #575: event identity — the ADR-0004 reopening that lets clients read
 // and resolve event ids and the read-only `line:N` bridge.
-import { isUlid, resolveEventRef } from "./session-store";
 import { type EventIdentity } from "./types";
 import {
   SessionStore,
@@ -694,11 +693,7 @@ export {
   type TrackerIssue,
   type TrackerBackend,
   type AgentEvent,
-  // #575: event identity — the ADR-0004 reopening that lets clients
-  // read/resolve event ids and the read-only `line:N` bridge.
   type EventIdentity,
-  isUlid,
-  resolveEventRef,
   SCHEMA_VERSION,
   type ReasoningStreamEvent,
   type StreamOptions,

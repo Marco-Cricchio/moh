@@ -42,9 +42,11 @@ export function parseLineRef(ref: string): number | null {
  * #575: resolves an event reference — a ULID present in the log, or a
  * `line:N` bridge into the given events — to the referenced event, or
  * null when the reference dangles (corruption/truncation: readers fall
- * back visibly, never silently to the wrong branch). Returns a clone
- * carrying the id when resolving a legacy event by line, so callers can
- * treat the result uniformly; the underlying file is never rewritten.
+ * back visibly, never silently to the wrong branch). For a `line:N` bridge
+ * the returned clone carries `parentId: "line:N"` (the referenced value —
+ * the bridge only ever appears as a parent/upTo reference, format d8);
+ * the underlying file is never rewritten, and the clone must never be
+ * re-appended as an event of its own.
  */
 export function resolveEventRef(
   ref: string,
@@ -53,7 +55,7 @@ export function resolveEventRef(
   const line = parseLineRef(ref);
   if (line !== null) {
     const event = events[line - 1];
-    return event ? { ...event, id: ref } : null;
+    return event ? { ...event, parentId: ref } : null;
   }
   if (!isUlid(ref)) return null;
   const found = events.find((e) => e.id === ref);
@@ -63,17 +65,23 @@ export function resolveEventRef(
 /**
  * #575: stamps identity onto an event for direct appends to a session
  * file that bypass the EventLog (fork, rename). `parentId` defaults to
- * the head of the file's existing log (a legacy tail bridges via `line:N`);
- * an explicitly supplied parent is preserved. The `id` is always fresh.
+ * the id of the file's last identified event — the head (format d3: no
+ * `branch_switched` yet, the head is the last event); on a purely legacy
+ * tail the field is simply absent (the degenerate linear tree, same rule
+ * as EventLog.append). An explicitly supplied parent is preserved. The
+ * `id` is always fresh.
  */
 function stampEvent(event: AgentEvent, file: string): AgentEvent {
   let head: string | undefined;
+  let store: SessionStore | null = null;
   try {
-    const store = SessionStore.open(file);
+    store = SessionStore.open(file);
     head = headId(store.load());
-    store.dispose();
   } catch {
     // unreadable log: stamp with no parent rather than refusing to write
+  } finally {
+    // #478: never leave the file in the open-session registry.
+    store?.dispose();
   }
   return {
     ...event,
@@ -82,7 +90,7 @@ function stampEvent(event: AgentEvent, file: string): AgentEvent {
       ? { parentId: event.parentId }
       : head !== undefined
         ? { parentId: head }
-        : { parentId: lineRef(1) }),
+        : {}),
   };
 }
 

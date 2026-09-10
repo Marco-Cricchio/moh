@@ -332,7 +332,9 @@ describe("session store", () => {
     expect(loaded.map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual(
       events.map((e) => ({ ...e, id: undefined, parentId: undefined })),
     );
-    expect(loaded[0]!.parentId).toBe("line:1");
+    // The legacy first line had no id to chain to: parentId is absent
+    // (degenerate linear tree); later events chain by ULID.
+    expect(loaded[0]!.parentId).toBeUndefined();
     for (let i = 1; i < loaded.length; i += 1) {
       expect(loaded[i]!.parentId).toBe(loaded[i - 1]!.id);
     }
@@ -810,7 +812,9 @@ describe("event identity (#575)", () => {
     ];
     const bridged = resolveEventRef("line:2", events);
     expect(bridged?.type).toBe("session_mode");
-    expect(bridged?.id).toBe("line:2");
+    // The bridge value rides `parentId` (a reference, never an id — d8).
+    expect(bridged?.parentId).toBe("line:2");
+    expect(bridged?.id).toBeUndefined();
     // The underlying log is untouched — the bridge is read-only.
     expect(events[1]!.id).toBeUndefined();
     expect(resolveEventRef("line:9", events)).toBeNull();
@@ -842,7 +846,7 @@ describe("event identity (#575)", () => {
     expect(before.length + 1).toBe(after.length);
   });
 
-  test("appending to a legacy log bridges the parent via line:N; appends to a v2 log use ULIDs", () => {
+  test("appending to a legacy log stamps id without a line:N parent; appends to a v2 log chain by ULID", () => {
     const home = tempHome();
     const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
     const store = SessionStore.create(cwd, home);
@@ -852,7 +856,9 @@ describe("event identity (#575)", () => {
     expect(lines).toHaveLength(2);
     const first = JSON.parse(lines[1]!) as AgentEvent;
     expect(first.id).toMatch(/^[0-7][0-9ABCDEFGHJKMNPQRSTVWXYZ]{25}$/);
-    expect(first.parentId).toBe("line:1");
+    // A purely legacy tail has no id: parentId is absent (same rule as
+    // EventLog.append) — no `line:N` is ever written (d8).
+    expect(first.parentId).toBeUndefined();
     store.append({ type: "session_mode", mode: "auto-accept" });
     const [, second, third] = store.load();
     expect(third!.parentId).toBe(second!.id);
