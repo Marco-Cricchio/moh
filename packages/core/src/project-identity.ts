@@ -16,6 +16,11 @@ function identityFile(cwd: string): string {
   return join(pathResolve(cwd), ".moh", "project.json");
 }
 
+/** Public for SessionStore.listSpawnFree (#595): the identity file path. */
+export function identityFileFor(cwd: string): string {
+  return identityFile(cwd);
+}
+
 function declaredId(file: string): string | null {
   try {
     const value = JSON.parse(readFileSync(file, "utf8")) as unknown;
@@ -26,6 +31,7 @@ function declaredId(file: string): string | null {
     return null;
   }
 }
+export { declaredId };
 
 function createIdentity(file: string): string | null {
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
@@ -56,6 +62,7 @@ function createIdentity(file: string): string | null {
 function identitySlug(id: string): string {
   return `project-${createHash("sha256").update(id).digest("hex").slice(0, 16)}`;
 }
+export { identitySlug };
 
 /**
  * Canonical origin remote identity: `host/owner/repo`, lowercased, with the

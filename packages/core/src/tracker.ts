@@ -7,7 +7,7 @@
  * any tool — no workflow privilege.
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import type { Tool } from "./types";
 
@@ -303,15 +303,30 @@ export function resolveTrackerSync(options: ResolveTrackerOptions = {}): Tracker
   const cwd = options.cwd ?? process.cwd();
   const run = options.run ?? defaultRunner;
   if (existsSync(join(cwd, TRACKER_DIR))) return localMarkdownTracker(join(cwd, TRACKER_DIR));
+  // A local tracker directory always wins and never spawns; only the
+  // git-origin probe below is a synchronous spawn, so memoize the remote
+  // lookup per cwd: resolution runs on React startup paths (lazy useState
+  // in App, makeSession) and a spawn re-entering the reconciler scheduler
+  // mid-commit crashes Ink ("Should not already be working.", #595 flake).
+  // The origin remote is stable for a TUI process lifetime; test isolation
+  // uses per-test cwd temp dirs.
+  const memoKey = resolve(cwd);
+  if (trackerRemoteMemo.has(memoKey)) return trackerRemoteMemo.get(memoKey)!;
   const proc = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
-  if (proc.exitCode !== 0) return null;
-  const url = proc.stdout.toString().trim();
-  const m = /[:/]([^/:]+\/[^/.]+)(?:\.git)?$/.exec(url);
-  if (!m) return null;
-  const repo = m[1]!;
-  if (/gitlab/i.test(url)) return gitlabTracker(repo, run);
-  return ghTracker(repo, run);
+  let backend: TrackerBackend | null = null;
+  if (proc.exitCode === 0) {
+    const url = proc.stdout.toString().trim();
+    const m = /[:/]([^/:]+\/[^/.]+)(?:\.git)?$/.exec(url);
+    if (m) {
+      const repo = m[1]!;
+      backend = /gitlab/i.test(url) ? gitlabTracker(repo, run) : ghTracker(repo, run);
+    }
+  }
+  trackerRemoteMemo.set(memoKey, backend);
+  return backend;
 }
+
+const trackerRemoteMemo = new Map<string, TrackerBackend | null>();
 
 /** Formats issues as a compact list for the model. */
 function formatIssues(issues: TrackerIssue[]): string {

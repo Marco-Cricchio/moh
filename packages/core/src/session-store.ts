@@ -14,7 +14,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { legacyProjectSlug, resolveProjectIdentity } from "./project-identity";
+import { declaredId, identitySlug, legacyProjectSlug, resolveProjectIdentity, identityFileFor } from "./project-identity";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
@@ -145,6 +145,30 @@ export class SessionStore {
    */
   static list(cwd: string, home = homedir()): SessionStore[] {
     const dir = projectSessionsDir(cwd, home);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter(isSessionFile)
+      .sort()
+      .reverse()
+      .map((name) => new SessionStore(join(dir, name)));
+  }
+
+  /**
+   * Spawn-free twin of `list()` for React startup gates (#595): lists the
+   * session files under the uuid-declared slug when `.moh/project.json`
+   * exists, else the legacy path-derived slug. Never resolves the remote
+   * identity — that path spawns `git remote get-url` and is unsafe inside
+   * a passive effect. A remote-slug directory a cold project might own is
+   * out of scope by construction: a project with a usable origin has
+   * `.git`, and the cold-directory gate already returned false before
+   * listing.
+   */
+  static listSpawnFree(cwd: string, home = homedir()): SessionStore[] {
+    const projects = join(home, ".moh", "projects");
+    const declared = identityFileFor(cwd);
+    const uuidId = declaredId(declared);
+    const slug = uuidId ? identitySlug(uuidId) : legacyProjectSlug(cwd);
+    const dir = join(projects, slug);
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
       .filter(isSessionFile)

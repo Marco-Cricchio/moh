@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { importHandoffFile } from "./handoff-file";
 import { readRawHandoffText, type HandoffPayload, type HandoffTransportError } from "./handoff-transport";
-import { listSessionSummaries } from "./session-store";
+import { SessionStore } from "./session-store";
 import type { GistHandoffOffer } from "./handoff-gist";
 import type { RawHandoff } from "./handoff";
 
@@ -49,10 +49,17 @@ export const spawnGit: GitRunner = async (call) => {
 
 /**
  * Truly cold (#595 trigger): no `.git` at or above `cwd` AND no local
- * sessions for the project. Pure filesystem reads — safe at startup,
- * never a process spawn. A `moh.json` in the directory does NOT count
- * against coldness (a cloned-repo-but-zero-sessions directory with one
- * is still offered the flow through the explicit Home action anyway).
+ * sessions for the project. Deliberately a **filesystem-only** probe: the
+ * git-origin part of the identity is decided by `existsSync(<cwd>/.git)`
+ * (or an ancestor), never by resolving the slug — a slug resolution spawns
+ * `git remote get-url` synchronously, and this gate runs in a mount-time
+ * passive effect where a spawn re-entering React's reconciler scheduler
+ * crashes Ink ("Should not already be working.", the #595 flake). A
+ * project with `.git` is never cold regardless of sessions, so the origin
+ * detail cannot change the answer here. A `moh.json` in the directory does
+ * NOT count against coldness (a cloned-repo-but-zero-sessions directory
+ * with one is still offered the flow through the explicit Home action
+ * anyway).
  */
 export function isColdDirectory(cwd: string, home?: string): boolean {
   let dir = cwd;
@@ -62,8 +69,12 @@ export function isColdDirectory(cwd: string, home?: string): boolean {
     if (parent === dir) break;
     dir = parent;
   }
+  // No `.git` anywhere above ⇒ the slug cannot be remote-derived; list the
+  // sessions under the identity the *directory contents* imply. The
+  // declared `.moh/project.json` (uuid identity) decides, falling back to
+  // the legacy path slug — both pure filesystem reads, no spawn.
   try {
-    return listSessionSummaries(cwd, home ?? homedir()).length === 0;
+    return SessionStore.listSpawnFree(cwd, home ?? homedir()).length === 0;
   } catch {
     return true;
   }

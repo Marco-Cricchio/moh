@@ -28,6 +28,7 @@ import os
 import pty
 import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -251,9 +252,43 @@ class Screen:
         return self.scrollback
 
 
+def prune_stale_pty_tmp() -> None:
+    """Removes moh-pty-* temp dirs older than 2 days and /tmp raw dumps older
+    than 2 days. Gated by a stamp file so at most one run per hour pays the
+    scan; everything is best-effort (test isolation must never fail because
+    cleanup failed)."""
+    stamp = os.path.join(tempfile.gettempdir(), "moh-pty-prune.stamp")
+    if os.path.exists(stamp) and time.time() - os.path.getmtime(stamp) < 3600:
+        return
+    open(stamp, "w").close()
+    cutoff = time.time() - 2 * 24 * 3600
+    base = tempfile.gettempdir()
+    for name in os.listdir(base):
+        if not name.startswith("moh-pty-"):
+            continue
+        path = os.path.join(base, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    os.unlink(path)
+        except OSError:
+            continue
+
+
 def main() -> None:
     spec = json.loads(sys.argv[1])
     cols, rows = spec["cols"], spec["rows"]
+    # Lazy retention sweep (#595 stabilization): every PTY run leaves two
+    # temp dirs behind (the child may still hold fds at exit, so atexit
+    # cleanup is unreliable). Left unbounded they accumulate — 1800+ stale
+    # dirs were found on a dev machine. Prune runs/f dirs older than 2 days,
+    # at most once per hour, and never raises.
+    try:
+        prune_stale_pty_tmp()
+    except Exception:
+        pass
     home = tempfile.mkdtemp(prefix="moh-pty-home-")
     cwd = tempfile.mkdtemp(prefix="moh-pty-cwd-")
     # Optional user-config injection (~/.moh/config): lets tests pin TUI
