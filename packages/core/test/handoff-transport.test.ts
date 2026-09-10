@@ -19,7 +19,17 @@ import {
   type HandoffTransport,
   type HandoffTransportError,
 } from "../src/handoff-transport";
-import { createGistHandoffTransport, handoffGistTag, spawnGh, type GhCall, type GhRunner } from "../src/handoff-gist";
+import { createGistHandoffTransport, canonicalRemoteUrl, handoffGistTag, spawnGh, type GhCall, type GhRunner } from "../src/handoff-gist";
+import { canonicalRemoteSlug } from "../src/project-identity";
+
+/** canonicalRemoteUrl against a real git repo with the given origin (tests). */
+function canonicalRemoteUrlFor(originUrl: string): string | undefined {
+  const dir = join(TMP, `origin-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  Bun.spawnSync(["git", "init", "-q", dir]);
+  Bun.spawnSync(["git", "-C", dir, "remote", "add", "origin", originUrl]);
+  const slug = canonicalRemoteSlug(dir);
+  return slug ? `https://${slug}.git` : undefined;
+}
 import type { RawHandoff } from "../src/handoff";
 
 const TMP = join(import.meta.dir, "tmp-handoff-t2");
@@ -238,6 +248,151 @@ describe("gist transport", () => {
     const published = JSON.parse(create.stdin!) as RawHandoff;
     expect(published.author).toBe("dev");
     expect(published.version).toBe(2);
+  });
+
+  test("publish stamps repoUrl as the canonical https URL when origin exists (#593)", async () => {
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["other", "some other gist"]) },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new5\n" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh, repoUrl: "https://github.com/owner/repo.git" });
+    const result = await transport.publish(artifact(true).handoff);
+    expect(result.ok).toBe(true);
+    const create = gh.calls.find((c) => c.args[1] === "create")!;
+    const published = JSON.parse(create.stdin!) as RawHandoff;
+    expect(published.repoUrl).toBe("https://github.com/owner/repo.git");
+  });
+
+  test("an SSH remote still yields the https canonical repoUrl (#593)", () => {
+    // canonicalRemoteSlug normalizes scp-like/ssh spellings; canonicalRemoteUrl
+    // turns the slug into the public https clone URL.
+    expect(canonicalRemoteUrlFor("git@github.com:Owner/Repo.git")).toBe("https://github.com/owner/repo.git");
+    expect(canonicalRemoteUrlFor("ssh://git@github.com/owner/repo.git")).toBe("https://github.com/owner/repo.git");
+  });
+
+  test("no origin remote means repoUrl is omitted, not an empty string (#593)", async () => {
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["other", "some other gist"]) },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new6\n" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh, repoUrl: undefined });
+    const result = await transport.publish(artifact(true).handoff);
+    expect(result.ok).toBe(true);
+    const create = gh.calls.find((c) => c.args[1] === "create")!;
+    const published = JSON.parse(create.stdin!) as RawHandoff;
+    expect("repoUrl" in published).toBe(false);
+  });
+
+  test("publish replaces the tagged gist when it is not newer than the local session (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const { handoff } = artifact(true);
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      // Remote is older than the local handoff (2026-09-02T10:00:00Z): normal flow.
+      { args: ["gist", "view"], stdout: JSON.stringify({ ...handoff, updatedAt: "2026-09-01T00:00:00.000Z" }) },
+      { args: ["gist", "delete"], stdout: "" },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new7\n" },
+    ]);
+    let asked = 0;
+    const transport = createGistHandoffTransport({ cwd, gh, confirmOverwrite: async () => { asked += 1; return false; } });
+    const result = await transport.publish(handoff);
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/new7" });
+    expect(asked).toBe(0);
+    expect(gh.calls.some((c) => c.args[1] === "delete")).toBe(true);
+  });
+
+  test("publish against a strictly newer remote gist asks and publishes on confirm (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const { handoff } = artifact(true);
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      { args: ["gist", "view"], stdout: JSON.stringify({ ...handoff, sessionId: "s-remote", updatedAt: "2026-09-03T00:00:00.000Z" }) },
+      { args: ["gist", "delete"], stdout: "" },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new8\n" },
+    ]);
+    const asked: Array<{ remoteUpdatedAt: string; localUpdatedAt: string }> = [];
+    const transport = createGistHandoffTransport({
+      cwd, gh,
+      confirmOverwrite: async (info) => {
+        asked.push(info);
+        return true;
+      },
+    });
+    const result = await transport.publish(handoff);
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/new8" });
+    expect(asked).toEqual([{ remoteUpdatedAt: "2026-09-03T00:00:00.000Z", localUpdatedAt: "2026-09-02T10:00:00.000Z" }]);
+    // The remote payload was replaced (delete issued after create).
+    const create = gh.calls.findIndex((c) => c.args[1] === "create");
+    const del = gh.calls.findIndex((c) => c.args[1] === "delete");
+    expect(del).toBeGreaterThan(create);
+  });
+
+  test("declining the guard publishes nothing and leaves the gist unchanged (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const { handoff } = artifact(true);
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      { args: ["gist", "view"], stdout: JSON.stringify({ ...handoff, sessionId: "s-remote", updatedAt: "2026-09-03T00:00:00.000Z" }) },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh, confirmOverwrite: async () => false });
+    const result = await transport.publish(handoff);
+    expect(result).toEqual({
+      ok: false,
+      error: { reason: "newer-remote", remoteUpdatedAt: "2026-09-03T00:00:00.000Z", localUpdatedAt: "2026-09-02T10:00:00.000Z" },
+    });
+    // No create, no delete: the remote gist survives untouched.
+    expect(gh.calls.some((c) => c.args[1] === "create")).toBe(false);
+    expect(gh.calls.some((c) => c.args[1] === "delete")).toBe(false);
+  });
+
+  test("without a consent seam the newer-remote guard declines by default (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const { handoff } = artifact(true);
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      { args: ["gist", "view"], stdout: JSON.stringify({ ...handoff, updatedAt: "2026-09-03T00:00:00.000Z" }) },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh });
+    const result = await transport.publish(handoff);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.reason).toBe("newer-remote");
+    expect(gh.calls.some((c) => c.args[1] === "create")).toBe(false);
+  });
+
+  test("an equal remote updatedAt is a normal republish, never a guard ask (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const { handoff } = artifact(true); // updatedAt 2026-09-02T10:00:00.000Z
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      { args: ["gist", "view"], stdout: JSON.stringify({ ...handoff, sessionId: "s-remote", updatedAt: "2026-09-02T10:00:00.000Z" }) },
+      { args: ["gist", "delete"], stdout: "" },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new10\n" },
+    ]);
+    let asked = 0;
+    const transport = createGistHandoffTransport({ cwd, gh, confirmOverwrite: async () => { asked += 1; return true; } });
+    const result = await transport.publish(handoff);
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/new10" });
+    expect(asked).toBe(0);
+  });
+
+  test("an unviewable tagged gist (race delete) falls through to a plain replace (#593)", async () => {
+    const tag = handoffGistTag(cwd, "dev");
+    const gh = fakeGh([
+      { args: ["api", "user"], stdout: "dev\n" },
+      { args: ["gist", "list"], stdout: gistListOutput(["abc123", tag]) },
+      { args: ["gist", "view"], exitCode: 1, stderr: "gh: not found" },
+      { args: ["gist", "create"], stdout: "https://gist.github.com/new9\n" },
+    ]);
+    const transport = createGistHandoffTransport({ cwd, gh, confirmOverwrite: async () => false });
+    const result = await transport.publish(artifact(true).handoff);
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/new9" });
   });
 
   test("readRawHandoff still accepts v1 payloads (back-compat)", () => {

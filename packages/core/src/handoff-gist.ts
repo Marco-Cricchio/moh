@@ -22,6 +22,7 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { canonicalRemoteSlug } from "./project-identity";
 import { projectSlug } from "./session-store";
 import type { HandoffPayload, HandoffTransport, HandoffTransportError } from "./handoff-transport";
 
@@ -74,6 +75,16 @@ export interface GistHandoffTransportOptions {
   /** Home dir for slug derivation; the artifact layout lives under `<home>/.moh`. */
   home?: string;
   gh?: GhRunner;
+  /** Canonical origin remote override (tests). Default: the https URL
+   * derived from `canonicalRemoteSlug(cwd)`; undefined = no origin =
+   * the payload carries no `repoUrl` at all. */
+  repoUrl?: string;
+  /** Publish guard seam (#593): asked before replacing a tagged gist
+   * whose payload is strictly newer than the one being published.
+   * Resolves true = overwrite anyway; false/absent seam = decline and
+   * publish nothing. Production wires the client's consent UI; tests
+   * script the answer. */
+  confirmOverwrite?: (info: { remoteUpdatedAt: string; localUpdatedAt: string }) => Promise<boolean>;
 }
 
 /** The deterministic gist description: `moh:handoff:<slug>:<gh-user>`. */
@@ -82,8 +93,15 @@ export function handoffGistTag(cwd: string, ghUser: string, home?: string): stri
   return `moh:handoff:${slug}:${ghUser}`;
 }
 
-/** Resolves the logged-in gh username, or why it cannot. */
-export async function ghUsername(gh: GhRunner): Promise<{ ok: true; user: string } | { ok: false; error: HandoffTransportError }> {
+/** #593: canonical public https clone URL from the origin's canonical
+ * slug, e.g. `github.com/owner/repo` → `https://github.com/owner/repo.git`.
+ * Null when the project has no parsable origin. */
+export function canonicalRemoteUrl(cwd: string): string | undefined {
+  const slug = canonicalRemoteSlug(cwd);
+  return slug ? `https://${slug}.git` : undefined;
+}
+
+/** Resolves the logged-in gh username, or why it cannot. */export async function ghUsername(gh: GhRunner): Promise<{ ok: true; user: string } | { ok: false; error: HandoffTransportError }> {
   const proc = await gh({ args: ["api", "user", "--jq", ".login"] });
   if (proc.exitCode !== 0) return classifyGhFailure(proc);
   const user = proc.stdout.trim();
@@ -125,6 +143,13 @@ const GIST_LIST_LIMIT = "200";
  */
 export function createGistHandoffTransport(options: GistHandoffTransportOptions): HandoffTransport {
   const gh = options.gh ?? spawnGh;
+  const confirmOverwrite = options.confirmOverwrite;
+  // #593: repoUrl is resolved lazily at publish time, never at construction:
+  // the canonical-slug probe shells out synchronously, and construction runs
+  // inside Ink effects (discoverHandoffForHome) where a sync child process
+  // freezes the reconciler (the 3b40b5e class of bug). publish() runs in the
+  // bounded exit path instead. `host/owner/repo` → `https://host/owner/repo.git`.
+  const resolveRepoUrl = () => (options.repoUrl !== undefined ? options.repoUrl : canonicalRemoteUrl(options.cwd));
   const findTaggedGist = async (user: string): Promise<{ ok: true; id: string | undefined } | { ok: false; error: HandoffTransportError }> => {
     const tag = handoffGistTag(options.cwd, user, options.home);
     const list = await gh({ args: ["gist", "list", "--limit", GIST_LIST_LIMIT] });
@@ -160,9 +185,43 @@ export function createGistHandoffTransport(options: GistHandoffTransportOptions)
       if (!user.ok) return { ok: false, error: user.error };
       // Stamp the author (#451) at the seam that knows it: the payload
       // leaving the machine always records the publishing gh user.
-      const authored: HandoffPayload = { ...payload, author: user.user, version: 2 };
+      // repoUrl (#593) rides the same seam: the canonical public https
+      // clone URL of origin, absent when the project has no origin.
+      const repoUrl = resolveRepoUrl();
+      const authored: HandoffPayload = {
+        ...payload,
+        author: user.user,
+        version: 2,
+        ...(repoUrl ? { repoUrl } : {}),
+      };
       const tagged = await findTaggedGist(user.user);
       if (!tagged.ok) return { ok: false, error: tagged.error };
+      // Publish guard (#593): when the tagged gist holds a strictly
+      // newer handoff (another machine published after this session's
+      // last turn), ask before destroying it. Declining (or no consent
+      // seam wired) publishes nothing; local artifacts are never touched.
+      if (tagged.id) {
+        const remote = await viewGist(tagged.id);
+        if (remote.ok) {
+          const remoteUpdatedAt = typeof remote.payload.updatedAt === "string" ? remote.payload.updatedAt : "";
+          const localUpdatedAt = authored.updatedAt;
+          // Strictly newer only (equal = normal republish). Compared as
+          // instants when both parse, so non-canonical ISO spellings
+          // (+02:00 offsets, missing millis) cannot misorder; a remote
+          // stamp that does not parse at all is never treated as newer.
+          const remoteMs = Date.parse(remoteUpdatedAt);
+          const localMs = Date.parse(localUpdatedAt);
+          const newer = Number.isFinite(remoteMs) && Number.isFinite(localMs) ? remoteMs > localMs : remoteUpdatedAt > localUpdatedAt;
+          if (newer) {
+            const confirmed = confirmOverwrite ? await confirmOverwrite({ remoteUpdatedAt, localUpdatedAt }) : false;
+            if (!confirmed) {
+              return { ok: false, error: { reason: "newer-remote", remoteUpdatedAt, localUpdatedAt } };
+            }
+          }
+        }
+        // A view failure here (race: gist deleted between list and view)
+        // falls through to the plain replace — nothing newer to protect.
+      }
       // Non-destructive replace (#451): create first, delete the old
       // tagged gist only after the create succeeded. A failed delete
       // leaves a duplicate tag the receiver resolves by newest-updated;

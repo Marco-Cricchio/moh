@@ -327,7 +327,16 @@ secret gist via `gh` (deterministic tag `moh:handoff:<slug>:<gh-user>`,
 tagged-gist replace on republish). `publishHandoffAtExit` reads the
 raw artifact (#434) and publishes it bounded by a timeout budget — it
 never rejects; on failure the artifact stays local and the caller
-surfaces one warning. A client may also attach its best-effort publish
+surfaces one warning. At publish the payload is stamped with the
+publishing gh user (`author`, #451) and the canonical public https
+clone URL of origin (`repoUrl`, #593 — absent when the project has no
+git origin; receivers tolerate its absence). The publish guard (#593):
+before replacing the tagged gist, a strictly newer remote `updatedAt`
+requires the client's explicit consent through the injectable
+`confirmOverwrite` seam — declining (or no seam wired, the exit paths'
+default) publishes nothing and returns a typed `newer-remote` error;
+local artifacts are never touched. A client may also attach its
+best-effort publish
 callback to a successful `bash` `git push`; it does not delay or alter
 the tool result, and the core still knows neither the transport nor
 `gh`. Active only when moh.json sets

@@ -60,6 +60,7 @@ describe("handoffWarning", () => {
     [{ reason: "gh-missing" }, "handoff: gh is not installed — handoff kept local only"],
     [{ reason: "not-logged-in" }, "handoff: gh is not logged in — handoff kept local only"],
     [{ reason: "timeout" }, "handoff: publish exceeded the exit budget — handoff kept local only"],
+    [{ reason: "newer-remote", remoteUpdatedAt: "2026-09-03T00:00:00.000Z", localUpdatedAt: "2026-09-02T00:00:00.000Z" }, "handoff: the remote handoff is newer (2026-09-03T00:00:00.000Z) — not overwritten; publish explicitly to confirm"],
     [{ reason: "failed", message: "boom" }, "handoff: publish failed (boom) — handoff kept local only"],
   ];
   for (const [error, message] of cases) {
