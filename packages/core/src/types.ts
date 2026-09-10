@@ -211,6 +211,17 @@ type AgentEventBase =
    * session never silently reads the wrong branch. Chrome only.
    */
   | { type: "branch_dangling"; to: string }
+  /**
+   * #579 (spec §4): a bookmark names a node for humans and filters.
+   * Appended by `bookmarkNode()` (store-level, file-based) and
+   * `session.bookmarkNode(to, name?)` (live). Chrome only — never
+   * provider context, never compaction input; counted for topology. The
+   * LAST `tree_bookmarked` for a node wins (set/rename with `name`, clear
+   * with `name: ""` — an explicit reset event keeps the log append-only,
+   * same shape as `session_renamed`). `to` is a ULID present in the log
+   * or a `line:N` bridge to a pre-tree event.
+   */
+  | { type: "tree_bookmarked"; to: string; name?: string }
   | { type: "user_message"; text: string; /**
    * #488 (vision note 3): structured snapshots of the `@path` mentions in
    * `text` — file content snapshots and directory listings assembled by

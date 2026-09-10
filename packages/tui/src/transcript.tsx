@@ -567,6 +567,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (modelCallIndex !== -1) i = modelCallIndex;
         break;
       }
+      case "tree_bookmarked":
+        // #579: chrome-only bookmark event — the /tree panel (#581) renders
+        // bookmarked nodes from the log; the transcript has no projection.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);

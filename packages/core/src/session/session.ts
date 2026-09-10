@@ -780,6 +780,32 @@ export class AgentSession {
     return { ok: true };
   }
 
+  /**
+   * #579 (spec §4): bookmarks a node for this live session by appending a
+   * validated `tree_bookmarked { to, name? }` chrome event through the
+   * sink (the live store keeps its single-writer accounting, same as
+   * `switchBranch`). `to` must resolve against the live log (ULID or
+   * `line:N` bridge); a non-empty name sets/renames, an empty/whitespace
+   * name clears — last-wins. Never provider context; counted for
+   * topology. The file-based path for closed sessions is
+   * `bookmarkNode()` in session-store.
+   */
+  bookmarkNode(to: string, name?: string): { ok: true } | { ok: false; error: string } {
+    if (this.#disposed) return { ok: false, error: "session is disposed" };
+    if (resolveEventRef(to, this.#eventLog.live()) === null) {
+      return { ok: false, error: `bookmark target not found in this session: ${to}` };
+    }
+    const trimmed = name?.trim() ?? "";
+    this.#append(
+      name === undefined
+        ? { type: "tree_bookmarked", to }
+        : trimmed === ""
+          ? { type: "tree_bookmarked", to, name: "" }
+          : { type: "tree_bookmarked", to, name: trimmed },
+    );
+    return { ok: true };
+  }
+
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent.
    * `timeoutMs` budgets the memory flush only (vision note 14): a slow
    * extraction is aborted — the log is append-only and safe, and the

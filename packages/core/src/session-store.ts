@@ -885,34 +885,73 @@ export function fileTailId(file: string): string | null {
  * Returns the id of the appended switch event. Rejection is an error:
  * callers (TUI /tree, CLI) surface it, never a silent no-op.
  */
-export function switchBranch(file: string, to: string): string {  if (!existsSync(file)) {
-    throw new Error(`switchBranch: session file not found: ${file}`);
+/**
+ * #576/#579 shared write-time validation for the file-based tree writers
+ * (`switchBranch`, `bookmarkNode`): the file must exist and be a session
+ * file, and `to` must reference a node already in it (ULID present, or a
+ * `line:N` bridge to a pre-tree event). The log never learns to dangle
+ * from its own writer — dangling references can only come from external
+ * truncation/corruption, which readers warn about (head semantics d10).
+ * The open probe is always disposed (the #478 registry stays clean).
+ */
+function validateWriterTarget(file: string, fn: string, to: string): void {
+  if (!existsSync(file)) {
+    throw new Error(`${fn}: session file not found: ${file}`);
   }
   if (!isSessionFile(basename(file))) {
-    throw new Error(`switchBranch: not a session file: ${basename(file)}`);
+    throw new Error(`${fn}: not a session file: ${basename(file)}`);
   }
-  // Write-time validation: `to` must reference a node already in the file
-  // (ULID present, or a `line:N` bridge to a pre-tree event). The log never
-  // learns to dangle from its own writer — dangling switches can only come
-  // from external truncation/corruption, which readers warn about (d10).
-  {
-    let store: SessionStore | null = null;
-    let events: AgentEvent[];
-    try {
-      store = SessionStore.open(file);
-      events = store.load();
-    } catch (err) {
-      throw new Error(
-        `switchBranch: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      store?.dispose();
-    }
-    if (resolveEventRef(to, events) === null) {
-      throw new Error(`switchBranch: target event not found in session: ${to}`);
-    }
+  let store: SessionStore | null = null;
+  let events: AgentEvent[];
+  try {
+    store = SessionStore.open(file);
+    events = store.load();
+  } catch (err) {
+    throw new Error(
+      `${fn}: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    store?.dispose();
   }
+  if (resolveEventRef(to, events) === null) {
+    throw new Error(`${fn}: target event not found in session: ${to}`);
+  }
+}
+
+export function switchBranch(file: string, to: string): string {
+  validateWriterTarget(file, "switchBranch", to);
   const stamped = stampEvent({ type: "branch_switched", to }, file);
+  appendFileSync(file, JSON.stringify(stamped) + "\n");
+  return stamped.id!;
+}
+
+/**
+ * #579 (spec §4): bookmarks a node by appending a `tree_bookmarked
+ * { to, name? }` chrome event to the session's log — same append
+ * discipline as `renameSession`/`switchBranch` (resume, fork and
+ * compaction carry it for free through the copied/compacted log).
+ * `to` must reference a node already in the file: a ULID present in the
+ * log, or a `line:N` bridge to a pre-tree event (bookmarking a legacy
+ * turn works). With a non-empty (trimmed) `name` the bookmark is set or
+ * renamed; with an empty/whitespace name the bookmark is cleared — the
+ * explicit reset event appends, keeping the log append-only (last-wins:
+ * the LAST `tree_bookmarked` for a node is its state). Omitting `name`
+ * sets an unnamed bookmark. Chrome only: never provider context,
+ * never compaction input; counted for topology. Returns the id of the
+ * appended event. Rejection is an error: callers surface it, never a
+ * silent no-op. Concurrent bookmark while open elsewhere is out of scope
+ * (#400) — the live-writer path is `session.bookmarkNode()`.
+ */
+export function bookmarkNode(file: string, to: string, name?: string): string {
+  validateWriterTarget(file, "bookmarkNode", to);
+  const trimmed = name?.trim() ?? "";
+  const event: AgentEvent =
+    name === undefined
+      ? { type: "tree_bookmarked", to }
+      : trimmed === ""
+        ? { type: "tree_bookmarked", to, name: "" }
+        : { type: "tree_bookmarked", to, name: trimmed };
+  const stamped = stampEvent(event, file);
   appendFileSync(file, JSON.stringify(stamped) + "\n");
   return stamped.id!;
 }

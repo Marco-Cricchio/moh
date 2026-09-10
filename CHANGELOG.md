@@ -8,6 +8,14 @@ matching section here at tag time.
 ## [Unreleased]
 ### Added
 
+- **Session bookmarks** (#579): the `tree_bookmarked { to, name? }` chrome
+  event — append-only, last-wins per node, an empty name clears — with
+  the `bookmarkNode(file, to, name?)` core export and the live
+  `session.bookmarkNode(to, name?)` twin. Targets accept event ids and
+  `line:N` bridges (bookmarking a pre-tree turn works). Bookmarks are
+  never in model context; they count for topology. Core-side only: the
+  TUI `/tree` panel (#581) and `moh sessions bookmark` (#582) build on
+  it.
 - **Compaction on the session tree** (#578): the compaction marker now
   carries an `upToId` pointer and covers only the **active root→head
   path** — markers resolve on-path (last marker on the path wins; a
