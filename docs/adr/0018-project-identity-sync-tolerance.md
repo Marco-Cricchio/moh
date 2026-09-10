@@ -74,3 +74,24 @@ writes safe.
 - The identity file in `.moh/` means project-level and user-level state are
   no longer perfectly separable by directory; future project-`.moh` content
   must justify itself against the same "no user data" bar.
+
+## Amendment — 2026-09-10, #591/#592 remote-derived identity
+
+A usable Git `origin` now takes precedence over the UUID identity. moh
+canonicalizes it to lowercase `host/owner/repo`: protocol, credentials, port,
+and a trailing `.git` do not affect the name, while nested repository paths
+remain intact. Equivalent SSH and HTTPS clone URLs therefore select the same
+project directory without requiring `.moh/project.json` to be committed.
+
+Without a usable origin, the UUID identity remains unchanged, including the
+legacy path-derived fallback when the identity file cannot be read or created.
+When a UUID-identified project later gains an origin, moh writes a durable
+migration note and atomically moves its data directory to the remote-derived
+location once. An existing remote-derived directory wins without a merge, so
+neither history is silently overwritten; the UUID directory remains available
+for deliberate recovery. An open UUID session retains its existing location
+until it closes.
+
+This changes only identity selection and local directory migration. It does
+not introduce a sync transport, automatic upload, or a merge protocol; the
+serial-use rules above remain in force.

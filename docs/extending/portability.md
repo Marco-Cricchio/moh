@@ -11,13 +11,23 @@ moh is **sync-tolerant**, not sync-owning ([ADR-0018](../adr/0018-project-identi
 1. Arrange for your chosen channel to copy the portable parts of `~/.moh/`
    between machines. Do not copy it blindly: use the allowlist and ignore-list
    below.
-2. When the project has no git `origin` remote, keep `.moh/project.json`
-   when cloning or sharing the project. moh creates it silently on the
-   first open if it is absent. It contains only an opaque project id, no
-   absolute path or user data. moh does not gitignore it; committing it is
-   optional, but makes a fresh clone resolve the same session and memory
-   directory. When `origin` exists, the slug derives from its canonical
-   `host/owner/repo` form instead (#591) and no identity file is needed.
+2. When the project has no usable git `origin` remote, keep
+   `.moh/project.json` when cloning or sharing the project. moh creates it
+   silently on the first open if it is absent. It contains only an opaque
+   project id, no absolute path or user data. moh does not gitignore it;
+   committing it is optional, but makes a fresh clone resolve the same
+   session and memory directory. When `origin` exists, the slug derives
+   instead from its canonical lowercase `host/owner/repo` form: protocol,
+   credentials, port and a trailing `.git` are ignored, while nested GitLab
+   groups remain part of the name. SSH and HTTPS forms of the same remote
+   therefore share a data directory.
+
+   If a UUID-identified project later gains an `origin`, moh moves its
+   existing project directory once to the remote-derived location. The
+   remote location wins if it already exists: moh leaves the UUID directory
+   intact and never merges them. A currently open UUID session remains on
+   its existing location until it closes, so resolving the new identity
+   cannot orphan its log.
 3. On every machine, authenticate each endpoint locally with
    `moh provider login <endpoint>`. Credentials deliberately do not travel.
 4. Use a session serially. Before working on the same session from another
