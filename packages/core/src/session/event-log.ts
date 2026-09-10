@@ -6,8 +6,51 @@ export interface EventDispatcher {
   dispatchEvent(event: AgentEvent): Promise<AgentEvent[]>;
 }
 
-/** #575: the id of the log's last identified event (the current branch
- * head as the writer sees it); undefined on a purely legacy tail. */
+/**
+ * #576 (head semantics d4): the head of the active path — the `to` of the
+ * last `branch_switched` in the log, else the last event. A dangling `to`
+ * (the referenced id is absent: truncation, corruption) falls back to the
+ * last valid event and yields a `branch_dangling` warning so readers can
+ * surface it visibly — never silent corruption.
+ *
+ * Returns `{ head, dangling }`: `head` is undefined on a purely legacy
+ * tail (identity-less events — the degenerate linear tree); `dangling` is
+ * the unmatched `to` when, and only when, the fallback fired.
+ */
+export function resolveHead(log: ReadonlyArray<AgentEvent>): {
+  head: string | undefined;
+  dangling: string | undefined;
+} {
+  let lastId: string | undefined;
+  let switched: string | undefined;
+  for (let i = log.length - 1; i >= 0; i -= 1) {
+    const event = log[i]!;
+    // The fallback tip never lands on a switch event: on a dangling `to`
+    // the head falls back to the last valid non-switch node (the branch
+    // the file was actually on before the bad switch).
+    if (lastId === undefined && event.id !== undefined && event.type !== "branch_switched") {
+      lastId = event.id;
+    }
+    if (switched === undefined && event.type === "branch_switched") {
+      switched = (event as { type: "branch_switched"; to: string }).to;
+      if (lastId !== undefined) break;
+    }
+    if (lastId !== undefined && switched !== undefined) break;
+  }
+  if (switched === undefined) return { head: lastId, dangling: undefined };
+  const known = log.some((e) => e.id === switched);
+  // Self-referential safety: a switch event written on a legacy tail
+  // (its own id unstamped) targeting a legacy event resolves through the
+  // `line:N` bridge only as a read; a switch never targets itself.
+  if (known || switched.startsWith("line:")) return { head: switched, dangling: undefined };
+  return { head: lastId, dangling: switched };
+}
+
+/**
+ * #576: the id of the log's last identified event. Kept for the legacy
+ * default-parent rule of direct appends (rename/fork stamping) where no
+ * `branch_switched` exists; tree-aware callers use `resolveHead`.
+ */
 export function headId(log: ReadonlyArray<AgentEvent>): string | undefined {
   for (let i = log.length - 1; i >= 0; i -= 1) {
     if (log[i]!.id !== undefined) return log[i]!.id;
@@ -70,9 +113,10 @@ export class EventLog {
       id: newUlid(),
       ...(event.parentId !== undefined
         ? { parentId: event.parentId }
-        : headId(this.#log) !== undefined
-          ? { parentId: headId(this.#log) }
-          : {}),
+        : (() => {
+            const head = resolveHead(this.#log).head;
+            return head !== undefined ? { parentId: head } : {};
+          })()),
     };
     this.#log.push(stamped);
     this.#sink?.(stamped);

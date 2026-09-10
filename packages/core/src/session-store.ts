@@ -732,6 +732,56 @@ export function renameSession(file: string, name: string): void {
   appendFileSync(file, JSON.stringify(stampEvent({ type: "session_renamed", name: trimmed }, file)) + "\n");
 }
 
+/**
+ * #576 (head semantics d2): moves the head by appending one validated
+ * `branch_switched { to }` chrome event — the same discipline as
+ * `renameSession`: validate the file, append a single JSON line
+ * immediately, last-wins. No open session required, no turn-boundary
+ * buffering (a buffered switch would be lost if the process died before
+ * the boundary). `to` must reference a node already in the file — a ULID
+ * present in the log or a read-only `line:N` bridge to a pre-tree event;
+ * anything else is refused at write time so the log never learns to dangle
+ * from its own writer. Switching to an interior node makes subsequent
+ * appends split implicitly (format decision 5). Also the adoption action
+ * for #400 divergence (head semantics d9: "take my tail" is a plain
+ * switch to the local tip).
+ *
+ * Returns the id of the appended switch event. Rejection is an error:
+ * callers (TUI /tree, CLI) surface it, never a silent no-op.
+ */
+export function switchBranch(file: string, to: string): string {
+  if (!existsSync(file)) {
+    throw new Error(`switchBranch: session file not found: ${file}`);
+  }
+  if (!isSessionFile(basename(file))) {
+    throw new Error(`switchBranch: not a session file: ${basename(file)}`);
+  }
+  // Write-time validation: `to` must reference a node already in the file
+  // (ULID present, or a `line:N` bridge to a pre-tree event). The log never
+  // learns to dangle from its own writer — dangling switches can only come
+  // from external truncation/corruption, which readers warn about (d10).
+  {
+    let store: SessionStore | null = null;
+    let events: AgentEvent[];
+    try {
+      store = SessionStore.open(file);
+      events = store.load();
+    } catch (err) {
+      throw new Error(
+        `switchBranch: cannot validate target against ${basename(file)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      store?.dispose();
+    }
+    if (resolveEventRef(to, events) === null) {
+      throw new Error(`switchBranch: target event not found in session: ${to}`);
+    }
+  }
+  const stamped = stampEvent({ type: "branch_switched", to }, file);
+  appendFileSync(file, JSON.stringify(stamped) + "\n");
+  return stamped.id!;
+}
+
 /** The final assistant text of the last turn: deltas after the last user_message. */
 export function lastAssistantText(events: ReadonlyArray<AgentEvent>): string {
   let text = "";

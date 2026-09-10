@@ -446,13 +446,39 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #400 single-writer guard: visible on replay too (headless resume
         // of a file that once grew from elsewhere shows why history may
         // interleave). Never hidden in vibe mode: it is a data warning.
+        // #576: the payload names both tips — the log now legitimately
+        // holds two paths from the fork point, so fork is advice, not the
+        // only recovery.
         blocks.push({
           key,
           kind: "error",
           glyph: "✗",
           type: "session file grew from elsewhere",
           detail: `${event.expectedBytes} → ${event.actualBytes} bytes`,
-          lines: ["Concurrent use of one session file is unsupported; fork the session to recover."],
+          lines: [
+            ...(event.localTip && event.foreignTip
+              ? [`local tip ${event.localTip} · foreign tip ${event.foreignTip}`]
+              : []),
+            "Concurrent use of one session file is unsupported; fork the session, or switch back to your local tail to resolve.",
+          ],
+          state: "fail",
+        });
+        break;
+      case "branch_switched":
+        // #576: head moved — chrome on replay; one primitive for switch,
+        // rewind and #400 divergence adoption.
+        blocks.push({ key, kind: "chrome", glyph: "⑂", type: "branch switched", detail: event.to, lines: [] });
+        break;
+      case "branch_dangling":
+        // #576 (head semantics d10): the head target is absent from the
+        // file — visible fallback warning, never silent corruption.
+        blocks.push({
+          key,
+          kind: "error",
+          glyph: "⚠",
+          type: "dangling branch switch",
+          detail: event.to,
+          lines: ["The switch target is missing from the log (truncated or corrupted file); the last valid event is the head instead."],
           state: "fail",
         });
         break;
