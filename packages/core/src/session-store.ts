@@ -19,6 +19,72 @@ import { readUserConfigFile, userConfigFile } from "./user-config";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 import { renderMentionAttachment } from "./mentions";
+import { isUlid, newUlid } from "./session/ulid";
+import { headId } from "./session/event-log";
+
+/**
+ * #575 (format decision 8): a read-only bridge value referencing a
+ * pre-tree event by its 1-based line number. It only ever appears as the
+ * value of `parentId`/`upToId` pointing at events already in the file —
+ * new events never carry one (they have ULIDs).
+ */
+export function lineRef(n: number): string {
+  return `line:${n}`;
+}
+
+/** Parses a `line:N` reference; null when `ref` is not one. */
+export function parseLineRef(ref: string): number | null {
+  const m = /^line:([1-9]\d*)$/.exec(ref);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * #575: resolves an event reference — a ULID present in the log, or a
+ * `line:N` bridge into the given events — to the referenced event, or
+ * null when the reference dangles (corruption/truncation: readers fall
+ * back visibly, never silently to the wrong branch). Returns a clone
+ * carrying the id when resolving a legacy event by line, so callers can
+ * treat the result uniformly; the underlying file is never rewritten.
+ */
+export function resolveEventRef(
+  ref: string,
+  events: ReadonlyArray<AgentEvent>,
+): AgentEvent | null {
+  const line = parseLineRef(ref);
+  if (line !== null) {
+    const event = events[line - 1];
+    return event ? { ...event, id: ref } : null;
+  }
+  if (!isUlid(ref)) return null;
+  const found = events.find((e) => e.id === ref);
+  return found ?? null;
+}
+
+/**
+ * #575: stamps identity onto an event for direct appends to a session
+ * file that bypass the EventLog (fork, rename). `parentId` defaults to
+ * the head of the file's existing log (a legacy tail bridges via `line:N`);
+ * an explicitly supplied parent is preserved. The `id` is always fresh.
+ */
+function stampEvent(event: AgentEvent, file: string): AgentEvent {
+  let head: string | undefined;
+  try {
+    const store = SessionStore.open(file);
+    head = headId(store.load());
+    store.dispose();
+  } catch {
+    // unreadable log: stamp with no parent rather than refusing to write
+  }
+  return {
+    ...event,
+    id: newUlid(),
+    ...(event.parentId !== undefined
+      ? { parentId: event.parentId }
+      : head !== undefined
+        ? { parentId: head }
+        : { parentId: lineRef(1) }),
+  };
+}
 
 /** #400: observed external growth of a session file, as reported to the
  * session (and the `session_file_growth` chrome event) at an append boundary. */
@@ -238,7 +304,14 @@ export class SessionStore {
    * foreign bytes landing between write and measure are never silently
    * absorbed into the baseline. */
   append(event: AgentEvent): void {
-    const line = JSON.stringify(event) + "\n";
+    // #575: events arriving through the session's EventLog are already
+    // identity-stamped (the log is the single stamping point for the live
+    // loop) and pass through untouched — the file never diverges from the
+    // in-memory history. Only direct, unstamped events (fork's
+    // `session_resumed`, legacy hand-crafted appends) get stamped here:
+    // fresh ULID, parent = the file's head (bridged via `line:N` on a
+    // legacy tail — read-only, never written as an id).
+    const line = JSON.stringify(event.id === undefined ? stampEvent(event, this.#file) : event) + "\n";
     appendFileSync(this.#file, line);
     this.#expectedSize += Buffer.byteLength(line);
   }
@@ -646,7 +719,7 @@ export function renameSession(file: string, name: string): void {
     throw new Error(`renameSession: not a session file: ${basename(file)}`);
   }
   const trimmed = name.trim();
-  appendFileSync(file, JSON.stringify({ type: "session_renamed", name: trimmed }) + "\n");
+  appendFileSync(file, JSON.stringify(stampEvent({ type: "session_renamed", name: trimmed }, file)) + "\n");
 }
 
 /** The final assistant text of the last turn: deltas after the last user_message. */
