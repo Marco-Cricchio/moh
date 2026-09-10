@@ -9,7 +9,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import { SessionStore, bookmarkNode, switchBranch, sessionTree, newSessionId } from "../src/session-store";import { sessionTree as sessionTreeFromIndex } from "../src/index";
+import { SessionStore, bookmarkNode, switchBranch, sessionTree, newSessionId, deleteSession } from "../src/session-store";
+import { sessionTree as sessionTreeFromIndex } from "../src/index";
 import type { AgentEvent } from "../src/types";
 import type { TreeView } from "../src/session-store";
 
@@ -138,5 +139,36 @@ describe("sessionTree (#580)", () => {
     bookmarkNode(file, "line:2", "pre-tree");
     const tv = view(file);
     expect(tv.nodes[1]!.bookmark).toEqual({ name: "pre-tree" });
+  });
+
+  test("mid-turn references resolve to the owning row (head and bookmark)", () => {
+    const { store } = tempStore();
+    store.append({ type: "session_start", schemaVersion: 2, promptVersion: "v" });
+    store.append({ type: "user_message", text: "turn one" });
+    store.append({ type: "assistant_delta", text: "hi" });
+    const events = store.load();
+    const delta = events[2]!.id!; // interior event, not a node
+
+    // A bookmark on the interior delta lands on the turn's row.
+    bookmarkNode(store.file, delta, "mid");
+    let tv = view(store.file);
+    const turnNode = tv.nodes.find((n) => n.label === "turn one")!;
+    expect(turnNode.bookmark).toEqual({ name: "mid" });
+
+    // A switch to the interior delta puts the head on that same row.
+    switchBranch(store.file, delta);
+    tv = view(store.file);
+    expect(tv.headId).toBe(turnNode.id);
+  });
+
+  test("viewing a session does not register it as open (delete still works)", () => {
+    const { store } = tempStore();
+    store.append({ type: "session_start", schemaVersion: 2, promptVersion: "v" });
+    store.append({ type: "user_message", text: "soon deleted" });
+    const file = store.file;
+    store.dispose();
+    view(file);
+    // #478 open-registry refusal must not fire for a read-only view.
+    expect(() => deleteSession(file, process.cwd())).not.toThrow();
   });
 });
