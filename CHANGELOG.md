@@ -6,6 +6,22 @@ SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
 ## [Unreleased]
+
+### Added
+
+- **Session tree** (#576–#582): branches on a session file. A
+  `branch_switched` chrome event (#576) records a switch (turn pinning,
+  growth-warning tips, dangling fallback); consumers read the linearized
+  **active path** root→head via the `activePath` ADR-0004 export (#577);
+  compaction markers carry an `upToId` pointer and cover only the active
+  path (#578); `tree_bookmarked` + `bookmarkNode(file, to, name?)` add
+  last-wins bookmarks, targets accepting event ids and `line:N` bridges
+  (#579); `sessionTree(file)` projects the full `TreeView` for clients
+  (#580). Surfaces: the TUI `/tree` panel — live switch, branch-from-here,
+  bookmarks, filters (#581) — and `moh sessions tree|switch|bookmark`
+  (#582).
+
+## [0.29.0] - 2026-09-11
 ### Added
 
 - **Session bookmarks** (#579): the `tree_bookmarked { to, name? }` chrome
@@ -825,7 +841,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.28.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.29.0...develop
+[0.29.0]: https://github.com/Marco-Cricchio/moh/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/Marco-Cricchio/moh/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/Marco-Cricchio/moh/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/Marco-Cricchio/moh/compare/v0.25.1...v0.26.0
