@@ -83,7 +83,12 @@ export class ProviderError extends Error {
 export type ReasoningStreamEvent =
   | { type: "reasoning_start" }
   | { type: "reasoning_delta"; text: string }
-  | { type: "reasoning_end"; continuation?: Record<string, unknown> };
+  | { type: "reasoning_end"; continuation?: Record<string, unknown> }
+  /** Live tool progress (#liveness): a short chunk of a running tool's
+   * partial output, relayed from ToolContext.onProgress. Ephemeral —
+   * never persisted; the completed output still lands in the log on the
+   * tool_result event. */
+  | { type: "tool_progress"; callId: string; tool: string; chunk: string };
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }

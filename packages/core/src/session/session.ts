@@ -169,6 +169,7 @@ export class AgentSession {
       turn: this.#turn,
       ...(this.#onAskUser ? { onAskUser: this.#onAskUser } : {}),
       append: (event) => this.#append(event),
+      emitLive: (event) => this.#eventLog.emitLive(event),
       ...(config.handoff?.onGitPush
         ? { onGitPush: () => { this.#gitPushPending = true; } }
         : {}),

@@ -357,7 +357,12 @@ const bashTool = (ledger: RunLedger, rerunMinMs = RERUN_MIN_MS): Tool<z.infer<ty
           reader.cancel().catch(() => {}); // drop our end of a pipe still held by a descendant
           break;
         }
-        text += decoder.decode(read.value, { stream: true });
+        const decoded = decoder.decode(read.value, { stream: true });
+        // Live progress (#liveness): relay each chunk as it arrives so
+        // clients can render a scrolling tail while the command runs.
+        // Fire-and-forget: the tool result remains the sole persisted record.
+        if (decoded) ctx.onProgress(decoded);
+        text += decoded;
       }
       return text + decoder.decode();
     };

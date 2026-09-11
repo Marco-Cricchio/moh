@@ -6,6 +6,7 @@ import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
+import { useToolProgress } from "./tool-progress";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
@@ -247,11 +248,23 @@ export function Chat({
   // the projection below: head-only indicator when reasoning display is
   // off — the text itself is never rendered then).
   const liveReasoning = useLiveReasoning(session, state.pending);
+  // #liveness (prototype alive-proto variant C): scrolling tails of
+  // running tools' partial output — volatile only, never persisted.
+  const toolTails = useToolProgress(session, state.pending);
   const gitBranch = useGitBranch(cwd);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
   const compact = widthClass(viewport) === "compact";
   const [tick, setTick] = useState(0);
+  // #liveness (variant C): animated glyph frames for running blocks — an
+  // independent 120ms clock gated on the turn, never on stream events, so
+  // the head keeps beating during event gaps (prototype alive-proto).
+  const [animFrame, setAnimFrame] = useState(0);
+  useEffect(() => {
+    if (!state.pending || blocked) return;
+    const timer = setInterval(() => setAnimFrame((f) => f + 1), 120);
+    return () => clearInterval(timer);
+  }, [state.pending, blocked]);
   const [lastEsc, setLastEsc] = useState(0);
   const [armed, setArmed] = useState(false);
   // Settled-history projection state (#193, superseded by #201): the
@@ -545,7 +558,7 @@ export function Chat({
     return [...liveReasoningBlock, ...projected];
   // revealTick in deps: the cursor advances via a ref mutation, which
   // React cannot observe — the tick is the recompute trigger.
-  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings, revealTick]);
+  }, [state.events, settledEnd, filePreview, mode, showReasoning, liveReasoning, toolTimings, toolTails, revealTick]);
   // Head chain state machine (#329): track the leading thinking block —
   // the chain follows it across the live→log handover (same text, new
   // key) and promotes its head line-by-line into Static chunks. Promotion
@@ -1030,7 +1043,9 @@ export function Chat({
       {state.pending && <Box flexDirection="column">{liveTail.map((block) => (
         <TranscriptBlockView
           key={`live-${block.key}`}
-          block={block}
+          block={block.state === "run" && (block.kind === "tool" || block.kind === "moh")
+            ? { ...block, glyph: ANIM_GLYPHS[animFrame % ANIM_GLYPHS.length]! }
+            : block}
           width={cols}
           {...(block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
             ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
@@ -1209,6 +1224,9 @@ export function embedProseHeads(
 
 /** Lines of live reasoning kept volatile below the promoted head (#329). */
 export const REASONING_TAIL_LINES = 1;
+
+/** #liveness (variant C): glyph frames cycling on running-block heads. */
+const ANIM_GLYPHS = ["◔", "◑", "◕", "●"];
 
 /** One open live-reasoning promotion chain (#329): the volatile
  * thinking-block key being tracked ("live-reasoning" while the live
