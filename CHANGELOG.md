@@ -7,19 +7,30 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-09-11
 ### Added
 
-- **Session tree** (#576–#582): branches on a session file. A
-  `branch_switched` chrome event (#576) records a switch (turn pinning,
-  growth-warning tips, dangling fallback); consumers read the linearized
-  **active path** root→head via the `activePath` ADR-0004 export (#577);
-  compaction markers carry an `upToId` pointer and cover only the active
-  path (#578); `tree_bookmarked` + `bookmarkNode(file, to, name?)` add
-  last-wins bookmarks, targets accepting event ids and `line:N` bridges
-  (#579); `sessionTree(file)` projects the full `TreeView` for clients
-  (#580). Surfaces: the TUI `/tree` panel — live switch, branch-from-here,
-  bookmarks, filters (#581) — and `moh sessions tree|switch|bookmark`
-  (#582).
+- **Perceived liveness in the transcript** (#634, prototype `alive-proto`
+  variant C): running-block heads cycle animated glyph frames (`◔ ◑ ◕ ●`)
+  on an independent ~120ms clock gated on the active turn — the beat
+  survives stream event gaps, so the seconds between blocks no longer read
+  as a stall. A running bash command now streams its partial output as a
+  dim **scrolling tail** (last 9 lines) inside the volatile block:
+  `ToolContext.onProgress` chunks relay through the session's ephemeral
+  live channel as `tool_progress` events (never persisted); settled
+  blocks keep their usual result cap, so scrollback determinism (#194)
+  is untouched, and the settled timer (`✓ bash · 8s`) persists exactly
+  as before (#300).
+- **Always-open todo box**: the todo tool's transcript block renders its
+  full task list in both dev and vibe modes — the task list reads as a
+  persistent panel, not a capped log.
+
+### Changed
+
+- Style guide: documented the liveness treatment and the todo exception
+  (`docs/tui-style-guide.md`).
+
+[0.30.0]: https://github.com/Marco-Cricchio/moh/compare/v0.29.0...v0.30.0
 
 ## [0.29.0] - 2026-09-11
 ### Added
@@ -841,7 +852,8 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.29.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.30.0...develop
+[0.30.0]: https://github.com/Marco-Cricchio/moh/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/Marco-Cricchio/moh/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/Marco-Cricchio/moh/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/Marco-Cricchio/moh/compare/v0.26.0...v0.27.0
