@@ -30,7 +30,7 @@ commands:
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
-  sessions session management (rename, delete; see: moh sessions --help)
+  sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   handoff  publish a session handoff (see: moh handoff --help)
 

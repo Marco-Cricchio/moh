@@ -50,6 +50,7 @@ import {
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
+  isSessionOpen,
   restoreSession,
   listTrashedSessions,
   type TrashedSessionSummary,
@@ -562,6 +563,7 @@ export {
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
+  isSessionOpen, // #582: refuse switch on an open session (TUI-only switch)
   restoreSession,
   listTrashedSessions,
   type TrashedSessionSummary,

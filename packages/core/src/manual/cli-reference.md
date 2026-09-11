@@ -21,7 +21,7 @@ commands:
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
-  sessions session management (rename, delete; see: moh sessions --help)
+  sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
@@ -181,11 +181,14 @@ Compacting never consumes a session: it can still be suggested and
 resumed as usual afterwards.
 ```
 
-## moh sessions rename
+## moh sessions
 
 ```
 usage: moh sessions rename <file|id> <name> [--cwd <dir>]
        moh sessions delete <file|id> [--yes] [--cwd <dir>]
+       moh sessions tree <file|id> [--cwd <dir>]
+       moh sessions switch <file|id> <node|bookmark-name> [--cwd <dir>]
+       moh sessions bookmark <file|id> <node> [name] [--cwd <dir>]
 
 Renames a session: the display name shows in the TUI home picker and
 overrides the derived first-message title. An empty name resets to the

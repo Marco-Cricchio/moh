@@ -75,12 +75,13 @@ function stampEvent(event: AgentEvent, file: string): AgentEvent {
   let head: string | undefined;
   let store: SessionStore | null = null;
   try {
-    store = SessionStore.open(file);
+    // Probe without registering: a previous open probe's dispose must
+    // never unregister the caller's own live registration (#478).
+    store = SessionStore.open(file, { register: false });
     head = resolveHead(store.load()).head;
   } catch {
     // unreadable log: stamp with no parent rather than refusing to write
   } finally {
-    // #478: never leave the file in the open-session registry.
     store?.dispose();
   }
   return {
@@ -162,6 +163,17 @@ export function anyOpenSessionInDir(dir: string): boolean {
   return false;
 }
 
+/**
+ * Whether this exact session file is currently open in this process —
+ * the same registry `deleteSession` guards on (#478). The CLI `sessions
+ * switch` refuses on it (#582, spec §5): moving the head under a live
+ * writer belongs to the TUI, which switches through its own session
+ * instance. Cross-process "open elsewhere" is unsupported (#400).
+ */
+export function isSessionOpen(file: string): boolean {
+  return openSessionFiles.has(file);
+}
+
 function isSessionFile(name: string): boolean {
   return (
     name.endsWith(".jsonl") &&
@@ -176,6 +188,10 @@ function isSessionFile(name: string): boolean {
  */
 export class SessionStore {
   readonly #file: string;
+  /** Whether THIS instance registered the file in the open-session
+   * registry (#478). A register:false probe must not unregister a live
+   * registration held by another instance on dispose. */
+  #holdsRegistration: boolean = false;
   /** #400: size of the file as this writer last saw it, snapshotted at
    * open/create time and updated after every append. Growth beyond it
    * between appends means someone else wrote to the file. */
@@ -204,20 +220,29 @@ export class SessionStore {
     const file = join(dir, `${newSessionId()}.jsonl`);
     writeFileSync(file, "", { mode: 0o600 });
     registerOpenSession(file);
-    return new SessionStore(file);
+    const store = new SessionStore(file);
+    store.#holdsRegistration = true;
+    return store;
   }
 
-  /** Reopens an existing session file for appending. */
-  static open(file: string): SessionStore {
+  /** Reopens an existing session file for appending. `register: false`
+   * probes without touching the open-session registry (#478) — used by
+   * `stampEvent`, whose dispose would otherwise unregister a store the
+   * caller still holds open (its own `create`/`open` registration). */
+  static open(file: string, opts: { register?: boolean } = {}): SessionStore {
     if (!isAbsolute(file))
       throw new Error(`session file path must be absolute: ${file}`);
-    registerOpenSession(file);
-    return new SessionStore(file);
+    if (opts.register !== false) registerOpenSession(file);
+    const store = new SessionStore(file);
+    store.#holdsRegistration = opts.register !== false;
+    return store;
   }
 
-  /** Releases this store's open-session registration (#478 delete guard). */
+  /** Releases this store's open-session registration (#478 delete guard).
+   * Only removes the file when this instance actually registered it — a
+   * register:false probe never unregisters a live writer's entry. */
   dispose(): void {
-    unregisterOpenSession(this.#file);
+    if (this.#holdsRegistration) unregisterOpenSession(this.#file);
   }
 
   /**
