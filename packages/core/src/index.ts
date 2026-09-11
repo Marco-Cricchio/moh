@@ -126,6 +126,18 @@ export {
   type AssembleMentionsOptions,
   type AssembleMentionsResult,
 } from "./mentions";
+// #614: MPM — the ADR-0004 reopening that lets clients (TUI status row,
+// CLI diagnostics, #619/#618) read MPM status and run read-only structural
+// queries. The service owns the projection; clients never touch storage.
+// #614: MPM — the ADR-0004 reopening that lets clients (TUI status row,
+// CLI diagnostics, #619/#618) read MPM status and run read-only structural
+// queries. The service owns the projection; clients never touch storage.
+export {
+  MpmService,
+  type MpmQueryResult,
+  type MpmStatus,
+} from "./mpm/service";
+export { type MpmProvenance } from "./mpm/types";
 import { type SubagentOptions } from "./subagents";
 // #497: child-log tail seam — the ADR-0004 reopening that lets clients
 // (TUI subagent chips + live panel) tail a running child session's log
