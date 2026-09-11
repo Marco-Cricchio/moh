@@ -144,3 +144,15 @@ as ULID or `line:N` bridge (write-time validated, same discipline as
 input; the event is itself a tree node counted for topology. The
 live-writer twin is `session.bookmarkNode(to, name?)`; consumed by the
 TUI `/tree` panel (#581) and `moh sessions bookmark` (#582).
+
+## Amendment — 2026-09-10, #580 the client-facing tree projection
+
+**Re-opened door**: `sessionTree(file)` plus the `TreeView`/`TreeNode`
+types (`core/src/session-store.ts`) — the client-facing projection of a
+session file (ADR-0023 §1, spec `session-tree-surfaces.md` §1): nodes in
+file order with precomputed depth, active-path membership, kind
+(turn/chrome), derived label and last bookmark state, plus the head id
+(`line:N` for a purely legacy tail). Returns `{ error }` on an
+unreadable/corrupt/empty log, never throws. This is the single seam both
+the TUI `/tree` panel (#581) and the CLI renderer (`moh sessions tree`,
+#582) consume — clients never re-walk the log themselves.

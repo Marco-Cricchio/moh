@@ -158,7 +158,11 @@ to resume or `fork()` to branch later. Since the session tree (#577), a
 file may hold abandoned branches: `sessionFromConfig` and every core
 consumer replay the **active path only** (the `activePath(events)`
 projection exported from `@moh/core`) — switching branches is how the
-model sees a different past.
+model sees a different past. To render the file's shape instead of
+replaying it, `sessionTree(file)` gives you the client-facing view in
+one call: nodes in file order with `depth`, `onActivePath`, `kind`,
+derived `label`, `bookmark` state, and the `headId` (`TreeView`,
+exported from `@moh/core`; `{ error }` on an unreadable log).
 
 Session files are **single-writer** (#400): an open session probes its
 file's size at every append boundary, and growth from elsewhere (another

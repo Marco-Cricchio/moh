@@ -956,7 +956,229 @@ export function bookmarkNode(file: string, to: string, name?: string): string {
   return stamped.id!;
 }
 
-/** The final assistant text of the last turn: deltas after the last user_message. */
+// ---------------------------------------------------------------------------
+// #580: the client-facing tree projection (spec §1)
+// ---------------------------------------------------------------------------
+
+/** One row of the TreeView: a turn (user→…→tail block) or a chrome event,
+ * in file order, with precomputed depth, active-path membership, derived
+ * label and last bookmark state (spec §4). */
+export interface TreeNode {
+  id: string | `line:${number}`;
+  parentId: string | null;
+  depth: number;
+  onActivePath: boolean;
+  kind: "turn" | "chrome";
+  /** First user message of the turn (truncated), else the event kind. */
+  label: string;
+  /** Last bookmark state for this node; absent when never bookmarked
+   * (a cleared bookmark removes the entry — the clear event is a reset,
+   * same discipline as `session_renamed`). */
+  bookmark?: { name?: string };
+}
+
+export interface TreeView {
+  /** Nodes in file order, depth precomputed (clients never re-walk). */
+  nodes: TreeNode[];
+  /** Current head: a node id, or `line:N` when the head is the last
+   * event of a purely legacy (identity-less) tail. */
+  headId: string | `line:${number}`;
+}
+
+/** Turn-tail event types: they close the turn node opened by a
+ * `user_message` (every other event type is its own chrome node). */
+const TURN_TAIL = new Set(["done", "error", "cancelled"]);
+
+const MAX_LABEL = 60;
+
+function truncateLabel(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > MAX_LABEL ? t.slice(0, MAX_LABEL - 1) + "…" : t || "(empty)";
+}
+
+/**
+ * #580 (spec §1): the client-facing projection of a session file — the
+ * single seam both the TUI `/tree` panel and the CLI renderer consume,
+ * built and tested headless.
+ *
+ * One node per turn: a `user_message` opens it and its turn tail (the
+ * last `done`/`error`/`cancelled` before the next boundary) anchors the
+ * node's id — the turn's identity is the event the head points at, so
+ * bookmarks and `branch_switched` targets on any event of the turn
+ * resolve to the same row. Every other event is a chrome node of its own
+ * (format d4: chrome counts for topology). Depth is the node distance
+ * from the root along `parentId` chains (`line:N` bridges resolve
+ * positionally). `onActivePath` is certified by the same `activePath`
+ * projection replay uses — the on-path nodes are exactly the path the
+ * model context sees. Bookmark state rides the last `tree_bookmarked`
+ * per node (§4 last-wins; a clear removes it).
+ *
+ * Returns `{ error }` on an unreadable, corrupt or empty log — never
+ * throws, never a silent fallback (ADR-0005 discipline).
+ */
+export function sessionTree(file: string): TreeView | { error: string } {
+  let events: AgentEvent[];
+  try {
+    // Read-only probe: dispose immediately (the #478 open registry must
+    // never record a mere view — same discipline as renameSession).
+    const store = SessionStore.open(file);
+    try {
+      events = store.load();
+    } finally {
+      store.dispose();
+    }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  if (events.length === 0) return { error: `empty session log ${file}` };
+
+  // Path membership: the active-path projection, matched by reference.
+  const onPath = new Set(activePath(events));
+
+  // Last-wins bookmark state per node reference (§4).
+  const bookmarks = new Map<string, { name?: string }>();
+  for (const e of events) {
+    if (e.type !== "tree_bookmarked") continue;
+    if (e.name === "") bookmarks.delete(e.to);
+    else bookmarks.set(e.to, e.name === undefined ? {} : { name: e.name });
+  }
+
+  // Node id of an event: its ULID, else the `line:N` bridge (legacy tail).
+  const lineOf = new Map<AgentEvent, number>();
+  events.forEach((e, i) => lineOf.set(e, i + 1));
+  const byId = new Map<string, AgentEvent>();
+  for (const e of events) {
+    if (e.id !== undefined) byId.set(e.id, e);
+  }
+  const idOf = (e: AgentEvent): string => e.id ?? lineRef(lineOf.get(e)!);
+
+  const nodes: (TreeNode & { openerId?: string; openerOnPath?: boolean })[] = [];
+
+  // Depth semantics: depth(parent node) + 1, root node at 0 — the
+  // indentation clients draw. (The spec precomputes depth but does not
+  // fix its unit; this projection's unit is the visible row.) Interior
+  // turn events (assistant deltas, tool calls, the tail) are NOT nodes:
+  // they resolve to the turn node's depth, so a turn's children (the
+  // next turn, a chrome event after it) sit exactly one level below it.
+  // A turn node's depth is fixed at its opener; the tail re-anchor
+  // changes only the node's id/parentId. Legacy identity-less events all
+  // have depth 0 (no parentId chains to walk). A dangling parent (out-
+  // of-range `line:N`, unknown id) resolves to root depth: display-only
+  // projection, not certified input — visible-warning machinery like
+  // replayWarnings is reserved for replay, not the view.
+  const nodeDepth = new Map<AgentEvent, number>();
+  const depthOf = (e: AgentEvent): number => {
+    const known = nodeDepth.get(e);
+    if (known !== undefined) return known;
+    if (e.parentId === undefined) return 0; // root anchor
+    const line = parseLineRef(e.parentId);
+    const parent = line !== null ? events[line - 1] : byId.get(e.parentId!);
+    if (parent === undefined) return 0; // dangling parent: root depth
+    return (nodeDepth.get(parent) ?? depthOf(parent)) + 1;
+  };
+
+  /** The turn currently being assembled: user_message opener → tail. */
+  let turn: { openerId: string; node: TreeNode & { openerId?: string; openerOnPath?: boolean } } | null = null;
+  /** Events owned by a turn node (opener, interior, tail). */
+  const turnOwners = new Map<AgentEvent, TreeNode & { openerId?: string; openerOnPath?: boolean }>();
+
+  for (const e of events) {
+    const id = idOf(e);
+    if (e.type === "user_message") {
+      const depth = depthOf(e);
+      const node = {
+        id,
+        parentId: e.parentId ?? null,
+        depth,
+        onActivePath: onPath.has(e),
+        kind: "turn" as const,
+        label: truncateLabel(e.text),
+        openerId: id,
+        openerOnPath: onPath.has(e),
+      };
+      nodes.push(node);
+      turn = { openerId: id, node };
+      nodeDepth.set(e, depth);
+      turnOwners.set(e, node);
+      continue;
+    }
+    if (turn && TURN_TAIL.has(e.type)) {
+      // Turn tail: the node re-anchors at the tail event (the id the head
+      // points at); the depth stays the opener's (one node, one level).
+      turn.node.id = id;
+      turn.node.parentId = e.parentId ?? null;
+      turn.node.onActivePath = onPath.has(e) || (turn.node.openerOnPath ?? false);
+      nodeDepth.set(e, turn.node.depth);
+      turnOwners.set(e, turn.node);
+      turn = null;
+      continue;
+    }
+    if (turn) {
+      // Interior of the open turn: not a node; resolves to the turn's
+      // depth for any later event chained to it.
+      nodeDepth.set(e, turn.node.depth);
+      turnOwners.set(e, turn.node);
+      continue;
+    }
+    // Chrome node: one per event (format d4: chrome counts for topology).
+    const depth = depthOf(e);
+    nodeDepth.set(e, depth);
+    nodes.push({
+      id,
+      parentId: e.parentId ?? null,
+      depth,
+      onActivePath: onPath.has(e),
+      kind: "chrome",
+      label: e.type,
+    });
+    turn = null;
+  }
+
+  /** Bookmark state (§4): the node's own id, or any event of the turn
+   * span (opener, interior, tail — all own the row). */
+  /** All events owned by each node id (turn spans own their row). */
+  const ownedBy = new Map<string, Set<string>>();
+  for (const [event, owner] of turnOwners) {
+    if (event.id === undefined) continue;
+    const set = ownedBy.get(owner.id) ?? new Set<string>();
+    set.add(event.id);
+    ownedBy.set(owner.id, set);
+  }
+  const bookmarkOn = (ref: string): { name?: string } | undefined => {
+    const direct = bookmarks.get(ref);
+    if (direct !== undefined) return direct;
+    const owned = ownedBy.get(ref);
+    if (owned === undefined) return undefined;
+    for (const id of owned) {
+      const b = bookmarks.get(id);
+      if (b !== undefined) return b;
+    }
+    return undefined;
+  };
+  const finalNodes: TreeNode[] = nodes.map((n) => {
+    const b = bookmarkOn(n.id) ?? (n.openerId !== undefined ? bookmarkOn(n.openerId) : undefined);
+    const { openerId: _o, openerOnPath: _p, ...rest } = n;
+    return b !== undefined ? { ...rest, bookmark: b } : rest;
+  });
+
+  const head = resolveHead(events).head;
+  // Map the head to a node id: the head may point at any event of a turn
+  // (opener, interior, tail) or a chrome event — resolve it to the row
+  // that owns it so the client can mark it.
+  let headId: string | `line:${number}`;
+  if (head === undefined) {
+    headId = idOf(events.at(-1)!);
+  } else if (byId.has(head)) {
+    const headEvent = byId.get(head)!;
+    const owner = turnOwners.get(headEvent) ?? nodes.find((n) => n.id === head);
+    headId = owner ? owner.id : head;
+  } else {
+    headId = head;
+  }
+
+  return { nodes: finalNodes, headId };
+}
+
 export function lastAssistantText(events: ReadonlyArray<AgentEvent>): string {
   let text = "";
   for (const event of events) {
