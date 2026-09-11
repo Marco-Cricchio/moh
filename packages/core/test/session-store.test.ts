@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen } from "../src/session-store";
 import { canonicalRemoteSlug } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
@@ -862,5 +862,19 @@ describe("event identity (#575)", () => {
     store.append({ type: "session_mode", mode: "auto-accept" });
     const [, second, third] = store.load();
     expect(third!.parentId).toBe(second!.id);
+  });
+});
+
+describe("isSessionOpen (#582, the #478 registry seam)", () => {
+  test("reflects SessionStore.open/dispose; unknown files are not open", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    const store = SessionStore.create(cwd, home);
+    const file = store.file;
+    store.append({ type: "session_start", schemaVersion: 2, promptVersion: "v" });
+    expect(isSessionOpen(file)).toBe(true);
+    store.dispose();
+    expect(isSessionOpen(file)).toBe(false);
+    expect(isSessionOpen("/nope/missing.jsonl")).toBe(false);
   });
 });

@@ -315,3 +315,16 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     expect(spawn(["sessions", "bookmark", file, "line:99", "x"]).code).toBe(2);
   });
 });
+
+describe("moh sessions switch open-session guard (#582)", () => {
+  test("a child CLI process is never blocked by another process's registry", () => {
+    // The registry is process-local by design (#400): opening HERE must
+    // not refuse the child; the refusal itself is pinned by the core unit
+    // test on the isSessionOpen seam.
+    const { spawn, file } = harness();
+    const store = SessionStore.open(file);
+    const sw = spawn(["sessions", "switch", file, "line:1"]);
+    expect(sw.code).toBe(0);
+    store.dispose();
+  });
+});

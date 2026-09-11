@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 import {
   bookmarkNode,
   deleteSession,
+  isSessionOpen,
   listSessionSummaries,
   parseLineRef,
   renameSession,
@@ -224,6 +225,15 @@ export function renderTree(view: TreeView): string {
 function sessionsSwitch(file: string, ref: string, err: { write(s: string): void }): number {
   const target = resolveCliNodeRef(file, ref, err);
   if (target === null) return CLI_ERROR;
+  // Spec §5: switching under a live writer belongs to the TUI (which
+  // goes through its own session instance) — the CLI refuses an open
+  // session, same registry as delete (#478).
+  if (isSessionOpen(file)) {
+    err.write(
+      `moh sessions switch: session is currently open: ${file.replace(/.*\//, "")} — switching under a live writer belongs to the TUI\n`,
+    );
+    return CLI_ERROR;
+  }
   try {
     switchBranch(file, target);
   } catch (e) {
