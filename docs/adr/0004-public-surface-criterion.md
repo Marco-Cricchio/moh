@@ -156,3 +156,14 @@ file order with precomputed depth, active-path membership, kind
 unreadable/corrupt/empty log, never throws. This is the single seam both
 the TUI `/tree` panel (#581) and the CLI renderer (`moh sessions tree`,
 #582) consume — clients never re-walk the log themselves.
+
+## Amendment — 2026-09-11, #614 MPM read-only status/query seam
+
+**Re-opened door**: `MpmService` with `status` (`"ready" | "unavailable"`)
+and `query(seedPath)` (`{ paths, provenance }`), plus the record/provenance
+types (`core/src/mpm/`) — the single headless Moh Project Map service for
+one project (spec #613). The storage layer (`MpmStore`, shard/journal
+files) stays internal: clients read status and query results only, never
+projection files. Needed by the TUI status row (#619), the CLI
+diagnostics (#618), and future subagent orientation (#620); the surface
+is read-only by construction — no client mutates the map through it.

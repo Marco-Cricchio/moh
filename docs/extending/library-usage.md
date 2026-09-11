@@ -421,6 +421,21 @@ never surfaces through the seam. `aggregateLocalUsage(events)` is the
 always-available fallback: per-model token totals summed from a session's
 `model_call` events. Both are exported from `@moh/core` (ADR-0004).
 
+## Moh Project Map — read-only status and query (#614)
+
+`MpmService` is the single headless MPM service for one project: it loads
+(or fails safe and rebuilds) a disposable structural projection stored
+under `~/.moh/projects/<slug>/project-map/` — sharded JSON with an
+atomically-flipped manifest and a small append-only crash journal. It
+answers small read-only structural queries: `query(seedPath)` returns
+`{ paths, provenance }` where each provenance entry cites the source
+path, line, and extractor that proved the relation. `status` is
+`"ready" | "unavailable"`. The projection stores metadata only — paths,
+hashes, symbols, relations — never source-file content, and is never
+mixed into MemoryStore, the session event log, or handoff: corrupt or
+incompatible data is discarded and rebuilt, never recovered from.
+Exported from `@moh/core` (ADR-0004).
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

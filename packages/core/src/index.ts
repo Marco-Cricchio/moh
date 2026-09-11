@@ -186,6 +186,21 @@ export {
   type LiveModelListing,
 } from "./live-model-catalog";
 export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
+// #614: MPM — the ADR-0004 reopening that lets clients (TUI status row #619,
+// CLI diagnostics #618) read MPM status and run read-only structural
+// queries. The service owns the projection; clients never touch storage.
+export {
+  MpmService,
+  type MpmQueryResult,
+  type MpmStatus,
+} from "./mpm/service";
+export {
+  MPM_FORMAT_VERSION,
+  type MpmFileRecord,
+  type MpmProvenance,
+  type MpmSymbol,
+  type MpmRelation,
+} from "./mpm/types";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {
   clearThinkingPreference,

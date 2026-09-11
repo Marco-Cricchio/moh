@@ -182,10 +182,18 @@ describe("TreePanel (#581)", () => {
       await waitForFrame(frame, "Session tree");
       await i.stdin.write("B");
       await waitForFrame(frame, "bookmark name:");
+      // CI hardening (#631 policy): the frame only proves the prompt rendered;
+      // a keystroke arriving in the same tick can race the useInput handler
+      // re-binding after the naming state flips (first char swallowed on slow
+      // runners — seen as "ttempt-2"). Settle before typing, then assert the
+      // full buffer echoed in the prompt so a loss fails loudly here, not at
+      // submit.
+      await new Promise((r) => setTimeout(r, 100));
       for (const ch of "attempt-2") {
         await i.stdin.write(ch);
         await new Promise((r) => setTimeout(r, 20));
       }
+      await waitForFrame(frame, "attempt-2");
       await i.stdin.write("\r");
       await new Promise((r) => setTimeout(r, 80));
       expect(bookmarks).toEqual([[view.headId, "attempt-2"]]);
