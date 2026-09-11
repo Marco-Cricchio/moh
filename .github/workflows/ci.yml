@@ -21,10 +21,10 @@ name: ci
 on:
   pull_request:
     branches: [develop]
-    paths-ignore:
-      - "CHANGELOG.md"
-      - "package.json"
-      - "**/package.json"
+    # No paths-ignore: branch protection on develop requires the five CI
+    # contexts unconditionally, so a skipped run (e.g. a changelog-only
+    # release PR) leaves the PR blocked forever. Changelog/package.json-only
+    # PRs just run the full suite like everything else.
 
 jobs:
   typecheck:
