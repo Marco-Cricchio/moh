@@ -31,6 +31,11 @@ const EXCLUDED_DIRS = new Set([
   "venv",
   "__pycache__",
   ".moh",
+  // Vendored dependency trees are excluded even when committed (Go-style).
+  "vendor",
+  "third_party",
+  "third-party",
+  "external",
 ]);
 
 /**
@@ -132,7 +137,9 @@ function visit(
       if (sensitiveDenylist(rel)) continue;
       if (matchesAny(rel, false, patterns) === "deny") continue;
       if (isGenerated(name)) continue;
-      if (BINARY_EXTENSIONS.has(name.slice(name.lastIndexOf(".")).toLowerCase()) && name.includes(".")) continue;
+      const dot = name.lastIndexOf(".");
+      const ext = dot >= 0 ? name.slice(dot).toLowerCase() : "";
+      if (BINARY_EXTENSIONS.has(ext)) continue;
       if (st.size > MPM_MAX_FILE_SIZE) continue;
       out.push(rel);
     }

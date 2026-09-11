@@ -41,6 +41,10 @@ async function seedCorpus(root: string): Promise<void> {
   );
   await writeFile(join(root, "docs", "readme.md"), `# Docs\nSee src/date.ts.\n`);
   await writeFile(join(root, "vendor-pkg", "helper.js"), `export const h = 1;\n`);
+  await mkdir(join(root, "vendor"), { recursive: true });
+  await writeFile(join(root, "vendor", "vendored.go-ish.js"), `export const v = 1;\n`);
+  await writeFile(join(root, "config", "settings.yaml"), `entry: "./src/date.ts"\n`);
+  await writeFile(join(root, "config", "settings.toml"), `entry = "./src/date.ts"\n`);
   await writeFile(join(root, "README"), `coverage-only, no capability\n`);
 }
 
@@ -87,12 +91,13 @@ describe("MPM discovery safety (#615)", () => {
       await writeFile(join(root, "node_modules", "pkg", "index.js"), `module.exports = 1;\n`);
       await writeFile(join(root, "logo.png"), `\x89PNG fake`);
       await writeFile(join(root, "app.min.js"), `var a=1;`);
-      await writeFile(join(root, "tsconfig.tsbuildinfo.map"), `{}`);
+      await writeFile(join(root, "sourcemap.js.map"), `{}`);
       await writeFile(join(root, "package-lock.json"), `{}`);
       await writeFile(join(root, "big.ts"), `export const big = ${"1".repeat(MPM_MAX_FILE_SIZE + 1)};\n`);
       const files = discoverWorkspace(root);
       expect(files).not.toContain("logo.png");
       expect(files).not.toContain("app.min.js");
+      expect(files).not.toContain("sourcemap.js.map");
       expect(files).not.toContain("package-lock.json");
       expect(files).not.toContain("big.ts");
       expect(files.filter((f) => f.startsWith("node_modules/"))).toEqual([]);
@@ -118,6 +123,35 @@ describe("MPM discovery safety (#615)", () => {
     }
   });
 
+  test("symlink loops are terminated, not fatal", async () => {
+    const root = await makeWorkspace();
+    try {
+      await mkdir(join(root, "a"), { recursive: true });
+      await mkdir(join(root, "b"), { recursive: true });
+      await writeFile(join(root, "a", "one.ts"), `export const one = 1;\n`);
+      await symlink(join(root, "b"), join(root, "a", "to-b"));
+      await symlink(join(root, "a"), join(root, "b", "to-a"));
+      const files = discoverWorkspace(root);
+      expect(files).toContain("a/one.ts");
+      // It terminates and maps at most one cycle traversal of the file.
+      expect(files.filter((f) => f.endsWith("one.ts")).length).toBeLessThan(5);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("committed vendor trees are excluded natively, without gitignore", async () => {
+    const root = await makeWorkspace();
+    try {
+      await seedCorpus(root);
+      const files = discoverWorkspace(root);
+      expect(files).not.toContain("vendor/vendored.go-ish.js");
+      expect(files).toContain("src/date.ts");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("discovery is deterministic across runs", async () => {
     const root = await makeWorkspace();
     try {
@@ -135,10 +169,16 @@ describe("MPM capability declarations (#615)", () => {
       expect(cap.families).toBeInstanceOf(Set);
     }
     const ts = MPM_CAPABILITIES.find((c) => c.name === "typescript")!;
-    expect(ts.families.has("module" as MpmRelationFamily)).toBe(true);
-    expect(ts.families.has("dependencies" as MpmRelationFamily)).toBe(true);
+    expect(ts.families.has("imports" as MpmRelationFamily)).toBe(true);
+    expect(ts.families.has("references" as MpmRelationFamily)).toBe(true);
+    expect(ts.families.has("test-subjects" as MpmRelationFamily)).toBe(true);
     const md = MPM_CAPABILITIES.find((c) => c.name === "markdown")!;
     expect(md.families.size).toBe(0);
+    // Families align with real relation kinds plus the derived test-subject edge.
+    const kinds: ReadonlySet<string> = new Set(["imports", "references", "config-links", "test-subjects"]);
+    for (const cap of MPM_CAPABILITIES) {
+      for (const family of cap.families) expect(kinds.has(family)).toBe(true);
+    }
   });
 
   test("unsupported extensions map with no capability", () => {
@@ -163,6 +203,13 @@ describe("MPM extraction corpus (#615)", () => {
       expect(test.relations).toContainEqual({ kind: "references", target: "src/date.ts", via: `test-subject:src/date.ts`, line: 1 });
       const js = records.get("src/legacy.js")!;
       expect(js.relations).toContainEqual({ kind: "imports", target: "src/types.ts", via: "./types", line: 1 });
+      const yaml = records.get("config/settings.yaml")!;
+      expect(yaml.language).toBe("yaml-config");
+      expect(yaml.relations).toContainEqual({ kind: "config-links", target: "src/date.ts", via: "./src/date.ts", line: 1 });
+      const toml = records.get("config/settings.toml")!;
+      expect(toml.language).toBe("toml-config");
+      expect(toml.relations).toContainEqual({ kind: "config-links", target: "src/date.ts", via: "./src/date.ts", line: 1 });
+      expect(records.has("vendor/vendored.go-ish.js")).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

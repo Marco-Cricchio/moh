@@ -9,7 +9,7 @@ import type { MpmRelation, MpmSymbol } from "./types";
  * (partial-support silence is the contract).
  */
 
-export type MpmRelationFamily = "module" | "symbols" | "dependencies" | "configuration" | "references" | "tests";
+export type MpmRelationFamily = "imports" | "references" | "config-links" | "test-subjects";
 
 export interface MpmLanguageCapability {
   /** Stable capability name, surfaced in provenance as `mpm/<name>`. */
@@ -26,7 +26,7 @@ export interface MpmLanguageCapability {
 const typescriptLike = (name: string, extensions: string[]): MpmLanguageCapability => ({
   name,
   extensions,
-  families: new Set<MpmRelationFamily>(["module", "symbols", "dependencies", "references", "tests"]),
+  families: new Set<MpmRelationFamily>(["imports", "references", "test-subjects"]),
   extract(content: string) {
     return extractJsLike(content);
   },
@@ -73,7 +73,7 @@ function extractJsLike(content: string): { symbols: MpmSymbol[]; relations: Omit
 const configuration = (name: string, extensions: string[]): MpmLanguageCapability => ({
   name,
   extensions,
-  families: new Set<MpmRelationFamily>(["configuration"]),
+  families: new Set<MpmRelationFamily>(["config-links"]),
   extract(content: string) {
     return { symbols: [], relations: extractConfigLinks(content) };
   },
@@ -106,8 +106,7 @@ const plain = (name: string, extensions: string[]): MpmLanguageCapability => ({
  * The capability registry. Membership is the whole truth: an extension not
  * listed here (or a file with no matching capability) maps with
  * `language: "unsupported"` and zero relations.
- */
-export const MPM_CAPABILITIES: readonly MpmLanguageCapability[] = [
+ */export const MPM_CAPABILITIES: readonly MpmLanguageCapability[] = [
   typescriptLike("typescript", [".ts", ".tsx", ".mts", ".cts"]),
   typescriptLike("javascript", [".js", ".jsx", ".mjs", ".cjs"]),
   configuration("json-config", [".json"]),
@@ -122,8 +121,4 @@ export function capabilityForPath(path: string): MpmLanguageCapability | null {
     if (cap.extensions.includes(ext)) return cap;
   }
   return null;
-}
-
-export function capabilityByName(name: string): MpmLanguageCapability | null {
-  return MPM_CAPABILITIES.find((c) => c.name === name) ?? null;
 }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, posix } from "node:path";
-import { discoverWorkspace } from "./discover";
+import { discoverWorkspace, MPM_MAX_FILE_SIZE } from "./discover";
 import { capabilityForPath } from "./capabilities";
 import type { MpmFileRecord, MpmRelation } from "./types";
 
@@ -14,10 +14,10 @@ import type { MpmFileRecord, MpmRelation } from "./types";
  * (unresolvable specifiers are dropped — never invented).
  */
 
-/** Directly verifiable reference/test relationship: `*.test.ts` importing its subject. */
+/** Directly verifiable reference/test relationship: a test file and its subject. */
 function isTestPath(path: string): boolean {
   const base = path.slice(path.lastIndexOf("/") + 1);
-  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) || base.endsWith(".test.tsx") || /(^|\/)__tests__\//.test(path);
+  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) || /(^|\/)__tests__\//.test(path);
 }
 
 /**
@@ -60,6 +60,9 @@ export function extractWorkspace(root: string): Map<string, MpmFileRecord> {
     let size: number;
     try {
       size = statSync(abs).size;
+      // Re-check the cap at extraction time: the file may have grown since
+      // discovery (TOCTOU on the oversize boundary).
+      if (size > MPM_MAX_FILE_SIZE) continue;
       content = readFileSync(abs, "utf8");
     } catch {
       continue;
@@ -71,6 +74,9 @@ export function extractWorkspace(root: string): Map<string, MpmFileRecord> {
       const extracted = cap.extract(content);
       symbols.push(...extracted.symbols);
       for (const rel of extracted.relations) {
+        // Declared-families gate: a capability only emits relation kinds its
+        // families still declare. Dropping the family silences the relation.
+        if (!cap.families.has(rel.kind)) continue;
         if (rel.kind === "config-links") {
           const target = normalizeConfigTarget(rel.via, known);
           if (target) relations.push({ ...rel, target });
@@ -81,7 +87,7 @@ export function extractWorkspace(root: string): Map<string, MpmFileRecord> {
       }
       // Directly verifiable test relationship: a test file importing a
       // workspace file adds a `references` edge to its subject.
-      if (cap.families.has("tests") && isTestPath(path)) {
+      if (cap.families.has("test-subjects") && isTestPath(path)) {
         const subjects = new Set(relations.filter((r) => r.kind === "imports").map((r) => r.target));
         for (const target of subjects) {
           if (!isTestPath(target) && !relations.some((r) => r.kind === "references" && r.target === target)) {
