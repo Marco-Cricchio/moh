@@ -58,6 +58,8 @@ import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
 import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { SessionRenameModal } from "./SessionRenameModal";
+import { TreePanel } from "./TreePanel";
+import { sessionTree, type TreeNode } from "@moh/core";
 import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
@@ -103,7 +105,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -284,6 +286,18 @@ export function App({
    * `session_file_growth`; the fork chip projects the explicit recovery
    * action. Counters update on repeat incidents; the banner never stacks. */
   const [growth, setGrowth] = useState<{ count: number } | null>(null);
+  /** #400: the foreign tail id of the latest growth event — the /tree
+   * panel renders that whole branch with the warning glyph. */
+  const [foreignTip, setForeignTip] = useState<string | null>(null);
+  /** #581: /tree projection refetch nonce — bumped after each panel
+   * action so the topology reflects the appended chrome immediately. */
+  const [treeNonce, setTreeNonce] = useState(0);
+  /** #581: sticky branch-from-here banner state (set by the panel's `r`,
+   * dismissed by the next sent message — the branch happens then). */
+  const [branchFrom, setBranchFrom] = useState<string | null>(null);
+  /** #581: one-line notice for a mid-turn switch ("takes effect next
+   * turn", spec §2 / #569 d6) — set at switch time, read by the panel. */
+  const treeSwitchNoticeRef = useRef<string | null>(null);
 
   // Right-sidebar feed (#118): a coalesced event subscription (separate from
   // Chat's) serves the header token label and the Activity/Tokens sections.
@@ -377,6 +391,7 @@ export function App({
           // always the user's explicit action).
           if (event.type === "session_file_growth") {
             setGrowth((g) => ({ count: (g?.count ?? 0) + 1 }));
+            if (event.foreignTip) setForeignTip(event.foreignTip);
             push(
               sanitizeForDisplay(
                 `session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to keep working safely`,
@@ -699,6 +714,46 @@ export function App({
     push(`forked → ${forkedStore.file.split("/").at(-1)}`);
   };
 
+  // ── /tree panel actions (#581) ────────────────────────────────────────
+  // The panel is chrome over the core seams: `switchBranch` appends
+  // `branch_switched` immediately (the log is truth — a mid-turn switch
+  // takes effect next turn, head semantics d6), `bookmarkNode` appends
+  // `tree_bookmarked`, and the branch-from-here flow switches then lets
+  // the next sent message split implicitly (parentId = that node). No
+  // `session_resumed` is ever appended by the panel (ADR-0021).
+  const treeFile = session?.sessionFile ?? null;
+  const treeView = useMemo(
+    () => (treeFile ? sessionTree(treeFile) : { error: "no open session" }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [treeFile, treeNonce],
+  );
+
+  const treeSwitch = (nodeId: string) => {
+    if (!session) return;
+    const midTurn = session.pending();
+    const result = session.switchBranch(nodeId);
+    if (!result.ok) return push(`✗ switch: ${result.error}`);
+    treeSwitchNoticeRef.current = midTurn
+      ? `switched — takes effect next turn (a turn is in flight)`
+      : null;
+    setTreeNonce((n) => n + 1);
+    push(midTurn ? "⑂ switch takes effect next turn" : `⑂ head moved`);
+  };
+
+  const treeBranchFrom = (node: TreeNode) => {
+    treeSwitch(node.id);
+    setBranchFrom(node.label);
+    setOverlay(null);
+  };
+
+  const treeBookmark = (nodeId: string, name?: string) => {
+    if (!session) return;
+    const result = session.bookmarkNode(nodeId, name);
+    if (!result.ok) return push(`✗ bookmark: ${result.error}`);
+    setTreeNonce((n) => n + 1);
+  };
+
+
   const cycleMode = () => {
     const next: Mode = mode === "vibe" ? "dev" : "vibe";
     setMode(next);
@@ -920,6 +975,8 @@ export function App({
       memoryFresh={memoryFresh}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
+      branchFrom={branchFrom}
+      onBranchFromDismiss={() => setBranchFrom(null)}
       yolo={yolo}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
@@ -973,6 +1030,7 @@ export function App({
         onReload: () => void reload(),
         onForkNow: () => void forkNow(),
         growthWarning: () => growth !== null,
+        onOpenTree: () => setOverlay("tree"),
       })}
     />
   ) : null;
@@ -1190,6 +1248,26 @@ export function App({
             endpoints={session.endpointProfiles}
             localUsage={aggregateLocalUsage(session.history())}
             onClose={() => setOverlay(null)}
+          />
+        )}
+        {overlay === "tree" && session && (
+          <TreePanel
+            label={(() => {
+              const renamed = [...session.history()].reverse().find((event) => event.type === "session_renamed");
+              if (renamed?.name) return renamed.name;
+              const first = session.history().find((event) => event.type === "user_message");
+              return first && "text" in first ? first.text.slice(0, 40) : "session";
+            })()}
+            view={treeView}
+            onSwitch={treeSwitch}
+            onBranchFrom={treeBranchFrom}
+            onBookmark={treeBookmark}
+            foreignTip={foreignTip}
+            notice={treeSwitchNoticeRef.current}
+            onClose={() => {
+              treeSwitchNoticeRef.current = null;
+              setOverlay(null);
+            }}
           />
         )}
         {overlay === "model" && session && (

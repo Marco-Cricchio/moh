@@ -74,6 +74,9 @@ export interface SlashContext {
   onForkNow?: () => void;
   /** #468: whether the sticky growth banner is currently up. */
   growthWarning?: () => boolean;
+  /** #581: opens the /tree panel (session-tree topology view). Absent
+   * (headless): the command explains it needs the TUI. */
+  onOpenTree?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -383,6 +386,20 @@ const reloadCommand: SlashCommand = {
   },
 };
 
+/** #581: opens the /tree panel — the session-tree topology view
+ * (switch, branch from here, bookmarks, filters). The panel owns the
+ * interaction; every mutation rides the core seams. */
+const treeCommand: SlashCommand = {
+  name: "tree",
+  description: "open the session tree panel (switch, branch, bookmarks)",
+  usage: "/tree",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/tree needs an open session");
+    if (!ctx.onOpenTree) return ctx.notify("/tree needs the TUI session shell");
+    ctx.onOpenTree();
+  },
+};
+
 /** #468/ADR-0020: the explicit fork action, reachable only while the
  * session-file-growth warning is up — no general fork command. */
 const forkCommand: SlashCommand = {
@@ -519,6 +536,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   settingsCommand,
   themeCommand,
   thinkingCommand,
+  treeCommand,
   wayfinderCommand,
   workflowCommand,
 ];

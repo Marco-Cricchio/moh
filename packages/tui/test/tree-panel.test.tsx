@@ -4,9 +4,9 @@ import { render } from "ink-testing-library";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ThemeProvider } from "../src/themes";
+import { ThemeProvider, THEMES } from "../src/themes";
 import { cycleTreeFilter, TreePanel } from "../src/TreePanel";
-import { sessionTree, newSessionId, switchBranch, bookmarkNode, SessionStore, createSession, MockProvider } from "@moh/core";
+import { sessionTree, switchBranch, bookmarkNode, SessionStore, createSession, MockProvider } from "@moh/core";
 import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 import type { TreeView } from "@moh/core";
 
@@ -49,10 +49,9 @@ const noop = () => {};
 
 function mount(props: Partial<Parameters<typeof TreePanel>[0]> & { view: TreeView | { error: string } }) {
   return render(
-    <ThemeProvider value="tokyo-night">
+    <ThemeProvider value={THEMES["tokyo-night"]}>
       <TreePanel
         label="test session"
-        view={props.view}
         onSwitch={props.onSwitch ?? noop}
         onBranchFrom={props.onBranchFrom ?? noop}
         onBookmark={props.onBookmark ?? noop}

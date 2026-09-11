@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-preview";
-import { Box, Static, useInput, useStdout } from "ink";
+import { Box, Static, Text, useInput, useStdout } from "ink";
 import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
@@ -8,7 +8,7 @@ import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { SPINNER_FRAMES } from "./icons";
 import { widthClass, useViewport } from "./viewport";
-import { sanitizeLine } from "./ui";
+import { sanitizeLine, truncate } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
@@ -68,6 +68,11 @@ export interface ChatProps {
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
   growthWarning?: number | null;
+  /** #581: sticky branch-from-here banner label — the next sent message
+   * starts a new branch at that node (dismissed by the send). */
+  branchFrom?: string | null;
+  /** #581: clears the branch-from-here banner (called on submit). */
+  onBranchFromDismiss?: () => void;
   thinkingLevel?: DisplayThinkingLevel;
   /** #256: an unsupported stored preference — surfaced as a small dim
    * marker next to the model ("✗⚙ <level>"), never a prompt. */
@@ -135,6 +140,8 @@ export function Chat({
   memoryFresh = false,
   compactionFailed = false,
   growthWarning = null,
+  branchFrom = null,
+  onBranchFromDismiss,
   thinkingLevel = "medium",
   unsupportedThinkingLevel,
   showReasoning = false,
@@ -1045,9 +1052,17 @@ export function Chat({
         prefill={prefill}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;
+          onBranchFromDismiss?.();
           void session.send(text);
         }}
       />
+      {branchFrom && (
+        <Box paddingX={1}>
+          <Text color={theme.warn} wrap="truncate">
+            ⑂ branching from “{truncate(branchFrom, Math.max(12, cols - 56))}” — next message starts a new branch
+          </Text>
+        </Box>
+      )}
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       {/* #412: inline ask_user block — one blank line of padding above and
           below (inside AskUserBlock), between the text area's separator
