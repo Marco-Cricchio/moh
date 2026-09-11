@@ -41,6 +41,31 @@ a chrome event in the log — resume,
 fork (it is inherited) and compaction carry it for free — and it never
 touches file names or slugs.
 
+## The session tree (/tree)
+
+A session is a **tree**: rewinding (switching the head to an earlier
+turn) and divergences grow branches, and the `/tree` panel shows the
+full topology — one row per turn, depth-indented, `●` on the active
+path, `○` off it, `◆ name` bookmarked, `← head` on the current head,
+`⚠` on the branch created by another machine (external growth).
+
+Keys: `↑/↓` (or `j/k`) move with internal scrolling when the tree is
+taller than the panel, `⏎` **switch here** (the head moves immediately —
+while a turn is in flight the switch still lands in the log and takes
+effect next turn), `r` **branch from here** (switch, close the panel,
+and a sticky banner reminds you that your next message starts a new
+branch — the banner dismisses when you send it), `b` toggles a bookmark,
+`B` names one (empty = clear), `f` cycles the filters
+`all → active+bookmarked → abandoned only`, esc closes. `/tree` needs an
+open session; the CLI equivalents (`moh sessions tree|switch|bookmark`)
+are planned separately (#582).
+
+Switching never **consumes** the session: the pertinent-session
+suggestion is unaffected. When the session file grew on another machine
+(#400), the growth warning's primary chip becomes **keep my branch**
+(`ctrl+g`): it moves the head back to your local tip and clears the
+warning — forking (`/fork`) stays the secondary recovery path.
+
 ## Bookmarks
 
 A **bookmark** names a node of the session tree (a turn or an earlier

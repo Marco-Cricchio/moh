@@ -53,6 +53,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["/settings", "settings panel"],
       ["/theme", "cycle the color theme"],
       ["/thinking", "reasoning display + thinking level"],
+      ["/tree", "session tree panel (switch, branch from here, bookmarks, filters)"],
       ["/wayfinder", "frontier panel (workflow on)"],
       ["/workflow", "toggle workflow mode"],
     ],

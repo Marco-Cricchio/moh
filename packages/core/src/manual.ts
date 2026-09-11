@@ -34,7 +34,7 @@ export interface ManualPage {
 
 const PAGES: ReadonlyArray<ManualPage> = [
   { id: "getting-started", title: "Getting started", summary: "first run, the mock provider, your first session, where data lives", body: gettingStarted },
-  { id: "sessions", title: "Sessions", summary: "new, resume, fork, handoff between machines, the event log", body: sessions },
+  { id: "sessions", title: "Sessions", summary: "new, resume, fork, the /tree panel, handoff between machines, the event log", body: sessions },
   { id: "providers-and-models", title: "Providers & models", summary: "adding endpoints, subscription auth, switching models, thinking levels", body: providersAndModels },
   { id: "permissions", title: "Permissions & rules", summary: "the rule grammar, the permission prompt, tiers and vetoes", body: permissions },
   { id: "mcp", title: "MCP", summary: "declaring MCP servers, stdio/HTTP transports, consent and trust", body: mcp },
