@@ -9,6 +9,7 @@ import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } fro
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
 import type { ToolTimings } from "./tool-timing";
+import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
 export interface TranscriptBlock {
@@ -193,7 +194,8 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * The log itself is never filtered: this is a projection option only. */
 export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { mode?: "vibe" | "dev"; filePreview?: "always" | "on-demand" | "none"; keyBase?: number; /** True when the slice begins mid-reply (live tail): its first paragraph is a continuation (#205). */ proseContinuation?: boolean; initialAssistantRun?: ReturnType<typeof assistantRunOrigin>; /** #242: render persisted provider reasoning blocks (display-only
    * projection; the log is never filtered). Default: hidden. */ showReasoning?: boolean; /** #300: wall-clock ledger for tool timing (limit + final duration);
-   * presentation-only, never part of the log. */ toolTimings?: ToolTimings } = {}): TranscriptBlock[] {
+   * presentation-only, never part of the log. */ toolTimings?: ToolTimings; /** #liveness: live scrolling tails (last lines) of running tools'
+   * partial output — ephemeral, volatile blocks only. */ toolTails?: ToolTailMap } = {}): TranscriptBlock[] {
   const vibe = options.mode === "vibe";
   const keyBase = options.keyBase ?? 0;
   const blocks: TranscriptBlock[] = [];
@@ -320,13 +322,27 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           blocks.push({ key, kind: "error", glyph: "✗", type: event.name, detail: detailOf(event.args, event.name), lines: result?.ok === false ? result.output.split("\n").slice(0, 5).map(sanitizeLine) : [], state: "fail" });
           break;
         }
+        // #liveness: a running tool with live partial output shows its
+        // scrolling tail (last lines, dim) inside the volatile block.
+        // Settled blocks keep the usual result cap — determinism #194.
+        const liveTail = state === "run" ? options.toolTails?.get(event.callId) : undefined;
+        const todoLines = event.name === "todo" && event.args && typeof event.args === "object"
+          ? (event.args as { todos?: Array<{ content?: unknown; status?: unknown; activeForm?: unknown }> }).todos
+              ?.filter((t) => typeof t.content === "string" && t.content !== "")
+              .map((t) => `${t.status === "done" ? "[x]" : t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content as string}`)
+          : undefined;
         blocks.push({
           key,
           kind: "tool",
           glyph: state === "ok" ? "✓" : state === "fail" ? "✗" : "◌",
           type: event.name,
           detail: detailOf(event.args, event.name),
-          lines: event.name !== "read" && result?.output ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
+          // The todo box is always fully open (both modes): the task list
+          // is the one tool output that reads as a persistent panel, not
+          // a log. Other tools: settled = usual cap; running = live tail.
+          lines: todoLines ?? (event.name !== "read" && (result?.output || liveTail?.length)
+            ? (liveTail?.length ? liveTail : result!.output.split("\n")).slice(0, state === "run" && liveTail?.length ? liveTail.length : options.filePreview === "always" ? 15 : 5).map(sanitizeLine)
+            : []),
           state,
           ...timingFields,
         });

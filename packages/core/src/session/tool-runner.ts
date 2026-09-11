@@ -1,4 +1,4 @@
-import type { AgentEvent, Message, Tool, ToolContext, ToolCall } from "../types";
+import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, ToolCall } from "../types";
 import { splitCommandSegments, type FilesystemScope } from "../permissions";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
 import type { SessionConfig } from "./config";
@@ -53,6 +53,9 @@ export interface ToolRunnerOptions {
   onAskUser?: SessionConfig["onAskUser"];
   /** Log append callback — the runner owns its tool_call/tool_result emission. */
   append: (event: AgentEvent) => void;
+  /** Live tool-progress relay (ephemeral, #liveness): chunks emitted by a
+   * running tool's `onProgress` reach clients without touching the log. */
+  emitLive?: (event: ReasoningStreamEvent) => void;
   /** Best-effort client callback after a successful bash `git push` (#437). */
   onGitPush?: () => void;
 }
@@ -113,6 +116,7 @@ export class ToolRunner {
   readonly #turn: () => number;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
   readonly #append: (event: AgentEvent) => void;
+  readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
   readonly #onGitPush: (() => void) | undefined;
 
   constructor(options: ToolRunnerOptions) {
@@ -125,6 +129,7 @@ export class ToolRunner {
     this.#turn = options.turn;
     this.#onAskUser = options.onAskUser;
     this.#append = options.append;
+    this.#emitLive = options.emitLive;
     this.#onGitPush = options.onGitPush;
   }
 
@@ -230,7 +235,14 @@ export class ToolRunner {
     const ctx: ToolContext = {
       signal,
       cwd: this.#cwd,
-      onProgress: () => {},
+      // Live progress relay (#liveness): chunks reach clients ephemerally;
+      // they are never appended to the log. The relay itself is
+      // best-effort — a listener throwing must not fail the tool.
+      onProgress: (chunk) => {
+        try {
+          this.#emitLive?.({ type: "tool_progress", callId: call.callId, tool: call.name, chunk });
+        } catch { /* live listeners are presentation-only */ }
+      },
       skillDirs: this.#skillDirs(),
       filesystemScope: this.#filesystemScope(),
       turn: this.#turn(),
