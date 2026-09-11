@@ -7,7 +7,7 @@ import type { ThinkingLevel } from "@moh/core";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
-export type ChipAction = "send" | "stop" | "model" | "mode" | "commands" | "settings" | "workflow" | "frontier";
+export type ChipAction = "send" | "stop" | "model" | "mode" | "commands" | "settings" | "workflow" | "frontier" | "keep";
 export interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
 
 const ALL_CHIPS: ChipSpec[] = [
@@ -18,14 +18,20 @@ const ALL_CHIPS: ChipSpec[] = [
   { key: "^f", label: "frontier", color: "purple" },
 ];
 
+/** #581: the growth warning's primary chip — prepended only while the
+ * external-growth warning is up (spec §6: keep my branch primary, fork
+ * secondary). Enter on the chip appends `branch_switched { to: localTip }`. */
+const KEEP_CHIP: ChipSpec = { key: "^g", label: "keep" };
+
 export const widthClass183 = (columns: number): "compact" | "regular" | "wide" => columns < 70 ? "compact" : columns < 110 ? "regular" : "wide";
 
 const compactChipWidth = (chip: ChipSpec) => 5 + chip.key.length + chip.label.length;
 const graphicChipWidth = (chip: ChipSpec) => 5 + chip.key.length + chip.label.length;
-export function visibleChips(columns: number): { chips: ChipSpec[]; graphic: boolean } {
+export function visibleChips(columns: number, keepMyBranch = false): { chips: ChipSpec[]; graphic: boolean } {
   const budget = Math.max(1, columns - 4);
   const cls = widthClass183(columns);
-  const initial = cls === "compact" ? ALL_CHIPS.slice(0, 4) : [...ALL_CHIPS];
+  const all = keepMyBranch ? [KEEP_CHIP, ...ALL_CHIPS] : ALL_CHIPS;
+  const initial = cls === "compact" ? all.slice(0, 4) : [...all];
   const graphicWidth = initial.reduce((sum, chip) => sum + graphicChipWidth(chip) + 2, -2);
   if (graphicWidth <= budget) return { chips: initial, graphic: true };
   // Wide terminals retain the bordered dashboard grammar and drop
@@ -76,6 +82,10 @@ interface StatusProps {
   /** #468/ADR-0020: sticky external-growth warning with the fork hint —
    * set by `session_file_growth`, cleared by the explicit fork. */
   growthWarning?: number | null;
+  /** #581: keep-my-branch primary chip (⏎ activates while growth warns):
+   * appends `branch_switched { to: localTip }` through the session seam.
+   * Fork (/fork) stays the secondary recovery chip. */
+  onKeepMyBranch?: () => void;
   phase?: string;
   notice?: string;
   /** #377: yolo session (launch-only `--yolo`) — persistent unmissable
@@ -190,7 +200,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — /fork` : "⚡"}</Text>}</Box>
+        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
@@ -234,9 +244,9 @@ function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: num
   </Box>;
 }
 
-function KeyRow({ width, focused }: { width: number; focused: number | null }) {
+function KeyRow({ width, focused, keepMyBranch }: { width: number; focused: number | null; keepMyBranch?: boolean }) {
   const theme = useTheme();
-  const { chips, graphic } = visibleChips(width);
+  const { chips, graphic } = visibleChips(width, keepMyBranch);
   return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={graphic ? 2 : 1} flexWrap="nowrap" marginTop={1}>
     {chips.map((chip, index) => graphic ? (
       <Box key={chip.label} borderStyle="round" borderColor={focused === index ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
@@ -248,10 +258,10 @@ function KeyRow({ width, focused }: { width: number; focused: number | null }) {
   </Box>;
 }
 
-export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
+export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; keepMyBranch?: boolean }) {
   return <Box flexDirection="column">
     <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} />
     <StatusRow {...props} />
-    <KeyRow width={props.width} focused={props.focusedChip} />
+    <KeyRow width={props.width} focused={props.focusedChip} keepMyBranch={props.keepMyBranch} />
   </Box>;
 }
