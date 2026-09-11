@@ -50,11 +50,28 @@ view). Bookmarks ride the same seam as the display name: appending a
 `tree_bookmarked` event to the log — append-only, the **last** bookmark
 for a node wins, and a bookmark with an **empty name clears** the node's
 bookmark. In the `/tree` panel: `b` toggles a bookmark on the selected
-row, `B` sets a name. From the CLI (when the `moh sessions bookmark`
-command lands, #582): `moh sessions bookmark <file|id> <node> [name]`,
-where an empty (or blank) name clears and `node` accepts an event id or `line:N`.
+row, `B` sets a name. From the CLI:
+`moh sessions bookmark <file|id> <node> [name]`, where an empty (or
+blank) name clears and `node` accepts an event id, a `line:N` bridge, or
+a bookmark name.
 Bookmarking never changes what the model sees — it is chrome in the log,
 carried by resume and fork like any other event.
+
+## Switch and bookmark from the CLI
+
+The tree actions work without opening the session:
+
+```
+moh sessions tree <file|id>                          # render the topology as text
+moh sessions switch <file|id> <node|bookmark-name>   # move the head
+moh sessions bookmark <file|id> <node> [name]        # set; empty name = clear
+```
+
+`node` accepts an event id, a `line:N` bridge to a pre-tree event, or a
+bookmark name — an ambiguous bookmark name is an error listing the
+matches. `switch` refuses while the session is currently open (switching
+under a live writer belongs to the TUI); `moh run --resume` reopens the
+session at the head automatically — no extra flag needed.
 
 ## Delete and the trash
 
