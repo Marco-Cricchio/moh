@@ -297,7 +297,7 @@ export function App({
   const [branchFrom, setBranchFrom] = useState<string | null>(null);
   /** #581: one-line notice for a mid-turn switch ("takes effect next
    * turn", spec §2 / #569 d6) — set at switch time, read by the panel. */
-  const treeSwitchNoticeRef = useRef<string | null>(null);
+  const [treeSwitchNotice, setTreeSwitchNotice] = useState<string | null>(null);
 
   // Right-sidebar feed (#118): a coalesced event subscription (separate from
   // Chat's) serves the header token label and the Activity/Tokens sections.
@@ -350,7 +350,7 @@ export function App({
   );
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
-    const count = visibleChips(viewport.columns).chips.length;
+    const count = visibleChips(viewport.columns, growth !== null).chips.length;
     setFocusedChip((focused) => focused !== null && focused >= 0 && focused >= count ? null : focused);
   }, [viewport.columns]);
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
@@ -733,11 +733,9 @@ export function App({
     const midTurn = session.pending();
     const result = session.switchBranch(nodeId);
     if (!result.ok) return push(`✗ switch: ${result.error}`);
-    treeSwitchNoticeRef.current = midTurn
-      ? `switched — takes effect next turn (a turn is in flight)`
-      : null;
+    setTreeSwitchNotice(midTurn ? "switched — takes effect next turn (a turn is in flight)" : null);
     setTreeNonce((n) => n + 1);
-    push(midTurn ? "⑂ switch takes effect next turn" : `⑂ head moved`);
+    push(midTurn ? "⑂ switch takes effect next turn" : "⑂ head moved");
   };
 
   const treeBranchFrom = (node: TreeNode) => {
@@ -820,9 +818,24 @@ export function App({
     updateConfig({ theme: next });
     push(`theme: ${THEMES[next].label}`);
   };
+  // #581: keep-my-branch — the growth banner's primary chip action:
+  // appends `branch_switched { to: localTip }` (adoption, head semantics
+  // d9) and clears the warning. /fork remains the secondary recovery chip.
+  const keepMyBranch = () => {
+    const growthEvent = session ? [...session.history()].reverse().find((event) => event.type === "session_file_growth") : undefined;
+    const tip = growthEvent && "localTip" in growthEvent ? growthEvent.localTip : undefined;
+    if (!session || !tip) return push("keep-my-branch: no local tip in the growth warning");
+    const result = session.switchBranch(tip);
+    if (!result.ok) return push(`✗ keep my branch: ${result.error}`);
+    setGrowth(null);
+    setForeignTip(null);
+    return push("⑂ keeping your branch — head moved back to your local tip");
+  };
+
   const activateChip = (action: ChipAction) => {
     setFocusedChip(null);
     if (action === "send") return setSubmitSignal((value) => value + 1);
+    if (action === "keep") return keepMyBranch();
     if (action === "stop") return session?.abort();
     if (action === "model") return setOverlay("model");
     if (action === "mode") return cycleMode();
@@ -851,7 +864,7 @@ export function App({
     // not interrupt an active turn; streaming continues behind the modal.
     if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     if (session && !blocked) {
-      const chips = visibleChips(viewport.columns).chips;
+      const chips = visibleChips(viewport.columns, growth !== null).chips;
       const subCount = subagentCount;
       // While the input's completion popup owns the Tab key (a slash draft
       // with candidates), the textarea keeps focus: Tab completes the
@@ -932,20 +945,11 @@ export function App({
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
     // #499: usage quota modal from chat — instant check before long tasks.
     if (overlay === null && key.ctrl && input === "q" && session) return setOverlay("quota");
-    // #581: keep-my-branch — the growth banner's primary chip. Appends
+    // #581: keep-my-branch — the growth banner's primary chip (also a
+    // footer chip while the warning is up). Appends
     // `branch_switched { to: localTip }` (adoption, head semantics d9);
     // /fork remains the secondary recovery chip.
-    if (overlay === null && (input === "\x07" || (key.ctrl && input === "g")) && growth !== null && session) {
-      const growthEvent = [...session.history()].reverse().find((event) => event.type === "session_file_growth");
-      const tip = growthEvent && "localTip" in growthEvent ? growthEvent.localTip : undefined;
-      if (!tip) return push("keep-my-branch: no local tip in the growth warning");
-      const result = session.switchBranch(tip);
-      if (!result.ok) return push(`✗ keep my branch: ${result.error}`);
-      setGrowth(null);
-      setForeignTip(null);
-      push("⑂ keeping your branch — head moved back to your local tip");
-      return;
-    }
+    if (overlay === null && (input === "\x07" || (key.ctrl && input === "g")) && growth !== null && session) return activateChip("keep");
     // The post-claim chooser owns Esc: it returns to Frontier rather than
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
@@ -989,16 +993,7 @@ export function App({
       memoryFresh={memoryFresh}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
-      onKeepMyBranch={() => {
-        const growthEvent = session ? [...session.history()].reverse().find((event) => event.type === "session_file_growth") : undefined;
-        const tip = growthEvent && "localTip" in growthEvent ? growthEvent.localTip : undefined;
-        if (!session || !tip) return push("keep-my-branch: no local tip in the growth warning");
-        const result = session.switchBranch(tip);
-        if (!result.ok) return push(`✗ keep my branch: ${result.error}`);
-        setGrowth(null);
-        setForeignTip(null);
-        push("⑂ keeping your branch — head moved back to your local tip");
-      }}
+      onKeepMyBranch={keepMyBranch}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
       yolo={yolo}
@@ -1287,9 +1282,9 @@ export function App({
             onBranchFrom={treeBranchFrom}
             onBookmark={treeBookmark}
             foreignTip={foreignTip}
-            notice={treeSwitchNoticeRef.current}
+            notice={treeSwitchNotice}
             onClose={() => {
-              treeSwitchNoticeRef.current = null;
+              setTreeSwitchNotice(null);
               setOverlay(null);
             }}
           />

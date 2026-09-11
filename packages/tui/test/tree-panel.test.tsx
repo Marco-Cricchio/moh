@@ -237,6 +237,10 @@ describe("TreePanel (#581)", () => {
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     try {
       await waitForFrame(frame, "▲ more");
+      // Scrolling up reveals the bottom more-indicator.
+      await i.stdin.write("k");
+      await i.stdin.write("k");
+      await waitForCondition(() => frame().includes("▼ more"), () => `▼ more never appeared. Frame:\n${frame()}`);
     } finally {
       i.unmount();
     }

@@ -91,7 +91,7 @@ export function TreePanel({
 }: TreePanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
-  const contentW = Math.max(40, Math.min(viewport.columns - 6, 110));
+  const contentW = Math.max(24, Math.min(viewport.columns - 6, 110));
   const rowCap = Math.max(3, rows ?? Math.min(16, Math.max(4, viewport.rows - 12)));
 
   const [filter, setFilter] = useState<TreeFilter>("all");
@@ -104,7 +104,7 @@ export function TreePanel({
     [view],
   );
 
-  const rows1 = useMemo((): Row[] => {
+  const filteredRows = useMemo((): Row[] => {
     if (!("nodes" in view)) return [];
     const keep = view.nodes.filter((node) => {
       if (filter === "all") return true;
@@ -127,19 +127,19 @@ export function TreePanel({
 
   // Selection clamps into the visible rows (a filter change or a refetch
   // can drop the selected row entirely).
-  const selectedIndex = Math.max(0, rows1.findIndex((r) => r.node.id === selected));
-  const clampedIndex = Math.min(selectedIndex, Math.max(0, rows1.length - 1));
-  const windowStart = Math.min(
-    Math.max(0, clampedIndex - rowCap + 1),
-    Math.max(0, offset),
-  );
-  const scrollOffset = Math.min(
-    Math.max(windowStart, Math.min(offset, Math.max(0, clampedIndex - rowCap + 1)), Math.max(0, rows1.length - rowCap)),
-    Math.max(0, rows1.length - rowCap),
-  );
-  const visible = rows1.slice(scrollOffset, scrollOffset + rowCap);
+  const selectedIndex = Math.max(0, filteredRows.findIndex((r) => r.node.id === selected));
+  const clampedIndex = Math.min(selectedIndex, Math.max(0, filteredRows.length - 1));
+  const lastWindowStart = Math.max(0, filteredRows.length - rowCap);
+  // The window follows the selection: the offset is a user nudge (set on
+  // move); whenever the selection falls outside the window it snaps back
+  // so the selected row is always visible.
+  const followStart = Math.min(Math.max(0, clampedIndex - rowCap + 1), clampedIndex);
+  const nudged = Math.min(Math.max(0, offset), lastWindowStart);
+  const selectionVisible = clampedIndex >= nudged && clampedIndex < nudged + rowCap;
+  const scrollOffset = selectionVisible ? nudged : followStart;
+  const visible = filteredRows.slice(scrollOffset, scrollOffset + rowCap);
   const moreAbove = scrollOffset > 0;
-  const moreBelow = scrollOffset + rowCap < rows1.length;
+  const moreBelow = scrollOffset + rowCap < filteredRows.length;
 
   useInput((input, key) => {
     if (naming) {
@@ -160,17 +160,17 @@ export function TreePanel({
     if (key.escape) return onClose();
     if (key.upArrow || input === "k") {
       setOffset(Math.max(0, clampedIndex - rowCap));
-      const prev = rows1[Math.max(0, clampedIndex - 1)];
+      const prev = filteredRows[Math.max(0, clampedIndex - 1)];
       if (prev) setSelected(prev.node.id);
       return;
     }
     if (key.downArrow || input === "j") {
-      setOffset(Math.min(Math.max(0, rows1.length - rowCap), clampedIndex + 1));
-      const next = rows1[Math.min(rows1.length - 1, clampedIndex + 1)];
+      setOffset(Math.min(Math.max(0, filteredRows.length - rowCap), clampedIndex + 1));
+      const next = filteredRows[Math.min(filteredRows.length - 1, clampedIndex + 1)];
       if (next) setSelected(next.node.id);
       return;
     }
-    const current = rows1[clampedIndex]?.node;
+    const current = filteredRows[clampedIndex]?.node;
     if (!current) return;
     if (key.return) return onSwitch(current.id);
     if (input === "r") return onBranchFrom(current);
@@ -241,10 +241,10 @@ export function TreePanel({
       <FrameRow text="" />
       <FrameRow text={`filter  ${filterChipsRow(filter)}`} color={theme.dim} />
       <FrameRow text="" />
-      {rows1.length === 0 && <FrameRow text=" no rows match this filter" color={theme.dim} />}
+      {filteredRows.length === 0 && <FrameRow text=" no rows match this filter" color={theme.dim} />}
       {moreAbove && <FrameRow text="  ▲ more" color={theme.dim} />}
       {visible.map(({ node, foreign }) => {
-        const isSelected = node.id === rows1[clampedIndex]?.node.id;
+        const isSelected = node.id === filteredRows[clampedIndex]?.node.id;
         const glyph = foreign ? "⚠" : node.bookmark !== undefined ? "◆" : node.onActivePath ? "●" : "○";
         const headMark = node.id === view.headId;
         const color = foreign ? theme.warn : node.onActivePath ? theme.fg : theme.dim;
