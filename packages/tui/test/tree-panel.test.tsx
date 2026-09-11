@@ -309,3 +309,26 @@ describe("TreePanel (#581)", () => {
     }
   });
 });
+
+describe("TreePanel frame geometry (#581 review fix)", () => {
+  test("every painted row has the same width: top border = body rows = bottom border", async () => {
+    const file = await buildBranchedSession();
+    const i = mount({ view: viewOf(file) });
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    try {
+      await waitForFrame(frame, "Session tree");
+      const rows = frame().split("\n").filter((l) => /[│╭╰]/.test(l));
+      expect(rows.length).toBeGreaterThan(3);
+      const widths = new Set(rows.map((r) => r.length));
+      if (widths.size !== 1) {
+        throw new Error(
+          `frame rows have differing widths (${[...widths].join(", ")}):\n` +
+            rows.map((r) => `${r.length} |${r}|`).join("\n"),
+        );
+      }
+      expect(widths.size).toBe(1);
+    } finally {
+      i.unmount();
+    }
+  });
+});

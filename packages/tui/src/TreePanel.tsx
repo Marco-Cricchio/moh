@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { TreeNode, TreeView } from "@moh/core";
 import { useTheme } from "./themes";
-import { useViewport } from "./viewport";
+import { dialogWidth, useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
 
 /**
@@ -91,7 +91,10 @@ export function TreePanel({
 }: TreePanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
-  const contentW = Math.max(24, Math.min(viewport.columns - 6, 110));
+  // Frame width: the same dialog discipline as `Dialog` (ui.tsx) — ~62% of
+  // the viewport, clamped — so the panel floats centered like every other
+  // overlay instead of stretching wall-to-wall.
+  const contentW = Math.max(24, dialogWidth(viewport) - 4);
   const rowCap = Math.max(3, rows ?? Math.min(16, Math.max(4, viewport.rows - 12)));
 
   const [filter, setFilter] = useState<TreeFilter>("all");
@@ -196,14 +199,16 @@ export function TreePanel({
 
   if (!("nodes" in view)) {
     return (
-      <Box flexDirection="column">
-        <Text>
-          <Text color={theme.muted}>╭─ </Text>
-          <Text color={theme.accent}>Session tree</Text>
-          <Text color={theme.muted}>{"─".repeat(Math.max(2, contentW - 14))}╮</Text>
-        </Text>
-        <FrameRow text={` ✗ ${view.error}`} color={theme.err} />
-        <Text color={theme.muted}>{"╰" + "─".repeat(contentW) + "╯"}</Text>
+      <Box width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
+        <Box flexDirection="column" flexShrink={0}>
+          <Text>
+            <Text color={theme.muted}>╭─ </Text>
+            <Text color={theme.accent}>Session tree</Text>
+            <Text color={theme.muted}>{"─".repeat(Math.max(2, contentW - 12))}╮</Text>
+          </Text>
+          <FrameRow text={` ✗ ${view.error}`} color={theme.err} />
+          <Text color={theme.muted}>{"╰" + "─".repeat(contentW) + "╯"}</Text>
+        </Box>
       </Box>
     );
   }
@@ -219,10 +224,15 @@ export function TreePanel({
     return 1 + [...groups.values()].reduce((sum, size) => sum + Math.max(0, size - 1), 0);
   })();
 
+  // Width discipline: every row is │ + contentW + │ (contentW + 2 cells),
+  // so the top border must sum to the same: ╭─ (3) + title + subtitle +
+  // pad + ╮ (1) = contentW + 2 → pad = contentW − title − subtitle − 4.
+  // The old +3 offset made the top border one cell wider than the body —
+  // the visible right-wall misalignment.
   const title = `╭─ `;
   const titleText = `Session tree`;
   const subtitle = ` — ${label} · ${branchCount} ${branchCount === 1 ? "branch" : "branches"} · ${turns} ${turns === 1 ? "turn" : "turns"} `;
-  const titlePad = Math.max(2, contentW + 3 - (title.length + titleText.length + subtitle.length));
+  const titlePad = Math.max(2, contentW - 2 - titleText.length - subtitle.length);
   const topBorder =
     title +
     titleText +
@@ -231,7 +241,8 @@ export function TreePanel({
     "╮";
 
   return (
-    <Box flexDirection="column">
+    <Box width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
+      <Box flexDirection="column" flexShrink={0}>
       <Text>
         <Text color={theme.muted}>{topBorder.slice(0, 3)}</Text>
         <Text color={theme.accent} bold>{titleText}</Text>
@@ -270,6 +281,7 @@ export function TreePanel({
         color={theme.dim}
       />
       <Text color={theme.muted}>{"╰" + "─".repeat(contentW) + "╯"}</Text>
+      </Box>
       {naming && (
         <Text>
           <Text color={theme.accent}>bookmark name: </Text>
