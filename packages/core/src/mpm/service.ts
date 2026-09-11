@@ -25,15 +25,13 @@ export class MpmService {
   #bySymbol: Map<string, Set<string>> | null = null;
   /** Inverse index: relation target → paths importing/referencing it. */
   #byTarget: Map<string, Set<string>> | null = null;
-  /** Set once loading failed for a reason a rebuild cannot fix in-process. */
-  #failed = false;
 
   constructor(dir: string) {
     this.#store = new MpmStore(dir);
   }
 
   get status(): MpmStatus {
-    return this.#records && !this.#failed ? "ready" : "unavailable";
+    return this.#records !== null ? "ready" : "unavailable";
   }
 
   get fileCount(): number {
@@ -72,13 +70,13 @@ export class MpmService {
   }
 
   /**
-   * Replace the whole projection (a rebuild). Journal entries younger than
-   * the snapshot are replayed on top so no change is lost.
+   * Replace the whole projection (a rebuild). The rebuild is authoritative:
+   * the journal is truncated with the write, and the in-memory view is
+   * rebuilt from the given records.
    */
   rebuild(records: Map<string, MpmFileRecord>): void {
     this.#store.writeProjection(records);
-    const replayed = this.#store.drainJournal();
-    this.#finishLoad(records, replayed);
+    this.#finishLoad(records, []);
   }
 
   /** Record a targeted change in the crash journal (and live state). */
@@ -165,7 +163,6 @@ export class MpmService {
     }
     this.#bySymbol = bySymbol;
     this.#byTarget = byTarget;
-    this.#failed = false;
   }
 
   #apply(path: string, record: MpmFileRecord | null): void {

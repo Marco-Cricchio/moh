@@ -46,9 +46,9 @@ export class MpmStore {
     const shard = manifest.shards[path];
     if (!shard) return null;
     try {
-      const record = JSON.parse(readFileSync(join(this.dir, shard), "utf8")) as MpmFileRecord;
-      if (record.path !== path) return null;
-      return record;
+      const value: unknown = JSON.parse(readFileSync(join(this.dir, shard), "utf8"));
+      if (!isMpmFileRecord(value) || value.path !== path) return null;
+      return value;
     } catch {
       return null;
     }
@@ -65,7 +65,7 @@ export class MpmStore {
     const shards: Record<string, string> = {};
     for (const [path, record] of records) {
       const shard = shardName(path);
-      writeFileSync(join(this.dir, shard), `${JSON.stringify(record)}\n`);
+      writeFileSync(join(this.dir, shard), `${JSON.stringify(record)}\n`, { mode: 0o600 });
       shards[path] = shard;
     }
     const manifest: MpmManifest = {
@@ -75,7 +75,7 @@ export class MpmStore {
       fileCount: records.size,
     };
     const tmp = `${this.manifestPath()}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(manifest)}\n`);
+    writeFileSync(tmp, `${JSON.stringify(manifest)}\n`, { mode: 0o600 });
     // rename over the manifest: readers see old or new, never partial.
     renameSync(tmp, this.manifestPath());
     this.truncateJournal();
@@ -148,4 +148,24 @@ export class MpmStore {
 /** Deterministic shard file name for a path. */
 function shardName(path: string): string {
   return `shard-${createHash("sha256").update(path).digest("hex").slice(0, 16)}.json`;
+}
+
+/** Structural guard for untrusted shard JSON: every consumed field is checked. */
+function isMpmFileRecord(value: unknown): value is MpmFileRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  if (typeof r.path !== "string" || typeof r.hash !== "string") return false;
+  if (typeof r.size !== "number" || typeof r.language !== "string") return false;
+  if (!Array.isArray(r.symbols) || !Array.isArray(r.relations)) return false;
+  for (const s of r.symbols) {
+    if (typeof s !== "object" || s === null) return false;
+    const sym = s as Record<string, unknown>;
+    if (typeof sym.name !== "string" || typeof sym.kind !== "string" || typeof sym.line !== "number") return false;
+  }
+  for (const rel of r.relations) {
+    if (typeof rel !== "object" || rel === null) return false;
+    const relRec = rel as Record<string, unknown>;
+    if (typeof relRec.kind !== "string" || typeof relRec.target !== "string" || typeof relRec.via !== "string" || typeof relRec.line !== "number") return false;
+  }
+  return true;
 }
