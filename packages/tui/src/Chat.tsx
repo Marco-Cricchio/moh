@@ -68,6 +68,9 @@ export interface ChatProps {
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
   growthWarning?: number | null;
+  /** #581: the keep-my-branch primary chip (recovery action over the
+   * core switch seam) — rendered next to the growth warning. */
+  onKeepMyBranch?: () => void;
   /** #581: sticky branch-from-here banner label — the next sent message
    * starts a new branch at that node (dismissed by the send). */
   branchFrom?: string | null;
@@ -140,6 +143,7 @@ export function Chat({
   memoryFresh = false,
   compactionFailed = false,
   growthWarning = null,
+  onKeepMyBranch,
   branchFrom = null,
   onBranchFromDismiss,
   thinkingLevel = "medium",
@@ -1084,6 +1088,7 @@ export function Chat({
         memoryFresh={memoryFresh}
         compactionFailed={compactionFailed}
         growthWarning={growthWarning}
+        onKeepMyBranch={onKeepMyBranch}
         phase={armed ? "esc again to stop" : livePhase}
         notice={notice}
         updateMessage={updateMessage}

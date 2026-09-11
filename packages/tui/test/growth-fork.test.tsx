@@ -32,7 +32,7 @@ describe("growth warning sticky indicator (#468, ADR-0020)", () => {
   test("hidden by default; incidents count, never stack", () => {
     expect(frameOf({})).not.toContain("file grew externally");
     const once = frameOf({ growthWarning: 1 });
-    expect(once).toContain("⚡ file grew externally ×1 — /fork");
+    expect(once).toContain("⚡ file grew externally ×1 — ⏎ keep my branch · /fork");
     // A second incident updates the counter on the same indicator.
     const twice = frameOf({ growthWarning: 2 });
     expect(twice).toContain("×2");
@@ -48,7 +48,8 @@ describe("growth warning sticky indicator (#468, ADR-0020)", () => {
       </ThemeProvider>,
     );
     const frame = stripAnsi(ink.lastFrame() ?? "");
-    expect(frame).toContain("⚡");
+    expect(frame).toContain("keep my");
+    expect(frame).toContain("branch");
     expect(frame).not.toContain("file grew externally");
     ink.unmount();
   });

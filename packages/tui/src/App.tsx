@@ -932,6 +932,20 @@ export function App({
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
     // #499: usage quota modal from chat — instant check before long tasks.
     if (overlay === null && key.ctrl && input === "q" && session) return setOverlay("quota");
+    // #581: keep-my-branch — the growth banner's primary chip. Appends
+    // `branch_switched { to: localTip }` (adoption, head semantics d9);
+    // /fork remains the secondary recovery chip.
+    if (overlay === null && (input === "\x07" || (key.ctrl && input === "g")) && growth !== null && session) {
+      const growthEvent = [...session.history()].reverse().find((event) => event.type === "session_file_growth");
+      const tip = growthEvent && "localTip" in growthEvent ? growthEvent.localTip : undefined;
+      if (!tip) return push("keep-my-branch: no local tip in the growth warning");
+      const result = session.switchBranch(tip);
+      if (!result.ok) return push(`✗ keep my branch: ${result.error}`);
+      setGrowth(null);
+      setForeignTip(null);
+      push("⑂ keeping your branch — head moved back to your local tip");
+      return;
+    }
     // The post-claim chooser owns Esc: it returns to Frontier rather than
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
@@ -975,6 +989,16 @@ export function App({
       memoryFresh={memoryFresh}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
+      onKeepMyBranch={() => {
+        const growthEvent = session ? [...session.history()].reverse().find((event) => event.type === "session_file_growth") : undefined;
+        const tip = growthEvent && "localTip" in growthEvent ? growthEvent.localTip : undefined;
+        if (!session || !tip) return push("keep-my-branch: no local tip in the growth warning");
+        const result = session.switchBranch(tip);
+        if (!result.ok) return push(`✗ keep my branch: ${result.error}`);
+        setGrowth(null);
+        setForeignTip(null);
+        push("⑂ keeping your branch — head moved back to your local tip");
+      }}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
       yolo={yolo}
