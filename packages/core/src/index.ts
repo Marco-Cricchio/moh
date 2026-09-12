@@ -193,6 +193,7 @@ export {
   MpmService,
   MPM_DEFAULT_MAX_FILES,
   MPM_DEFAULT_MAX_TOTAL_BYTES,
+  projectMapDir,
   type MpmQueryResult,
   type MpmStatus,
   type MpmQuota,
