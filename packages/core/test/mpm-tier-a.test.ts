@@ -24,6 +24,11 @@ async function tierAWorkspace(): Promise<string> {
 
   // Go
   await mkdir(join(root, "go", "internal", "store"), { recursive: true });
+  await mkdir(join(root, "go", "tools"), { recursive: true });
+  await writeFile(join(root, "go", "tools", "cli.go"), `package main\n\nimport (\n\t"example.com/proj/internal/store"\n)\n`);
+  await writeFile(join(root, "go", "tools", "go.mod"), `module example.com/proj/tools\n`);
+  await writeFile(join(root, "go", "tools", "cli.go"), `package main\n\nimport (\n\t"example.com/proj/internal/store"\n)\n`);
+
   await writeFile(join(root, "go", "go.mod"), `module example.com/proj\n\ngo 1.22\n`);
   await writeFile(join(root, "go", "main.go"), `package main\n\nimport (\n\t"fmt"\n\t"example.com/proj/internal/store"\n)\n\nfunc main() {\n\tstore.Open()\n}\n`);
   await writeFile(join(root, "go", "internal", "store", "store.go"), `package store\n\ntype Store struct{}\n\nfunc Open() *Store {\n\treturn nil\n}\n`);
@@ -32,7 +37,13 @@ async function tierAWorkspace(): Promise<string> {
   // C / C++
   await mkdir(join(root, "c", "include"), { recursive: true });
   await writeFile(join(root, "c", "include", "util.h"), `#pragma once\nstruct Config { int a; };\nint util(void);\n`);
-  await writeFile(join(root, "c", "main.c"), `#include "include/util.h"\n#include <stdio.h>\n#include "missing.h"\nint main(void) { return util(); }\n`);
+  await writeFile(
+    join(root, "c", "main.c"),
+    `#include "include/util.h"\n#include <stdio.h>\n#include "missing.h"\n` +
+      `int main(void) { return util(); }\n` +
+      `/* fake_call(x) in a comment */\n// another_fake(y) also commented\n` +
+      `puts("string_call(z) inside a string");\n`,
+  );
 
   // PHP
   await mkdir(join(root, "php", "lib"), { recursive: true });
@@ -107,7 +118,13 @@ describe("Tier A — Go (#639)", () => {
       ]);
       const store = records.get("go/internal/store/store.go")!;
       expect(store.symbols).toContainEqual({ name: "Open", kind: "function", line: 5 });
-      expect(store.symbols).toContainEqual({ name: "Store", kind: "interface", line: 3 });
+      expect(store.symbols).toContainEqual({ name: "Store", kind: "class", line: 3 });
+      // Multi-module workspace: cli.go sits under a nested go.mod, so its
+      // module is example.com/proj/tools — an import of the outer module's
+      // internal package is not provable from that module (Go would need a
+      // replace directive) and stays silent.
+      const cli = records.get("go/tools/cli.go")!;
+      expect(cli.relations).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -138,6 +155,10 @@ describe("Tier A — C/C++ (#639)", () => {
       expect(main.relations).toEqual([
         { kind: "imports", target: "c/include/util.h", via: "include/util.h", line: 1 },
       ]);
+      // Declaration-shaped symbols only: commented or string-embedded
+      // call-like text produces no invented symbols.
+      expect(main.symbols.filter((s) => s.name.includes("fake") || s.name.includes("call_"))).toEqual([]);
+      expect(main.symbols).toContainEqual({ name: "main", kind: "function", line: 4 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

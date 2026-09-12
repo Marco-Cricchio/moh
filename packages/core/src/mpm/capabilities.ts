@@ -153,14 +153,9 @@ function pythonCapability(): MpmLanguageCapability {
         // Relative-import forms are the only provable ones: the target is a
         // file inside the workspace. Absolute imports name packages whose
         // file layout is not locally provable — left silent.
-        let m = line.match(/^\s*from\s+(\.+)([\w.]*)\s+import\s/);
+        const m = line.match(/^\s*from\s+(\.+)([\w.]*)\s+import\s/);
         if (m) {
           relations.push({ kind: "imports", via: `rel:${m[1]}:${m[2].replace(/\./g, "/")}`, line: i + 1 });
-          continue;
-        }
-        m = line.match(/^\s*import\s+\.([\w.]+)/);
-        if (m) {
-          relations.push({ kind: "imports", via: `rel:.:${m[1].replace(/\./g, "/")}`, line: i + 1 });
           continue;
         }
         const fn = line.match(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/) ?? line.match(/^\s*class\s+([A-Za-z_]\w*)/);
@@ -176,7 +171,8 @@ function pythonCapability(): MpmLanguageCapability {
       let dir = dirname(fromPath);
       for (let i = 1; i < m[1].length; i++) dir = dirname(dir);
       const stem = m[2] ? `${dir}/${m[2]}` : dir;
-      for (const candidate of [`${stem}.py`, `${stem}/__init__.py`]) {
+      // Python resolves the package (`__init__.py`) over a same-named module.
+      for (const candidate of [`${stem}/__init__.py`, `${stem}.py`]) {
         if (known.has(candidate)) return candidate;
       }
       return null;
@@ -191,7 +187,7 @@ function goCapability(): MpmLanguageCapability {
     name: "go",
     extensions: [".go"],
     files: ["go.mod"],
-    families: new Set<MpmRelationFamily>(["imports", "config-links"]),
+    families: new Set<MpmRelationFamily>(["imports"]),
     extract(content: string) {
       const symbols: MpmSymbol[] = [];
       const relations: Omit<MpmRelation, "target">[] = [];
@@ -200,33 +196,40 @@ function goCapability(): MpmLanguageCapability {
         // resolution time. Package-import lines carry quoted import paths.
         const imp = line.match(/^\s*"([^"]+)"$/);
         if (imp) relations.push({ kind: "imports", via: imp[1], line: i + 1 });
-        const fn = line.match(/^func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/);
+        const fn = line.match(/^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/);
         if (fn) symbols.push({ name: fn[1], kind: "function", line: i + 1 });
-        const ty = line.match(/^type\s+([A-Za-z_]\w*)\s+(?:struct|interface)\b/);
-        if (ty) symbols.push({ name: ty[1], kind: "interface", line: i + 1 });
+        const ty = line.match(/^\s*type\s+([A-Za-z_]\w*)\s+struct\b/);
+        if (ty) symbols.push({ name: ty[1], kind: "class", line: i + 1 });
+        const it = line.match(/^\s*type\s+([A-Za-z_]\w*)\s+interface\b/);
+        if (it) symbols.push({ name: it[1], kind: "interface", line: i + 1 });
       }
       return { symbols, relations };
     },
     resolveTarget(via, fromPath, known, root) {
-      // The module path comes from the go.mod nearest the importing file
-      // (here: the go.mod's own directory — read fresh, extraction order
-      // must not matter, no state carried between files).
-      const fromDir = dirname(fromPath);
-      const modDir = fromPath.includes("/")
-        ? `${root}/${fromDir.slice(0, fromDir.lastIndexOf("/") >= 0 ? fromDir.indexOf("/") : undefined)}`
-        : root;
+      // The module path comes from the nearest go.mod, found by walking up
+      // from the importing file's directory to the workspace root. Read
+      // fresh each time: extraction order must not matter, no state is
+      // carried between files.
+      const parts = dirname(fromPath).split("/");
       let modulePath: string | null = null;
-      try {
-        const mod = readFileSync(join(modDir, "go.mod"), "utf8").match(/^module\s+(\S+)$/m);
-        if (mod) modulePath = mod[1];
-      } catch {
-        return null;
+      let prefix = "";
+      for (let i = parts.length; i >= 0; i--) {
+        const dir = parts.slice(0, i).join("/");
+        try {
+          const mod = readFileSync(join(root, dir, "go.mod"), "utf8").match(/^module\s+(\S+)$/m);
+          if (mod) {
+            modulePath = mod[1];
+            prefix = dir ? `${dir}/` : "";
+            break;
+          }
+        } catch {
+          // No go.mod at this level; keep walking up.
+        }
       }
       if (!modulePath || !via.startsWith(`${modulePath}/`)) return null;
-      // Package import → directory under the go.mod's directory: every
+      // Package import → directory under the found module root: every
       // discovered .go file under that directory is a proven import target
       // (the first, deterministically).
-      const prefix = fromPath.includes("/") ? `${fromPath.slice(0, fromPath.indexOf("/"))}/` : "";
       const dir = `${prefix}${via.slice(modulePath.length + 1)}`;
       for (const knownPath of known) {
         if (knownPath.startsWith(`${dir}/`) && knownPath.endsWith(".go")) return knownPath;
@@ -251,9 +254,15 @@ function cFamilyCapability(): MpmLanguageCapability {
         // form names a system header — silent by contract.
         const m = line.match(/^\s*#\s*include\s*"([^"]+)"/);
         if (m) relations.push({ kind: "imports", via: m[1], line: i + 1 });
-        const fn = line.match(/^[A-Za-z_][\w\s*]*?\b([A-Za-z_]\w*)\s*\([^;]*$|^struct\s+([A-Za-z_]\w*)/);
-        const name = fn?.[1] ?? fn?.[2];
-        if (fn && name) symbols.push({ name, kind: fn[2] ? "interface" : "function", line: i + 1 });
+        // Symbols only from declaration-shaped lines: a known return type at
+        // the start of the line, or a struct/enum/class declaration. Calls,
+        // comments, and strings don't match — never invented.
+        const fn = line.match(
+          /^\s*(?:static\s+|extern\s+|inline\s+|const\s+)*(?:void|int|char|float|double|short|long|signed|unsigned|size_t|bool|[A-Za-z_]\w*_t)\s+\*?([A-Za-z_]\w*)\s*\(/,
+        );
+        if (fn) symbols.push({ name: fn[1], kind: "function", line: i + 1 });
+        const ty = line.match(/^\s*(?:typedef\s+)?(?:struct|enum|union|class)\s+([A-Za-z_]\w*)/);
+        if (ty) symbols.push({ name: ty[1], kind: "interface", line: i + 1 });
       }
       return { symbols, relations };
     },
