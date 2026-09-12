@@ -13,6 +13,7 @@ import { MPM_DEFAULT_MAX_FILES, MPM_DEFAULT_MAX_TOTAL_BYTES, MpmService, type Mp
 import { capabilityForPath, MPM_CAPABILITIES } from "./capabilities";
 import { MpmStore } from "./store";
 import type { MpmEffectiveConfig } from "./config";
+import type { MpmFallbackReason } from "./types";
 
 /** Per-language coverage: mapped files and symbols per capability name. */
 export interface MpmLanguageCoverage {
@@ -21,9 +22,6 @@ export interface MpmLanguageCoverage {
   files: number;
   symbols: number;
 }
-
-/** Why a current task got no plan — the last computed fallback reason. */
-export type MpmFallbackReason = "disabled" | "unavailable" | "stale" | "no-eligible-seed" | null;
 
 export interface MpmDiagnostics {
   status: MpmStatus;

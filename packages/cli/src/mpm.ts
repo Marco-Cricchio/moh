@@ -17,6 +17,7 @@ import {
   resolveMpmConfig,
   projectMapDir,
   loadMohConfig,
+  userConfigFile,
   type MpmDiagnostics,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
@@ -112,14 +113,21 @@ export async function mpmCommand({
     err.write(`moh mpm: ${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
-  const config = resolveMpmConfig(readMpmUserConfig(join(h, ".moh", "config")), projectMpm);
+  const config = resolveMpmConfig(readMpmUserConfig(userConfigFile(h)), projectMpm);
   const service = new MpmService(projectMapDir(join(h, ".moh"), cwd));
   try {
     service.load();
   } catch {
     // load is fail-safe by design; diagnostics degrade honestly.
   }
-  const diag = mpmDiagnostics({ service, root: cwd, config });
+  const diag = mpmDiagnostics({
+    service,
+    root: cwd,
+    config,
+    // pendingWork/evictions/fallbackReason are session-process state; a
+    // fresh CLI process can only report static projection facts. A live
+    // client (TUI #619) passes them from its own lifecycle/orientation.
+  });
   stdout.write(parsed.booleans["json"] ? `${JSON.stringify(diag, null, 2)}\n` : `${render(diag)}\n`);
   return 0;
 }

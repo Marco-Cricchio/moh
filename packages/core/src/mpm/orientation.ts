@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { MpmService } from "./service";
-import type { MpmFallbackReason } from "./diagnostics";
+import type { MpmFallbackReason } from "./types";
 import type { MpmProvenance } from "./types";
 
 /**

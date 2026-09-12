@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mpmProjectConfigSchema, readMpmUserConfig, resolveMpmConfig } from "../src/mpm/config";
@@ -99,5 +99,29 @@ describe("mpm workspace exclusions (#618)", () => {
     // The sensitive denylist stays final — extras never rescue it.
     writeFileSync(join(root, "src/secret.key"), "x");
     expect(discoverWorkspace(root, ["!*.key"])).not.toContain("src/secret.key");
+  });
+});
+
+describe("mpm session assembly gating (#618)", () => {
+  test("user disablement in ~/.moh/config skips MPM wiring in sessionFromConfig", async () => {
+    const { sessionFromConfig } = await import("../src/session/from-config");
+    const { MpmService, projectMapDir } = await import("../src/mpm/service");
+    const { MockProvider } = await import("../src/index");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-asm-"));
+    const cwd = join(dir, "project");
+    const home = join(dir, "home");
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+    // A live projection exists, but the user disabled MPM.
+    const service = new MpmService(projectMapDir(join(home, ".moh"), cwd));
+    service.rebuild(new Map());
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { enabled: false } }));
+    const result = sessionFromConfig({ cwd, home, provider: new MockProvider() });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.session).toBeDefined();
+    await result.session.dispose();
+    rmSync(dir, { recursive: true, force: true });
   });
 });

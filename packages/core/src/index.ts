@@ -199,13 +199,12 @@ export {
   type MpmQuota,
 } from "./mpm/service";
 export { MpmLifecycle, type MpmLifecycleOptions } from "./mpm/lifecycle";
-export { mpmDiagnostics, type MpmDiagnostics, type MpmLanguageCoverage, type MpmFallbackReason } from "./mpm/diagnostics";
+export { mpmDiagnostics, type MpmDiagnostics, type MpmLanguageCoverage } from "./mpm/diagnostics";
 export {
-  mpmProjectConfigSchema,
   resolveMpmConfig,
   readMpmUserConfig,
-  type MpmProjectConfig,
   type MpmUserConfig,
+  type MpmProjectConfig,
   type MpmEffectiveConfig,
 } from "./mpm/config";
 export {
@@ -214,6 +213,7 @@ export {
   type MpmProvenance,
   type MpmSymbol,
   type MpmRelation,
+  type MpmFallbackReason,
 } from "./mpm/types";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {
