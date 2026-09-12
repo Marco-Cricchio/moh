@@ -1,7 +1,31 @@
 import { basename, dirname, extname, join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { projectSlug } from "../session-store";
 import { MpmStore } from "./store";
+import { mapFile, MPM_MAX_FILE_SIZE } from "./extractor";
 import type { MpmFileRecord, MpmProvenance } from "./types";
+
+/** Default storage quotas (#617): files and total mapped bytes. */
+export const MPM_DEFAULT_MAX_FILES = 20_000;
+export const MPM_DEFAULT_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+
+/** Read one file's content+size for refresh; null when missing/unreadable. */
+function readCurrent(abs: string): { content: string; size: number } | null {
+  try {
+    if (!existsSync(abs) || !statSync(abs).isFile()) return null;
+    const size = statSync(abs).size;
+    if (size > MPM_MAX_FILE_SIZE) return null;
+    return { content: readFileSync(abs, "utf8"), size };
+  } catch {
+    return null;
+  }
+}
+
+/** #617: storage budget for the projection (partial coverage is fine). */
+export interface MpmQuota {
+  maxFiles?: number;
+  maxTotalBytes?: number;
+}
 
 /**
  * The single headless MPM service for one project (#614). Headless and
@@ -17,7 +41,7 @@ export interface MpmQueryResult {
   provenance: MpmProvenance[];
 }
 
-export type MpmStatus = "ready" | "unavailable";
+export type MpmStatus = "ready" | "updating" | "unavailable";
 
 /** The projection directory for one project: `<home>/projects/<slug>/project-map/`. */
 export function projectMapDir(home: string, cwd: string): string {
@@ -31,13 +55,27 @@ export class MpmService {
   #bySymbol: Map<string, Set<string>> | null = null;
   /** Inverse index: relation target → paths importing/referencing it. */
   #byTarget: Map<string, Set<string>> | null = null;
+  /**
+   * #617: LRU clock over mapped paths — bumped on every record() touch so
+   * quota eviction drops cold entries first.
+   */
+  #lruClock = 0;
+  #lastTouched: Map<string, number> = new Map();
+  /** #617: true while a background refresh has work outstanding. */
+  #updating = false;
 
   constructor(dir: string) {
     this.#store = new MpmStore(dir);
   }
 
   get status(): MpmStatus {
-    return this.#records !== null ? "ready" : "unavailable";
+    if (this.#records === null) return "unavailable";
+    return this.#updating ? "updating" : "ready";
+  }
+
+  /** #617: honest background-work flag; set/cleared by the lifecycle. */
+  setUpdating(updating: boolean): void {
+    this.#updating = updating;
   }
 
   get fileCount(): number {
@@ -46,7 +84,32 @@ export class MpmService {
 
   /** The mapped record for an exact path, or null (#616: freshness checks). */
   record(path: string): MpmFileRecord | null {
+    if (this.#records?.has(path)) this.#lastTouched.set(path, ++this.#lruClock);
     return this.#records?.get(path) ?? null;
+  }
+
+  /**
+   * #617: targeted incremental refresh — re-extract one file against the
+   * full mapped set, then atomically update live state and journal. Missing
+   * or oversize content removes the path (rename/delete). A no-op when the
+   * content hash is unchanged. `reader` supplies content so tests and
+   * callers can control freshness; the default reads from disk. Never throws.
+   */
+  refresh(
+    root: string,
+    path: string,
+    reader: (abs: string) => { content: string; size: number } | null = readCurrent,
+  ): void {
+    if (this.#records === null) return;
+    const current = reader(join(root, path));
+    if (current === null || current.size > MPM_MAX_FILE_SIZE) {
+      this.remove(path);
+      return;
+    }
+    const record = mapFile(root, path, current.content, current.size, new Set(this.#records.keys()));
+    const previous = this.#records.get(path);
+    if (previous && previous.hash === record.hash) return; // content unchanged
+    this.upsert(record);
   }
 
   /**
@@ -99,6 +162,52 @@ export class MpmService {
   remove(path: string): void {
     this.#store.appendJournal({ op: "remove", path, at: Date.now() });
     if (this.#records) this.#apply(path, null);
+  }
+
+  /**
+   * #617: bound the projection to the quota by evicting least-recently-used
+   * mapped files first (access via record()/query() protects hot entries).
+   * Returns the evicted paths. A successful eviction series is persisted as
+   * a whole-projection write so the manifest stays the single entry point.
+   */
+  enforceQuota(quota: MpmQuota = {}): string[] {
+    const maxFiles = quota.maxFiles ?? MPM_DEFAULT_MAX_FILES;
+    const maxTotalBytes = quota.maxTotalBytes ?? MPM_DEFAULT_MAX_TOTAL_BYTES;
+    if (!this.#records) return [];
+    const evicted: string[] = [];
+    const totalBytes = () => {
+      let sum = 0;
+      for (const r of this.#records!.values()) sum += r.size;
+      return sum;
+    };
+    while (this.#records.size > maxFiles || totalBytes() > maxTotalBytes) {
+      // Pick the coldest entry: oldest lastTouched clock, ties by insertion.
+      let coldest: string | null = null;
+      let coldestClock = Infinity;
+      for (const path of this.#records.keys()) {
+        const clock = this.#lastTouched.get(path) ?? 0;
+        if (clock < coldestClock) {
+          coldestClock = clock;
+          coldest = path;
+        }
+        // Already cold: no need to keep scanning for a colder entry.
+        if (clock === 0) break;
+      }
+      if (coldest === null) break;
+      this.remove(coldest);
+      evicted.push(coldest);
+    }
+    if (evicted.length > 0) {
+      // Persist: shards+manifest flip atomically, journal becomes obsolete.
+      this.#store.writeProjection(this.#records);
+    }
+    return evicted;
+  }
+
+  /** All mapped records (scan/diff iteration; callers must not mutate). */
+  *allRecords(): IterableIterator<MpmFileRecord> {
+    if (!this.#records) return;
+    yield* this.#records.values();
   }
 
   /**
@@ -158,6 +267,8 @@ export class MpmService {
       else if (entry.op === "remove") records.delete(entry.path);
     }
     this.#records = records;
+    this.#lastTouched = new Map();
+    this.#lruClock = 0;
     const bySymbol = new Map<string, Set<string>>();
     const byTarget = new Map<string, Set<string>>();
     for (const [path, record] of records) {
@@ -177,11 +288,49 @@ export class MpmService {
   }
 
   #apply(path: string, record: MpmFileRecord | null): void {
-    // Live-state mirror of a journal op; a full reload rebuilds indexes.
-    this.#records = this.#records ?? new Map();
-    this.#finishLoad(this.#records, [{ op: record ? "upsert" : "remove", path, record: record ?? undefined, at: Date.now() }]);
+    // Incremental index update (#617): a refresh touches one file, so the
+    // inverse indexes are patched in place — a full rebuild per refresh
+    // would make sweeps O(N·files) and wipe the LRU protection.
+    const records = (this.#records ??= new Map());
+    const bySymbol = (this.#bySymbol ??= new Map());
+    const byTarget = (this.#byTarget ??= new Map());
+    const previous = records.get(path);
+    if (previous) {
+      for (const sym of previous.symbols) {
+        const set = bySymbol.get(sym.name);
+        if (set) {
+          set.delete(path);
+          if (set.size === 0) bySymbol.delete(sym.name);
+        }
+      }
+      for (const rel of previous.relations) {
+        const set = byTarget.get(rel.target);
+        if (set) {
+          set.delete(path);
+          if (set.size === 0) byTarget.delete(rel.target);
+        }
+      }
+    }
+    if (record === null) {
+      records.delete(path);
+      this.#lastTouched.delete(path);
+      return;
+    }
+    records.set(path, record);
+    this.#lastTouched.set(path, ++this.#lruClock);
+    for (const sym of record.symbols) {
+      let set = bySymbol.get(sym.name);
+      if (!set) bySymbol.set(sym.name, (set = new Set()));
+      set.add(path);
+    }
+    for (const rel of record.relations) {
+      let set = byTarget.get(rel.target);
+      if (!set) byTarget.set(rel.target, (set = new Set()));
+      set.add(path);
+    }
   }
 }
+
 
 function extractorName(record: MpmFileRecord): string {
   return `mpm/${record.language}`;
