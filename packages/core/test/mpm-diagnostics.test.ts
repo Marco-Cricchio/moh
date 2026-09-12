@@ -95,3 +95,32 @@ describe("mpm diagnostics (#618)", () => {
     expect(diag.fallbackReason).toBe("stale");
   });
 });
+
+describe("mpm fallback reasons (#618)", () => {
+  test("orientation records why a plan was not produced", async () => {
+    const { MpmOrientation } = await import("../src/mpm/orientation");
+    const root = workspace();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src/a.ts"), 'import { b } from "./b";\nexport const a = 1;\n');
+    writeFileSync(join(root, "src/b.ts"), "export const b = 2;\n");
+    const dir = join(mkdtempSync(join(tmpdir(), "moh-mpm-diag-dir3-")), "project-map");
+    const service = loadedService(root, dir);
+    const orientation = new MpmOrientation({ service, root });
+    // No path-like token: no eligible seed.
+    expect(orientation.planFor("fix the bug in the parser core")).toBeNull();
+    expect(orientation.lastFallbackReason).toBe("no-eligible-seed");
+    // Eligible seed, stale content: stale fallback.
+    writeFileSync(join(root, "src/a.ts"), "export const a = 99;\n");
+    expect(orientation.planFor("look at src/a.ts please")).toBeNull();
+    expect(orientation.lastFallbackReason).toBe("stale");
+    // Fresh seeds with proven relations: no fallback.
+    writeFileSync(join(root, "src/a.ts"), "export const a = 99;\n");
+    service.refresh(root, "src/a.ts");
+    writeFileSync(join(root, "src/b.ts"), 'import { a } from "./a";\nexport const b = 2;\n');
+    service.refresh(root, "src/b.ts");
+    expect(orientation.planFor("check src/b.ts imports")).not.toBeNull();
+    expect(orientation.lastFallbackReason).toBeNull();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

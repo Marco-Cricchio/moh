@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { MpmService } from "./service";
+import type { MpmFallbackReason } from "./diagnostics";
 import type { MpmProvenance } from "./types";
 
 /**
@@ -63,6 +64,8 @@ export class MpmOrientation {
   readonly #root: string;
   readonly #maxEntries: number;
   readonly #budgetChars: number;
+  /** #618: why the most recent plan lookup produced no plan (diagnostics). */
+  #lastFallback: MpmFallbackReason = null;
 
   constructor(options: MpmOrientationOptions) {
     this.#service = options.service;
@@ -74,10 +77,15 @@ export class MpmOrientation {
   /**
    * A rendered orientation plan for the task text, or null when the task is
    * ineligible, the projection is unavailable, or no fresh seed survives.
+   * Every null outcome records a #618 fallback reason (metadata only).
    */
   planFor(text: string): string | null {
     const seeds = this.#seeds(text);
-    if (seeds.length === 0) return null;
+    if (seeds.length === 0) {
+      this.#lastFallback =
+        this.#service.status !== "ready" ? "unavailable" : "no-eligible-seed";
+      return null;
+    }
     const entries: PlanEntry[] = [];
     const seen = new Set<string>();
     const consider = (path: string, reason: string, line?: number) => {
@@ -87,10 +95,14 @@ export class MpmOrientation {
       entries.push(line !== undefined ? { path, reason, coordinate: `line ${line}` } : { path, reason });
     };
 
+    let staleSeed = false;
     for (const seed of seeds) {
       // A stale seed is dropped outright — its relations are proven against
       // content that no longer exists, so they are not trustworthy.
-      if (!this.#fresh(seed)) continue;
+      if (!this.#fresh(seed)) {
+        staleSeed = true;
+        continue;
+      }
       const result = this.#service.query(seed);
       if (!result) continue;
       result.paths.forEach((path, i) => {
@@ -98,7 +110,16 @@ export class MpmOrientation {
         consider(path, this.#reasonFor(seed, path), prov.line);
       });
     }
-    return this.#render(entries) ?? null;
+    const plan = this.#render(entries);
+    if (plan !== null) this.#lastFallback = null;
+    else if (staleSeed) this.#lastFallback = "stale";
+    else if (entries.length === 0) this.#lastFallback = "no-eligible-seed";
+    return plan ?? null;
+  }
+
+  /** #618: why the most recent plan lookup produced no plan (or null). */
+  get lastFallbackReason(): MpmFallbackReason {
+    return this.#lastFallback;
   }
 
   /** Mapped paths directly named in the task text. */
