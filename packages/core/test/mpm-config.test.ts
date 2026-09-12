@@ -106,8 +106,7 @@ describe("mpm session assembly gating (#618)", () => {
   test("user disablement in ~/.moh/config skips MPM wiring in sessionFromConfig", async () => {
     const { sessionFromConfig } = await import("../src/session/from-config");
     const { MpmService, projectMapDir } = await import("../src/mpm/service");
-    const { MockProvider } = await import("../src/index");
-    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-asm-"));
+        const dir = mkdtempSync(join(tmpdir(), "moh-mpm-asm-"));
     const cwd = join(dir, "project");
     const home = join(dir, "home");
     mkdirSync(cwd, { recursive: true });
@@ -117,7 +116,7 @@ describe("mpm session assembly gating (#618)", () => {
     const service = new MpmService(projectMapDir(join(home, ".moh"), cwd));
     service.rebuild(new Map());
     writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { enabled: false } }));
-    const result = sessionFromConfig({ cwd, home, provider: new MockProvider() });
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
     expect("error" in result).toBe(false);
     if ("error" in result) return;
     expect(result.session).toBeDefined();
