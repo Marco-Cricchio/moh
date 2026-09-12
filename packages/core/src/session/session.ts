@@ -238,6 +238,12 @@ export class AgentSession {
       try {
         const service = config.mpm.service ?? new MpmService(projectMapDir(this.#mohHome, this.#cwd));
         service.load();
+        // #620: after a project identity migration the map may have been
+        // relocated with the project data; revalidate it against the
+        // active root before use — records whose file is absent at this
+        // root are dropped (never trusted across a relocation). One-time,
+        // metadata-only, non-blocking.
+        if (service.fileCount > 0) service.revalidate(config.mpm.root ?? this.#cwd);
         this.#mpmService = service;
         this.#mpmRoot = config.mpm.root ?? this.#cwd;
         this.#mpmQuota = config.mpm.quota;
