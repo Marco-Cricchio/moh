@@ -21,6 +21,7 @@ commands:
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
+  mpm      project map diagnostics (see: moh mpm --help)
   sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   handoff  publish a session handoff (see: moh handoff --help)
@@ -179,6 +180,22 @@ turns verbatim. The log is append-only — nothing is ever deleted.
 
 Compacting never consumes a session: it can still be suggested and
 resumed as usual afterwards.
+```
+
+## moh mpm
+
+```
+usage: moh mpm [--cwd <dir>] [--json]
+
+Local diagnostics for the Moh Project Map: what is mapped, how fresh it
+is, what work is pending, and which budgets and exclusions apply.
+
+  --cwd <dir>   project root to report on (default: process.cwd())
+  --json        machine-readable output (the full diagnostics object)
+
+Diagnostics are metadata only: paths, counts, and timings — never source
+content. When MPM is disabled (user config wins over project config),
+the report says which side disabled it.
 ```
 
 ## moh sessions
