@@ -181,10 +181,9 @@ export class AgentSession {
       ...(config.handoff?.onGitPush
         ? { onGitPush: () => { this.#gitPushPending = true; } }
         : {}),
-      // #617: successful write/edit → targeted MPM refresh queue.
-      ...(this.#mpmLifecycle
-        ? { onFileMutation: (rel: string) => this.#mpmLifecycle!.noteEdit(rel) }
-        : {}),
+      // #617: successful write/edit → targeted MPM refresh queue. Lazy on
+      // purpose: the lifecycle is constructed later in this constructor.
+      onFileMutation: (rel: string) => this.#mpmLifecycle?.noteEdit(rel),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.

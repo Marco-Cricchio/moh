@@ -288,10 +288,46 @@ export class MpmService {
   }
 
   #apply(path: string, record: MpmFileRecord | null): void {
-    // Live-state mirror of a journal op; a full reload rebuilds indexes.
-    this.#records = this.#records ?? new Map();
-    if (record === null) this.#lastTouched.delete(path);
-    this.#finishLoad(this.#records, [{ op: record ? "upsert" : "remove", path, record: record ?? undefined, at: Date.now() }]);
+    // Incremental index update (#617): a refresh touches one file, so the
+    // inverse indexes are patched in place — a full rebuild per refresh
+    // would make sweeps O(N·files) and wipe the LRU protection.
+    const records = (this.#records ??= new Map());
+    const bySymbol = (this.#bySymbol ??= new Map());
+    const byTarget = (this.#byTarget ??= new Map());
+    const previous = records.get(path);
+    if (previous) {
+      for (const sym of previous.symbols) {
+        const set = bySymbol.get(sym.name);
+        if (set) {
+          set.delete(path);
+          if (set.size === 0) bySymbol.delete(sym.name);
+        }
+      }
+      for (const rel of previous.relations) {
+        const set = byTarget.get(rel.target);
+        if (set) {
+          set.delete(path);
+          if (set.size === 0) byTarget.delete(rel.target);
+        }
+      }
+    }
+    if (record === null) {
+      records.delete(path);
+      this.#lastTouched.delete(path);
+      return;
+    }
+    records.set(path, record);
+    this.#lastTouched.set(path, ++this.#lruClock);
+    for (const sym of record.symbols) {
+      let set = bySymbol.get(sym.name);
+      if (!set) bySymbol.set(sym.name, (set = new Set()));
+      set.add(path);
+    }
+    for (const rel of record.relations) {
+      let set = byTarget.get(rel.target);
+      if (!set) byTarget.set(rel.target, (set = new Set()));
+      set.add(path);
+    }
   }
 }
 

@@ -1,9 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { discoverWorkspace, MPM_MAX_FILE_SIZE } from "./discover";
-import { mapFile } from "./extractor";
 import type { MpmQuota, MpmService } from "./service";
-import type { MpmFileRecord } from "./types";
 
 /**
  * MPM background lifecycle (#617): session-lifetime low-priority change
@@ -75,7 +74,7 @@ export class MpmLifecycle {
   #editQueue: PendingEdit[] = [];
   /** mtime snapshot from the last periodic scan (first-sight adopt). */
   #mtimeCache = new Map<string, number>();
-  /** Set of paths deleted/renamed away, discovered at sweep start. */
+  /** In-progress incremental sweep: remaining candidates and cursor. */
   #sweepCursor: { files: string[]; index: number } | null = null;
 
   constructor(options: MpmLifecycleOptions) {
@@ -162,15 +161,13 @@ export class MpmLifecycle {
   #runSlice(paths: string[]): void {
     const budget = this.#isBusy() ? this.#opts.maxFilesWhenBusy : this.#opts.maxFilesPerSweep;
     const deadline = this.#timers.now() + this.#opts.maxSweepMs;
-    let done = 0;
-    for (const path of paths) {
-      if (done >= budget || this.#timers.now() >= deadline) {
-        // Defer the remainder as external work (short debounce next tick).
-        for (const p of paths.slice(paths.indexOf(path))) this.#dirty.set(p, 0);
+    for (let i = 0; i < paths.length; i++) {
+      if (i >= budget || this.#timers.now() >= deadline) {
+        // Defer the remainder as external work (immediate retry next tick).
+        for (const p of paths.slice(i)) this.#dirty.set(p, 0);
         return;
       }
-      this.#refreshOne(path);
-      done++;
+      this.#refreshOne(paths[i]!);
     }
     this.#afterWork();
   }
@@ -238,7 +235,7 @@ export class MpmLifecycle {
         this.#mtimeCache.set(path, mtimeMs);
       } else if (prevMtime !== mtimeMs) {
         // mtime drifted: a hash check decides (avoids spurious rewrites).
-        if (this.#hashMatches(path, size)) this.#mtimeCache.set(path, mtimeMs);
+        if (this.#hashMatches(path)) this.#mtimeCache.set(path, mtimeMs);
         else changed.push(path);
       }
     }
@@ -260,13 +257,13 @@ export class MpmLifecycle {
   }
 
   /** Targeted hash check (reads one file) used only on mtime drift. */
-  #hashMatches(path: string, size: number): boolean {
+  #hashMatches(path: string): boolean {
     const record = this.#service.record(path);
     if (!record) return false;
     try {
       const content = readFileSync(join(this.#root, path), "utf8");
-      const fresh = mapFile(this.#root, path, content, size, new Set());
-      return fresh.hash === record.hash;
+      // Same composition as the extractor: sha256 over the file content.
+      return createHash("sha256").update(content).digest("hex") === record.hash;
     } catch {
       return false;
     }
