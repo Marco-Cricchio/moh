@@ -23,6 +23,8 @@ export interface MpmLifecycleOptions {
   isBusy?: () => boolean;
   /** Storage quota for the projection (files / bytes). */
   quota?: MpmQuota;
+  /** #618: user/project exclusion patterns for discovery sweeps. */
+  exclude?: string[];
   /** Debounce window for external edits (ms). */
   debounceMs?: number;
   /** Max files re-extracted per sweep before the sweep reschedules. */
@@ -64,6 +66,7 @@ export class MpmLifecycle {
   readonly #root: string;
   readonly #isBusy: () => boolean;
   readonly #quota: MpmQuota;
+  readonly #exclude: string[];
   readonly #opts: typeof DEFAULTS & { maxFilesWhenBusy: number };
   readonly #timers: NonNullable<MpmLifecycleOptions["timers"]>;
   #timer: unknown = null;
@@ -82,6 +85,7 @@ export class MpmLifecycle {
     this.#root = options.root;
     this.#isBusy = options.isBusy ?? (() => false);
     this.#quota = options.quota ?? {};
+    this.#exclude = options.exclude ?? [];
     this.#opts = {
       debounceMs: options.debounceMs ?? DEFAULTS.debounceMs,
       maxFilesPerSweep: options.maxFilesPerSweep ?? DEFAULTS.maxFilesPerSweep,
@@ -207,7 +211,7 @@ export class MpmLifecycle {
   #scanAndDiff(): void {
     let files: string[];
     try {
-      files = discoverWorkspace(this.#root);
+      files = discoverWorkspace(this.#root, this.#exclude);
     } catch {
       return;
     }

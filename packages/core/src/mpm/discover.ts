@@ -88,9 +88,9 @@ interface IgnorePattern {
  * directory), with symlinks resolved only when their real path stays inside
  * the root. Never throws: an unreadable entry is skipped, not fatal.
  */
-export function discoverWorkspace(root: string): string[] {
+export function discoverWorkspace(root: string, extraExcludes: string[] = []): string[] {
   const files: string[] = [];
-  visit(root, root, [], [], files, new Set<string>());
+  visit(root, root, [], [], files, new Set<string>(), compilePatterns(extraExcludes));
   return files;
 }
 
@@ -101,6 +101,7 @@ function visit(
   patternStack: IgnorePattern[][],
   out: string[],
   visitedRealPaths: Set<string>,
+  extra: IgnorePattern[] = [],
 ): void {
   let entries: string[];
   let dirPatterns: IgnorePattern[];
@@ -131,16 +132,16 @@ function visit(
     }
     if (st.isDirectory()) {
       if (EXCLUDED_DIRS.has(name)) continue;
-      if (matchesAny(rel, true, patterns) === "deny") continue;
-      visit(abs, root, [...relParts, name], patterns, out, visitedRealPaths);
+      if (excluded(rel, true, patterns, extra)) continue;
+      visit(abs, root, [...relParts, name], patterns, out, visitedRealPaths, extra);
     } else if (st.isFile()) {
       if (sensitiveDenylist(rel)) continue;
-      if (matchesAny(rel, false, patterns) === "deny") continue;
       if (isGenerated(name)) continue;
       const dot = name.lastIndexOf(".");
       const ext = dot >= 0 ? name.slice(dot).toLowerCase() : "";
       if (BINARY_EXTENSIONS.has(ext)) continue;
       if (st.size > MPM_MAX_FILE_SIZE) continue;
+      if (excluded(rel, false, patterns, extra)) continue;
       out.push(rel);
     }
   }
@@ -242,4 +243,60 @@ function isGenerated(base: string): boolean {
 function isInsideRoot(root: string, real: string): boolean {
   const rootReal = realpathSync(root);
   return real === rootReal || real.startsWith(rootReal + sep);
+}
+
+/** Compile #618 user/project exclusion patterns once per discovery. */
+function compilePatterns(patterns: string[]): IgnorePattern[] {
+  const out: IgnorePattern[] = [];
+  for (const line of patterns) {
+    let pattern = line.trim();
+    if (!pattern) continue;
+    let negated = false;
+    if (pattern.startsWith("!")) {
+      negated = true;
+      pattern = pattern.slice(1);
+    }
+    let dirOnly = false;
+    if (pattern.endsWith("/")) {
+      dirOnly = true;
+      pattern = pattern.slice(0, -1);
+    }
+    const anchored = pattern.includes("/");
+    if (pattern.startsWith("/")) pattern = pattern.slice(1);
+    // A trailing `/**` also matches the directory itself, so `!dir/**` can
+    // re-include a subtree the gitignore pruned (the dir must be entered).
+    let re: string;
+    if (pattern.endsWith("/**")) {
+      re = globToRegex(pattern.slice(0, -3), anchored).source + "(?:/.*)?";
+    } else {
+      re = globToRegex(pattern, anchored).source;
+    }
+    out.push({ negated, dirOnly, anchored, regex: new RegExp(`^${re}$`) });
+  }
+  return out;
+}
+
+/**
+ * #618 combined verdict for one path: gitignore stack first (nearest list
+ * wins), then the extra user/project set. A negated extra pattern that
+ * matches re-includes a gitignore drop, but nothing rescues the hard
+ * sensitive denylist, generated-output, binary, oversize, or EXCLUDED_DIRS
+ * rules — those are checked before this and are final.
+ */
+function excluded(rel: string, isDir: boolean, stack: IgnorePattern[][], extra: IgnorePattern[]): boolean {
+  if (extra.length > 0) {
+    const extraVerdict = matchesAny(rel, isDir, [extra]);
+    if (extraVerdict === "deny") return true;
+    if (extraVerdict === "allow" && extraMatched(rel, isDir, extra)) return false;
+  }
+  return matchesAny(rel, isDir, stack) === "deny";
+}
+
+/** True when any extra pattern (negated or not) actually matched the path. */
+function extraMatched(rel: string, isDir: boolean, extra: IgnorePattern[]): boolean {
+  for (const p of extra) {
+    if (p.dirOnly && !isDir) continue;
+    if (p.regex.test(rel)) return true;
+  }
+  return false;
 }

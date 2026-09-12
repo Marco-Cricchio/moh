@@ -16,7 +16,8 @@
 import { homedir } from "node:os";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { projectMapDir, type MpmService } from "../mpm/service";
+import { projectMapDir, type MpmQuota, type MpmService } from "../mpm/service";
+import { readMpmUserConfig, resolveMpmConfig } from "../mpm/config";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
@@ -188,14 +189,17 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   if (finalOverrides) permissions.overrides = finalOverrides;
 
   const extraSink = o.sink;
-  // #616: MPM targeted orientation — automatic activation: when the
-  // project's projection exists, the session loads it (fail-safe) and
-  // eligible tasks get an advisory plan. Without a projection (or with
-  // an explicit opt-out from #618's config surface) nothing changes.
-  let mpm: { service?: MpmService; root?: string } | undefined;
+  // #616/#618: MPM targeted orientation — automatic activation under the
+  // resolved config: the user layer (~/.moh/config `mpm`) owns the default,
+  // the project (moh.json `mpm`) may only restrict or disable. When enabled
+  // and the project's projection exists, the session loads it (fail-safe)
+  // with the resolved quota and exclusion patterns; otherwise nothing
+  // changes (no service, no lifecycle, no prompt section).
+  let mpm: { service?: MpmService; root?: string; quota?: MpmQuota; exclude?: string[] } | undefined;
   try {
-    if (existsSync(join(projectMapDir(mohHome, options.cwd), "manifest.json"))) {
-      mpm = { root: options.cwd };
+    const mpmConfig = resolveMpmConfig(readMpmUserConfig(userConfigFile(home)), config.mpm);
+    if (mpmConfig.enabled && existsSync(join(projectMapDir(mohHome, options.cwd), "manifest.json"))) {
+      mpm = { root: options.cwd, quota: mpmConfig.quota, exclude: mpmConfig.exclude };
     }
   } catch {
     mpm = undefined;

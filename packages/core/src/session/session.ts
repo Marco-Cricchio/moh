@@ -228,6 +228,7 @@ export class AgentSession {
           root: config.mpm.root ?? this.#cwd,
           isBusy: () => this.#queue.pending() !== null,
           quota: config.mpm.quota,
+          exclude: config.mpm.exclude,
           ...config.mpm.lifecycle,
         });
       } catch {

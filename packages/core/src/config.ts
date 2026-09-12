@@ -18,6 +18,7 @@ import { memoryConfigSchema } from "./memory";
 import { handoffConfigSchema } from "./handoff";
 import { isThinkingLevel, THINKING_FORMATS } from "./types";
 import type { SkillRoutingConfig } from "./skill-routing";
+import { mpmProjectConfigSchema } from "./mpm/config";
 
 /** #256: a configuration-declared thinking capability — which format
  * the endpoint/model speaks and which canonical levels it accepts. */
@@ -124,6 +125,10 @@ export const mohConfigSchema = z.object({
    * turn. `0` is the #498 unlimited sentinel: no cap at all. Any integer
    * 1–500 is accepted (preset values 50/100/200/500 are a UI concern). */
   maxIterations: z.number().int().min(0).max(500).optional(),
+  /** MPM project restrictions (#618): disable or tighten only — the
+   * schema accepts `enabled: false` and nothing else, so a project can
+   * never force MPM on against a user-level disablement. */
+  mpm: mpmProjectConfigSchema.optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;

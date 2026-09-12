@@ -71,3 +71,6 @@ export interface MpmProvenance {
   /** Which extractor proved the relation. */
   extractor: string;
 }
+
+/** Why a task got no orientation plan — the last computed fallback reason. */
+export type MpmFallbackReason = "disabled" | "unavailable" | "stale" | "no-eligible-seed" | null;

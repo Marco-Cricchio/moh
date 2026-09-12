@@ -193,17 +193,27 @@ export {
   MpmService,
   MPM_DEFAULT_MAX_FILES,
   MPM_DEFAULT_MAX_TOTAL_BYTES,
+  projectMapDir,
   type MpmQueryResult,
   type MpmStatus,
   type MpmQuota,
 } from "./mpm/service";
 export { MpmLifecycle, type MpmLifecycleOptions } from "./mpm/lifecycle";
+export { mpmDiagnostics, type MpmDiagnostics, type MpmLanguageCoverage } from "./mpm/diagnostics";
+export {
+  resolveMpmConfig,
+  readMpmUserConfig,
+  type MpmUserConfig,
+  type MpmProjectConfig,
+  type MpmEffectiveConfig,
+} from "./mpm/config";
 export {
   MPM_FORMAT_VERSION,
   type MpmFileRecord,
   type MpmProvenance,
   type MpmSymbol,
   type MpmRelation,
+  type MpmFallbackReason,
 } from "./mpm/types";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {

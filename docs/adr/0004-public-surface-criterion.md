@@ -178,3 +178,17 @@ guarantee as the #614 amendment; the storage layer stays internal. The
 `mpm` prompt section and the orientation builder itself stay internal —
 `SessionConfig.mpm` accepts an already-exported `MpmService`, so no
 type in the config surface is new.
+
+## Amendment — 2026-09-12, #618 MPM user controls and diagnostics
+
+**Re-opened door**: the MPM config/diagnostics seam for clients and the
+user config surface — `resolveMpmConfig`/`readMpmUserConfig` and their
+types (`MpmUserConfig`, `MpmProjectConfig`, `MpmEffectiveConfig`, from
+`core/src/mpm/config.ts`), `mpmDiagnostics` + its types (from
+`core/src/mpm/diagnostics.ts`), and `projectMapDir` (the one path
+constant the CLI needs to reach a project's projection). Needed by the
+`moh mpm` CLI command (#618) and the TUI status/inspection row (#619).
+The projection stays read-only metadata (status, counts, patterns,
+budgets — never source content or prompt text); `MpmService` remains the
+only writer. `projectMapDir` was already the core-internal constant used
+by session assembly; exporting it keeps the path spelling in one place.

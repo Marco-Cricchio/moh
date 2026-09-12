@@ -82,6 +82,11 @@ export class MpmService {
     return this.#records?.size ?? 0;
   }
 
+  /** #618: the projection directory this service owns (diagnostics, TUI). */
+  get dir(): string {
+    return this.#store.dir;
+  }
+
   /** The mapped record for an exact path, or null (#616: freshness checks). */
   record(path: string): MpmFileRecord | null {
     if (this.#records?.has(path)) this.#lastTouched.set(path, ++this.#lruClock);
