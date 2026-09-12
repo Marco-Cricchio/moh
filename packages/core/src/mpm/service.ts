@@ -204,6 +204,12 @@ export class MpmService {
     return evicted;
   }
 
+  /** All mapped records (scan/diff iteration; callers must not mutate). */
+  *allRecords(): IterableIterator<MpmFileRecord> {
+    if (!this.#records) return;
+    yield* this.#records.values();
+  }
+
   /**
    * Read-only structural query: given a seed path, return related paths
    * (things it imports or is imported/referenced by) plus symbol matches,

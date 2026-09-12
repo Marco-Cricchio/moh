@@ -191,9 +191,13 @@ export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } fr
 // queries. The service owns the projection; clients never touch storage.
 export {
   MpmService,
+  MPM_DEFAULT_MAX_FILES,
+  MPM_DEFAULT_MAX_TOTAL_BYTES,
   type MpmQueryResult,
   type MpmStatus,
+  type MpmQuota,
 } from "./mpm/service";
+export { MpmLifecycle, type MpmLifecycleOptions } from "./mpm/lifecycle";
 export {
   MPM_FORMAT_VERSION,
   type MpmFileRecord,

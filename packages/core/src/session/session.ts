@@ -27,6 +27,7 @@ import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
 import { MpmService, projectMapDir } from "../mpm/service";
+import { MpmLifecycle } from "../mpm/lifecycle";
 import { MpmOrientation } from "../mpm/orientation";
 
 /**
@@ -112,6 +113,7 @@ export class AgentSession {
   /** #616: turn-scoped MPM orientation plan — computed per send, cleared
    * when that turn settles. Null when MPM is off or the task is ineligible. */
   #mpmOrientation: MpmOrientation | null = null;
+  #mpmLifecycle: MpmLifecycle | null = null;
   #mpmPlan: string | null = null;
 
   constructor(config: SessionConfig) {
@@ -179,6 +181,10 @@ export class AgentSession {
       ...(config.handoff?.onGitPush
         ? { onGitPush: () => { this.#gitPushPending = true; } }
         : {}),
+      // #617: successful write/edit → targeted MPM refresh queue.
+      ...(this.#mpmLifecycle
+        ? { onFileMutation: (rel: string) => this.#mpmLifecycle!.noteEdit(rel) }
+        : {}),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.
@@ -216,6 +222,15 @@ export class AgentSession {
         const service = config.mpm.service ?? new MpmService(projectMapDir(this.#mohHome, this.#cwd));
         service.load();
         this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
+        // #617: background lifecycle — debounced external-change refresh,
+        // turn priority, adaptive budgets. Only when a projection exists.
+        this.#mpmLifecycle = new MpmLifecycle({
+          service,
+          root: config.mpm.root ?? this.#cwd,
+          isBusy: () => this.#queue.pending() !== null,
+          quota: config.mpm.quota,
+          ...config.mpm.lifecycle,
+        });
       } catch {
         this.#mpmOrientation = null;
       }
@@ -857,6 +872,7 @@ export class AgentSession {
       }
     }
     await this.#mcp?.shutdown();
+    this.#mpmLifecycle?.dispose();
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
     // The end-of-session events were just queued: let the dispatch drain

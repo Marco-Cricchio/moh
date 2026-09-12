@@ -1,4 +1,5 @@
 import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, ToolCall } from "../types";
+import { resolve, relative, sep } from "node:path";
 import { splitCommandSegments, type FilesystemScope } from "../permissions";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
 import type { SessionConfig } from "./config";
@@ -58,6 +59,9 @@ export interface ToolRunnerOptions {
   emitLive?: (event: ReasoningStreamEvent) => void;
   /** Best-effort client callback after a successful bash `git push` (#437). */
   onGitPush?: () => void;
+  /** #617: best-effort callback after a successful in-root write/edit —
+   * the session enqueues a targeted MPM refresh for the mutated path. */
+  onFileMutation?: (relativePath: string) => void;
 }
 
 /**
@@ -118,6 +122,15 @@ export class ToolRunner {
   readonly #append: (event: AgentEvent) => void;
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
   readonly #onGitPush: (() => void) | undefined;
+  readonly #onFileMutation: ((relativePath: string) => void) | undefined;
+
+  /** Workspace-root-relative POSIX form of an (absolute or relative) path. */
+  #relativeToRoot(path: string): string | null {
+    if (!path) return null;
+    const rel = relative(this.#cwd, resolve(this.#cwd, path)).split(sep).join("/");
+    if (!rel || rel.startsWith("..")) return null;
+    return rel;
+  }
 
   constructor(options: ToolRunnerOptions) {
     this.#tools = options.tools;
@@ -131,6 +144,7 @@ export class ToolRunner {
     this.#append = options.append;
     this.#emitLive = options.emitLive;
     this.#onGitPush = options.onGitPush;
+    this.#onFileMutation = options.onFileMutation;
   }
 
   /**
@@ -175,6 +189,14 @@ export class ToolRunner {
         // The bash result is final before publishing begins; a failed or
         // slow transport can neither delay nor alter the tool result/turn.
         try { this.#onGitPush?.(); } catch { /* client callback is best-effort */ }
+      }
+      // #617: a successful in-root write/edit is the highest-priority MPM
+      // refresh input; the relative path (POSIX) feeds the lifecycle queue.
+      if (result.ok && this.#onFileMutation && (call.name === "write" || call.name === "edit")) {
+        try {
+          const rel = this.#relativeToRoot(String((call.args as { path?: unknown }).path ?? ""));
+          if (rel) this.#onFileMutation(rel);
+        } catch { /* best-effort: lifecycle input only */ }
       }
     };
     // Capability downgrade: endpoints without parallelToolCalls run calls sequentially.
