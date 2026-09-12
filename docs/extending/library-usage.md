@@ -436,6 +436,21 @@ mixed into MemoryStore, the session event log, or handoff: corrupt or
 incompatible data is discarded and rebuilt, never recovered from.
 Exported from `@moh/core` (ADR-0004).
 
+## Moh Project Map — orientation plans (#616)
+
+For relevant codebase tasks the core injects a small, advisory
+orientation plan into the prompt's `mpm` section (last in
+`SECTION_ORDER`). `MpmOrientation.planFor(text)` is conservative and
+purely local: the task text must name a mapped path; every ranked entry
+is extracted and fresh (the file's current hash still matches the
+mapped one), cited with path, coordinate, relation, and a concise
+reason. Ineligible or uncertain tasks — stale projections included —
+receive no plan at all. Plans are advisory: they never restrict tools,
+and never contain copied source excerpts. `SessionConfig.mpm` opts in
+with an explicit `service`/`root`; `sessionFromConfig` activates
+automatically when the project's projection exists. The plan is
+turn-scoped: computed per send, cleared when the turn settles.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

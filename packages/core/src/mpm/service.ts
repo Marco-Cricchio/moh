@@ -38,6 +38,11 @@ export class MpmService {
     return this.#records?.size ?? 0;
   }
 
+  /** The mapped record for an exact path, or null (#616: freshness checks). */
+  record(path: string): MpmFileRecord | null {
+    return this.#records?.get(path) ?? null;
+  }
+
   /**
    * Load the projection, failing safe: missing data rebuilds to an empty
    * projection; corrupt, unreadable, or incompatible data is discarded and
