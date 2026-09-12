@@ -14,8 +14,9 @@
  * configured (`"mock"`, the zero-config default) or passed in.
  */
 import { homedir } from "node:os";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { projectMapDir, type MpmService } from "../mpm/service";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
@@ -187,6 +188,18 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   if (finalOverrides) permissions.overrides = finalOverrides;
 
   const extraSink = o.sink;
+  // #616: MPM targeted orientation — automatic activation: when the
+  // project's projection exists, the session loads it (fail-safe) and
+  // eligible tasks get an advisory plan. Without a projection (or with
+  // an explicit opt-out from #618's config surface) nothing changes.
+  let mpm: { service?: MpmService; root?: string } | undefined;
+  try {
+    if (existsSync(join(projectMapDir(mohHome, options.cwd), "manifest.json"))) {
+      mpm = { root: options.cwd };
+    }
+  } catch {
+    mpm = undefined;
+  }
   // #400 single-writer guard: AgentSession probes the store at every
   // append boundary; growth from elsewhere (another machine over a sync
   // channel, a second process) becomes a visible `session_file_growth`
@@ -204,6 +217,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
+      ...(mpm ? { mpm } : {}),
       tools: o.tools ?? builtinTools({ ledgerRoot: join(mohHome, "bash-ledgers") }),
       mohHome,
       sessionFile: store.file,

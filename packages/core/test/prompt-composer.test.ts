@@ -47,6 +47,7 @@ describe("PromptComposer", () => {
       "skills",
       "memory",
       "session_state",
+      "mpm",
       "extension_notes",
     ]);
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });

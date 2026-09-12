@@ -12,6 +12,7 @@ import type { HandoffOptions } from "../handoff";
 import type { McpRuntimeOptions } from "../mcp";
 import type { PermissionOverrides, PermissionRule } from "../permissions";
 import type { PromptComposer, SkillIndexEntry } from "../prompt-composer";
+import type { MpmService } from "../mpm/service";
 import type { ProviderRegistry } from "../provider-registry";
 import type { EndpointProfile } from "../config";
 import type { SubagentOptions } from "../subagents";
@@ -126,6 +127,15 @@ export interface SessionConfig {
    * disables everything (no writes, no section, no subagent runs).
    */
   memory?: MemoryOptions;
+  /**
+   * MPM targeted orientation (#616): when present, relevant codebase tasks
+   * get a small, source-cited, advisory orientation plan in the prompt's
+   * `mpm` section. `service` injects an existing projection service;
+   * otherwise one is constructed over the project's `project-map/` dir
+   * and loaded (fail-safe). `root` overrides the workspace root for
+   * freshness checks (default: the session cwd).
+   */
+  mpm?: { service?: MpmService; root?: string };
   /**
    * Compaction (#466): the post-turn marker producer. Auto-triggered
    * past the 80% context-window threshold, forceable via `/compact` /

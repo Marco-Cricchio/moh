@@ -26,6 +26,8 @@ import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
+import { MpmService, projectMapDir } from "../mpm/service";
+import { MpmOrientation } from "../mpm/orientation";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -107,6 +109,10 @@ export class AgentSession {
   /** ADR-0011: turn-scoped skill prompt — set by the send that carries
    * it, cleared when that turn settles. Null for every ordinary turn. */
   #skillPrompt: SkillPrompt | null = null;
+  /** #616: turn-scoped MPM orientation plan — computed per send, cleared
+   * when that turn settles. Null when MPM is off or the task is ineligible. */
+  #mpmOrientation: MpmOrientation | null = null;
+  #mpmPlan: string | null = null;
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
@@ -202,6 +208,18 @@ export class AgentSession {
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
+    // #616: MPM orientation — opt-in via SessionConfig.mpm (a root the
+    // projection maps). The service is supplied or constructed+loaded here;
+    // failures degrade to no plans, never a session error.
+    if (config.mpm) {
+      try {
+        const service = config.mpm.service ?? new MpmService(projectMapDir(this.#mohHome, this.#cwd));
+        service.load();
+        this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
+      } catch {
+        this.#mpmOrientation = null;
+      }
+    }
     // Skills (#30): discovered from ~/.moh/skills + .moh/skills at creation;
     // an explicit config wins (tests, clients). No auto-triggering.
     this.#firstParty = config.firstParty ?? "include";
@@ -346,10 +364,10 @@ export class AgentSession {
           });
         }
         // ADR-0011: a turn-scoped skill prompt lives exactly one turn.
-        // Dropped when the turn's promise settles and before the queue
-        // re-pumps, so the next turn composes the ordinary skills index.
-        if (this.#skillPrompt) {
+        // #616: so does the MPM orientation plan. One reassemble covers both.
+        if (this.#skillPrompt || this.#mpmPlan) {
           this.#skillPrompt = null;
+          this.#mpmPlan = null;
           this.#assemblePrompt();
         }
       },
@@ -620,6 +638,10 @@ export class AgentSession {
       const head = resolveHead(this.#eventLog.live()).head;
       this.#turnHead = this.#diverged ? (this.#localTip ?? head) : head;
     }
+    // #616: turn-scoped MPM orientation — computed at send time from the
+    // task text, cleared when the turn settles (same lifecycle as the
+    // ADR-0011 skill prompt). Ineligible or uncertain: no plan at all.
+    this.#mpmPlan = this.#mpmOrientation?.planFor(text) ?? null;
     return this.#queue.send(text, options?.prompt).finally(() => {
       this.#turnHead = undefined;
     });
@@ -688,6 +710,7 @@ export class AgentSession {
       ...(this.#skillPrompt ? { skillPrompt: this.#skillPrompt } : {}),
       memory: this.#memory?.excerpt(),
       extensionNotes: this.#extensions?.notes(),
+      ...(this.#mpmPlan ? { mpmOrientation: this.#mpmPlan } : {}),
     });
     this.#promptVersion = assembled.version;
     this.#lastPrompt = assembled;

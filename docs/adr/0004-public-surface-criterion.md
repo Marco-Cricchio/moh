@@ -167,3 +167,14 @@ files) stays internal: clients read status and query results only, never
 projection files. Needed by the TUI status row (#619), the CLI
 diagnostics (#618), and future subagent orientation (#620); the surface
 is read-only by construction — no client mutates the map through it.
+
+## Amendment — 2026-09-12, #616 `MpmService.record(path)`
+
+**Re-opened door**: one additional read-only accessor, `record(path)`
+(the exact `MpmFileRecord` for a mapped path, or null), consumed today
+by the core-internal `MpmOrientation` (#616) for hash-based freshness
+checks on orientation-plan candidates. Same read-only-by-construction
+guarantee as the #614 amendment; the storage layer stays internal. The
+`mpm` prompt section and the orientation builder itself stay internal —
+`SessionConfig.mpm` accepts an already-exported `MpmService`, so no
+type in the config surface is new.

@@ -19,6 +19,7 @@ export const SECTION_ORDER = [
   "skills",
   "memory",
   "session_state",
+  "mpm",
   "extension_notes",
 ] as const;
 
@@ -52,6 +53,8 @@ export interface PromptContext {
   sessionState?: string;
   /** Trailing notes appended by extensions (append-only; hooks land later). */
   extensionNotes?: string[];
+  /** #616: turn-scoped MPM orientation plan (advisory, source-cited). */
+  mpmOrientation?: string;
 }
 
 export type SectionRenderer = (ctx: PromptContext) => string;
@@ -146,6 +149,8 @@ export class PromptComposer {
       session_state: (ctx) => (ctx.sessionState ? `## Session state\n\n${ctx.sessionState}` : ""),
       extension_notes: (ctx) =>
         ctx.extensionNotes?.length ? `## Extension notes\n\n${ctx.extensionNotes.join("\n\n")}` : "",
+      // #616: the turn-scoped MPM orientation plan, rendered verbatim.
+      mpm: (ctx) => (ctx.mpmOrientation ? ctx.mpmOrientation : ""),
     };
     return { ...table, ...this.#overrides };
   }
