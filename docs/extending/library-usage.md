@@ -439,8 +439,8 @@ Exported from `@moh/core` (ADR-0004).
 ## Moh Project Map — orientation plans (#616)
 
 For relevant codebase tasks the core injects a small, advisory
-orientation plan into the prompt's `mpm` section (last in
-`SECTION_ORDER`). `MpmOrientation.planFor(text)` is conservative and
+orientation plan into the prompt's `mpm` section (between `session_state`
+and the trailing `extension_notes`). `MpmOrientation.planFor(text)` is conservative and
 purely local: the task text must name a mapped path; every ranked entry
 is extracted and fresh (the file's current hash still matches the
 mapped one), cited with path, coordinate, relation, and a concise

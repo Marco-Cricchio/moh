@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
@@ -26,9 +26,8 @@ import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
-import { MpmService } from "../mpm/service";
+import { MpmService, projectMapDir } from "../mpm/service";
 import { MpmOrientation } from "../mpm/orientation";
-import { projectSlug } from "../session-store";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -214,7 +213,7 @@ export class AgentSession {
     // failures degrade to no plans, never a session error.
     if (config.mpm) {
       try {
-        const service = config.mpm.service ?? new MpmService(join(this.#mohHome, "projects", projectSlug(this.#cwd, dirname(this.#mohHome)), "project-map"));
+        const service = config.mpm.service ?? new MpmService(projectMapDir(this.#mohHome, this.#cwd));
         service.load();
         this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
       } catch {
@@ -365,14 +364,9 @@ export class AgentSession {
           });
         }
         // ADR-0011: a turn-scoped skill prompt lives exactly one turn.
-        // Dropped when the turn's promise settles and before the queue
-        // re-pumps, so the next turn composes the ordinary skills index.
-        if (this.#skillPrompt) {
+        // #616: so does the MPM orientation plan. One reassemble covers both.
+        if (this.#skillPrompt || this.#mpmPlan) {
           this.#skillPrompt = null;
-          this.#assemblePrompt();
-        }
-        // #616: the MPM plan lives exactly one turn, like the skill prompt.
-        if (this.#mpmPlan) {
           this.#mpmPlan = null;
           this.#assemblePrompt();
         }

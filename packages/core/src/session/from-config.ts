@@ -16,8 +16,7 @@
 import { homedir } from "node:os";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { projectSlug } from "../session-store";
-import type { MpmService } from "../mpm/service";
+import { projectMapDir, type MpmService } from "../mpm/service";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
@@ -195,7 +194,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // an explicit opt-out from #618's config surface) nothing changes.
   let mpm: { service?: MpmService; root?: string } | undefined;
   try {
-    if (existsSync(join(mohHome, "projects", projectSlug(options.cwd, home), "project-map", "manifest.json"))) {
+    if (existsSync(join(projectMapDir(mohHome, options.cwd), "manifest.json"))) {
       mpm = { root: options.cwd };
     }
   } catch {

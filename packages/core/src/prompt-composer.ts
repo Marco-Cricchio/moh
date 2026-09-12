@@ -19,8 +19,8 @@ export const SECTION_ORDER = [
   "skills",
   "memory",
   "session_state",
-  "extension_notes",
   "mpm",
+  "extension_notes",
 ] as const;
 
 export type SectionName = (typeof SECTION_ORDER)[number];

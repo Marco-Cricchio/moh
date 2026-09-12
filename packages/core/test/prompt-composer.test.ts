@@ -47,8 +47,8 @@ describe("PromptComposer", () => {
       "skills",
       "memory",
       "session_state",
-      "extension_notes",
       "mpm",
+      "extension_notes",
     ]);
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
     for (const name of SECTION_ORDER) {

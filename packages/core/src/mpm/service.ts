@@ -1,4 +1,5 @@
-import { basename, extname } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
+import { projectSlug } from "../session-store";
 import { MpmStore } from "./store";
 import type { MpmFileRecord, MpmProvenance } from "./types";
 
@@ -17,6 +18,11 @@ export interface MpmQueryResult {
 }
 
 export type MpmStatus = "ready" | "unavailable";
+
+/** The projection directory for one project: `<home>/projects/<slug>/project-map/`. */
+export function projectMapDir(home: string, cwd: string): string {
+  return join(home, "projects", projectSlug(cwd, dirname(home)), "project-map");
+}
 
 export class MpmService {
   readonly #store: MpmStore;
