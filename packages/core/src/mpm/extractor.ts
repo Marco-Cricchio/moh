@@ -17,7 +17,12 @@ import type { MpmFileRecord, MpmRelation } from "./types";
 /** Directly verifiable reference/test relationship: a test file and its subject. */
 function isTestPath(path: string): boolean {
   const base = path.slice(path.lastIndexOf("/") + 1);
-  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) || /(^|\/)__tests__\//.test(path);
+  return (
+    /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) ||
+    /(^|\/)__tests__\//.test(path) ||
+    /(^|\/)test_[^/]+\.py$/.test(path) ||
+    /_test\.go$/.test(path)
+  );
 }
 
 /**
@@ -33,6 +38,8 @@ function resolveSpecifier(specifier: string, fromPath: string, known: Set<string
     base,
     ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"].map((ext) => `${base}${ext}`),
     ...[".ts", ".tsx", ".js", ".jsx"].map((ext) => `${base}/index${ext}`),
+    // Tier A file-literal forms resolve exactly, no extension probing.
+    ...[".c", ".h", ".cc", ".cpp", ".hpp", ".sh", ".lua", ".py"].map((ext) => `${base}${ext}`),
   ];
   for (const candidate of candidates) {
     if (known.has(candidate)) return candidate;
@@ -79,6 +86,9 @@ export function extractWorkspace(root: string): Map<string, MpmFileRecord> {
         if (!cap.families.has(rel.kind)) continue;
         if (rel.kind === "config-links") {
           const target = normalizeConfigTarget(rel.via, known);
+          if (target) relations.push({ ...rel, target });
+        } else if (cap.resolveTarget) {
+          const target = cap.resolveTarget(rel.via, path, known, root);
           if (target) relations.push({ ...rel, target });
         } else {
           const target = resolveSpecifier(rel.via, path, known);
