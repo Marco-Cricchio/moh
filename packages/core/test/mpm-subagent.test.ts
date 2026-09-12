@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { builtinTools, createSession, MockProvider, type AgentEvent } from "../src/index";
+import { builtinTools, createSession, MockProvider, type AgentEvent, type Provider } from "../src/index";
 import { MpmService } from "../src/mpm/service";
 import { MpmStore } from "../src/mpm/store";
 import type { MpmFileRecord } from "../src/mpm/types";
@@ -70,7 +70,7 @@ function capturing(inner: Provider): { provider: Provider; seen: () => string } 
   let system = "";
   const provider: Provider = {
     name: inner.name,
-    async *stream(messages: Message[], signal, tools, options) {
+    async *stream(messages: Message[], signal: AbortSignal, tools?: readonly import("../src/types").ToolSpec[], options?: import("../src/types").StreamOptions) {
       system = (messages[0]!.parts[0] as { text: string }).text;
       yield* inner.stream(messages, signal, tools, options);
     },
@@ -137,24 +137,6 @@ describe("MPM subagent orientation (#620)", () => {
 
   test("the child cannot own the map: no service, no lifecycle reaches it (depth 1, tools subset)", async () => {
     const { root, service } = await setup();
-    const events: AgentEvent[] = [];
-    const parent = createSession({
-      provider: MockProvider.scripted([
-        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "investigate src/date.ts" } }] },
-        { deltas: ["spawned"], finish: "stop" },
-      ]),
-      tools: builtinTools(),
-      permissions: { overrides: { tools: { spawn: "allow" } } },
-      cwd: root,
-      mpm: { service },
-      subagents: {
-        home: root,
-        provider: MockProvider.scripted([{ deltas: ["done"], finish: "stop" }]),
-      },
-    });
-    parent.addEventListener?.(() => {});
-    const sink = (e: AgentEvent) => events.push(e);
-    // Re-create with a tap (the simple way: inspect the spawn result event).
     const spawned: AgentEvent[] = [];
     const parent2 = createSession({
       provider: MockProvider.scripted([
@@ -171,8 +153,6 @@ describe("MPM subagent orientation (#620)", () => {
       },
       sink: (e) => spawned.push(e),
     });
-    void sink;
-    void parent;
     await parent2.send("go");
     // The spawn happened at depth 1 with a bounded tool subset — the child
     // holds no MpmService reference (the host passes only rendered text)
