@@ -60,6 +60,7 @@ export function MpmModal({ diagnostics: d, onClose }: MpmModalProps) {
           {d.coverage.slice(0, 8).map((c) => (
             <Text key={c.language}> {c.language}: {c.files} file(s) · {c.symbols} symbol(s)</Text>
           ))}
+          {d.coverage.length > 8 && <Dim>{` …and ${d.coverage.length - 8} more language(s)`}</Dim>}
           <Text> </Text>
           <Text bold> budget</Text>
           <Text> {d.fileCount}/{d.budget.maxFiles} files · {Math.round(d.budget.maxTotalBytes / (1024 * 1024))}MB cap</Text>

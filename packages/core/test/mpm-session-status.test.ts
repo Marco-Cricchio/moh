@@ -10,7 +10,7 @@ import type { MpmFileRecord } from "../src/mpm/types";
 import type { Message } from "../src/types";
 
 /**
- * #619: the client-facing MPM seams — `mpmStatus`, `mpmSnapshot()`, and
+ * #619: the client-facing MPM seams — `mpmSnapshot()` and
  * `mpmDiagnostics()` — for the TUI status row and inspection view. Null
  * when MPM never activated; honest live state when it did.
  */
@@ -76,7 +76,7 @@ describe("MPM client seams (#619)", () => {
   test("without mpm config the seams report null and a disabled report", async () => {
     const { root } = await setup();
     const session = createSession({ provider: provider(), cwd: root });
-    expect(session.mpmStatus).toBeNull();
+    expect(session.mpmSnapshot()).toBeNull();
     expect(session.mpmSnapshot()).toBeNull();
     const diag = session.mpmDiagnostics();
     // No live service: never fabricates a ready projection.
@@ -87,7 +87,7 @@ describe("MPM client seams (#619)", () => {
   test("an activated session reports ready status and honest diagnostics", async () => {
     const { root, service } = await setup();
     const session = createSession({ provider: provider(), cwd: root, mpm: { service } });
-    expect(session.mpmStatus).toBe("ready");
+    expect(session.mpmSnapshot()?.status).toBe("ready");
     const snap = session.mpmSnapshot();
     expect(snap?.status).toBe("ready");
     expect(snap?.pendingWork).toBe(0);
@@ -106,13 +106,13 @@ describe("MPM client seams (#619)", () => {
   test("status flips to updating while a refresh is in flight; pending work surfaces", async () => {
     const { root, service } = await setup();
     const session = createSession({ provider: provider(), cwd: root, mpm: { service } });
-    expect(session.mpmStatus).toBe("ready");
+    expect(session.mpmSnapshot()?.status).toBe("ready");
     service.setUpdating(true);
-    expect(session.mpmStatus).toBe("updating");
+    expect(session.mpmSnapshot()?.status).toBe("updating");
     expect(session.mpmSnapshot()?.status).toBe("updating");
     expect(session.mpmDiagnostics().status).toBe("updating");
     service.setUpdating(false);
-    expect(session.mpmStatus).toBe("ready");
+    expect(session.mpmSnapshot()?.status).toBe("ready");
   });
 
   test("a stale mapped file counts as stale in diagnostics", async () => {

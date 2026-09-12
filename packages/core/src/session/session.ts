@@ -752,16 +752,11 @@ export class AgentSession {
     return this.#permissions.rules;
   }
 
-  /** #619: live MPM status for the client chrome (TUI status row).
-   * Null when MPM never activated for this session (disabled, no
-   * projection, activation failure) — the client renders nothing. */
-  get mpmStatus(): MpmStatus | null {
-    return this.#mpmService?.status ?? null;
-  }
-
   /**
-   * #619: pending background work + fallback reason + pending evictions
-   * for a cheap live chip; null when MPM never activated.
+   * #619: live MPM status for the client chrome (TUI status row) plus
+   * pending background work and fallback reason; null when MPM never
+   * activated for this session (disabled, no projection, activation
+   * failure) — the client renders nothing.
    */
   mpmSnapshot(): { status: MpmStatus; pendingWork: number; fallbackReason: MpmDiagnostics["fallbackReason"] } | null {
     const service = this.#mpmService;
