@@ -36,6 +36,7 @@ export interface SubagentSpec {
   context?: string;
 }
 
+
 export const subagentSpecSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -85,6 +86,14 @@ export interface SubagentOptions {
   provider?: Provider | string;
   /** Home dir for child session files. Default: the real home (tests use temp). */
   home?: string;
+  /**
+   * #620: bounded read-only MPM orientation snapshot for children. The
+   * parent hands a `snapshotFor(task)` closure; the child's prompt gets
+   * the returned plan rendered as its `mpm` section. The child never
+   * receives the MpmService, the lifecycle, or any mutation ability —
+   * the parent retains all map ownership.
+   */
+  mpm?: { snapshotFor(task: string): string | null };
 }
 
 const spawnInputSchema = subagentSpecSchema.extend({
@@ -117,6 +126,8 @@ export interface SubagentHostOptions {
   maxConcurrency?: number;
   /** Home dir for child session files. Default: real home. */
   home?: string;
+  /** #620: bounded read-only MPM snapshot seam (see SubagentOptions). */
+  mpm?: { snapshotFor(task: string): string | null };
 }
 
 /** Simple counting semaphore: caps parallel children (default 3). */
@@ -249,6 +260,10 @@ export class SubagentHost {
     // Only explicit context is shared: the task (plus the preset's optional
     // context) is the child's entire first user message.
     const firstMessage = spec.context ? `# Context\n\n${spec.context}\n\n# Task\n\n${task}` : task;
+    // #620: bounded read-only MPM orientation for the child, computed once
+    // per spawn from the task text. The child never owns the map: no
+    // service, no lifecycle — just the rendered, source-cited plan text.
+    const mpmOrientation = this.#options.mpm?.snapshotFor(task) ?? null;
     let child: AgentSession | null = null;
     try {
       // #339: resolve a string ref BEFORE any child setup — a hallucinated
@@ -287,6 +302,7 @@ export class SubagentHost {
           ...(spec.systemPrompt
             ? { basePrompt: `${BASE_PROMPT}\n\n# Subagent role\n\n${spec.systemPrompt}` }
             : {}),
+          ...(mpmOrientation ? { sections: { mpm: () => mpmOrientation } } : {}),
         }),
       });
       this.#options.onEvent({

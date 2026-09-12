@@ -63,8 +63,33 @@ describe("handoff config", () => {
 });
 
 describe("buildRawHandoff", () => {
-  test("distills events, files, tests and counts from the log", () => {
+  test("#620: the artifact transports no MPM data, ever", () => {
     const dir = tmpDir("build");
+    // Events carrying MPM-flavored chrome and orientation text — none of
+    // it may surface in the artifact (MPM is never handoff content).
+    const events = [
+      { type: "user_message", text: "work on src/a.ts" },
+      { type: "tool_call", callId: "1", name: "write", args: { path: "src/a.ts", content: "x" } },
+      { type: "assistant_delta", text: "Done with the task." },
+      { type: "model_switched", from: "a", to: "b" },
+      { type: "done" },
+    ] as any;
+    const h = buildRawHandoff(events, "session-mpm", 1, dir, new Date("2026-09-12T00:00:00Z"), {});
+    const serialized = JSON.stringify(h);
+    // The prompt's MPM section is session-scoped chrome, not transcript
+    // state: an MPM-flavored system prompt section never appears in the
+    // artifact (the assistant text here is a plain reply).
+    expect(serialized).not.toContain("Project map orientation");
+    expect(serialized).not.toContain('"mpm"');
+    expect(serialized).not.toContain("mpmOrientation");
+    // The schema itself stays MPM-free: only the documented keys exist.
+    expect(Object.keys(h).sort()).toEqual([
+      "counts", "files", "git", "kind", "lastAssistantMessage", "lastUserMessage",
+      "sessionId", "tests", "turns", "updatedAt", "version",
+    ]);
+  });
+
+  test("distills events, files, tests and counts from the log", () => {    const dir = tmpDir("build");
     const events = [
       { type: "session_start", schemaVersion: 1, promptVersion: "v1" },
       { type: "user_message", text: "fix the bug" },

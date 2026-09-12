@@ -118,6 +118,35 @@ export class MpmService {
   }
 
   /**
+   * #620: revalidate the projection against the active workspace root —
+   * used after a project identity migration has relocated/reattached the
+   * map with the project data. Metadata-only (stat per mapped file, never
+   * content reads beyond existence): records whose file no longer exists
+   * at the new root are dropped (paths cannot be trusted across a
+   * relocation); survivors stay mapped and remain subject to the ordinary
+   * freshness checks and lifecycle refreshes. Never throws.
+   */
+  revalidate(
+    root: string,
+    existsAt: (abs: string) => boolean = (abs) => existsSync(abs) && statSync(abs).isFile(),
+  ): { kept: number; dropped: string[] } {
+    if (this.#records === null) return { kept: 0, dropped: [] };
+    const dropped: string[] = [];
+    for (const path of this.#records.keys()) {
+      let alive = false;
+      try {
+        alive = existsAt(join(root, path));
+      } catch {
+        alive = false;
+      }
+      if (!alive) dropped.push(path);
+    }
+    for (const path of dropped) this.remove(path);
+    if (dropped.length > 0) this.#store.writeProjection(this.#records);
+    return { kept: this.#records.size, dropped };
+  }
+
+  /**
    * Load the projection, failing safe: missing data rebuilds to an empty
    * projection; corrupt, unreadable, or incompatible data is discarded and
    * rebuilt. Never throws.

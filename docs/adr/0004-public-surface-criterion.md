@@ -192,3 +192,17 @@ The projection stays read-only metadata (status, counts, patterns,
 budgets — never source content or prompt text); `MpmService` remains the
 only writer. `projectMapDir` was already the core-internal constant used
 by session assembly; exporting it keeps the path spelling in one place.
+
+## Amendment — 2026-09-12, #620 MPM session continuity seams
+
+**Re-opened door**: the handoff warm-up validation helpers
+(`validatedWarmupPaths`, `requestWarmup`, `pathsFromTestCommands`,
+`staysInsideRoot`, `HandoffWarmupHints`, from `core/src/mpm/handoff-warmup.ts`)
+and the `SubagentOptions.mpm.snapshotFor` closure shape. Needed by
+clients that wire handoff reception to a local non-blocking warm-up and
+by the core's subagent host to hand children a bounded, read-only
+orientation snapshot. The child seam carries only rendered plan text —
+never the `MpmService`, the lifecycle, or any mutation surface; warm-up
+paths are validated against the receiving checkout and drive only
+targeted local refreshes. The projection remains read-only for every
+consumer; `MpmService` stays the sole writer.

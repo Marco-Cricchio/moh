@@ -199,6 +199,15 @@ export {
   type MpmQuota,
 } from "./mpm/service";
 export { MpmLifecycle, type MpmLifecycleOptions } from "./mpm/lifecycle";
+// MPM handoff warm-up (#620): validated, non-blocking local warm-up
+// priorities derived from a received handoff — never MPM data transport.
+export {
+  validatedWarmupPaths,
+  requestWarmup,
+  pathsFromTestCommands,
+  staysInsideRoot,
+  type HandoffWarmupHints,
+} from "./mpm/handoff-warmup";
 export { mpmDiagnostics, type MpmDiagnostics, type MpmLanguageCoverage } from "./mpm/diagnostics";
 export {
   resolveMpmConfig,
