@@ -215,6 +215,15 @@ export class AgentSession {
         presets: subagents.presets,
         maxConcurrency: subagents.maxConcurrency,
         home: subagents.home,
+        // #620: children get a bounded read-only orientation snapshot for
+        // their task, computed by the parent's own orientation seam. The
+        // parent keeps every mutation and scheduling right; the child
+        // receives only the rendered plan text (or nothing). The closure
+        // is evaluated per spawn — the orientation exists by then (MPM
+        // activation happens later in this constructor than the host).
+        ...(config.mpm
+          ? { mpm: { snapshotFor: (task: string) => this.#mpmOrientation?.planFor(task) ?? null } }
+          : {}),
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
