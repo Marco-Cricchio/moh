@@ -115,6 +115,46 @@ describe("Tier B — Rust (#640)", () => {
     }
   });
 
+  test("Cargo.toml path dependencies resolve to the dep crate's lib.rs", async () => {
+    const root = await tierBWorkspace();
+    try {
+      const { mkdir: mkd, writeFile: wf } = await import("node:fs/promises");
+      await mkd(join(root, "rust", "crates", "serde-helpers", "src"), { recursive: true });
+      await wf(
+        join(root, "rust", "Cargo.toml"),
+        `[package]\nname = "app"\n\n[dependencies]\nserde-helpers = { path = "crates/serde-helpers" }\n`,
+      );
+      await wf(join(root, "rust", "crates", "serde-helpers", "src", "lib.rs"), `pub fn help() {}\n`);
+      const records = extractWorkspace(root);
+      const cargo = records.get("rust/Cargo.toml")!;
+      expect(cargo.relations).toEqual([
+        {
+          kind: "config-links",
+          target: "rust/crates/serde-helpers/src/lib.rs",
+          via: "path-dep:crates/serde-helpers",
+          line: 5,
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("mod-declaration check: orphan files are never invented as modules", async () => {
+    const root = await tierBWorkspace();
+    try {
+      const { writeFile: wf } = await import("node:fs/promises");
+      // orphan.rs exists on disk but no file declares `mod orphan;`.
+      await wf(join(root, "rust", "src", "orphan.rs"), `pub fn stray() {}\n`);
+      await wf(join(root, "rust", "src", "prober.rs"), `use crate::orphan::stray;\n`);
+      const records = extractWorkspace(root);
+      const prober = records.get("rust/src/prober.rs")!;
+      expect(prober.relations).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("use crate paths to nonexistent modules stay silent; extern crates stay silent", async () => {
     const root = await tierBWorkspace();
     try {

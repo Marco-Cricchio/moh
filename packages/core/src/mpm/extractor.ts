@@ -84,7 +84,7 @@ export function extractWorkspace(root: string): Map<string, MpmFileRecord> {
         // Declared-families gate: a capability only emits relation kinds its
         // families still declare. Dropping the family silences the relation.
         if (!cap.families.has(rel.kind)) continue;
-        if (rel.kind === "config-links") {
+        if (rel.kind === "config-links" && !cap.resolveTarget) {
           const target = normalizeConfigTarget(rel.via, known);
           if (target) relations.push({ ...rel, target });
         } else if (cap.resolveTarget) {

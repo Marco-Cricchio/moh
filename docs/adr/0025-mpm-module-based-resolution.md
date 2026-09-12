@@ -34,17 +34,26 @@ mechanism generalizes to them without per-language special cases.
 
 2. **Resolution is confined to what the project file literally states.**
    - Rust: `mod name;` → `<dir>/name.rs` or `<dir>/name/mod.rs` (the compiler's
-     own rule, purely local); `use crate::<path>` resolves only when the
-     crate-rooted path lands on a module-declared file; `Cargo.toml` path
-     dependencies (`foo = { path = "vendor/foo" }`) add cross-crate targets.
-   - C#: `using X.Y` resolves to a file only when the containing `*.csproj`'s
-     root namespace + folder layout make the mapping literal; otherwise
-     silent.
+     own rule, purely local), **and only when a sibling file actually declares
+     the module** — a file on disk that no `mod` statement declares is never a
+     target. `use crate::<path>` resolves from the crate root (the
+     `Cargo.toml`'s `src/`, containing `main.rs`/`lib.rs`), walking only
+     declared modules; the final path segment may name an item inside a module
+     file, in which case the module file is the target. `Cargo.toml` path
+     dependencies (`foo = { path = "crates/foo" }`) emit `config-links` edges
+     to the dep crate's `src/lib.rs`/`src/main.rs`.
+   - C#: `using X.Y` / `namespace X.Y` resolve to a file only when a
+     `*.csproj` exists up the tree **and exactly one** discovered `.cs` file
+     declares that namespace (the declaring file is re-read to verify —
+     literal text, not inference); ambiguous or anchor-less → silent.
    - Swift: `import Module` resolves only when the nearest `Package.swift`
-     declares that target and the module name equals the target directory's
-     sources; otherwise silent.
-   - Kotlin: file relations only where the Gradle/Maven source-set layout
-     makes a package-to-directory mapping literal; otherwise silent.
+     declares that target (line-anchored, comments skipped, `path:` overrides
+     honored) and the target's source directory maps literally under
+     `Sources/<Name>/`; otherwise silent.
+   - Kotlin: `import a.b.C` / `package a.b` resolve only when a Gradle/Maven
+     build file exists up the tree and the dotted path pins a unique `.kt`
+     file under a literal source-set root (`src/main/kotlin`, …); otherwise
+     silent.
 
 3. **Unprovable stays silent — the rule does not bend.** Where the project
    file, convention, and source text do not jointly pin down a single target
@@ -66,9 +75,11 @@ mechanism generalizes to them without per-language special cases.
   `resolveTarget(via, fromPath, known, root)` seam from #615 is sufficient —
   Tier B resolvers read project files inside it. The seam is the whole
   extension point (see ADR-0004: no new public exports).
-- Extraction cost grows by a small bounded read of project files per
-  resolution, not per file: resolvers memoize nothing across calls, but the
-  walk-up stops at the first anchor and the anchor set is sparse.
+- Extraction cost: project-file anchors are read fresh per resolution (no
+  cross-file state, extraction-order independent); Rust additionally reads
+  the `.rs` files of the single directory being descended into to verify
+  mod declarations. No source content is retained — only paths, hashes,
+  symbols, and relations.
 - Fixture corpora grow per language with both halves of the contract: what
   resolves, and what stays silent *because* the anchor is absent.
 - A future dynamic/analysis-based extractor (LLM-assisted, compiler-backed)

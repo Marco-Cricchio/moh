@@ -358,19 +358,35 @@ function tierBLanguages(): MpmLanguageCapability[] {
   return [rustCapability(), csharpCapability(), swiftCapability(), kotlinCapability()];
 }
 
-/** Shared Tier B helper: walk up from the importing file to the nearest anchor file. */
-function nearestAnchor(root: string, fromPath: string, anchor: string): { dir: string; content: string } | null {
+/**
+ * Shared Tier B walk-up: from the importing file's directory to the root,
+ * return the first directory whose listing satisfies `predicate`. Read
+ * fresh per call — no cross-file state.
+ */
+function nearestAnchorLike(
+  root: string,
+  fromPath: string,
+  predicate: (entry: string) => boolean,
+): { dir: string } | null {
   const parts = dirname(fromPath).split("/");
   for (let i = parts.length; i >= 0; i--) {
     const dir = parts.slice(0, i).join("/");
     try {
-      const content = readFileSync(join(root, dir, anchor), "utf8");
-      return { dir, content };
+      if (readdirSync(join(root, dir)).some(predicate)) return { dir };
     } catch {
-      // No anchor at this level; keep walking up.
+      // Unreadable level: keep walking up.
     }
   }
   return null;
+}
+
+/** Nearest directory containing an exact-named anchor file. */
+function nearestAnchor(
+  root: string,
+  fromPath: string,
+  anchor: string,
+): { dir: string } | null {
+  return nearestAnchorLike(root, fromPath, (name) => name === anchor);
 }
 
 // ─── Rust ──────────────────────────────────────────────────────────────────
@@ -394,6 +410,10 @@ function rustCapability(): MpmLanguageCapability {
         }
         const use_ = line.match(/^\s*(?:pub\s+)?use\s+crate::([\w:]+)\s*;/);
         if (use_) relations.push({ kind: "imports", via: `crate:${use_[1]}`, line: i + 1 });
+        // Cargo.toml path dependencies: `name = { path = "vendor/foo" }` —
+        // the only dependency form with a literal local path.
+        const dep = line.match(/^\s*[\w-]+\s*=\s*\{[^}]*path\s*=\s*"([^"]+)"/);
+        if (dep) relations.push({ kind: "config-links", via: `path-dep:${dep[1]}`, line: i + 1 });
         const fn = line.match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/);
         if (fn) symbols.push({ name: fn[1], kind: "function", line: i + 1 });
         const st = line.match(/^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)/);
@@ -406,36 +426,55 @@ function rustCapability(): MpmLanguageCapability {
     resolveTarget(via, fromPath, known, root) {
       const fromDir = dirname(fromPath);
       if (via.startsWith("mod:")) {
-        // lib.rs/main.rs: `<name>.rs` or `<name>/mod.rs` next to the file.
+        // lib.rs/main.rs: `<name>.rs` or `<name>/mod.rs` next to the file —
+        // but only when some sibling file actually declares the module
+        // (mod-declaration check keeps orphan files from being invented).
         const name = via.slice(4);
+        const declaring = declaredMods(root, known, fromDir);
+        if (!declaring.has(name)) return null;
         for (const candidate of [`${fromDir}/${name}.rs`, `${fromDir}/${name}/mod.rs`]) {
+          if (known.has(candidate)) return candidate;
+        }
+        return null;
+      }
+      if (via.startsWith("path-dep:")) {
+        // Cargo.toml path dependency: `vendor/foo` → the dep crate's
+        // lib.rs is a proven cross-crate target (literal path in the
+        // project file). The path is relative to the Cargo.toml's
+        // directory, found by walking up from the referencing file.
+        const anchor = nearestAnchor(root, fromPath, "Cargo.toml");
+        if (!anchor) return null;
+        const depDir = anchor.dir ? `${anchor.dir}/${via.slice("path-dep:".length)}` : via.slice("path-dep:".length);
+        for (const candidate of [`${depDir}/src/lib.rs`, `${depDir}/src/main.rs`]) {
           if (known.has(candidate)) return candidate;
         }
         return null;
       }
       if (!via.startsWith("crate:")) return null;
       // `use crate::a::b` — walk up to the crate root (the directory with
-      // main.rs / lib.rs / a bin/lib target), then follow mod-file layout.
-      const segs = via.slice(6).split(":");
-      let anchor: { dir: string } | null = null;
-      const modParts = dirname(fromPath).split("/");
-      for (let i = modParts.length; i >= 0; i--) {
-        const dir = modParts.slice(0, i).join("/");
-        if (known.has(`${dir}/main.rs`) || known.has(`${dir}/lib.rs`)) {
-          anchor = { dir };
-          break;
-        }
-      }
-      if (!anchor) return null;
-      // Follow mod-file layout through the segments. Rust semantics: the
-      // last segment may be an *item* inside the module file rather than a
-      // file itself — so try the full path as files first; if only the
-      // prefix resolves, the target is the file of that prefix module.
-      const dir0 = anchor.dir;
-      let dir = dir0;
+      // Cargo.toml), then follow mod-file layout from its `src/` root,
+      // requiring every segment to be declared as a module by its parent
+      // (not just present on disk).
+      const cargo = nearestAnchor(root, fromPath, "Cargo.toml");
+      if (!cargo) return null;
+      const segs = via.slice(6).split("::").filter((s) => s.length > 0);
+      const srcRoot = cargo.dir ? `${cargo.dir}/src` : "src";
+      if (!known.has(`${srcRoot}/main.rs`) && !known.has(`${srcRoot}/lib.rs`)) return null;
+      // Every crate-root segment (except a possible final item) must be
+      // declared by the module file that contains it.
+      let dir = srcRoot;
       let lastMatched: string | null = null;
       for (let s = 0; s < segs.length; s++) {
-        const candidates = [`${dir}/${segs[s]}.rs`, `${dir}/${segs[s]}/mod.rs`];
+        const isLast = s === segs.length - 1;
+        const declaring = declaredMods(root, known, dir);
+        // Candidate targets for this segment: declared module files, plus
+        // (for the final segment) the current module file itself when the
+        // segment names an item inside it.
+        const candidates: string[] = [];
+        if (declaring.has(segs[s])) {
+          candidates.push(`${dir}/${segs[s]}.rs`, `${dir}/${segs[s]}/mod.rs`);
+        }
+        if (isLast && lastMatched) candidates.push(lastMatched);
         let matched: string | null = null;
         for (const candidate of candidates) {
           if (known.has(candidate)) {
@@ -443,18 +482,36 @@ function rustCapability(): MpmLanguageCapability {
             break;
           }
         }
-        if (!matched) break;
+        if (!matched) return null;
         lastMatched = matched;
-        if (s < segs.length - 1) {
-          dir = matched.endsWith("/mod.rs") ? matched.slice(0, -"/mod.rs".length) : dirname(matched);
-        }
+        if (isLast) return matched;
+        dir = matched.endsWith("/mod.rs") ? matched.slice(0, -"/mod.rs".length) : dirname(matched);
       }
-      // A reference is provable when every segment before the last resolved
-      // to a module file; the last segment may be the file itself or an
-      // item within it.
       return lastMatched;
     },
   };
+}
+
+/**
+ * Set of module names declared by `mod x;` lines across the `.rs` files of
+ * one directory (read fresh per call — no cross-file state). Read cost is
+ * bounded: only files in the single directory being descended into.
+ */
+function declaredMods(root: string, known: Set<string>, dir: string): Set<string> {
+  const declared = new Set<string>();
+  for (const path of known) {
+    if (dirname(path) !== dir || !path.endsWith(".rs")) continue;
+    try {
+      const content = readFileSync(join(root, path), "utf8");
+      for (const line of content.split("\n")) {
+        const mod = line.match(/^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/);
+        if (mod) declared.add(mod[1]);
+      }
+    } catch {
+      // Unreadable sibling: it declares nothing.
+    }
+  }
+  return declared;
 }
 
 // ─── C# ────────────────────────────────────────────────────────────────────
@@ -482,11 +539,11 @@ function csharpCapability(): MpmLanguageCapability {
     },
     resolveTarget(via, fromPath, known, root) {
       // `ns:<namespace>` — provable only when the nearest *.csproj exists
-      // and exactly one discovered .cs file declares that namespace (we
-      // re-read the declaring files; namespaces are literal text, so this
-      // is verification, not inference). Ambiguous or missing → silent.
+      // and exactly one discovered .cs file declares that namespace. The
+      // declaring file is re-read at resolution time (literal text =
+      // verification, not inference); self-references never emit.
       if (!via.startsWith("ns:")) return null;
-      const csproj = nearestMatchingExtension(root, fromPath, ".csproj");
+      const csproj = nearestAnchorLike(root, fromPath, (name) => name.endsWith(".csproj"));
       if (!csproj) return null;
       const ns = via.slice(3);
       const nsDecl = new RegExp(`^\\s*namespace\\s+${ns.replace(/\./g, "\\.")}\\s*[;{]`, "m");
@@ -501,20 +558,6 @@ function csharpCapability(): MpmLanguageCapability {
       return candidates.length === 1 ? candidates[0] : null;
     },
   };
-}
-
-/** Nearest file with the given extension walking up from fromPath (Tier B anchor). */
-function nearestMatchingExtension(root: string, fromPath: string, ext: string): { dir: string } | null {
-  const parts = dirname(fromPath).split("/");
-  for (let i = parts.length; i >= 0; i--) {
-    const dir = parts.slice(0, i).join("/");
-    try {
-      if (readdirSync(join(root, dir)).some((e) => e.endsWith(ext))) return { dir };
-    } catch {
-      // keep walking
-    }
-  }
-  return null;
 }
 
 // ─── Swift ─────────────────────────────────────────────────────────────────
@@ -550,9 +593,34 @@ function swiftCapability(): MpmLanguageCapability {
       const name = via.slice(7);
       const anchor = nearestAnchor(root, fromPath, "Package.swift");
       if (!anchor) return null;
-      if (!anchor.content.includes(`.target(name: "${name}"`)) return null;
-      const dir = `${anchor.dir ? `${anchor.dir}/` : ""}Sources/${name}`;
-      const candidates = [...known].filter((p) => p.startsWith(`${dir}/`) && p.endsWith(".swift"));
+      // Literal target declaration, line-anchored, comments skipped. A
+      // custom `path:` overrides the Sources/<Name> convention; without one
+      // the mapping must be literal.
+      const pkgPath = join(root, anchor.dir, "Package.swift");
+      let lines: string[];
+      try {
+        lines = readFileSync(pkgPath, "utf8").split("\n");
+      } catch {
+        return null;
+      }
+      let declared = false;
+      let customPath: string | null = null;
+      let inTarget = false;
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (line.startsWith("//")) continue;
+        if (/\.target\(name:\s*"([\w-]+)"/.test(line) || /\.executableTarget\(name:\s*"([\w-]+)"/.test(line)) {
+          inTarget = new RegExp(`\\(name:\\s*"${name}"`).test(line);
+          declared = declared || inTarget;
+        }
+        if (inTarget) {
+          const pathOverride = line.match(/path:\s*"([^"]+)"/);
+          if (pathOverride) customPath = pathOverride[1];
+        }
+      }
+      if (!declared) return null;
+      const base = customPath ?? (anchor.dir ? `${anchor.dir}/Sources/${name}` : `Sources/${name}`);
+      const candidates = [...known].filter((p) => p.startsWith(`${base}/`) && p.endsWith(".swift"));
       return candidates.length === 1 ? candidates[0] : null;
     },
   };
@@ -594,9 +662,9 @@ function kotlinCapability(): MpmLanguageCapability {
       // matching the dotted path (last segment = file, rest = directory).
       if (!via.startsWith("pkg:")) return null;
       const buildAnchor =
-        nearestMatchingAnchorFile(root, fromPath, "build.gradle.kts") ??
-        nearestMatchingAnchorFile(root, fromPath, "build.gradle") ??
-        nearestMatchingAnchorFile(root, fromPath, "pom.xml");
+        nearestAnchor(root, fromPath, "build.gradle.kts") ??
+        nearestAnchor(root, fromPath, "build.gradle") ??
+        nearestAnchor(root, fromPath, "pom.xml");
       if (!buildAnchor) return null;
       const segs = via.slice(4).split(".");
       const srcRoots = ["src/main/kotlin", "src/main/java", "src/test/kotlin", "src/test/java"];
@@ -612,19 +680,6 @@ function kotlinCapability(): MpmLanguageCapability {
       return null;
     },
   };
-}
-
-function nearestMatchingAnchorFile(root: string, fromPath: string, name: string): { dir: string } | null {
-  const parts = dirname(fromPath).split("/");
-  for (let i = parts.length; i >= 0; i--) {
-    const dir = parts.slice(0, i).join("/");
-    try {
-      if (readdirSync(join(root, dir)).includes(name)) return { dir };
-    } catch {
-      // keep walking
-    }
-  }
-  return null;
 }
 
 export function capabilityForPath(path: string): MpmLanguageCapability | null {
