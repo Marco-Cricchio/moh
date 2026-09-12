@@ -30,6 +30,7 @@ page is the same content in manual form, plus the manual's own entries
 | esc on a chip | back to the composer (an open subagent panel stays) |
 | /workflow on\|off | toggle workflow mode (skills + frontier) |
 | ctrl+f | frontier panel (workflow mode on) |
+| /mpm | project map status and diagnostics (MPM) |
 | @ (type it) | file mention popup: fuzzy path picker, attaches a snapshot/listing |
 | paste a file path | drag-and-drop: pasted path inserts as an @mention; images preview inline where supported (images.preview) |
 | q | quit (home) |

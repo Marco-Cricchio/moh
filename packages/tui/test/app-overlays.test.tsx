@@ -273,3 +273,27 @@ describe("usage quota modal (#499)", () => {
     i.unmount();
   });
 });
+
+describe("project map modal (#619)", () => {
+  test("/mpm opens the inspection modal from chat, esc closes", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    await sleep(50);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("project map");
+    i.stdin.write("/mpm");
+    await sleep(60);
+    // The slash popup's first enter accepts the suggestion, the second sends.
+    i.stdin.write("\r");
+    await sleep(80);
+    i.stdin.write("\r");
+    await sleep(120);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("project map");
+    // Metadata only, in every state.
+    expect(frame).toContain("esc close");
+    i.stdin.write("\x1b"); // esc
+    await sleep(70);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("project map");
+    i.unmount();
+  });
+});

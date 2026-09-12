@@ -26,9 +26,12 @@ import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
-import { MpmService, projectMapDir } from "../mpm/service";
+import { MpmService, projectMapDir, type MpmStatus } from "../mpm/service";
 import { MpmLifecycle } from "../mpm/lifecycle";
 import { MpmOrientation } from "../mpm/orientation";
+import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
+import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
+import { userConfigFile } from "../user-config";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -115,6 +118,12 @@ export class AgentSession {
   #mpmOrientation: MpmOrientation | null = null;
   #mpmLifecycle: MpmLifecycle | null = null;
   #mpmPlan: string | null = null;
+  /** #619: live projection service, held for the client-facing status and
+   * diagnostics seams. Null when MPM is off or activation failed. */
+  #mpmService: MpmService | null = null;
+  #mpmRoot: string | null = null;
+  #mpmQuota: import("../mpm/service").MpmQuota | undefined;
+  #mpmExclude: string[] | undefined;
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
@@ -220,6 +229,10 @@ export class AgentSession {
       try {
         const service = config.mpm.service ?? new MpmService(projectMapDir(this.#mohHome, this.#cwd));
         service.load();
+        this.#mpmService = service;
+        this.#mpmRoot = config.mpm.root ?? this.#cwd;
+        this.#mpmQuota = config.mpm.quota;
+        this.#mpmExclude = config.mpm.exclude;
         this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
         // #617: background lifecycle — debounced external-change refresh,
         // turn priority, adaptive budgets. Only when a projection exists.
@@ -737,6 +750,72 @@ export class AgentSession {
   /** Runtime permission rules active in this session (snapshot). */
   get permissionRules(): PermissionRule[] {
     return this.#permissions.rules;
+  }
+
+  /** #619: live MPM status for the client chrome (TUI status row).
+   * Null when MPM never activated for this session (disabled, no
+   * projection, activation failure) — the client renders nothing. */
+  get mpmStatus(): MpmStatus | null {
+    return this.#mpmService?.status ?? null;
+  }
+
+  /**
+   * #619: pending background work + fallback reason + pending evictions
+   * for a cheap live chip; null when MPM never activated.
+   */
+  mpmSnapshot(): { status: MpmStatus; pendingWork: number; fallbackReason: MpmDiagnostics["fallbackReason"] } | null {
+    const service = this.#mpmService;
+    if (!service) return null;
+    return {
+      status: service.status,
+      pendingWork: this.#mpmLifecycle?.pendingCount ?? 0,
+      fallbackReason: this.#mpmOrientation?.lastFallbackReason ?? null,
+    };
+  }
+
+  /**
+   * #619: the full read-only diagnostics projection for on-demand client
+   * inspection (same shape as the CLI's `moh mpm --json`), enriched with
+   * this session's live lifecycle and orientation state. The config
+   * resolution mirrors session assembly (user default, project restrict);
+   * never throws — a config failure degrades to the disabled report.
+   */
+  mpmDiagnostics(): MpmDiagnostics {
+    const service = this.#mpmService;
+    if (!service) {
+      const config = this.#resolveMpmConfig();
+      // Degrade honestly: the disabled report, no fabrication. A throwaway
+      // unloaded service satisfies the mpmDiagnostics contract (never read).
+      return mpmDiagnostics({ service: new MpmService(join(this.#mohHome, "unused")), root: this.#cwd, config });
+    }
+    let config = this.#resolveMpmConfig();
+    if (!config.enabled) {
+      // #618 semantics: user/project disablement beats activation. Report
+      // the disabled view even though a projection is live in-process.
+      return mpmDiagnostics({ service, root: this.#mpmRoot ?? this.#cwd, config });
+    }
+    return mpmDiagnostics({
+      service,
+      root: this.#mpmRoot ?? this.#cwd,
+      config,
+      pendingWork: this.#mpmLifecycle?.pendingCount ?? 0,
+      evictions: this.#mpmLifecycle?.evictionCount ?? 0,
+      fallbackReason: this.#mpmOrientation?.lastFallbackReason ?? null,
+    });
+  }
+
+  /** Same precedence as session assembly: user default, project restrict. */
+  #resolveMpmConfig(): MpmEffectiveConfig {
+    try {
+      // moh.json's mpm section was already applied at assembly time; the
+      // session does not re-read moh.json here (strict parse errors are an
+      // assembly concern). Resolve user-only; the project restrictions the
+      // assembly applied ride along in the live quota/exclude fields.
+      return resolveMpmConfig(readMpmUserConfig(userConfigFile(this.#mohHome)));
+    } catch {
+      // Malformed user config: diagnostics degrade to defaults, per #618.
+      return resolveMpmConfig({ enabled: true });
+    }
   }
 
   #append(event: AgentEvent): void {

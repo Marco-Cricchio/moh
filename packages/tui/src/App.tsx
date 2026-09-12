@@ -57,6 +57,7 @@ import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
 import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
+import { MpmModal } from "./MpmModal";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
@@ -105,7 +106,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -279,6 +280,11 @@ export function App({
 
   const { toasts, push } = useToasts();
   const [memoryFresh, setMemoryFresh] = useState(false);
+  /** #619: live MPM projection status for the footer chip — polled every
+   * 2s while the session is open; null when MPM never activated (the chip
+   * renders nothing). Polling, never transcript events: background MPM
+   * work is chrome, never conversation. */
+  const [mpmStatus, setMpmStatus] = useState<"ready" | "updating" | "unavailable" | null>(null);
   /** #466/ADR-0022: sticky compaction-failure flag — set by
    * `compaction_failed`, cleared by a successful `compaction` marker. */
   const [compactionFailed, setCompactionFailed] = useState(false);
@@ -416,6 +422,23 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
+
+  // #619: MPM status chip — a cheap 2s poll of the session seam. Fail-silent
+  // and cheap (no IO); never appends transcript events or status noise.
+  useEffect(() => {
+    if (!session) return;
+    const read = () => {
+      try {
+        const snap = session.mpmSnapshot();
+        setMpmStatus(snap?.status ?? null);
+      } catch {
+        setMpmStatus(null);
+      }
+    };
+    read();
+    const timer = setInterval(read, 2_000);
+    return () => clearInterval(timer);
+  }, [session]);
 
   // #347: AI SDK warnings are routed through moh's sink (installed at
   // render entry) and surface as one-line warn toasts — never raw
@@ -991,6 +1014,7 @@ export function App({
       unsupportedThinkingLevel={thinkingStatus.unsupported}
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
+      mpmStatus={mpmStatus}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
       onKeepMyBranch={keepMyBranch}
@@ -1050,6 +1074,7 @@ export function App({
         onForkNow: () => void forkNow(),
         growthWarning: () => growth !== null,
         onOpenTree: () => setOverlay("tree"),
+        onOpenMpm: () => setOverlay("mpm"),
       })}
     />
   ) : null;
@@ -1261,6 +1286,9 @@ export function App({
             onRename={(name) => session.rename(name)}
             onClose={() => setOverlay(null)}
           />
+        )}
+        {overlay === "mpm" && session && (
+          <MpmModal diagnostics={session.mpmDiagnostics()} onClose={() => setOverlay(null)} />
         )}
         {overlay === "quota" && session && (
           <QuotaModal
