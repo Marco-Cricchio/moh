@@ -198,6 +198,15 @@ export {
   type MpmQuota,
 } from "./mpm/service";
 export { MpmLifecycle, type MpmLifecycleOptions } from "./mpm/lifecycle";
+export { mpmDiagnostics, type MpmDiagnostics, type MpmLanguageCoverage, type MpmFallbackReason } from "./mpm/diagnostics";
+export {
+  mpmProjectConfigSchema,
+  resolveMpmConfig,
+  readMpmUserConfig,
+  type MpmProjectConfig,
+  type MpmUserConfig,
+  type MpmEffectiveConfig,
+} from "./mpm/config";
 export {
   MPM_FORMAT_VERSION,
   type MpmFileRecord,
