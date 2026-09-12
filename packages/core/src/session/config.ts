@@ -144,6 +144,8 @@ export interface SessionConfig {
     service?: MpmService;
     root?: string;
     quota?: MpmQuota;
+    /** #618: resolved user/project exclusion patterns for discovery. */
+    exclude?: string[];
     lifecycle?: Partial<MpmLifecycleOptions>;
   };
   /**
