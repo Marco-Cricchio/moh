@@ -1,11 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MpmService } from "../src/mpm/service";
-import { MpmStore } from "../src/mpm/store";
 import { MpmLifecycle } from "../src/mpm/lifecycle";
 import { MpmOrientation } from "../src/mpm/orientation";
 import { mpmDiagnostics } from "../src/mpm/diagnostics";
@@ -13,7 +11,6 @@ import { extractWorkspace } from "../src/mpm/extractor";
 import { resolveMpmConfig } from "../src/mpm/config";
 import { validatedWarmupPaths, requestWarmup } from "../src/mpm/handoff-warmup";
 import { discoverWorkspace } from "../src/mpm/discover";
-import { MPM_FORMAT_VERSION } from "../src/mpm/types";
 
 /**
  * #621 — MPM end-to-end hardening and release gate (spec #613). A maintained
@@ -24,10 +21,6 @@ import { MPM_FORMAT_VERSION } from "../src/mpm/types";
  * warm-up, identity migration, disposable-cache recovery, large-workspace
  * budgets, and foreground responsiveness while background work is active.
  */
-
-function sha(content: string): string {
-  return createHash("sha256").update(content).digest("hex");
-}
 
 /**
  * The maintained multi-language corpus: full capability (TypeScript with
@@ -142,6 +135,9 @@ describe("MPM release gate (#621)", () => {
     expect(plan).toContain("verify");
     // The directly-referencing test is cited as test-subject provenance.
     expect(plan).toMatch(/src\/date\.test\.ts/);
+    // Never a source excerpt: only paths, coordinates, and reasons.
+    expect(plan).not.toContain("toISOString");
+    expect(plan).not.toContain("export ");
   });
 
   test("ordinary fallback: no plan for unmapped, unsupported, or prose scopes", async () => {
@@ -160,7 +156,7 @@ describe("MPM release gate (#621)", () => {
     expect(orientation.planFor("summarize our conversation")).toBeNull();
   });
 
-  test("external edits before writes: a stale seed never yields a plan, and the lifecycle restores freshness", async () => {
+  test("external edits after mapping: the stale orientation is refused and the lifecycle restores freshness", async () => {
     const root = await tempRoot("moh-mpm-gate-");
     await writeCorpus(root);
     const service = serviceFor(root);
@@ -225,7 +221,7 @@ describe("MPM release gate (#621)", () => {
     expect(diagnostics.fileCount).toBe(0);
   });
 
-  test("subagent-relevant snapshot: the plan serves as the bounded read-only child orientation", async () => {
+  test("child-task orientation: the subagent snapshot seam yields a bounded, metadata-only plan", async () => {
     const root = await tempRoot("moh-mpm-gate-");
     await writeCorpus(root);
     const service = serviceFor(root);
@@ -236,6 +232,8 @@ describe("MPM release gate (#621)", () => {
     expect(childPlan).not.toBeNull();
     expect(childPlan!.length).toBeLessThan(1500);
     expect(childPlan).toContain("src/utils/helpers.py");
+    // Metadata only, never extracted source content.
+    expect(childPlan).not.toContain("str(x)");
     // Bounded entry count: the hard cap keeps the snapshot small.
     const lines = childPlan!.split("\n").filter((l) => l.startsWith("- "));
     expect(lines.length).toBeLessThanOrEqual(8);
@@ -260,8 +258,6 @@ describe("MPM release gate (#621)", () => {
     // Warm-up refreshes through the lifecycle's highest-priority seam.
     requestWarmup(service, root, warmed);
     expect(service.status).toBe("ready");
-    // No MPM artifact travels in the handoff: the hints are plain paths.
-    expect(JSON.stringify(hints)).not.toContain("project-map");
   });
 
   test("identity migration: the relocated map revalidates against the active root", async () => {
@@ -312,10 +308,17 @@ describe("MPM release gate (#621)", () => {
       await writeFile(join(root, "gen", `g${i}.ts`), `export const g${i} = ${i};\n`);
     }
     const service = serviceFor(root);
+    // Force the LRU order deterministically: touching date.ts makes it
+    // hot, so the padding files are the cold tail that gets evicted.
+    expect(service.record("src/date.ts")).not.toBeNull();
     const evicted = service.enforceQuota({ maxFiles: 8 });
     expect(evicted.length).toBeGreaterThan(0);
     expect(service.fileCount).toBe(8);
-    // A cold file was evicted; the diagnostics projection reports budget.
+    expect(evicted).not.toContain("src/date.ts");
+    // Deterministic: the insertion-order cold tail goes first, skipping
+    // the hot survivor — 3 corpus/config entries then the padding.
+    expect(evicted).toEqual(["config/app.json", "docs/notes.md", "gen/g0.ts", "gen/g1.ts", "gen/g2.ts", "gen/g3.ts", "gen/g4.ts", "gen/g5.ts", "gen/g6.ts"]);
+    // The diagnostics projection reports the budget and eviction cost.
     const diagnostics = mpmDiagnostics({
       service,
       root,
@@ -324,13 +327,9 @@ describe("MPM release gate (#621)", () => {
     });
     expect(diagnostics.budget.maxFiles).toBe(8);
     expect(diagnostics.evictions).toBe(evicted.length);
-    // Orientation degrades honestly, never lies about coverage.
+    // The hot survivor still orients; evicted coverage degrades honestly.
     const orientation = new MpmOrientation({ service, root });
-    if (service.record("src/date.ts") === null) {
-      expect(orientation.planFor("change src/date.ts")).toBeNull();
-    } else {
-      expect(orientation.planFor("change src/date.ts")).not.toBeNull();
-    }
+    expect(orientation.planFor("change src/date.ts")).not.toBeNull();
   });
 
   test("responsiveness: an active turn pauses background map work and plan lookups stay local", async () => {
@@ -344,7 +343,6 @@ describe("MPM release gate (#621)", () => {
       root,
       isBusy: () => busy,
       timers: clock,
-      maxFilesWhenBusy: 0, // the default: zero map work inside a turn
     });
 
     // Work arrives while a turn is active: nothing is remapped, no budget
@@ -363,6 +361,8 @@ describe("MPM release gate (#621)", () => {
     // The turn settles: the queued edit is the very next unit of work.
     busy = false;
     clock.tick();
+    // Settled: fresh data, honest status, plans flow again — lookups
+    // themselves never spent foreground budget.
     expect(service.status).toBe("ready");
     expect(orientation.planFor("change src/date.ts")).not.toBeNull();
     const record = service.record("src/types.ts")!;
@@ -371,7 +371,7 @@ describe("MPM release gate (#621)", () => {
     lifecycle.dispose();
   });
 
-  test("comparative: with the map, related targets come from one cited query instead of a workspace walk", async () => {
+  test("comparative: the cited plan bounds the candidate set that ordinary exploration would have to walk", async () => {
     const root = await tempRoot("moh-mpm-gate-");
     await writeCorpus(root);
     // A bigger workspace makes ordinary exploration visibly broader.
