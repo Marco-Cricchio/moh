@@ -65,6 +65,8 @@ export interface ChatProps {
   contextLimit?: number;
   workflowOn?: boolean;
   memoryFresh?: boolean;
+  /** #619: live MPM status chip (null renders nothing). */
+  mpmStatus?: "ready" | "updating" | "unavailable" | null;
   /** #466/ADR-0022: sticky compaction-failure indicator. */
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
@@ -142,6 +144,7 @@ export function Chat({
   contextLimit,
   workflowOn = false,
   memoryFresh = false,
+  mpmStatus = null,
   compactionFailed = false,
   growthWarning = null,
   onKeepMyBranch,
@@ -1101,6 +1104,7 @@ export function Chat({
         unsupportedLevel={unsupportedThinkingLevel}
         workflowOn={workflowOn}
         memoryFresh={memoryFresh}
+        mpmStatus={mpmStatus}
         compactionFailed={compactionFailed}
         growthWarning={growthWarning}
         onKeepMyBranch={onKeepMyBranch}

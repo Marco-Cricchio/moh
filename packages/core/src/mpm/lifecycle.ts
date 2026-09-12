@@ -79,6 +79,8 @@ export class MpmLifecycle {
   #mtimeCache = new Map<string, number>();
   /** In-progress incremental sweep: remaining candidates and cursor. */
   #sweepCursor: { files: string[]; index: number } | null = null;
+  /** #619: cumulative paths evicted by the LRU quota policy this process. */
+  #evictions = 0;
 
   constructor(options: MpmLifecycleOptions) {
     this.#service = options.service;
@@ -129,6 +131,11 @@ export class MpmLifecycle {
   /** Paths currently awaiting debounced refresh (diagnostics/tests). */
   get pendingCount(): number {
     return this.#dirty.size + this.#editQueue.length;
+  }
+
+  /** #619: paths evicted by quota enforcement this process (diagnostics). */
+  get evictionCount(): number {
+    return this.#evictions;
   }
 
   /** Pump the debounce window and run at most one sweep slice. */
@@ -257,7 +264,7 @@ export class MpmLifecycle {
       this.#service.setUpdating(false);
     }
     // Storage bound: evict LRU entries after any growth.
-    this.#service.enforceQuota(this.#quota);
+    this.#evictions += this.#service.enforceQuota(this.#quota).length;
   }
 
   /** Targeted hash check (reads one file) used only on mtime drift. */

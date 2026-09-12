@@ -77,6 +77,9 @@ export interface SlashContext {
   /** #581: opens the /tree panel (session-tree topology view). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenTree?: () => void;
+  /** #619: opens the project-map inspection modal (/mpm). Absent
+   * (headless): the command explains it needs the TUI. */
+  onOpenMpm?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -400,6 +403,19 @@ const treeCommand: SlashCommand = {
   },
 };
 
+/** #619: opens the project-map inspection modal — the same read-only
+ * diagnostic concepts as `moh mpm`, in-process. */
+const mpmCommand: SlashCommand = {
+  name: "mpm",
+  description: "project map status and diagnostics (MPM)",
+  usage: "/mpm",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/mpm needs an open session");
+    if (!ctx.onOpenMpm) return ctx.notify("/mpm needs the TUI session shell");
+    ctx.onOpenMpm();
+  },
+};
+
 /** #468/ADR-0020: the explicit fork action, reachable only while the
  * session-file-growth warning is up — no general fork command. */
 const forkCommand: SlashCommand = {
@@ -531,6 +547,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   helpCommand,
   modeCommand,
   modelCommand,
+  mpmCommand,
   reloadCommand,
   renameCommand,
   settingsCommand,

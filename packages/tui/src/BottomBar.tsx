@@ -76,6 +76,9 @@ interface StatusProps {
   unsupportedLevel?: ThinkingLevel;
   workflowOn?: boolean;
   memoryFresh?: boolean;
+  /** #619: live MPM projection state for the first status row — null when
+   * MPM never activated (nothing renders, never a placeholder). */
+  mpmStatus?: "ready" | "updating" | "unavailable" | null;
   /** #466/ADR-0022: sticky compaction-failure indicator — set by
    * `compaction_failed`, cleared by the next successful marker. */
   compactionFailed?: boolean;
@@ -100,6 +103,19 @@ interface StatusProps {
   /** #328: active update notice — left-aligned on row 2; the right-aligned
    * cwd/branch/mode tail is never displaced or dropped (the notice elides). */
   updateMessage?: string;
+}
+
+/** #619: the MPM status chip on the first status row, next to memory.
+ * Silent and inspectable (owner decision): ✓ ready / ↻ updating / —
+ * unavailable, with the word only when the terminal is wide. */
+export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "updating" | "unavailable"; wide: boolean; theme: Theme }) {
+  const spec = status === "ready"
+    ? { glyph: "✓", color: theme.ok }
+    : status === "updating"
+      ? { glyph: "↻", color: theme.accent }
+      : { glyph: "—", color: theme.dim };
+  const label = status === "ready" ? "map" : status === "updating" ? "mapping" : "no map";
+  return <Text color={spec.color}>{wide ? `${spec.glyph} ${label}` : spec.glyph}</Text>;
 }
 
 function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: number; width: number; theme: Theme }) {
@@ -200,7 +216,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
+        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
