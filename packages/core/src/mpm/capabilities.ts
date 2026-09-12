@@ -1,5 +1,5 @@
 import { dirname, extname, join, posix } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import type { MpmRelation, MpmSymbol } from "./types";
 
 /**
@@ -121,6 +121,7 @@ export const MPM_CAPABILITIES: readonly MpmLanguageCapability[] = [
   typescriptLike("typescript", [".ts", ".tsx", ".mts", ".cts"]),
   typescriptLike("javascript", [".js", ".jsx", ".mjs", ".cjs"]),
   ...tierALanguages(),
+  ...tierBLanguages(),
   configuration("json-config", [".json"]),
   configuration("yaml-config", [".yaml", ".yml"]),
   configuration("toml-config", [".toml"]),
@@ -350,6 +351,280 @@ function luaCapability(): MpmLanguageCapability {
       return null;
     },
   };
+}
+
+/** #639 Tier B: module-based languages — relations resolve via project files (ADR-0025). */
+function tierBLanguages(): MpmLanguageCapability[] {
+  return [rustCapability(), csharpCapability(), swiftCapability(), kotlinCapability()];
+}
+
+/** Shared Tier B helper: walk up from the importing file to the nearest anchor file. */
+function nearestAnchor(root: string, fromPath: string, anchor: string): { dir: string; content: string } | null {
+  const parts = dirname(fromPath).split("/");
+  for (let i = parts.length; i >= 0; i--) {
+    const dir = parts.slice(0, i).join("/");
+    try {
+      const content = readFileSync(join(root, dir, anchor), "utf8");
+      return { dir, content };
+    } catch {
+      // No anchor at this level; keep walking up.
+    }
+  }
+  return null;
+}
+
+// ─── Rust ──────────────────────────────────────────────────────────────────
+
+function rustCapability(): MpmLanguageCapability {
+  return {
+    name: "rust",
+    extensions: [".rs"],
+    files: ["Cargo.toml"],
+    families: new Set<MpmRelationFamily>(["imports", "config-links"]),
+    extract(content: string) {
+      const symbols: MpmSymbol[] = [];
+      const relations: Omit<MpmRelation, "target">[] = [];
+      for (const [i, line] of content.split("\n").entries()) {
+        // mod declarations are the compiler's own module→file rule: the only
+        // module reference that pins a file without any project context.
+        const mod = line.match(/^\s*(?:pub\s+)?mod\s+([A-Za-z_]\w*)\s*;/);
+        if (mod) {
+          relations.push({ kind: "imports", via: `mod:${mod[1]}`, line: i + 1 });
+          continue;
+        }
+        const use_ = line.match(/^\s*(?:pub\s+)?use\s+crate::([\w:]+)\s*;/);
+        if (use_) relations.push({ kind: "imports", via: `crate:${use_[1]}`, line: i + 1 });
+        const fn = line.match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/);
+        if (fn) symbols.push({ name: fn[1], kind: "function", line: i + 1 });
+        const st = line.match(/^\s*(?:pub\s+)?struct\s+([A-Za-z_]\w*)/);
+        if (st) symbols.push({ name: st[1], kind: "class", line: i + 1 });
+        const en = line.match(/^\s*(?:pub\s+)?(?:enum|trait)\s+([A-Za-z_]\w*)/);
+        if (en) symbols.push({ name: en[1], kind: "interface", line: i + 1 });
+      }
+      return { symbols, relations };
+    },
+    resolveTarget(via, fromPath, known, root) {
+      const fromDir = dirname(fromPath);
+      if (via.startsWith("mod:")) {
+        // lib.rs/main.rs: `<name>.rs` or `<name>/mod.rs` next to the file.
+        const name = via.slice(4);
+        for (const candidate of [`${fromDir}/${name}.rs`, `${fromDir}/${name}/mod.rs`]) {
+          if (known.has(candidate)) return candidate;
+        }
+        return null;
+      }
+      if (!via.startsWith("crate:")) return null;
+      // `use crate::a::b` — walk up to the crate root (the directory with
+      // main.rs / lib.rs / a bin/lib target), then follow mod-file layout.
+      const segs = via.slice(6).split(":");
+      let anchor: { dir: string } | null = null;
+      const modParts = dirname(fromPath).split("/");
+      for (let i = modParts.length; i >= 0; i--) {
+        const dir = modParts.slice(0, i).join("/");
+        if (known.has(`${dir}/main.rs`) || known.has(`${dir}/lib.rs`)) {
+          anchor = { dir };
+          break;
+        }
+      }
+      if (!anchor) return null;
+      // Follow mod-file layout through the segments. Rust semantics: the
+      // last segment may be an *item* inside the module file rather than a
+      // file itself — so try the full path as files first; if only the
+      // prefix resolves, the target is the file of that prefix module.
+      const dir0 = anchor.dir;
+      let dir = dir0;
+      let lastMatched: string | null = null;
+      for (let s = 0; s < segs.length; s++) {
+        const candidates = [`${dir}/${segs[s]}.rs`, `${dir}/${segs[s]}/mod.rs`];
+        let matched: string | null = null;
+        for (const candidate of candidates) {
+          if (known.has(candidate)) {
+            matched = candidate;
+            break;
+          }
+        }
+        if (!matched) break;
+        lastMatched = matched;
+        if (s < segs.length - 1) {
+          dir = matched.endsWith("/mod.rs") ? matched.slice(0, -"/mod.rs".length) : dirname(matched);
+        }
+      }
+      // A reference is provable when every segment before the last resolved
+      // to a module file; the last segment may be the file itself or an
+      // item within it.
+      return lastMatched;
+    },
+  };
+}
+
+// ─── C# ────────────────────────────────────────────────────────────────────
+
+function csharpCapability(): MpmLanguageCapability {
+  return {
+    name: "csharp",
+    extensions: [".cs"],
+    families: new Set<MpmRelationFamily>(["references"]),
+    extract(content: string) {
+      const symbols: MpmSymbol[] = [];
+      const relations: Omit<MpmRelation, "target">[] = [];
+      for (const [i, line] of content.split("\n").entries()) {
+        const ns = line.match(/^\s*(?:namespace\s+([\w.]+))/);
+        if (ns) relations.push({ kind: "references", via: `ns:${ns[1]}`, line: i + 1 });
+        const use_ = line.match(/^\s*(?:global\s+)?using\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;/);
+        if (use_) relations.push({ kind: "references", via: `ns:${use_[1]}`, line: i + 1 });
+        const cls = line.match(/^\s*(?:public|internal|private|protected)?\s*(?:sealed\s+|abstract\s+|static\s+|partial\s+)*(class|interface|struct|record|enum)\s+([A-Za-z_]\w*)/);
+        if (cls) {
+          const kind = cls[1] === "interface" || cls[1] === "enum" ? "interface" : "class";
+          symbols.push({ name: cls[2], kind, line: i + 1 });
+        }
+      }
+      return { symbols, relations };
+    },
+    resolveTarget(via, fromPath, known, root) {
+      // `ns:<namespace>` — provable only when the nearest *.csproj exists
+      // and exactly one discovered .cs file declares that namespace (we
+      // re-read the declaring files; namespaces are literal text, so this
+      // is verification, not inference). Ambiguous or missing → silent.
+      if (!via.startsWith("ns:")) return null;
+      const csproj = nearestMatchingExtension(root, fromPath, ".csproj");
+      if (!csproj) return null;
+      const ns = via.slice(3);
+      const nsDecl = new RegExp(`^\\s*namespace\\s+${ns.replace(/\./g, "\\.")}\\s*[;{]`, "m");
+      const candidates = [...known].filter((p) => {
+        if (!p.endsWith(".cs") || p === fromPath) return false;
+        try {
+          return nsDecl.test(readFileSync(join(root, p), "utf8"));
+        } catch {
+          return false;
+        }
+      });
+      return candidates.length === 1 ? candidates[0] : null;
+    },
+  };
+}
+
+/** Nearest file with the given extension walking up from fromPath (Tier B anchor). */
+function nearestMatchingExtension(root: string, fromPath: string, ext: string): { dir: string } | null {
+  const parts = dirname(fromPath).split("/");
+  for (let i = parts.length; i >= 0; i--) {
+    const dir = parts.slice(0, i).join("/");
+    try {
+      if (readdirSync(join(root, dir)).some((e) => e.endsWith(ext))) return { dir };
+    } catch {
+      // keep walking
+    }
+  }
+  return null;
+}
+
+// ─── Swift ─────────────────────────────────────────────────────────────────
+
+function swiftCapability(): MpmLanguageCapability {
+  return {
+    name: "swift",
+    extensions: [".swift"],
+    files: ["Package.swift"],
+    families: new Set<MpmRelationFamily>(["references"]),
+    extract(content: string) {
+      const symbols: MpmSymbol[] = [];
+      const relations: Omit<MpmRelation, "target">[] = [];
+      for (const [i, line] of content.split("\n").entries()) {
+        const imp = line.match(/^\s*(?:@testable\s+)?import\s+([A-Za-z_]\w*)/);
+        if (imp) relations.push({ kind: "references", via: `module:${imp[1]}`, line: i + 1 });
+        const cls = line.match(/^\s*(?:public\s+|open\s+|internal\s+|private\s+|final\s+)*(class|struct|enum|protocol|actor)\s+([A-Za-z_]\w*)/);
+        if (cls) {
+          const kind = cls[1] === "protocol" || cls[1] === "enum" ? "interface" : "class";
+          symbols.push({ name: cls[2], kind, line: i + 1 });
+        }
+        const fn = line.match(/^\s*(?:public\s+|open\s+|internal\s+|private\s+|static\s+)*(?:func\s+)([A-Za-z_]\w*)/);
+        if (fn) symbols.push({ name: fn[1], kind: "function", line: i + 1 });
+      }
+      return { symbols, relations };
+    },
+    resolveTarget(via, fromPath, known, root) {
+      // `module:<Name>` — provable only when the nearest Package.swift
+      // declares a target whose name matches AND the target's source
+      // directory maps literally under Sources/<Name>/. Pick the discovered
+      // swift file in that directory deterministically; ambiguous → silent.
+      if (!via.startsWith("module:")) return null;
+      const name = via.slice(7);
+      const anchor = nearestAnchor(root, fromPath, "Package.swift");
+      if (!anchor) return null;
+      if (!anchor.content.includes(`.target(name: "${name}"`)) return null;
+      const dir = `${anchor.dir ? `${anchor.dir}/` : ""}Sources/${name}`;
+      const candidates = [...known].filter((p) => p.startsWith(`${dir}/`) && p.endsWith(".swift"));
+      return candidates.length === 1 ? candidates[0] : null;
+    },
+  };
+}
+
+// ─── Kotlin ────────────────────────────────────────────────────────────────
+
+function kotlinCapability(): MpmLanguageCapability {
+  return {
+    name: "kotlin",
+    extensions: [".kt", ".kts"],
+    families: new Set<MpmRelationFamily>(["references"]),
+    extract(content: string) {
+      const symbols: MpmSymbol[] = [];
+      const relations: Omit<MpmRelation, "target">[] = [];
+      for (const [i, line] of content.split("\n").entries()) {
+        const pkg = line.match(/^\s*package\s+([\w.]+)/);
+        if (pkg) relations.push({ kind: "references", via: `pkg:${pkg[1]}`, line: i + 1 });
+        const imp = line.match(/^\s*import\s+([\w.]+)\s*$/);
+        // Only the last segment beyond a proven package root is useful at
+        // resolution time; pass the full dotted path and let the resolver
+        // walk it. `import a.b.C` — the resolver pins a.b to a directory
+        // and C to a file.
+        if (imp) relations.push({ kind: "references", via: `pkg:${imp[1]}`, line: i + 1 });
+        const cls = line.match(/^\s*(?:public\s+|private\s+|internal\s+|open\s+|abstract\s+|sealed\s+|data\s+)*(class|interface|object|enum\s+class)\s+([A-Za-z_]\w*)/);
+        if (cls) {
+          const kind = cls[1] === "interface" || cls[1].includes("enum") ? "interface" : "class";
+          symbols.push({ name: cls[2], kind, line: i + 1 });
+        }
+        const fn = line.match(/^\s*(?:public\s+|private\s+|internal\s+|open\s+|override\s+|suspend\s+)*fun\s+(?:<[^>]+>\s+)?(?:[A-Za-z_][\w.<>]*\.)?([A-Za-z_]\w*)\s*\(/);
+        if (fn) symbols.push({ name: fn[1], kind: "function", line: i + 1 });
+      }
+      return { symbols, relations };
+    },
+    resolveTarget(via, fromPath, known, root) {
+      // `pkg:<package>[.Member]` — provable only when a Gradle/Maven
+      // source-set root makes the package-to-directory mapping literal:
+      // find the nearest build file, then the unique discovered Kotlin file
+      // matching the dotted path (last segment = file, rest = directory).
+      if (!via.startsWith("pkg:")) return null;
+      const buildAnchor =
+        nearestMatchingAnchorFile(root, fromPath, "build.gradle.kts") ??
+        nearestMatchingAnchorFile(root, fromPath, "build.gradle") ??
+        nearestMatchingAnchorFile(root, fromPath, "pom.xml");
+      if (!buildAnchor) return null;
+      const segs = via.slice(4).split(".");
+      const srcRoots = ["src/main/kotlin", "src/main/java", "src/test/kotlin", "src/test/java"];
+      for (const src of srcRoots) {
+        const base = `${buildAnchor.dir}/${src}`;
+        // Full path as file (package segments + member file name).
+        for (let split = segs.length; split >= 1; split--) {
+          const dir = `${base}/${segs.slice(0, split - 1).join("/")}`;
+          const candidate = `${dir}/${segs[split - 1]}.kt`;
+          if (known.has(candidate) && candidate !== fromPath) return candidate;
+        }
+      }
+      return null;
+    },
+  };
+}
+
+function nearestMatchingAnchorFile(root: string, fromPath: string, name: string): { dir: string } | null {
+  const parts = dirname(fromPath).split("/");
+  for (let i = parts.length; i >= 0; i--) {
+    const dir = parts.slice(0, i).join("/");
+    try {
+      if (readdirSync(join(root, dir)).includes(name)) return { dir };
+    } catch {
+      // keep walking
+    }
+  }
+  return null;
 }
 
 export function capabilityForPath(path: string): MpmLanguageCapability | null {
