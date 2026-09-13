@@ -23,10 +23,10 @@ TUI resume.
 ## Version negotiation
 
 The first client message must be `initialize` carrying
-`protocolVersion`. This build speaks protocol version **1**. A
-mismatching version is rejected with a typed `error` (code
-`"version"`) carrying the supported version, and the session is not
-created.
+`protocolVersion` (an omitted version defaults to 1, the version this
+build speaks). A mismatching version is rejected with a typed `error`
+(code `"version"`) carrying the supported version, and the session is
+not created.
 
 ## Messages: client → moh
 
@@ -39,7 +39,9 @@ created.
 | `ping` | — | answered by `pong`. |
 
 Anything else is rejected with a typed `error` — no passthrough of
-arbitrary core calls.
+arbitrary core calls. `id` is a caller-side correlation concern; moh
+echoes it back verbatim and never validates its format. `ping` works
+even before `initialize` (liveness probe).
 
 ## Messages: moh → client
 

@@ -64,6 +64,9 @@ interface PendingPermission {
   resolve: (decision: "yes" | "always" | "no") => void;
 }
 
+/** Control-flow sentinel: handleInitialize already answered bad_message. */
+const badMessageSentinel = Symbol("bad-message");
+
 export async function serveCommand(options: ServeOptions): Promise<number> {
   const out = options.stdout ?? process.stdout;
   const err = options.stderr ?? process.stderr;
@@ -156,16 +159,12 @@ export async function serveCommand(options: ServeOptions): Promise<number> {
       write({ type: "pong", ...(id !== undefined ? { id } : {}) });
       return;
     }
-    if (!initialized) {
-      if (type !== "initialize") {
-        writeError(`expected "initialize" as the first message, got "${type}"`, "not_initialized", id);
-        return;
-      }
-      await handleInitialize(msg);
+    if (type === "initialize") {
+      await routeInitialize(msg);
       return;
     }
-    if (type === "initialize") {
-      writeError("session already initialized", "already_initialized", id);
+    if (!initialized) {
+      writeError(`expected "initialize" as the first message, got "${type}"`, "not_initialized", id);
       return;
     }
     if (type === "send") {
@@ -209,6 +208,16 @@ export async function serveCommand(options: ServeOptions): Promise<number> {
     writeError(`unknown message type "${type}"`, "bad_message", typeof id === "number" ? id : undefined);
   };
 
+  /** Route the already-gated `initialize` message. */
+  const routeInitialize = async (msg: Json): Promise<boolean> => {
+    if (initialized) {
+      writeError("session already initialized", "already_initialized", msg.id);
+      return false;
+    }
+    await handleInitialize(msg);
+    return true;
+  };
+
   const handleInitialize = async (msg: Json) => {
     const requested = msg.protocolVersion ?? PROTOCOL_VERSION;
     if (requested !== PROTOCOL_VERSION) {
@@ -218,14 +227,32 @@ export async function serveCommand(options: ServeOptions): Promise<number> {
     const cwd = pathResolve(
       typeof msg.cwd === "string" ? msg.cwd : parsed.strings["cwd"] ?? options.cwd ?? process.cwd(),
     );
-    const allow = [
-      ...(parsed.lists["allow"] ?? []),
-      ...(Array.isArray(msg.allow) ? (msg.allow as unknown[]).filter((r): r is string => typeof r === "string") : []),
-    ];
-    const deny = [
-      ...(parsed.lists["deny"] ?? []),
-      ...(Array.isArray(msg.deny) ? (msg.deny as unknown[]).filter((r): r is string => typeof r === "string") : []),
-    ];
+    const allow: string[] = [...(parsed.lists["allow"] ?? [])];
+    const deny: string[] = [...(parsed.lists["deny"] ?? [])];
+    // Fail-loud (#525): a non-string rule in the initialize body is a
+    // bad message, never a silently dropped entry (no silent fallbacks).
+    const collectRules = (key: "allow" | "deny") => {
+      const raw = msg[key];
+      if (raw === undefined) return;
+      if (!Array.isArray(raw)) {
+        writeError(`"${key}" must be an array of rule strings`, "bad_message", msg.id);
+        throw badMessageSentinel;
+      }
+      for (const r of raw) {
+        if (typeof r !== "string") {
+          writeError(`"${key}" must contain only rule strings, got ${JSON.stringify(r)}`, "bad_message", msg.id);
+          throw badMessageSentinel;
+        }
+        (key === "allow" ? allow : deny).push(r);
+      }
+    };
+    try {
+      collectRules("allow");
+      collectRules("deny");
+    } catch (e) {
+      if (e === badMessageSentinel) return;
+      throw e;
+    }
     let cliOverrides;
     try {
       cliOverrides = overridesFromFlags(allow, deny);
