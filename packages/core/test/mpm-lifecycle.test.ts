@@ -39,6 +39,35 @@ async function seedWorkspace(root: string): Promise<void> {
 
 
 describe("MpmLifecycle (#617)", () => {
+  test("an external edit before the first scan is not adopted stale (ADR-0026 era regression)", async () => {
+    const root = await tempRoot();
+    const mapDir = join(root, "project-map");
+    try {
+      await seedWorkspace(root);
+      const service = new MpmService(mapDir);
+      service.rebuild(extractWorkspace(root));
+      const clock = fakeTimers();
+      const lifecycle = new MpmLifecycle({ service, root, timers: clock });
+
+      // Scenario: the user edits a file externally BEFORE the session's
+      // first periodic scan (e.g. opens moh right after editing). The
+      // first-sight adopt once accepted the on-disk state blind, freezing
+      // the stale mapped record forever (mtime then matched the snapshot).
+      // The scan must hash-check first sight and refresh the drift.
+      await writeFile(join(root, "src", "a.ts"), "export function a2() {}\n");
+      clock.advance(10_000);
+      clock.tick();
+      expect(service.record("src/a.ts")!.symbols[0]!.name).toBe("a2");
+      const { createHash } = await import("node:crypto");
+      const content = await import("node:fs/promises").then((m) => m.readFile(join(root, "src", "a.ts"), "utf8"));
+      expect(service.record("src/a.ts")!.hash).toBe(createHash("sha256").update(content).digest("hex"));
+      expect(service.status).toBe("ready");
+      lifecycle.dispose();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("external edit refreshes the projection after the debounce window", async () => {
     const root = await tempRoot();
     const mapDir = join(root, "project-map");
@@ -59,10 +88,12 @@ describe("MpmLifecycle (#617)", () => {
       await writeFile(join(root, "src", "b.ts"), "export const b = 1;\n");
       lifecycle.noteExternalChange("src/b.ts");
 
-      // Before the debounce window elapses: untouched.
+      // First scan adopts the baseline mtimes (hash matches, no churn);
+      // the not-yet-debounced external entry is superseded by the scan's
+      // own hash detection — the drift is already corrected here.
       clock.advance(100);
       clock.tick();
-      expect(service.record("src/b.ts")!.relations.length).toBe(1);
+      expect(service.record("src/b.ts")!.relations.length).toBe(0);
 
       clock.advance(500);
       clock.tick();
