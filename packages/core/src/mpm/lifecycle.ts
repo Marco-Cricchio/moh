@@ -241,11 +241,11 @@ export class MpmLifecycle {
       if (!known) {
         // New file: map it when the projection already has useful coverage.
         if (this.#service.fileCount > 0) changed.push(path);
-      } else if (prevMtime === undefined) {
-        // First sight this session: adopt without a hash pass.
-        this.#mtimeCache.set(path, mtimeMs);
-      } else if (prevMtime !== mtimeMs) {
-        // mtime drifted: a hash check decides (avoids spurious rewrites).
+      } else if (prevMtime === undefined || prevMtime !== mtimeMs) {
+        // First sight this session, or mtime drifted: a hash check decides.
+        // First sight MUST hash too — the mtime snapshot is session-local,
+        // so an edit made before the session started (mtime ≠ mapped hash)
+        // would otherwise be adopted blind and frozen stale forever.
         if (this.#hashMatches(path)) this.#mtimeCache.set(path, mtimeMs);
         else changed.push(path);
       }
