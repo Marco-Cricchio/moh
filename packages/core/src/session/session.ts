@@ -254,7 +254,7 @@ export class AgentSession {
         this.#mpmLifecycle = new MpmLifecycle({
           service,
           root: config.mpm.root ?? this.#cwd,
-          isBusy: () => this.#queue.pending() !== null,
+          isBusy: () => this.#queue.pending(),
           quota: config.mpm.quota,
           exclude: config.mpm.exclude,
           ...config.mpm.lifecycle,
