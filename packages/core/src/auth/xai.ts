@@ -7,7 +7,7 @@
  * (already wired by #159).
  */
 import type { AuthToken, XaiAuthOverrides } from "./types";
-import { confirmToSWarningFor, type AuthorizationIo } from "./oauth";
+import { confirmToSWarningFor, oidcEmailFromIdToken, type AuthorizationIo } from "./oauth";
 import { pollDeviceCodeFlow, type DeviceFlowClock, type DevicePollOptions, type DevicePollResult } from "./device-code";
 
 export const XAI_OAUTH_DEFAULTS = {
@@ -127,12 +127,18 @@ function tokenFromResponse(
     typeof rawExpires === "number" && Number.isFinite(rawExpires) && rawExpires > 0
       ? rawExpires
       : DEFAULT_TOKEN_LIFETIME_SECONDS;
+  // Display-only identity (as in openai.ts): the standard OIDC email
+  // claim from the id_token, when the response carries one.
+  const email = oidcEmailFromIdToken(
+    typeof json.id_token === "string" ? json.id_token : undefined,
+  );
   return {
     accessToken: access,
     refreshToken: rawRefresh,
     expiresAt: now + expiresInSeconds * 1000 - XAI_REFRESH_SKEW_MS,
     grant: { provider: "xai" },
     updatedAt: now,
+    ...(email ? { account: { email } } : {}),
   };
 }
 

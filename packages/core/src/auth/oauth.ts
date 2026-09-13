@@ -29,6 +29,21 @@ import { isOAuthBuiltinKind } from "../wire";
 /** Default callback wait: 5 minutes, matching the official CLIs. */
 export const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** Best-effort decode of an id_token payload's standard OIDC `email`
+ * claim (display-only, unverified — mirrors openai.ts/google.ts). No-op
+ * when the token is absent or malformed. */
+export function oidcEmailFromIdToken(idToken: string | undefined): string | undefined {
+  if (!idToken) return undefined;
+  const parts = idToken.split(".");
+  if (parts.length !== 3) return undefined;
+  try {
+    const claims = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as Record<string, unknown>;
+    return typeof claims.email === "string" && claims.email.length > 0 ? claims.email : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function base64url(bytes: Buffer): string {
   return bytes.toString("base64url");
 }

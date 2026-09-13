@@ -13,6 +13,11 @@ import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens } from "../src/auth/store";
 import { Endpoint } from "../src/route";
 import type { AuthorizationIo } from "../src/auth/oauth";
+
+function makeIdToken(claims: Record<string, unknown> = {}): string {
+  const b64 = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+  return `${b64({ alg: "RS256" })}.${b64(claims)}.${b64({ sig: true })}`;
+}
 import type { DeviceFlowClock } from "../src/auth/device-code";
 import type { AuthToken } from "../src/auth/types";
 
@@ -91,6 +96,31 @@ describe("loginKimiCoding", () => {
     expect(fetchImpl.calls[0]!.url).toBe("https://auth.kimi.com/api/oauth/device_authorization");
     expect(fetchImpl.calls[2]!.url).toBe("https://auth.kimi.com/api/oauth/token");
     expect(fetchImpl.calls[2]!.body.grant_type).toBe("urn:ietf:params:oauth:grant-type:device_code");
+  });
+
+  test("standard OIDC email claim is retained when the id_token carries one", async () => {
+    const fetchImpl = scriptedEndpoint([
+      DEVICE,
+      { status: 400, json: { error: "authorization_pending" } },
+      {
+        status: 200,
+        json: {
+          access_token: "at-1", refresh_token: "rt-1", expires_in: 3600,
+          id_token: makeIdToken({ email: "user@example.com" }),
+        },
+      },
+    ]);
+    const token = await loginKimiCoding(IO, { fetchImpl, now: NOW, clock: fastClock });
+    expect(token.account).toEqual({ email: "user@example.com" });
+  });
+
+  test("no id_token in the response keeps account absent", async () => {
+    const fetchImpl = scriptedEndpoint([
+      DEVICE,
+      { status: 200, json: { access_token: "at-1", refresh_token: "rt-1", expires_in: 3600 } },
+    ]);
+    const token = await loginKimiCoding(IO, { fetchImpl, now: NOW, clock: fastClock });
+    expect(token.account).toBeUndefined();
   });
 
   test("untrusted verification_uri is rejected", async () => {

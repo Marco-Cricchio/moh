@@ -10,7 +10,7 @@
  * riding per-model via #164.
  */
 import type { AuthToken, KimiCodingAuthOverrides } from "./types";
-import { confirmToSWarningFor, type AuthorizationIo } from "./oauth";
+import { confirmToSWarningFor, oidcEmailFromIdToken, type AuthorizationIo } from "./oauth";
 import { pollDeviceCodeFlow, type DeviceFlowClock, type DevicePollOptions, type DevicePollResult } from "./device-code";
 
 export const KIMI_CODE_OAUTH_DEFAULTS = {
@@ -134,12 +134,16 @@ function tokenFromResponse(json: Record<string, unknown>, now: number): AuthToke
   ) {
     throw new Error(`Kimi Code token response missing fields: ${JSON.stringify(json)}`);
   }
+  const email = oidcEmailFromIdToken(typeof json.id_token === "string" ? json.id_token : undefined);
   return {
     accessToken: access,
     refreshToken: refresh,
     expiresAt: now + expiresIn * 1000,
     grant: { provider: "kimi-coding" },
     updatedAt: now,
+    // Display-only identity (as in openai.ts): the standard OIDC email
+    // claim from the id_token, when the response carries one.
+    ...(email ? { account: { email } } : {}),
   };
 }
 
