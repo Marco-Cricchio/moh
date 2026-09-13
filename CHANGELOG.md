@@ -7,6 +7,18 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.32.2] - 2026-09-13
+### Fixed
+
+- **MPM lifecycle livelock** (PR #660): the session wired the lifecycle's
+  `isBusy` as `queue.pending() !== null`, but `pending()` returns a boolean —
+  the comparison was always true, so the lifecycle believed a turn was
+  perpetually active: sweep budget permanently zero, external drift never
+  refreshed, and the TUI status chip stuck on `updating` ("mapping") for the
+  whole session. The boolean now passes through; a session-level regression
+  test (injectable timers) verifies the drift is mapped and the status
+  converges back to `ready`.
+
 ## [0.32.1] - 2026-09-13
 ### Fixed
 
@@ -109,7 +121,8 @@ matching section here at tag time.
     scenario proving the cited plan bounds the candidate set that ordinary
     exploration would have to walk.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.32.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.32.2...develop
+[0.32.2]: https://github.com/Marco-Cricchio/moh/compare/v0.32.1...v0.32.2
 [0.32.1]: https://github.com/Marco-Cricchio/moh/compare/v0.32.0...v0.32.1
 [0.32.0]: https://github.com/Marco-Cricchio/moh/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/Marco-Cricchio/moh/compare/v0.30.0...v0.31.0
