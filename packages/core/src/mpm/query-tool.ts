@@ -1,11 +1,9 @@
 import { z } from "zod";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
 import type { Tool } from "../types";
 import type { MpmService } from "./service";
 import type { MpmProvenance } from "./types";
-import type { MpmOrientation } from "./orientation";
+import { currentHash, type MpmOrientation } from "./orientation";
 
 /**
  * #663 (ADR-0028): the `mpm_query` read-only tool — model-nominated
@@ -36,16 +34,6 @@ interface ResultEntry {
   reason: string;
 }
 
-/** Hash the file like the extractor/orientation do, to verify freshness. */
-function currentHash(absPath: string): string | null {
-  try {
-    if (!existsSync(absPath) || !statSync(absPath).isFile()) return null;
-    return createHash("sha256").update(readFileSync(absPath)).digest("hex");
-  } catch {
-    return null;
-  }
-}
-
 export interface MpmQueryToolOptions {
   service: MpmService;
   root: string;
@@ -59,24 +47,24 @@ export interface MpmQueryToolOptions {
 function resolveSeed(
   raw: string,
   service: MpmService,
-): { path: string; how: "path" | "suffix" | "symbol" } | { path: null; how: "unmapped" } {
+): { path: string; how: "path" | "suffix" | "symbol"; candidates: string[] } | { path: null; how: "unmapped" | "ambiguous"; candidates: string[] } {
   const stripped = raw.trim().replace(/^[./@]+/, "").replace(/[.,;:)]+$/, "");
-  if (stripped.length === 0) return { path: null, how: "unmapped" };
+  if (stripped.length === 0) return { path: null, how: "unmapped", candidates: [] };
   // Exact path first.
-  if (service.record(stripped) !== null) return { path: stripped, how: "path" };
-  // Unique path suffix (any mapped path ending with `/seed` or matching the base name exactly once).
-  const candidates = new Set<string>();
+  if (service.record(stripped) !== null) return { path: stripped, how: "path", candidates: [stripped] };
+  // Unique path-suffix match at a path-segment boundary (`/seed` or the whole
+  // base name ending the path) — a mid-name substring is not a suffix.
+  const candidates: string[] = [];
   for (const path of service.allPaths()) {
     if (path === stripped) continue; // already tried as exact
-    const idx = path.indexOf(stripped);
-    if (idx > 0 && (idx + stripped.length === path.length)) candidates.add(path);
+    if (path.endsWith(`/${stripped}`)) candidates.push(path);
   }
-  if (candidates.size === 1) return { path: [...candidates][0]!, how: "suffix" };
-  if (candidates.size > 1) return { path: null, how: "unmapped" };
+  if (candidates.length === 1) return { path: candidates[0]!, how: "suffix", candidates };
+  if (candidates.length > 1) return { path: null, how: "ambiguous", candidates };
   // Symbol name.
   const symbols = service.pathsForSymbol(stripped);
-  if (symbols.length === 1) return { path: symbols[0]!, how: "symbol" };
-  return { path: null, how: "unmapped" };
+  if (symbols.length === 1) return { path: symbols[0]!, how: "symbol", candidates };
+  return { path: null, how: "unmapped", candidates: [] };
 }
 
 export function mpmQueryTool(options: MpmQueryToolOptions): Tool<{ seed: string }> {
@@ -105,7 +93,11 @@ export function mpmQueryTool(options: MpmQueryToolOptions): Tool<{ seed: string 
       const resolved = resolveSeed(args.seed, service);
       const lines: string[] = [];
       if (resolved.path === null) {
-        lines.push(`Seed "${args.seed}" is not mapped in the project map (unmapped or ambiguous). No results — explore with your usual tools.`);
+        if (resolved.how === "ambiguous") {
+          lines.push(`Seed "${args.seed}" is ambiguous — ${resolved.candidates.length} mapped paths end with it. Did you mean one of:`, ...resolved.candidates.map((c) => `- ${c}`), "", "Re-query with the full path.");
+        } else {
+          lines.push(`Seed "${args.seed}" is not mapped in the project map. No results — explore with your usual tools.`);
+        }
         return lines.join("\n");
       }
       const seedPath = resolved.path;

@@ -116,6 +116,53 @@ describe("mpm_query tool (#663, ADR-0028)", () => {
     expect(toolResult!.output).not.toContain("reason: related");
   });
 
+  test("an ambiguous suffix lists the candidates instead of guessing (#663 spec)", async () => {
+    const { root } = await setup();
+    // A second module with the same base name makes the suffix ambiguous.
+    await mkdir(join(root, "lib"), { recursive: true });
+    await writeFile(join(root, "lib/date.ts"), 'export const also = "date";');
+    const store = new MpmStore(join(root, "project-map"));
+    const recs = new Map(FIXTURE.map((r) => [r.path, r]));
+    recs.set("lib/date.ts", {
+      path: "lib/date.ts",
+      hash: sha('export const also = "date";'),
+      size: 28,
+      language: "typescript",
+      symbols: [],
+      relations: [],
+    });
+    store.writeProjection(recs);
+    const service = new MpmService(join(root, "project-map"));
+    service.load();
+    const { toolResult } = await queryTurn(root, service, "date.ts");
+    expect(toolResult!.output).toContain("ambiguous");
+    expect(toolResult!.output).toContain("src/date.ts");
+    expect(toolResult!.output).toContain("lib/date.ts");
+    expect(toolResult!.output).toContain("Re-query with the full path");
+  });
+
+  test("the default permission allows mpm_query without prompting (non-yolo)", async () => {
+    const { root, service } = await setup();
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls" as const, toolCalls: [{ name: "mpm_query", args: { seed: "src/date.ts" } }] },
+        { deltas: ["done"], finish: "stop" as const },
+      ]),
+      cwd: root,
+      mpm: { service },
+    });
+    const result = await session.send("go");
+    // Normal mode (no unrestrictedTools): a default-"ask" tool would have
+    // been denied headless. mpm_query is default-"allow" like read/grep —
+    // the call runs and the full result lands in the log.
+    expect(result.status).toBe("done");
+    const log = session.history();
+    const toolResult = log.find((e) => e.type === "tool_result") as Extract<AgentEvent, { type: "tool_result" }> | undefined;
+    expect(toolResult).toBeDefined();
+    expect(toolResult!.output).toContain("src/types.ts");
+    expect(log.some((e) => e.type === "permission_denied" || e.type === "permission_requested")).toBe(false);
+  });
+
   test("a stale seed (file changed after mapping) is discarded with the entry", async () => {
     const { root, service } = await setup();
     await writeFile(join(root, "src/date.ts"), "export const totally = 'changed';");
