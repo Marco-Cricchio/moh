@@ -109,6 +109,29 @@ describe("mpm_query tool (#663, ADR-0028)", () => {
     expect(toolResult!.output).toContain("src/types.ts");
   });
 
+  test("an unmapped symbol seed gets fuzzy suggestions from the indexes (#669)", async () => {
+    const { root, service } = await setup();
+    // One edit-distance from the mapped symbol "formatDate".
+    const { toolResult } = await queryTurn(root, service, "formatDat");
+    expect(toolResult!.output).toContain("not mapped");
+    expect(toolResult!.output).toContain("suggestions");
+    expect(toolResult!.output).toContain("formatDate");
+  });
+
+  test("a near-miss path seed gets path suggestions (#669)", async () => {
+    const { root, service } = await setup();
+    const { toolResult } = await queryTurn(root, service, "src/dates.ts");
+    expect(toolResult!.output).toContain("suggestions");
+    expect(toolResult!.output).toContain("src/date.ts");
+  });
+
+  test("a completely unrelated miss degrades to today's message (#669)", async () => {
+    const { root, service } = await setup();
+    const { toolResult } = await queryTurn(root, service, "zzzzzzzz.qqq");
+    expect(toolResult!.output).toContain("not mapped");
+    expect(toolResult!.output).not.toContain("suggestions");
+  });
+
   test("a hallucinated seed is honestly discarded, never invented", async () => {
     const { root, service } = await setup();
     const { toolResult } = await queryTurn(root, service, "src/auth/login-service.ts");
