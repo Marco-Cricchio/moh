@@ -152,7 +152,7 @@ describe("exchangeOpenaiCode", () => {
   test("#151: mint failure is non-fatal — native tokens + mintError", async () => {
     const fetchImpl = endpoint([
       { status: 200, json: TOKEN_RESPONSE },
-      { status: 401, json: { error: { message: "Invalid ID token: missing organization_id", code: "invalid_subject_token" } } },
+      { status: 401, json: { error: { message: "Invalid ID token: missing organization_id", type: "invalid_request_error", param: null, code: "invalid_object_token" } } },
     ]);
     const { auth, mintError } = await exchangeOpenaiCode(CONFIG, {
       code: "auth-code",
@@ -162,6 +162,7 @@ describe("exchangeOpenaiCode", () => {
       now: NOW,
     });
     expect(mintError).toContain("API-key mint failed (401)");
+    expect(mintError).toContain("missing organization_id");
     // Native grant: OAuth access token up front, minted:false (#151).
     expect(auth).toEqual({
       accessToken: "oauth-at-1",
@@ -443,5 +444,27 @@ describe("loginOpenAI", () => {
     const token = await login;
     expect(token.accessToken).toBe("sk-minted-1");
     expect(fetchImpl.calls[0]!.body).toMatchObject({ code: "browser-code", redirect_uri: redirectUri });
+  });
+});
+
+describe("warnMintSkipped copy", () => {
+  test("known organization_id-less account gets a friendly, non-error note", async () => {
+    const answers = ["y", "n"];
+    let i = 0;
+    const infos: string[] = [];
+    const io: AuthorizationIo = {
+      ask: async () => answers[i++] ?? "",
+      info: async (line) => { infos.push(line); },
+    };
+    const fetchImpl = endpoint([
+      { status: 200, json: { user_code: "WDJB-MJHT", device_auth_id: "da-1", verification_uri: "https://auth.openai.com/device" } },
+      { status: 200, json: { authorization_code: "device-code" } },
+      { status: 200, json: TOKEN_RESPONSE },
+      // Field-observed payload (401, code invalid_object_token).
+      { status: 401, json: { error: { message: "Invalid ID token: missing organization_id", type: "invalid_request_error", param: null, code: "invalid_object_token" } } },
+    ]);
+    await loginOpenAI(io, { fetchImpl, now: NOW, pollIntervalMs: 1 });
+    expect(infos.some((m) => m.includes("no action needed") && m.includes("organization claim"))).toBe(true);
+    expect(infos.some((m) => m.includes("API-key mint failed"))).toBe(false);
   });
 });
