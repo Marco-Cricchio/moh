@@ -4,6 +4,7 @@
  * other subcommands land with their own tickets).
  */
 import { runCommand, RUN_USAGE } from "./run";
+import { serveCommand, SERVE_USAGE } from "./serve";
 import { mcpCommand, MCP_USAGE } from "./mcp";
 import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
@@ -84,7 +85,7 @@ export async function main(
   // #377: `moh --yolo` opens the TUI like bare `moh` does — the flag rides
   // on the no-command path instead of being mistaken for a subcommand.
   const yolo = argv.includes("--yolo");
-  if (yolo && !["--yolo", "tui", "run", "help", "--help"].includes(command!)) {
+  if (yolo && !["--yolo", "tui", "run", "serve", "help", "--help"].includes(command!)) {
     process.stderr.write(
       `moh: --yolo applies to the TUI launch; use "moh --yolo" or "moh tui --yolo"\n`,
     );
@@ -124,6 +125,13 @@ export async function main(
       return 0;
     }
     return runCommand({ argv: rest, home: process.env.HOME });
+  }
+  if (command === "serve") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(SERVE_USAGE + "\n");
+      return 0;
+    }
+    return serveCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "mcp") {
     if (rest.includes("--help") || rest.includes("-h")) {

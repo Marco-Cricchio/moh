@@ -102,6 +102,7 @@ function renderCliPage(): string {
   const sections: Array<{ heading: string; body: string }> = [
     { heading: "moh — top level", body: extractCliHelp() },
     { heading: "moh run", body: extractUsage("RUN_USAGE", "run.ts") },
+    { heading: "moh serve", body: extractUsage("SERVE_USAGE", "serve.ts") },
     { heading: "moh mcp", body: extractUsage("MCP_USAGE", "mcp.ts") },
     { heading: "moh provider", body: extractUsage("PROVIDER_USAGE", "provider.ts") },
     {
