@@ -137,8 +137,10 @@ export interface SessionConfig {
    * freshness checks (default: the session cwd).
    *
    * #617: `quota` bounds the projection (files/bytes, LRU eviction);
-   * `lifecycle` overrides background refresh options (debounce, sweep
-   * budgets, timers — used by tests and clients).
+   * `lifecycle` overrides background refresh options (sweep budgets,
+   * poll interval, timers — used by tests and clients). #654: external
+   * changes are observed solely by the periodic scan — the debounced
+   * external-notification seam was never wired and is removed.
    */
   mpm?: {
     service?: MpmService;
