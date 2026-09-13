@@ -182,21 +182,39 @@ describe("TreePanel (#581)", () => {
       await waitForFrame(frame, "Session tree");
       await i.stdin.write("B");
       await waitForFrame(frame, "bookmark name:");
-      // CI hardening (#631 policy): the frame only proves the prompt rendered;
-      // a keystroke arriving in the same tick can race the useInput handler
-      // re-binding after the naming state flips (first char swallowed on slow
-      // runners — seen as "ttempt-2"). Settle before typing, then assert the
-      // full buffer echoed in the prompt so a loss fails loudly here, not at
-      // submit.
-      await new Promise((r) => setTimeout(r, 100));
+      // #637 root-cause fix in TreePanel: the naming buffer is a synchronous
+      // ref read by the input handler, so even a keystroke delivered in the
+      // same tick as the prompt opening must land in the buffer (no settle
+      // needed anymore). Chars are written with no delay — exactly the
+      // timing that used to swallow the first one.
       for (const ch of "attempt-2") {
         await i.stdin.write(ch);
-        await new Promise((r) => setTimeout(r, 20));
       }
       await waitForFrame(frame, "attempt-2");
       await i.stdin.write("\r");
       await new Promise((r) => setTimeout(r, 80));
       expect(bookmarks).toEqual([[view.headId, "attempt-2"]]);
+    } finally {
+      i.unmount();
+    }
+  });
+
+  test("B prompt receives a keystroke in the same tick it opens (no first-char loss)", async () => {
+    const file = await buildBranchedSession();
+    const view = viewOf(file);
+    const bookmarks: [string, string | undefined][] = [];
+    const i = mount({ view, onBookmark: (id, name) => bookmarks.push([id, name]) });
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    try {
+      await waitForFrame(frame, "Session tree");
+      // Zero-delay: the opening keystroke and the prompt's first char are
+      // written back-to-back with no settle — the regression timing of #637.
+      await i.stdin.write("B");
+      await i.stdin.write("x");
+      await waitForFrame(frame, "x");
+      await i.stdin.write("\r");
+      await new Promise((r) => setTimeout(r, 80));
+      expect(bookmarks).toEqual([[view.headId, "x"]]);
     } finally {
       i.unmount();
     }

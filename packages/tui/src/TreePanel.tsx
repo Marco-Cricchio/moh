@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { TreeNode, TreeView } from "@moh/core";
 import { useTheme } from "./themes";
@@ -100,7 +100,25 @@ export function TreePanel({
   const [filter, setFilter] = useState<TreeFilter>("all");
   const [selected, setSelected] = useState<string>(() => ("headId" in view ? view.headId : ""));
   const [offset, setOffset] = useState(0);
-  const [naming, setNaming] = useState<{ nodeId: string; buffer: string } | null>(null);
+  const [naming, setNamingState] = useState<{ nodeId: string; buffer: string } | null>(null);
+  // Root-cause fix for the lost-first-keystroke race (#637): `setNamingState`
+  // is async — a keystroke delivered in the same tick that opens the prompt
+  // was handled by the previous `useInput` closure, which didn't see `naming`,
+  // so the char fell through to the branch keys and was swallowed. The ref is
+  // the handler's source of truth and is updated synchronously; the state
+  // mirror exists only to trigger the render.
+  const namingRef = useRef<{ nodeId: string; buffer: string } | null>(null);
+  const setNaming = (next: { nodeId: string; buffer: string } | null) => {
+    namingRef.current = next;
+    setNamingState(next);
+  };
+  const setNamingUp = (fn: (n: { nodeId: string; buffer: string }) => { nodeId: string; buffer: string }) => {
+    const cur = namingRef.current;
+    if (!cur) return;
+    const next = fn(cur);
+    namingRef.current = next;
+    setNamingState(next);
+  };
 
   const byId = useMemo(
     () => ("nodes" in view ? new Map(view.nodes.map((n) => [n.id, n])) : new Map<string, TreeNode>()),
@@ -145,7 +163,8 @@ export function TreePanel({
   const moreBelow = scrollOffset + rowCap < filteredRows.length;
 
   useInput((input, key) => {
-    if (naming) {
+    if (namingRef.current) {
+      const naming = namingRef.current;
       if (key.escape) return setNaming(null);
       if (key.return || input === "\n") {
         onBookmark(naming.nodeId, naming.buffer);
@@ -153,10 +172,10 @@ export function TreePanel({
         return;
       }
       if (key.backspace || key.delete) {
-        return setNaming((n) => (n ? { ...n, buffer: n.buffer.slice(0, -1) } : n));
+        return setNamingUp((n) => ({ ...n, buffer: n.buffer.slice(0, -1) }));
       }
       if (input && !key.ctrl && !key.meta) {
-        return setNaming((n) => (n ? { ...n, buffer: n.buffer + input } : n));
+        return setNamingUp((n) => ({ ...n, buffer: n.buffer + input }));
       }
       return;
     }
@@ -178,8 +197,7 @@ export function TreePanel({
     if (key.return) return onSwitch(current.id);
     if (input === "r") return onBranchFrom(current);
     if (input === "b") return onBookmark(current.id);
-    if (input === "B") return setNaming({ nodeId: current.id, buffer: current.bookmark?.name ?? "" });
-    if (input === "f") {
+    if (input === "B") return setNaming({ nodeId: current.id, buffer: current.bookmark?.name ?? "" });    if (input === "f") {
       setFilter((f) => cycleTreeFilter(f));
       setOffset(0);
     }
