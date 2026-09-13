@@ -15,5 +15,6 @@ regenerates it).
 - [Providers & models](./providers-and-models.md) — providers-and-models
 - [Sessions](./sessions.md) — sessions
 - [Skills & workflow mode](./skills-and-workflow.md) — skills-and-workflow
+- [What moh offers](./what-moh-offers.md) — what-moh-offers
 
 Reference pages (CLI, config, commands & keys) are generated from code; the rest is hand-written and reviewed like docs.

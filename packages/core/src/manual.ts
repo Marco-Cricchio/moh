@@ -11,6 +11,7 @@
  * Anything else is a test failure.
  */
 import gettingStarted from "./manual/getting-started.md" with { type: "text" };
+import whatMohOffers from "./manual/what-moh-offers.md" with { type: "text" };
 import sessions from "./manual/sessions.md" with { type: "text" };
 import providersAndModels from "./manual/providers-and-models.md" with { type: "text" };
 import permissions from "./manual/permissions.md" with { type: "text" };
@@ -34,6 +35,7 @@ export interface ManualPage {
 
 const PAGES: ReadonlyArray<ManualPage> = [
   { id: "getting-started", title: "Getting started", summary: "first run, the mock provider, your first session, where data lives", body: gettingStarted },
+  { id: "what-moh-offers", title: "What moh offers", summary: "a high-level guide to moh's user-facing capabilities", body: whatMohOffers },
   { id: "sessions", title: "Sessions", summary: "new, resume, fork, the /tree panel, handoff between machines, the event log", body: sessions },
   { id: "providers-and-models", title: "Providers & models", summary: "adding endpoints, subscription auth, switching models, thinking levels", body: providersAndModels },
   { id: "permissions", title: "Permissions & rules", summary: "the rule grammar, the permission prompt, tiers and vetoes", body: permissions },

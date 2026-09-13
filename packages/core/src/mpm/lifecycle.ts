@@ -70,8 +70,8 @@ export class MpmLifecycle {
   #disposed = false;
   /** Successful moh edits (highest priority — fresh work just happened). */
   #editQueue: PendingEdit[] = [];
-  /** mtime snapshot from the last periodic scan (first-sight adopt). */
-  #mtimeCache = new Map<string, number>();
+  /** Metadata snapshot from the last periodic scan (first-sight adopt). */
+  #metadataCache = new Map<string, { mtimeMs: number; size: number }>();
   /** In-progress incremental sweep: remaining candidates and cursor. */
   #sweepCursor: { files: string[]; index: number } | null = null;
   /** #619: cumulative paths evicted by the LRU quota policy this process. */
@@ -193,7 +193,7 @@ export class MpmLifecycle {
 
   /**
    * Cheap periodic diff: discover the candidate set (metadata only) and
-   * compare on-disk mtime/size against a per-session snapshot taken at the
+   * compare on-disk mtime and size against a per-session snapshot taken at the
    * previous scan. Only drifted paths get a hash check and a refresh, so
    * idle cost is one directory walk + stat calls — never a full re-extract.
    */
@@ -205,7 +205,7 @@ export class MpmLifecycle {
       return;
     }
     const changed: string[] = [];
-    const nextMtimes = new Map<string, number>();
+    const nextMetadata = new Map<string, { mtimeMs: number; size: number }>();
     for (const path of files) {
       let size = 0;
       let mtimeMs = 0;
@@ -217,18 +217,19 @@ export class MpmLifecycle {
         continue; // vanished between discovery and stat
       }
       if (size > MPM_MAX_FILE_SIZE) continue;
-      nextMtimes.set(path, mtimeMs);
-      const prevMtime = this.#mtimeCache.get(path);
+      nextMetadata.set(path, { mtimeMs, size });
+      const previous = this.#metadataCache.get(path);
       const known = this.#service.record(path) !== null;
       if (!known) {
         // New file: map it when the projection already has useful coverage.
         if (this.#service.fileCount > 0) changed.push(path);
-      } else if (prevMtime === undefined || prevMtime !== mtimeMs) {
-        // First sight this session, or mtime drifted: a hash check decides.
-        // First sight MUST hash too — the mtime snapshot is session-local,
-        // so an edit made before the session started (mtime ≠ mapped hash)
-        // would otherwise be adopted blind and frozen stale forever.
-        if (this.#hashMatches(path)) this.#mtimeCache.set(path, mtimeMs);
+      } else if (previous === undefined || previous.mtimeMs !== mtimeMs || previous.size !== size) {
+        // First sight this session, or metadata drifted: a hash check decides.
+        // First sight MUST hash too — the metadata snapshot is session-local,
+        // so an edit made before the session started (metadata ≠ mapped hash)
+        // would otherwise be adopted blind and frozen stale forever. Size is
+        // included because coarse filesystem timestamps can miss a quick edit.
+        if (this.#hashMatches(path)) this.#metadataCache.set(path, { mtimeMs, size });
         else changed.push(path);
       }
     }
@@ -237,7 +238,7 @@ export class MpmLifecycle {
     for (const record of this.#service.allRecords()) {
       if (!present.has(record.path)) changed.push(record.path);
     }
-    this.#mtimeCache = nextMtimes;
+    this.#metadataCache = nextMetadata;
     if (changed.length > 0) {
       this.#service.setUpdating(true);
       this.#sweepCursor = { files: changed, index: 0 };

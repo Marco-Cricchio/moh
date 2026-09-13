@@ -1,19 +1,20 @@
 import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { manualIndex, manualPage } from "@moh/core";
+import { createMarkdownRenderer, parseAnsiSegments, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
-import { useViewport, windowing } from "./viewport";
+import { dialogWidth, useViewport, windowing } from "./viewport";
 
 /**
  * The user manual modal (#457): a filterable index of the bundled pages
  * (incremental filter over titles and body text, in the style of the
  * Home session list) opening a scrollable page. `esc` from a page goes
  * back to the index; `esc esc` (a second esc at the index) closes the
- * modal. The breadcrumb lives in the page head. Markdown is rendered
- * with a declared subset only — the assets are constrained by the core
- * anti-drift test, so plain wrapped lines with dimmed headings suffice
- * here; the full GFM renderer stays reserved for the transcript.
+ * modal. The breadcrumb lives in the page head. Pages use the same
+ * terminal Markdown renderer as the transcript, so the documented subset
+ * (headings, lists, fenced code and tables) is rendered rather than shown
+ * as source Markdown.
  */
 
 interface IndexEntry {
@@ -48,8 +49,16 @@ export function ManualModal({ onClose }: { onClose: () => void }) {
   const win = windowing(matches.length, cursor, budget);
 
   const page = openId ? manualPage(openId) : null;
-  const pageLines = useMemo(() => (page ? page.body.split("\n") : []), [page]);
-  const pageWin = windowing(pageLines.length, pageCursor, Math.max(4, viewport.rows - 7));
+  const pageWidth = Math.max(20, dialogWidth(viewport) - 6);
+  const pageMarkdown = useMemo(() => createMarkdownRenderer(theme, pageWidth), [theme, pageWidth]);
+  const pageLines = useMemo(
+    () => page ? renderMarkdownRows(page.body, pageMarkdown, pageWidth) : [],
+    [page, pageMarkdown, pageWidth],
+  );
+  // Reserve the dialog title, its spacer, breadcrumb, page spacer, footer,
+  // and both scroll indicators. This keeps a long page inside the viewport
+  // even when it has content above and below the current window.
+  const pageWin = windowing(pageLines.length, pageCursor, Math.max(4, viewport.rows - 10));
 
   useInput((input, key) => {
     if (key.escape) {
@@ -92,20 +101,15 @@ export function ManualModal({ onClose }: { onClose: () => void }) {
         <Text bold color={theme.accent}>{`Manual → ${page.title}`}</Text>
         <Text> </Text>
         {pageWin.above > 0 && <Dim>{` ↑ ${pageWin.above} more`}</Dim>}
-        {pageLines.slice(pageWin.start, pageWin.start + pageWin.count).map((line, i) => {
-          const rendered = line.replace(/`([^`]*)`/g, "$1");
-          const heading = /^#{1,6} /.test(line);
-          return (
-            <Text
-              key={`${pageWin.start + i}`}
-              bold={heading}
-              color={heading ? theme.accent : undefined}
-              wrap="truncate-end"
-            >
-              {truncate(rendered, viewport.columns - 6)}
-            </Text>
-          );
-        })}
+        {pageLines.slice(pageWin.start, pageWin.start + pageWin.count).map((line, i) => (
+          <Text key={`${pageWin.start + i}`} wrap="wrap">
+            {line.trim() === ""
+              ? " "
+              : parseAnsiSegments(line).map((segment, s) => (
+                <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>
+              ))}
+          </Text>
+        ))}
         {pageWin.below > 0 && <Dim>{` ↓ ${pageWin.below} more (↑↓ scroll)`}</Dim>}
         <Dim>↑↓ scroll · esc back (esc esc close)</Dim>
       </Dialog>
