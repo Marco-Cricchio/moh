@@ -132,6 +132,8 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   spawn: "ask",
   // Tracker tools (#36): reads are free, claiming is a mutation.
   tracker_list: "allow",
+  // #663 (ADR-0028): read-only over projection metadata.
+  mpm_query: "allow",
   tracker_claim: "ask",
 };
 

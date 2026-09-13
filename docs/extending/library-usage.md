@@ -451,6 +451,23 @@ with an explicit `service`/`root`; `sessionFromConfig` activates
 automatically when the project's projection exists. The plan is
 turn-scoped: computed per send, cleared when the turn settles.
 
+## Moh Project Map — model-nominated queries (#663, ADR-0028)
+
+When MPM is active the session also carries a read-only `mpm_query`
+tool: the model nominates one seed — an exact mapped path, a unique
+path suffix, or a symbol name — and receives the same trusted format
+as the automatic plan (path, coordinate, relation, reason), every
+entry re-hashed fresh and locally proven. Hallucinated or ambiguous
+candidates are discarded with an honest note, never guessed; an
+unavailable projection degrades to "no data". The result is persisted
+in full in the event log (replay fidelity). Subagents get the tool
+through the ordinary preset allow-lists; the `MpmService` itself never
+leaves the parent session. When the automatic plan produced nothing
+but a model query succeeded, diagnostics report the fallback reason
+`model-seeded`. Validation remains local and deterministic: the model
+only proposes candidates, the core remains the sole authority on what
+enters a result.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

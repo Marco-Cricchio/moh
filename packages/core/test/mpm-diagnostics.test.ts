@@ -124,4 +124,26 @@ describe("mpm fallback reasons (#618)", () => {
     rmSync(root, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   });
+
+  test("#663: a successful model query after no plan upgrades the reason to 'model-seeded'", async () => {
+    const { MpmOrientation } = await import("../src/mpm/orientation");
+    const { mpmQueryTool } = await import("../src/mpm/query-tool");
+    const root = workspace();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src/a.ts"), 'import { b } from "./b";\nexport const a = 1;\n');
+    writeFileSync(join(root, "src/b.ts"), "export const b = 2;\n");
+    const dir = join(mkdtempSync(join(tmpdir(), "moh-mpm-diag-dir4-")), "project-map");
+    const service = loadedService(root, dir);
+    const orientation = new MpmOrientation({ service, root });
+    // Vague task: no plan, plain fallback reason.
+    expect(orientation.planFor("fix the login bug please")).toBeNull();
+    expect(orientation.lastFallbackReason).toBe("no-eligible-seed");
+    // The model nominates a symbol via mpm_query and gets fresh results.
+    const tool = mpmQueryTool({ service, root, orientation });
+    const output = await tool.execute({ seed: "b" }, {} as never);
+    expect(output).toContain("src/a.ts");
+    expect(orientation.lastFallbackReason).toBe("model-seeded");
+    rmSync(root, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

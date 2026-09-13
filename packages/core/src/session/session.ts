@@ -29,6 +29,7 @@ import { resolveMaxIterations } from "./agent-loop";
 import { MpmService, projectMapDir, type MpmStatus } from "../mpm/service";
 import { MpmLifecycle } from "../mpm/lifecycle";
 import { MpmOrientation } from "../mpm/orientation";
+import { mpmQueryTool } from "../mpm/query-tool";
 import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { userConfigFile } from "../user-config";
@@ -249,6 +250,12 @@ export class AgentSession {
         this.#mpmQuota = config.mpm.quota;
         this.#mpmExclude = config.mpm.exclude;
         this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
+        // #663 (ADR-0028): the read-only `mpm_query` tool rides the same
+        // opt-in — the model can nominate seeds itself when the task text
+        // names no mapped path. Executed by this session's tool runner;
+        // subagents get it through the ordinary child-tool subset (#620:
+        // the service never leaves this session).
+        this.#tools = { ...this.#tools, mpm_query: mpmQueryTool({ service, root: this.#mpmRoot!, orientation: this.#mpmOrientation! }) };
         // #617: background lifecycle — debounced external-change refresh,
         // turn priority, adaptive budgets. Only when a projection exists.
         this.#mpmLifecycle = new MpmLifecycle({

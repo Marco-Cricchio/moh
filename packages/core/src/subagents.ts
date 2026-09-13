@@ -63,14 +63,14 @@ export const BUILTIN_AGENT_PRESETS: Record<string, SubagentSpec> = {
     description: "Read-only investigator: explores the codebase and reports findings.",
     systemPrompt:
       "You are a research subagent. Investigate the assigned question using read-only tools and report concise, sourced findings. Do not modify anything.",
-    allowedTools: ["read", "glob", "grep", "fetch"],
+    allowedTools: ["read", "glob", "grep", "fetch", "mpm_query"],
   },
   implement: {
     name: "implement",
     description: "Focused implementer: edits code to complete a well-scoped task.",
     systemPrompt:
       "You are an implementation subagent. Complete the assigned task precisely, editing code as needed, then summarize what you changed.",
-    allowedTools: ["read", "write", "edit", "bash", "glob", "grep"],
+    allowedTools: ["read", "write", "edit", "bash", "glob", "grep", "mpm_query"],
   },
 };
 

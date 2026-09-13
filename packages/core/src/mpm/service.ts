@@ -244,6 +244,16 @@ export class MpmService {
     yield* this.#records.values();
   }
 
+  /** #663: mapped paths declaring a symbol with this exact name. */
+  pathsForSymbol(name: string): string[] {
+    return [...(this.#bySymbol?.get(name) ?? [])];
+  }
+
+  /** #663: all mapped paths (suffix resolution; callers must not mutate). */
+  allPaths(): IterableIterator<string> {
+    return (this.#records?.keys() ?? [][Symbol.iterator]());
+  }
+
   /**
    * Read-only structural query: given a seed path, return related paths
    * (things it imports or is imported/referenced by) plus symbol matches,

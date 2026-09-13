@@ -45,8 +45,9 @@ export interface MpmOrientationOptions {
   budgetChars?: number;
 }
 
-/** Hash the file like the extractor does, to verify the projection is fresh. */
-function currentHash(absPath: string): string | null {
+/** Hash the file like the extractor does, to verify the projection is fresh.
+ * Shared with the #663 query tool so the freshness definition cannot drift. */
+export function currentHash(absPath: string): string | null {
   try {
     if (!existsSync(absPath) || !statSync(absPath).isFile()) return null;
     return createHash("sha256").update(readFileSync(absPath)).digest("hex");
@@ -120,6 +121,16 @@ export class MpmOrientation {
   /** #618: why the most recent plan lookup produced no plan (or null). */
   get lastFallbackReason(): MpmFallbackReason {
     return this.#lastFallback;
+  }
+
+  /**
+   * #663 (ADR-0028): a model-nominated `mpm_query` succeeded this turn.
+   * When the automatic plan produced nothing, diagnostics report
+   * `model-seeded` instead of a plain failure — the orientation style was
+   * model-nominated, not absent. Metadata only.
+   */
+  noteModelQuery(): void {
+    if (this.#lastFallback !== null) this.#lastFallback = "model-seeded";
   }
 
   /** Mapped paths directly named in the task text. */

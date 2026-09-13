@@ -73,4 +73,4 @@ export interface MpmProvenance {
 }
 
 /** Why a task got no orientation plan — the last computed fallback reason. */
-export type MpmFallbackReason = "disabled" | "unavailable" | "stale" | "no-eligible-seed" | null;
+export type MpmFallbackReason = "disabled" | "unavailable" | "stale" | "no-eligible-seed" | "model-seeded" | null;

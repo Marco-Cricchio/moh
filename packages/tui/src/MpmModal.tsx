@@ -32,6 +32,7 @@ const FALLBACK_LABEL: Record<string, string> = {
   unavailable: "projection unavailable",
   stale: "mapped paths stale",
   "no-eligible-seed": "no mapped path in the task",
+  "model-seeded": "oriented via mpm_query",
 };
 
 export function MpmModal({ diagnostics: d, onClose }: MpmModalProps) {
