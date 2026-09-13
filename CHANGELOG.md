@@ -7,6 +7,20 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-09-13
+### Fixed
+
+- **MPM stale first-sight adoption** (PR #655): an external edit landing
+  before the session's first periodic scan was adopted blind and the record
+  frozen stale forever. First sight now hash-checks against the mapped
+  record; only a real drift triggers a refresh.
+- **xai / kimi-coding auth** (PR #656): the standard OIDC `email` claim is
+  retained during the token exchange instead of being dropped.
+- **MPM lifecycle honesty** (PR #657, ADR-0027): the debounced
+  `noteExternalChange` seam shipped in #617 without any production caller;
+  it is removed. External changes are observed solely by the periodic
+  mtime+hash scan (ADR-0027 documents the one-channel-per-producer design).
+
 ## [0.32.0] - 2026-09-13
 ### Added
 
@@ -95,7 +109,8 @@ matching section here at tag time.
     scenario proving the cited plan bounds the candidate set that ordinary
     exploration would have to walk.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.32.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.32.1...develop
+[0.32.1]: https://github.com/Marco-Cricchio/moh/compare/v0.32.0...v0.32.1
 [0.32.0]: https://github.com/Marco-Cricchio/moh/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/Marco-Cricchio/moh/compare/v0.30.0...v0.31.0
 ## [0.30.0] - 2026-09-11
