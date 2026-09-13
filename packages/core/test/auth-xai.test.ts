@@ -15,6 +15,12 @@ import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens } from "../src/auth/store";
 import { Endpoint } from "../src/route";
 import type { AuthorizationIo } from "../src/auth/oauth";
+import { oidcEmailFromIdToken } from "../src/auth/oauth";
+
+function makeIdToken(claims: Record<string, unknown> = {}): string {
+  const b64 = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+  return `${b64({ alg: "RS256" })}.${b64(claims)}.${b64({ sig: true })}`;
+}
 import type { AuthToken } from "../src/auth/types";
 
 const NOW = 1_700_000_000_000;
@@ -119,13 +125,39 @@ describe("loginXai", () => {
       { status: 400, json: { error: "authorization_pending" } },
       { status: 200, json: { access_token: "at-1", refresh_token: "rt-1", expires_in: 3600 } },
     ]);
-    const token = await loginXai(IO, { fetchImpl, now: NOW, clock: fastClock });
+      const token = await loginXai(IO, { fetchImpl, now: NOW, clock: fastClock });
     expect(token.accessToken).toBe("at-1");
     expect(token.refreshToken).toBe("rt-1");
     expect(token.expiresAt).toBe(NOW + 3600_000 - 5 * 60_000);
     expect(token.grant).toEqual({ provider: "xai" });
     expect(fetchImpl.calls[0]!.body.scope).toBe(XAI_SCOPES);
     expect(fetchImpl.calls[2]!.body.grant_type).toBe("urn:ietf:params:oauth:grant-type:device_code");
+  });
+
+  test("standard OIDC email claim is retained when the id_token carries one", async () => {
+    const fetchImpl = scriptedEndpoint([
+      DEVICE,
+      {
+        status: 200,
+        json: {
+          access_token: "at-1", refresh_token: "rt-1", expires_in: 3600,
+          id_token: makeIdToken({ email: "user@example.com" }),
+        },
+      },
+    ]);
+    const token = await loginXai(IO, { fetchImpl, now: NOW, clock: fastClock });
+    expect(token.account).toEqual({ email: "user@example.com" });
+  });
+
+  test("malformed id_token is ignored (best-effort)", async () => {
+    expect(oidcEmailFromIdToken("not-a-jwt")).toBeUndefined();
+    expect(oidcEmailFromIdToken(undefined)).toBeUndefined();
+    const fetchImpl = scriptedEndpoint([
+      DEVICE,
+      { status: 200, json: { access_token: "at-1", refresh_token: "rt-1", expires_in: 3600, id_token: "not-a-jwt" } },
+    ]);
+    const token = await loginXai(IO, { fetchImpl, now: NOW, clock: fastClock });
+    expect(token.account).toBeUndefined();
   });
 
   test("untrusted (non-https) verification_uri is rejected", async () => {
