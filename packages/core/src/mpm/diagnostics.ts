@@ -103,6 +103,7 @@ export function mpmDiagnostics(options: MpmDiagnosticsOptions): MpmDiagnostics {
     let entry = byLanguage.get(record.language);
     if (!entry) byLanguage.set(record.language, (entry = { language: record.language, files: 0, symbols: 0 }));
     entry.files += 1;
+    entry.symbols += record.symbols.length;
     symbolCount += record.symbols.length;
     // Freshness sampling: hash-check a bounded head so diagnostics cost
     // stays O(sample), never O(workspace).

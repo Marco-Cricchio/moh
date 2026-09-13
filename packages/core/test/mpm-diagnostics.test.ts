@@ -32,6 +32,7 @@ describe("mpm diagnostics (#618)", () => {
     expect(diag.symbolCount).toBeGreaterThanOrEqual(2);
     const ts = diag.coverage.find((c) => c.language === "typescript");
     expect(ts?.files).toBe(2);
+    expect(ts?.symbols).toBe(diag.symbolCount);
     expect(diag.builtAt).not.toBeNull();
     expect(diag.capabilities.length).toBeGreaterThan(0);
     // Redaction: no field carries source content or full paths to source text.
