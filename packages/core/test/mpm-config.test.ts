@@ -123,4 +123,87 @@ describe("mpm session assembly gating (#618)", () => {
     await result.session.dispose();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  test("a never-mapped project gets its initial projection built at assembly", async () => {
+    const { sessionFromConfig } = await import("../src/session/from-config");
+    const { MpmService, projectMapDir } = await import("../src/mpm/service");
+    const { existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-init-"));
+    const cwd = join(dir, "project");
+    const home = join(dir, "home");
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+    writeFileSync(join(cwd, "src", "app.ts"), 'import { helper } from "./util";\nexport function app() { return helper(); }\n');
+    writeFileSync(join(cwd, "src", "util.ts"), "export function helper() { return 2; }\n");
+    // No manifest exists — the deadlock case: nothing ever built the map.
+    const mapDir = projectMapDir(join(home, ".moh"), cwd);
+    expect(existsSync(join(mapDir, "manifest.json"))).toBe(false);
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    try {
+      // The projection was built during assembly and the session activated.
+      expect(existsSync(join(mapDir, "manifest.json"))).toBe(true);
+      const service = new MpmService(mapDir);
+      service.load();
+      expect(service.fileCount).toBe(3); // src/app.ts, src/util.ts, moh.json
+      expect(service.status).toBe("ready");
+      const q = service.query("src/app.ts");
+      expect(q).not.toBeNull();
+      expect(q!.paths).toContain("src/util.ts");
+    } finally {
+      await result.session.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("initial build honors resolved exclusion patterns", async () => {
+    const { sessionFromConfig } = await import("../src/session/from-config");
+    const { MpmService, projectMapDir } = await import("../src/mpm/service");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-init-excl-"));
+    const cwd = join(dir, "project");
+    const home = join(dir, "home");
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+    writeFileSync(join(cwd, "src", "keep.ts"), "export {};\n");
+    writeFileSync(join(cwd, "src", "drop.ts"), "export {};\n");
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { exclude: ["src/drop.ts"] } }));
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    try {
+      const service = new MpmService(projectMapDir(join(home, ".moh"), cwd));
+      service.load();
+      expect(service.record("src/drop.ts")).toBeNull();
+      expect(service.record("src/keep.ts")).not.toBeNull();
+    } finally {
+      await result.session.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("MPM disabled: a virgin project gets no projection and no wiring", async () => {
+    const { sessionFromConfig } = await import("../src/session/from-config");
+    const { projectMapDir } = await import("../src/mpm/service");
+    const { existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-init-off-"));
+    const cwd = join(dir, "project");
+    const home = join(dir, "home");
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+    writeFileSync(join(cwd, "src", "app.ts"), "export {};\n");
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { enabled: false } }));
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    try {
+      expect(existsSync(join(projectMapDir(join(home, ".moh"), cwd), "manifest.json"))).toBe(false);
+    } finally {
+      await result.session.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
