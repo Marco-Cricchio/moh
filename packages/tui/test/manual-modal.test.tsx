@@ -50,7 +50,7 @@ describe("manual modal (#457)", () => {
     await sleep(50);
     await openManual(i);
     const frame = frameOf(i);
-    for (const id of ["getting-started", "sessions", "providers-and-models", "permissions", "mcp", "cli-reference", "config-reference", "commands-and-keys"]) {
+    for (const id of ["getting-started", "what-moh-offers", "sessions", "providers-and-models", "permissions", "mcp", "cli-reference", "config-reference", "commands-and-keys"]) {
       expect(frame).toContain(id);
     }
     i.unmount();
@@ -66,6 +66,32 @@ describe("manual modal (#457)", () => {
     expect(frame).not.toContain("getting-started");
     i.stdin.write("\r"); // open the only match
     await waitFor(i, "Manual → Config reference");
+    i.unmount();
+  });
+
+  test("renders page Markdown instead of displaying source markers", async () => {
+    const i = renderChat();
+    await sleep(50);
+    await openManual(i);
+    i.stdin.write("\r");
+    const frame = await waitFor(i, "Manual → Getting started");
+    expect(frame).toContain("moh is a coding agent");
+    expect(frame).not.toContain("# Getting started");
+    expect(frame).toContain("command starts it:");
+    expect(frame).toContain("no configuration. moh opens with the");
+    i.unmount();
+  });
+
+  test("reserves rows for page chrome when a long page is scrolled", async () => {
+    const i = renderChat();
+    await sleep(50);
+    await openManual(i);
+    i.stdin.write("\r");
+    await waitFor(i, "Manual → Getting started");
+    for (let step = 0; step < 20; step++) i.stdin.write("\x1b[B");
+    const frame = await waitFor(i, "↑");
+    expect(frame).toContain("↓");
+    expect(frame).toContain("↑↓ scroll · esc back");
     i.unmount();
   });
 

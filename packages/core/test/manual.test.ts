@@ -12,9 +12,10 @@ const DOCS = join(ROOT, "docs", "manual");
 const GENERATED_IDS = new Set(["cli-reference", "config-reference", "commands-and-keys"]);
 
 describe("manual assets (#457)", () => {
-  test("the manual has the 10 agreed sections in order", () => {
+  test("the manual has the agreed sections in order", () => {
     expect(allManualPages().map((p) => p.id)).toEqual([
       "getting-started",
+      "what-moh-offers",
       "sessions",
       "providers-and-models",
       "permissions",
