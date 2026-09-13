@@ -38,7 +38,7 @@ moh reads two files:
   "memory": { "enabled": true, "intervalTurns": 5, "budgetTokens": 2000 },
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
-  "mpm": { "enabled": false, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
+  "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
   "maxIterations": 50
 }
 ```
@@ -69,9 +69,10 @@ All keys are optional. Notes:
   `mcp__<server>__<tool>`.
 - `handoff.transport` — absent = Not Set = off; `"gist"` enables
   publish-on-push session handoff.
-- `mpm` — project-side Moh Project Map restrictions (#618): `enabled`
-  accepts only `false` (a project may disable or tighten MPM, never
-  force it on against a user disablement), `quota` tightens the
+- `mpm` — per-project Moh Project Map override (ADR-0026): an explicit
+  `enabled` (either `true` or `false`) overrides the user default for
+  this project only; absent means inherit (the global default is
+  **disabled** — MPM is opt-in), `quota` tightens the
   storage bounds (`maxFiles`, `maxTotalBytes`), `exclude` adds
   gitignore-style workspace exclusion patterns.
 - `maxIterations` — per-turn tool-call iteration cap (default 50). `0`
@@ -93,7 +94,7 @@ preserved verbatim):
 | `auth` | core (ADR-0006) | subscription tokens keyed by endpoint name, plus `auth.overrides` for captured client_ids/issuers; never in moh.json, never logged |
 | `mcpTrust` | core (`mcp/types.ts`) | recorded "always" consent for project MCP servers, keyed by project slug → server names (the repo's own `trusted` field is ignored) |
 | `liveModels` | core (`live-model-catalog.ts`) | `enabled` (default `true`; `false` restores the fully static model catalog), `ttlHours` (default 24) for the `~/.moh/live-models.json` picker cache |
-| `mpm` | core (`mpm/config.ts`) | the user default for the Moh Project Map: `enabled` (default `true`; `false` disables it everywhere — the project can never override this), `quota` (`maxFiles`, `maxTotalBytes`), `exclude` (gitignore-style patterns) |
+| `mpm` | core (`mpm/config.ts`) | the user default for the Moh Project Map: `enabled` (default `false` — MPM is opt-in; `true` enables it everywhere unless a project opts out), `quota` (`maxFiles`, `maxTotalBytes`), `exclude` (gitignore-style patterns) |
 
 The file is always written through the guardian: read-modify-write of
 the whole JSON, temp file + rename, 0600 file / 0700 dir.

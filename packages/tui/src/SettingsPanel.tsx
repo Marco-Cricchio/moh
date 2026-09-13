@@ -46,6 +46,10 @@ const MAX_ITERATION_PRESETS = [50, 100, 200, 500, MAX_ITERATIONS_UNLIMITED] as c
 
 const maxIterationsLabel = (v: number) => (v === MAX_ITERATIONS_UNLIMITED ? "unlimited" : String(v));
 
+/** MPM per-project setting display (ADR-0026). */
+const mpmSettingLabel = (s: "inherit" | "on" | "off") =>
+  s === "inherit" ? "inherit (global default)" : s === "on" ? "on (this project)" : "off (this project)";
+
 /** #444: render a provider's bundled ToS card for the endpoint section.
  * Unknown/custom providers get a one-line "no bundled card" note. */
 function renderTosCardText(provider: string, width: number): string[] {
@@ -68,6 +72,36 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   });
   const [cursor, setCursor] = useState(0);
   const handoffTransport = loadMohConfig(configFile).handoff?.transport;
+  // MPM per-project setting (ADR-0026): inherit / on / off. Reads the
+  // project moh.json's explicit `enabled` (absent = inherit); writing
+  // goes through writeMohConfig so the rest of the file is preserved.
+  type MpmSetting = "inherit" | "on" | "off";
+  const readMpmSetting = (): MpmSetting => {
+    try {
+      const enabled = loadMohConfig(configFile).mpm?.enabled;
+      return enabled === true ? "on" : enabled === false ? "off" : "inherit";
+    } catch {
+      return "inherit";
+    }
+  };
+  const [mpmSetting, setMpmSetting] = useState<MpmSetting>(readMpmSetting);
+  const cycleMpmSetting = () => {
+    const next: MpmSetting = mpmSetting === "inherit" ? "on" : mpmSetting === "on" ? "off" : "inherit";
+    try {
+      const project = loadMohConfig(configFile);
+      if (next === "inherit") {
+        const { mpm: _dropped, ...rest } = project;
+        writeMohConfig(configFile, rest);
+      } else {
+        writeMohConfig(configFile, { ...project, mpm: { ...project.mpm, enabled: next === "on" } });
+      }
+      setMpmSetting(next);
+      setMoh((m) => (next === "inherit" ? { ...m, mpm: undefined } : { ...m, mpm: { ...m.mpm, enabled: next === "on" } }));
+      onToast(`moh project map: ${mpmSettingLabel(next)} (new sessions)`);
+    } catch (e) {
+      onToast(`moh project map: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   // #181 hierarchical provider picker: endpoint → its catalog models
   // (free-text fallback for unknown types). Selecting a model rewrites
   // `defaultModel` on the project moh.json endpoint (user-level endpoints
@@ -139,12 +173,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
       { key: "handoff", label: "Session handoff", value: handoffTransport === "gist" ? "GitHub Gist" : handoffTransport === "none" ? "Disabled" : "Not Set" },
+      { key: "mpm", label: "Moh Project Map", value: mpmSettingLabel(mpmSetting) },
       { key: "maxIterations", label: "Max iterations/turn", value: maxIterationsLabel(moh.maxIterations ?? DEFAULT_MAX_ITERATIONS) },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
     ],
-    [config, modelLabel, moh, handoffTransport],
+    [config, modelLabel, moh, handoffTransport, mpmSetting],
   );
 
   // Endpoints defined in the project moh.json (editable defaultModel);
@@ -210,6 +245,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onChange({ answerLanguage: cycle<AnswerLanguage>(["auto", "en", "it"], config.answerLanguage) });
       case "telemetry":
         return onChange({ telemetry: !config.telemetry });
+      case "mpm":
+        return cycleMpmSetting();
       case "updateCheck":
         return onChange({ updateCheck: !config.updateCheck });
       case "permissionMode":

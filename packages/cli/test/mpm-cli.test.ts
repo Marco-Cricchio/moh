@@ -52,7 +52,7 @@ describe("moh mpm (#618)", () => {
   });
 
   test("ready projection: status, coverage, budgets — no source content", () => {
-    const { spawn, source } = harness();
+    const { spawn, source } = harness({ mpm: { enabled: true } });
     const { code, stdout } = spawn(["mpm"]);
     expect(code).toBe(0);
     expect(stdout).toContain("MPM ✓ ready");
@@ -83,7 +83,7 @@ describe("moh mpm (#618)", () => {
   });
 
   test("--json emits the full diagnostics object", () => {
-    const { spawn } = harness({ mpm: { quota: { maxFiles: 500 } } });
+    const { spawn } = harness({ mpm: { enabled: true, quota: { maxFiles: 500 } } });
     const { code, stdout } = spawn(["mpm", "--json"]);
     expect(code).toBe(0);
     const diag = JSON.parse(stdout);

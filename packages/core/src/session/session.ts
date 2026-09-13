@@ -819,9 +819,12 @@ export class AgentSession {
     try {
       // moh.json's mpm section was already applied at assembly time; the
       // session does not re-read moh.json here (strict parse errors are an
-      // assembly concern). Resolve user-only; the project restrictions the
-      // assembly applied ride along in the live quota/exclude fields.
-      return resolveMpmConfig(readMpmUserConfig(userConfigFile(this.#mohHome)));
+      // assembly concern). Resolve user-only; the project override the
+      // assembly applied rides along in the live quota/exclude fields. The
+      // session's own activation (not the user default) is what matters
+      // here, so an activated session reports enabled even under the
+      // opt-in default (ADR-0026).
+      return resolveMpmConfig({ ...readMpmUserConfig(userConfigFile(this.#mohHome)), enabled: true });
     } catch {
       // Malformed user config: diagnostics degrade to defaults, per #618.
       return resolveMpmConfig({ enabled: true });
