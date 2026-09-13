@@ -132,4 +132,41 @@ describe("MPM client seams (#619)", () => {
     expect(typeof diag.status).toBe("string");
     expect(Array.isArray(diag.coverage)).toBe(true);
   });
+
+  test("an idle session's lifecycle converges to ready after external drift (#654 livelock regression)", async () => {
+    // Regression: the session wired `isBusy: () => this.#queue.pending() !== null`.
+    // `pending()` returns a boolean, so the comparison was always true —
+    // the lifecycle believed a turn was perpetually active, its budget was
+    // permanently zero, and any external drift locked the status in
+    // "updating" (the TUI chip stuck on "mapping") for the whole session.
+    const { root, service } = await setup();
+    const tickFns: (() => void)[] = [];
+    const session = createSession({
+      provider: provider(),
+      cwd: root,
+      mpm: {
+        service,
+        root,
+        lifecycle: {
+          timers: {
+            setInterval: (fn) => (tickFns.push(fn), tickFns.length - 1),
+            clearInterval: () => {},
+            now: () => Date.now(),
+          },
+        },
+      },
+    });
+    try {
+      expect(session.mpmSnapshot()?.status).toBe("ready");
+      // External edit while the session is idle (no turn ever sent).
+      await writeFile(join(root, "src/date.ts"), "export const drift = true;\n");
+      // Two ticks: the first scan finds the drift and opens a sweep, the
+      // second (idle, so a nonzero budget) must drain it.
+      for (let i = 0; i < 2; i++) for (const fn of [...tickFns]) fn();
+      expect(service.record("src/date.ts")!.symbols.some((s) => s.name === "drift")).toBe(true);
+      expect(session.mpmSnapshot()?.status).toBe("ready");
+    } finally {
+      await session.dispose();
+    }
+  });
 });
