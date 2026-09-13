@@ -48,7 +48,7 @@ function resolveSeed(
   raw: string,
   service: MpmService,
 ): { path: string; how: "path" | "suffix" | "symbol"; candidates: string[] } | { path: null; how: "unmapped" | "ambiguous"; candidates: string[] } {
-  const stripped = raw.trim().replace(/^[./@]+/, "").replace(/[.,;:)]+$/, "");
+  const stripped = normalizeSeed(raw);
   if (stripped.length === 0) return { path: null, how: "unmapped", candidates: [] };
   // Exact path first.
   if (service.record(stripped) !== null) return { path: stripped, how: "path", candidates: [stripped] };
@@ -67,29 +67,33 @@ function resolveSeed(
   return { path: null, how: "unmapped", candidates: [] };
 }
 
+/** Shared seed normalization (resolveSeed and suggestions must agree). */
+function normalizeSeed(raw: string): string {
+  return raw.trim().replace(/^[./@]+/, "").replace(/[.,;:)]+$/, "");
+}
+
 /**
  * #669: fuzzy suggestions for a no-result seed, harvested from the
  * in-memory indexes only (paths from the record map, symbol names from
  * the records themselves) — no new data structures, metadata only.
- * Returns at most `limit` near-misses; empty means no usable hint.
+ * Only candidate forms the resolver would accept on re-query are
+ * suggested (full paths, base names, exact symbol names). Returns at
+ * most `limit` near-misses; empty means no usable hint.
  */
 export function suggestSeeds(seed: string, service: MpmService, limit = 3): string[] {
-  const stripped = seed.trim().replace(/^[./@]+/, "").replace(/[.,;:)]+$/, "");
+  const stripped = normalizeSeed(seed);
   if (stripped.length < 4) return [];
   const maxDist = stripped.length >= 8 ? 3 : 2;
   const scored = new Map<string, number>();
   const consider = (candidate: string) => {
     if (scored.has(candidate)) return;
-    const dist = editDistance(stripped, candidate);
+    const dist = editDistance(stripped, candidate, maxDist);
     if (dist <= maxDist && dist > 0) scored.set(candidate, dist);
   };
   for (const path of service.allPaths()) {
     consider(path);
     const base = path.slice(path.lastIndexOf("/") + 1);
     if (base !== path) consider(base);
-    // Strip the extension too — models often seed symbols or bare names.
-    const dot = base.lastIndexOf(".");
-    if (dot > 0) consider(base.slice(0, dot));
   }
   for (const record of service.allRecords()) {
     for (const sym of record.symbols) consider(sym.name);

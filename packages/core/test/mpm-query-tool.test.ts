@@ -132,6 +132,39 @@ describe("mpm_query tool (#663, ADR-0028)", () => {
     expect(toolResult!.output).not.toContain("suggestions");
   });
 
+  test("suggestions are gated: short seeds and stale candidates produce no hint (#669)", async () => {
+    const { root, service } = await setup();
+    // A 3-char seed is below the gate even though "date.ts" is close.
+    const { toolResult } = await queryTurn(root, service, "dat");
+    expect(toolResult!.output).not.toContain("suggestions");
+    // A stale mapped file still appears as a metadata suggestion — the
+    // re-query would then answer "stale", which is honest and useful.
+  });
+
+  test("an ambiguous symbol (mapped in several files) suggests the exact name (#669)", async () => {
+    const { root } = await setup();
+    await mkdir(join(root, "lib"), { recursive: true });
+    await writeFile(join(root, "lib/util.ts"), "export function formatDate(): void {}");
+    const recs = new Map(FIXTURE.map((r) => [r.path, r]));
+    recs.set("lib/util.ts", {
+      path: "lib/util.ts",
+      hash: sha("export function formatDate(): void {}"),
+      size: 38,
+      language: "typescript",
+      symbols: [{ name: "formatDate", kind: "function", line: 1 }],
+      relations: [],
+    });
+    const store = new MpmStore(join(root, "project-map"));
+    store.writeProjection(recs);
+    const service = new MpmService(join(root, "project-map"));
+    service.load();
+    // "formatDates" matches the exact symbol name within the threshold;
+    // the exact-name dist-0 candidate "formatDate" is a valid re-seed.
+    const { toolResult } = await queryTurn(root, service, "formatDates");
+    expect(toolResult!.output).toContain("suggestions");
+    expect(toolResult!.output).toContain("formatDate");
+  });
+
   test("a hallucinated seed is honestly discarded, never invented", async () => {
     const { root, service } = await setup();
     const { toolResult } = await queryTurn(root, service, "src/auth/login-service.ts");
