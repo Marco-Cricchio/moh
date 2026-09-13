@@ -31,8 +31,9 @@ is, what work is pending, and which budgets and exclusions apply.
   --json        machine-readable output (the full diagnostics object)
 
 Diagnostics are metadata only: paths, counts, and timings — never source
-content. When MPM is disabled (user config wins over project config),
-the report says which side disabled it.`;
+content. When MPM is disabled (MPM is opt-in: off unless the user default
+or an explicit project override turns it on), the report says which side
+disabled it.`;
 
 function fmtBytes(n: number): string {
   if (n >= 1024 * 1024 * 1024) return `${(n / (1024 * 1024 * 1024)).toFixed(1)}GB`;

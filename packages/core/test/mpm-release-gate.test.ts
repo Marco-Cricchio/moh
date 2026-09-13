@@ -200,13 +200,13 @@ describe("MPM release gate (#621)", () => {
     lifecycle.dispose();
   });
 
-  test("disabled mode: user disablement wins, diagnostics say why, nothing maps", async () => {
+  test("disabled mode: an explicit project opt-out wins, diagnostics say why, nothing maps", async () => {
     const root = await tempRoot("moh-mpm-gate-");
     await writeCorpus(root);
-    // Project cannot force MPM on against a user disablement.
-    const forced = resolveMpmConfig({ enabled: false }, { enabled: false });
+    // ADR-0026: an explicit project enabled:false overrides a global opt-in.
+    const forced = resolveMpmConfig({ enabled: true }, { enabled: false });
     expect(forced.enabled).toBe(false);
-    expect(forced.disabledReason).toBe("user");
+    expect(forced.disabledReason).toBe("project");
 
     const service = new MpmService(join(root, "project-map"));
     service.rebuild(extractWorkspace(root));
@@ -322,7 +322,7 @@ describe("MPM release gate (#621)", () => {
     const diagnostics = mpmDiagnostics({
       service,
       root,
-      config: resolveMpmConfig({}, { quota: { maxFiles: 8 } }),
+      config: resolveMpmConfig({ enabled: true }, { quota: { maxFiles: 8 } }),
       evictions: evicted.length,
     });
     expect(diagnostics.budget.maxFiles).toBe(8);
@@ -404,7 +404,7 @@ describe("MPM release gate (#621)", () => {
       expect(service.record(path)).not.toBeNull();
     }
     // Coverage stayed across languages despite the same budget.
-    const diagnostics = mpmDiagnostics({ service, root, config: resolveMpmConfig({}, {}) });
+    const diagnostics = mpmDiagnostics({ service, root, config: resolveMpmConfig({ enabled: true }, {}) });
     expect(diagnostics.coverage.length).toBeGreaterThanOrEqual(3);
     expect(diagnostics.coverage.map((c) => c.language)).toContain("typescript");
     expect(diagnostics.coverage.map((c) => c.language)).toContain("python");

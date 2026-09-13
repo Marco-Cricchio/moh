@@ -153,7 +153,7 @@ describe("settings panel (issue #33)", () => {
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
     await sleep(30);
-    await down(i, 13); // Provider reasoning (maxIterations row inserted at 11; updateCheck at 12)
+    await down(i, 14); // Provider reasoning (MPM row inserted after handoff at 11)
     i.stdin.write("\r");
     await sleep(10);
     expect(changes).toContainEqual({ showReasoning: true });
@@ -374,9 +374,9 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    // Row 11: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
-    // provider7 add8 remove9 handoff10 maxIterations11
-    await down(i, 11);
+    // Rows: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
+    // provider7 add8 remove9 handoff10 mpm11 maxIterations12
+    await down(i, 12);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
     i.stdin.write("\r"); // 50 → 100
@@ -406,7 +406,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 11);
+    await down(i, 12);
     await sleep(30);
     // shift+tab from 50 wraps back to unlimited (warning shows).
     i.stdin.write("\x1b[Z");
@@ -423,7 +423,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 11);
+    await down(i, 12);
     await sleep(30);
     i.stdin.write("\r"); // 50 → 100
     await sleep(30);
@@ -455,7 +455,7 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 11);
+    await down(i, 12);
     await sleep(30);
     i.stdin.write("\x1b[C"); // →: 50 → 100
     await sleep(30);
@@ -463,6 +463,46 @@ describe("max iterations row (#498) — right arrow", () => {
     i.stdin.write("\x1b[C"); // →: 100 → 200
     await sleep(30);
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(200);
+    i.unmount();
+  });
+
+  test("MPM row (ADR-0026): cycles inherit → on → off → inherit and persists to moh.json", async () => {
+    const cwd = setupCwd();
+    const { i, toasts } = mount(cwd);
+    await sleep(30);
+    // Rows: mode0 … handoff10 mpm11 maxIterations12
+    await down(i, 11);
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Moh Project Map");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
+    // inherit → on: writes mpm.enabled true into moh.json.
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).mpm?.enabled).toBe(true);
+    expect(toasts.some((t) => t.includes("moh project map: on"))).toBe(true);
+    // on → off.
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).mpm?.enabled).toBe(false);
+    // off → inherit: the mpm section is removed entirely.
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(loadMohConfig(join(cwd, "moh.json")).mpm).toBeUndefined();
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
+    i.unmount();
+  });
+
+  test("MPM row shows an existing explicit off as its starting state", async () => {
+    const cwd = setupCwd();
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({
+      provider: "anthropic/claude-sonnet-4-5",
+      mpm: { enabled: false },
+    }));
+    const { i } = mount(cwd);
+    await sleep(30);
+    await down(i, 11);
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("off (this project)");
     i.unmount();
   });
 });

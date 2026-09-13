@@ -25,7 +25,7 @@ describe("mpm diagnostics (#618)", () => {
     writeFileSync(join(root, "src/b.ts"), "export const b = 2;\n");
     const dir = join(mkdtempSync(join(tmpdir(), "moh-mpm-diag-dir-")), "project-map");
     const service = loadedService(root, dir);
-    const diag = mpmDiagnostics({ service, root, config: resolveMpmConfig({}) });
+    const diag = mpmDiagnostics({ service, root, config: resolveMpmConfig({ enabled: true }) });
     expect(diag.status).toBe("ready");
     expect(diag.disabled).toBe(false);
     expect(diag.fileCount).toBe(2);
@@ -63,7 +63,7 @@ describe("mpm diagnostics (#618)", () => {
     const dir = join(mkdtempSync(join(tmpdir(), "moh-mpm-diag-dir2-")), "project-map");
     const service = loadedService(root, dir);
     writeFileSync(join(root, "src/a.ts"), "export const a = 42;\n");
-    const diag = mpmDiagnostics({ service, root, config: resolveMpmConfig({}) });
+    const diag = mpmDiagnostics({ service, root, config: resolveMpmConfig({ enabled: true }) });
     expect(diag.staleCount).toBe(1);
     rmSync(root, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
@@ -74,7 +74,7 @@ describe("mpm diagnostics (#618)", () => {
     const diag = mpmDiagnostics({
       service,
       root: workspace(),
-      config: resolveMpmConfig({ quota: { maxFiles: 100 }, exclude: ["legacy/**"] }),
+      config: resolveMpmConfig({ enabled: true, quota: { maxFiles: 100 }, exclude: ["legacy/**"] }),
     });
     expect(diag.budget.maxFiles).toBe(100);
     expect(diag.exclusions).toEqual(["legacy/**"]);
@@ -85,7 +85,7 @@ describe("mpm diagnostics (#618)", () => {
     const diag = mpmDiagnostics({
       service,
       root: workspace(),
-      config: resolveMpmConfig({}),
+      config: resolveMpmConfig({ enabled: true }),
       pendingWork: 3,
       evictions: 7,
       fallbackReason: "stale",

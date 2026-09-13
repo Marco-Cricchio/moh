@@ -45,8 +45,8 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     // Settings → Provider reasoning row → toggle (default hide → show).
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 13; n++) {
-      i.stdin.write("\x1b[B"); // down to the "Provider reasoning" row
+    for (let n = 0; n < 14; n++) {
+      i.stdin.write("\x1b[B"); // down to the "Provider reasoning" row (MPM row at 11)
       await sleep(20);
     }
     i.stdin.write("\r"); // toggle show
@@ -96,7 +96,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 13; n++) {
+    for (let n = 0; n < 14; n++) {
       i.stdin.write("\x1b[B");
       await sleep(20);
     }

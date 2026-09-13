@@ -11,40 +11,46 @@ function userConfigHome(): string {
   return home;
 }
 
-describe("mpm config precedence (#618)", () => {
-  test("defaults: enabled, default quota, no exclusions", () => {
+describe("mpm config precedence (ADR-0026)", () => {
+  test("defaults: disabled (opt-in), default quota, no exclusions", () => {
     const r = resolveMpmConfig({}, undefined);
-    expect(r.enabled).toBe(true);
-    expect(r.disabledReason).toBeNull();
+    expect(r.enabled).toBe(false);
+    expect(r.disabledReason).toBe("user");
+    expect(r.quota).toEqual({});
     expect(r.exclude).toEqual([]);
   });
 
-  test("a user disablement wins over everything", () => {
-    expect(resolveMpmConfig({ enabled: false }, { enabled: false }).enabled).toBe(false);
-    expect(resolveMpmConfig({ enabled: false }, undefined).disabledReason).toBe("user");
-    // Project quota/exclusion "gains" do not resurrect a user disablement.
-    const r = resolveMpmConfig({ enabled: false }, { quota: { maxFiles: 5 } });
-    expect(r.enabled).toBe(false);
-    expect(r.quota.maxFiles).toBeUndefined();
+  test("an explicit project enabled wins over the user default (either direction)", () => {
+    // Global default off, project opts in.
+    expect(resolveMpmConfig({}, { enabled: true }).enabled).toBe(true);
+    // Global on, project opts out.
+    const off = resolveMpmConfig({ enabled: true }, { enabled: false });
+    expect(off.enabled).toBe(false);
+    expect(off.disabledReason).toBe("project");
   });
 
-  test("a project may disable or tighten, never enable", () => {
-    expect(resolveMpmConfig({}, { enabled: false }).disabledReason).toBe("project");
-    // There is no way to express "force on" in the project schema.
-    const forced = mpmProjectConfigSchema.safeParse({ enabled: true });
-    expect(forced.success).toBe(false);
-    const r = resolveMpmConfig({ quota: { maxFiles: 10_000 } }, { quota: { maxFiles: 2_000 } });
-    expect(r.enabled).toBe(true);
-    expect(r.quota.maxFiles).toBe(2_000);
+  test("inherit: user enabled=true activates; nothing else does", () => {
+    expect(resolveMpmConfig({ enabled: true }, undefined).enabled).toBe(true);
+    expect(resolveMpmConfig({ enabled: false }, undefined).enabled).toBe(false);
+    // A project quota/exclusion gain alone does not activate MPM.
+    const r = resolveMpmConfig({}, { quota: { maxFiles: 5 } });
+    expect(r.enabled).toBe(false);
+    expect(r.disabledReason).toBe("user");
   });
 
   test("quotas take the strictest field, exclusions union", () => {
     const r = resolveMpmConfig(
-      { quota: { maxFiles: 5_000 }, exclude: ["secrets/**"] },
+      { enabled: true, quota: { maxFiles: 5_000 }, exclude: ["secrets/**"] },
       { quota: { maxTotalBytes: 1024 }, exclude: ["generated/**"] },
     );
     expect(r.quota).toEqual({ maxFiles: 5_000, maxTotalBytes: 1024 });
     expect(r.exclude.sort()).toEqual(["generated/**", "secrets/**"]);
+  });
+
+  test("the project schema accepts both enabled values (per-project override)", () => {
+    expect(mpmProjectConfigSchema.safeParse({ enabled: true }).success).toBe(true);
+    expect(mpmProjectConfigSchema.safeParse({ enabled: false }).success).toBe(true);
+    expect(mpmProjectConfigSchema.safeParse({}).success).toBe(true);
   });
 
   test("user config read is tolerant of missing/corrupt/malformed sections", () => {
@@ -103,19 +109,63 @@ describe("mpm workspace exclusions (#618)", () => {
 });
 
 describe("mpm session assembly gating (#618)", () => {
-  test("user disablement in ~/.moh/config skips MPM wiring in sessionFromConfig", async () => {
+  test("no user mpm section: MPM stays off (opt-in default) — no wiring, no projection", async () => {
     const { sessionFromConfig } = await import("../src/session/from-config");
-    const { MpmService, projectMapDir } = await import("../src/mpm/service");
-        const dir = mkdtempSync(join(tmpdir(), "moh-mpm-asm-"));
+    const { projectMapDir } = await import("../src/mpm/service");
+    const { existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-asm-"));
     const cwd = join(dir, "project");
     const home = join(dir, "home");
-    mkdirSync(cwd, { recursive: true });
+    mkdirSync(join(cwd, "src"), { recursive: true });
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
-    // A live projection exists, but the user disabled MPM.
-    const service = new MpmService(projectMapDir(join(home, ".moh"), cwd));
-    service.rebuild(new Map());
-    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { enabled: false } }));
+    writeFileSync(join(cwd, "src", "app.ts"), "export {};\n");
+    // No ~/.moh/config mpm section: the opt-in default is disabled.
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    try {
+      expect(existsSync(join(projectMapDir(join(home, ".moh"), cwd), "manifest.json"))).toBe(false);
+    } finally {
+      await result.session.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a project opt-in (moh.json mpm.enabled=true) activates MPM over a global default off", async () => {
+    const { sessionFromConfig } = await import("../src/session/from-config");
+    const { MpmService, projectMapDir } = await import("../src/mpm/service");
+    const { existsSync } = await import("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-proj-on-"));
+    const cwd = join(dir, "project");
+    const home = join(dir, "home");
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", mpm: { enabled: true } }));
+    writeFileSync(join(cwd, "src", "app.ts"), "export {};\n");
+    // No user section: the project override alone activates MPM. The config
+    // param replaces the moh.json read, so mpm rides on it explicitly.
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock", mpm: { enabled: true } } });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    try {
+      expect(existsSync(join(projectMapDir(join(home, ".moh"), cwd), "manifest.json"))).toBe(true);
+    } finally {
+      await result.session.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a user mpm.enabled=true activates MPM wiring in sessionFromConfig", async () => {
+    const { sessionFromConfig } = await import("../src/session/from-config");
+    const dir = mkdtempSync(join(tmpdir(), "moh-mpm-asm-"));
+    const cwd = join(dir, "project");
+    const home = join(dir, "home");
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+    writeFileSync(join(cwd, "src", "app.ts"), "export {};\n");
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { enabled: true } }));
     const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -133,13 +183,14 @@ describe("mpm session assembly gating (#618)", () => {
     const home = join(dir, "home");
     mkdirSync(join(cwd, "src"), { recursive: true });
     mkdirSync(join(home, ".moh"), { recursive: true });
-    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", mpm: { enabled: true } }));
     writeFileSync(join(cwd, "src", "app.ts"), 'import { helper } from "./util";\nexport function app() { return helper(); }\n');
     writeFileSync(join(cwd, "src", "util.ts"), "export function helper() { return 2; }\n");
     // No manifest exists — the deadlock case: nothing ever built the map.
+    // The project opts in via moh.json; the user default stays off.
     const mapDir = projectMapDir(join(home, ".moh"), cwd);
     expect(existsSync(join(mapDir, "manifest.json"))).toBe(false);
-    const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    const result = sessionFromConfig({ cwd, home, config: { provider: "mock", mpm: { enabled: true } } });
     expect("error" in result).toBe(false);
     if ("error" in result) return;
     try {
@@ -169,7 +220,7 @@ describe("mpm session assembly gating (#618)", () => {
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
     writeFileSync(join(cwd, "src", "keep.ts"), "export {};\n");
     writeFileSync(join(cwd, "src", "drop.ts"), "export {};\n");
-    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { exclude: ["src/drop.ts"] } }));
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ mpm: { enabled: true, exclude: ["src/drop.ts"] } }));
     const result = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
     expect("error" in result).toBe(false);
     if ("error" in result) return;

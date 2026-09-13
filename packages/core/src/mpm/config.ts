@@ -1,12 +1,13 @@
 /**
- * MPM user controls and project restrictions (#618, spec #613).
+ * MPM user controls and per-project override (ADR-0026).
  *
- * Two configuration sources, one precedence rule: the **user** owns the
- * default (`mpm` in `~/.moh/config`); the **project** (moh.json `mpm`)
- * may only restrict or disable — it can never force MPM on against a
- * user disablement. Quotas and exclusions intersect (the stricter value
- * wins; exclusions union). No source content is ever named here: only
- * patterns, budgets, and an on/off decision.
+ * Two configuration sources: the **user** owns the global default
+ * (`mpm` in `~/.moh/config`, default **disabled** — MPM is opt-in);
+ * the **project** (moh.json `mpm`) is an explicit per-project override
+ * in either direction: an explicit project `enabled` wins over the user
+ * default (ADR-0026 reversed #618's restrict-only rule). Quotas take
+ * the strictest field; exclusions union. No source content is ever
+ * named here: only patterns, budgets, and an on/off decision.
  */
 import { z } from "zod";
 import { MPM_DEFAULT_MAX_FILES, MPM_DEFAULT_MAX_TOTAL_BYTES, type MpmQuota } from "./service";
@@ -23,10 +24,14 @@ export const mpmQuotaSchema = z
   })
   .optional();
 
-/** Project-side moh.json `mpm` section: restrict or disable, nothing else. */
+/**
+ * Project-side moh.json `mpm` section: an explicit per-project override.
+ * `enabled: true` opts this project in (over a global default off);
+ * `enabled: false` opts it out (over a global opt-in). Absent = inherit
+ * the user default (ADR-0026).
+ */
 export const mpmProjectConfigSchema = z.object({
-  /** Only an explicit disablement is expressible — never a force-on. */
-  enabled: z.literal(false).optional(),
+  enabled: z.boolean().optional(),
   quota: mpmQuotaSchema,
   exclude: z.array(z.string().min(1)).optional(),
 });
@@ -50,19 +55,33 @@ export interface MpmEffectiveConfig {
 }
 
 /**
- * Resolve the effective MPM config for one project. User disablement wins
- * over everything (the project cannot force MPM on); when the user allows,
- * the project may still disable or tighten. Quotas are the strictest
- * (minimum) per field; exclusions union. Malformed user values degrade to
- * the defaults — the user config is chrome and never hard-fails a session;
- * a malformed project section is caught earlier by moh.json's strict parse.
+ * Resolve the effective MPM config for one project (ADR-0026). An explicit
+ * project `enabled` (either value) overrides the user default; absent
+ * project section = inherit. The global default is disabled — MPM is
+ * opt-in. Quotas are the strictest (minimum) per field; exclusions union.
+ * Malformed user values degrade to the defaults — the user config is
+ * chrome and never hard-fails a session; a malformed project section is
+ * caught earlier by moh.json's strict parse.
  */
 export function resolveMpmConfig(user: MpmUserConfig, project?: MpmProjectConfig): MpmEffectiveConfig {
-  if (user.enabled === false) {
-    return { enabled: false, quota: {}, exclude: [], disabledReason: "user" };
+  // Explicit project override wins in both directions (ADR-0026).
+  if (project?.enabled === true) {
+    return {
+      enabled: true,
+      quota: {
+        maxFiles: strictest(user.quota?.maxFiles, project?.quota?.maxFiles),
+        maxTotalBytes: strictest(user.quota?.maxTotalBytes, project?.quota?.maxTotalBytes),
+      },
+      exclude: [...new Set([...(user.exclude ?? []), ...(project?.exclude ?? [])])],
+      disabledReason: null,
+    };
   }
   if (project?.enabled === false) {
     return { enabled: false, quota: {}, exclude: [], disabledReason: "project" };
+  }
+  // Inherit: the user default (disabled when absent — MPM is opt-in).
+  if (user.enabled !== true) {
+    return { enabled: false, quota: {}, exclude: [], disabledReason: "user" };
   }
   return {
     enabled: true,
