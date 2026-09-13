@@ -7,6 +7,72 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-09-13
+### Added
+
+- **Moh Project Map (MPM)** (spec #613): a local, deterministic, rebuildable
+  structural projection of one project workspace that orients the agent
+  automatically — no separate indexing command, no LLM extraction, no remote
+  service.
+  - Core foundation (#614, PR #636): one headless `MpmService` per project
+    owning sharded JSON under `~/.moh/projects/<slug>/project-map/` with an
+    atomically-flipped manifest, in-memory inverse indexes, a small
+    append-only crash journal, and a read-only query contract with
+    provenance. Corrupt or incompatible data is discarded and rebuilt, never
+    migrated. Metadata only: never source content, MemoryStore, or the event
+    log.
+  - Deterministic extraction (#615, PR #638): TypeScript/JavaScript full
+    symbols and import/require relations (test→subject `references` edges);
+    JSON/YAML/TOML config-links (lockfiles excluded as generated); Markdown
+    mapped silently; safety-first discovery honoring `.gitignore`, MPM
+    exclusions, generated/vendor/binary/oversize hard exclusions, and a
+    fixed sensitive-file denylist that no negation can rescue.
+  - Tier A languages (#639, PR #641): Python, Go, C/C++, PHP, Shell, and
+    Lua with path-based relations only (Go resolves imports via walk-up to
+    the nearest `go.mod`).
+  - Tier B languages (#640, PR #642): Rust, C#, Swift, and Kotlin with
+    module/namespace relations anchored by their project files
+    (`Cargo.toml`, `csproj`, `Package.swift`, per-language config
+    capabilities built once and shared).
+  - Targeted orientation plans (#616, PR #643): a small, source-cited,
+    advisory plan injected into the prompt's `mpm` section for eligible
+    codebase tasks — every entry extracted and fresh (re-hashed against the
+    mapped record), cited with path, coordinate, relation, and reason.
+    Conservative local eligibility: stale or unsupported scopes get no plan
+    at all, and plans are turn-scoped with no effect on tool access or
+    source-verification requirements.
+  - Freshness and resource lifecycle (#617, PR #644): session-lifetime
+    debounced background refresh with edit-priority queueing, busy-turn
+    yielding (a turn never waits for MPM), per-slice file and time budgets,
+    honest `ready | updating | unavailable` status, and LRU quota eviction
+    (20k files / 64MB defaults).
+  - User controls and CLI diagnostics (#618, PR #645): user-level `mpm`
+    section in `~/.moh/config` (`enabled`, `quota`, `exclude`); the
+    project's moh.json `mpm` section is restrict-only (it can disable, never
+    force against a user disablement); one resolver with strictest-quota and
+    union-exclusion semantics; orientation fallback reasons tracked; and
+    `moh mpm` (`--json` for clients) as a read-only, redacted diagnostics
+    projection.
+  - TUI status and inspection (#619, PR #646): a discreet first-row status
+    chip (`MPM ✓ ready / ↻ updating / — unavailable`) and an on-demand
+    project-map inspection modal with per-language coverage.
+  - Session continuity (#620, PR #647): subagents receive a bounded,
+    read-only orientation snapshot for their task (no service, lifecycle,
+    or mutation surface reaches the child); handoff transports zero MPM data
+    but its file/test hints validate locally into a non-blocking warm-up
+    priority; a project identity migration relocates `project-map/` with the
+    project data and the relocated map is revalidated against the active
+    root before use (absent files are dropped, never trusted).
+  - End-to-end release gate (#621, PR #648): a maintained multi-language
+    corpus driving end-to-end scenarios — targeted multi-file orientation,
+    ordinary fallback, external edits, disabled mode, subagent snapshots,
+    handoff warm-up, identity migration, disposable-cache recovery,
+    large-workspace budgets, foreground responsiveness, and a comparative
+    scenario proving the cited plan bounds the candidate set that ordinary
+    exploration would have to walk.
+
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.31.0...develop
+[0.31.0]: https://github.com/Marco-Cricchio/moh/compare/v0.30.0...v0.31.0
 ## [0.30.0] - 2026-09-11
 ### Added
 
@@ -852,7 +918,6 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 - First-party skills embedded in the binary, lazily copied to `~/.moh/skills/`
   on first run via the existing hash-manifest upgrade semantics.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.30.0...develop
 [0.30.0]: https://github.com/Marco-Cricchio/moh/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/Marco-Cricchio/moh/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/Marco-Cricchio/moh/compare/v0.27.0...v0.28.0
