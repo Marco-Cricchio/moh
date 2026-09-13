@@ -232,7 +232,7 @@ describe("MpmLifecycle (#617)", () => {
       const lifecycle = new MpmLifecycle({ service, root, timers: clock });
       expect(service.status).toBe("ready");
 
-      // First scan adopts mtimes; a real mtime change then triggers refresh.
+      // First scan captures metadata; later external drift triggers refresh.
       clock.advance(10_000);
       clock.tick();
       expect(service.status).toBe("ready");
