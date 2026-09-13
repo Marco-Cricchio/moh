@@ -72,6 +72,32 @@ notes:
     restored automatically).
 ```
 
+## moh serve
+
+```
+usage: moh serve [options]
+
+RPC mode: drive one session over stdin/stdout as LF-delimited JSON
+lines (protocol v1, see docs/serve-protocol.md). Events stream to
+stdout interleaved with protocol messages; stderr stays for human
+warnings. The session persists to the same JSONL log as moh run, so a
+session can move between moh run --session, moh serve, and TUI resume.
+
+options:
+  --provider <ref>           "mock", a custom id, or endpoint/model-id (moh.json)
+  --session <file>           resume an existing session JSONL (append)
+  --allow <rule>             grant a permission rule (repeatable)
+  --deny <rule>              deny a permission rule (repeatable)
+  --auto-accept              auto-accept every permission prompt
+  --yolo                     no permission prompts, unrestricted filesystem
+  --cwd <dir>                project root (default: process.cwd())
+
+notes:
+  - initialize (the first client message) may override cwd, provider
+    and permission rules per connection; launch flags are the defaults.
+  - exit code: 0 on clean stdin EOF, 2 on startup errors.
+```
+
 ## moh mcp
 
 ```

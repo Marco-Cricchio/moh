@@ -330,7 +330,21 @@ export async function refreshOpenaiToken(
 /** Warn about a skipped mint (#151): OnboardingIo has no warn channel,
  * so the warning rides `info` with an explicit prefix. */
 async function warnMintSkipped(io: AuthorizationIo, mintError: string): Promise<void> {
-  await io.info(`warning: API-key mint skipped (${mintError}); continuing with native ChatGPT-plan tokens`);
+  await io.info(`warning: API-key mint skipped (${friendlyMintNote(mintError)})`);
+}
+
+/**
+ * Some accounts receive an id_token without `organization_id`, so the
+ * API-key mint is rejected (observed payload: 401, code
+ * `invalid_object_token`). That path is expected and safe — the login
+ * proceeds with the native ChatGPT-plan tokens — so the warning gets a
+ * friendlier, non-error-shaped message instead of the raw 401 body.
+ */
+function friendlyMintNote(mintError: string): string {
+  return mintError.includes("missing organization_id")
+    ? "this account's ID token has no organization claim, so no OpenAI API key could be minted; " +
+        "login completed with native ChatGPT-plan tokens (expected for some accounts, no action needed)"
+    : mintError;
 }
 
 /** Thrown by {@link loginOpenAI} when the user declines the ToS warning. */

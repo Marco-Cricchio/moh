@@ -1,0 +1,4 @@
+{
+  "deltas": ["hello from serve"],
+  "finish": "stop"
+}
