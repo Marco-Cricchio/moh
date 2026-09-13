@@ -7,6 +7,30 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-09-13
+### Added
+
+- **MPM opt-in activation with a per-project override** (ADR-0026, PR #652):
+  the Moh Project Map is now **disabled by default** — the user default in
+  `~/.moh/config` (`mpm.enabled`) must opt in. The project's moh.json
+  `mpm` section becomes a two-way override: an explicit `enabled: true`
+  opts the project in over a global default off, `enabled: false` opts it
+  out over a global opt-in, absent = inherit (this reverses #618's
+  restrict-only precedence). New settings-panel row "Moh Project Map"
+  (inherit / on / off) writes moh.json through the guardian; changes apply
+  to new sessions.
+
+### Fixed
+
+- **MPM initial projection build** (PR #650): a project never mapped before
+  could never become mapped — activation gated on an existing manifest
+  while no production path built the projection. `sessionFromConfig` now
+  builds the initial projection (fail-safe, metadata only, honoring
+  resolved exclusions) before activation; a build failure degrades to no
+  MPM, never a session error.
+- **OpenAI auth** (PR #651): the standard OIDC email claim is retained
+  during token exchange.
+
 ## [0.31.0] - 2026-09-13
 ### Added
 
@@ -71,7 +95,8 @@ matching section here at tag time.
     scenario proving the cited plan bounds the candidate set that ordinary
     exploration would have to walk.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.31.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.32.0...develop
+[0.32.0]: https://github.com/Marco-Cricchio/moh/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/Marco-Cricchio/moh/compare/v0.30.0...v0.31.0
 ## [0.30.0] - 2026-09-11
 ### Added
