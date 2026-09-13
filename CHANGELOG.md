@@ -5,7 +5,32 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.33.0] - 2026-09-13
+### Added
+
+- **MPM model-nominated queries — the `mpm_query` tool** (ADR-0028, PR #664):
+  when MPM is active the session carries a read-only `mpm_query` tool: the
+  model nominates one seed (a mapped path, a unique path suffix, or a symbol
+  name) and receives the orientation plan's trusted format, every entry
+  re-hashed fresh against the mapped record and locally proven — hallucinated
+  or ambiguous candidates are discarded honestly, never guessed. The full
+  result persists in the event log (the accepted exception to "MPM never in
+  the event log" — a tool result the model consumed, not map state).
+  Subagents get the tool via preset allow-lists (the `MpmService` never
+  leaves the parent session); diagnostics distinguish the `model-seeded`
+  fallback reason. Documented in the extending chapter and glossary.
+- **New bundled manual page "What moh offers"** (PR #665): a high-level tour
+  of all moh macro-features, registered in the bundled manual and mirrored
+  to `docs/manual/`. The manual modal now uses the shared chat Markdown
+  renderer — page text word-wraps and is never truncated, and Markdown
+  blank lines render as real vertical spacing between paragraphs.
+
+### Fixed
+
+- **MPM same-timestamp edit detection** (commit 6661707): external edits
+  landing with the same mtime second as the mapped record were skipped by
+  the freshness scan; the lifecycle now hash-checks instead of trusting
+  the timestamp alone.
 
 ## [0.32.3] - 2026-09-13
 ### Fixed
@@ -129,7 +154,9 @@ matching section here at tag time.
     scenario proving the cited plan bounds the candidate set that ordinary
     exploration would have to walk.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.32.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.33.0...develop
+[0.33.0]: https://github.com/Marco-Cricchio/moh/compare/v0.32.3...v0.33.0
+[0.32.3]: https://github.com/Marco-Cricchio/moh/compare/v0.32.2...v0.32.3
 [0.32.2]: https://github.com/Marco-Cricchio/moh/compare/v0.32.1...v0.32.2
 [0.32.1]: https://github.com/Marco-Cricchio/moh/compare/v0.32.0...v0.32.1
 [0.32.0]: https://github.com/Marco-Cricchio/moh/compare/v0.31.0...v0.32.0
