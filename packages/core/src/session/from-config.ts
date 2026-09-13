@@ -14,10 +14,14 @@
  * configured (`"mock"`, the zero-config default) or passed in.
  */
 import { homedir } from "node:os";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { projectMapDir, type MpmQuota, type MpmService } from "../mpm/service";
 import { readMpmUserConfig, resolveMpmConfig } from "../mpm/config";
+import { extractWorkspace, mapFile, MPM_MAX_FILE_SIZE } from "../mpm/extractor";
+import { discoverWorkspace } from "../mpm/discover";
+import { MpmService as MpmServiceImpl } from "../mpm/service";
+import type { MpmFileRecord } from "../mpm/types";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
@@ -29,6 +33,44 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import { userConfigFile } from "../user-config";
 import type { PermissionsConfig } from "./config";
+
+/**
+ * Initial projection build for a never-mapped project (MPM activation
+ * deadlock fix): discover the workspace deterministically, extract the
+ * supported files (metadata only), and write the projection atomically.
+ * Fail-safe by design — any error leaves the directory untouched so the
+ * next open retries; a session never fails because of MPM.
+ */
+function buildInitialProjection(mapDir: string, root: string, exclude: string[] | undefined): void {
+  try {
+    const service = new MpmServiceImpl(mapDir);
+    service.rebuild(extractWorkspaceExcluding(root, exclude ?? []));
+  } catch {
+    // Fail-safe: leave no half projection; MPM degrades to inactive.
+  }
+}
+
+/** Full extraction honoring the resolved user/project exclusion patterns. */
+function extractWorkspaceExcluding(root: string, extraExcludes: string[]): Map<string, MpmFileRecord> {
+  if (extraExcludes.length === 0) return extractWorkspace(root);
+  // Same pipeline as extractWorkspace, but discovery also drops the
+  // configured extra exclusion patterns before extraction.
+  const files = discoverWorkspace(root, extraExcludes);
+  const known = new Set(files);
+  const records = new Map<string, MpmFileRecord>();
+  for (const path of files) {
+    const abs = join(root, path);
+    try {
+      const st = statSync(abs);
+      if (st.size > MPM_MAX_FILE_SIZE) continue;
+      const content = readFileSync(abs, "utf8");
+      records.set(path, mapFile(root, path, content, st.size, known));
+    } catch {
+      continue; // unreadable: skipped, never fatal
+    }
+  }
+  return records;
+}
 
 /** Why an assembly failed. `config`/`provider` are user-fixable; `session` is a startup validation error (e.g. duplicate MCP names). */
 export type AssemblyErrorKind = "config" | "provider" | "session";
@@ -195,11 +237,21 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // and the project's projection exists, the session loads it (fail-safe)
   // with the resolved quota and exclusion patterns; otherwise nothing
   // changes (no service, no lifecycle, no prompt section).
+  // Initial build: a never-mapped project is no longer a permanent dead
+  // end — the projection is built synchronously here (bounded discovery,
+  // metadata only) before activation. Every failure degrades to "no MPM",
+  // never a session error; a subsequent open retries the build.
   let mpm: { service?: MpmService; root?: string; quota?: MpmQuota; exclude?: string[] } | undefined;
   try {
     const mpmConfig = resolveMpmConfig(readMpmUserConfig(userConfigFile(home)), config.mpm);
-    if (mpmConfig.enabled && existsSync(join(projectMapDir(mohHome, options.cwd), "manifest.json"))) {
-      mpm = { root: options.cwd, quota: mpmConfig.quota, exclude: mpmConfig.exclude };
+    if (mpmConfig.enabled) {
+      const mapDir = projectMapDir(mohHome, options.cwd);
+      if (!existsSync(join(mapDir, "manifest.json"))) {
+        buildInitialProjection(mapDir, options.cwd, mpmConfig.exclude);
+      }
+      if (existsSync(join(mapDir, "manifest.json"))) {
+        mpm = { root: options.cwd, quota: mpmConfig.quota, exclude: mpmConfig.exclude };
+      }
     }
   } catch {
     mpm = undefined;
