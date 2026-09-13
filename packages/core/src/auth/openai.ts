@@ -143,7 +143,14 @@ function idTokenClaims(idToken: string | undefined): { email?: string; plan?: st
   const profile = claims?.[PROFILE_CLAIM] as Record<string, unknown> | undefined;
   const auth = claims?.[AUTH_CLAIM] as Record<string, unknown> | undefined;
   return {
-    email: typeof profile?.email === "string" ? profile.email : undefined,
+    // Recent Codex-flow ID tokens put the standard OIDC email claim at the
+    // top level, rather than inside the namespaced profile object.
+    email:
+      typeof profile?.email === "string"
+        ? profile.email
+        : typeof claims?.email === "string"
+          ? claims.email
+          : undefined,
     plan: typeof auth?.chatgpt_plan_type === "string" ? auth.chatgpt_plan_type : undefined,
   };
 }

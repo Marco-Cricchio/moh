@@ -183,6 +183,23 @@ describe("exchangeOpenaiCode", () => {
     expect(mintError).toContain("id_token");
     expect(auth).toMatchObject({ accessToken: "at", grant: { minted: false } });
   });
+
+  test("standard OIDC email claim is retained when the profile claim is absent", async () => {
+    const fetchImpl = endpoint([
+      {
+        status: 200,
+        json: {
+          ...TOKEN_RESPONSE,
+          id_token: makeIdToken({ "https://api.openai.com/profile": {}, email: "standard@example.com" }),
+        },
+      },
+      { status: 401, json: { error: { code: "invalid_subject_token" } } },
+    ]);
+    const { auth } = await exchangeOpenaiCode(CONFIG, {
+      code: "c", codeVerifier: "v", redirectUri: "r", fetchImpl, now: NOW,
+    });
+    expect(auth.account).toEqual({ email: "standard@example.com" });
+  });
 });
 
 describe("exchangeOpenaiApiKey", () => {
