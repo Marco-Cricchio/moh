@@ -68,7 +68,7 @@ describe("MpmLifecycle (#617)", () => {
     }
   });
 
-  test("external edit refreshes the projection after the debounce window", async () => {
+  test("external edits are caught by the periodic scan, not a dead debounce seam (#654)", async () => {
     const root = await tempRoot();
     const mapDir = join(root, "project-map");
     try {
@@ -78,26 +78,14 @@ describe("MpmLifecycle (#617)", () => {
       expect(service.record("src/b.ts")!.relations.length).toBe(1);
 
       const clock = fakeTimers();
-      const lifecycle = new MpmLifecycle({
-        service,
-        root,
-        debounceMs: 500,
-        timers: clock,
-      });
+      const lifecycle = new MpmLifecycle({ service, root, timers: clock });
       // External edit (not via moh): b.ts drops its import of a.ts.
       await writeFile(join(root, "src", "b.ts"), "export const b = 1;\n");
-      lifecycle.noteExternalChange("src/b.ts");
-
-      // First scan adopts the baseline mtimes (hash matches, no churn);
-      // the not-yet-debounced external entry is superseded by the scan's
-      // own hash detection — the drift is already corrected here.
-      clock.advance(100);
+      // First scan adopts the baseline mtimes (hash matches, no churn)…
+      clock.advance(10_000);
       clock.tick();
       expect(service.record("src/b.ts")!.relations.length).toBe(0);
-
-      clock.advance(500);
-      clock.tick();
-      expect(service.record("src/b.ts")!.relations.length).toBe(0);
+      expect(service.status).toBe("ready");
       lifecycle.dispose();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -115,10 +103,10 @@ describe("MpmLifecycle (#617)", () => {
       const lifecycle = new MpmLifecycle({ service, root, timers: clock });
 
       await rename(join(root, "src", "a.ts"), join(root, "src", "renamed.ts"));
-      lifecycle.noteExternalChange("src/a.ts");
       clock.advance(10_000);
       clock.tick();
       expect(service.record("src/a.ts")).toBeNull();
+      expect(service.record("src/renamed.ts")).not.toBeNull();
       lifecycle.dispose();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -179,7 +167,8 @@ describe("MpmLifecycle (#617)", () => {
       for (let i = 0; i < 5; i++) await writeFile(join(root, "src", `m${i}.ts`), `export const m${i} = ${i};\n`);
       const service = new MpmService(mapDir);
       service.rebuild(extractWorkspace(root));
-      // Bump mtimes on all m-files externally.
+      // Bump mtimes on all m-files externally (the periodic scan rediscovers
+      // them; noteEdit enqueues three targeted refreshes with a 2-file budget).
       for (let i = 0; i < 5; i++) await writeFile(join(root, "src", `m${i}.ts`), `export const m${i} = ${i + 10};\n`);
       const clock = fakeTimers();
       const lifecycle = new MpmLifecycle({
@@ -188,10 +177,9 @@ describe("MpmLifecycle (#617)", () => {
         maxFilesPerSweep: 2,
         timers: clock,
       });
-      lifecycle.noteExternalChange("src/m0.ts");
-      lifecycle.noteExternalChange("src/m1.ts");
-      lifecycle.noteExternalChange("src/m2.ts");
-      clock.advance(10_000);
+      lifecycle.noteEdit("src/m0.ts");
+      lifecycle.noteEdit("src/m1.ts");
+      lifecycle.noteEdit("src/m2.ts");
       clock.tick(); // budget 2: m0, m1 refresh; m2 deferred
       expect(service.record("src/m0.ts")!.symbols[0]!.name).toBe("m0");
       // m2 still maps the OLD content (size from before the edit).

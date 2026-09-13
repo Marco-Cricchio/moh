@@ -7,9 +7,10 @@ import type { MpmQuota, MpmService } from "./service";
 /**
  * MPM background lifecycle (#617): session-lifetime low-priority change
  * observation and incremental refresh. Watches the workspace cheaply
- * (debounced polling sweeps — no fs.watch handle storm), reacts to external
- * edits, accepts targeted refreshes enqueued by successful moh edits, and
- * yields to foreground work: an active turn pauses map work at every unit
+ * (polling sweeps — no fs.watch handle storm): successful moh edits get a
+ * targeted priority refresh, and every other change (external edits, git
+ * operations, generated files) is caught by the periodic mtime+hash scan.
+ * Yields to foreground work: an active turn pauses map work at every unit
  * boundary, so an ordinary turn never waits for MPM. All budgets are
  * adaptive and conservative — partial useful coverage always beats
  * unbounded work. Never throws; every failure degrades to less coverage.
@@ -25,8 +26,6 @@ export interface MpmLifecycleOptions {
   quota?: MpmQuota;
   /** #618: user/project exclusion patterns for discovery sweeps. */
   exclude?: string[];
-  /** Debounce window for external edits (ms). */
-  debounceMs?: number;
   /** Max files re-extracted per sweep before the sweep reschedules. */
   maxFilesPerSweep?: number;
   /** Max wall-clock milliseconds per sweep slice. */
@@ -44,7 +43,6 @@ export interface MpmLifecycleOptions {
 }
 
 const DEFAULTS = {
-  debounceMs: 1_500,
   maxFilesPerSweep: 200,
   maxSweepMs: 25,
   maxFilesWhenBusy: 0,
@@ -67,12 +65,9 @@ export class MpmLifecycle {
   readonly #isBusy: () => boolean;
   readonly #quota: MpmQuota;
   readonly #exclude: string[];
-  readonly #opts: typeof DEFAULTS & { maxFilesWhenBusy: number };
-  readonly #timers: NonNullable<MpmLifecycleOptions["timers"]>;
-  #timer: unknown = null;
+  readonly #opts: typeof DEFAULTS;
+  readonly #timers: NonNullable<MpmLifecycleOptions["timers"]>;  #timer: unknown = null;
   #disposed = false;
-  /** External paths seen changed, awaiting debounce. */
-  #dirty = new Map<string, number>();
   /** Successful moh edits (highest priority — fresh work just happened). */
   #editQueue: PendingEdit[] = [];
   /** mtime snapshot from the last periodic scan (first-sight adopt). */
@@ -89,7 +84,6 @@ export class MpmLifecycle {
     this.#quota = options.quota ?? {};
     this.#exclude = options.exclude ?? [];
     this.#opts = {
-      debounceMs: options.debounceMs ?? DEFAULTS.debounceMs,
       maxFilesPerSweep: options.maxFilesPerSweep ?? DEFAULTS.maxFilesPerSweep,
       maxSweepMs: options.maxSweepMs ?? DEFAULTS.maxSweepMs,
       maxFilesWhenBusy: options.maxFilesWhenBusy ?? DEFAULTS.maxFilesWhenBusy,
@@ -122,15 +116,9 @@ export class MpmLifecycle {
     this.#editQueue.push({ path, at: this.#timers.now() });
   }
 
-  /** External change notification (e.g. from a shared watcher). */
-  noteExternalChange(path: string): void {
-    if (this.#disposed) return;
-    this.#dirty.set(path, this.#timers.now());
-  }
-
-  /** Paths currently awaiting debounced refresh (diagnostics/tests). */
+  /** Paths currently awaiting refresh (diagnostics/tests). */
   get pendingCount(): number {
-    return this.#dirty.size + this.#editQueue.length;
+    return this.#editQueue.length;
   }
 
   /** #619: paths evicted by quota enforcement this process (diagnostics). */
@@ -138,19 +126,13 @@ export class MpmLifecycle {
     return this.#evictions;
   }
 
-  /** Pump the debounce window and run at most one sweep slice. */
+  /** Run at most one sweep slice per tick. */
   #tick(): void {
     if (this.#disposed) return;
-    const now = this.#timers.now();
-    // Fire edits immediately; debounce externals.
+    // Fire queued edits immediately; otherwise continue an in-progress
+    // sweep or run the periodic freshness scan.
     const ready: string[] = this.#editQueue.map((e) => e.path);
     this.#editQueue = [];
-    for (const [path, at] of this.#dirty) {
-      if (now - at >= this.#opts.debounceMs) {
-        ready.push(path);
-        this.#dirty.delete(path);
-      }
-    }
     if (ready.length > 0) {
       this.#service.setUpdating(true);
       this.#runSlice(ready);
@@ -165,17 +147,17 @@ export class MpmLifecycle {
   }
 
   /**
-   * One bounded slice of refresh work. Priority order: explicit edits and
-   * debounced externals first, then a partial discovery sweep. Yields at
-   * every unit boundary when a turn is active.
+   * One bounded slice of refresh work for queued moh edits. Yields at
+   * every unit boundary when a turn is active; the remainder is retried
+   * on the next tick via the edit queue.
    */
   #runSlice(paths: string[]): void {
     const budget = this.#isBusy() ? this.#opts.maxFilesWhenBusy : this.#opts.maxFilesPerSweep;
     const deadline = this.#timers.now() + this.#opts.maxSweepMs;
     for (let i = 0; i < paths.length; i++) {
       if (i >= budget || this.#timers.now() >= deadline) {
-        // Defer the remainder as external work (immediate retry next tick).
-        for (const p of paths.slice(i)) this.#dirty.set(p, 0);
+        // Defer the remainder; retry next tick (immediately, no debounce).
+        for (const p of paths.slice(i)) this.#editQueue.push({ path: p, at: 0 });
         return;
       }
       this.#refreshOne(paths[i]!);
@@ -282,7 +264,7 @@ export class MpmLifecycle {
 
   #afterWork(): void {
     this.#service.enforceQuota(this.#quota);
-    if (this.#sweepCursor === null && this.#dirty.size === 0 && this.#editQueue.length === 0) {
+    if (this.#sweepCursor === null && this.#editQueue.length === 0) {
       this.#service.setUpdating(false);
     }
   }

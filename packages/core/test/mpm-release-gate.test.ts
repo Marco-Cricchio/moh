@@ -161,7 +161,7 @@ describe("MPM release gate (#621)", () => {
     await writeCorpus(root);
     const service = serviceFor(root);
     const clock = fakeTimers();
-    const lifecycle = new MpmLifecycle({ service, root, timers: clock, debounceMs: 10 });
+    const lifecycle = new MpmLifecycle({ service, root, timers: clock });
     const orientation = new MpmOrientation({ service, root });
 
     // External edit lands after mapping (before the write): the obsolete
@@ -171,9 +171,8 @@ describe("MPM release gate (#621)", () => {
     expect(orientation.planFor("change src/date.ts formatting behavior")).toBeNull();
     expect(orientation.lastFallbackReason).toBe("stale");
 
-    // The debounced external-change observation remaps the file.
-    lifecycle.noteExternalChange("src/date.ts");
-    clock.advance(20);
+    // The periodic scan remaps the file (mtime drift → hash → refresh).
+    clock.advance(10_000);
     clock.tick();
     const refreshed = orientation.planFor("change src/date.ts formatting behavior");
     expect(refreshed).not.toBeNull();
@@ -189,7 +188,7 @@ describe("MPM release gate (#621)", () => {
     await writeCorpus(root);
     const service = serviceFor(root);
     const clock = fakeTimers();
-    const lifecycle = new MpmLifecycle({ service, root, timers: clock, debounceMs: 10_000 });
+    const lifecycle = new MpmLifecycle({ service, root, timers: clock });
 
     await writeFile(join(root, "src/types.ts"), "export interface DateLike { toISOString(): string; }\nexport type X = 1;\n");
     lifecycle.noteEdit("src/types.ts");
