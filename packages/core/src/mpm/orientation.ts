@@ -122,6 +122,16 @@ export class MpmOrientation {
     return this.#lastFallback;
   }
 
+  /**
+   * #663 (ADR-0028): a model-nominated `mpm_query` succeeded this turn.
+   * When the automatic plan produced nothing, diagnostics report
+   * `model-seeded` instead of a plain failure — the orientation style was
+   * model-nominated, not absent. Metadata only.
+   */
+  noteModelQuery(): void {
+    if (this.#lastFallback !== null) this.#lastFallback = "model-seeded";
+  }
+
   /** Mapped paths directly named in the task text. */
   #seeds(text: string): string[] {
     if (this.#service.status !== "ready" || this.#service.fileCount === 0) return [];
