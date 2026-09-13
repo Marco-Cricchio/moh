@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PROTOCOL_VERSION } from "../src/serve";
 
@@ -14,7 +13,7 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) {
     try {
-      readdirSync(d, { recursive: true });
+      rmSync(d, { recursive: true, force: true });
     } catch {
       // best-effort cleanup
     }
@@ -133,7 +132,7 @@ function initializeMsg(extra: Record<string, unknown> = {}): string {
 
 describe("moh serve (#525)", () => {
   test("initialize → ready → send → streamed events → result", async () => {
-    const { cwd, home, spawnServe } = harness();
+    const { home, spawnServe } = harness();
     const client = spawnServe();
     const r = reader(client.stdout);
     client.writeLine(initializeMsg());
@@ -159,12 +158,10 @@ describe("moh serve (#525)", () => {
     expect(result.exitCode).toBe(0);
     const types = events.map((e) => e.type);
     expect(types).toContain("user_message");
-    expect(types).toContain("user_message");
     expect(types).toContain("assistant_delta");
     expect(types).toContain("done");
     client.closeStdin();
     expect(await client.exited).toBe(0);
-    void cwd;
   });
 
   test("messages before initialize are rejected; ping works; session continuity via --session", async () => {
@@ -319,17 +316,42 @@ describe("moh serve (#525)", () => {
     const early = await readMessage(r);
     expect(early.type).toBe("error");
     expect(early.code).toBe("not_initialized");
-    client.writeLine(initializeMsg());
-    await readUntil(r, (m) => m.type !== "event");
-    client.writeLine(JSON.stringify({ type: "frobnicate", id: 6 }));
-    const unknown = await readMessage(r);
-    expect(unknown.type).toBe("error");
-    expect(unknown.code).toBe("bad_message");
-    // A second initialize is rejected as already_initialized.
     client.writeLine(JSON.stringify({ type: "initialize", protocolVersion: PROTOCOL_VERSION }));
-    const again = await readMessage(r);
-    expect(again.type).toBe("error");
-    expect(again.code).toBe("already_initialized");
+    const again = await readUntil(r, (m) => m.type !== "event");
+    expect(again.type).toBe("ready");
+    // A second initialize on the live session is rejected.
+    client.writeLine(JSON.stringify({ type: "initialize", protocolVersion: PROTOCOL_VERSION }));
+    const dupe = await readMessage(r);
+    expect(dupe.type).toBe("error");
+    expect(dupe.code).toBe("already_initialized");
+    client.closeStdin();
+    expect(await client.exited).toBe(0);
+
+    // A fresh process rejects a mismatching protocol version.
+    const client2 = spawnServe();
+    const r2 = reader(client2.stdout);
+    client2.writeLine(JSON.stringify({ type: "initialize", protocolVersion: 99 }));
+    const version = await readMessage(r2);
+    expect(version.type).toBe("error");
+    expect(version.code).toBe("version");
+    // And a later initialize still works (the failed one made no session).
+    client2.writeLine(initializeMsg());
+    const ready2 = await readUntil(r2, (m) => m.type !== "event");
+    expect(ready2.type).toBe("ready");
+    client2.closeStdin();
+    expect(await client2.exited).toBe(0);
+  });
+
+  test("non-string allow/deny rules in initialize are a typed bad_message, not dropped", async () => {
+    const { spawnServe } = harness();
+    const client = spawnServe();
+    const r = reader(client.stdout);
+    client.writeLine(
+      JSON.stringify({ type: "initialize", protocolVersion: PROTOCOL_VERSION, provider: "mock", allow: ["bash:echo", 42] }),
+    );
+    const e = await readMessage(r);
+    expect(e.type).toBe("error");
+    expect(e.code).toBe("bad_message");
     client.closeStdin();
     expect(await client.exited).toBe(0);
   });
