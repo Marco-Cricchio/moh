@@ -7,6 +7,14 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.32.3] - 2026-09-13
+### Fixed
+
+- **MPM diagnostics coverage symbols** (commit 2ef51d8): the `moh mpm`
+  coverage line always reported `(0 sym)` per language because the
+  per-language symbol counter was never incremented — only the global
+  total was. Per-language coverage now matches the total.
+
 ## [0.32.2] - 2026-09-13
 ### Fixed
 
