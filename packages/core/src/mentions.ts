@@ -222,10 +222,16 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
       warnings.push({ path: mention.displayPath, reason: "not found" });
       continue;
     }
-    // #488 decision: a directory listing is public metadata (like `ls`) —
-    // read rules do NOT gate it; denied paths are denied later at `read`
-    // time (one source of truth for deny). Only file contents are gated.
+    // #488 decision: an in-root directory listing is public metadata (like
+    // `ls`) — read rules do NOT gate it. #696: out-of-root directories are
+    // the exception — the read tool rejects them outright, so attaching a
+    // recursive listing would leak metadata the gate never allows; they
+    // warn instead, and fail closed when no `canRead` is supplied at all.
     if (mention.isDirectory) {
+      if (mention.displayPath === mention.absPath) {
+        warnings.push({ path: mention.displayPath, reason: "directory is outside the project root — listing not attached" });
+        continue;
+      }
       const { listing, truncated } = await listDirectory(mention.absPath, dirCap);
       attachments.push({ kind: "directory", path: mention.displayPath, listing, truncated });
       continue;
