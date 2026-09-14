@@ -627,7 +627,9 @@ export function App({
   const [handoff, setHandoff] = useState<HandoffOffer | null>(null);
   const lastOffer = useRef<Extract<HandoffOffer, { status: "offer" }> | null>(null);
   useEffect(() => {
-    if (!startInChat) return;
+    // Skip only direct-chat/resume paths (startInChat bypasses Home, which
+    // is the only place the offer renders) — #675.
+    if (startInChat) return;
     let cancelled = false;
     void discoverHandoffForHome(cwd, home).then((offer) => {
       if (cancelled) return;
