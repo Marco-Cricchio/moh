@@ -75,6 +75,25 @@ describe("PermissionResolver: most-specific-wins across 3 tiers", () => {
     expect(r.resolve("bash", { command: "git log" })).toBe("allow");
   });
 
+  test("equal-specificity allow and deny: deny wins (issue #699)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { bashAllow: [["git", "push"]], bashDeny: [["git", "push"]] },
+      cwd: root,
+    });
+    expect(r.resolve("bash", { command: "git push" })).toBe("deny");
+  });
+
+  test("strictly more-specific allow still beats less-specific deny", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { bashAllow: [["git", "push"]], bashDeny: [["git"]] },
+      cwd: root,
+    });
+    expect(r.resolve("bash", { command: "git push" })).toBe("allow");
+    expect(r.resolve("bash", { command: "git status" })).toBe("deny");
+  });
+
   test("config tool-level deny/allow for named tools", () => {
     const r = new PermissionResolver({
       defaults: DEFAULT_TOOL_PERMISSIONS,
