@@ -167,14 +167,24 @@ export function MultilineInput({
   // Blinking block cursor: visible/invisible alternate on a fixed cadence.
   // Any keystroke (handled below through the ref) snaps the phase back to
   // visible, like a terminal editor.
+  // #622: the blink pauses while disabled (a modal owns the input). Ink
+  // renders viewport-filling output through its fullscreen path — a full
+  // clear+repaint per frame — so even this slow toggle contributed frame
+  // churn behind an oversized ask_user box; a disabled composer shows a
+  // steady cursor.
   const cursorVisibleRef = useRef(true);
   useEffect(() => {
+    if (disabled) {
+      cursorVisibleRef.current = true;
+      setCursorVisible(true);
+      return;
+    }
     const timer = setInterval(() => {
       cursorVisibleRef.current = !cursorVisibleRef.current;
       setCursorVisible(cursorVisibleRef.current);
     }, BLINK_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [disabled]);
 
   const snapshot = (): EditorSnapshot => ({ lines: [...lines], line: cursorLine, column: cursorColumn });
   const setEditor = (next: EditorSnapshot) => {

@@ -185,7 +185,27 @@ export function Chat({
   // Max chars the cursor may trail the provider stream by.
   const REVEAL_CATCHUP_CHARS = 400;
   const [revealTick, setRevealTick] = useState(0);
+  // #622: the pacer must not tick while the input is blocked (ask/permission
+  // modal owns the screen). Ink renders any output taller than the terminal
+  // through its fullscreen path — `clearTerminal + fullStaticOutput +
+  // output` on EVERY frame — so a steady trickle of blocked-state frames
+  // (this timer, the composer blink) wiped and repainted the screen at
+  // ~20Hz: the oversized ask_user box flickered itself unreadable. The
+  // interval only runs while a reveal is actually possible; when it stops,
+  // the budget snaps fully open so nothing stays hidden behind the gate.
+  const revealActive = !blocked && state.pending;
   useEffect(() => {
+    if (!revealActive) {
+      // Snap open: a turn that settles or a gate that opens never lags its
+      // own reveal — the next render shows everything streamed so far.
+      const streamed = streamedCharsRef.current;
+      if (revealAllowanceRef.current < streamed) {
+        revealAllowanceRef.current = streamed;
+        revealRef.current.budgetChars = streamed;
+        setRevealTick((v) => v + 1);
+      }
+      return;
+    }
     const timer = setInterval(() => {
       // Pace, with catch-up: the cursor trails the stream by at most
       // REVEAL_CATCHUP_CHARS so long bursts eventually surface (a slow
@@ -214,7 +234,7 @@ export function Chat({
       setRevealTick((v) => v + 1);
     }, REVEAL_TICK_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [revealActive]);
   void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
   // Char-level typewriter state. The cursor lives in revealAllowanceRef;
   // the interval below advances it and bumps revealTick (the re-render
@@ -349,6 +369,21 @@ export function Chat({
     toolTimingsCursor.current = advanced.scanned;
   }
   const toolTimings = toolTimingsRef.current;
+  // #622: the live ⏱ elapsed timer on running tool heads must not tick
+  // while a modal owns the input. Every timer-driven frame re-renders the
+  // volatile region, and when the inline ask_user box is taller than the
+  // viewport Ink takes its fullscreen path (clearTerminal + full reprint
+  // per frame) — the "ask · ⏱ Ns" counter became a ~1Hz whole-screen flicker.
+  // The timer stops with the gate open; the elapsed label freezes (the
+  // settled block prints its deterministic call→result duration anyway).
+  const liveTimerTick = state.pending && !blocked;
+  const [timerTick, setTimerTick] = useState(0);
+  void timerTick; // re-render on each 1s live-timer tick
+  useEffect(() => {
+    if (!liveTimerTick) return;
+    const timer = setInterval(() => setTimerTick((v) => v + 1), 1000);
+    return () => clearInterval(timer);
+  }, [liveTimerTick]);
   // Mode switch repaints (#201): the printed grammar is no longer sealed —
   // the visible transcript is cleared and reprinted whole in the new mode.
   // A pending repaint waits while a modal owns the alternate screen; on
@@ -1050,7 +1085,7 @@ export function Chat({
             ? { ...block, glyph: ANIM_GLYPHS[animFrame % ANIM_GLYPHS.length]! }
             : block}
           width={cols}
-          {...(block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
+          {...(liveTimerTick && block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
             ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
             : {})}
         />
