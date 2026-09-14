@@ -208,15 +208,17 @@ function isTokenPrefix(prefix: string[], tokens: string[]): boolean {
 
 /**
  * SEC-04: true when the command contains shell metacharacters that a
- * token-prefix allow rule cannot see — unquoted `$(`, backticks,
- * process substitution `<(` or redirection `>`/`>>` (single-quoted text
- * is literal and excluded; double quotes are not, since they still
- * expand). Such commands are forced to "ask" even when a token-prefix
- * rule matches: the covered tokens describe the command, but the
- * metacharacters smuggle side effects the rule never saw.
+ * token-prefix allow rule cannot see — unquoted `$(`, `$VAR`, backticks,
+ * process substitution `<(`, herestrings `<<<`, input redirect `<` or
+ * redirection `>`/`>>` (single-quoted text is literal and excluded;
+ * double quotes are not, since they still expand; a leading `~` expands
+ * to the home directory). Such commands are forced to "ask" even when a
+ * token-prefix rule matches: the covered tokens describe the command, but
+ * the metacharacters smuggle side effects the rule never saw.
  */
 export function hasUncoveredShellMetachars(command: string): boolean {
   let i = 0;
+  let wordStart = true; // true when the previous char ended a word
   while (i < command.length) {
     const c = command[i]!;
     if (c === "'") {
@@ -224,12 +226,15 @@ export function hasUncoveredShellMetachars(command: string): boolean {
       i += 1;
       while (i < command.length && command[i] !== "'") i += 1;
       i += 1;
+      wordStart = false;
       continue;
     }
-    if (c === "$" && command[i + 1] === "(") return true;
+    if (c === "$" && (command[i + 1] === "(" || /\w/.test(command[i + 1] ?? ""))) return true;
     if (c === "`") return true;
-    if (c === "<" && command[i + 1] === "(") return true;
+    if (c === "<") return true; // <, <<, <<< (herestring), <( process subst
     if (c === ">") return true; // > and >> (any redirection, 2> included)
+    if (c === "~" && wordStart) return true;
+    wordStart = /\s/.test(c);
     i += 1;
   }
   return false;

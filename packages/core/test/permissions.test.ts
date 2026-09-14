@@ -524,6 +524,23 @@ describe("SEC-04: bash token-prefix rules vs shell metacharacters", () => {
     expect(r.resolve("bash", { command: "git diff <(curl evil)" })).toBe("ask");
   });
 
+  test("NEW-4 (#698): herestrings, input redirect, $VAR and tilde operands force ask", () => {
+    const r = resolver({ bashAllow: [["python"]], });
+    expect(r.resolve("bash", { command: 'python <<< "print(1)"' })).toBe("ask");
+    const g = resolver({ bashAllow: [["git"]] });
+    expect(g.resolve("bash", { command: "git diff < file.txt" })).toBe("ask");
+    const c = resolver({ bashAllow: [["cat"]] });
+    expect(c.resolve("bash", { command: "cat $HOME/x" })).toBe("ask");
+    expect(c.resolve("bash", { command: "cat ~/x" })).toBe("ask");
+  });
+
+  test("NEW-4 (#698): quoted herestring/redirect/expand text stays allowed", () => {
+    const r = resolver({ bashAllow: [["grep"]] });
+    expect(r.resolve("bash", { command: "grep '<<<' notes.txt" })).toBe("allow");
+    expect(r.resolve("bash", { command: "grep '$HOME' notes.txt" })).toBe("allow");
+    expect(r.resolve("bash", { command: "grep '~' notes.txt" })).toBe("allow");
+  });
+
   test("single-quoted metacharacters are literal and stay allowed", () => {
     const r = resolver({ bashAllow: [["git", "status"]] });
     expect(r.resolve("bash", { command: "git status '$(safe)'" })).toBe("allow");
