@@ -5,6 +5,24 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.34.2] - 2026-09-14
+### Fixed
+
+- **Cold handoff scan hit a nonexistent REST endpoint** (#680, PR #681): the
+  cold-start scan (the `o` door on Home, "resume from another machine")
+  called `discoverGistHandoffs` against `user/gists` — an endpoint that does
+  not exist — so the scan always 404'd and silently returned "no published
+  handoffs found" on every machine. The scan now queries `GET /gists` (the
+  same endpoint `gh gist list` uses); a regression test pins the full gh
+  argv including the endpoint.
+
+### Changed
+
+- **`MOH_DEBUG=handoff` discovery logging** (#682, PR #682): handoff
+  discovery decisions (gates, candidates, selection) can now be traced with
+  `MOH_DEBUG=handoff`, enabling diagnosis of "no offer row" reports without
+  guessing from silence. The feature stays fully silent by default.
+
 ## [0.34.1] - 2026-09-14
 ### Fixed
 
@@ -17,7 +35,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.2...develop
+[0.34.2]: https://github.com/Marco-Cricchio/moh/compare/v0.34.1...v0.34.2
 [0.34.1]: https://github.com/Marco-Cricchio/moh/compare/v0.34.0...v0.34.1
 
 ## [0.34.0] - 2026-09-14
@@ -58,7 +77,6 @@ matching section here at tag time.
   skip** (commit 793e4ba): the mint-selection skip path logs a clear
   explanation instead of a bare warning.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.0...develop
 [0.34.0]: https://github.com/Marco-Cricchio/moh/compare/v0.33.0...v0.34.0
 
 ## [0.33.0] - 2026-09-13
