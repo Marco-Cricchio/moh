@@ -23,6 +23,7 @@ import { gitAnchor, HandoffRunner } from "./handoff";
 import { listSessionSummaries, type SessionSummary } from "./session-store";
 import { readRawHandoff, type HandoffPayload, type HandoffTransport } from "./handoff-transport";
 import { readImportedHandoff } from "./handoff-file";
+import { handoffDebug } from "./handoff-debug";
 import type { SkillPrompt } from "./types";
 
 export interface DiscoverHandoffOptions {
@@ -88,30 +89,50 @@ export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<
   if (raced === "timeout" || raced === null || !raced.ok) {
     // No reachable gist handoff — a parked manual import (T7 #440) can
     // still be newer than the local session; offer it when so.
+    handoffDebug(raced === "timeout" ? "fetch-timeout" : "fetch-error", {
+      outcome: raced === "timeout" ? "timeout" : raced === null ? "thrown" : raced.error,
+    });
     return offerFromImport(options);
   }
+  handoffDebug("fetch-ok", { sessionId: raced.payload.sessionId, updatedAt: raced.payload.updatedAt, url: raced.url });
   const imported = (options.readImported ?? (() => readImportedHandoff(options.cwd, options.home)))();
   const home = options.home ?? homedir();
   const local = (options.listLocal ?? (() => listSessionSummaries(options.cwd, home)))();
   const localArtifact =
     options.readLocalArtifact?.() ?? readRawHandoff(HandoffRunner.artifactFile(options.cwd, join(home, ".moh")));
   // Rediscovering your own publish (gist or re-imported export) is a no-op.
-  if (localArtifact?.sessionId === raced.payload.sessionId) return { status: "own-session" };
+  if (localArtifact?.sessionId === raced.payload.sessionId) {
+    handoffDebug("decision", { status: "own-session", artifactSessionId: localArtifact.sessionId });
+    return { status: "own-session" };
+  }
   // Newest handoff candidate wins (story 21: newest state wins regardless
   // of producing machine): fetched gist vs parked manual import.
   let candidate: { payload: HandoffPayload; url: string } = { payload: raced.payload, url: raced.url };
   if (imported && Date.parse(imported.updatedAt) > Date.parse(candidate.payload.updatedAt)) {
-    if (localArtifact?.sessionId === imported.sessionId) return { status: "own-session" };
+    if (localArtifact?.sessionId === imported.sessionId) {
+      handoffDebug("decision", { status: "own-session", source: "imported", artifactSessionId: localArtifact.sessionId });
+      return { status: "own-session" };
+    }
     candidate = { payload: imported, url: "imported file" };
   }
   const newest = local[0];
-  if (newest && Date.parse(candidate.payload.updatedAt) <= newest.mtimeMs) return { status: "local-current" };
-  return {
+  if (newest && Date.parse(candidate.payload.updatedAt) <= newest.mtimeMs) {
+    handoffDebug("decision", {
+      status: "local-current",
+      candidateUpdatedAt: candidate.payload.updatedAt,
+      newestLocalMtimeMs: newest.mtimeMs,
+      newestLocalFile: newest.file,
+    });
+    return { status: "local-current" };
+  }
+  const offer = {
     status: "offer",
     payload: candidate.payload,
     url: candidate.url,
     stale: isHandoffStale(candidate.payload, options.cwd, options.git),
-  };
+  } as const;
+  handoffDebug("decision", { status: "offer", url: offer.url, stale: offer.stale });
+  return offer;
 }
 
 /** T7 (#440) import fallback path: reached when no gist handoff was

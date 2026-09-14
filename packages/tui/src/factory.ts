@@ -21,6 +21,7 @@ import {
   publishHandoffAtExit,
   transportActive,
   discoverHandoff,
+  handoffDebug,
   type HandoffOffer,
   type HandoffTransportError,
   type MohConfig,
@@ -189,12 +190,17 @@ export async function discoverHandoffForHome(
   cwd: string,
   home: string | undefined,
 ): Promise<HandoffOffer> {
+  let active = false;
   try {
-    if (!transportActive(loadMergedConfig(cwd, { home })?.handoff)) return { status: "none" };
+    active = transportActive(loadMergedConfig(cwd, { home })?.handoff);
   } catch {
     // A broken config already surfaced loudly at session assembly.
+    handoffDebug("transport-off", { reason: "broken-config" });
     return { status: "none" };
   }
+  handoffDebug("transport-active", { active });
+  if (!active) return { status: "none" };
+  handoffDebug("fetch-start", { cwd });
   return discoverHandoff({
     cwd,
     home: home ?? homedir(),
