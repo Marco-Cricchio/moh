@@ -114,11 +114,13 @@ export async function importHandoffFile(options: ImportHandoffOptions): Promise<
     }
     return { ok: false, error: exists ? { reason: "invalid" } : { reason: "missing" } };
   }
-  // Author isolation (#451): a file-carried handoff from another gh user
-  // is declined. Gist-sourced handoffs don't need this check — the
-  // deterministic tag `moh:handoff:<slug>:<gh-user>` already enforces it.
-  if (options.expectedAuthor && payload.author && payload.author !== options.expectedAuthor) {
-    return { ok: false, error: { reason: "foreign-author", author: payload.author } };
+  // Author isolation (#451, fail-closed per #700): a file-carried handoff
+  // from another gh user is declined, and so is an authorless payload — it
+  // cannot be proven to be per-persona, so it is never silently imported.
+  // Gist-sourced handoffs don't need this check — the deterministic tag
+  // `moh:handoff:<slug>:<gh-user>` already enforces it.
+  if (options.expectedAuthor && payload.author !== options.expectedAuthor) {
+    return { ok: false, error: { reason: "foreign-author", ...(payload.author ? { author: payload.author } : {}) } };
   }
   const dest = importedHandoffFile(options.cwd, options.home);
   try {
