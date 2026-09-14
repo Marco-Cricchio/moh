@@ -401,7 +401,8 @@ export class PermissionResolver {
       }
       // Bare tool-level rules match every invocation of the tool.
       const key = TIER_RANK[rule.tier] * 1000 + ruleSpecificity(rule);
-      if (key > bestKey) {
+      // Equal specificity: deny wins (fail-safe tie-break, #699).
+      if (key > bestKey || (key === bestKey && best !== null && best.effect !== "deny" && rule.effect === "deny")) {
         best = rule;
         bestKey = key;
       }
