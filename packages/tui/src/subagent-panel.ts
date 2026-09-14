@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { tailChildLog, type ChildTailLine } from "@moh/core";
 import type { AgentEvent, AgentSession } from "@moh/core";
 import { useSidebarState } from "./session-bridge";
+import { sanitizeLine } from "./ui";
 
 /**
  * Subagent chips + live panel data (#497, vision note 25). Pure data:

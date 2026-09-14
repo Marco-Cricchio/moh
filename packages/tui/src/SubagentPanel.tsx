@@ -8,6 +8,7 @@ import {
   type SubagentTail,
   type TrackedSubagent,
 } from "./subagent-panel";
+import { sanitizeLine } from "./ui";
 
 /**
  * The live subagent panel (#497): read-only header + throttled tail of the
@@ -45,11 +46,17 @@ export function SubagentPanel({
     // a transcript card. The old border/padding consumed four empty rows.
     <Box flexDirection="column" width={Math.max(16, width)} paddingX={1}>
       <Text color={sub.status === "running" ? theme.accent : theme.dim} bold>{panelHeader(sub, tail, now)}</Text>
-      {sub.status === "running" && lines.length > 0 && lines.map((line) => (
-        <Text key={line.id} color={line.text.startsWith("✗") ? theme.err : line.text.startsWith("●") ? theme.fg : theme.dim} wrap="truncate">
-          {"  "}{line.text}
-        </Text>
-      ))}
+      {sub.status === "running" && lines.length > 0 && lines.map((line) => (() => {
+        // Same display boundary as every other model/log-controlled render
+        // path (#701, SEC-08): strip terminal controls before Ink sees the
+        // text; truncation (wrap="truncate") happens after sanitization.
+        const text = sanitizeLine(line.text);
+        return (
+          <Text key={line.id} color={text.startsWith("✗") ? theme.err : text.startsWith("●") ? theme.fg : theme.dim} wrap="truncate">
+            {"  "}{text}
+          </Text>
+        );
+      })())}
       {freeze !== "" && <Text color={freeze.startsWith("✓") ? theme.ok : theme.err}>{freeze}</Text>}
     </Box>
   );
