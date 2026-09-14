@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 /**
@@ -668,9 +668,15 @@ function loadUndici(): Promise<typeof import("undici")> {
   undiciPromise ??= (async () => {
     if (typeof Bun !== "undefined") {
       // Bun maps the bare specifier (and import.meta.resolve of it) to an
-      // internal shim; require the package's real entry instead.
-      const real = await import("../../node_modules/undici/index.js").catch(() => null);
-      if (real) return real as typeof import("undici");
+      // internal shim; load the package's real entry instead. The runtime
+      // variable specifier keeps TS (and bundlers) from rewriting it.
+      const spec: string = ["../../node_modules/undici/index.js", "../../../node_modules/undici/index.js"].find(
+        (p) => existsSync(join(import.meta.dir, p)),
+      )!;
+      if (spec) {
+        const real = (await import(spec).catch(() => null)) as typeof import("undici") | null;
+        if (real) return real;
+      }
     }
     try {
       // Node: resolve through this module's own node_modules.
