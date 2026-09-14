@@ -5,6 +5,21 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.34.1] - 2026-09-14
+### Fixed
+
+- **Startup crash on the Home screen** (#678, PR #678): `importedHandoffFile`
+  resolved the project slug against the home's parent directory
+  (`projectSlug(cwd, join(home, ".."))`), so identity resolution probed
+  `/Users` (or `/home`) and attempted `mkdir /Users/.moh` — EACCES crash
+  at launch on macOS and Linux. Latent since #440; surfaced by the #675
+  fix turning Home-screen handoff discovery on. The real home is now
+  passed; a regression test pins the resolved path under
+  `<home>/.moh/projects`.
+
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.1...develop
+[0.34.1]: https://github.com/Marco-Cricchio/moh/compare/v0.34.0...v0.34.1
+
 ## [0.34.0] - 2026-09-14
 ### Added
 
