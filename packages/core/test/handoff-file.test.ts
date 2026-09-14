@@ -73,6 +73,16 @@ describe("importHandoffFile (#440)", () => {
     expect(importedHandoffFile(cwd, home)).toContain(join(".moh", "projects"));
   });
 
+  test("slug resolves under the real home, never its parent (#678)", async () => {
+    // Regression: importedHandoffFile used to pass `join(home, "..")` to
+    // projectSlug, so with home=/Users/mc the identity resolution probed
+    // /Users and tried mkdir /Users/.moh (EACCES) — surfaced by the #675
+    // fix turning the Home-screen discovery path on.
+    const { cwd, home } = tmpRoot();
+    expect(importedHandoffFile(cwd, home).startsWith(join(home, ".moh", "projects"))).toBe(true);
+    expect(() => importedHandoffFile(cwd, home)).not.toThrow();
+  });
+
   test("rejects a corrupt or non-raw file and leaves no waypoint", async () => {
     const { cwd, home } = tmpRoot();
     const file = join(home, "bad.json");
