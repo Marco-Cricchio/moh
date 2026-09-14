@@ -5,6 +5,47 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.34.0] - 2026-09-14
+### Added
+
+- **`moh serve` — RPC mode** (#525, PRs #668/#671): a headless mode that
+  drives a session over stdin/stdout as LF-delimited JSON lines
+  (protocol v1, `docs/serve-protocol.md`): initialize/handshake, send
+  with streaming events, permission decisions passed through, zero
+  `@moh/core` changes. Review-hardened: non-string permission rules
+  fail loud, version mismatches surface in the handshake.
+- **MPM fuzzy suggestions on `mpm_query` no-result seeds** (#669,
+  PR #673): when a nominated seed matches nothing, the tool returns
+  ranked near-miss candidates (path suffix and symbol-name distances)
+  instead of a bare empty result, so the model can self-correct in the
+  same turn.
+
+### Fixed
+
+- **TUI oversized-frame flicker** (#622, PR #674): when a frame's output
+  height reached the terminal's row count, Ink permanently took its
+  fullscreen path (clearTerminal + full reprint on every render, wiping
+  scrollback at ~22Hz). All timer-driven re-renders (typewriter reveal
+  pacer, composer cursor blink, live ⏱ elapsed timer) are now gated
+  behind the `blocked` state; PTY regression test asserts near-zero
+  clearTerminal in an idle window.
+- **Lost first keystroke in the tree bookmark-name prompt** (#637,
+  PR #667): a keystroke landing in the same tick as the naming state
+  change was handled by the stale input closure and dropped; the input
+  handler now reads a sync ref (React state only mirrors for render).
+- **Handoff discovery never ran on the Home screen** (#675, PR #676):
+  with `handoff.transport: "gist"`, a newer handoff published from
+  another machine was never offered on Home — the startup-discovery
+  effect's guard was inverted and only ran on the direct-chat path,
+  where the offer has nowhere to render. New App-level integration test
+  covers App → Home → discovery.
+- **Friendly note for the expected `organization_id`-less OpenAI mint
+  skip** (commit 793e4ba): the mint-selection skip path logs a clear
+  explanation instead of a bare warning.
+
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.0...develop
+[0.34.0]: https://github.com/Marco-Cricchio/moh/compare/v0.33.0...v0.34.0
+
 ## [0.33.0] - 2026-09-13
 ### Added
 
@@ -154,7 +195,6 @@ matching section here at tag time.
     scenario proving the cited plan bounds the candidate set that ordinary
     exploration would have to walk.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.33.0...develop
 [0.33.0]: https://github.com/Marco-Cricchio/moh/compare/v0.32.3...v0.33.0
 [0.32.3]: https://github.com/Marco-Cricchio/moh/compare/v0.32.2...v0.32.3
 [0.32.2]: https://github.com/Marco-Cricchio/moh/compare/v0.32.1...v0.32.2
