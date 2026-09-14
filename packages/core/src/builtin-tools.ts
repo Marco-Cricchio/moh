@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 /**
@@ -656,8 +656,126 @@ export function isPrivateHost(host: string): boolean {
 const fetchAllowsPrivate = (): boolean =>
   ["1", "true", "yes"].includes((process.env.MOH_FETCH_ALLOW_PRIVATE ?? "").toLowerCase());
 
-/** SEC-05: scheme + network checks on one URL (throws on violation). */
-async function assertFetchable(rawUrl: string): Promise<URL> {
+/**
+ * #697: undici must be loaded as the real package. Bun resolves the bare
+ * specifier `undici` to an internal shim whose fetch ignores the
+ * `dispatcher` option entirely — the pinning seam below would silently
+ * degrade to a plain (re-resolving) fetch. Requiring the resolved package
+ * path bypasses the shim on both runtimes.
+ */
+let undiciPromise: Promise<typeof import("undici")> | undefined;
+function loadUndici(): Promise<typeof import("undici")> {
+  undiciPromise ??= (async () => {
+    if (typeof Bun !== "undefined") {
+      // Bun maps the bare specifier (and import.meta.resolve of it) to an
+      // internal shim; load the package's real entry instead. The runtime
+      // variable specifier keeps TS (and bundlers) from rewriting it.
+      const spec: string = ["../../node_modules/undici/index.js", "../../../node_modules/undici/index.js"].find(
+        (p) => existsSync(join(import.meta.dir, p)),
+      )!;
+      if (spec) {
+        const real = (await import(spec).catch(() => null)) as typeof import("undici") | null;
+        if (real) return real;
+      }
+    }
+    try {
+      // Node: resolve through this module's own node_modules.
+      const url = import.meta.resolve("undici");
+      if (url && url.startsWith("file:") && url.includes("node_modules/undici/")) {
+        return await import(url);
+      }
+    } catch {
+      // fall through to the bare specifier
+    }
+    return await import("undici");
+  })();
+  return undiciPromise;
+}
+
+/**
+ * SEC-05 + #697: scheme + host checks on one URL, ONE DNS resolution,
+ * and a dispatcher pinned to the verified address. Closes the
+ * DNS-rebinding TOCTOU: the legacy code resolved inside the check and let
+ * `globalThis.fetch` re-resolve independently at connect time, so a
+ * short-TTL name could answer public for the check and private for the
+ * dial. Here the single resolution result feeds the undici Agent's
+ * `connect.lookup` hook — every socket (redirect hops included) dials
+ * the verified address with no further DNS traffic.
+ *
+ * Returns null when no pinning applies (numeric/private hosts under the
+ * explicit `MOH_FETCH_ALLOW_PRIVATE=1` opt-out resolve normally).
+ */
+async function verifiedDispatcher(
+  rawUrl: string,
+): Promise<{ url: URL; dispatcher: unknown } | null> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`fetch: invalid URL: ${rawUrl}`);
+  }
+  // file:// and data:// would turn fetch into a local-file read primitive
+  // that bypasses the read tool's root containment.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`fetch: only http/https URLs are supported (got "${url.protocol}")`);
+  }
+  if (fetchAllowsPrivate()) return null;
+  const host = url.hostname;
+  if (isPrivateHost(host)) {
+    throw new Error(`fetch: private/loopback address "${host}" is blocked by default; set MOH_FETCH_ALLOW_PRIVATE=1 to allow it`);
+  }
+  if (isNumericHost(host)) return null;
+  // The single resolution: verification and pinning share this answer.
+  const { lookup } = await import("node:dns/promises");
+  let addresses: { address: string; family: number }[];
+  try {
+    addresses = await lookup(host, { all: true });
+  } catch {
+    // Unresolvable here: let the request itself surface the real error.
+    return null;
+  }
+  const bad = addresses.find((a) => isPrivateHost(a.address));
+  if (bad) {
+    throw new Error(`fetch: "${host}" resolves to private address ${bad.address}; blocked by default (set MOH_FETCH_ALLOW_PRIVATE=1 to allow)`);
+  }
+  const good = addresses[0]!;
+  const { Agent } = await loadUndici();
+  return {
+    url,
+    dispatcher: new Agent({
+      connect: { lookup: (_h: string, _o: unknown, cb: unknown) => (cb as (e: null, a: { address: string; family: number }[]) => void)(null, [good]) },
+      // Each fetch call gets a fresh agent; don't keep sockets pooled after.
+      connections: 8,
+    }),
+  };
+}
+
+/** A bare IPv4/IPv6 address literal needs no DNS and no pinning. */
+function isNumericHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "");
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":");
+}
+
+/** One fetch with the (optional) pinned dispatcher; always manual-redirect. */
+async function doFetch(
+  url: URL,
+  pin: { dispatcher: unknown } | null,
+  signal: AbortSignal,
+): Promise<Response> {
+  if (!pin) return globalThis.fetch(url, { signal, redirect: "manual" });
+  const { fetch: undiciFetch } = await loadUndici();
+  return (await undiciFetch(url, {
+    signal,
+    redirect: "manual",
+    dispatcher: pin.dispatcher,
+  } as never)) as unknown as Response;
+}
+
+
+/** SEC-05: scheme + literal-host checks on one URL (throws on violation).
+ * DNS resolution lives in verifiedDispatcher (#697) — one resolution per
+ * URL, shared by verification and the pinned connection. */
+function assertFetchable(rawUrl: string): URL {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -674,21 +792,6 @@ async function assertFetchable(rawUrl: string): Promise<URL> {
   if (isPrivateHost(host)) {
     throw new Error(`fetch: private/loopback address "${host}" is blocked by default; set MOH_FETCH_ALLOW_PRIVATE=1 to allow it`);
   }
-  // DNS-rebinding style SSRF: a public hostname that resolves private.
-  const { lookup } = await import("node:dns/promises");
-  try {
-    const addresses = await lookup(host, { all: true });
-    const bad = addresses.find((a) => isPrivateHost(a.address));
-    if (bad) {
-      throw new Error(`fetch: "${host}" resolves to private address ${bad.address}; blocked by default (set MOH_FETCH_ALLOW_PRIVATE=1 to allow)`);
-    }
-  } catch (err) {
-    if (err instanceof Error && !err.message.startsWith("fetch:")) {
-      // Unresolvable here: let the request itself surface the real error.
-    } else {
-      throw err;
-    }
-  }
   return url;
 }
 
@@ -696,20 +799,27 @@ const fetchTool: Tool<z.infer<typeof fetchSchema>> = {
   name: "fetch",
   description:
     "Fetch an http/https URL and return the response body as text. " +
-    "Private/loopback targets are blocked unless MOH_FETCH_ALLOW_PRIVATE=1 is set.",
+    "Private/loopback targets are blocked unless MOH_FETCH_ALLOW_PRIVATE=1 is set. " +
+    "Connections are pinned to the DNS-verified address (#697): a rebinding host cannot " +
+    "pass verification as public and connect as private.",
   inputSchema: fetchSchema,
   async execute(args, ctx) {
-    let url = await assertFetchable(args.url);
+    // #697: one DNS resolution per URL — the same answer both verifies the
+    // host and pins the dial; every redirect hop re-checks and re-pins.
+    const pin = await verifiedDispatcher(args.url);
+    let url = assertFetchable(args.url);
     // SEC-05: redirects are followed manually (capped) so every hop
     // re-passes the scheme/private-network checks — a public URL can't
     // bounce the fetch into 169.254.169.254 or file://.
-    let res = await globalThis.fetch(url, { signal: ctx.signal, redirect: "manual" });
+    let res = await doFetch(url, pin, ctx.signal);
     for (let hop = 0; hop < FETCH_MAX_REDIRECTS && [301, 302, 303, 307, 308].includes(res.status); hop++) {
       const location = res.headers.get("location");
       res.body?.cancel().catch(() => {});
       if (!location) break;
-      url = await assertFetchable(new URL(location, url).toString());
-      res = await globalThis.fetch(url, { signal: ctx.signal, redirect: "manual" });
+      const next = new URL(location, url).toString();
+      const nextPin = await verifiedDispatcher(next);
+      url = assertFetchable(next);
+      res = await doFetch(url, nextPin, ctx.signal);
     }
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       throw new Error(`fetch: too many redirects (> ${FETCH_MAX_REDIRECTS}) for ${args.url}`);
