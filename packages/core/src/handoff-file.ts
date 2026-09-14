@@ -22,7 +22,7 @@ import { readRawHandoff, readRawHandoffText, type HandoffTransportError } from "
 
 /** Where the imported handoff is parked per project. */
 export function importedHandoffFile(cwd: string, home = homedir()): string {
-  return join(home, ".moh", "projects", projectSlug(cwd, join(home, "..")), "imported-handoff.json");
+  return join(home, ".moh", "projects", projectSlug(cwd, home), "imported-handoff.json");
 }
 
 export interface ExportHandoffOptions {
