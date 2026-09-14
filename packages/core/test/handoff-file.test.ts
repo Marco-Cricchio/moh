@@ -111,15 +111,35 @@ describe("importHandoffFile (#440)", () => {
     expect(readImportedHandoff(cwd, home)).toBeUndefined();
   });
 
-  test("accepts a payload authored by the logged-in user, and a v1 payload without author", async () => {
+  test("declines an authorless payload when an expected author is configured (#700)", async () => {
+    const { cwd, home } = tmpRoot();
+    const file = join(home, "bridge.json");
+    writeFileSync(file, JSON.stringify({ ...fixtureHandoff(), author: undefined }));
+    const result = await importHandoffFile({ cwd, home, file, expectedAuthor: "me" });
+    expect(result).toEqual({ ok: false, error: { reason: "foreign-author" } });
+    expect(readImportedHandoff(cwd, home)).toBeUndefined();
+  });
+
+  test("accepts an authorless payload when no expected author is configured (#700)", async () => {
+    const { cwd, home } = tmpRoot();
+    const file = join(home, "bridge.json");
+    writeFileSync(file, JSON.stringify({ ...fixtureHandoff(), author: undefined }));
+    expect((await importHandoffFile({ cwd, home, file })).ok).toBe(true);
+  });
+
+  test("accepts a payload authored by the logged-in user (#700: authorless refused)", async () => {
     const { cwd, home } = tmpRoot();
     const file = join(home, "bridge.json");
     writeFileSync(file, JSON.stringify({ ...fixtureHandoff(), author: "me" }));
     expect((await importHandoffFile({ cwd, home, file, expectedAuthor: "me" })).ok).toBe(true);
+    // A v1-style payload with no `author` field must fail closed (#700):
+    // when an expected author is configured, an authorless file-carried
+    // handoff is declined — it can't be proven to be per-persona.
     const v1 = join(home, "v1.json");
     writeFileSync(v1, JSON.stringify({ ...fixtureHandoff("session-v1"), version: 1 }));
-    const result = await importHandoffFile({ cwd, home, file: v1, expectedAuthor: "me" });
-    expect(result.ok).toBe(true);
-    expect(readImportedHandoff(cwd, home)?.sessionId).toBe("session-v1");
+    expect(await importHandoffFile({ cwd, home, file: v1, expectedAuthor: "me" })).toEqual({
+      ok: false,
+      error: { reason: "foreign-author" },
+    });
   });
 });
