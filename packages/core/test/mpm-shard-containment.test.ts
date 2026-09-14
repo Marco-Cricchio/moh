@@ -73,9 +73,9 @@ describe("MPM shard containment (#702)", () => {
       expect(svc.status).toBe("ready");
       // A subsequent rebuild writes a clean, contained manifest.
       svc.rebuild(new Map([["src/ok.ts", rec("src/ok.ts")]]));
-      const m = JSON.parse(await readFile(join(dir, "manifest.json"), "utf8"));
+      const m = JSON.parse(await readFile(join(dir, "manifest.json"), "utf8")) as { shards: Record<string, string> };
       expect(Object.values(m.shards)).toEqual([m.shards["src/ok.ts"]]);
-      expect(String(Object.values(m.shards)[0])).toMatch(/^shard-/);
+      expect(String(Object.values(m.shards)[0]!)).toMatch(/^shard-/);
       expect(svc.query("src/escape.ts").paths).toEqual([]);
     } finally {
       await rm("/tmp/moh-mpm-evil.json", { force: true });
