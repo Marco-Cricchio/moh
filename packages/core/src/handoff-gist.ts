@@ -176,7 +176,11 @@ export async function discoverGistHandoffs(options: DiscoverGistHandoffsOptions 
   try {
     // The REST endpoint is paginated by gh until exhausted, unlike `gh gist
     // list --limit`, so discovery cannot silently miss an older handoff.
-    const listed = await gh({ args: ["api", "--paginate", "--slurp", "user/gists?per_page=100"] });
+    // `GET /gists` is the authenticated user's gist listing (#680): the
+    // previous `user/gists` path is a nonexistent REST endpoint (always
+    // 404) and the scan degraded to "no published handoffs" on every
+    // machine, invisibly.
+    const listed = await gh({ args: ["api", "--paginate", "--slurp", "gists?per_page=100"] });
     if (listed.exitCode !== 0) return [];
     const rows = JSON.parse(listed.stdout) as GistApiRow[][];
     const tag = new RegExp(`^moh:handoff:([^:]+):${escapeRegExp(user.user)}(?:\s|$)`);

@@ -26,7 +26,10 @@ function payload(overrides: Record<string, unknown> = {}) {
 const list = (...rows: Array<[string, string, string, boolean?]>) =>
   JSON.stringify(rows.map(([id, description, updated, isPublic = false]) => ({ id, description, updated_at: updated, public: isPublic })));
 
-const scanArgs = ["api", "--paginate", "--slurp", "user/gists?per_page=100"];
+// #680: `GET /gists` is the authenticated user's gist listing; the former
+// `user/gists` path is a nonexistent endpoint (always 404 in production —
+// the fake runner here cannot validate URLs, so pin the real one).
+const scanArgs = ["api", "--paginate", "--slurp", "gists?per_page=100"];
 
 describe("discoverGistHandoffs", () => {
   test("filters the authenticated user's tagged gists, fetches candidates, and returns their handoff summary", async () => {

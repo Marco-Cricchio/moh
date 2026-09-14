@@ -327,6 +327,7 @@ import {
   type HandoffOffer,
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
+import { handoffDebug, handoffDebugEnabled, type HandoffDebugStage } from "./handoff-debug";
 import { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
 import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
 import {
@@ -698,10 +699,13 @@ export {
   isHandoffStale,
   handoffSeedPrompt,
   handoffSeedMessage,
+  handoffDebug,
+  handoffDebugEnabled,
   enrichHandoffWithWayfinder,
   notifyClaimedWayfinderTickets,
   type HandoffOffer,
   type DiscoverHandoffOptions,
+  type HandoffDebugStage,
   // Manual file fallback (T7 #440): export/import via file.
   exportHandoffFile,
   importHandoffFile,
