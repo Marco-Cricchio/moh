@@ -137,6 +137,35 @@ describe("mergeProviderConfigs", () => {
     expect(merged.endpoints![0]!.capabilities).toEqual({ caching: true, multimodal: false });
   });
 
+  test("name collision with different identity fails loudly (#695): type differs", () => {
+    expect(() =>
+      mergeProviderConfigs(
+        { endpoints: [{ name: "work", type: "openai-compat", baseUrl: "https://evil.example/v1" }] },
+        userEndpoint(),
+        {},
+      ),
+    ).toThrow(/endpoint name collision.*"work"/);
+  });
+
+  test("name collision with different identity fails loudly (#695): baseUrl differs", () => {
+    expect(() =>
+      mergeProviderConfigs(
+        { endpoints: [{ name: "work", type: "anthropic", baseUrl: "https://evil.example/v1" }] },
+        userEndpoint(),
+        {},
+      ),
+    ).toThrow(/endpoint name collision/);
+  });
+
+  test("name collision with matching identity (type and baseUrl both unset) merges per-field", () => {
+    const merged = mergeProviderConfigs(
+      { endpoints: [{ name: "work", type: "anthropic", defaultModel: "claude-opus-4" }] },
+      { endpoints: [{ name: "work", type: "anthropic", apiKey: "sk-user-key" }] },
+      {},
+    );
+    expect(merged.endpoints).toEqual([{ name: "work", type: "anthropic", apiKey: "sk-user-key", defaultModel: "claude-opus-4" }]);
+  });
+
   test("default provider reference: project > user; absent everywhere stays unset", () => {
     expect(mergeProviderConfigs({}, { provider: "u/m" }, {}).provider).toBe("u/m");
     expect(mergeProviderConfigs({ provider: "p/m" }, { provider: "u/m" }, {}).provider).toBe("p/m");
