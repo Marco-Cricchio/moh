@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   MPM_FORMAT_VERSION,
   type MpmFileRecord,
@@ -44,7 +44,17 @@ export class MpmStore {
   /** Read one file record from its shard; null on any failure. */
   readRecord(manifest: MpmManifest, path: string): MpmFileRecord | null {
     const shard = manifest.shards[path];
-    if (!shard) return null;
+    // The manifest shares the trust domain of ~/.moh, but a corrupt or
+    // hostile shard name must never pull a read outside the map dir
+    // (#702): containment idiom from MPM discovery, violation = corruption.
+    if (
+      typeof shard !== "string" ||
+      shard === "" ||
+      isAbsolute(shard) ||
+      relative(this.dir, resolve(this.dir, shard)).startsWith("..")
+    ) {
+      return null;
+    }
     try {
       const value: unknown = JSON.parse(readFileSync(join(this.dir, shard), "utf8"));
       if (!isMpmFileRecord(value) || value.path !== path) return null;

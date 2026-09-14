@@ -267,6 +267,124 @@ describe("built-in tools", () => {
       server.stop(true);
     }
   });
+
+  test("fetch pins the connection to the verified address (#697 DNS-rebinding TOCTOU)", async () => {
+    // The rebinding host answers PUBLIC on the verification lookup and
+    // PRIVATE on any later resolution — exactly the TOCTOU the pinned
+    // path must close. A second lookup answering private would either
+    // (a) taint the name and get rejected in verifiedDispatcher, or
+    // (b) reach the private listener via a fresh dial and return PWNED.
+    // Either way the tripwire fails; the fix means exactly ONE lookup.
+    const { mock } = await import("bun:test");
+    const srv = Bun.serve({ port: 0, fetch: () => new Response("PWNED") });
+    try {
+      let lookups = 0;
+      mock.module("node:dns/promises", () => ({
+        lookup: async () => {
+          lookups++;
+          return lookups === 1
+            ? [{ address: "203.0.113.7", family: 4 }] // public TEST-NET-3: verification answer
+            : [{ address: "127.0.0.1", family: 4 }]; // rebinding: private afterwards
+        },
+      }));
+      const ac = new AbortController();
+      setTimeout(() => ac.abort(), 3_000);
+      try {
+        const out = await tools.fetch.execute(
+          { url: `http://rebind.test:${srv.port}/x` },
+          { ...ctx, signal: ac.signal },
+        );
+        // Reached the private listener through a re-dial → rebinding won.
+        expect(out).not.toContain("PWNED");
+      } catch {
+        // Rejected is fine — but only with a single resolution.
+      }
+      expect(lookups).toBe(1);
+    } finally {
+      srv.stop(true);
+      mock.restore();
+    }
+  });
+
+  test("fetch redirect hops re-verify and re-pin (#697)", async () => {
+    // Hop 1: rebinding host pinned to a public listener; hop 2 redirects
+    // to another rebinding host. Each host must resolve exactly once and
+    // the dial must use the verified (public) address.
+    const { mock } = await import("bun:test");
+    const srv = Bun.serve({ port: 0, fetch: () => new Response("PWNED") });
+    try {
+      let lookups = 0;
+      mock.module("node:dns/promises", () => ({
+        lookup: async () => {
+          lookups++;
+          return lookups === 1
+            ? [{ address: "203.0.113.7", family: 4 }]
+            : [{ address: "127.0.0.1", family: 4 }];
+        },
+      }));
+      // The listener redirects every path to itself once, then answers.
+      let hops = 0;
+      const redirector = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (_req, server) => {
+          hops++;
+          return hops === 1
+            ? new Response(null, { status: 302, headers: { location: `http://rebind2.test:${server.port}/final` } })
+            : new Response("OK");
+        },
+      });      try {
+        // rebinding pattern on hop 2: lookup #2 answers private. The hop
+        // must be rejected — and the private listener must never see the
+        // redirect dial (hops stays 1). The pinned dial of hop 1 goes to
+        // the TEST-NET-3 address (not the listener) and fails to connect:
+        // exactly the guarantee that no un-verified dial ever happens.
+        const ac = new AbortController();
+        setTimeout(() => ac.abort(), 3_000);
+        await expect(
+          tools.fetch.execute({ url: `http://rebind1.test:${redirector.port}/a` }, { ...ctx, signal: ac.signal }),
+        ).rejects.toThrow();
+        // The listener was never dialed: hop 1 connected to the TEST-NET-3
+        // pinned address (unreachable), hop 2 was rejected as private —
+        // no un-verified dial ever happened.
+        expect(hops).toBe(0);
+      } finally {
+        redirector.stop(true);
+      }
+    } finally {
+      srv.stop(true);
+      mock.restore();
+    }
+  });
+
+  test("MOH_FETCH_ALLOW_PRIVATE keeps resolving normally (no pinning) (#697)", async () => {
+    // Opt-out path: no dispatcher pinning, behavior unchanged — a numeric
+    // private URL is allowed through the plain fetch path.
+    const { mock } = await import("bun:test");
+    const prev = process.env.MOH_FETCH_ALLOW_PRIVATE;
+    process.env.MOH_FETCH_ALLOW_PRIVATE = "1";
+    try {
+      let lookups = 0;
+      mock.module("node:dns/promises", () => ({
+        lookup: async () => {
+          lookups++;
+          return [{ address: "127.0.0.1", family: 4 }];
+        },
+      }));
+      const srv = Bun.serve({ port: 0, fetch: () => new Response("LOCAL-OK") });
+      try {
+        const out = await tools.fetch.execute({ url: `http://127.0.0.1:${srv.port}/x` }, ctx);
+        expect(out).toContain("LOCAL-OK");
+        expect(lookups).toBe(0); // numeric host: no resolution, no pinning
+      } finally {
+        srv.stop(true);
+      }
+    } finally {
+      if (prev === undefined) delete process.env.MOH_FETCH_ALLOW_PRIVATE;
+      else process.env.MOH_FETCH_ALLOW_PRIVATE = prev;
+      mock.restore();
+    }
+  });
 });
 
 describe("bash effective timeout (#300)", () => {

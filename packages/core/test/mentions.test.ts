@@ -118,6 +118,37 @@ describe("assembleMentions", () => {
     }
   });
 
+  test("out-of-root directory mention: warning, no attachment (#696)", async () => {
+    const dir = tmpProject();
+    const outside = tmpProject();
+    try {
+      mkdirSync(join(outside, "leak"));
+      writeFileSync(join(outside, "leak", "s.ts"), "secret");
+      const canRead = (p: string) => !p.startsWith(outside);
+      const r = await assembleMentions(`@${join(outside, "leak")}`, { cwd: dir, canRead });
+      expect(r.attachments).toEqual([]);
+      expect(r.warnings).toHaveLength(1);
+      expect(r.warnings[0]!.reason).toContain("outside the project root");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("out-of-root directory mention without canRead fails closed: warning, no attachment (#696)", async () => {
+    const dir = tmpProject();
+    const outside = tmpProject();
+    try {
+      mkdirSync(join(outside, "leak"));
+      const r = await assembleMentions(`@${join(outside, "leak")}`, { cwd: dir });
+      expect(r.attachments).toEqual([]);
+      expect(r.warnings).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   test("directory listing is public metadata: attached even when the dir itself is denied", async () => {
     const dir = tmpProject();
     try {

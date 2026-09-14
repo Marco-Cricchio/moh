@@ -252,6 +252,28 @@ describe("live panel rendering", () => {
     ink.unmount();
   });
 
+  test("tail lines containing escape sequences render inert (#701)", () => {
+    const ink = render(
+      <ThemeProvider value={THEMES["tokyo-night"]}>
+        <SubagentPanel
+          sub={runningSub}
+          tail={tailOf(["● bash\x1b[2K\r · git status", "· \x1b]0;evil title\x07hello"])}
+          now={Date.now()}
+          width={40}
+        />
+      </ThemeProvider>,
+    );
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    // Control sequences must be stripped, not interpreted by the terminal.
+    expect(frame).toContain("bash · git status");
+    expect(frame).toContain("hello");
+    expect(frame).not.toContain("\x1b[");
+    expect(frame).not.toContain("\x1b]");
+    expect(frame).not.toContain("\x07");
+    expect(frame).not.toContain("\r");
+    ink.unmount();
+  });
+
   test("empty running tail stays header-only", () => {
     const ink = render(
       <ThemeProvider value={THEMES["tokyo-night"]}>

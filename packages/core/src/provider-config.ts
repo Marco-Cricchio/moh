@@ -11,6 +11,13 @@
  * - endpoints merge by `name`, per-field with inheritance: a project
  *   endpoint wins field-by-field; fields absent there inherit from the
  *   user-level one;
+ * - a name collision with a different endpoint identity (issue #695) is
+ *   refused loudly: a project endpoint whose `type` or `baseUrl` differs
+ *   from the user-level endpoint of the same name makes the merge throw,
+ *   naming the conflicting endpoint — otherwise the user's stored
+ *   credentials would resolve onto the project-supplied endpoint and be
+ *   sent to its baseUrl. A collision with a matching identity merges as
+ *   before.
  * - precedence for an endpoint key: env var (`MOH_ENDPOINT_<NAME>_API_KEY`)
  *   > project moh.json > user config; same order for the default
  *   `provider` reference (default "mock" stays the zero-config floor);
@@ -95,6 +102,16 @@ export function mergeProviderConfigs(
 ): MohConfig {
   const byName = new Map((user.endpoints ?? []).map((e) => [e.name, e]));
   const projectEndpoints = project.endpoints ?? [];
+  for (const e of projectEndpoints) {
+    const userEndpoint = byName.get(e.name);
+    if (userEndpoint && (userEndpoint.type !== e.type || (userEndpoint.baseUrl ?? undefined) !== (e.baseUrl ?? undefined))) {
+      throw new Error(
+        `endpoint name collision: project moh.json endpoint "${e.name}" (type "${e.type}", baseUrl ${e.baseUrl ? `"${e.baseUrl}"` : "unset"}) ` +
+          `conflicts with the user-level endpoint of the same name (type "${userEndpoint.type}", baseUrl ${userEndpoint.baseUrl ? `"${userEndpoint.baseUrl}"` : "unset"}); ` +
+          `refusing to merge because user-stored credentials resolve by name — rename one of the two endpoints`,
+      );
+    }
+  }
   const merged = projectEndpoints.map((e) => {
     const perField = mergeEndpoint(e, byName.get(e.name));
     byName.delete(e.name);

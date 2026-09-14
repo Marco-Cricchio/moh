@@ -5,6 +5,59 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.34.3] - 2026-09-14
+### Fixed
+
+- **Endpoint name collision could capture user-stored credentials** (#695, PR #703):
+  a project `moh.json` could declare an endpoint with the same name as a
+  user endpoint but a different `type`/`baseUrl`; credentials resolved by
+  bare name (API keys and auto-refreshing subscription tokens) would be
+  sent to the project-supplied `baseUrl`. The merge now fails loud on a
+  name collision with differing identity — consistent with the
+  no-silent-fallbacks assembly principle; matching identities merge as
+  before.
+
+- **Directory `@` mentions bypassed the permission gate** (#696, PR #704):
+  directory mentions attached a recursive listing before the `canRead`
+  gate and accepted absolute/`..` paths, silently enumerating out-of-root
+  directories into the event log. Out-of-root (or denied) directory
+  mentions now produce a visible `mention_warnings` entry and no
+  attachment; in-root listings are unchanged; `assembleMentions` fails
+  closed when a caller supplies no gate.
+
+- **fetch: DNS-rebinding TOCTOU between host check and connect** (#697,
+  PR #705): the fetch tool verified the resolved hostname then dialed a
+  second, independent resolution, so a short-TTL rebinding host could
+  reach private/loopback targets. Connections are now pinned to the
+  DNS-verified address (via `undici`'s dispatcher); every redirect hop
+  dials verified addresses only.
+
+- **Bash metachar guard residual** (#698, PR #706): under prefix-matched
+  allow rules, herestrings (`<<<`), input redirection (`<`), and unquoted
+  `$VAR`/tilde operands smuggled behavior the rule author never saw. All
+  three now force an ask; quoted occurrences do not.
+
+- **Equal-specificity allow/deny resolved to allow** (#699, PR #707):
+  with identical specificity the allow rule won, contradicting the
+  documented "deny beats allow when at least as specific". Equal keys now
+  tie-break toward deny.
+
+- **Handoff import passed authorless payloads through the author check**
+  (#700, PR #708): `handoff pull` with an expected author configured
+  silently accepted a v1-style payload with no `author` field. The check
+  now fails closed.
+
+- **Subagent live panel rendered tail text unsanitized** (#701, PR #710):
+  the live peek panel was the one remaining TUI path rendering
+  model-controlled strings without the render sanitizer (SEC-08
+  follow-up). Tail lines are now sanitized like every other surface.
+
+- **MPM shard reads were not contained** (#702, PR #711): `readRecord`
+  joined the shard string from the manifest without a containment check;
+  a corrupt/hostile manifest could point reads outside the project-map
+  directory. Escaping shards are treated as corruption — projection
+  discarded and rebuilt.
+
 ## [0.34.2] - 2026-09-14
 ### Fixed
 
@@ -35,7 +88,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.3...develop
+[0.34.3]: https://github.com/Marco-Cricchio/moh/compare/v0.34.2...v0.34.3
 [0.34.2]: https://github.com/Marco-Cricchio/moh/compare/v0.34.1...v0.34.2
 [0.34.1]: https://github.com/Marco-Cricchio/moh/compare/v0.34.0...v0.34.1
 

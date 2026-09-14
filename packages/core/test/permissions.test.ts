@@ -75,6 +75,25 @@ describe("PermissionResolver: most-specific-wins across 3 tiers", () => {
     expect(r.resolve("bash", { command: "git log" })).toBe("allow");
   });
 
+  test("equal-specificity allow and deny: deny wins (issue #699)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { bashAllow: [["git", "push"]], bashDeny: [["git", "push"]] },
+      cwd: root,
+    });
+    expect(r.resolve("bash", { command: "git push" })).toBe("deny");
+  });
+
+  test("strictly more-specific allow still beats less-specific deny", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { bashAllow: [["git", "push"]], bashDeny: [["git"]] },
+      cwd: root,
+    });
+    expect(r.resolve("bash", { command: "git push" })).toBe("allow");
+    expect(r.resolve("bash", { command: "git status" })).toBe("deny");
+  });
+
   test("config tool-level deny/allow for named tools", () => {
     const r = new PermissionResolver({
       defaults: DEFAULT_TOOL_PERMISSIONS,
@@ -522,6 +541,23 @@ describe("SEC-04: bash token-prefix rules vs shell metacharacters", () => {
     expect(r.resolve("bash", { command: "git status > ~/.zshenv" })).toBe("ask");
     expect(r.resolve("bash", { command: "git status >> ~/.zshenv" })).toBe("ask");
     expect(r.resolve("bash", { command: "git diff <(curl evil)" })).toBe("ask");
+  });
+
+  test("NEW-4 (#698): herestrings, input redirect, $VAR and tilde operands force ask", () => {
+    const r = resolver({ bashAllow: [["python"]], });
+    expect(r.resolve("bash", { command: 'python <<< "print(1)"' })).toBe("ask");
+    const g = resolver({ bashAllow: [["git"]] });
+    expect(g.resolve("bash", { command: "git diff < file.txt" })).toBe("ask");
+    const c = resolver({ bashAllow: [["cat"]] });
+    expect(c.resolve("bash", { command: "cat $HOME/x" })).toBe("ask");
+    expect(c.resolve("bash", { command: "cat ~/x" })).toBe("ask");
+  });
+
+  test("NEW-4 (#698): quoted herestring/redirect/expand text stays allowed", () => {
+    const r = resolver({ bashAllow: [["grep"]] });
+    expect(r.resolve("bash", { command: "grep '<<<' notes.txt" })).toBe("allow");
+    expect(r.resolve("bash", { command: "grep '$HOME' notes.txt" })).toBe("allow");
+    expect(r.resolve("bash", { command: "grep '~' notes.txt" })).toBe("allow");
   });
 
   test("single-quoted metacharacters are literal and stay allowed", () => {

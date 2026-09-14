@@ -258,7 +258,7 @@ async function handoffPullCommand(
   if (!result.ok) {
     err.write(
       result.error.reason === "foreign-author"
-        ? `moh handoff pull: declined — the handoff is authored by "${result.error.author}", not the logged-in gh user (handoffs are per-persona)\n`
+        ? `moh handoff pull: declined — the handoff is authored by "${result.error.author ?? "an unknown author"}", not the logged-in gh user (handoffs are per-persona)\n`
         : result.error.reason === "invalid"
           ? "moh handoff pull: the fetched gist is not a valid handoff payload\n"
           : `moh handoff pull: failed (${result.error.reason === "failed" ? result.error.message : result.error.reason})\n`,
