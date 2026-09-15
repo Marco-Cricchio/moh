@@ -14,6 +14,7 @@ import { manualCommand, MANUAL_USAGE } from "./manual";
 import { compactCommand, COMPACT_USAGE } from "./compact";
 import { mpmCommand, MPM_USAGE } from "./mpm";
 import { sessionsCommand, SESSIONS_USAGE } from "./sessions";
+import { usageCommand, USAGE_USAGE } from "./usage";
 import { trashCommand, TRASH_USAGE } from "./trash";
 import { CLI_VERSION } from "./version";
 
@@ -35,6 +36,7 @@ commands:
   mpm      project map diagnostics (see: moh mpm --help)
   sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
+  usage    per-model usage report (see: moh usage --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -192,6 +194,13 @@ export async function main(
       return 0;
     }
     return trashCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
+  }
+  if (command === "usage") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(USAGE_USAGE + "\n");
+      return 0;
+    }
+    return usageCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "handoff") {
     if (rest.includes("--help") || rest.includes("-h")) {
