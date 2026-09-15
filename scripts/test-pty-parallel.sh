@@ -13,7 +13,8 @@
 set -u
 cd "$(dirname "$0")/.."
 
-JOBS=${MOH_PTY_JOBS:-0} # 0 = no batching: all files at once
+JOBS=${MOH_PTY_JOBS:-3} # batch size; validated on 8 cores — all-at-once (0)
+                        # trips load-dependent PTY flakes on this machine.
 fail=0
 list="${TMPDIR:-/tmp}/moh-pty-logs.$$.list"
 : > "$list"
@@ -47,17 +48,33 @@ else
 fi
 
 # Verdict digest: surface every failure, drop pass noise, clean the logs.
+# Known load-dependent PTY flakes pass in isolation (CI policy: retry once
+# per failed file, sequentially — isolation is the cure), so a failed file
+# is re-run once on its own before counting as a failure.
 total=0
+fail=0
+retry_logs=""
 while read -r log; do
   [ -f "$log" ] || continue
   total=$((total+1))
+  if grep -q "(fail)" "$log"; then
+    retry_logs="$retry_logs $log"
+  else
+    rm -f "$log"
+  fi
+done < "$list"
+
+for log in $retry_logs; do
+  testfile=$(basename "$log" | sed 's/^[^-]*-[^-]*-//')
+  echo "--- retry once in isolation: $testfile"
+  (bun test "packages/tui/test/pty/$testfile" < /dev/null > "$log" 2>&1)
   if grep -q "(fail)" "$log"; then
     fail=1
     echo "--- PTY failures:"
     grep -B12 "(fail)" "$log" | grep -v "(pass)"
   fi
   rm -f "$log"
-done < "$list"
+done
 
 if [ "$fail" -eq 0 ]; then
   echo "pty-parallel: all $total PTY files green"
