@@ -423,9 +423,12 @@ always-available fallback: per-model token totals summed from a session's
 
 ## Multi-session telemetry (#714)
 
-`aggregateTelemetry({ cwd, home })` reads every session file under the
-project's sessions directory (the same slug resolution as
-`SessionStore.list`) and returns one read-only metadata projection:
+`aggregateTelemetry({ cwd, home, slug?, sinceMs? })` reads every session
+file under the project's sessions directory (the same slug resolution as
+`SessionStore.list`; an explicit `slug` reads another project's
+directory, and `sinceMs` — the `--days` window of `moh usage` — drops
+session files whose mtime is older, before any parsing) and returns one
+read-only metadata projection:
 per-model usage (calls and token totals from `model_call` events under
 the same convention as `aggregateLocalUsage` — failed calls excluded —
 plus audited thinking levels), per-tool statistics (calls, ok/fail,

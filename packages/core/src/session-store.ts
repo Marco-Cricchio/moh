@@ -136,9 +136,10 @@ export function projectSlug(cwd: string, home = homedir()): string {
   return resolveProjectIdentity(cwd, home).slug;
 }
 
-/** Directory holding the project's session files: <home>/.moh/projects/<slug> */
-export function projectSessionsDir(cwd: string, home = homedir()): string {
-  return join(home, ".moh", "projects", projectSlug(cwd, home));
+/** Directory holding the project's session files: <home>/.moh/projects/<slug>.
+ * An explicit slug (`moh usage --project`) wins over the cwd-derived one. */
+export function projectSessionsDir(cwd: string, home = homedir(), slug?: string): string {
+  return join(home, ".moh", "projects", slug ?? projectSlug(cwd, home));
 }
 
 export { legacyProjectSlug, resolveProjectIdentity };

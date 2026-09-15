@@ -7,7 +7,7 @@
  * never fatal. Per-model usage reuses the exact `aggregateLocalUsage`
  * convention (failed calls excluded) instead of forking the math.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type LocalUsageRow } from "./quota/local";
@@ -168,8 +168,17 @@ function aggregateSession(events: readonly AgentEvent[]): TelemetrySessionRow {
  * telemetry report. Read-only; corrupt files are skipped and counted in
  * `sessionsSkipped`.
  */
-export function aggregateTelemetry(options: { cwd: string; home?: string }): TelemetryReport {
-  const dir = projectSessionsDir(options.cwd, options.home);
+export function aggregateTelemetry(options: {
+  cwd: string;
+  home?: string;
+  /** Explicit project slug override (`moh usage --project <slug>`); the
+   * default resolves the slug from `cwd` like `SessionStore.list`. */
+  slug?: string;
+  /** Drop session files whose mtime is older than this epoch ms
+   * (`moh usage --days <N>`); filtered before any parsing. */
+  sinceMs?: number;
+}): TelemetryReport {
+  const dir = projectSessionsDir(options.cwd, options.home, options.slug);
   const report: TelemetryReport = {
     models: [],
     tools: [],
@@ -187,6 +196,16 @@ export function aggregateTelemetry(options: { cwd: string; home?: string }): Tel
 
   for (const name of readdirSync(dir).sort()) {
     if (!name.endsWith(".jsonl")) continue;
+    if (options.sinceMs !== undefined) {
+      let mtimeMs = 0;
+      try {
+        mtimeMs = statSync(join(dir, name)).mtimeMs;
+      } catch {
+        report.sessionsSkipped += 1;
+        continue;
+      }
+      if (mtimeMs < options.sinceMs) continue;
+    }
     report.sessionsScanned += 1;
     let events: AgentEvent[];
     try {
