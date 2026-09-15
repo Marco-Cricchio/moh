@@ -10,15 +10,17 @@
 #   scripts/test.sh packages/tui/test/x.test.ts   # focused run
 #
 # Log path override: MOH_TEST_LOG=/tmp/my.log scripts/test.sh
-# PTY parallelism: MOH_PTY_PARALLEL=1 runs the 12 PTY files as parallel
-# bun processes (scripts/test-pty-parallel.sh, 3-way default) instead of
-# inside the main invocation — roughly halves the serial PTY block.
+# PTY parallelism: ON by default — the 13 PTY files run as parallel bun
+# processes (scripts/test-pty-parallel.sh) instead of inside the main
+# invocation, roughly halving the serial PTY block (~330s -> ~130s wall).
+# MOH_PTY_PARALLEL=0 opts out (serial PTY, the old behavior). Focused
+# runs (arguments) always bypass the split.
 set -uo pipefail
 
 LOG=${MOH_TEST_LOG:-/tmp/moh-bun-test.log}
 status=0
 
-if [ "${MOH_PTY_PARALLEL:-0}" = "1" ] && [ "$#" -eq 0 ]; then
+if [ "${MOH_PTY_PARALLEL:-1}" = "1" ] && [ "$#" -eq 0 ]; then
   # Main invocation: everything except the pty dir (explicit positive
   # paths — bun's `!` negation is a name filter, not a file exclusion).
   MAIN_PATHS=()
@@ -32,9 +34,11 @@ if [ "${MOH_PTY_PARALLEL:-0}" = "1" ] && [ "$#" -eq 0 ]; then
     fi
   done
   echo "--- PTY files run in parallel via scripts/test-pty-parallel.sh"
+  bash scripts/test-pty-parallel.sh &
+  pty_pid=$!
   bun test "${MAIN_PATHS[@]}" 2>&1 | tee "$LOG"
   main=${PIPESTATUS[0]}
-  bash scripts/test-pty-parallel.sh
+  wait "$pty_pid"
   pty=$?
   [ "$main" -ne 0 ] && status=$main
   [ "$pty" -ne 0 ] && status=$pty
