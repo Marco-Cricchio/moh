@@ -206,3 +206,16 @@ never the `MpmService`, the lifecycle, or any mutation surface; warm-up
 paths are validated against the receiving checkout and drive only
 targeted local refreshes. The projection remains read-only for every
 consumer; `MpmService` stays the sole writer.
+
+## Amendment — 2026-09-15, #714 multi-session telemetry seam
+
+**Re-opened doors**: `aggregateTelemetry` and the `TelemetryReport`/
+`TelemetryModelRow`/`TelemetryToolRow`/`TelemetryRouteHealth`/
+`TelemetryFallbackRow`/`TelemetryRouteServingRow`/`TelemetrySessionRow`/
+`TelemetrySubagentRow` types (`core/src/telemetry.ts`), the deep module
+the `moh usage` CLI/TUI surfaces (#715–#718, in flight) project. One
+read-only aggregator over the project's session files: per-model usage
+(the `aggregateLocalUsage` math, not a fork), tool statistics, route
+health, and per-session rollups — metadata only, all-local, corrupt
+files skipped and counted. The `sessionsSkipped` counter covers both
+corrupt/unreadable and empty session files.

@@ -16,7 +16,9 @@ import { ENCODING } from "./session/ulid";
 import { projectSessionsDir } from "./session-store";
 
 /** Per-model usage across sessions (failed calls excluded), with the
- * thinking levels the model actually served (when audited on the call). */
+ * thinking levels the model actually served (when audited on the call).
+ * Extends `LocalUsageRow` for shape parity with the quota rollup; the
+ * optional `lastCallAt` field is never populated here. */
 export interface TelemetryModelRow extends LocalUsageRow {
   /** Audited thinking level → call count; absent when no call carried one. */
   thinkingLevels?: Record<string, number>;
@@ -84,13 +86,14 @@ export interface TelemetryReport {
   sessions: TelemetrySessionRow[];
   /** Session files found (including skipped ones). */
   sessionsScanned: number;
-  /** Files skipped as corrupt/unreadable — skipped, never fatal. */
+  /** Files skipped as corrupt/unreadable — skipped, never fatal. An
+   * empty session file counts here too (nothing to aggregate). */
   sessionsSkipped: number;
 }
 
 /** The single wording convention: `<tool>: timed out after <N>ms…`. */
 function isTimeoutOutput(output: string): boolean {
-  return output.startsWith("timed out after") || /\btimed out after \d+ms\b/.test(output);
+  return /: timed out after \d+ms/.test(output);
 }
 
 /** ULID time component (first 10 Crockford chars) → epoch ms, or null.
@@ -214,6 +217,17 @@ export function aggregateTelemetry(options: { cwd: string; home?: string }): Tel
     rollup.id = basename(name, ".jsonl");
     report.sessions.push(rollup);
 
+    // Tool pairing: callId → tool name, one pass (never events.find per
+    // result — O(n²) on large logs).
+    const toolNameByCall = new Map<string, string>();
+    for (const event of events) {
+      if (event.type === "tool_call") toolNameByCall.set(event.callId, event.name);
+    }
+
+    // Cross-session aggregates (models, tools, route, errors) run on the
+    // raw file order — an abandoned-branch turn still counts as usage —
+    // while per-session rollups project the active path (same read seam
+    // as replay). Both are metadata counts; neither rewrites the log.
     for (const event of events) {
       if (event.type === "model_call" && !event.failed && event.thinkingLevel !== undefined) {
         const acc = modelRows.get(event.model);
@@ -260,7 +274,6 @@ export function aggregateTelemetry(options: { cwd: string; home?: string }): Tel
       calls: row.calls,
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,
-      lastCallAt: row.lastCallAt,
       ...(Object.keys(row.thinkingLevels!).length > 0 ? { thinkingLevels: row.thinkingLevels } : {}),
     }))
     .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
