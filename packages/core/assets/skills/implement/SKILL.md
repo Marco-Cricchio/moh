@@ -10,7 +10,7 @@ For non-trivial implementation work, load and follow the `moh-implementation-flo
 
 Use /tdd where possible, at pre-agreed seams.
 
-Run typechecking regularly, single test files regularly, and — at the end — the full suite only once and only when the change touches shared code (core, session assembly, test harness); for a package-confined change, that package's test dir is enough (the PR CI run covers the rest, with PTY retry). After a fix, re-run only the failing test files, never the full suite.
+Run typechecking regularly, single test files regularly, and the full test suite once at the end.
 
 Once done, use /code-review to review the work.
 
