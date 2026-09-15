@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
  */
 
 const ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export { ENCODING };
 const TIME_LEN = 10;
 const RANDOM_LEN = 16;
 const RANDOM_MASK = (1n << 80n) - 1n;

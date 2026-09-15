@@ -421,6 +421,24 @@ never surfaces through the seam. `aggregateLocalUsage(events)` is the
 always-available fallback: per-model token totals summed from a session's
 `model_call` events. Both are exported from `@moh/core` (ADR-0004).
 
+## Multi-session telemetry (#714)
+
+`aggregateTelemetry({ cwd, home })` reads every session file under the
+project's sessions directory (the same slug resolution as
+`SessionStore.list`) and returns one read-only metadata projection:
+per-model usage (calls and token totals from `model_call` events under
+the same convention as `aggregateLocalUsage` — failed calls excluded —
+plus audited thinking levels), per-tool statistics (calls, ok/fail,
+timeouts), route health (`fallback` activations from→to with reason,
+`route_serving` transitions, turn errors grouped by reason), and
+per-session rollups (turn status counts, token totals, models served,
+duration from ULID identity, subagent usage). Metadata only — never
+message content, tool outputs, or reasoning; everything is local; the
+agent loop and the event-log format are untouched; a corrupt or
+unreadable session file is skipped and counted in `sessionsSkipped`,
+never fatal. Exported from `@moh/core` (ADR-0004).
+
+
 ## Moh Project Map — read-only status and query (#614)
 
 `MpmService` is the single headless MPM service for one project: it loads
