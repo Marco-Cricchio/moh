@@ -81,10 +81,23 @@ function deadline<T>(p: Promise<T>, timeoutMs: number): Promise<T | "timeout"> {
  * space and never match. Never throws and never hangs: any failure
  * (offline, gh missing, timeout, unparsable gist) is `{ status: "none" }`.
  */
+/**
+ * Bounded startup discovery (story 15). The deadline must cover the
+ * WHOLE fetch chain — 2–3 sequential `gh` child processes (user
+ * lookup, gist list, gist view), each paying CLI startup + keyring
+ * cost. Field evidence (#680 follow-up, PC B): 3s cut the chain after
+ * the first call, so every machine with a slightly slow gh saw no
+ * offer row, ever; the e2e simulation measured `gh api user` alone at
+ * ~0.5s and full chains past 3s on a healthy network. 10s keeps the
+ * discovery bounded (it runs once at Home mount, never blocking
+ * render) while actually accommodating the real chain.
+ */
+export const DISCOVERY_DEADLINE_MS = 10_000;
+
 export async function discoverHandoff(options: DiscoverHandoffOptions): Promise<HandoffOffer> {
   const raced = await deadline(
     options.transport.fetch().catch(() => null),
-    options.timeoutMs ?? 3_000,
+    options.timeoutMs ?? DISCOVERY_DEADLINE_MS,
   );
   if (raced === "timeout" || raced === null || !raced.ok) {
     // No reachable gist handoff — a parked manual import (T7 #440) can

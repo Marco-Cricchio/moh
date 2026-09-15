@@ -10,6 +10,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   discoverHandoff,
+  DISCOVERY_DEADLINE_MS,
   isHandoffStale,
   handoffSeedPrompt,
   handoffSeedMessage,
@@ -205,6 +206,13 @@ describe("discoverHandoff", () => {
   test("a hanging fetch is cut by the deadline", async () => {
     const offer = await discover({ fetch: "hang", timeoutMs: 50 });
     expect(offer).toEqual({ status: "none" });
+  });
+
+  test("the default deadline covers the real 3-call gh chain (PC B: 3s cut it)", async () => {
+    // Field evidence (#680 follow-up): the chain is user lookup + gist
+    // list + gist view, ~7s total on a healthy machine. The old 3s
+    // default cut the chain after the first call — no offer, ever.
+    expect(DISCOVERY_DEADLINE_MS).toBeGreaterThanOrEqual(10_000);
   });
 });
 
