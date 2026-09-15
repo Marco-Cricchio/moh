@@ -9,11 +9,19 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { aggregateTelemetry, aggregateLocalUsage, type AgentEvent } from "../src/index";
 import { projectSessionsDir } from "../src/session-store";
-import { newUlid } from "../src/session/ulid";
+import { ENCODING } from "../src/session/ulid";
 
-/** Builds a ULID at a fixed epoch ms so durations are deterministic. */
+/** Deterministic ULID at a fixed epoch ms (random part fixed): immune to
+ * the process-monotonic clamp in `newUlid`, which a prior test's real-time
+ * mint would trigger. */
 function id(ms: number): string {
-  return newUlid(new Date(ms));
+  let time = "";
+  let m = ms;
+  for (let i = 9; i >= 0; i--) {
+    time = ENCODING[m % 32] + time;
+    m = Math.floor(m / 32);
+  }
+  return time + "AAAAAAAAAAAAAAAA"; // 16 zero random chars
 }
 
 function jsonl(file: string, events: AgentEvent[]): void {
