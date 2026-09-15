@@ -161,3 +161,119 @@ describe("moh usage (#715)", () => {
     expect(code).toBe(2);
   });
 });
+
+describe("moh usage tools (#716)", () => {
+  test("--help mentions the sub-reports", () => {
+    const { spawn } = harness();
+    const { code, stdout } = spawn(["--help"]);
+    expect(stdout).toContain("tools");
+    expect(stdout).toContain("routes");
+    expect(code).toBe(0);
+  });
+
+  test("renders per-tool calls, ok/fail, timeouts, avg duration", () => {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "tool_call", callId: "c1", name: "bash", args: {} });
+      s.append({ type: "tool_result", callId: "c1", ok: true, output: "ok" });
+      s.append({ type: "tool_call", callId: "c2", name: "bash", args: {} });
+      s.append({ type: "tool_result", callId: "c2", ok: false, output: "bash: timed out after 30000ms: x" });
+      s.append({ type: "tool_call", callId: "c3", name: "read", args: {} });
+      s.append({ type: "tool_result", callId: "c3", ok: true, output: "ok" });
+    });
+    const { code, stdout } = h.spawn(["tools"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("Tool statistics");
+    expect(stdout).toContain("bash");
+    expect(stdout).toContain("1"); // 1 timeout
+  });
+
+  test("--json emits tool rows with avgDurationMs", () => {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "tool_call", callId: "c1", name: "read", args: {} });
+      s.append({ type: "tool_result", callId: "c1", ok: true, output: "ok" });
+    });
+    const parsed = JSON.parse(h.spawn(["tools", "--json"]).stdout);
+    expect(parsed.tools).toEqual([{ tool: "read", calls: 1, ok: 1, fail: 0, timeouts: 0, avgDurationMs: expect.any(Number) }]);
+    expect(parsed.sessionsScanned).toBe(1);
+  });
+
+  test("empty project → friendly message, exit 0", () => {
+    const { spawn } = harness();
+    const { code, stderr, stdout } = spawn(["tools"]);
+    expect(code).toBe(0);
+    expect(stderr).toContain("No sessions found");
+    expect(stdout).toBe("");
+  });
+});
+
+describe("moh usage routes (#716)", () => {
+  test("renders fallbacks, serving switches, and errors by kind", () => {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "fallback", from: "prov/alpha", to: "prov/beta", reason: "rate_limited" });
+      s.append({ type: "fallback", from: "prov/alpha", to: "prov/beta", reason: "rate_limited" });
+      s.append({ type: "fallback", from: "prov/alpha", to: "prov/gamma", reason: "overloaded" });
+      s.append({ type: "route_serving", selected: "prov/alpha", serving: "prov/beta", previous: "prov/alpha" });
+      s.append({ type: "error", reason: "context_length", message: "too long" });
+      s.append({ type: "error", reason: "rate_limited", message: "limited" });
+    });
+    const { code, stdout } = h.spawn(["routes"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("Fallback activations");
+    expect(stdout).toContain("rate_limited");
+    expect(stdout).toContain("Route serving switches");
+    expect(stdout).toContain("Turn errors by kind");
+    expect(stdout).toContain("context_length");
+  });
+
+  test("--json emits the route structure", () => {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "fallback", from: "a/p", to: "b/q", reason: "network" });
+    });
+    const parsed = JSON.parse(h.spawn(["routes", "--json"]).stdout);
+    expect(parsed.route.fallbacks).toEqual([{ from: "a/p", to: "b/q", reason: "network", count: 1 }]);
+    expect(parsed.route.routeServing).toEqual([]);
+    expect(parsed.route.turnErrors).toEqual({});
+  });
+
+  test("clean sessions → all-zero route health, exit 0", () => {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "user_message", text: "work" });
+    });
+    const { code, stdout } = h.spawn(["routes"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("No fallback activations");
+    expect(stdout).toContain("No turn errors");
+  });
+
+  test("empty project → friendly message, exit 0", () => {
+    const { spawn } = harness();
+    const { code, stderr, stdout } = spawn(["routes"]);
+    expect(code).toBe(0);
+    expect(stderr).toContain("No sessions found");
+    expect(stdout).toBe("");
+  });
+
+  test("shared filters work: --days with tools sub-report", async () => {
+    const h = harness();
+    const oldFile = h.session((s) => {
+      s.append({ type: "tool_call", callId: "c1", name: "old-tool", args: {} });
+      s.append({ type: "tool_result", callId: "c1", ok: true, output: "ok" });
+    });
+    h.session((s) => {
+      s.append({ type: "tool_call", callId: "c2", name: "new-tool", args: {} });
+      s.append({ type: "tool_result", callId: "c2", ok: true, output: "ok" });
+    });
+    const { utimesSync } = await import("node:fs");
+    const aged = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    utimesSync(oldFile, aged, aged);
+    const { code, stdout } = h.spawn(["tools", "--days", "7"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("new-tool");
+    expect(stdout).not.toContain("old-tool");
+  });
+});
