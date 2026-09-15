@@ -63,15 +63,16 @@ export async function usageCommand({
     ...(sinceMs !== undefined ? { sinceMs } : {}),
   });
 
+  const totals = report.models.reduce(
+    (acc, m) => ({
+      calls: acc.calls + m.calls,
+      inputTokens: acc.inputTokens + m.inputTokens,
+      outputTokens: acc.outputTokens + m.outputTokens,
+    }),
+    { calls: 0, inputTokens: 0, outputTokens: 0 },
+  );
+
   if (parsed.booleans["json"]) {
-    const totals = report.models.reduce(
-      (acc, m) => ({
-        calls: acc.calls + m.calls,
-        inputTokens: acc.inputTokens + m.inputTokens,
-        outputTokens: acc.outputTokens + m.outputTokens,
-      }),
-      { calls: 0, inputTokens: 0, outputTokens: 0 },
-    );
     out.write(
       JSON.stringify(
         {
@@ -92,34 +93,35 @@ export async function usageCommand({
     return 0;
   }
 
+  const num = (n: number): string => n.toLocaleString("en-US");
+
   if (report.sessionsScanned === 0) {
+    // Friendly empty state, also for a slug with only unreadable files —
+    // the skip notice rides along so the silence is never unexplained.
     err.write("No sessions found for this project — nothing to report yet.\n");
+    if (report.sessionsSkipped > 0) {
+      err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);
+    }
     return 0;
   }
 
-  const modelCol = Math.max("model".length, ...report.models.map((m) => m.model.length));
-  const num = (n: number): string => n.toLocaleString("en-US");
   const pad = (s: string, n: number): string => s + " ".repeat(Math.max(0, n - s.length));
   const rows: string[][] = [
     ["Model", "Calls", "Input tok", "Output tok"],
     ...report.models.map((m) => [m.model, num(m.calls), num(m.inputTokens), num(m.outputTokens)]),
   ];
   const widths = [0, 1, 2, 3].map((c) => Math.max(...rows.map((r) => r[c]!.length)));
-  out.write("Usage by model (all sessions):\n\n");
+  out.write("Usage by model:\n\n");
   for (const [i, row] of rows.entries()) {
     out.write(
       `  ${pad(row[0]!, widths[0]!)}  ${pad(row[1]!, widths[1]!)}  ${pad(row[2]!, widths[2]!)}  ${row[3]!}\n` +
         (i === 0 ? `  ${"─".repeat(widths[0]!)}  ${"─".repeat(widths[1]!)}  ${"─".repeat(widths[2]!)}  ${"─".repeat(widths[3]!)}\n` : ""),
     );
   }
-  const totals = report.models.reduce(
-    (acc, m) => ({ calls: acc.calls + m.calls, in: acc.in + m.inputTokens, out: acc.out + m.outputTokens }),
-    { calls: 0, in: 0, out: 0 },
-  );
   out.write(
     `\n  ${report.sessionsScanned} session${report.sessionsScanned === 1 ? "" : "s"}, ` +
       `${num(totals.calls)} call${totals.calls === 1 ? "" : "s"}, ` +
-      `${num(totals.in)} in / ${num(totals.out)} out tokens\n`,
+      `${num(totals.inputTokens)} in / ${num(totals.outputTokens)} out tokens\n`,
   );
   if (report.sessionsSkipped > 0) {
     err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);

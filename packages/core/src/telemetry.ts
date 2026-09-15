@@ -9,7 +9,6 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { homedir } from "node:os";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type LocalUsageRow } from "./quota/local";
 import { activePath } from "./session/event-log";
@@ -179,9 +178,7 @@ export function aggregateTelemetry(options: {
    * (`moh usage --days <N>`); filtered before any parsing. */
   sinceMs?: number;
 }): TelemetryReport {
-  const dir = options.slug
-    ? join(options.home ?? homedir(), ".moh", "projects", options.slug)
-    : projectSessionsDir(options.cwd, options.home);
+  const dir = projectSessionsDir(options.cwd, options.home, options.slug);
   const report: TelemetryReport = {
     models: [],
     tools: [],

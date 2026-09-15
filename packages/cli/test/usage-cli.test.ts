@@ -96,23 +96,17 @@ describe("moh usage (#715)", () => {
 
   test("--days filters sessions by mtime", async () => {
     const h = harness();
-    h.session((s) => {
+    const oldFile = h.session((s) => {
       turn(s, "m-old", 100, 10);
     });
     h.session((s) => {
       turn(s, "m-new", 1, 1);
     });
-    const { readdirSync } = await import("node:fs");
-    const slug = readdirSync(join(h.home, ".moh", "projects"))[0]!;
-    const projectDir = join(h.home, ".moh", "projects", slug);
-    const files = readdirSync(projectDir).sort();
-    // Touch both to now, then age the older session file by 30 days.
-    const old = files[0]!;
-    const recent = files[1]!;
-    const now = new Date();
-    utimesSync(join(projectDir, recent), now, now);
+    const { utimesSync } = await import("node:fs");
+    // Age the first session's file (known by returned path, not readdir
+    // order — two stores can mint within the same millisecond) by 30 days.
     const aged = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    utimesSync(join(projectDir, old), aged, aged);
+    utimesSync(oldFile, aged, aged);
     const { code, stdout } = h.spawn(["--days", "7"]);
     expect(code).toBe(0);
     expect(stdout).toContain("m-new");
