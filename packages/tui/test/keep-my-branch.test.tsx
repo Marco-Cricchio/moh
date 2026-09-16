@@ -62,12 +62,17 @@ describe("growth banner keep-my-branch (#581)", () => {
       // The banner names the primary chip.
       await waitForCondition(() => frame().includes("keep my branch"), () => `keep-my-branch chip missing. Frame:\n${frame()}`);
 
-      // ctrl+g keeps my branch: adoption switch + warning clears.
-      await i.stdin.write("\x07");
-      await waitForCondition(
-        () => readFileSync(originalFile, "utf8").includes("branch_switched"),
-        () => "keep-my-branch never appended branch_switched",
-      );
+      // ctrl+g keeps my branch: adoption switch + warning clears. The very
+      // first keystroke can land before React has re-attached the useInput
+      // handler that sees the growth state (#709), so retry until the event
+      // lands instead of trusting a single write.
+      for (let attempt = 0; !readFileSync(originalFile, "utf8").includes("branch_switched"); attempt++) {
+        if (attempt >= 10) {
+          await waitForCondition(() => false, () => `keep-my-branch never appended branch_switched. Frame:\n${frame()}`, { timeoutMs: 0 });
+        }
+        await i.stdin.write("\x07");
+        await new Promise((r) => setTimeout(r, 100));
+      }
       const switchLine = readFileSync(originalFile, "utf8").split("\n").reverse().find((l) => l.includes("branch_switched"))!;
       expect((JSON.parse(switchLine) as { to?: string }).to).toBe(localTip);
       await waitForCondition(() => !frame().includes("⚡"), () => "growth warning never cleared");
