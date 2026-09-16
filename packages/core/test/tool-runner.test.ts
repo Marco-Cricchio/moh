@@ -133,7 +133,7 @@ describe("ToolRunner", () => {
   test("unknown tool → failed result, never throws", async () => {
     const { runner, events } = harness();
     const { parts } = await runner.run([call("nope")], new AbortController().signal);
-    expect(parts).toEqual([{ kind: "tool_result", callId: "c-nope", ok: false, output: "unknown tool: nope" }]);
+    expect(parts).toEqual([{ kind: "tool_result", callId: "c-nope", ok: false, output: "unknown tool: nope", errorKind: "schema-validation" }]);
     expect(events.at(-1)).toMatchObject({ type: "tool_result", ok: false });
   });
 
@@ -163,7 +163,7 @@ describe("ToolRunner", () => {
       gate: { check: async () => ({ allowed: false, denial: "permission denied: gated" }) },
     });
     const { parts } = await runner.run([call("gated")], new AbortController().signal);
-    expect(parts).toEqual([{ kind: "tool_result", callId: "c-gated", ok: false, output: "permission denied: gated" }]);
+    expect(parts).toEqual([{ kind: "tool_result", callId: "c-gated", ok: false, output: "permission denied: gated", errorKind: "permission" }]);
   });
 
   test("execute throws → failed result with the error message", async () => {
@@ -171,6 +171,23 @@ describe("ToolRunner", () => {
     const { runner } = harness({ tools: { boom: tool } });
     const { parts } = await runner.run([call("boom")], new AbortController().signal);
     expect(parts).toEqual([{ kind: "tool_result", callId: "c-boom", ok: false, output: "kaput" }]);
+  });
+
+  // #731: failures carry a structured errorKind so telemetry can classify
+  // without parsing output text.
+  test("failed results carry a structured errorKind (#731)", async () => {
+    const cases: Array<[string, Error, string | undefined]> = [
+      ["timeout", new Error("bash: timed out after 30000ms: x"), "timeout"],
+      ["not-found", new Error("file not found: src/x.ts"), "not-found"],
+      ["io", new Error("ENOTDIR: not a directory, open '/x'"), "io"],
+      ["unclassified", new Error("kaput"), undefined],
+    ];
+    for (const [name, err, kind] of cases) {
+      const tool = makeTool({ name, execute: () => { throw err; } });
+      const { runner } = harness({ tools: { [name]: tool } });
+      const { parts } = await runner.run([call(name)], new AbortController().signal);
+      expect(parts[0]).toMatchObject({ ok: false, ...(kind ? { errorKind: kind } : {}) });
+    }
   });
 
   test("a tool that never settles is closed with a failed synthetic result on abort (#237)", async () => {

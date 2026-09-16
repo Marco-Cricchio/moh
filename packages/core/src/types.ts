@@ -44,8 +44,26 @@ export type ImagePart = { kind: "image"; mime: string; base64: string };
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
 export type ToolCallPart = ToolCall & { kind: "tool_call" };
-export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string };
+export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind };
 export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
+
+/**
+ * #731: structured failure reason carried on failed `tool_result` events.
+ * Metadata only — classification, never content — so `moh usage tools`
+ * can show a failure break-down without re-parsing output text.
+ */
+export type ToolErrorKind =
+  | "schema-validation"   // rejected by the tool's input schema (never executed)
+  | "permission"          // denied by the permission gate or an extension veto
+  | "timeout"             // the tool's own time limit fired
+  | "cancelled"           // the turn was cancelled before the call settled
+  | "not-found"           // target path/file/URL does not exist
+  | "io"                  // filesystem/OS-level error (ENOTDIR, EACCES, …)
+  | "http-status"         // fetch reached the server and got a non-2xx
+  | "edit-mismatch"       // edit's oldText not found / not unique
+  | "invalid-regex"       // malformed pattern handed to a search tool
+  | "command-exit"        // bash command ran and exited non-zero
+  | "unknown";            // anything else (reserved — currently unused)
 
 /**
  * One message in the conversation fed to providers.
@@ -243,7 +261,9 @@ type AgentEventBase =
        * `Tool.timeoutMs` at call time so clients can render a live timer. */
       timeoutMs?: number;
     })
-  | { type: "tool_result"; callId: string; ok: boolean; output: string }
+  | { type: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason on failed results only — lets
+             * telemetry classify errors without parsing output text. */
+        errorKind?: ToolErrorKind }
   /** #83: one record per model call — which model served it and what it cost.
    * #240: `thinkingLevel` audits the effective level actually sent, if any
    * (#239 decision 9: switches, fallbacks, provider defaults accounted). */

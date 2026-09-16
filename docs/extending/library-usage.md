@@ -138,7 +138,11 @@ The event log is the session: an append-only sequence of `AgentEvent`s
 `tool_result`, `model_call`, `done`, `error`, `cancelled`, …). Consume it
 as an async iterable while turns run. A `tool_call` may carry the call's
 effective `timeoutMs` (resolved by the tool, defaults included) — clients
-can render a live limit from it without duplicating per-tool defaults.
+can render a live limit from it without duplicating per-tool defaults. A
+failed `tool_result` may carry a structured `errorKind` (`validation`,
+`permission`, `timeout`, `cancelled`, `not-found`, `io`, `http-status`,
+`edit-mismatch`, `invalid-regex`, `command-exit`) so telemetry can
+classify failures without parsing output text.
 
 ```ts
 async function watch() {

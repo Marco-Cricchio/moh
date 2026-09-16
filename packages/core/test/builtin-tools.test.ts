@@ -140,6 +140,24 @@ describe("built-in tools", () => {
     expect(none.trim()).toBe("");
   });
 
+  // #731: a file `path` is searched directly — previously the scan threw
+  // ENOTDIR, which was ~40% of all observed tool failures.
+  test("grep with a single file as path searches that file (#731)", async () => {
+    const out = await tools.grep.execute({ path: "src/a.ts", pattern: "TODO" }, ctx);
+    expect(out).toContain("src/a.ts:2:// TODO fix");
+    const none = await tools.grep.execute({ path: "src/a.ts", pattern: "zzzz" }, ctx);
+    expect(none.trim()).toBe("");
+  });
+
+  // #731 (yolo): a meta-free pattern naming a single file answered the
+  // ENOTDIR of scanning with a file as cwd instead of the file itself.
+  test("glob with a literal file pattern returns the file (#731)", async () => {
+    const out = await tools.glob.execute({ pattern: "src/a.ts" }, ctx);
+    expect(out).toContain("a.ts");
+    const miss = await tools.glob.execute({ pattern: "src/missing.ts" }, ctx);
+    expect(miss.trim()).toBe("");
+  });
+
   // SEC-03 regression: symlink escape at execution time.
   test("write through an in-root symlink pointing outside is rejected (SEC-03)", async () => {
     const outside = mkdtempSync(join(tmpdir(), "moh-outside-"));

@@ -1,4 +1,4 @@
-import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, ToolCall } from "../types";
+import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, ToolCall, ToolErrorKind } from "../types";
 import { resolve, relative, sep } from "node:path";
 import { splitCommandSegments, type FilesystemScope } from "../permissions";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
@@ -108,6 +108,36 @@ function isGitPushSegment(words: string[]): boolean {
 export function isGitPush(call: ToolCall): boolean {
   if (call.name !== "bash" || typeof (call.args as { command?: unknown })?.command !== "string") return false;
   return splitCommandSegments((call.args as { command: string }).command).some(isGitPushSegment);
+}
+
+/** The settled shape of one tool execution (success or failure). */
+interface ToolOutcome {
+  callId: string;
+  ok: boolean;
+  output: string;
+  /** #731: structured failure reason — present on failures only. */
+  errorKind?: ToolErrorKind;
+}
+
+/**
+ * #731: classify a failed result's output into a `ToolErrorKind` so the
+ * event log carries a machine-usable reason and `moh usage tools` can
+ * break failures down without re-parsing free text. Matched on the
+ * wording conventions the tools themselves emit; anything else is left
+ * unclassified (no errorKind) rather than guessed.
+ */
+function classifyToolError(tool: string, output: string): ToolErrorKind | undefined {
+  if (/^invalid arguments for /.test(output)) return "schema-validation";
+  if (output === CANCELLED_TOOL_OUTPUT || /: turn cancelled before the command returned/.test(output)) return "cancelled";
+  if (/: timed out after \d+ms/.test(output)) return "timeout";
+  if (/permission denied|path outside project root|pattern escapes the project root|requires user co/.test(output)) return "permission";
+  if (tool === "edit" && /oldText not found|oldText is not unique/.test(output)) return "edit-mismatch";
+  if (/Invalid regular expression/.test(output)) return "invalid-regex";
+  if (/^HTTP \d{3} /.test(output)) return "http-status";
+  if (/file not found:|URL must have a valid scheme|only http\/https URLs are supported/.test(output)) return "not-found";
+  if (/^exit code \d+/.test(output)) return "command-exit";
+  if (/^[A-Z]+(\/[A-Z0-9]+)*: /.test(output)) return "io"; // node errno style: ENOTDIR, ENOENT/EACCES…
+  return undefined;
 }
 
 export class ToolRunner {
@@ -234,10 +264,10 @@ export class ToolRunner {
   async #execute(
     call: ToolCall,
     signal: AbortSignal,
-  ): Promise<{ callId: string; ok: boolean; output: string }> {
+  ): Promise<ToolOutcome> {
     const tool = this.#tools()[call.name];
     if (!tool) {
-      return { callId: call.callId, ok: false, output: `unknown tool: ${call.name}` };
+      return { callId: call.callId, ok: false, output: `unknown tool: ${call.name}`, errorKind: "schema-validation" };
     }
     let args: unknown = call.args;
     if (tool.inputSchema) {
@@ -246,13 +276,13 @@ export class ToolRunner {
         const issues = parsed.error.issues
           .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
           .join("; ");
-        return { callId: call.callId, ok: false, output: `invalid arguments for ${call.name}: ${issues}` };
+        return { callId: call.callId, ok: false, output: `invalid arguments for ${call.name}: ${issues}`, errorKind: "schema-validation" };
       }
       args = parsed.data;
     }
     const gate = await this.#gate.check(call.name, call.callId, args);
     if (!gate.allowed) {
-      return { callId: call.callId, ok: false, output: gate.denial };
+      return { callId: call.callId, ok: false, output: gate.denial, errorKind: "permission" };
     }
     const ctx: ToolContext = {
       signal,
@@ -274,10 +304,12 @@ export class ToolRunner {
       const output = await tool.execute(args, ctx);
       return { callId: call.callId, ok: true, output: String(output) };
     } catch (err) {
+      const output = err instanceof Error ? err.message : String(err);
       return {
         callId: call.callId,
         ok: false,
-        output: err instanceof Error ? err.message : String(err),
+        output,
+        errorKind: classifyToolError(call.name, output),
       };
     }
   }

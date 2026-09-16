@@ -36,6 +36,10 @@ export interface TelemetryToolRow {
   /** Sum of call→result event-id (ULID) deltas where both sides exist;
    * the caller derives the average (`totalDurationMs / (ok + fail)`). */
   totalDurationMs: number;
+  /** #731: failed results grouped by structured `errorKind`. Kinds are
+   * counted only when the result carried one (older logs have none);
+   * unclassified failures leave the map short of the `fail` total. */
+  errorKinds?: Record<string, number>;
 }
 
 /** One route-health bucket: a fallback activation seen `count` times. */
@@ -289,7 +293,8 @@ export function aggregateTelemetry(options: {
         if (acc) bumpCount(acc.thinkingLevels!, event.thinkingLevel);
       }
       if (event.type === "tool_call") {
-        const acc = toolRows.get(event.name) ?? { tool: event.name, calls: 0, ok: 0, fail: 0, timeouts: 0, totalDurationMs: 0 };
+        const acc =
+          toolRows.get(event.name) ?? { tool: event.name, calls: 0, ok: 0, fail: 0, timeouts: 0, totalDurationMs: 0 };
         acc.calls += 1;
         toolRows.set(event.name, acc);
       }
@@ -298,7 +303,13 @@ export function aggregateTelemetry(options: {
         const acc = call ? toolRows.get(call.name) : undefined;
         if (acc) {
           if (event.ok) acc.ok += 1;
-          else acc.fail += 1;
+          else {
+            acc.fail += 1;
+            if (event.errorKind !== undefined) {
+              acc.errorKinds ??= {};
+              acc.errorKinds[event.errorKind] = (acc.errorKinds[event.errorKind] ?? 0) + 1;
+            }
+          }
           if (!event.ok && isTimeoutOutput(event.output)) acc.timeouts += 1;
           const resultMs = ulidTimeMs(event.id);
           if (call?.ms !== null && call?.ms !== undefined && resultMs !== null) {
