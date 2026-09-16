@@ -124,17 +124,17 @@ function ChatBoxesPreview({ theme, overrides = {} }: { theme: Theme; overrides?:
   const tintOf = (semantic: string, amount: number): string => mix(semantic, theme.surface, amount);
   type BoxSpec = { id: string; color: string; tintAmount: number; head: string; detail: string };
   const boxes: BoxSpec[] = [
-    { id: "user", color: overrides.user ?? theme.warn, tintAmount: 0.14, head: "› you", detail: "fix the login redirect" },
-    { id: "moh", color: overrides.moh ?? theme.accent, tintAmount: 0.14, head: "◆ moh", detail: "checked the router — token expiry" },
-    { id: "tool-run", color: overrides["tool-run"] ?? theme.accent, tintAmount: 0.14, head: "◌ bash ⏱ 2.1s / 30s", detail: "running rg 'jwt'" },
-    { id: "ok", color: overrides.ok ?? theme.ok, tintAmount: 0.14, head: "✓ edit", detail: "src/auth.ts · 12 lines" },
-    { id: "fail", color: overrides.fail ?? theme.err, tintAmount: 0.2, head: "✗ test", detail: "2 assertions failed" },
-    { id: "error", color: overrides.error ?? theme.err, tintAmount: 0.2, head: "✗ error", detail: "provider unreachable" },
-    { id: "code", color: overrides.code ?? theme.purple, tintAmount: 0.14, head: "⌨ preview", detail: "auth.ts · 40–52" },
-    { id: "diff", color: overrides.diff ?? theme.purple, tintAmount: 0.14, head: "⌨ diff", detail: "+ token refresh · − retry loop" },
-    { id: "thinking", color: overrides.thinking ?? theme.dim, tintAmount: 0, head: "◌ thinking", detail: "tracing the refresh path…" },
-    { id: "chrome", color: overrides.chrome ?? theme.dim, tintAmount: 0.07, head: "◌ cancelled", detail: "steering · turn interrupted" },
-    { id: "subagent", color: overrides.subagent ?? theme.accent, tintAmount: 0.07, head: "◐ explore", detail: "child session · running" },
+    { id: "box:user", color: overrides["box:user"] ?? theme.warn, tintAmount: 0.14, head: "› you", detail: "fix the login redirect" },
+    { id: "box:moh", color: overrides["box:moh"] ?? theme.accent, tintAmount: 0.14, head: "◆ moh", detail: "checked the router — token expiry" },
+    { id: "box:tool-run", color: overrides["box:tool-run"] ?? theme.accent, tintAmount: 0.14, head: "◌ bash ⏱ 2.1s / 30s", detail: "running rg 'jwt'" },
+    { id: "box:ok", color: overrides["box:ok"] ?? theme.ok, tintAmount: 0.14, head: "✓ edit", detail: "src/auth.ts · 12 lines" },
+    { id: "box:fail", color: overrides["box:fail"] ?? theme.err, tintAmount: 0.2, head: "✗ test", detail: "2 assertions failed" },
+    { id: "box:error", color: overrides["box:error"] ?? theme.err, tintAmount: 0.2, head: "✗ error", detail: "provider unreachable" },
+    { id: "box:code", color: overrides["box:code"] ?? theme.purple, tintAmount: 0.14, head: "⌨ preview", detail: "auth.ts · 40–52" },
+    { id: "box:diff", color: overrides["box:diff"] ?? theme.purple, tintAmount: 0.14, head: "⌨ diff", detail: "+ token refresh · − retry loop" },
+    { id: "box:thinking", color: overrides["box:thinking"] ?? theme.dim, tintAmount: 0, head: "◌ thinking", detail: "tracing the refresh path…" },
+    { id: "box:chrome", color: overrides["box:chrome"] ?? theme.dim, tintAmount: 0.07, head: "◌ cancelled", detail: "steering · turn interrupted" },
+    { id: "box:subagent", color: overrides["box:subagent"] ?? theme.accent, tintAmount: 0.07, head: "◐ explore", detail: "child session · running" },
   ];
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={52}>
