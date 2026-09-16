@@ -362,14 +362,14 @@ function VariantD() {
   const BOXES: { id: string; label: string }[] = [
     { id: "box:user", label: "› you" },
     { id: "box:moh", label: "◆ moh" },
-    { id: "box:tool-run", label: "◌ tool running" },
-    { id: "box:ok", label: "✓ tool ok" },
-    { id: "box:fail", label: "✗ tool failed" },
+    { id: "box:tool-run", label: "◌ running" },
+    { id: "box:ok", label: "✓ ok" },
+    { id: "box:fail", label: "✗ failed" },
     { id: "box:error", label: "✗ error" },
     { id: "box:code", label: "⌨ code" },
     { id: "box:diff", label: "⌨ diff" },
     { id: "box:thinking", label: "◌ thinking" },
-    { id: "box:chrome", label: "◌ cancelled" },
+    { id: "box:chrome", label: "◌ cancel" },
     { id: "box:subagent", label: "◐ subagent" },
   ];
   type Row = Main | "ok" | "warn" | "err" | "purple" | string; // box ids in split mode
@@ -537,7 +537,7 @@ function VariantD() {
         // gallery heads; the columns align with the two previews below).
         const rowText = (key: string, label: string, val: string, focused: boolean, hint: string) => (
           <Text key={key} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-            {` ${focused ? "›" : " "} ${label}${val.padStart(6)} ${focused ? hint : ""}`.padEnd(46)}
+            {` ${focused ? "›" : " "} ${label}${val.padStart(7)}${focused ? " ←→ · ⏎ auto" : ""}`.padEnd(36)}
           </Text>
         );
         const rows = Math.max(SIGNALS.length, BOXES.length);
@@ -547,8 +547,8 @@ function VariantD() {
           const box = BOXES[i];
           cells.push(
             <Box key={`row-${i}`} gap={2}>
-              <Box>{sig ? rowText(sig.role, `${sig.glyph} ${sig.role.padEnd(8)}`, value(sig.role), slider === sig.role, "←→ colors · ⏎ auto") : <Text>{" ".repeat(46)}</Text>}</Box>
-              <Box>{box ? rowText(box.id, `box ${box.label.padEnd(11)}`, value(box.id), slider === box.id, "←→ colors · ⏎ auto") : <Text>{" ".repeat(46)}</Text>}</Box>
+              <Box>{sig ? rowText(sig.role, `${sig.glyph} ${sig.role.padEnd(8)}`, value(sig.role), slider === sig.role, "←→ colors · ⏎ auto") : <Text>{" ".repeat(36)}</Text>}</Box>
+              <Box>{box ? rowText(box.id, `box ${box.label.padEnd(11)}`, value(box.id), slider === box.id, "←→ colors · ⏎ auto") : <Text>{" ".repeat(36)}</Text>}</Box>
             </Box>,
           );
         }
