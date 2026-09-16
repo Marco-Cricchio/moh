@@ -537,38 +537,32 @@ describe("user themes in settings (#749)", () => {
     i.unmount();
   });
 
-  test("Themes… editor creates a theme, saves it, and applies it immediately", async () => {
+  test("My themes… opens the theme studio; sliders derive colors; naming saves & applies", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const { i, changes, toasts } = mount(cwd, { home });
     await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    const cursorRows = () => frame().split("\n").filter((l) => l.includes("›")).join(" | ");
     await down(i, 2);
-    i.stdin.write("\r"); // Themes… → editor (mode0 theme1 themes2)
-    await waitForFrame(frame, "new theme");
-    // id
-    i.stdin.write("my-neon");
-    await waitForCondition(() => frame().includes("my-neon"), () => `for id echo; frame: ${frame()}`);
-    i.stdin.write("\r"); await sleep(40); // commit id → cursor auto-advances to name
-    await waitForCondition(() => frame().includes("› name"), () => `for name cursor; cursor: ${cursorRows()}`);
+    i.stdin.write("\r"); // My themes… → studio modal (mode0 theme1 themes2)
+    await waitForFrame(frame, "theme studio");
+    // studio rows: hue(0) brightness(1) — adjust hue then rename+save
+    i.stdin.write("\x1b[C"); await sleep(40); // hue +6°
+    i.stdin.write("n"); await sleep(60); // name & save
+    await waitForCondition(() => frame().includes("theme name:"), () => `for name prompt; frame: ${frame()}`);
     i.stdin.write("My Neon");
-    await waitForCondition(() => frame().includes("My Neon"), () => `for name echo; cursor: ${cursorRows()}`);
-    i.stdin.write("\r"); await sleep(40); // commit name → cursor auto-advances to extends
-    await down(i, 2); // extends → fg (id0 name1 extends2 fg3)
-    i.stdin.write("#00ffcc");
-    await waitForCondition(() => frame().includes("#00ffcc"), () => `for hex echo; cursor: ${cursorRows()}`);
-    i.stdin.write("\r"); await sleep(40); // commit accent → cursor auto-advances
-    i.stdin.write("s"); // save + apply
+    await waitForCondition(() => frame().includes("My Neon"), () => `for name echo; frame: ${frame()}`);
+    i.stdin.write("\r"); await sleep(60); // save & apply
     await waitForCondition(
       () => changes.some((c) => "theme" in c),
-      () => `for theme change; toasts: ${JSON.stringify(toasts)}; cursor: ${cursorRows()}`,
+      () => `for theme change; toasts: ${JSON.stringify(toasts)}`,
     );
     expect(changes).toContainEqual({ theme: "user:my-neon" });
     expect(toasts.some((t) => t.includes("theme saved"))).toBe(true);
-    const onDisk = JSON.parse(readFileSync(join(home, ".moh", "themes", "my-neon.json"), "utf8")) as { id: string; colors: Record<string, string> };
+    const onDisk = JSON.parse(readFileSync(join(home, ".moh", "themes", "my-neon.json"), "utf8")) as { id: string; name: string; colors: Record<string, string> };
     expect(onDisk.id).toBe("my-neon");
-    expect(onDisk.colors.accent).toBe("#00ffcc");
+    expect(onDisk.name).toBe("My Neon");
+    expect(onDisk.colors.accent).toMatch(/^#[0-9a-f]{6}$/);
     i.unmount();
   });
 

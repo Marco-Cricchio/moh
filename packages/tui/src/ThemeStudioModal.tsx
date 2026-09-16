@@ -1,0 +1,378 @@
+/**
+ * Theme studio modal (#749 redesign, from prototype variant D): a visual
+ * theme editor — five global sliders, live previews, and per-element color
+ * picks from basic color families. No hex codes anywhere.
+ *
+ * Opened from Settings → "My themes…". Everything repaints live; nothing is
+ * persisted until the user names the theme and saves (save = apply).
+ */
+import React, { useState } from "react";
+import { Box, Text, useInput } from "ink";
+import { THEMES, type Theme } from "./themes";
+import { Dialog, Dim } from "./ui";
+
+const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+
+// --- color math (from the prototype; throwaway-grade but dependency-free) ---
+function hexToHsl(hex: string): [number, number, number] {
+  const n = hex.replace("#", "");
+  const r = parseInt(n.slice(0, 2), 16) / 255, g = parseInt(n.slice(2, 4), 16) / 255, b = parseInt(n.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function hslToHex(h: number, s: number, l: number): string {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const v = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+    return Math.round(v * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** Blend two hex colors (prototype mix()): amount of `a` over `b`. */
+function mix(a: string, b: string, amount: number): string {
+  const rgb = (value: string) => [1, 3, 5].map((i) => Number.parseInt(value.slice(i, i + 2), 16));
+  const aa = rgb(a), bb = rgb(b);
+  return `#${aa.map((value, i) => Math.round(value * amount + bb[i]! * (1 - amount)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Basic color families the user picks from — names, not hex codes. */
+const BASIC_HUES: { name: string; h: number }[] = [
+  { name: "red", h: 0 }, { name: "vermilion", h: 15 }, { name: "orange", h: 30 },
+  { name: "amber", h: 45 }, { name: "yellow", h: 55 }, { name: "lime", h: 90 },
+  { name: "green", h: 130 }, { name: "teal", h: 165 }, { name: "cyan", h: 185 },
+  { name: "azure", h: 205 }, { name: "blue", h: 225 }, { name: "indigo", h: 250 },
+  { name: "violet", h: 270 }, { name: "pink", h: 320 },
+];
+
+type Main = "hue" | "brightness" | "contrast" | "saturation" | "warmth";
+const MAIN: Main[] = ["hue", "brightness", "contrast", "saturation", "warmth"];
+const SIGNALS: { role: "ok" | "warn" | "err" | "purple"; glyph: string }[] = [
+  { role: "ok", glyph: "✓" }, { role: "warn", glyph: "⚠" },
+  { role: "err", glyph: "✗" }, { role: "purple", glyph: "◆" },
+];
+/** Chat box families — ids carry a "box:" prefix so they can never collide
+ * with signal role names (that collision once made the box rows unreachable). */
+const BOXES: { id: string; label: string }[] = [
+  { id: "box:user", label: "› you" },
+  { id: "box:moh", label: "◆ moh" },
+  { id: "box:tool-run", label: "◌ running" },
+  { id: "box:ok", label: "✓ ok" },
+  { id: "box:fail", label: "✗ failed" },
+  { id: "box:error", label: "✗ error" },
+  { id: "box:code", label: "⌨ code" },
+  { id: "box:diff", label: "⌨ diff" },
+  { id: "box:thinking", label: "◌ thinking" },
+  { id: "box:chrome", label: "◌ cancel" },
+  { id: "box:subagent", label: "◐ subagent" },
+];
+
+export interface ThemeStudioModalProps {
+  home: string;
+  /** The preset the studio derives from. */
+  base: string;
+  onToast: (message: string) => void;
+  /** Persist + apply the draft: receives the resolved colors per role. */
+  onSave: (id: string, name: string, colors: Record<string, string>) => void;
+  onClose: () => void;
+}
+
+export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: ThemeStudioModalProps) {
+  type Row = Main | "ok" | "warn" | "err" | "purple" | string; // box ids in split mode
+  const [row, setRow] = useState<Row>("hue");
+  const [splitMode, setSplitMode] = useState(false);
+  const [signalPicks, setSignalPicks] = useState<Partial<Record<string, number>>>({});
+  const [boxPicks, setBoxPicks] = useState<Partial<Record<string, number>>>({});
+  const [hue, setHue] = useState(210);
+  const [lightShift, setLightShift] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [saturation, setSaturation] = useState(0.6);
+  const [warmth, setWarmth] = useState(0);
+  const [naming, setNaming] = useState(false);
+  const [nameBuf, setNameBuf] = useState("");
+
+  const baseTheme = THEMES[base as keyof typeof THEMES] ?? THEMES["tokyo-night"];
+
+  const theme: Theme = (() => {
+    const tint = (hex: string, warm: number): string => {
+      const [h, s, l] = hexToHsl(hex);
+      const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.04, 0.95);
+      return hslToHex((hue + warm + 360) % 360, saturation * clamp(s, 0.25, 0.85) / 0.6, lc);
+    };
+    const pickedHex = (pick: number | undefined, fallbackHex: string, lo = 0.25, hi = 0.75): string => {
+      if (pick === undefined) return tint(fallbackHex, warmth * 0.3);
+      const family = BASIC_HUES[pick];
+      if (!family) return tint(fallbackHex, warmth * 0.3);
+      const [/*h*/, s, l] = hexToHsl(fallbackHex);
+      const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), lo, hi);
+      return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
+    };
+    // warmth: text/semantic roles go warm, chrome (bg/surface/border) goes cool
+    return {
+      ...baseTheme,
+      label: `Hue ${hue}`,
+      fg: tint(baseTheme.fg, warmth),
+      accent: tint(baseTheme.accent, warmth),
+      dim: tint(baseTheme.dim, warmth * 0.5),
+      muted: tint(baseTheme.muted, warmth * 0.5),
+      ok: pickedHex(signalPicks.ok, baseTheme.ok),
+      warn: pickedHex(signalPicks.warn, baseTheme.warn),
+      err: pickedHex(signalPicks.err, baseTheme.err),
+      purple: pickedHex(signalPicks.purple, baseTheme.purple),
+      border: tint(baseTheme.border, -warmth * 0.5),
+      bg: tint(baseTheme.bg, -warmth),
+      surface: tint(baseTheme.surface, -warmth),
+      surfaceRaised: tint(baseTheme.surfaceRaised, -warmth),
+      selection: tint(baseTheme.selection, -warmth),
+    };
+  })();
+
+  /** Resolved color of one chat box (box pick > signal pick > theme token). */
+  const boxColor = (id: string): string => {
+    const short = id.replace(/^box:/, "");
+    const direct = boxPicks[id];
+    if (direct !== undefined) {
+      const family = BASIC_HUES[direct];
+      if (family) {
+        const [/*h*/, s, l] = hexToHsl(baseTheme.fg);
+        const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.3, 0.75);
+        return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
+      }
+    }
+    if (short === "ok") return theme.ok;
+    if (short === "fail" || short === "error") return theme.err;
+    if (short === "user") return theme.warn;
+    if (short === "code" || short === "diff") return theme.purple;
+    if (short === "moh" || short === "tool-run" || short === "subagent") return theme.accent;
+    return theme.dim;
+  };
+
+  useInput((input, key) => {
+    if (naming) {
+      if (key.escape) return setNaming(false);
+      if (key.backspace || key.delete) return setNameBuf((b) => b.slice(0, -1));
+      if (key.return || input === "\n") {
+        const name = nameBuf.trim();
+        if (!name) return onToast("theme name required — esc cancels");
+        const id = slugify(name);
+        if (!id) return onToast("name must contain a slug-able word");
+        onSave(id, name, {
+          fg: theme.fg, accent: theme.accent, dim: theme.dim, muted: theme.muted,
+          ok: theme.ok, warn: theme.warn, err: theme.err, purple: theme.purple,
+          border: theme.border, bg: theme.bg, surface: theme.surface,
+          surfaceRaised: theme.surfaceRaised, selection: theme.selection,
+        });
+        return onClose();
+      }
+      if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
+      return;
+    }
+    const fine = key.shift ? 0.08 : 0.02;
+    const splitRows: Row[] = splitMode ? [...SIGNALS.map((x) => x.role), ...BOXES.map((b) => b.id)] : [];
+    const all: Row[] = [...MAIN, ...splitRows];
+    if (key.escape) return onClose();
+    if (key.upArrow) return setRow((cur) => all[clamp(all.indexOf(cur) - 1, 0, all.length - 1)]!);
+    if (key.downArrow) return setRow((cur) => all[clamp(all.indexOf(cur) + 1, 0, all.length - 1)]!);
+    if (row === "hue") {
+      if (key.leftArrow) return setHue((h) => (h + 360 - (key.shift ? 30 : 6)) % 360);
+      if (key.rightArrow) return setHue((h) => (h + (key.shift ? 30 : 6)) % 360);
+    }
+    const bump = (set: (n: number) => void, get: number, step: number, lo: number, hi: number) =>
+      set(key.leftArrow ? clamp(get - step, lo, hi) : key.rightArrow ? clamp(get + step, lo, hi) : get);
+    if (row === "brightness") return bump(setLightShift, lightShift, fine, -0.3, 0.6);
+    if (row === "contrast") return bump(setContrast, contrast, fine, -0.5, 0.5);
+    if (row === "saturation") return bump(setSaturation, saturation, fine, 0, 1);
+    if (row === "warmth") return bump(setWarmth, warmth, key.shift ? 15 : 5, -60, 60);
+    // Signal & box rows: ←→ walks the basic color chips; enter clears to auto.
+    const picking = SIGNALS.some((x) => x.role === row) ? signalPicks : BOXES.some((b) => b.id === row) ? boxPicks : null;
+    if (picking) {
+      const store = SIGNALS.some((x) => x.role === row) ? setSignalPicks : setBoxPicks;
+      if (key.return || input === "\n") {
+        store((p) => { const { [row]: _drop, ...rest } = p; return rest; });
+      } else if (key.leftArrow || key.rightArrow) {
+        // From auto (-1): ← lands on the last chip, → on the first — never
+        // store a sentinel; only real chip indices reach state.
+        const cur = picking[row] ?? -1;
+        const next = key.leftArrow
+          ? (cur === -1 ? BASIC_HUES.length - 1 : (cur - 1 + BASIC_HUES.length) % BASIC_HUES.length)
+          : (cur === -1 ? 0 : (cur + 1) % BASIC_HUES.length);
+        store((p) => ({ ...p, [row]: next }));
+      }
+      return;
+    }
+    // s toggles split/auto for the overridable rows as a whole.
+    if (input === "s") {
+      setSplitMode((m) => !m);
+      setRow("hue");
+      return;
+    }
+    // n names & saves the draft.
+    if (input === "n") return setNaming(true);
+  });
+
+  const pickOf = (r: Row): number | undefined => signalPicks[r] ?? boxPicks[r];
+  const value = (r: Row): string => {
+    if (r === "hue" || r === "brightness" || r === "contrast" || r === "saturation" || r === "warmth") {
+      return r === "hue" ? `${hue}°` :
+        r === "brightness" ? `${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}%` :
+        r === "contrast" ? `${contrast >= 0 ? "+" : ""}${Math.round(contrast * 100)}%` :
+        r === "saturation" ? `${Math.round(saturation * 100)}%` :
+        `${warmth >= 0 ? "+" : ""}${warmth}°`;
+    }
+    const pick = pickOf(r);
+    return pick === undefined ? "auto" : BASIC_HUES[pick]!.name;
+  };
+  const isSplitRow = (r: Row): boolean => SIGNALS.some((x) => x.role === r) || BOXES.some((b) => b.id === r);
+
+  const mainRow = (sl: Main) => {
+    const focused = row === sl;
+    return (
+      <Box key={sl} flexDirection="column">
+        {!(focused && sl === "hue") && (
+          <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+            {` ${focused ? "›" : " "} ${sl.padEnd(12)}${value(sl).padStart(6)}`.padEnd(24)}
+          </Text>
+        )}
+        {focused && sl === "hue" && (
+          // "hue" is plain text on the strip's left cells; a │ marker at the
+          // strip center marks the current value (the color window slides
+          // under it when ←→ rotates); the ←→ hint rides the right end.
+          <Box width={24}>
+            <Text color={theme.muted}>{` › `}</Text>
+            <Text>
+              {Array.from({ length: 20 }, (_, i) => {
+                const h = (hue + (i - 9) * 6 + 3600) % 360;
+                const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
+                const inLabel = i >= 1 && i <= 3;
+                const isMarker = i === 9;
+                const inHint = i >= 17 && i <= 18;
+                const ch = inLabel ? "hue"[i - 1] : isMarker ? "│" : inHint ? "←→"[i - 17] : " ";
+                const onCell = inLabel || isMarker || inHint;
+                return <Text key={i} backgroundColor={hex} color={onCell ? theme.bg : hex}>{ch}</Text>;
+              })}
+            </Text>
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  const overrideRow = (key: string, label: string, val: string, focused: boolean) => (
+    <Text key={key} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+      {` ${focused ? "›" : " "} ${label}${val.padStart(7)}`.padEnd(24)}
+    </Text>
+  );
+
+  const tintOf = (semantic: string, amount: number): string => mix(semantic, theme.surface, amount);
+  const galleryBoxes = [
+    { id: "box:user", color: boxColor("box:user"), tintAmount: 0.14, head: "› you", detail: "fix the login redirect" },
+    { id: "box:moh", color: boxColor("box:moh"), tintAmount: 0.14, head: "◆ moh", detail: "checked the router" },
+    { id: "box:tool-run", color: boxColor("box:tool-run"), tintAmount: 0.14, head: "◌ bash ⏱ 2.1s", detail: "running rg 'jwt'" },
+    { id: "box:ok", color: boxColor("box:ok"), tintAmount: 0.14, head: "✓ edit", detail: "src/auth.ts · 12 lines" },
+    { id: "box:fail", color: boxColor("box:fail"), tintAmount: 0.2, head: "✗ test", detail: "2 assertions failed" },
+    { id: "box:error", color: boxColor("box:error"), tintAmount: 0.2, head: "✗ error", detail: "provider unreachable" },
+    { id: "box:code", color: boxColor("box:code"), tintAmount: 0.14, head: "⌨ preview", detail: "auth.ts · 40–52" },
+    { id: "box:diff", color: boxColor("box:diff"), tintAmount: 0.14, head: "⌨ diff", detail: "+ refresh · − retry" },
+    { id: "box:thinking", color: boxColor("box:thinking"), tintAmount: 0, head: "◌ thinking", detail: "tracing the path…" },
+    { id: "box:chrome", color: boxColor("box:chrome"), tintAmount: 0.07, head: "◌ cancelled", detail: "turn interrupted" },
+    { id: "box:subagent", color: boxColor("box:subagent"), tintAmount: 0.07, head: "◐ explore", detail: "child · running" },
+  ];
+
+  return (
+    <Dialog title=" theme studio " color={theme.accent}>
+      {naming ? (
+        <Box flexDirection="column">
+          <Text bold>{`theme name: ${nameBuf}▏`}</Text>
+          <Text> </Text>
+          <Dim>enter save &amp; apply · esc back to the studio</Dim>
+        </Box>
+      ) : (
+        <Box flexDirection="column">
+          {/* main sliders, two columns: hue+brightness left, the rest right */}
+          <Box gap={2}>
+            <Box flexDirection="column">{MAIN.slice(0, 2).map(mainRow)}</Box>
+            <Box flexDirection="column">{MAIN.slice(2).map(mainRow)}</Box>
+          </Box>
+          <Text> </Text>
+          <Text color={splitMode ? theme.accent : theme.muted}>{` overrides: ${splitMode ? "split — pick per element" : "auto — follow the sliders above"} (s toggles)`}</Text>
+          {splitMode && (() => {
+            const BOX_COL1 = BOXES.slice(0, 5);
+            const BOX_COL2 = BOXES.slice(5);
+            const rows = Math.max(SIGNALS.length, BOX_COL1.length, BOX_COL2.length);
+            const cells: React.ReactNode[] = [];
+            for (let i = 0; i < rows; i++) {
+              const sig = SIGNALS[i];
+              const b1 = BOX_COL1[i];
+              const b2 = BOX_COL2[i];
+              cells.push(
+                <Box key={`orow-${i}`} gap={2}>
+                  <Box>{sig ? overrideRow(sig.role, `${sig.glyph} ${sig.role.padEnd(8)}`, value(sig.role), row === sig.role) : <Text>{" ".repeat(24)}</Text>}</Box>
+                  <Box>{b1 ? overrideRow(b1.id, `box ${b1.label.padEnd(11)}`, value(b1.id), row === b1.id) : <Text>{" ".repeat(24)}</Text>}</Box>
+                  <Box>{b2 ? overrideRow(b2.id, `box ${b2.label.padEnd(11)}`, value(b2.id), row === b2.id) : <Text>{" ".repeat(24)}</Text>}</Box>
+                </Box>,
+              );
+            }
+            return cells;
+          })()}
+          {splitMode && isSplitRow(row) && (
+            <Text>
+              {BASIC_HUES.map(({ name, h }, i) => {
+                // Chips tinted with the CURRENT brightness/contrast/saturation
+                const [/*h0*/, s0, l0] = hexToHsl(baseTheme.ok);
+                const lc = clamp(0.5 + (l0 + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
+                const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), lc);
+                return <Text key={i} backgroundColor={hex} color={i === pickOf(row) ? theme.bg : hex}>{name.slice(0, 3)}</Text>;
+              })}
+            </Text>
+          )}
+          <Text> </Text>
+          {/* previews side by side: transcript mini-pane + chat-box gallery */}
+          <Box gap={2}>
+            <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={35}>
+              <Text color={theme.dim}> preview </Text>
+              <Text color={theme.warn}>› you</Text>
+              <Text color={theme.dim}>  check this color</Text>
+              <Text color={theme.accent}>◆ moh</Text>
+              <Text color={theme.fg}>  body text repaints live</Text>
+              <Text color={theme.muted}>  muted: secondary text</Text>
+              <Text color={theme.dim}>  dim: chrome, timestamps</Text>
+              <Text> </Text>
+              <Text>
+                <Text backgroundColor={theme.accent} color={theme.bg}>{` ⏎ `}</Text>
+                <Text color={theme.dim}>{` send `}</Text>
+                <Text backgroundColor={theme.surfaceRaised} color={theme.fg}>{` esc `}</Text>
+                <Text color={theme.dim}>{` stop `}</Text>
+              </Text>
+              <Text> </Text>
+              <Text>
+                <Text color={theme.ok}>✓ ok </Text>
+                <Text color={theme.warn}>⚠ warn </Text>
+                <Text color={theme.err}>✗ err </Text>
+                <Text color={theme.purple}>◆ purple</Text>
+              </Text>
+            </Box>
+            <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={40}>
+              <Text color={theme.dim}> chat command boxes </Text>
+              <Text> </Text>
+              {galleryBoxes.map((b) => (
+                <Box key={b.id} backgroundColor={b.tintAmount > 0 ? tintOf(b.color, b.tintAmount) : undefined} paddingLeft={1}>
+                  <Text color={b.color}>{b.head}</Text>
+                  <Text color={theme.dim}>{` ${b.detail}`}</Text>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+          <Text> </Text>
+          <Text color={theme.muted}>{` ↑↓ row · ←→ value (shift = coarse) · s split/auto · ⏎ auto · n name & save `}</Text>
+          <Dim>{` deriving from "${base}" — nothing is saved until you name it`}</Dim>
+        </Box>
+      )}
+    </Dialog>
+  );
+}
