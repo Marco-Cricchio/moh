@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type LocalUsageRow } from "./quota/local";
+import { estimateModelCost } from "./pricing";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
 import { projectSessionsDir } from "./session-store";
@@ -60,6 +61,8 @@ export interface TelemetrySessionRow {
   tokens: { inputTokens: number; outputTokens: number };
   /** Models that served at least one (non-failed) call. */
   modelsServed: string[];
+  /** Estimated USD by model where release-pinned pricing is available. */
+  estimatedCostUsdByModel: Record<string, number>;
   /** `session_start` → last event, from ULID identity (0 when undatable). */
   durationMs: number;
   /** Subagent usage from `subagent_result` events, grouped per child name. */
@@ -126,6 +129,7 @@ function aggregateSession(events: readonly AgentEvent[]): TelemetrySessionRow {
   const turns = { done: 0, error: 0, cancelled: 0 };
   const tokens = { inputTokens: 0, outputTokens: 0 };
   const models = new Set<string>();
+  const costs = new Map<string, number>();
   const subagents = new Map<string, TelemetrySubagentRow>();
   for (const event of path) {
     const ms = ulidTimeMs(event.id);
@@ -138,6 +142,8 @@ function aggregateSession(events: readonly AgentEvent[]): TelemetrySessionRow {
       tokens.inputTokens += event.usage.inputTokens;
       tokens.outputTokens += event.usage.outputTokens;
       models.add(event.model);
+      const estimate = estimateModelCost(event.model, event.usage);
+      if (estimate) costs.set(event.model, (costs.get(event.model) ?? 0) + estimate.usd);
     }
     if (event.type === "subagent_result") {
       const row = subagents.get(event.name) ?? {
@@ -159,6 +165,7 @@ function aggregateSession(events: readonly AgentEvent[]): TelemetrySessionRow {
     turns,
     tokens,
     modelsServed: [...models].sort(),
+    estimatedCostUsdByModel: Object.fromEntries(costs),
     durationMs: firstMs !== null && lastMs !== null ? Math.max(0, lastMs - firstMs) : 0,
     subagents: [...subagents.values()].sort((a, b) => a.name.localeCompare(b.name)),
   };
@@ -257,6 +264,7 @@ export function aggregateTelemetry(options: {
       acc.calls += row.calls;
       acc.inputTokens += row.inputTokens;
       acc.outputTokens += row.outputTokens;
+      if (row.estimatedCostUsd !== undefined) acc.estimatedCostUsd = (acc.estimatedCostUsd ?? 0) + row.estimatedCostUsd;
       modelRows.set(row.model, acc);
     }
 
@@ -325,6 +333,7 @@ export function aggregateTelemetry(options: {
       calls: row.calls,
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,
+      ...(row.estimatedCostUsd !== undefined ? { estimatedCostUsd: row.estimatedCostUsd } : {}),
       ...(Object.keys(row.thinkingLevels!).length > 0 ? { thinkingLevels: row.thinkingLevels } : {}),
     }))
     .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));

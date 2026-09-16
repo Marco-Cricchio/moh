@@ -26,7 +26,7 @@ const REPORT: QuotaReport = {
   windows: [{ label: "limit", used: 45, limit: 120 }],
 };
 
-const LOCAL: LocalUsageRow[] = [{ model: "m-1", calls: 3, inputTokens: 1500, outputTokens: 300 }];
+const LOCAL: LocalUsageRow[] = [{ model: "m-1", calls: 3, inputTokens: 1500, outputTokens: 300, estimatedCostUsd: 0.006 }];
 
 function mount(over: Partial<QuotaModalProps> = {}) {
   let closed = 0;
@@ -67,7 +67,8 @@ describe("QuotaModal (#499)", () => {
     expect(frame).toContain("120");
     expect(frame).toContain("●"); // official badge
     expect(frame).toContain("provider quota unavailable"); // beta → null
-    expect(frame).toContain("m-1: 1.5k in · 300 out (3 calls)");
+    expect(frame).toContain("m-1: 1.5k in · 300 out (3 calls) · est. $0.0060");
+    expect(frame).toContain("estimated USD · pricing snapshot 0.85.0");
     expect(frame).toContain("—"); // local badge
     expect(probeCalls).toEqual(["alpha", "beta"]);
   });

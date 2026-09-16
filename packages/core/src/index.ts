@@ -196,7 +196,8 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
-export { catalogEntryFor, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { catalogEntryFor, pricingForModel, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 export {
   fetchLiveCatalogs,
   type LiveModelListing,

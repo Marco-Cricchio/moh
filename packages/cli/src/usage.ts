@@ -13,14 +13,15 @@
 import { writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { homedir } from "node:os";
-import { aggregateTelemetry } from "@moh/core";
+import { aggregateTelemetry, PRICING_SNAPSHOT } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
 
 export const USAGE_USAGE = `usage: moh usage [tools|routes|export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
 
 Telemetry sub-reports over the project's local sessions (default: per-model
 usage). Metadata only; failed model calls are excluded (they consumed
-nothing measurable).
+nothing measurable). Estimated USD is release-pinned approximate pricing;
+models without a price record remain tokens-only.
 
   (default)   per-model usage: model calls, input and output tokens
   tools       per-tool calls, ok/fail rate, timeouts, average call→result
@@ -160,6 +161,7 @@ function table(header: string[], body: string[][]): string {
 }
 
 const num = (n: number): string => n.toLocaleString("en-US");
+const formatUsd = (usd: number): string => `$${usd.toFixed(usd < 0.01 ? 4 : 2)}`;
 
 function skipNotice(report: Report, err: { write(s: string): void }): void {
   if (report.sessionsSkipped > 0) {
@@ -175,21 +177,31 @@ function renderModels(report: Report, json: boolean, out: { write(s: string): vo
       calls: acc.calls + m.calls,
       inputTokens: acc.inputTokens + m.inputTokens,
       outputTokens: acc.outputTokens + m.outputTokens,
+      estimatedCostUsd: acc.estimatedCostUsd + (m.estimatedCostUsd ?? 0),
+      pricedModels: acc.pricedModels + (m.estimatedCostUsd !== undefined ? 1 : 0),
+      unpricedModels: acc.unpricedModels + (m.estimatedCostUsd === undefined ? 1 : 0),
     }),
-    { calls: 0, inputTokens: 0, outputTokens: 0 },
+    { calls: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, pricedModels: 0, unpricedModels: 0 },
   );
 
   if (json) {
     out.write(
       JSON.stringify(
         {
-          models: report.models.map(({ model, calls, inputTokens, outputTokens }) => ({
+          models: report.models.map(({ model, calls, inputTokens, outputTokens, estimatedCostUsd }) => ({
             model,
             calls,
             inputTokens,
             outputTokens,
+            ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
           })),
-          totals,
+          totals: {
+            calls: totals.calls,
+            inputTokens: totals.inputTokens,
+            outputTokens: totals.outputTokens,
+            ...(totals.pricedModels > 0 ? { estimatedCostUsd: totals.estimatedCostUsd } : {}),
+          },
+          pricing: { estimate: true, ...PRICING_SNAPSHOT, pricedModels: totals.pricedModels, unpricedModels: totals.unpricedModels },
           sessionsScanned: report.sessionsScanned,
           sessionsSkipped: report.sessionsSkipped,
         },
@@ -208,21 +220,24 @@ function renderModels(report: Report, json: boolean, out: { write(s: string): vo
 
   const pad = (s: string, n: number): string => s + " ".repeat(Math.max(0, n - s.length));
   const rows: string[][] = [
-    ["Model", "Calls", "Input tok", "Output tok"],
-    ...report.models.map((m) => [m.model, num(m.calls), num(m.inputTokens), num(m.outputTokens)]),
+    ["Model", "Calls", "Input tok", "Output tok", "Est. USD"],
+    ...report.models.map((m) => [m.model, num(m.calls), num(m.inputTokens), num(m.outputTokens), m.estimatedCostUsd === undefined ? "—" : formatUsd(m.estimatedCostUsd)]),
   ];
-  const widths = [0, 1, 2, 3].map((c) => Math.max(...rows.map((r) => r[c]!.length)));
-  out.write("Usage by model:\n\n");
+  const widths = [0, 1, 2, 3, 4].map((c) => Math.max(...rows.map((r) => r[c]!.length)));
+  out.write(`Usage by model (estimated USD; pricing snapshot ${PRICING_SNAPSHOT.version}):\n\n`);
   for (const [i, row] of rows.entries()) {
     out.write(
-      `  ${pad(row[0]!, widths[0]!)}  ${pad(row[1]!, widths[1]!)}  ${pad(row[2]!, widths[2]!)}  ${row[3]!}\n` +
-        (i === 0 ? `  ${"─".repeat(widths[0]!)}  ${"─".repeat(widths[1]!)}  ${"─".repeat(widths[2]!)}  ${"─".repeat(widths[3]!)}\n` : ""),
+      `  ${pad(row[0]!, widths[0]!)}  ${pad(row[1]!, widths[1]!)}  ${pad(row[2]!, widths[2]!)}  ${pad(row[3]!, widths[3]!)}  ${row[4]!}\n` +
+        (i === 0 ? `  ${"─".repeat(widths[0]!)}  ${"─".repeat(widths[1]!)}  ${"─".repeat(widths[2]!)}  ${"─".repeat(widths[3]!)}  ${"─".repeat(widths[4]!)}\n` : ""),
     );
   }
   out.write(
     `\n  ${report.sessionsScanned} session${report.sessionsScanned === 1 ? "" : "s"}, ` +
       `${num(totals.calls)} call${totals.calls === 1 ? "" : "s"}, ` +
-      `${num(totals.inputTokens)} in / ${num(totals.outputTokens)} out tokens\n`,
+      `${num(totals.inputTokens)} in / ${num(totals.outputTokens)} out tokens` +
+      (totals.pricedModels > 0
+        ? ` · est. ${formatUsd(totals.estimatedCostUsd)}${totals.unpricedModels > 0 ? ` (partial; ${totals.unpricedModels} model${totals.unpricedModels === 1 ? "" : "s"} unpriced)` : ""}`
+        : "") + "\n",
   );
   skipNotice(report, err);
   return 0;

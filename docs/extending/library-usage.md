@@ -421,6 +421,18 @@ never surfaces through the seam. `aggregateLocalUsage(events)` is the
 always-available fallback: per-model token totals summed from a session's
 `model_call` events. Both are exported from `@moh/core` (ADR-0004).
 
+## Estimated model pricing (#719)
+
+`estimateModelCost(model, usage)` returns an approximate USD estimate from the
+release-pinned vendored catalog for measured input and output tokens, or
+`undefined` when the model has no unique maintained rate. `PRICING_SNAPSHOT`
+identifies the catalog source/version clients must display alongside estimates.
+The calculation excludes cache, image, request, subscription, tax, and other
+billing dimensions; it never calls a provider and it does not write an amount
+to the event log. Rates may therefore be stale until the next catalog
+regeneration. `pricingForModel` and the typed pricing structures are exported
+only for clients needing the same projection (ADR-0004; ADR-0029).
+
 ## Multi-session telemetry (#714)
 
 `aggregateTelemetry({ cwd, home, slug?, sinceMs? })` reads every session

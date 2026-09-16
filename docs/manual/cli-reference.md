@@ -254,7 +254,8 @@ usage: moh usage [tools|routes|export] [--format csv|jsonl] [--out <path>] [--pr
 
 Telemetry sub-reports over the project's local sessions (default: per-model
 usage). Metadata only; failed model calls are excluded (they consumed
-nothing measurable).
+nothing measurable). Estimated USD is release-pinned approximate pricing;
+models without a price record remain tokens-only.
 
   (default)   per-model usage: model calls, input and output tokens
   tools       per-tool calls, ok/fail rate, timeouts, average call→result

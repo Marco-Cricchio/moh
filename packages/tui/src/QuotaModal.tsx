@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Text, useInput } from "ink";
-import { getQuota, aggregateLocalUsage, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
+import { getQuota, aggregateLocalUsage, PRICING_SNAPSHOT, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dialog, Dim, formatCount } from "./ui";
@@ -111,6 +111,7 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
       {anyUnavailable && <Dim> provider quota unavailable — local measurement only</Dim>}
       <Text> </Text>
       <Text bold> local measured (this session)</Text>
+      <Dim>{` estimated USD · pricing snapshot ${PRICING_SNAPSHOT.version}`}</Dim>
       {localUsage.length === 0 && <Dim> no model calls yet</Dim>}
       {localUsage.map((row) => (
         <LocalRow key={row.model} row={row} />
@@ -184,7 +185,7 @@ function LocalRow({ row }: { row: LocalUsageRow }) {
   return (
     <Text>
       <Text color={theme.warn}>—</Text>
-      {` ${row.model}: ${formatCount(row.inputTokens)} in · ${formatCount(row.outputTokens)} out (${row.calls} call${row.calls === 1 ? "" : "s"})`}
+      {` ${row.model}: ${formatCount(row.inputTokens)} in · ${formatCount(row.outputTokens)} out (${row.calls} call${row.calls === 1 ? "" : "s"})${row.estimatedCostUsd === undefined ? "" : ` · est. ${formatUsd(row.estimatedCostUsd)}`}`}
     </Text>
   );
 }
@@ -208,6 +209,10 @@ function fractionColor(fraction: number | undefined, theme: { ok: string; warn: 
   return fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.ok;
 }
 
+
+function formatUsd(usd: number): string {
+  return `$${usd.toFixed(usd < 0.01 ? 4 : 2)}`;
+}
 
 function formatReset(at: number): string {
   const diffMs = at - Date.now();

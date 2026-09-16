@@ -70,6 +70,28 @@ export interface CatalogModel {
   /** Provider compat flags (e.g. kimi allowEmptySignature) — carried as
    * data; application is per-flag and lands with the flags that need it. */
   compat?: Record<string, unknown>;
+  /** Approximate USD prices per million tokens from the vendored catalog.
+   * Absent means pricing is unknown, never free. */
+  pricing?: ModelPricing;
+}
+
+/** Approximate USD prices per million tokens. Zero is an explicit free rate;
+ * absent pricing is unknown. Tiers replace all rates once the input-token
+ * count of an individual call reaches `inputTokensAbove`. */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  tiers?: Array<ModelPricingTier>;
+}
+
+export interface ModelPricingTier {
+  inputTokensAbove: number;
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 /** The pi-ai catalog shape: `{ <api>: { <modelId>: entry } }`. */
@@ -84,6 +106,7 @@ interface PiAiEntry {
   input?: string[];
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
+  cost?: ModelPricing;
 }
 
 /** pi api names → moh wires. Unknown apis are skipped (not guessed). */
@@ -121,6 +144,7 @@ function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
     ...(entry.input ? { input: entry.input } : {}),
     ...(entry.headers ? { headers: entry.headers } : {}),
     ...(entry.compat ? { compat: entry.compat } : {}),
+    ...(entry.cost ? { pricing: entry.cost } : {}),
   };
 }
 
@@ -244,6 +268,27 @@ export function endpointModelCatalog(type: string, baseUrl?: string): CatalogMod
  */
 export function catalogEntryFor(type: string, modelId: string): CatalogModel | undefined {
   return subscriptionModelCatalog(type).find((m) => m.id === modelId);
+}
+
+/** Finds unambiguous pricing by model id across the shipped catalogs. Event
+ * logs retain an endpoint name rather than its profile type, so a collision
+ * with different prices is deliberately unavailable instead of guessed. */
+export function pricingForModel(model: string): ModelPricing | undefined {
+  // Event logs record `endpoint/model-id`; OpenRouter model ids themselves
+  // contain `/`. Prefer an exact catalog id after removing one endpoint
+  // segment, then fall back to a bare id only when catalog rates agree.
+  const afterEndpoint = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  const all = Object.values(CATALOGS).flat();
+  const exact = all.filter((entry) => entry.id === afterEndpoint);
+  const candidates = exact.length > 0 ? exact : all.filter((entry) => entry.id === model || entry.id === afterEndpoint);
+  const matches = candidates
+    .map((entry) => entry.pricing)
+    // Zero-only records in minimal endpoint catalogs are placeholders, not
+    // evidence of a free model. Conservatively leave them tokens-only.
+    .filter((pricing): pricing is ModelPricing => pricing !== undefined && (pricing.input > 0 || pricing.output > 0));
+  if (matches.length === 0) return undefined;
+  const distinct = new Map(matches.map((pricing) => [JSON.stringify(pricing), pricing]));
+  return distinct.size === 1 ? distinct.values().next().value : undefined;
 }
 
 /**
