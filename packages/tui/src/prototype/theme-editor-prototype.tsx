@@ -300,14 +300,36 @@ function VariantD() {
   //   contrast   — pushes lightness away from / toward the mid point
   //   saturation — 0 = grayscale, 1 = vivid
   //   warmth     — splits hue for text (warm) vs chrome (cool) tones
-  type Slider = "hue" | "brightness" | "contrast" | "saturation" | "warmth";
-  const SLIDERS: Slider[] = ["hue", "brightness", "contrast", "saturation", "warmth"];
+  //
+  // Signal colors (ok/warn/err/purple) have two modes:
+  //   auto — the global sliders determine them (no per-role overrides)
+  //   split — each signal role picks from basic color chips, but the chips
+  //           are TINTED LIVE by hue/brightness/contrast/etc, so a chosen
+  //           "green" stays in equilibrium with the main settings.
+  type Slider = "hue" | "brightness" | "contrast" | "saturation" | "warmth"
+    | "ok" | "warn" | "err" | "purple";
+  const MAIN: Slider[] = ["hue", "brightness", "contrast", "saturation", "warmth"];
+  const SIGNALS: { role: "ok" | "warn" | "err" | "purple"; glyph: string }[] = [
+    { role: "ok", glyph: "✓" }, { role: "warn", glyph: "⚠" },
+    { role: "err", glyph: "✗" }, { role: "purple", glyph: "◆" },
+  ];
   const [slider, setSlider] = useState<Slider>("hue");
+  const [splitMode, setSplitMode] = useState(false);
+  // Per-signal base chip index (0..7); null = follow the global sliders.
+  const [signalPicks, setSignalPicks] = useState<Partial<Record<string, number>>>({});
   const [hue, setHue] = useState(210);
   const [lightShift, setLightShift] = useState(0);
   const [contrast, setContrast] = useState(0);      // -0.5 … +0.5
   const [saturation, setSaturation] = useState(0.6); // 0 … 1
   const [warmth, setWarmth] = useState(0);           // -60 … +60 degrees
+
+  /** Basic color families the user picks from — names, not hex codes. */
+  const BASIC_HUES: { name: string; h: number }[] = [
+    { name: "red", h: 0 }, { name: "orange", h: 30 }, { name: "yellow", h: 55 },
+    { name: "green", h: 130 }, { name: "cyan", h: 185 }, { name: "blue", h: 225 },
+    { name: "violet", h: 270 }, { name: "pink", h: 320 },
+  ];
+
   const theme: Theme = (() => {
     const base = THEMES[BASE as keyof typeof THEMES];
     const tint = (hex: string, lBoost: number, warm: number): string => {
@@ -315,6 +337,17 @@ function VariantD() {
       // contrast: push lightness away from the 0.5 midpoint
       const lc = clamp(0.5 + (l + lBoost + lightShift - 0.5) * (1 + contrast), 0.04, 0.95);
       return hslToHex((hue + warm + 360) % 360, saturation * clamp(s, 0.25, 0.85) / 0.6, lc);
+    };
+    /** A signal color: either the global derivation or a chosen basic hue —
+     * both pass through brightness/contrast/saturation so the pick stays in
+     * equilibrium with the main settings. */
+    const signal = (role: "ok" | "warn" | "err" | "purple", fallbackHex: string): string => {
+      const pick = signalPicks[role];
+      if (pick === undefined) return tint(fallbackHex, 0, warmth * 0.3);
+      const family = BASIC_HUES[pick]!;
+      const [/*h*/, s, l] = hexToHsl(fallbackHex);
+      const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
+      return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
     };
     // warmth: text/semantic roles go warm, chrome (bg/surface/border) goes cool
     return {
@@ -324,10 +357,10 @@ function VariantD() {
       accent: tint(base.accent, 0, warmth),
       dim: tint(base.dim, 0, warmth * 0.5),
       muted: tint(base.muted, 0, warmth * 0.5),
-      ok: tint(base.ok, 0, warmth * 0.3),
-      warn: tint(base.warn, 0, warmth * 0.3),
-      err: tint(base.err, 0, warmth * 0.3),
-      purple: tint(base.purple, 0, warmth * 0.3),
+      ok: signal("ok", base.ok),
+      warn: signal("warn", base.warn),
+      err: signal("err", base.err),
+      purple: signal("purple", base.purple),
       border: tint(base.border, 0, -warmth * 0.5),
       bg: tint(base.bg, 0, -warmth),
       surface: tint(base.surface, 0, -warmth),
@@ -338,8 +371,9 @@ function VariantD() {
 
   useInput((input, key) => {
     const fine = key.shift ? 0.08 : 0.02;
-    if (key.upArrow) setSlider((cur) => SLIDERS[clamp(SLIDERS.indexOf(cur) - 1, 0, SLIDERS.length - 1)]!);
-    if (key.downArrow) setSlider((cur) => SLIDERS[clamp(SLIDERS.indexOf(cur) + 1, 0, SLIDERS.length - 1)]!);
+    const all: Slider[] = splitMode ? [...MAIN, ...SIGNALS.map((x) => x.role)] : MAIN;
+    if (key.upArrow) setSlider((cur) => all[clamp(all.indexOf(cur) - 1, 0, all.length - 1)]!);
+    if (key.downArrow) setSlider((cur) => all[clamp(all.indexOf(cur) + 1, 0, all.length - 1)]!);
     const bump = (set: (n: number) => void, get: number, step: number, lo: number, hi: number, wrap = false) =>
       set(key.leftArrow ? (wrap ? get - step : clamp(get - step, lo, hi)) : key.rightArrow ? (wrap ? get + step : clamp(get + step, lo, hi)) : get);
     if (slider === "hue") bump((n) => setHue(Math.round(((n % 360) + 360) % 360)), hue, key.shift ? 30 : 6, 0, 359, true);
@@ -347,20 +381,37 @@ function VariantD() {
     if (slider === "contrast") bump(setContrast, contrast, fine, -0.5, 0.5);
     if (slider === "saturation") bump(setSaturation, saturation, fine, 0, 1);
     if (slider === "warmth") bump(setWarmth, warmth, key.shift ? 15 : 5, -60, 60);
+    // Signal roles: ←→ walks the basic color chips; enter clears back to auto.
+    if (SIGNALS.some((x) => x.role === slider)) {
+      const role = slider as "ok" | "warn" | "err" | "purple";
+      bump((n) => setSignalPicks((p) => ({ ...p, [role]: n })), signalPicks[role] ?? -1, 1, 0, BASIC_HUES.length - 1, true);
+      if (key.return || input === "\r") setSignalPicks((p) => { const { [role]: _drop, ...rest } = p; return rest; });
+    }
+    // s toggles split/auto for the signal colors as a whole.
+    if (input === "s") {
+      setSplitMode((m) => !m);
+      setSlider("hue");
+    }
   });
 
-  const value = (s: Slider): string =>
-    s === "hue" ? `${hue}°` :
-    s === "brightness" ? `${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}%` :
-    s === "contrast" ? `${contrast >= 0 ? "+" : ""}${Math.round(contrast * 100)}%` :
-    s === "saturation" ? `${Math.round(saturation * 100)}%` :
-    `${warmth >= 0 ? "+" : ""}${warmth}°`;
+  const value = (s: Slider): string => {
+    const sig = SIGNALS.find((x) => x.role === s);
+    if (sig) {
+      const pick = signalPicks[sig.role];
+      return pick === undefined ? "auto" : BASIC_HUES[pick]!.name;
+    }
+    return s === "hue" ? `${hue}°` :
+      s === "brightness" ? `${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}%` :
+      s === "contrast" ? `${contrast >= 0 ? "+" : ""}${Math.round(contrast * 100)}%` :
+      s === "saturation" ? `${Math.round(saturation * 100)}%` :
+      `${warmth >= 0 ? "+" : ""}${warmth}°`;
+  };
 
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text bold color={theme.accent}>{` D · five sliders, zero hex — the screen IS the preview `}</Text>
       <Text> </Text>
-      {SLIDERS.map((s, i) => {
+      {MAIN.map((s) => {
         const focused = slider === s;
         return (
           <Text key={s} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
@@ -369,17 +420,31 @@ function VariantD() {
         );
       })}
       <Text> </Text>
-      <Text>
-        {Array.from({ length: 30 }, (_, i) => {
-          const h = (hue + i * 3) % 360;
-          const hex = hslToHex(h, saturation, 0.55);
-          return <Text key={i} backgroundColor={hex} color={i === 10 ? theme.bg : hex}>{i === 10 ? "╹" : " "}</Text>;
-        })}
-      </Text>
+      <Text color={splitMode ? theme.accent : theme.muted}>{` signal colors (✓ ⚠ ✗ ◆): ${splitMode ? "split — pick per role" : "auto — follow the sliders above"} (s toggles)`}</Text>
+      {splitMode && SIGNALS.map(({ role, glyph }) => {
+        const focused = slider === role;
+        const pick = signalPicks[role];
+        return (
+          <Text key={role} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+            {` ${focused ? "›" : " "} ${glyph} ${role.padEnd(11)}${value(role).padStart(5)} ${focused ? "←→ basic colors · ⏎ back to auto" : ""} `}
+          </Text>
+        );
+      })}
+      {splitMode && slider === SIGNALS.find((x) => x.role === slider)?.role && (
+        <Text>
+          {BASIC_HUES.map(({ name, h }, i) => {
+            // Chips tinted with the CURRENT brightness/contrast/saturation
+            const [/*h0*/, s0, l0] = hexToHsl(THEMES[BASE as keyof typeof THEMES].ok);
+            const lc = clamp(0.5 + (l0 + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
+            const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), lc);
+            return <Text key={i} backgroundColor={hex} color={i === signalPicks[slider as "ok"] ? theme.bg : hex}>{name.slice(0, 2)}</Text>;
+          })}
+        </Text>
+      )}
       <Text> </Text>
       <LivePreview theme={theme} />
       <Text> </Text>
-      <Text color={theme.muted}>{` ↑↓ slider · ←→ value (shift = coarse) — everything repaints live `}</Text>
+      <Text color={theme.muted}>{` ↑↓ slider · ←→ value (shift = coarse) · s split/auto signals — everything repaints live `}</Text>
     </Box>
   );
 }
