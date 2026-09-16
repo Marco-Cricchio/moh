@@ -523,20 +523,21 @@ function VariantD() {
                 </Text>
               )}
               {focused && sl === "hue" && (
-                // The row label sits INSIDE the chromatic strip: the word
-                // "hue" IS the position marker, fixed at the strip center —
-                // the color window slides under it when ←→ rotates. The ←→
-                // hint sits at the strip's right end on its own cells.
+                // The row label sits INSIDE the chromatic strip: "hue" is
+                // plain text on the strip's left cells; a │ marker at the
+                // strip center marks the current value (the window slides
+                // under it when ←→ rotates); the ←→ hint rides the right end.
                 <Box width={24}>
                   <Text color={theme.muted}>{` › `}</Text>
                   <Text>
                     {Array.from({ length: 20 }, (_, i) => {
                       const h = (hue + (i - 9) * 6 + 3600) % 360; // window centered on cell 9
                     const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
-                    const inLabel = i >= 8 && i <= 10; // "hue" at the center
+                    const inLabel = i >= 1 && i <= 3; // "hue" as plain text
+                    const isMarker = i === 9; // strip center
                     const inHint = i >= 17 && i <= 18;
-                    const ch = inLabel ? "hue"[i - 8] : inHint ? "←→"[i - 17] : " ";
-                    const onCell = inLabel || inHint;
+                    const ch = inLabel ? "hue"[i - 1] : isMarker ? "│" : inHint ? "←→"[i - 17] : " ";
+                    const onCell = inLabel || isMarker || inHint;
                       return <Text key={i} backgroundColor={hex} color={onCell ? theme.bg : hex}>{ch}</Text>;
                     })}
                   </Text>
