@@ -6,7 +6,8 @@
  */
 import { MockProvider } from "./mock-provider";
 import { EchoProvider } from "./echo-provider";
-import { Endpoint, createRoute, envApiKey, type ProviderKind, type RouteTarget } from "./route";
+import { Endpoint, createRoute, resolveApiKey, type ProviderKind, type RouteTarget } from "./route";
+import { providerProfile } from "./provider-profiles";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
@@ -106,6 +107,8 @@ const BUILTIN_KINDS = new Set([
   "openrouter",
   "kimi-coding",
   "xai",
+  "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
+  "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten",
 ]);
 
 function resolveProfile(
@@ -115,7 +118,7 @@ function resolveProfile(
   fallbacks: RouteTarget[],
   thinkingForTarget?: (target: RouteTarget) => StreamOptions["thinking"] | undefined,
 ): Provider {
-  const apiKey = profile.apiKey ?? envApiKey(profile.name) ?? getStoredApiKey(userConfigFile(), profile.name);
+  const apiKey = profile.apiKey ?? resolveApiKey(profile.name, profile.type) ?? getStoredApiKey(userConfigFile(), profile.name);
   const route = (target: RouteTarget): Provider =>
     createRoute({ target, ...(fallbacks.length ? { fallbacks } : {}), ...(thinkingForTarget ? { thinkingForTarget } : {}) });
   if (BUILTIN_KINDS.has(profile.type)) {
@@ -142,7 +145,6 @@ function resolveProfile(
  * claude vs gpt) and headers (copilot editor headers). Exported from the
  * defining module (ADR-0004) for direct testing. */
 export function catalogTargetOverrides(kind: string, modelId: string): { wire?: RouteTarget["wire"]; headers?: Record<string, string>; compat?: Record<string, unknown> } {
-  if (!isOAuthBuiltinKind(kind)) return {};
   const entry = catalogEntryFor(kind, modelId);
   return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}), ...(entry?.compat ? { compat: entry.compat } : {}) };
 }
@@ -154,7 +156,7 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
   const kind = profile.type === "openai-compat" ? "openai" : profile.type;
   // New builtin kinds default their backend base URL when the profile
   // has none (subscription grants override it via the auth context).
-  const baseUrl = profile.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind];
+  const baseUrl = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind];
   // #256: a config-declared thinking format rides the target — per-model
   // declaration wins, inheriting the endpoint-level format when omitted.
   const thinkingFormat =
@@ -222,7 +224,7 @@ function fallbackStopsFor(
       if (a.h === undefined && b.h !== undefined) return 1;
       return a.index - b.index;
     })
-    .map(({ e }) => routeTargetFor(e, e.defaultModel!, e.apiKey ?? envApiKey(e.name) ?? getStoredApiKey(userConfigFile(), e.name)));
+    .map(({ e }) => routeTargetFor(e, e.defaultModel!, e.apiKey ?? resolveApiKey(e.name, e.type) ?? getStoredApiKey(userConfigFile(), e.name)));
   return ranked;
 }
 

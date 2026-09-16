@@ -1,0 +1,1 @@
+{"openai-completions":{"deepseek-chat":{"id":"deepseek-chat","name":"DeepSeek Chat","api":"openai-completions","provider":"deepseek","baseUrl":"https://api.deepseek.com","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":64000,"maxTokens":8192}}}

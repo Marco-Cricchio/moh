@@ -25,6 +25,21 @@ import openrouterJson from "./model-catalogs/openrouter.json";
 import kimiCodingJson from "./model-catalogs/kimi-coding.json";
 import xaiJson from "./model-catalogs/xai.json";
 import zaiJson from "./model-catalogs/zai.json";
+import deepseekJson from "./model-catalogs/deepseek.json";
+import groqJson from "./model-catalogs/groq.json";
+import cerebrasJson from "./model-catalogs/cerebras.json";
+import nvidiaNimJson from "./model-catalogs/nvidia-nim.json";
+import togetherJson from "./model-catalogs/together.json";
+import fireworksJson from "./model-catalogs/fireworks.json";
+import huggingfaceJson from "./model-catalogs/huggingface.json";
+import mistralJson from "./model-catalogs/mistral.json";
+import moonshotJson from "./model-catalogs/moonshot.json";
+import minimaxJson from "./model-catalogs/minimax.json";
+import qwenJson from "./model-catalogs/qwen.json";
+import xiaomiMimoJson from "./model-catalogs/xiaomi-mimo.json";
+import vercelAiGatewayJson from "./model-catalogs/vercel-ai-gateway.json";
+import cloudflareAiGatewayJson from "./model-catalogs/cloudflare-ai-gateway.json";
+import basetenJson from "./model-catalogs/baseten.json";
 import type { WireApi } from "./wire";
 import type { ThinkingFormat, ThinkingLevel } from "./types";
 
@@ -136,6 +151,10 @@ const CATALOGS = {
   "kimi-coding": collect(kimiCodingJson),
   xai: collect(xaiJson),
   zai: collect(zaiJson),
+  deepseek: collect(deepseekJson), groq: collect(groqJson), cerebras: collect(cerebrasJson), "nvidia-nim": collect(nvidiaNimJson),
+  together: collect(togetherJson), fireworks: collect(fireworksJson), huggingface: collect(huggingfaceJson), mistral: collect(mistralJson),
+  moonshot: collect(moonshotJson), minimax: collect(minimaxJson), qwen: collect(qwenJson), "xiaomi-mimo": collect(xiaomiMimoJson),
+  "vercel-ai-gateway": collect(vercelAiGatewayJson), "cloudflare-ai-gateway": collect(cloudflareAiGatewayJson), baseten: collect(basetenJson),
 } as const satisfies Record<string, CatalogModel[]>;
 
 /** Providers that have a vendored subscription catalog. */
