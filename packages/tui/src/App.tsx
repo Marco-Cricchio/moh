@@ -27,7 +27,8 @@ import {
 import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
 import { SessionStore, handoffSeedMessage, handoffSeedPrompt, createGistHandoffTransport } from "@moh/core";
-import { THEMES, THEME_ORDER, DEFAULT_THEME, ThemeProvider, type ThemeName } from "./themes";
+import { THEMES, THEME_ORDER, ThemeProvider, type Theme } from "./themes";
+import { listUserThemes, resolveThemeRef, themeLabelFor } from "./user-themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
@@ -37,7 +38,7 @@ import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel,
 import { ColdWizard } from "./ColdWizard";
 import { isColdDirectory, discoverGistHandoffs, type GistHandoffOffer } from "@moh/core";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
-import { loadUserConfig, saveUserConfig, userConfigFile, type UserConfig } from "./user-config";
+import { loadUserConfig, saveUserConfig, userConfigFile, type ThemeRef, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
 import { useViewport } from "./viewport";
@@ -88,7 +89,8 @@ export interface AppProps {
   /** Pre-configured provider (tests, `--provider`). */
   provider?: Provider;
   initialMode?: Mode;
-  initialTheme?: ThemeName;
+  /** Theme ref to start on: built-in preset id or `user:<id>` (#749). */
+  initialTheme?: ThemeRef;
   /** Skip first-run onboarding (tests, CLI flags). */
   skipOnboarding?: boolean;
   /** Environment for onboarding env-detection (tests inject a clean map;
@@ -147,8 +149,16 @@ export function App({
   // Latest-config ref so persistence happens outside React's pure updaters.
   const configRef = useRef(config);
   configRef.current = config;
-  const [themeName, setThemeName] = useState<ThemeName>(initialTheme ?? config.theme);
+  const [themeRef, setThemeRef] = useState<ThemeRef>(initialTheme ?? config.theme);
+  // #749: resolve the ref (built-in or user theme) once per ref change;
+  // a broken user theme falls back with a visible error, never a crash.
+  const [resolved, setResolvedTheme] = useState(() => resolveThemeRef(home ?? homedir(), initialTheme ?? config.theme));
+  const resolvedTheme = resolved.theme;
   const [themeTick, setThemeTick] = useState(0);
+  // The theme studio (rendered inside SettingsPanel) owns Esc while open —
+  // App's global escape handler must not close the settings overlay out
+  // from under its name prompt.
+  const [settingsStudioActive, setSettingsStudioActive] = useState(false);
   const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
   // Settings-panel changes must apply live, not only after a restart:
   // `mode` and `theme` also live in React state (projection grammar and
@@ -160,10 +170,7 @@ export function App({
       configRef.current = next;
       setConfig(next);
       if (patch.mode === "vibe" || patch.mode === "dev") setMode(patch.mode);
-      if (patch.theme && patch.theme !== previous.theme) {
-        setThemeName(patch.theme);
-        setThemeTick((value) => value + 1);
-      }
+      if (patch.theme && patch.theme !== previous.theme) applyThemeRef(patch.theme);
       saveUserConfig(next, cfgFile);
     },
     [cfgFile],
@@ -379,6 +386,12 @@ export function App({
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
   useEffect(() => {
     if (initialSession && "error" in initialSession) push(assemblyErrorToast(initialSession.error));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // #749: a broken active theme must name the path and cause at startup —
+  // the fallback is silent only when the config asked for nothing.
+  useEffect(() => {
+    if (resolved.error) push(resolved.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const blocked = pending !== null || asking !== null || overlay !== null;
@@ -852,13 +865,29 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, modelLabel]);
 
-  const cycleTheme = () => {
-    const index = THEME_ORDER.indexOf(themeName);
-    const next = THEME_ORDER[(index + 1) % THEME_ORDER.length]!;
-    setThemeName(next);
+  /** The single theme transition (#749): resolve, swap, remount. */
+  const applyThemeRef = (ref: ThemeRef) => {
+    const next = resolveThemeRef(home ?? homedir(), ref);
+    setThemeRef(ref);
+    setResolvedTheme(next);
     setThemeTick((value) => value + 1);
-    updateConfig({ theme: next });
-    push(`theme: ${THEMES[next].label}`);
+  };
+  /** Applies a theme ref (built-in or user:<id>) — the single theme switch
+   * path for Ctrl+T, /theme and settings (#749). */
+  const applyTheme = (ref: ThemeRef) => {
+    applyThemeRef(ref);
+    const next = resolveThemeRef(home ?? homedir(), ref);
+    updateConfig({ theme: ref });
+    push(next.error ? next.error : `theme: ${themeLabelFor(ref, home ?? homedir())}`);
+  };
+  /** Cycles built-ins, then user themes — every selectable theme reachable. */
+  const cycleTheme = () => {
+    const builtIn = THEME_ORDER as string[];
+    const user = listUserThemes(home ?? homedir()).map((t) => `user:${t.id}`);
+    const all = [...builtIn, ...user];
+    const index = all.indexOf(themeRef);
+    const next = all[(index + 1) % all.length]!;
+    applyTheme(next as ThemeRef);
   };
   // #581: keep-my-branch — the growth banner's primary chip action:
   // appends `branch_switched { to: localTip }` (adoption, head semantics
@@ -996,7 +1025,13 @@ export function App({
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
     // handler must not close it out from under the page view.
-    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) return setOverlay(null);
+    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) {
+      // The theme studio (inside settings) owns Esc while its name prompt or
+      // picker is open — a bare Esc there must return to the studio, not
+      // tear the whole overlay down to the home/chat screen.
+      if (overlay === "settings" && settingsStudioActive) return;
+      return setOverlay(null);
+    }
   });
 
   const showChat = session !== null;
@@ -1166,7 +1201,7 @@ export function App({
   useEffect(() => { if (!showChat) setFocusedChip(null); }, [showChat]);
 
   return (
-    <ThemeProvider value={THEMES[themeName]}>
+    <ThemeProvider value={resolvedTheme}>
       <Box
         flexDirection="column"
         width={Math.max(1, viewport.columns - 1)}
@@ -1254,6 +1289,7 @@ export function App({
         {overlay === "settings" && (
           <SettingsPanel
             cwd={cwd}
+            onStudioActive={setSettingsStudioActive}
             home={home}
             config={config}
             onChange={updateConfig}
