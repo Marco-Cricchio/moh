@@ -12,7 +12,7 @@ import {
   useViewport,
 } from "./viewport";
 import { deleteSession, listSessionSummaries, renameSession, type SessionSummary } from "./sessions";
-import { MOH_VERSION, type HandoffOffer } from "@moh/core";
+import { MOH_VERSION, aggregateTelemetry, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 import { skillUpdateNoticeText } from "./update-poll";
@@ -78,6 +78,13 @@ function HomeRow({
       {selected ? <Text color={chipFg}>{`${pad}${chip}`}</Text> : null}
     </Text>
   );
+}
+
+/** #718: compact token count for the Home usage line. */
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 
 /** Relative time for the pertinent-session banner (T3 #470). */
@@ -148,6 +155,22 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // per session on EVERY render: sync work inside React commits is the
   // #595 crash window ("Should not already be working." in Ink).
   const [renamesDone, setRenamesDone] = useState(0);
+  // #718: compact local usage summary — tokens in the last 7 days + top
+  // model, one dim line under the list. Computed on-render like the quota
+  // modal probe pattern (no background scanning), bounded read, degraded
+  // silently to "hidden" when there are no sessions / no model calls; a
+  // confirmed rename/delete re-reads it with the session list.
+  const usageLine = useMemo(() => {
+    try {
+      const report = aggregateTelemetry({ cwd, home, sinceMs: Date.now() - 7 * 24 * 3_600_000 * 1000 });
+      const total = report.models.reduce((s, m) => s + m.calls, 0);
+      if (total === 0) return null;
+      const top = report.models[0]!;
+      return `last 7 days: ${formatCompact(total)} tok · top ${top.model}`;
+    } catch {
+      return null;
+    }
+  }, [cwd, home, renamesDone]);
   const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home, renamesDone]);
   // #477 rename: when non-null, the composer area becomes an inline edit
   // for the display name (prefilled with the current name; Enter confirms,
@@ -349,6 +372,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         {onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
+        {usageLine ? <Dim>{` ${usageLine}`}</Dim> : null}
         <Text> </Text>
       </Box>
       {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}
