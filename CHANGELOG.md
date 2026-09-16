@@ -5,6 +5,25 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.38.0] - 2026-09-16
+### Added
+
+- **User-defined color themes** (#749, PR #751): personal themes live in
+  `~/.moh/themes/` (partial colors inherit from a built-in preset via
+  `extends`) and are selected with `"theme": "user:<id>"` in `~/.moh/config`.
+  The Theme picker (`Ctrl+T`) lists them, applies them immediately, and the
+  new full-screen theme studio modal (`e` on a theme) previews and edits
+  every palette role live; saves are atomic and collision-checked. Invalid
+  or missing themes fall back to tokyo-night with a visible error;
+  non-blocking contrast warnings (≥3:1 vs background) flag low-contrast
+  text/accent roles.
+
+### Changed
+
+- **report-bug skill: English-only issues** (PR #750): issues filed through
+  the skill are enforced English-only, per repo policy; the bundled skills
+  index was regenerated accordingly.
+
 ## [0.37.0] - 2026-09-16
 ### Added
 
@@ -162,7 +181,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.37.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.38.0...develop
+[0.38.0]: https://github.com/Marco-Cricchio/moh/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/Marco-Cricchio/moh/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/Marco-Cricchio/moh/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/Marco-Cricchio/moh/compare/v0.35.0...v0.35.1
@@ -1253,6 +1273,4 @@ single self-contained binary (Bun runtime embedded — no Node, no npm).
 [0.4.0]: https://github.com/Marco-Cricchio/moh/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Marco-Cricchio/moh/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Marco-Cricchio/moh/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/Marco-Cricchio/moh/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/Marco-Cricchio/moh/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/Marco-Cricchio/moh/releases/tag/v0.1.0
+[0.2.0]
