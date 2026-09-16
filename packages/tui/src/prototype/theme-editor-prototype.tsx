@@ -509,26 +509,37 @@ function VariantD() {
     <Box flexDirection="column" paddingX={1}>
       <Text bold color={theme.accent}>{` D · five sliders, zero hex — the screen IS the preview `}</Text>
       <Text> </Text>
-      {MAIN.map((s) => {
-        const focused = slider === s;
-        return (
-          <Box key={s} flexDirection="column">
-            <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-              {` ${focused ? "›" : " "} ${s.padEnd(12)}${value(s).padStart(5)} ${focused ? "←→ adjusts · shift = coarse" : ""} `}
-            </Text>
-            {focused && s === "hue" && (
-              <Text>
-                {Array.from({ length: 30 }, (_, i) => {
-                  const h = (hue + (i - 5) * 4 + 360) % 360; // window centered on the value
-                  const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
-                  return <Text key={i} backgroundColor={hex} color={i === 5 ? theme.bg : hex}>{i === 5 ? "╹" : " "}</Text>;
-                })}
-                <Dim>{` ←→ rotates · the marker is the current hue `}</Dim>
+      {(() => {
+        // Main sliders in two columns: hue+brightness left, the rest right.
+        const MAIN_L = MAIN.slice(0, 2);
+        const MAIN_R = MAIN.slice(2);
+        const mainRow = (sl: Main) => {
+          const focused = slider === sl;
+          return (
+            <Box key={sl} flexDirection="column">
+              <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+                {` ${focused ? "›" : " "} ${sl.padEnd(12)}${value(sl).padStart(6)}`.padEnd(24)}
               </Text>
-            )}
+              {focused && sl === "hue" && (
+                <Text>
+                  {Array.from({ length: 20 }, (_, i) => {
+                    const h = (hue + (i - 3) * 6 + 360) % 360; // window centered on the value
+                    const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
+                    return <Text key={i} backgroundColor={hex} color={i === 3 ? theme.bg : hex}>{i === 3 ? "╹" : " "}</Text>;
+                  })}
+                  <Dim>{` ←→ rotates`}</Dim>
+                </Text>
+              )}
+            </Box>
+          );
+        };
+        return (
+          <Box gap={2}>
+            <Box flexDirection="column">{MAIN_L.map(mainRow)}</Box>
+            <Box flexDirection="column">{MAIN_R.map(mainRow)}</Box>
           </Box>
         );
-      })}
+      })()}
       <Text> </Text>
       <Text color={splitMode ? theme.accent : theme.muted}>{` overrides: ${splitMode ? "split — pick per element" : "auto — follow the sliders above"} (s toggles)`}</Text>
       {splitMode && (() => {
