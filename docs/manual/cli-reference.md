@@ -259,7 +259,8 @@ models without a price record remain tokens-only.
 
   (default)   per-model usage: model calls, input and output tokens
   tools       per-tool calls, ok/fail rate, timeouts, average call→result
-              duration where derivable
+              duration where derivable; failed results with a structured
+              errorKind are broken down per reason
   routes      fallback activations (from→to, reason), route_serving
               switches, and turn errors grouped by ProviderError kind
 

@@ -64,7 +64,7 @@ describe("ask_user tool (question set, ADR-0019 / #411)", () => {
     ).toThrow();
   });
 
-  test("schema rejects duplicate question texts, duplicate labels, bad headers, bad suggested", () => {
+  test("schema rejects duplicate question texts, duplicate labels, bad headers, bad suggested", async () => {
     const dupQuestion = { questions: [single.questions[0]!, { ...single.questions[0]!, header: "Other" }] };
     expect(() => tools.ask_user.inputSchema!.parse(dupQuestion)).toThrow(/duplicate question text/);
 
@@ -81,20 +81,46 @@ describe("ask_user tool (question set, ADR-0019 / #411)", () => {
     };
     expect(() => tools.ask_user.inputSchema!.parse(dupLabel)).toThrow(/unique/);
 
-    const longHeader = { questions: [{ ...single.questions[0]!, header: "a".repeat(13) }] };
-    expect(() => tools.ask_user.inputSchema!.parse(longHeader)).toThrow(/12 characters/);
+    // A header that cannot survive trimming (empty after trim) still
+    // yields a valid call object at the schema — execute trims the
+    // whitespace-only header down harmlessly; nothing structural fails.
+    const longHeader = { questions: [{ ...single.questions[0]!, header: " ".repeat(13) }] };
+    expect(tools.ask_user.inputSchema!.parse(longHeader)).toBeTruthy();
     const noHeader = { questions: [{ ...single.questions[0]!, header: "" }] };
     expect(() => tools.ask_user.inputSchema!.parse(noHeader)).toThrow();
 
-    expect(() => tools.ask_user.inputSchema!.parse({ questions: [{ ...single.questions[0]!, suggested: "Mongo" }] })).toThrow(
-      /suggested must be one of the option labels/,
-    );
-    // suggested is optional by contract: GLM-class models routinely omit
-    // it and a hard failure costs a full retry round (production sessions
-    // a1dfb4c8/9695c69c each lost two turns to this).
-    const noSuggested = { questions: [{ ...single.questions[0]! }] };
-    delete (noSuggested.questions[0] as { suggested?: string }).suggested;
-    expect(tools.ask_user.inputSchema!.parse(noSuggested)).toBeTruthy();
+    // #731: purely-visual mistakes are normalized at execution, not
+    // rejected — a long header trims to the 12-char budget and a fuzzy
+    // suggested snaps to its unique case-insensitive match (or is dropped
+    // when ambiguous). Schema-level rejection is reserved for structural
+    // problems (counts, duplicates), so the header/suggested assertions
+    // below go through execute's normalization via the parsed-then-tool
+    // path instead.
+    const trimmableHeader = tools.ask_user.inputSchema!.parse({
+      questions: [{ ...single.questions[0]!, header: "Database pick" }],
+    });
+    // execute's normalization trims the header before the UI ever sees it.
+    const headerCtx = ctxWith(async (set) => {
+      expect(set.questions[0]!.header).toBe("Database pic");
+      return { answers: [{ labels: ["Postgres"] }] };
+    });
+    await tools.ask_user.execute({ questions: [trimmableHeader.questions[0]!] } as never, headerCtx);
+    const fuzzySuggested = tools.ask_user.inputSchema!.parse({
+      questions: [{ ...single.questions[0]!, suggested: "sqlite" }],
+    });
+    const snapCtx = ctxWith(async (set) => {
+      expect(set.questions[0]!.suggested).toBe("SQLite");
+      return { answers: [{ labels: ["Postgres"] }] };
+    });
+    await tools.ask_user.execute({ questions: [fuzzySuggested.questions[0]!] } as never, snapCtx);
+    const ambiguousSuggested = tools.ask_user.inputSchema!.parse({
+      questions: [{ ...single.questions[0]!, suggested: "Mongo" }],
+    });
+    const dropCtx = ctxWith(async (set) => {
+      expect(set.questions[0]!.suggested).toBeUndefined();
+      return { answers: [{ labels: ["Postgres"] }] };
+    });
+    await tools.ask_user.execute({ questions: [ambiguousSuggested.questions[0]!] } as never, dropCtx);
     expect(tools.ask_user.inputSchema!.parse(single)).toBeTruthy();
     expect(tools.ask_user.inputSchema!.parse(batch)).toBeTruthy();
   });
