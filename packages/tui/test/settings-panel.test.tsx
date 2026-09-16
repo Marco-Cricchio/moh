@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/core";
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { actUntilFrame, stripAnsi, waitForFrame } from "./helpers";
+import { actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -66,7 +66,7 @@ describe("settings panel ToS card (#444)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 7); // Provider row
+    await down(i, 8); // Provider row
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("t"); // ToS for mock: toast, no card
@@ -121,10 +121,17 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\r"); // mode → dev
     await sleep(10);
     await down(i, 1);
-    i.stdin.write("\r"); // theme → catppuccin
+    i.stdin.write("\r"); // theme → opens the theme picker
+    await sleep(30);
+    i.stdin.write("\x1b[B"); // catppuccin
+    await sleep(30);
+    i.stdin.write("\r"); // apply catppuccin (picker closes, cursor stays on theme row)
+    await sleep(30);
+    await down(i, 2);
+    i.stdin.write("\r"); // icons off (row 3)
     await sleep(10);
-    await down(i, 1);
-    i.stdin.write("\r"); // icons off
+    await down(i, 3);
+    i.stdin.write("\r"); // telemetry on (row 6 after Themes… insert)
     await sleep(10);
     await down(i, 3);
     i.stdin.write("\r"); // telemetry on (row 5)
@@ -143,7 +150,7 @@ describe("settings panel (issue #33)", () => {
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Session handoff");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Not Set");
-    await down(i, 10);
+    await down(i, 11);
     i.stdin.write("\r");
     await sleep(30);
     expect(opened).toBe(1);
@@ -153,7 +160,7 @@ describe("settings panel (issue #33)", () => {
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
     await sleep(30);
-    await down(i, 14); // Provider reasoning (MPM row inserted after handoff at 11)
+    await down(i, 15); // Provider reasoning (Themes… row inserted after theme at 2)
     i.stdin.write("\r");
     await sleep(10);
     expect(changes).toContainEqual({ showReasoning: true });
@@ -164,7 +171,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i, switched, toasts } = mount(cwd);
     await sleep(30);
-    await down(i, 7); // Provider row
+    await down(i, 8); // Provider row
     i.stdin.write("\r");
     await sleep(30);
     let frame = stripAnsi(i.lastFrame() ?? "");
@@ -197,7 +204,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 7);
+    await down(i, 8);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 2); // openai
@@ -215,7 +222,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    await down(i, 9); // Remove provider row
+    await down(i, 10); // Remove provider row
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 1); // openai
@@ -232,7 +239,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 9);
+    await down(i, 10);
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("\r"); // first option = anthropic (the active one)
@@ -244,7 +251,7 @@ describe("settings panel (issue #33)", () => {
   test("add provider opens the wizard overlay", async () => {
     const h = mount(setupCwd());
     await sleep(30);
-    await down(h.i, 8); // Add provider row (mode0..perm7, provider8)
+    await down(h.i, 9); // Add provider row (mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7)
     h.i.stdin.write("\r");
     await sleep(30);
     expect(h.wizardCount()).toBe(1);
@@ -255,7 +262,7 @@ describe("settings panel (issue #33)", () => {
     let closed = 0;
     const { i } = mount(setupCwd(), { onClose: () => (closed += 1) });
     await sleep(30);
-    await down(i, 7);
+    await down(i, 8);
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("\x1b"); // leave submenu, not the panel
@@ -283,7 +290,7 @@ describe("merged provider endpoints (#129)", () => {
     const { i } = mount(cwd, { home });
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await sleep(30);
-    await down(i, 7);
+    await down(i, 8);
     i.stdin.write("\r");
     await waitForFrame(frame, "switch endpoint");
     // Wait for each React commit before the next key: under suite load a
@@ -317,7 +324,7 @@ describe("merged provider endpoints (#129)", () => {
     try {
       const { i, switched } = mount(cwd, { home });
       await sleep(30);
-      await down(i, 7);
+      await down(i, 8);
       i.stdin.write("\r");
       await sleep(30);
       await down(i, 3); // zai (user)
@@ -357,7 +364,7 @@ describe("merged provider endpoints (#129)", () => {
     });
     const { i, toasts } = mount(cwd, { home });
     await sleep(30);
-    await down(i, 9);
+    await down(i, 10);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 2); // anthropic, openai, then zai
@@ -376,7 +383,7 @@ describe("max iterations row (#498)", () => {
     await sleep(30);
     // Rows: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
     // provider7 add8 remove9 handoff10 mpm11 maxIterations12
-    await down(i, 12);
+    await down(i, 13);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
     i.stdin.write("\r"); // 50 → 100
@@ -406,7 +413,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 12);
+    await down(i, 13);
     await sleep(30);
     // shift+tab from 50 wraps back to unlimited (warning shows).
     i.stdin.write("\x1b[Z");
@@ -423,7 +430,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 12);
+    await down(i, 13);
     await sleep(30);
     i.stdin.write("\r"); // 50 → 100
     await sleep(30);
@@ -455,7 +462,7 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 12);
+    await down(i, 13);
     await sleep(30);
     i.stdin.write("\x1b[C"); // →: 50 → 100
     await sleep(30);
@@ -470,8 +477,8 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    // Rows: mode0 … handoff10 mpm11 maxIterations12
-    await down(i, 11);
+    // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7 provider8 add9 remove10 handoff11 mpm12
+    await down(i, 12);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Moh Project Map");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
@@ -500,9 +507,89 @@ describe("max iterations row (#498) — right arrow", () => {
     }));
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 11);
+    await down(i, 12);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("off (this project)");
+    i.unmount();
+  });
+});
+
+describe("user themes in settings (#749)", () => {
+  test("theme row opens a picker with source labels; enter applies a user:<id> ref", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    mkdirSync(join(home, ".moh", "themes"), { recursive: true });
+    writeFileSync(join(home, ".moh", "themes", "my-violet.json"), JSON.stringify({
+      version: 1, id: "my-violet", name: "My Violet", extends: "tokyo-night",
+      colors: { accent: "#b983ff" },
+    }));
+    const { i, changes } = mount(cwd, { home });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await down(i, 1);
+    i.stdin.write("\r"); // open theme picker
+    await waitForFrame(frame, "My Violet · personal");
+    expect(frame()).toContain("· built-in");
+    await down(i, 8); // first user theme (8 built-ins before it)
+    i.stdin.write("\r");
+    await waitForFrame(frame, "enter change · esc close");
+    expect(changes).toContainEqual({ theme: "user:my-violet" });
+    i.unmount();
+  });
+
+  test("Themes… editor creates a theme, saves it, and applies it immediately", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    const { i, changes, toasts } = mount(cwd, { home });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    const cursorRows = () => frame().split("\n").filter((l) => l.includes("›")).join(" | ");
+    await down(i, 2);
+    i.stdin.write("\r"); // Themes… → editor (mode0 theme1 themes2)
+    await waitForFrame(frame, "new theme");
+    // id
+    i.stdin.write("my-neon");
+    await waitForCondition(() => frame().includes("my-neon"), () => `for id echo; frame: ${frame()}`);
+    i.stdin.write("\r"); await sleep(40); // commit id → cursor auto-advances to name
+    await waitForCondition(() => frame().includes("› name"), () => `for name cursor; cursor: ${cursorRows()}`);
+    i.stdin.write("My Neon");
+    await waitForCondition(() => frame().includes("My Neon"), () => `for name echo; cursor: ${cursorRows()}`);
+    i.stdin.write("\r"); await sleep(40); // commit name → cursor auto-advances to extends
+    await down(i, 2); // extends → fg (id0 name1 extends2 fg3)
+    i.stdin.write("#00ffcc");
+    await waitForCondition(() => frame().includes("#00ffcc"), () => `for hex echo; cursor: ${cursorRows()}`);
+    i.stdin.write("\r"); await sleep(40); // commit accent → cursor auto-advances
+    i.stdin.write("s"); // save + apply
+    await waitForCondition(
+      () => changes.some((c) => "theme" in c),
+      () => `for theme change; toasts: ${JSON.stringify(toasts)}; cursor: ${cursorRows()}`,
+    );
+    expect(changes).toContainEqual({ theme: "user:my-neon" });
+    expect(toasts.some((t) => t.includes("theme saved"))).toBe(true);
+    const onDisk = JSON.parse(readFileSync(join(home, ".moh", "themes", "my-neon.json"), "utf8")) as { id: string; colors: Record<string, string> };
+    expect(onDisk.id).toBe("my-neon");
+    expect(onDisk.colors.accent).toBe("#00ffcc");
+    i.unmount();
+  });
+
+  test("deleting the active user theme falls back to a built-in", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    mkdirSync(join(home, ".moh", "themes"), { recursive: true });
+    writeFileSync(join(home, ".moh", "themes", "gone.json"), JSON.stringify({
+      version: 1, id: "gone", name: "Gone", extends: "tokyo-night", colors: {},
+    }));
+    const { i, changes } = mount(cwd, { home, config: { ...DEFAULT_USER_CONFIG, theme: "user:gone" } });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await down(i, 1);
+    i.stdin.write("\r"); // picker
+    await waitForFrame(frame, "Gone · personal");
+    await down(i, 8); // Gone · personal
+    i.stdin.write("d");
+    await waitForFrame(frame, "enter change · esc close");
+    expect(existsSync(join(home, ".moh", "themes", "gone.json"))).toBe(false);
+    expect(changes).toContainEqual({ theme: "tokyo-night" });
     i.unmount();
   });
 });

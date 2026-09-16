@@ -3,8 +3,10 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
-import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
-import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
+import { COLOR_ROLES, THEMES, THEME_ORDER, contrastWarnings, isHexColor, type ColorRole } from "./themes";
+import { deleteUserTheme, listUserThemes, loadUserTheme, saveUserTheme, themesDir as themesDirOf } from "./user-themes";
+import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, UserConfig, VibeMode } from "./user-config";
+import { readFileSync } from "node:fs";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
@@ -56,6 +58,59 @@ function renderTosCardText(provider: string, width: number): string[] {
   const card = tosCardFor(provider);
   if (!card) return [`(no bundled ToS summary for "${provider}")`];
   return renderTosCard(card).split("\n").map((l) => truncate(l, width));
+}
+
+/** #749: display label for a theme ref — built-ins show `label · built-in`,
+ * user themes `name · personal`, unknown refs the raw ref. */
+function themeLabelFor(ref: ThemeRef, home?: string): string {
+  if (ref.startsWith("user:")) {
+    const id = ref.slice("user:".length);
+    const theme = loadUserTheme(home ?? "", id);
+    return theme ? `${theme.label} · personal` : `${ref} (missing)`;
+  }
+  const preset = THEMES[ref as keyof typeof THEMES];
+  return preset ? `${preset.label} · built-in` : ref;
+}
+
+/** All selectable theme refs in cycle order: built-ins, then user themes. */
+function allThemeRefs(home?: string): ThemeRef[] {
+  return [...THEME_ORDER, ...listUserThemes(home ?? "").map((t) => `user:${t.id}` as ThemeRef)];
+}
+
+/** Editable fields of the theme editor, in cursor order (#749). */
+const THEME_EDIT_FIELDS = ["id", "name", "extends", ...COLOR_ROLES] as const;
+type ThemeEditField = (typeof THEME_EDIT_FIELDS)[number];
+const themeEditFields = (_s: unknown): readonly ThemeEditField[] => THEME_EDIT_FIELDS;
+
+/** Lowercase slug normalization for editor ids. */
+const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+
+/** #749: contrast warnings are advisory — never a save blocker. */
+const contrastWarningsFor = (colors: Record<ColorRole, string>): string[] => contrastWarnings(colors);
+
+/** Reconstructs which base preset a theme extends (the loader doesn't keep
+ * it on the resolved Theme). Reads the file; falls back to tokyo-night. */
+function guessBasePreset(id: string, home: string): string {
+  try {
+    const raw = JSON.parse(readFileSync(join(themesDirOf(home), `${id}.json`), "utf8")) as { extends?: string };
+    return raw.extends && raw.extends in THEMES ? raw.extends : "tokyo-night";
+  } catch {
+    return "tokyo-night";
+  }
+}
+
+/** Only the roles the file itself overrides (editor's sparse color map). */
+function pickUserColors(id: string, home: string): Partial<Record<ColorRole, string>> {
+  try {
+    const raw = JSON.parse(readFileSync(join(themesDirOf(home), `${id}.json`), "utf8")) as { colors?: Record<string, string> };
+    const out: Partial<Record<ColorRole, string>> = {};
+    for (const [role, value] of Object.entries(raw.colors ?? {})) {
+      if ((COLOR_ROLES as readonly string[]).includes(role) && isHexColor(value)) out[role as ColorRole] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onClose }: SettingsPanelProps) {
@@ -111,7 +166,21 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; cursor: number; query: string }
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
     | { kind: "remove"; options: string[]; cursor: number }
-    | { kind: "tos"; provider: string };
+    | { kind: "tos"; provider: string }
+    | { kind: "theme-pick"; options: ThemeRef[]; cursor: number }
+    | {
+        kind: "theme-edit";
+        /** Editing an existing theme id, or null when creating fresh. */
+        editing: string | null;
+        id: string;
+        name: string;
+        extends: string;
+        colors: Partial<Record<ColorRole, string>>;
+        /** Which field the cursor is on (see THEME_EDIT_FIELDS). */
+        field: number;
+        valueBuf: string;
+        warnings: string[];
+      };
   const [sub, setSub] = useState<Sub | null>(null);
   // #498 max-iterations warning: shown when "unlimited" is selected in the
   // row; any later keypress dismisses it, and it stays dismissed while the
@@ -163,7 +232,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const rows: Row[] = useMemo(
     () => [
       { key: "mode", label: "Mode", value: config.mode },
-      { key: "theme", label: "Theme", value: THEMES[config.theme]?.label ?? config.theme },
+      { key: "theme", label: "Theme", value: themeLabelFor(config.theme, home) },
+      { key: "themes", label: "Themes…", value: `${listUserThemes(home ?? "").length} personal` },
       { key: "icons", label: "Icons", value: config.icons ? "on" : "off" },
       { key: "filePreview", label: "File preview", value: config.filePreview },
       { key: "answerLanguage", label: "Answer language", value: config.answerLanguage },
@@ -227,10 +297,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       case "mode":
         return onChange({ mode: cycle<VibeMode>(["vibe", "dev"], config.mode) });
       case "theme": {
-        const next = cycle<ThemeName>(THEME_ORDER, config.theme);
-        onChange({ theme: next });
-        return onToast(`theme: ${THEMES[next].label}`);
+        const refs = allThemeRefs(home);
+        return setSub({ kind: "theme-pick", options: refs, cursor: Math.max(0, refs.indexOf(config.theme)) });
       }
+      case "themes":
+        return setSub({ kind: "theme-edit", editing: null, id: "", name: "", extends: config.theme.startsWith("user:") ? "tokyo-night" : (config.theme as string), colors: {}, field: 0, valueBuf: "", warnings: [] });
       case "icons": {
         const next = !config.icons;
         setIcons(next);
@@ -342,6 +413,82 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub(null);
       }
       if (input && !key.ctrl && !key.meta) return setSub({ ...sub, value: sub.value + input });
+      return;
+    }
+    if (sub?.kind === "theme-edit") {
+      const fields = themeEditFields(sub);
+      // `s` saves from anywhere in the editor (create and edit alike);
+      // saving is never blocked — contrast findings stay warnings.
+      if (input === "s" && !key.ctrl && !key.meta && sub.valueBuf === "") {
+        const id = slugify(sub.id);
+        if (!id) return onToast("id required (lowercase slug) before saving");
+        if (!(sub.extends in THEMES)) return onToast("base preset must be a built-in id");
+        try {
+          saveUserTheme(home ?? "", { version: 1, id, name: sub.name || id, extends: sub.extends, colors: sub.colors });
+        } catch (e) {
+          return onToast(`save failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        const ref: ThemeRef = `user:${id}`;
+        onChange({ theme: ref });
+        onToast(`theme saved: ${sub.name || id} — applied`);
+        return setSub(null);
+      }
+      if (key.escape) return setSub(null);
+      if (key.upArrow) return setSub({ ...sub, field: Math.max(0, sub.field - 1), valueBuf: "" });
+      if (key.downArrow || key.tab) return setSub({ ...sub, field: Math.min(fields.length - 1, sub.field + 1), valueBuf: "" });
+      if (key.backspace || key.delete) return setSub({ ...sub, valueBuf: sub.valueBuf.slice(0, -1) });
+      const commit = () => {
+        const field = fields[sub.field]!;
+        const nextField = Math.min(fields.length - 1, sub.field + 1);
+        if (field === "id") return setSub({ ...sub, id: slugify(sub.valueBuf), field: nextField, valueBuf: "" });
+        if (field === "name") return setSub({ ...sub, name: sub.valueBuf.trim(), field: nextField, valueBuf: "" });
+        // color role: validate hex before storing
+        const value = sub.valueBuf.trim();
+        if (value === "") return setSub({ ...sub, valueBuf: "" });
+        if (!isHexColor(value)) return onToast(`${field}: not a hex color (#rgb or #rrggbb)`);
+        const colors = { ...sub.colors, [field]: value.toLowerCase() };
+        const merged = { ...THEMES[sub.extends as keyof typeof THEMES], ...colors } as Record<ColorRole, string>;
+        return setSub({ ...sub, colors, field: nextField, valueBuf: "", warnings: contrastWarningsFor(merged) });
+      };
+      if (key.return || input === "\n") return commit();
+      if (input && !key.ctrl && !key.meta) return setSub({ ...sub, valueBuf: sub.valueBuf + input });
+      return;
+    }
+    if (sub?.kind === "theme-pick") {
+      if (key.escape) return setSub(null);
+      if (key.upArrow) return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
+      if (key.downArrow) return setSub({ ...sub, cursor: Math.min(sub.options.length - 1, sub.cursor + 1) });
+      if (key.return || input === "\n") {
+        const ref = sub.options[sub.cursor];
+        if (!ref) return;
+        onChange({ theme: ref });
+        onToast(`theme: ${themeLabelFor(ref, home)}`);
+        return setSub(null);
+      }
+      if (input === "e" && sub.options[sub.cursor]?.startsWith("user:")) {
+        const id = sub.options[sub.cursor]!.slice("user:".length);
+        const fileTheme = loadUserTheme(home ?? "", id);
+        if (!fileTheme) return onToast("theme file unreadable");
+        return setSub({
+          kind: "theme-edit",
+          editing: id,
+          id,
+          name: fileTheme.label,
+          extends: guessBasePreset(id, home ?? ""),
+          colors: pickUserColors(id, home ?? ""),
+          field: 0,
+          valueBuf: "",
+          warnings: [],
+        });
+      }
+      if (input === "d" && sub.options[sub.cursor]?.startsWith("user:")) {
+        const id = sub.options[sub.cursor]!.slice("user:".length);
+        deleteUserTheme(home ?? "", id);
+        const fallback: ThemeRef = config.theme === `user:${id}` ? "tokyo-night" : config.theme;
+        if (config.theme !== fallback) onChange({ theme: fallback });
+        onToast(`theme deleted${config.theme === `user:${id}` ? " — fell back to tokyo-night" : ""}`);
+        return setSub(null);
+      }
       return;
     }
     if (sub) {
@@ -508,6 +655,46 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               <Text bold>{`model id: ${sub.value}▏`}</Text>
               <Text> </Text>
               <Dim>{sub.userOwned ? "user endpoint — the default is not editable here" : "saved as defaultModel in moh.json"}</Dim>
+            </>
+          ) : sub.kind === "theme-pick" ? (
+            <>
+              {sub.options.map((ref, i) => {
+                const selected = i === sub.cursor;
+                return (
+                  <Text key={ref} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                    {truncate(` ${selected ? "›" : " "} ${themeLabelFor(ref, home)}${selected ? " " : ""}`, innerWidth)}
+                  </Text>
+                );
+              })}
+              <Text> </Text>
+              <Dim>↑↓ select · enter apply · e edit · d delete (personal) · esc back</Dim>
+            </>
+          ) : sub.kind === "theme-edit" ? (
+            <>
+              <Text bold>{sub.editing ? `edit theme: ${sub.editing}` : "new theme"}</Text>
+              <Text> </Text>
+              {THEME_EDIT_FIELDS.map((field, i) => {
+                const selected = i === sub.field;
+                const value =
+                  field === "id" ? (sub.valueBuf || sub.id) :
+                  field === "name" ? (sub.valueBuf || sub.name) :
+                  field === "extends" ? sub.extends :
+                  (sub.colors[field as ColorRole] ?? `(base: ${THEMES[sub.extends as keyof typeof THEMES][field as ColorRole]})`);
+                const merged = { ...THEMES[sub.extends as keyof typeof THEMES], ...sub.colors } as Record<string, string>;
+                return (
+                  <Text key={field} color={selected ? theme.bg : field === "extends" ? theme.accent : undefined} backgroundColor={selected ? theme.accent : field !== "extends" && field !== "id" && field !== "name" && sub.colors[field as ColorRole] ? merged[field] : undefined}>
+                    {truncate(` ${selected ? "›" : " "} ${field.padEnd(15)}${String(value).slice(0, 24)}${selected && (field === "id" || field === "name") ? " ▏" : ""}`, innerWidth)}
+                  </Text>
+                );
+              })}
+              {sub.warnings.length > 0 && (
+                <>
+                  <Text> </Text>
+                  {sub.warnings.map((w) => <Text key={w} color={theme.warn}>{truncate(` ⚠ ${w} — saved anyway`, innerWidth)}</Text>)}
+                </>
+              )}
+              <Text> </Text>
+              <Dim>type value · enter commit field · ↑↓ field · s save &amp; apply · esc back</Dim>
             </>
           ) : (
             <>

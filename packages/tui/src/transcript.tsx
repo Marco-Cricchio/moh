@@ -778,7 +778,7 @@ function blockColor(block: TranscriptBlock, theme: Theme): string {
 export function blockTint(block: TranscriptBlock, theme: Theme): string | undefined {
   if (block.kind === "thinking") return undefined;
   const semantic = block.kind === "user" ? theme.warn : block.kind === "moh" ? theme.accent : block.kind === "code" || block.kind === "diff" ? theme.purple : block.kind === "error" ? theme.err : block.kind === "subagent" ? theme.accent : theme.dim;
-  return mix(semantic, theme.bg, block.kind === "error" ? 0.2 : block.kind === "chrome" || block.kind === "subagent" ? 0.07 : 0.14);
+  return mix(semantic, theme.surface, block.kind === "error" ? 0.2 : block.kind === "chrome" || block.kind === "subagent" ? 0.07 : 0.14);
 }
 
 function Row({ width, bg, indent = 0, children }: { width: number; bg?: string; indent?: number; children: React.ReactNode }) {
