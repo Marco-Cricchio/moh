@@ -275,7 +275,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           // is never shown (byte-identical path, issue #149).
           if (type === "openai-compat" || isProviderProfile(type)) {
             setAuthKind("api-key");
-            return applyPhase({ kind: "wizard-text", field: "model", value: "" });
+            return applyPhase({ kind: "wizard-text", field: "model", value: providerProfile(type)?.defaultModel ?? "" });
           }
           applyPhase({ kind: "wizard-auth", cursor: 0 });
         }
@@ -647,7 +647,7 @@ function submitField(
     // (selection prefills the still-editable text field); other providers
     // keep the plain base URL text step.
     if (wizard.type === "openai-compat" || providerEndpointChoices(wizard.type ?? "").length > 1) return applyPhase({ kind: "wizard-endpoint-list", cursor: 0 });
-    if (providerRequiresBaseUrlInput(wizard.type ?? "")) return applyPhase({ kind: "wizard-text", field: "baseUrl", value: "" });
+    if (providerRequiresBaseUrlInput(wizard.type ?? "")) return applyPhase({ kind: "wizard-text", field: "baseUrl", value: providerProfile(wizard.type ?? "")?.baseUrl ?? "" });
     const profile = providerProfile(wizard.type ?? "");
     if (profile) return submitField({ kind: "wizard-text", field: "baseUrl", value: profile.baseUrl }, wizard, applyWizard, applyPhase, authKind, saveApiKey);
     return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });

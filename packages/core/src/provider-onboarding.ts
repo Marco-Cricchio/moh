@@ -270,7 +270,7 @@ async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<str
  */
 async function askRequiredProviderBaseUrl(io: OnboardingIo, type: string): Promise<string> {
   const template = providerProfile(type)?.baseUrl;
-  const value = (await io.ask(`Base URL [${template}]: `)).trim();
+  const value = (await io.ask(`Base URL [${template}]: `)).trim() || template || "";
   if (!value || value.includes("{")) throw new OnboardingAborted("a concrete base URL is required for this endpoint");
   return value;
 }

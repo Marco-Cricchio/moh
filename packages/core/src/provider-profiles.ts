@@ -12,7 +12,6 @@ export interface ProviderProfile {
   apiKeyEnv: string;
   defaultModel: string;
   endpointAlternatives?: readonly { label: string; baseUrl: string }[];
-  thinking?: { format: "openai-effort"; compatible: boolean };
 }
 
 export const PROVIDER_PROFILES = [
@@ -29,7 +28,7 @@ export const PROVIDER_PROFILES = [
   { id: "zai", displayName: "Z.ai", baseUrl: "https://api.z.ai/api/coding/paas/v4", apiKeyEnv: "ZAI_API_KEY", defaultModel: "glm-4.7" },
   { id: "qwen", displayName: "Qwen", baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", apiKeyEnv: "DASHSCOPE_API_KEY", defaultModel: "qwen-plus", endpointAlternatives: [{ label: "China", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" }] },
   { id: "xiaomi-mimo", displayName: "Xiaomi MiMo", baseUrl: "https://api.xiaomimimo.com/v1", apiKeyEnv: "XIAOMI_MIMO_API_KEY", defaultModel: "mimo-v2-flash" },
-  { id: "vercel-ai-gateway", displayName: "Vercel AI Gateway", baseUrl: "https://ai-gateway.vercel.sh/v1", apiKeyEnv: "AI_GATEWAY_API_KEY", defaultModel: "openai/gpt-4o-mini", thinking: { format: "openai-effort", compatible: true } },
+  { id: "vercel-ai-gateway", displayName: "Vercel AI Gateway", baseUrl: "https://ai-gateway.vercel.sh/v1", apiKeyEnv: "AI_GATEWAY_API_KEY", defaultModel: "openai/gpt-4o-mini" },
   { id: "cloudflare-ai-gateway", displayName: "Cloudflare AI Gateway", baseUrl: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat", apiKeyEnv: "CLOUDFLARE_API_TOKEN", defaultModel: "meta/llama-3.3-70b-instruct" },
   { id: "baseten", displayName: "Baseten", baseUrl: "https://inference.baseten.co/v1", apiKeyEnv: "BASETEN_API_KEY", defaultModel: "deepseek-ai/DeepSeek-R1" },
 ] as const satisfies readonly ProviderProfile[];
