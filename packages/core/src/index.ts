@@ -151,6 +151,21 @@ export {
   type QuotaFetch,
   type LocalUsageRow,
 } from "./quota";
+// #714: the multi-session telemetry aggregator — the deep module the CLI/TUI
+// usage surfaces project. Read-only metadata projection over session event
+// logs (ADR-0004 reopening: a client-facing config surface, `moh usage`).
+export {
+  aggregateTelemetry,
+  type TelemetryReport,
+  type TelemetryModelRow,
+  type TelemetryToolRow,
+  type TelemetryRouteHealth,
+  type TelemetryFallbackRow,
+  type TelemetryRouteServingRow,
+  type TelemetrySessionRow,
+  type TelemetrySubagentRow,
+} from "./telemetry";
+
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
@@ -180,7 +195,9 @@ import {
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-export { catalogEntryFor, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
+export { catalogEntryFor, pricingForModel, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 export {
   fetchLiveCatalogs,
   type LiveModelListing,

@@ -1,0 +1,1 @@
+{"openai-completions":{"llama-3.3-70b-versatile":{"id":"llama-3.3-70b-versatile","name":"Llama 3.3 70B Versatile","api":"openai-completions","provider":"groq","baseUrl":"https://api.groq.com/openai/v1","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":131072,"maxTokens":8192}}}

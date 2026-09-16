@@ -26,7 +26,7 @@ const REPORT: QuotaReport = {
   windows: [{ label: "limit", used: 45, limit: 120 }],
 };
 
-const LOCAL: LocalUsageRow[] = [{ model: "m-1", calls: 3, inputTokens: 1500, outputTokens: 300 }];
+const LOCAL: LocalUsageRow[] = [{ model: "m-1", calls: 3, inputTokens: 1500, outputTokens: 300, estimatedCostUsd: 0.006 }];
 
 function mount(over: Partial<QuotaModalProps> = {}) {
   let closed = 0;
@@ -67,7 +67,8 @@ describe("QuotaModal (#499)", () => {
     expect(frame).toContain("120");
     expect(frame).toContain("●"); // official badge
     expect(frame).toContain("provider quota unavailable"); // beta → null
-    expect(frame).toContain("m-1: 1.5k in · 300 out (3 calls)");
+    expect(frame).toContain("m-1: 1.5k in · 300 out (3 calls) · est. $0.0060");
+    expect(frame).toContain("estimated USD · pricing snapshot 0.85.0");
     expect(frame).toContain("—"); // local badge
     expect(probeCalls).toEqual(["alpha", "beta"]);
   });
@@ -131,5 +132,32 @@ describe("QuotaModal (#499)", () => {
     await sleep(60);
     expect(calls).toBe(1);
     clearQuotaCache();
+  });
+});
+
+describe("QuotaModal recent sessions (#718)", () => {
+  test("renders the last-N rollup under its own heading, hiding an empty one", async () => {
+    clearQuotaCache();
+    const { instance } = mount({
+      recentUsage: { window: 10, models: [{ model: "m-2", calls: 9, inputTokens: 20_000, outputTokens: 1_500 }] },
+    });
+    await waitFor(instance, "last 10 sessions");
+    const frame = stripAnsi(instance.lastFrame()!);
+    expect(frame).toContain("local measured (this session)");
+    expect(frame).toContain("m-2: 20.0k in · 1.5k out (9 calls)");
+    instance.unmount();
+
+    // Empty rollup: the section is hidden cleanly.
+    const empty = mount({ recentUsage: { window: 10, models: [] } });
+    await waitFor(empty.instance, "local measured");
+    expect(stripAnsi(empty.instance.lastFrame()!)).not.toContain("last 10 sessions");
+    empty.instance.unmount();
+
+    // Absent rollup (aggregator failure): session-only view, no error.
+    const degraded = mount({ recentUsage: null });
+    await waitFor(degraded.instance, "local measured");
+    const dframe = stripAnsi(degraded.instance.lastFrame()!);
+    expect(dframe).toContain("m-1:");
+    expect(dframe).not.toContain("last 10 sessions");
   });
 });

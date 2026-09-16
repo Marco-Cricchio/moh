@@ -32,3 +32,12 @@ bun run packages/core/scripts/regen-model-catalogs.ts \
 The script copies the `providers/data/*.json` catalogs from pi-ai's `dist/`
 (or source root) and generates `zai.json` from pi-ai's `ZAI_MODELS` provider
 module, then prints the pi-ai version so this README can be updated.
+
+
+## Pricing
+
+The same release-pinned catalog records approximate USD per-million-token
+rates used by `moh usage` and the TUI quota modal. They are estimates, not
+billing data: update them only through regeneration and update the source
+version above in the same change. Live model discovery never changes prices;
+models without a catalog rate remain tokens-only. See ADR-0029.

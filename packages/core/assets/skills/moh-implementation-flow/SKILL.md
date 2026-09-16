@@ -35,4 +35,4 @@ Proceed through routine implementation, verification, review, and commit without
 - an external failure blocks execution; or
 - the execution budget is exhausted.
 
-At completion, run the full suite once, perform the two-axis `code-review` (Standards and Spec), address its findings, and commit the completed work. Creating a PR and merging a branch require an explicit owner request; do neither automatically.
+At completion, run the full suite once **only when the change touches shared code** (core, session assembly, test harness); for a package-confined change, that package's test dir is enough — the PR CI run covers the rest. After any fix, re-run only the failing test files. Then perform the two-axis `code-review` (Standards and Spec), address its findings, and commit the completed work. Creating a PR and merging a branch require an explicit owner request; do neither automatically.

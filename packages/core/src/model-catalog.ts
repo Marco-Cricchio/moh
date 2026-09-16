@@ -25,6 +25,21 @@ import openrouterJson from "./model-catalogs/openrouter.json";
 import kimiCodingJson from "./model-catalogs/kimi-coding.json";
 import xaiJson from "./model-catalogs/xai.json";
 import zaiJson from "./model-catalogs/zai.json";
+import deepseekJson from "./model-catalogs/deepseek.json";
+import groqJson from "./model-catalogs/groq.json";
+import cerebrasJson from "./model-catalogs/cerebras.json";
+import nvidiaNimJson from "./model-catalogs/nvidia-nim.json";
+import togetherJson from "./model-catalogs/together.json";
+import fireworksJson from "./model-catalogs/fireworks.json";
+import huggingfaceJson from "./model-catalogs/huggingface.json";
+import mistralJson from "./model-catalogs/mistral.json";
+import moonshotJson from "./model-catalogs/moonshot.json";
+import minimaxJson from "./model-catalogs/minimax.json";
+import qwenJson from "./model-catalogs/qwen.json";
+import xiaomiMimoJson from "./model-catalogs/xiaomi-mimo.json";
+import vercelAiGatewayJson from "./model-catalogs/vercel-ai-gateway.json";
+import cloudflareAiGatewayJson from "./model-catalogs/cloudflare-ai-gateway.json";
+import basetenJson from "./model-catalogs/baseten.json";
 import type { WireApi } from "./wire";
 import type { ThinkingFormat, ThinkingLevel } from "./types";
 
@@ -55,6 +70,28 @@ export interface CatalogModel {
   /** Provider compat flags (e.g. kimi allowEmptySignature) — carried as
    * data; application is per-flag and lands with the flags that need it. */
   compat?: Record<string, unknown>;
+  /** Approximate USD prices per million tokens from the vendored catalog.
+   * Absent means pricing is unknown, never free. */
+  pricing?: ModelPricing;
+}
+
+/** Approximate USD prices per million tokens. Zero is an explicit free rate;
+ * absent pricing is unknown. Tiers replace all rates once the input-token
+ * count of an individual call reaches `inputTokensAbove`. */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  tiers?: Array<ModelPricingTier>;
+}
+
+export interface ModelPricingTier {
+  inputTokensAbove: number;
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 /** The pi-ai catalog shape: `{ <api>: { <modelId>: entry } }`. */
@@ -69,6 +106,7 @@ interface PiAiEntry {
   input?: string[];
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
+  cost?: ModelPricing;
 }
 
 /** pi api names → moh wires. Unknown apis are skipped (not guessed). */
@@ -106,6 +144,7 @@ function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
     ...(entry.input ? { input: entry.input } : {}),
     ...(entry.headers ? { headers: entry.headers } : {}),
     ...(entry.compat ? { compat: entry.compat } : {}),
+    ...(entry.cost ? { pricing: entry.cost } : {}),
   };
 }
 
@@ -136,6 +175,10 @@ const CATALOGS = {
   "kimi-coding": collect(kimiCodingJson),
   xai: collect(xaiJson),
   zai: collect(zaiJson),
+  deepseek: collect(deepseekJson), groq: collect(groqJson), cerebras: collect(cerebrasJson), "nvidia-nim": collect(nvidiaNimJson),
+  together: collect(togetherJson), fireworks: collect(fireworksJson), huggingface: collect(huggingfaceJson), mistral: collect(mistralJson),
+  moonshot: collect(moonshotJson), minimax: collect(minimaxJson), qwen: collect(qwenJson), "xiaomi-mimo": collect(xiaomiMimoJson),
+  "vercel-ai-gateway": collect(vercelAiGatewayJson), "cloudflare-ai-gateway": collect(cloudflareAiGatewayJson), baseten: collect(basetenJson),
 } as const satisfies Record<string, CatalogModel[]>;
 
 /** Providers that have a vendored subscription catalog. */
@@ -225,6 +268,27 @@ export function endpointModelCatalog(type: string, baseUrl?: string): CatalogMod
  */
 export function catalogEntryFor(type: string, modelId: string): CatalogModel | undefined {
   return subscriptionModelCatalog(type).find((m) => m.id === modelId);
+}
+
+/** Finds unambiguous pricing by model id across the shipped catalogs. Event
+ * logs retain an endpoint name rather than its profile type, so a collision
+ * with different prices is deliberately unavailable instead of guessed. */
+export function pricingForModel(model: string): ModelPricing | undefined {
+  // Event logs record `endpoint/model-id`; OpenRouter model ids themselves
+  // contain `/`. Prefer an exact catalog id after removing one endpoint
+  // segment, then fall back to a bare id only when catalog rates agree.
+  const afterEndpoint = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  const all = Object.values(CATALOGS).flat();
+  const exact = all.filter((entry) => entry.id === afterEndpoint);
+  const candidates = exact.length > 0 ? exact : all.filter((entry) => entry.id === model || entry.id === afterEndpoint);
+  const matches = candidates
+    .map((entry) => entry.pricing)
+    // Zero-only records in minimal endpoint catalogs are placeholders, not
+    // evidence of a free model. Conservatively leave them tokens-only.
+    .filter((pricing): pricing is ModelPricing => pricing !== undefined && (pricing.input > 0 || pricing.output > 0));
+  if (matches.length === 0) return undefined;
+  const distinct = new Map(matches.map((pricing) => [JSON.stringify(pricing), pricing]));
+  return distinct.size === 1 ? distinct.values().next().value : undefined;
 }
 
 /**

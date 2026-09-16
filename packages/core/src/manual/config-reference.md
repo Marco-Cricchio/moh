@@ -49,9 +49,13 @@ All keys are optional. Notes:
   `"endpoint/model-id"` (or a bare `"endpoint"` using its defaultModel).
 - `endpoints[].type` — built-in `"anthropic" | "openai" | "google" |
   "github-copilot" | "openrouter" | "kimi-coding" | "xai" |
-  "openai-compat"`, or a custom id registered via `registerProvider`.
+  "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" |
+  "fireworks" | "huggingface" | "mistral" | "moonshot" | "minimax" |
+  "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" |
+  "cloudflare-ai-gateway" | "baseten" | "openai-compat"`, or a custom id
+  registered via `registerProvider`.
 - `endpoints[].apiKey` — falls back to the env var
-  `MOH_ENDPOINT_<NAME>_API_KEY`; keep moh.json gitignored when inlining.
+  `MOH_ENDPOINT_<NAME>_API_KEY`, then a first-party profile's documented provider environment variable; prefer the guardian-stored key from the wizard over inlining secrets in moh.json.
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
   uses the plan's OAuth tokens.
 - `capabilities.multimodal` — declares image input for endpoints without

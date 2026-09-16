@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { getQuota } from "../src/quota";
 import { aggregateLocalUsage, type LocalUsageRow } from "../src/quota/local";
+import { estimateModelCost } from "../src/pricing";
 import type { QuotaFetch } from "../src/quota/types";
 import type { AgentEvent } from "../src/types";
 import type { EndpointProfile } from "../src/config";
@@ -269,3 +270,30 @@ async function copilotStoreFixture(): Promise<string> {
   const file = tempConfig();
   return writeStore(file, "test", { accessToken: "gho-test", grant: { provider: "github-copilot" } });
 }
+
+
+describe("estimated model pricing (#719)", () => {
+  test("estimates a catalog-priced model", () => {
+    expect(estimateModelCost("alpha/claude-haiku-4-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })?.usd).toBe(6);
+  });
+
+  test("uses the tier selected by an individual call's input tokens", () => {
+    expect(estimateModelCost("openai/gpt-5.4", { inputTokens: 272_000, outputTokens: 1_000_000 })?.usd).toBe(23.86);
+  });
+
+  test("resolves a slash-qualified OpenRouter model after its endpoint", () => {
+    expect(estimateModelCost("router/openai/gpt-5.6-luna", { inputTokens: 1_000_000, outputTokens: 0 })?.usd).toBeGreaterThan(0);
+  });
+
+  test("returns no estimate for an unknown or zero-only catalog record", () => {
+    expect(estimateModelCost("custom/unknown", { inputTokens: 100, outputTokens: 100 })).toBeUndefined();
+    expect(estimateModelCost("gateway/any-model", { inputTokens: 100, outputTokens: 100 })).toBeUndefined();
+  });
+
+  test("local rollups omit cost rather than inventing one", () => {
+    const rows = aggregateLocalUsage([
+      { id: "x", type: "model_call", model: "custom/unknown", usage: { inputTokens: 100, outputTokens: 100 } },
+    ]);
+    expect(rows[0]?.estimatedCostUsd).toBeUndefined();
+  });
+});

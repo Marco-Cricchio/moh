@@ -7,7 +7,8 @@
  */
 import { loadMohConfig, upsertEndpoint, writeMohConfig, type EndpointProfile, type MohConfig } from "./config";
 import { defaultRegistry, resolveProvider, type ProviderRegistry } from "./provider-registry";
-import { envApiKey, endpointEnvVarName } from "./route";
+import { endpointEnvVarName, resolveApiKey } from "./route";
+import { PROVIDER_PROFILES, isProviderProfile, providerEndpointChoices, providerProfile, providerRequiresBaseUrlInput } from "./provider-profiles";
 import { userConfigFile } from "./user-config";
 import { runSubscriptionLogin, isSubscriptionKind } from "./auth/lifecycle";
 import { getStoredToken, getStoredApiKey, readAuthSection, saveStoredApiKey, saveTokens } from "./auth/store";
@@ -30,6 +31,7 @@ export const BUILTIN_PROVIDER_TYPES = [
   "openrouter",
   "kimi-coding",
   "xai",
+  ...PROVIDER_PROFILES.map((profile) => profile.id),
 ] as const;
 export type BuiltinProviderType = (typeof BUILTIN_PROVIDER_TYPES)[number];
 
@@ -158,7 +160,8 @@ export async function runProviderAdd(
       await io.info(`Saved endpoint "${name}" (subscription) to ${options.configFile} — tokens stored.`);
     }
   } else {
-    apiKey = (await io.ask(`API key (empty to use MOH_ENDPOINT_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY${type === "openai-compat" ? "; local endpoints need none" : ""}): `)).trim();
+    const providerEnv = providerProfile(type)?.apiKeyEnv;
+    apiKey = (await io.ask(`API key (empty to use MOH_ENDPOINT_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY${providerEnv ? ` or ${providerEnv}` : ""}${type === "openai-compat" ? "; local endpoints need none" : ""}): `)).trim();
     if (apiKey) {
       // SEC-06: an inline key never lands in the project moh.json (typically
       // world-readable). It goes to the guardian-owned auth store under
@@ -178,11 +181,12 @@ export async function runProviderAdd(
     // fixes the base URL (and there is no key), so neither is asked.
     defaultModel = await askSubscriptionModel(io, type);
   } else {
-    baseUrl = type === "openai-compat" ? await askKnownCompatEndpoint(io) : (await io.ask("Base URL (empty for default): ")).trim();
+    baseUrl = type === "openai-compat" ? await askKnownCompatEndpoint(io) : providerRequiresBaseUrlInput(type) ? await askRequiredProviderBaseUrl(io, type) : isProviderProfile(type) ? await askProviderEndpoint(io, type) : (await io.ask("Base URL (empty for default): ")).trim();
     if (type === "openai-compat" && baseUrl === "") {
       throw new OnboardingAborted("openai-compat endpoints require a base URL");
     }
-    defaultModel = (await io.ask(`Default model${type === "openai-compat" ? " (e.g. qwen3, deepseek-chat)" : ""}: `)).trim();
+    const defaultHint = providerProfile(type)?.defaultModel;
+    defaultModel = (await io.ask(`Default model${defaultHint ? ` [${defaultHint}]` : type === "openai-compat" ? " (e.g. qwen3, deepseek-chat)" : ""}: `)).trim() || defaultHint || "";
     if (defaultModel === "") {
       throw new OnboardingAborted("a default model is required");
     }
@@ -264,6 +268,23 @@ async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<str
  * numbered prompt. A digit selects the entry's URL; anything else is
  * used as a typed URL as before (empty still aborts via the caller).
  */
+async function askRequiredProviderBaseUrl(io: OnboardingIo, type: string): Promise<string> {
+  const template = providerProfile(type)?.baseUrl;
+  const value = (await io.ask(`Base URL [${template}]: `)).trim() || template || "";
+  if (!value || value.includes("{")) throw new OnboardingAborted("a concrete base URL is required for this endpoint");
+  return value;
+}
+
+async function askProviderEndpoint(io: OnboardingIo, type: string): Promise<string> {
+  const choices = providerEndpointChoices(type);
+  if (choices.length === 1) return choices[0]!.baseUrl;
+  for (const [i, choice] of choices.entries()) await io.info(`  ${i + 1}) ${choice.label} — ${choice.baseUrl}`);
+  const answer = (await io.ask(`API endpoint (1-${choices.length}): `)).trim();
+  const selected = /^\d+$/.test(answer) ? choices[Number(answer) - 1] : undefined;
+  if (!selected) throw new OnboardingAborted(`choose an endpoint between 1 and ${choices.length}`);
+  return selected.baseUrl;
+}
+
 async function askKnownCompatEndpoint(io: OnboardingIo): Promise<string> {
   for (const [i, entry] of KNOWN_COMPAT_ENDPOINTS.entries()) {
     await io.info(`  ${i + 1}) ${entry.name}${entry.local ? " (local)" : ""}${entry.url ? ` — ${entry.url}` : ""}`);
@@ -337,7 +358,7 @@ export async function minimalConnectionTest(
     // Inline key first (an empty/whitespace string counts as absent — the
     // wizard may persist "" when the field is left blank); then the env
     // var; then — SEC-06 — a wizard-stored key from the auth store.
-    apiKey = profile.apiKey?.trim() ? profile.apiKey : envApiKey(profile.name, env) ?? getStoredApiKey(authFile, profile.name);
+    apiKey = profile.apiKey?.trim() ? profile.apiKey : resolveApiKey(profile.name, profile.type, env) ?? getStoredApiKey(authFile, profile.name);
   }
   if (!apiKey && profile.type !== "openai-compat") {
     // Fail fast rather than send an unauthenticated request (local
@@ -415,8 +436,8 @@ export async function minimalConnectionTest(
     // #157: subscription or api-key, the stream path (AI SDK google
     // factory) always sends the credential as x-goog-api-key — never a
     // Bearer header.
-    if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type)) {
-      const base = profile.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
+    if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
+      const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
       const res = await fetchImpl(`${base}/chat/completions`, {
         method: "POST",
         signal,

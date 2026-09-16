@@ -6,6 +6,7 @@
  * nothing measurable.
  */
 import type { AgentEvent } from "../types";
+import { estimateModelCost } from "../pricing";
 
 export interface LocalUsageRow {
   model: string;
@@ -14,6 +15,9 @@ export interface LocalUsageRow {
   outputTokens: number;
   /** Epoch ms of the last model_call for this model. */
   lastCallAt?: number;
+  /** Estimated USD from the release-pinned pricing table. Absent when the
+   * model has no unambiguous price record. */
+  estimatedCostUsd?: number;
 }
 
 /** Aggregates per-model usage from raw events (in-memory session). */
@@ -29,6 +33,8 @@ export function aggregateLocalUsage(events: readonly AgentEvent[]): LocalUsageRo
     row.calls += 1;
     row.inputTokens += event.usage.inputTokens;
     row.outputTokens += event.usage.outputTokens;
+    const estimate = estimateModelCost(event.model, event.usage);
+    if (estimate) row.estimatedCostUsd = (row.estimatedCostUsd ?? 0) + estimate.usd;
   }
   return [...byModel.values()].sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
 }

@@ -421,6 +421,39 @@ never surfaces through the seam. `aggregateLocalUsage(events)` is the
 always-available fallback: per-model token totals summed from a session's
 `model_call` events. Both are exported from `@moh/core` (ADR-0004).
 
+## Estimated model pricing (#719)
+
+`estimateModelCost(model, usage)` returns an approximate USD estimate from the
+release-pinned vendored catalog for measured input and output tokens, or
+`undefined` when the model has no unique maintained rate. `PRICING_SNAPSHOT`
+identifies the catalog source/version clients must display alongside estimates.
+The calculation excludes cache, image, request, subscription, tax, and other
+billing dimensions; it never calls a provider and it does not write an amount
+to the event log. Rates may therefore be stale until the next catalog
+regeneration. `pricingForModel` and the typed pricing structures are exported
+only for clients needing the same projection (ADR-0004; ADR-0029).
+
+## Multi-session telemetry (#714)
+
+`aggregateTelemetry({ cwd, home, slug?, sinceMs? })` reads every session
+file under the project's sessions directory (the same slug resolution as
+`SessionStore.list`; an explicit `slug` reads another project's
+directory, and `sinceMs` — the `--days` window of `moh usage` — drops
+session files whose mtime is older, before any parsing) and returns one
+read-only metadata projection:
+per-model usage (calls and token totals from `model_call` events under
+the same convention as `aggregateLocalUsage` — failed calls excluded —
+plus audited thinking levels), per-tool statistics (calls, ok/fail,
+timeouts), route health (`fallback` activations from→to with reason,
+`route_serving` transitions, turn errors grouped by reason), and
+per-session rollups (turn status counts, token totals, models served,
+duration from ULID identity, subagent usage). Metadata only — never
+message content, tool outputs, or reasoning; everything is local; the
+agent loop and the event-log format are untouched; a corrupt or
+unreadable session file is skipped and counted in `sessionsSkipped`,
+never fatal. Exported from `@moh/core` (ADR-0004).
+
+
 ## Moh Project Map — read-only status and query (#614)
 
 `MpmService` is the single headless MPM service for one project: it loads
@@ -475,3 +508,15 @@ enters a result.
 the shipped clients need. Provider registry plumbing, memory internals,
 subagent presets, and skills discovery are internal — if you need one of
 those doors opened, that's an issue + ADR, not an import path.
+
+## Built-in endpoint profile metadata
+
+Clients that need to present the first-party OpenAI-compatible endpoint
+profiles can import `PROVIDER_PROFILES` from `@moh/core`. Each entry supplies
+the stable endpoint `id`, display name, documented default `baseUrl`,
+provider credential environment variable, default model, and any explicit
+endpoint alternatives. `providerEndpointChoices(id)` returns the endpoint
+choices a guided client may show; `providerRequiresBaseUrlInput(id)` identifies
+profiles whose URL needs user-owned account details. These are presentation
+metadata only: create sessions through `sessionFromConfig` as usual, and do
+not construct provider transports in the client.

@@ -24,6 +24,7 @@ commands:
   mpm      project map diagnostics (see: moh mpm --help)
   sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
+  usage    usage reports: models, tools, routes (see: moh usage --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -244,4 +245,33 @@ derived title. Display names never touch file names or slugs.
 
 delete moves the session's JSONL file into the trash
 (~/.moh/trash/projects/<slug>/ — restorable via \`moh trash restore\
+```
+
+## moh usage
+
+```
+usage: moh usage [tools|routes|export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
+
+Telemetry sub-reports over the project's local sessions (default: per-model
+usage). Metadata only; failed model calls are excluded (they consumed
+nothing measurable). Estimated USD is release-pinned approximate pricing;
+models without a price record remain tokens-only.
+
+  (default)   per-model usage: model calls, input and output tokens
+  tools       per-tool calls, ok/fail rate, timeouts, average call→result
+              duration where derivable
+  routes      fallback activations (from→to, reason), route_serving
+              switches, and turn errors grouped by ProviderError kind
+
+  export      redacted metadata-only export (CSV or JSONL) of the aggregate
+              telemetry — per-model usage, per-tool stats, per-session
+              rollups. No message content, tool outputs, or reasoning is
+              ever included: everything is redacted by construction.
+  --format    export format: csv (long "section,entity,metric,value" rows)
+              or jsonl (one record per line). Required with export.
+  --out       write the export to a path (default: stdout)
+  --project   another project's slug (default: the current project)
+  --days      only sessions modified within the last N days
+  --json      machine-readable JSON
+  --cwd       project root (default: process.cwd())
 ```

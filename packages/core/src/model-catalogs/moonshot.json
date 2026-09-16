@@ -1,0 +1,1 @@
+{"openai-completions":{"moonshot-v1-128k":{"id":"moonshot-v1-128k","name":"Moonshot v1 128K","api":"openai-completions","provider":"moonshot","baseUrl":"https://api.moonshot.ai/v1","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":131072,"maxTokens":8192}}}

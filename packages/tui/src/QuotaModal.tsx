@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Text, useInput } from "ink";
-import { getQuota, aggregateLocalUsage, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
+import { getQuota, aggregateLocalUsage, PRICING_SNAPSHOT, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import { useTheme } from "./themes";
-import { Dialog, Dim } from "./ui";
+import { Dialog, Dim, formatCount } from "./ui";
 import { SPINNER_FRAMES } from "./icons";
 
 /**
@@ -19,6 +19,11 @@ export interface QuotaModalProps {
   endpoints: EndpointProfile[];
   /** Local measured usage: per-model rows from the open session's events. */
   localUsage: LocalUsageRow[];
+  /** #718: per-model rollup over the last N project sessions (bounded
+   * `aggregateTelemetry` read, computed by the caller on open). When
+   * provided, the local section grows a "last N sessions" block; absent
+   * or failed, the modal degrades to the session-only view. */
+  recentUsage?: { window: number; models: LocalUsageRow[] } | null;
   /** Probe seam (defaults to the core `getQuota`; tests inject fixtures). */
   probe?: (endpoint: EndpointProfile) => Promise<QuotaReport | null>;
   onClose: () => void;
@@ -41,7 +46,7 @@ export function clearQuotaCache(): void {
   moduleCache.clear();
 }
 
-export function QuotaModal({ endpoints, localUsage, probe, onClose }: QuotaModalProps) {
+export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose }: QuotaModalProps) {
   const theme = useTheme();
   const [reports, setReports] = useState<ReportState>({});
   const [tick, setTick] = useState(0);
@@ -106,10 +111,20 @@ export function QuotaModal({ endpoints, localUsage, probe, onClose }: QuotaModal
       {anyUnavailable && <Dim> provider quota unavailable — local measurement only</Dim>}
       <Text> </Text>
       <Text bold> local measured (this session)</Text>
+      <Dim>{` estimated USD · pricing snapshot ${PRICING_SNAPSHOT.version}`}</Dim>
       {localUsage.length === 0 && <Dim> no model calls yet</Dim>}
       {localUsage.map((row) => (
         <LocalRow key={row.model} row={row} />
       ))}
+      {recentUsage && recentUsage.models.length > 0 ? (
+        <>
+          <Text> </Text>
+          <Text bold>{` local measured (last ${recentUsage.window} sessions)`}</Text>
+          {recentUsage.models.map((row) => (
+            <LocalRow key={row.model} row={row} />
+          ))}
+        </>
+      ) : null}
       <Text> </Text>
       <Dim>● documented · ○ provider-reported · r refresh · esc close</Dim>
     </Dialog>
@@ -170,7 +185,7 @@ function LocalRow({ row }: { row: LocalUsageRow }) {
   return (
     <Text>
       <Text color={theme.warn}>—</Text>
-      {` ${row.model}: ${formatCount(row.inputTokens)} in · ${formatCount(row.outputTokens)} out (${row.calls} call${row.calls === 1 ? "" : "s"})`}
+      {` ${row.model}: ${formatCount(row.inputTokens)} in · ${formatCount(row.outputTokens)} out (${row.calls} call${row.calls === 1 ? "" : "s"})${row.estimatedCostUsd === undefined ? "" : ` · est. ${formatUsd(row.estimatedCostUsd)}`}`}
     </Text>
   );
 }
@@ -194,10 +209,9 @@ function fractionColor(fraction: number | undefined, theme: { ok: string; warn: 
   return fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.ok;
 }
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
+
+function formatUsd(usd: number): string {
+  return `$${usd.toFixed(usd < 0.01 ? 4 : 2)}`;
 }
 
 function formatReset(at: number): string {

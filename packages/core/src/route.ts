@@ -7,6 +7,7 @@ import { aiSdkStreamFor, type AiSdkTransport } from "./providers/ai-sdk";
 import { resolveEndpointCredential } from "./auth/resolve";
 import type { EndpointCapabilities, ThinkingFormat } from "./types";
 import type { WireApi } from "./wire";
+import { providerProfile } from "./provider-profiles";
 
 /** What a provider implementation an Endpoint instantiates. */
 export type ProviderKind =
@@ -17,6 +18,8 @@ export type ProviderKind =
   | "openrouter"
   | "kimi-coding"
   | "xai"
+  | "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" | "fireworks" | "huggingface" | "mistral"
+  | "moonshot" | "minimax" | "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" | "cloudflare-ai-gateway" | "baseten"
   | "mock"
   | "custom";
 
@@ -55,7 +58,7 @@ export class Endpoint {
       parallelToolCalls: config.capabilities?.parallelToolCalls ?? true,
       multimodal: config.capabilities?.multimodal ?? true,
     };
-    this.#apiKey = config.apiKey ?? envApiKey(config.name);
+    this.#apiKey = config.apiKey ?? envApiKey(config.name) ?? providerApiKey(config.kind);
   }
 
   get apiKey(): string | undefined {
@@ -70,6 +73,16 @@ export function endpointEnvVarName(endpointName: string): string {
 
 export function envApiKey(endpointName: string, env: Record<string, string | undefined> = process.env): string | undefined {
   return env[endpointEnvVarName(endpointName)];
+}
+
+/** Documented provider credential fallback. Endpoint-specific MOH_ENDPOINT_* wins. */
+export function providerApiKey(kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  const key = providerProfile(kind)?.apiKeyEnv;
+  return key ? env[key] : undefined;
+}
+
+export function resolveApiKey(endpointName: string, kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  return envApiKey(endpointName, env) ?? providerApiKey(kind, env);
 }
 
 /** One stop of a fallback chain: endpoint + model id. */
