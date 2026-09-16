@@ -5,6 +5,25 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.37.0] - 2026-09-16
+### Added
+
+- **Usage quota modal as bordered tables** (#742): the TUI usage quota modal
+  (ctrl+q) renders provider quota windows and the local section as clean
+  bordered tables with progress bars, replacing the prose layout.
+
+### Changed
+
+- **mpm_query: term-agnostic graded seed resolution** (#743, PR #744): seed
+  candidates are graded across path, symbol, and term dimensions instead of
+  exact-match-only, with precise fallback reasons for discarded or ambiguous
+  candidates.
+
+### Documentation
+
+- **README refresh** (#741): documents local usage telemetry and
+  OpenAI-compatible endpoint profiles; refreshed CLI table.
+
 ## [0.36.0] - 2026-09-16
 ### Added
 
