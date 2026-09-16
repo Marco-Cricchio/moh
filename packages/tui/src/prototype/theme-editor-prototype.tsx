@@ -530,13 +530,15 @@ function VariantD() {
                   {Array.from({ length: 20 }, (_, i) => {
                     const h = (hue + (i - 3) * 6 + 360) % 360; // window centered on the value
                     const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
-                    // The word "hue" itself is the position marker: its
-                    // letters ride the strip, centered on the value (cell 3).
+                    // The word "hue" is the position marker (letters ride
+                    // the strip, centered on the value, cell 3); the ←→ hint
+                    // sits at the strip's right end on its own cells.
                     const inLabel = i >= 1 && i <= 3;
-                    const ch = inLabel ? "hue"[i - 1] : " ";
-                    return <Text key={i} backgroundColor={hex} color={inLabel ? theme.bg : hex}>{ch}</Text>;
+                    const inHint = i >= 17 && i <= 18;
+                    const ch = inLabel ? "hue"[i - 1] : inHint ? "←→"[i - 17] : " ";
+                    const onCell = inLabel || inHint;
+                    return <Text key={i} backgroundColor={hex} color={onCell ? theme.bg : hex}>{ch}</Text>;
                   })}
-                  <Dim>{` ←→ rotates`}</Dim>
                 </Text>
               )}
             </Box>
