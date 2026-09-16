@@ -140,7 +140,12 @@ const vibeCommandHint = (args: unknown): string => {
   if (!args || typeof args !== "object") return "";
   const command = (args as { command?: unknown }).command;
   if (typeof command !== "string" || !command.trim()) return "";
-  const words = sanitizeForDisplay(command).trim().split(/\s+/)
+  // #749-adjacent regression: multi-line payloads whose first lines are
+  // comments (`# Check: …`) leaked into the vibe hint. Lead with the first
+  // executable line, mirroring bashDetail.
+  const lines = sanitizeForDisplay(command).trim().split("\n");
+  const executable = lines.find((line) => line.trim() !== "" && !line.trimStart().startsWith("#")) ?? lines.find((line) => line.trim() !== "") ?? "";
+  const words = executable.trim().split(/\s+/)
     // Skip leading env assignments (FOO=bar cmd) and wrappers (cd x && cmd)
     .filter((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && word !== "&&" && word !== ";");
   const first = words[0]?.split("/").pop() ?? "";

@@ -140,6 +140,24 @@ describe("semantic transcript projection (#183)", () => {
     expect(dev.some((block) => block.type === "preview")).toBe(true);
   });
 
+  test("vibe bash hint skips leading comment lines in multi-line payloads (#749-adjacent)", () => {
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "c1", name: "bash", args: { command: "# Check:\nbun test packages/tui/test/x.test.ts" } },
+      { type: "tool_result", callId: "c1", ok: true, output: "ok" },
+      { type: "tool_call", callId: "c2", name: "bash", args: { command: "# Maybe\n# Clamp\ngit status" } },
+      { type: "tool_result", callId: "c2", ok: true, output: "ok" },
+      { type: "tool_call", callId: "c3", name: "bash", args: { command: "# only comments" } },
+      { type: "tool_result", callId: "c3", ok: true, output: "ok" },
+    ];
+    const lines = projectTranscript(events, { mode: "vibe" })
+      .filter((block) => block.lines.length === 1)
+      .map((block) => block.lines[0]);
+    expect(lines).toContain("ran a command · bun test");
+    expect(lines).toContain("ran a command · git status");
+    // all-comment payload degrades to the first line rather than crashing/empty
+    expect(lines).toContain("ran a command · # only");
+  });
+
   test("vibe shows a failed tool as an error with its message (#193)", () => {
     const blocks = projectTranscript([
       { type: "tool_call", callId: "f1", name: "bash", args: { command: "bun test" } },
