@@ -5,6 +5,25 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.35.1] - 2026-09-16
+### Fixed
+
+- **grep/glob crashed with ENOTDIR on file paths** (#731, PR #732): pointing
+  `grep` at a single file (a natural usage) crashed with an uncaught
+  `ENOTDIR` from the directory scan — about 40% of all observed tool
+  failures. A file `path` is now searched directly; `glob` with a
+  literal file pattern returns the file when it exists instead of
+  crashing the scan.
+
+- **Tolerant tool schemas and structured failure kinds** (#731, PR #732):
+  common model mistakes are normalized at the tool layer instead of
+  failing the call — `ask_user` trims over-long headers and fuzzy-snaps
+  `suggested` to an option label; `read` coerces `null`/`0` `offset`/
+  `limit`; `bash` exit 127 from `rg`/`grep -P` now hints at the built-in
+  grep tool. Failed `tool_result` events carry a structured `errorKind`
+  (schema-validation, permission, timeout, io, command-exit, …), and
+  `moh usage tools` shows the failure breakdown per kind.
+
 ## [0.35.0] - 2026-09-16
 ### Added
 
@@ -112,7 +131,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.35.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.35.1...develop
+[0.35.1]: https://github.com/Marco-Cricchio/moh/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/Marco-Cricchio/moh/compare/v0.34.3...v0.35.0
 [0.34.3]: https://github.com/Marco-Cricchio/moh/compare/v0.34.2...v0.34.3
 [0.34.2]: https://github.com/Marco-Cricchio/moh/compare/v0.34.1...v0.34.2
