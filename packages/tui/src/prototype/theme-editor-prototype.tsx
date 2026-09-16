@@ -517,15 +517,24 @@ function VariantD() {
           const focused = slider === sl;
           return (
             <Box key={sl} flexDirection="column">
-              <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-                {` ${focused ? "›" : " "} ${sl.padEnd(12)}${value(sl).padStart(6)}`.padEnd(24)}
-              </Text>
+              {!(focused && sl === "hue") && (
+                <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+                  {` ${focused ? "›" : " "} ${sl.padEnd(12)}${value(sl).padStart(6)}`.padEnd(24)}
+                </Text>
+              )}
               {focused && sl === "hue" && (
+                // The row label sits INSIDE the chromatic strip: the strip is
+                // 20 cells wide and the word "hue" rides on it, letters
+                // contrasted against the color beneath each one.
                 <Text>
                   {Array.from({ length: 20 }, (_, i) => {
                     const h = (hue + (i - 3) * 6 + 360) % 360; // window centered on the value
                     const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
-                    return <Text key={i} backgroundColor={hex} color={i === 3 ? theme.bg : hex}>{i === 3 ? "╹" : " "}</Text>;
+                    // The word "hue" itself is the position marker: its
+                    // letters ride the strip, centered on the value (cell 3).
+                    const inLabel = i >= 1 && i <= 3;
+                    const ch = inLabel ? "hue"[i - 1] : " ";
+                    return <Text key={i} backgroundColor={hex} color={inLabel ? theme.bg : hex}>{ch}</Text>;
                   })}
                   <Dim>{` ←→ rotates`}</Dim>
                 </Text>
