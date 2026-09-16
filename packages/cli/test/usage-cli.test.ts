@@ -81,6 +81,21 @@ describe("moh usage (#715)", () => {
     expect(stdout).not.toContain("999");
   });
 
+  test("shows approximate cost only for models with a maintained price", () => {
+    const h = harness();
+    h.session((s) => {
+      turn(s, "alpha/claude-haiku-4-5", 1_000_000, 1_000_000);
+      turn(s, "custom/unknown", 10, 10);
+    });
+    const { stdout } = h.spawn([]);
+    expect(stdout).toContain("estimated USD");
+    expect(stdout).toContain("$6.00");
+    const json = JSON.parse(h.spawn(["--json"]).stdout);
+    expect(json.models.find((m: { model: string }) => m.model === "alpha/claude-haiku-4-5").estimatedCostUsd).toBe(6);
+    expect(json.models.find((m: { model: string }) => m.model === "custom/unknown").estimatedCostUsd).toBeUndefined();
+    expect(json.pricing).toMatchObject({ estimate: true, version: "0.85.0" });
+  });
+
   test("--json emits the aggregate structure", () => {
     const h = harness();
     h.session((s) => {

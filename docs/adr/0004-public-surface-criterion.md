@@ -219,3 +219,12 @@ read-only aggregator over the project's session files: per-model usage
 health, and per-session rollups — metadata only, all-local, corrupt
 files skipped and counted. The `sessionsSkipped` counter covers both
 corrupt/unreadable and empty session files.
+
+## Amendment — 2026-09-16, #719 estimated pricing seam
+
+**Re-opened doors**: `estimateModelCost`, `pricingForModel`,
+`PRICING_SNAPSHOT`, and their `ModelCostEstimate`/`ModelPricing` types. The
+CLI usage report and TUI quota modal need one shared, read-only interpretation
+of the release-pinned catalog rates. The seam accepts only a recorded model id
+and measured input/output tokens and returns no value when pricing is absent or
+ambiguous; it never contacts a provider or modifies the append-only log.
