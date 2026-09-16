@@ -13,6 +13,9 @@ import { DEFAULT_THEME, THEMES, type ThemeName } from "./themes";
 import type { ImagePreviewSetting } from "./image-preview";
 
 export type VibeMode = "vibe" | "dev";
+
+/** Config `theme` value: a built-in preset id or `user:<id>` (#749). */
+export type ThemeRef = ThemeName | `user:${string}`;
 export type FilePreview = "always" | "on-demand" | "none";
 export type AnswerLanguage = "auto" | "en" | "it";
 export type DefaultPermissionMode = "normal" | "auto-accept";
@@ -35,7 +38,7 @@ export interface UserConfig {
   /** First-run onboarding completed (skip or connect both count). */
   onboarded: boolean;
   mode: VibeMode;
-  theme: ThemeName;
+  theme: ThemeRef;
   icons: boolean;
   /** Contextual tool-call viewer policy (style guide §1 Q7). */
   filePreview: FilePreview;
@@ -104,7 +107,11 @@ function coerce(raw: unknown): Partial<UserConfig> {
       "mac-platinum": "catppuccin",
     };
     const candidate = migrated[src.theme] ?? src.theme;
-    if (candidate in THEMES) out.theme = candidate as ThemeName;
+    // #749: user themes ride as `user:<id>` — validated against the themes
+    // directory at resolution time (App), not here, so config parsing never
+    // needs the filesystem.
+    if (candidate.startsWith("user:")) out.theme = candidate as ThemeRef;
+    else if (candidate in THEMES) out.theme = candidate as ThemeName;
   }
   if (typeof src.icons === "boolean") out.icons = src.icons;
   if (src.filePreview === "always" || src.filePreview === "on-demand" || src.filePreview === "none") {

@@ -34,7 +34,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
     expect(frame).toContain("mode");
     // the theme and thinking chips are gone (kept: ctrl+t/ctrl+y, /theme,
     // /thinking); the where-you-are row shows the cwd (2A layout).
-    expect(frame).not.toContain("theme");
+    expect(frame).not.toContain("^t theme"); // the chip is gone (kept: ctrl+t, /theme)
     expect(frame).toContain("▣");
     expect(frame).not.toContain("tab chips · ctrl+k commands · esc stop");
     ink.unmount();

@@ -111,7 +111,7 @@ export function Dialog({
       <Box
         borderStyle="round"
         borderColor={color}
-        backgroundColor={theme.bg}
+        backgroundColor={theme.surface}
         width={width ?? dialogWidth(viewport)}
         paddingX={2}
         flexDirection="column"
