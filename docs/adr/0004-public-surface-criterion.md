@@ -228,3 +228,12 @@ CLI usage report and TUI quota modal need one shared, read-only interpretation
 of the release-pinned catalog rates. The seam accepts only a recorded model id
 and measured input/output tokens and returns no value when pricing is absent or
 ambiguous; it never contacts a provider or modifies the append-only log.
+
+## Amendment — 2026-09-16, #672 `lastAssistantText`
+
+**Re-opened door**: `lastAssistantText(events)` (`core/src/session-store.ts`),
+the read-only projection of the last completed assistant turn (cleared by
+any later user message). Consumed by the TUI `/copy` command so the copy
+source is exactly what the event log recorded — the core stays headless
+and the clipboard transport stays client-side. No other store internals
+leave the package.

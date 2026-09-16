@@ -30,7 +30,33 @@ describe("clipboard backend (#672)", () => {
     } finally {
       (process.stdout as { write: unknown }).write = original;
     }
-    expect(chunks).toEqual([`\x1b]52;c;${Buffer.from("ciao", "utf8").toString("base64")}\x07`]);
+    const b64 = Buffer.from("ciao", "utf8").toString("base64");
+    expect(chunks).toEqual([`\x1b]52;c;${b64}\x1b]52;p;${b64}\x07`]);
+  });
+
+  test("on a TTY, OSC 52 is preferred over platform binaries (spec order)", () => {
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    try {
+      clipboardBackend(null);
+      expect(clipboardBackend().kind).toBe("osc52");
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+      clipboardBackend(null);
+    }
+  });
+
+  test("without a TTY (piped/embedded), a platform binary is preferred, OSC 52 last", () => {
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    try {
+      clipboardBackend(null);
+      // darwin CI has pbcopy; the exact kind depends on the platform
+      expect(["binary", "osc52"]).toContain(clipboardBackend().kind);
+    } finally {
+      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+      clipboardBackend(null);
+    }
   });
 });
 

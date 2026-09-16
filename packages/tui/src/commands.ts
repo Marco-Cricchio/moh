@@ -552,7 +552,7 @@ const copyCommand: SlashCommand = {
     if (!ctx.session) return ctx.notify("/copy — nothing to copy yet (no open session)");
     const text = lastAssistantText(ctx.session.history());
     if (!text) return ctx.notify("nothing to copy yet");
-    copyToClipboard(text)
+    void copyToClipboard(text)
       .then(() => ctx.notify(`✓ copied ${text.length.toLocaleString("en-US")} chars`))
       .catch((error) => ctx.notify(`✗ copy failed: ${error instanceof Error ? error.message : String(error)}`));
   },

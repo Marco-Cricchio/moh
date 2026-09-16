@@ -62,28 +62,30 @@ function detectBinary(): ClipboardBackend | null {
   return null;
 }
 
-/** Base64-encoded OSC 52 write to stdout: both clipboard and primary
- * selections (terminals that ignore the primary form just skip it). */
+/** Base64-encoded OSC 52 write to stdout: the clipboard selection
+ * (`c`) plus the primary selection (`p`) — terminals that ignore the
+ * primary form just skip that sequence. */
 export function writeOsc52(text: string): Promise<void> {
   const payload = Buffer.from(text, "utf8").toString("base64");
   return new Promise((resolve, reject) => {
-    process.stdout.write(`\x1b]52;c;${payload}\x07`, (error) => (error ? reject(error) : resolve()));
+    process.stdout.write(`\x1b]52;c;${payload}\x1b]52;p;${payload}\x07`, (error) => (error ? reject(error) : resolve()));
   });
 }
 
 const OSC52_BACKEND: ClipboardBackend = { kind: "osc52", write: writeOsc52 };
 
-/** Detects and caches the backend at first use: OSC 52 first (ssh-safe,
- * dependency-free), then the platform binaries. Always returns a
- * backend — an incapable terminal silently ignores the OSC 52
- * sequence, so there is no "nothing works" case here. Injectable
- * backend overrides the cache (tests, embedders). */
+/** Detects and caches the backend at first use: OSC 52 first (the
+ * spec's preference order — ssh-safe, dependency-free), falling back
+ * to platform binaries when stdout is not a terminal (piped/embedded
+ * runs, where the escape sequence has no reader) or the OSC 52 write
+ * itself fails. Injectable backend overrides the cache (tests,
+ * embedders). */
 export function clipboardBackend(override?: ClipboardBackend | null): ClipboardBackend {
   if (override !== undefined) {
     cached = override;
     return override ?? OSC52_BACKEND;
   }
-  cached ??= detectBinary() ?? OSC52_BACKEND;
+  cached ??= process.stdout.isTTY ? OSC52_BACKEND : detectBinary() ?? OSC52_BACKEND;
   return cached;
 }
 
