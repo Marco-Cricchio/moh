@@ -1,9 +1,14 @@
 /**
- * `moh usage` (#715): a thin projection over the core multi-session
- * telemetry aggregator (#714) — per-model usage (calls, input/output
- * tokens) across the project's local session files, with `--project`,
- * `--days` (session mtime window) and `--json` filters. Metadata only,
- * all local; no sessions → friendly empty message, never an error.
+ * `moh usage` (#715/#716): a thin projection over the core multi-session
+ * telemetry aggregator (#714) — three sub-reports over one aggregate:
+ *
+ *   moh usage          per-model usage (calls, input/output tokens)
+ *   moh usage tools    per-tool calls, ok/fail, timeouts, avg duration
+ *   moh usage routes   fallbacks, route_serving switches, turn errors
+ *
+ * All three accept `--project`, `--days` (session mtime window) and
+ * `--json`. Metadata only, all local; no sessions → friendly empty
+ * message, never an error.
  */
 import { writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -11,11 +16,17 @@ import { homedir } from "node:os";
 import { aggregateTelemetry } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
 
-export const USAGE_USAGE = `usage: moh usage [export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
+export const USAGE_USAGE = `usage: moh usage [tools|routes|export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
 
-Per-model usage report across the project's local sessions: model calls,
-input and output tokens summed over every session file. Failed calls are
-excluded (they consumed nothing measurable).
+Telemetry sub-reports over the project's local sessions (default: per-model
+usage). Metadata only; failed model calls are excluded (they consumed
+nothing measurable).
+
+  (default)   per-model usage: model calls, input and output tokens
+  tools       per-tool calls, ok/fail rate, timeouts, average call→result
+              duration where derivable
+  routes      fallback activations (from→to, reason), route_serving
+              switches, and turn errors grouped by ProviderError kind
 
   export      redacted metadata-only export (CSV or JSONL) of the aggregate
               telemetry — per-model usage, per-tool stats, per-session
@@ -26,8 +37,10 @@ excluded (they consumed nothing measurable).
   --out       write the export to a path (default: stdout)
   --project   another project's slug (default: the current project)
   --days      only sessions modified within the last N days
-  --json      machine-readable JSON (models, totals, session count)
+  --json      machine-readable JSON
   --cwd       project root (default: process.cwd())`;
+
+type Report = ReturnType<typeof aggregateTelemetry>;
 
 /** Resolves `--cwd` to an absolute project root (siblings like trash.ts
  * and compact.ts resolve too, so a relative `--cwd` never breaks
@@ -37,8 +50,8 @@ function resolveCwd(cwdFlag: string | undefined): string {
   return isAbsolute(raw) ? raw : resolve(raw);
 }
 
-/** Shared `--days` parsing for the summary reports and the export:
- * returns the since-epoch ms or an exit code (2 = usage error). */
+/** Shared `--days` parsing for every sub-report: returns the since-epoch
+ * ms or an exit code (2 = usage error). */
 function resolveWindow(
   parsed: { strings: Record<string, string | undefined> },
   prefix: string,
@@ -54,22 +67,58 @@ function resolveWindow(
   return { sinceMs: Date.now() - days * 24 * 60 * 60 * 1000 };
 }
 
-/** Shared filter parsing + aggregation for every `moh usage` sub-report
- * (summary and export alike). Returns the report or an exit code. */
-function collectReport(
-  parsed: { strings: Record<string, string | undefined>; booleans: Record<string, boolean | undefined> },
+interface Collected {
+  report: Report;
+  sub: "tools" | "routes" | undefined;
+  json: boolean;
+}
+
+/** Shared filter parsing + aggregation for the sub-reports. Returns
+ * either the parse result or an exit code (2 = usage error). */
+function collect(
+  argv: string[],
   home: string | undefined,
-  prefix: string,
   err: { write(s: string): void },
-): ReturnType<typeof aggregateTelemetry> | number {
-  const window = resolveWindow(parsed, prefix, err);
+): Collected | number | "export" {
+  let parsed;
+  try {
+    parsed = parseArgs(argv, { strings: ["project", "days", "cwd", "format", "out"], booleans: ["json"] });
+  } catch (e) {
+    if (e instanceof ArgError) {
+      err.write(`moh usage: ${e.message}\n\n${USAGE_USAGE}\n`);
+      return 2;
+    }
+    throw e;
+  }
+  const positionals = parsed.positionals;
+  if (positionals[0] === "export") {
+    if (positionals.length > 1) {
+      err.write(`moh usage export: unexpected argument "${positionals[1]}"\n\n${USAGE_USAGE}\n`);
+      return 2;
+    }
+    return "export";
+  }
+  if (positionals.length > 1 || (positionals[0] !== undefined && !["tools", "routes"].includes(positionals[0]!))) {
+    err.write(`moh usage: unexpected argument "${positionals[0]}"\n\n${USAGE_USAGE}\n`);
+    return 2;
+  }
+  const window = resolveWindow(parsed, "moh usage", err);
   if (typeof window === "number") return window;
-  return aggregateTelemetry({
+  const report = aggregateTelemetry({
     cwd: resolveCwd(parsed.strings["cwd"]),
     home: home ?? homedir(),
     ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
     ...(window.sinceMs !== undefined ? { sinceMs: window.sinceMs } : {}),
   });
+  return { report, sub: positionals[0] as Collected["sub"], json: Boolean(parsed.booleans["json"]) };
+}
+
+function emptyState(report: Report, err: { write(s: string): void }): number {
+  err.write("No sessions found for this project — nothing to report yet.\n");
+  if (report.sessionsSkipped > 0) {
+    err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);
+  }
+  return 0;
 }
 
 export async function usageCommand({
@@ -83,30 +132,44 @@ export async function usageCommand({
   out?: { write(s: string): void };
   err?: { write(s: string): void };
 }): Promise<number> {
-  let parsed;
-  try {
-    parsed = parseArgs(argv, { strings: ["project", "days", "cwd", "format", "out"], booleans: ["json"] });
-  } catch (e) {
-    if (e instanceof ArgError) {
-      err.write(`moh usage: ${e.message}\n\n${USAGE_USAGE}\n`);
-      return 2;
-    }
-    throw e;
-  }
-  if (parsed.positionals.length) {
-    if (parsed.positionals[0] === "export") {
-      if (parsed.positionals.length > 1) {
-        err.write(`moh usage export: unexpected argument "${parsed.positionals[1]}"\n\n${USAGE_USAGE}\n`);
-        return 2;
-      }
-      return exportCommand(parsed, home, out, err);
-    }
-    err.write(`moh usage: unexpected argument "${parsed.positionals[0]}"\n\n${USAGE_USAGE}\n`);
-    return 2;
-  }
-  const report = collectReport(parsed, home, "moh usage", err);
-  if (typeof report === "number") return report;
+  const collected = collect(argv, home, err);
+  if (collected === "export") return exportCommand(argv, home, out, err);
+  if (typeof collected === "number") return collected;
+  const { report, sub, json } = collected;
+  if (sub === "tools") return renderTools(report, json, out, err);
+  if (sub === "routes") return renderRoutes(report, json, out, err);
+  return renderModels(report, json, out, err);
+}
 
+// ── Shared table rendering ──────────────────────────────────────────────
+
+/** Renders a left-aligned table with a rule under the header; the caller
+ * owns the blank-line rhythm. */
+function table(header: string[], body: string[][]): string {
+  const rows = [header, ...body];
+  const widths = header.map((_, c) => Math.max(...rows.map((r) => r[c]!.length)));
+  return (
+    rows
+      .map(
+        (row, i) =>
+          `  ${row.map((cell, c) => cell + " ".repeat(widths[c]! - cell.length)).join("  ").trimEnd()}\n` +
+          (i === 0 ? `  ${widths.map((w) => "─".repeat(w)).join("  ")}\n` : ""),
+      )
+      .join("")
+  );
+}
+
+const num = (n: number): string => n.toLocaleString("en-US");
+
+function skipNotice(report: Report, err: { write(s: string): void }): void {
+  if (report.sessionsSkipped > 0) {
+    err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);
+  }
+}
+
+// ── Default: per-model usage (#715) ─────────────────────────────────────
+
+function renderModels(report: Report, json: boolean, out: { write(s: string): void }, err: { write(s: string): void }): number {
   const totals = report.models.reduce(
     (acc, m) => ({
       calls: acc.calls + m.calls,
@@ -116,7 +179,7 @@ export async function usageCommand({
     { calls: 0, inputTokens: 0, outputTokens: 0 },
   );
 
-  if (parsed.booleans["json"]) {
+  if (json) {
     out.write(
       JSON.stringify(
         {
@@ -136,8 +199,6 @@ export async function usageCommand({
     );
     return 0;
   }
-
-  const num = (n: number): string => n.toLocaleString("en-US");
 
   if (report.sessionsScanned === 0) {
     // Friendly empty state, also for a slug with only unreadable files —
@@ -163,9 +224,116 @@ export async function usageCommand({
       `${num(totals.calls)} call${totals.calls === 1 ? "" : "s"}, ` +
       `${num(totals.inputTokens)} in / ${num(totals.outputTokens)} out tokens\n`,
   );
-  if (report.sessionsSkipped > 0) {
-    err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);
+  skipNotice(report, err);
+  return 0;
+}
+
+// ── moh usage tools (#716) ──────────────────────────────────────────────
+
+/** Average derivable duration per tool, in ms; null when no paired
+ * call→result exists. */
+function avgDurationMs(t: Report["tools"][number]): number | null {
+  return t.ok + t.fail > 0 ? Math.round(t.totalDurationMs / (t.ok + t.fail)) : null;
+}
+
+function renderTools(report: Report, json: boolean, out: { write(s: string): void }, err: { write(s: string): void }): number {
+  if (json) {
+    out.write(
+      JSON.stringify(
+        {
+          tools: report.tools.map((t) => {
+            const avg = avgDurationMs(t);
+            return {
+              tool: t.tool,
+              calls: t.calls,
+              ok: t.ok,
+              fail: t.fail,
+              timeouts: t.timeouts,
+              ...(avg !== null ? { avgDurationMs: avg } : {}),
+            };
+          }),
+          sessionsScanned: report.sessionsScanned,
+          sessionsSkipped: report.sessionsSkipped,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    return 0;
   }
+
+  if (report.sessionsScanned === 0) return emptyState(report, err);
+
+  const pct = (part: number, whole: number): string => (whole === 0 ? "—" : `${Math.round((part / whole) * 100)}%`);
+  const rows: string[][] = [
+    ["Tool", "Calls", "Ok", "Fail", "Timeouts", "Avg dur"],
+    ...report.tools.map((t) => {
+      const avg = avgDurationMs(t);
+      return [t.tool, num(t.calls), pct(t.ok, t.calls), pct(t.fail, t.calls), num(t.timeouts), avg !== null ? `${num(avg)}ms` : "—"];
+    }),
+  ];
+  out.write("Tool statistics:\n\n");
+  if (report.tools.length === 0) {
+    out.write("  (no tool calls in the scanned sessions)\n");
+  } else {
+    out.write(table(rows[0]!, rows.slice(1)));
+  }
+  out.write(`\n  ${report.sessionsScanned} session${report.sessionsScanned === 1 ? "" : "s"} scanned\n`);
+  skipNotice(report, err);
+  return 0;
+}
+
+// ── moh usage routes (#716) ─────────────────────────────────────────────
+
+function renderRoutes(report: Report, json: boolean, out: { write(s: string): void }, err: { write(s: string): void }): number {
+  if (json) {
+    out.write(
+      JSON.stringify(
+        { route: report.route, sessionsScanned: report.sessionsScanned, sessionsSkipped: report.sessionsSkipped },
+        null,
+        2,
+      ) + "\n",
+    );
+    return 0;
+  }
+
+  if (report.sessionsScanned === 0) return emptyState(report, err);
+
+  out.write("Route health:\n\n");
+  if (report.route.fallbacks.length > 0) {
+    out.write("Fallback activations:\n\n");
+    out.write(
+      table(
+        ["From", "To", "Reason", "Count"],
+        report.route.fallbacks.map((f) => [f.from, f.to, f.reason, num(f.count)]),
+      ),
+    );
+    out.write("\n");
+  } else {
+    out.write("No fallback activations.\n\n");
+  }
+  if (report.route.routeServing.length > 0) {
+    out.write("Route serving switches:\n\n");
+    out.write(
+      table(
+        ["Selected", "Serving", "Previous", "Count"],
+        report.route.routeServing.map((r) => [r.selected, r.serving, r.previous, num(r.count)]),
+      ),
+    );
+    out.write("\n");
+  } else {
+    out.write("No route_serving switches.\n\n");
+  }
+  const errorRows = Object.entries(report.route.turnErrors).sort((a, b) => b[1] - a[1]);
+  if (errorRows.length > 0) {
+    out.write("Turn errors by kind:\n\n");
+    out.write(table(["Error kind", "Count"], errorRows.map(([kind, count]) => [kind, num(count)])));
+    out.write("\n");
+  } else {
+    out.write("No turn errors.\n");
+  }
+  out.write(`\n  ${report.sessionsScanned} session${report.sessionsScanned === 1 ? "" : "s"} scanned\n`);
+  skipNotice(report, err);
   return 0;
 }
 
@@ -243,13 +411,6 @@ export function exportRecords(report: ReturnType<typeof aggregateTelemetry>): Us
 
 const CSV_HEADER = "section,entity,metric,value";
 
-/** Shared empty state: friendly message, exit 0. */
-function emptyState(report: { sessionsSkipped: number }, err: { write(s: string): void }): number {
-  err.write("No sessions found for this project — nothing to report yet.\n");
-  if (report.sessionsSkipped > 0) err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);
-  return 0;
-}
-
 /** RFC-4180 quoting: quote when the value contains a comma, quote,
  * or newline; double embedded quotes. */
 function csvField(value: string): string {
@@ -320,18 +481,34 @@ function renderExport(
 }
 
 function exportCommand(
-  parsed: { strings: Record<string, string | undefined>; booleans: Record<string, boolean | undefined> },
+  argv: string[],
   home: string | undefined,
   out: { write(s: string): void },
   err: { write(s: string): void },
 ): number {
+  let parsed;
+  try {
+    parsed = parseArgs(argv, { strings: ["project", "days", "cwd", "format", "out"], booleans: ["json"] });
+  } catch (e) {
+    if (e instanceof ArgError) {
+      err.write(`moh usage: ${e.message}\n\n${USAGE_USAGE}\n`);
+      return 2;
+    }
+    throw e;
+  }
   const formatRaw = parsed.strings["format"];
   if (formatRaw !== "csv" && formatRaw !== "jsonl") {
     err.write(`moh usage export: --format csv|jsonl is required (got ${formatRaw ? `"${formatRaw}"` : "none"})\n\n${USAGE_USAGE}\n`);
     return 2;
   }
-  const report = collectReport(parsed, home, "moh usage export", err);
-  if (typeof report === "number") return report;
+  const window = resolveWindow(parsed, "moh usage export", err);
+  if (typeof window === "number") return window;
+  const report = aggregateTelemetry({
+    cwd: resolveCwd(parsed.strings["cwd"]),
+    home: home ?? homedir(),
+    ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
+    ...(window.sinceMs !== undefined ? { sinceMs: window.sinceMs } : {}),
+  });
   if (report.sessionsScanned === 0) return emptyState(report, err);
 
   const body = renderExport(report, formatRaw);

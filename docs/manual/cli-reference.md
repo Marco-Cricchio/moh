@@ -24,7 +24,7 @@ commands:
   mpm      project map diagnostics (see: moh mpm --help)
   sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
-  usage    per-model usage report (see: moh usage --help)
+  usage    usage reports: models, tools, routes (see: moh usage --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -250,11 +250,17 @@ delete moves the session's JSONL file into the trash
 ## moh usage
 
 ```
-usage: moh usage [export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
+usage: moh usage [tools|routes|export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
 
-Per-model usage report across the project's local sessions: model calls,
-input and output tokens summed over every session file. Failed calls are
-excluded (they consumed nothing measurable).
+Telemetry sub-reports over the project's local sessions (default: per-model
+usage). Metadata only; failed model calls are excluded (they consumed
+nothing measurable).
+
+  (default)   per-model usage: model calls, input and output tokens
+  tools       per-tool calls, ok/fail rate, timeouts, average call→result
+              duration where derivable
+  routes      fallback activations (from→to, reason), route_serving
+              switches, and turn errors grouped by ProviderError kind
 
   export      redacted metadata-only export (CSV or JSONL) of the aggregate
               telemetry — per-model usage, per-tool stats, per-session
@@ -265,6 +271,6 @@ excluded (they consumed nothing measurable).
   --out       write the export to a path (default: stdout)
   --project   another project's slug (default: the current project)
   --days      only sessions modified within the last N days
-  --json      machine-readable JSON (models, totals, session count)
+  --json      machine-readable JSON
   --cwd       project root (default: process.cwd())
 ```

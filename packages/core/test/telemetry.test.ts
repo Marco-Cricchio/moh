@@ -131,8 +131,10 @@ describe("aggregateTelemetry", () => {
       expect(beta.calls).toBe(1);
       expect(beta.inputTokens).toBe(20);
 
-      // Tool stats: bash 1 call, fail, timed out.
-      expect(report.tools).toEqual([{ tool: "bash", calls: 1, ok: 0, fail: 1, timeouts: 1 }]);
+      // Tool stats: bash 1 call, fail, timed out; call at t=2001, result at t=2002.
+      expect(report.tools).toEqual([
+        { tool: "bash", calls: 1, ok: 0, fail: 1, timeouts: 1, totalDurationMs: 1 },
+      ]);
 
       // Route health.
       expect(report.route.fallbacks).toEqual([{ from: "prov/alpha", to: "prov/beta", reason: "rate_limited", count: 1 }]);
@@ -199,6 +201,33 @@ describe("aggregateTelemetry", () => {
         expect(agg?.inputTokens).toBe(row.inputTokens);
         expect(agg?.outputTokens).toBe(row.outputTokens);
       }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("sums call→result ULID deltas per tool, skipping unpaired sides", () => {
+    const { home, cwd, dir } = fixtureProject();
+    try {
+      const events: AgentEvent[] = [
+        { id: id(1000), type: "session_start", schemaVersion: 2, promptVersion: "p" },
+        // read: 10 → 25 (15ms), 30 → 40 (10ms) — two pairs summed.
+        { id: id(1000), type: "tool_call", callId: "r1", name: "read", args: {} },
+        { id: id(1005), type: "user_message", text: "work" },
+        { id: id(1025), type: "tool_result", callId: "r1", ok: true, output: "ok" },
+        { id: id(1030), type: "tool_call", callId: "r2", name: "read", args: {} },
+        { id: id(1040), type: "tool_result", callId: "r2", ok: false, output: "nope" },
+        // bash: call with no result — counts in calls, not in duration.
+        { id: id(1050), type: "tool_call", callId: "b1", name: "bash", args: {} },
+        // edit: result with no call — ignored entirely.
+        { id: id(1060), type: "tool_result", callId: "e1", ok: true, output: "ok" },
+      ];
+      jsonl(join(dir, "01JTESTEEEEEEEEEEEEEEEEEEEE.jsonl"), events);
+      const report = aggregateTelemetry({ cwd, home });
+      expect(report.tools).toEqual([
+        { tool: "read", calls: 2, ok: 1, fail: 1, timeouts: 0, totalDurationMs: 35 },
+        { tool: "bash", calls: 1, ok: 0, fail: 0, timeouts: 0, totalDurationMs: 0 },
+      ]);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
