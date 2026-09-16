@@ -219,11 +219,49 @@ describe("mpm_query tool (#663, ADR-0028)", () => {
     expect(log.some((e) => e.type === "permission_denied" || e.type === "permission_requested")).toBe(false);
   });
 
-  test("a stale seed (file changed after mapping) is discarded with the entry", async () => {
+  test("a stale seed is re-extracted at query time and served with recomputed relations (#737)", async () => {
     const { root, service } = await setup();
-    await writeFile(join(root, "src/date.ts"), "export const totally = 'changed';");
+    // Edit→query-in-turn: the file changed after mapping. The tool
+    // refreshes the seed record synchronously instead of rejecting.
+    await writeFile(join(root, "src/date.ts"), ['import { DateLike } from "./types";', "export const formatDate2 = (d: DateLike) => d;"].join("\n"));
     const { toolResult } = await queryTurn(root, service, "src/date.ts");
-    expect(toolResult!.output).toContain("stale");
+    expect(toolResult!.output).not.toContain("stale");
+    expect(toolResult!.output).toContain("src/types.ts");
+    // The record was patched in the live service, not just the answer.
+    expect(service.record("src/date.ts")?.symbols.some((s) => s.name === "formatDate2")).toBe(true);
+  });
+
+  test("a seed whose file was deleted is honestly reported stale (#737)", async () => {
+    const { root, service } = await setup();
+    await rm(join(root, "src/date.ts"));
+    const { toolResult } = await queryTurn(root, service, "src/date.ts");
+    // The refresh removed the deleted path from the live projection, so
+    // the honest answer is "not mapped" — never a fabricated result.
+    expect(toolResult!.output).toContain("not mapped");
+    expect(service.record("src/date.ts")).toBeNull();
+  });
+
+  test("queries are served while the map is updating (#737)", async () => {
+    const { root, service } = await setup();
+    service.setUpdating(true);
+    const { toolResult } = await queryTurn(root, service, "src/date.ts");
+    expect(toolResult!.output).toContain("src/types.ts");
+    expect(toolResult!.output).not.toContain("unavailable");
+  });
+
+  test("a kebab/underscore seed resolves the camelCase symbol (#737)", async () => {
+    const { root, service } = await setup();
+    const { toolResult } = await queryTurn(root, service, "format_date");
+    expect(toolResult!.output).toContain("src/date.ts");
+    const { toolResult: t2 } = await queryTurn(root, service, "FormatDate");
+    expect(t2!.output).toContain("src/date.ts");
+  });
+
+  test("an unmapped miss with no suggestions explains acceptable seed forms (#737)", async () => {
+    const { root, service } = await setup();
+    const { toolResult } = await queryTurn(root, service, "zzzzzzzz.qqq");
+    expect(toolResult!.output).toContain("Accepted seed forms");
+    expect(toolResult!.output).toContain("path suffix");
   });
 
   test("an unavailable projection degrades honestly", async () => {
