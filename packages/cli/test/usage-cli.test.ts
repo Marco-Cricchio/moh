@@ -252,4 +252,11 @@ describe("moh usage export (#717)", () => {
     expect(stderr).toContain("No sessions found");
     expect(existsSync(outPath)).toBe(false);
   });
+
+  test("relative --out refusing .. traversal outside the project root", () => {
+    const h = richHarness();
+    const { code, stderr } = h.spawn(["export", "--format", "csv", "--out", "../escape.csv"]);
+    expect(code).toBe(2);
+    expect(stderr).toContain("--out must be an absolute path");
+  });
 });

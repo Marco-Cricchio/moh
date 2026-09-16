@@ -6,7 +6,7 @@
  * all local; no sessions → friendly empty message, never an error.
  */
 import { writeFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { aggregateTelemetry } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
@@ -28,6 +28,49 @@ excluded (they consumed nothing measurable).
   --days      only sessions modified within the last N days
   --json      machine-readable JSON (models, totals, session count)
   --cwd       project root (default: process.cwd())`;
+
+/** Resolves `--cwd` to an absolute project root (siblings like trash.ts
+ * and compact.ts resolve too, so a relative `--cwd` never breaks
+ * downstream absolute-path checks). */
+function resolveCwd(cwdFlag: string | undefined): string {
+  const raw = cwdFlag ? cwdFlag : process.cwd();
+  return isAbsolute(raw) ? raw : resolve(raw);
+}
+
+/** Shared `--days` parsing for the summary reports and the export:
+ * returns the since-epoch ms or an exit code (2 = usage error). */
+function resolveWindow(
+  parsed: { strings: Record<string, string | undefined> },
+  prefix: string,
+  err: { write(s: string): void },
+): { sinceMs?: number } | number {
+  const daysRaw = parsed.strings["days"];
+  if (daysRaw === undefined) return {};
+  const days = Number(daysRaw);
+  if (!Number.isFinite(days) || days <= 0 || !Number.isInteger(days)) {
+    err.write(`${prefix}: --days expects a positive whole number of days\n`);
+    return 2;
+  }
+  return { sinceMs: Date.now() - days * 24 * 60 * 60 * 1000 };
+}
+
+/** Shared filter parsing + aggregation for every `moh usage` sub-report
+ * (summary and export alike). Returns the report or an exit code. */
+function collectReport(
+  parsed: { strings: Record<string, string | undefined>; booleans: Record<string, boolean | undefined> },
+  home: string | undefined,
+  prefix: string,
+  err: { write(s: string): void },
+): ReturnType<typeof aggregateTelemetry> | number {
+  const window = resolveWindow(parsed, prefix, err);
+  if (typeof window === "number") return window;
+  return aggregateTelemetry({
+    cwd: resolveCwd(parsed.strings["cwd"]),
+    home: home ?? homedir(),
+    ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
+    ...(window.sinceMs !== undefined ? { sinceMs: window.sinceMs } : {}),
+  });
+}
 
 export async function usageCommand({
   argv,
@@ -61,23 +104,8 @@ export async function usageCommand({
     err.write(`moh usage: unexpected argument "${parsed.positionals[0]}"\n\n${USAGE_USAGE}\n`);
     return 2;
   }
-  const daysRaw = parsed.strings["days"];
-  let sinceMs: number | undefined;
-  if (daysRaw !== undefined) {
-    const days = Number(daysRaw);
-    if (!Number.isFinite(days) || days <= 0 || !Number.isInteger(days)) {
-      err.write(`moh usage: --days expects a positive whole number of days\n`);
-      return 2;
-    }
-    sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
-  }
-  const cwd = parsed.strings["cwd"] ? parsed.strings["cwd"] : process.cwd();
-  const report = aggregateTelemetry({
-    cwd,
-    home: home ?? homedir(),
-    ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
-    ...(sinceMs !== undefined ? { sinceMs } : {}),
-  });
+  const report = collectReport(parsed, home, "moh usage", err);
+  if (typeof report === "number") return report;
 
   const totals = report.models.reduce(
     (acc, m) => ({
@@ -114,11 +142,7 @@ export async function usageCommand({
   if (report.sessionsScanned === 0) {
     // Friendly empty state, also for a slug with only unreadable files —
     // the skip notice rides along so the silence is never unexplained.
-    err.write("No sessions found for this project — nothing to report yet.\n");
-    if (report.sessionsSkipped > 0) {
-      err.write(`${report.sessionsSkipped} unreadable session file(s) skipped.\n`);
-    }
-    return 0;
+    return emptyState(report, err);
   }
 
   const pad = (s: string, n: number): string => s + " ".repeat(Math.max(0, n - s.length));
@@ -147,9 +171,11 @@ export async function usageCommand({
 
 // ── moh usage export (#717) ─────────────────────────────────────────────
 
-/** Metadata-only export records. By construction no message content,
- * tool output, or reasoning can appear: every field below comes from the
- * aggregator's counters, never from an event payload string. */
+/** Metadata-only export records. No message text, tool argument, tool
+ * output, or reasoning is ever exported: those payloads are never read.
+ * Identity-ish free text (model ids, subagent names, fallback reasons)
+ * is included as-is and CSV-escaped — redact those fields downstream if
+ * your dataset policy requires it. */
 export type UsageExportRecord =
   | { section: "model"; model: string; calls: number; inputTokens: number; outputTokens: number }
   | { section: "tool"; tool: string; calls: number; ok: number; fail: number; timeouts: number }
@@ -304,30 +330,20 @@ function exportCommand(
     err.write(`moh usage export: --format csv|jsonl is required (got ${formatRaw ? `"${formatRaw}"` : "none"})\n\n${USAGE_USAGE}\n`);
     return 2;
   }
-  const daysRaw = parsed.strings["days"];
-  let sinceMs: number | undefined;
-  if (daysRaw !== undefined) {
-    const days = Number(daysRaw);
-    if (!Number.isFinite(days) || days <= 0 || !Number.isInteger(days)) {
-      err.write(`moh usage export: --days expects a positive whole number of days\n`);
-      return 2;
-    }
-    sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
-  }
-  const cwd = parsed.strings["cwd"] ? parsed.strings["cwd"] : process.cwd();
-  const report = aggregateTelemetry({
-    cwd,
-    home: home ?? homedir(),
-    ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
-    ...(sinceMs !== undefined ? { sinceMs } : {}),
-  });
+  const report = collectReport(parsed, home, "moh usage export", err);
+  if (typeof report === "number") return report;
   if (report.sessionsScanned === 0) return emptyState(report, err);
 
   const body = renderExport(report, formatRaw);
   const outPath = parsed.strings["out"];
   if (outPath) {
-    const target = isAbsolute(outPath) ? outPath : resolve(cwd, outPath);
-    if (!isAbsolute(outPath) && !target.startsWith(cwd + (cwd.endsWith("/") ? "" : "/"))) {
+    // Relative --out anchors to the aggregation root (the resolved
+    // --cwd); a `..` traversal out of it is refused. Absolute paths are
+    // the caller's explicit choice and are taken as-is (no symlink-based
+    // containment guess).
+    const root = resolveCwd(parsed.strings["cwd"]);
+    const target = isAbsolute(outPath) ? outPath : resolve(root, outPath);
+    if (!isAbsolute(outPath) && relative(root, target).startsWith("..")) {
       err.write(`moh usage export: --out must be an absolute path or relative to the project root\n`);
       return 2;
     }
