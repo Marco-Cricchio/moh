@@ -324,8 +324,10 @@ function VariantD() {
   useInput((input, key) => {
     if (key.leftArrow) setHue((h) => (h + 348) % 360);
     if (key.rightArrow) setHue((h) => (h + 12) % 360);
-    if (key.upArrow) setLightShift((l) => clamp(l + 0.02, -0.06, 0.12));
-    if (key.downArrow) setLightShift((l) => clamp(l - 0.02, -0.06, 0.12));
+    // Brightness: ←→ hold with shift = coarse (±8%), plain = fine (±2%).
+    // Range is wide: -30% (near-black surfaces) to +60% (near-white text).
+    if (key.upArrow) setLightShift((l) => clamp(l + (key.shift ? 0.08 : 0.02), -0.3, 0.6));
+    if (key.downArrow) setLightShift((l) => clamp(l - (key.shift ? 0.08 : 0.02), -0.3, 0.6));
   });
 
   return (
@@ -339,7 +341,7 @@ function VariantD() {
           return <Text key={i} backgroundColor={hex} color={i === 10 ? theme.bg : hex}>{i === 10 ? "╹" : " "}</Text>;
         })}
       </Text>
-      <Dim>{` hue ${hue}° (←→) · brightness ${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}% (↑↓) — the screen IS the preview`}</Dim>
+      <Dim>{` hue ${hue}° (←→) · brightness ${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}% (↑↓ fine · shift+↑↓ coarse) — the screen IS the preview`}</Dim>
       <Text> </Text>
       <LivePreview theme={theme} />
       <Text> </Text>
