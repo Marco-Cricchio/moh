@@ -357,19 +357,20 @@ function VariantD() {
     { role: "ok", glyph: "✓" }, { role: "warn", glyph: "⚠" },
     { role: "err", glyph: "✗" }, { role: "purple", glyph: "◆" },
   ];
-  /** Chat box ids with display labels for the split list. */
+  /** Chat box ids with display labels for the split list. Ids carry a
+   * "box:" prefix so they can never collide with signal role names. */
   const BOXES: { id: string; label: string }[] = [
-    { id: "user", label: "› you" },
-    { id: "moh", label: "◆ moh" },
-    { id: "tool-run", label: "◌ tool running" },
-    { id: "ok", label: "✓ tool ok" },
-    { id: "fail", label: "✗ tool failed" },
-    { id: "error", label: "✗ error" },
-    { id: "code", label: "⌨ code" },
-    { id: "diff", label: "⌨ diff" },
-    { id: "thinking", label: "◌ thinking" },
-    { id: "chrome", label: "◌ cancelled" },
-    { id: "subagent", label: "◐ subagent" },
+    { id: "box:user", label: "› you" },
+    { id: "box:moh", label: "◆ moh" },
+    { id: "box:tool-run", label: "◌ tool running" },
+    { id: "box:ok", label: "✓ tool ok" },
+    { id: "box:fail", label: "✗ tool failed" },
+    { id: "box:error", label: "✗ error" },
+    { id: "box:code", label: "⌨ code" },
+    { id: "box:diff", label: "⌨ diff" },
+    { id: "box:thinking", label: "◌ thinking" },
+    { id: "box:chrome", label: "◌ cancelled" },
+    { id: "box:subagent", label: "◐ subagent" },
   ];
   type Row = Main | "ok" | "warn" | "err" | "purple" | string; // box ids in split mode
   const [slider, setSlider] = useState<Row>("hue");
@@ -437,13 +438,14 @@ function VariantD() {
 
   /** Resolved color of one chat box (box pick > signal pick > theme token). */
   const boxColor = (id: string): string => {
+    const short = id.replace(/^box:/, "");
     const direct = boxPicks[id];
     if (direct !== undefined) return pickedHex(direct, (THEMES[BASE as keyof typeof THEMES] as unknown as Record<string, string>).fg, 0.3, 0.75);
-    if (id === "ok") return theme.ok;
-    if (id === "fail" || id === "error") return theme.err;
-    if (id === "user") return theme.warn;
-    if (id === "code" || id === "diff") return theme.purple;
-    if (id === "moh" || id === "tool-run" || id === "subagent") return theme.accent;
+    if (short === "ok") return theme.ok;
+    if (short === "fail" || short === "error") return theme.err;
+    if (short === "user") return theme.warn;
+    if (short === "code" || short === "diff") return theme.purple;
+    if (short === "moh" || short === "tool-run" || short === "subagent") return theme.accent;
     return theme.dim;
   };
 
