@@ -535,20 +535,25 @@ function VariantD() {
         // Two columns: signals on the left, boxes on the right — each family
         // sits above the preview pane it recolors (signals+boxes feed the
         // gallery heads; the columns align with the two previews below).
-        const rowText = (key: string, label: string, val: string, focused: boolean, hint: string) => (
+        const rowText = (key: string, label: string, val: string, focused: boolean) => (
           <Text key={key} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-            {` ${focused ? "›" : " "} ${label}${val.padStart(7)}${focused ? " ←→ · ⏎ auto" : ""}`.padEnd(36)}
+            {` ${focused ? "›" : " "} ${label}${val.padStart(7)}`.padEnd(24)}
           </Text>
         );
-        const rows = Math.max(SIGNALS.length, BOXES.length);
+        // Boxes split again: column 1 = first 5, column 2 = remaining 6.
+        const BOX_COL1 = BOXES.slice(0, 5);
+        const BOX_COL2 = BOXES.slice(5);
+        const rows = Math.max(SIGNALS.length, BOX_COL1.length, BOX_COL2.length);
         const cells: React.ReactNode[] = [];
         for (let i = 0; i < rows; i++) {
           const sig = SIGNALS[i];
-          const box = BOXES[i];
+          const b1 = BOX_COL1[i];
+          const b2 = BOX_COL2[i];
           cells.push(
             <Box key={`row-${i}`} gap={2}>
-              <Box>{sig ? rowText(sig.role, `${sig.glyph} ${sig.role.padEnd(8)}`, value(sig.role), slider === sig.role, "←→ colors · ⏎ auto") : <Text>{" ".repeat(36)}</Text>}</Box>
-              <Box>{box ? rowText(box.id, `box ${box.label.padEnd(11)}`, value(box.id), slider === box.id, "←→ colors · ⏎ auto") : <Text>{" ".repeat(36)}</Text>}</Box>
+              <Box>{sig ? rowText(sig.role, `${sig.glyph} ${sig.role.padEnd(8)}`, value(sig.role), slider === sig.role) : <Text>{" ".repeat(24)}</Text>}</Box>
+              <Box>{b1 ? rowText(b1.id, `box ${b1.label.padEnd(11)}`, value(b1.id), slider === b1.id) : <Text>{" ".repeat(24)}</Text>}</Box>
+              <Box>{b2 ? rowText(b2.id, `box ${b2.label.padEnd(11)}`, value(b2.id), slider === b2.id) : <Text>{" ".repeat(24)}</Text>}</Box>
             </Box>,
           );
         }
