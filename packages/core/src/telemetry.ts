@@ -32,6 +32,9 @@ export interface TelemetryToolRow {
   fail: number;
   /** Results whose output reports a timeout (`<tool>: timed out after …`). */
   timeouts: number;
+  /** Sum of call→result event-id (ULID) deltas where both sides exist;
+   * the caller derives the average (`totalDurationMs / (ok + fail)`). */
+  totalDurationMs: number;
 }
 
 /** One route-health bucket: a fallback activation seen `count` times. */
@@ -236,11 +239,11 @@ export function aggregateTelemetry(options: {
     rollup.id = basename(name, ".jsonl");
     report.sessions.push(rollup);
 
-    // Tool pairing: callId → tool name, one pass (never events.find per
-    // result — O(n²) on large logs).
-    const toolNameByCall = new Map<string, string>();
+    // Tool pairing: callId → tool name + call time, one pass (never
+    // events.find per result — O(n²) on large logs).
+    const callByCallId = new Map<string, { name: string; ms: number | null }>();
     for (const event of events) {
-      if (event.type === "tool_call") toolNameByCall.set(event.callId, event.name);
+      if (event.type === "tool_call") callByCallId.set(event.callId, { name: event.name, ms: ulidTimeMs(event.id) });
     }
 
     // Cross-session aggregates (models, tools, route, errors) run on the
@@ -253,17 +256,21 @@ export function aggregateTelemetry(options: {
         if (acc) bumpCount(acc.thinkingLevels!, event.thinkingLevel);
       }
       if (event.type === "tool_call") {
-        const acc = toolRows.get(event.name) ?? { tool: event.name, calls: 0, ok: 0, fail: 0, timeouts: 0 };
+        const acc = toolRows.get(event.name) ?? { tool: event.name, calls: 0, ok: 0, fail: 0, timeouts: 0, totalDurationMs: 0 };
         acc.calls += 1;
         toolRows.set(event.name, acc);
       }
       if (event.type === "tool_result") {
-        const call = events.find((e) => e.type === "tool_call" && e.callId === event.callId);
-        const acc = call && call.type === "tool_call" ? toolRows.get(call.name) : undefined;
+        const call = callByCallId.get(event.callId);
+        const acc = call ? toolRows.get(call.name) : undefined;
         if (acc) {
           if (event.ok) acc.ok += 1;
           else acc.fail += 1;
           if (!event.ok && isTimeoutOutput(event.output)) acc.timeouts += 1;
+          const resultMs = ulidTimeMs(event.id);
+          if (call?.ms !== null && call?.ms !== undefined && resultMs !== null) {
+            acc.totalDurationMs += Math.max(0, resultMs - call.ms);
+          }
         }
       }
       if (event.type === "fallback") {

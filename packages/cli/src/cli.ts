@@ -36,7 +36,7 @@ commands:
   mpm      project map diagnostics (see: moh mpm --help)
   sessions session management (rename, delete, tree; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
-  usage    per-model usage report (see: moh usage --help)
+  usage    usage reports: models, tools, routes (see: moh usage --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
