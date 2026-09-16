@@ -35,6 +35,9 @@ export interface SettingsPanelProps {
   /** Opens the per-project session-handoff transport chooser. */
   onConfigureHandoff?: () => void;
   onToast: (text: string) => void;
+  /** Reports whether the theme studio modal is open, so the App-level
+   * escape handler stands down while the studio owns the keyboard. */
+  onStudioActive?: (active: boolean) => void;
   onClose: () => void;
 }
 
@@ -81,7 +84,7 @@ function guessBasePreset(id: string, home: string): string {
   }
 }
 
-export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
@@ -141,6 +144,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // screen visual editor — global sliders + per-element picks + live previews.
   // Kept outside `sub` because it owns its own key handling end to end.
   const [studio, setStudio] = useState<{ base: string } | null>(null);
+  useEffect(() => {
+    onStudioActive?.(studio !== null);
+  }, [studio]);
   // #498 max-iterations warning: shown when "unlimited" is selected in the
   // row; any later keypress dismisses it, and it stays dismissed while the
   // value remains unlimited — it reappears only if the value moves away

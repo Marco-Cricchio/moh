@@ -155,6 +155,10 @@ export function App({
   const [resolved, setResolvedTheme] = useState(() => resolveThemeRef(home ?? homedir(), initialTheme ?? config.theme));
   const resolvedTheme = resolved.theme;
   const [themeTick, setThemeTick] = useState(0);
+  // The theme studio (rendered inside SettingsPanel) owns Esc while open —
+  // App's global escape handler must not close the settings overlay out
+  // from under its name prompt.
+  const [settingsStudioActive, setSettingsStudioActive] = useState(false);
   const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
   // Settings-panel changes must apply live, not only after a restart:
   // `mode` and `theme` also live in React state (projection grammar and
@@ -1021,7 +1025,13 @@ export function App({
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
     // handler must not close it out from under the page view.
-    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) return setOverlay(null);
+    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) {
+      // The theme studio (inside settings) owns Esc while its name prompt or
+      // picker is open — a bare Esc there must return to the studio, not
+      // tear the whole overlay down to the home/chat screen.
+      if (overlay === "settings" && settingsStudioActive) return;
+      return setOverlay(null);
+    }
   });
 
   const showChat = session !== null;
@@ -1279,6 +1289,7 @@ export function App({
         {overlay === "settings" && (
           <SettingsPanel
             cwd={cwd}
+            onStudioActive={setSettingsStudioActive}
             home={home}
             config={config}
             onChange={updateConfig}
