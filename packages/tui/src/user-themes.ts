@@ -153,6 +153,17 @@ export function deleteUserTheme(home: string, id: string): boolean {
 
 export type ThemeRef = string; // built-in preset id or `user:<id>` (user-config narrows it)
 
+/** Reconstructs which base preset a theme file extends (the loader doesn't
+ * keep it on the resolved Theme). Falls back to tokyo-night. */
+export function guessExtendsOf(home: string, id: string): string {
+  try {
+    const raw = JSON.parse(readFileSync(join(themesDir(home), `${id}.json`), "utf8")) as { extends?: string };
+    return raw.extends && raw.extends in THEMES ? raw.extends : "tokyo-night";
+  } catch {
+    return "tokyo-night";
+  }
+}
+
 export interface ResolvedTheme {
   theme: Theme;
   /** Ref actually in effect after fallbacks (`user:<id>` collapses to the

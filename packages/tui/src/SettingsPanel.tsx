@@ -5,9 +5,8 @@ import { homedir } from "node:os";
 import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
-import { deleteUserTheme, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor, themesDir as themesDirOf } from "./user-themes";
+import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, UserConfig, VibeMode } from "./user-config";
-import { readFileSync } from "node:fs";
 import { useTheme } from "./themes";
 import { ThemeStudioModal } from "./ThemeStudioModal";
 import { Dialog, Dim, truncate } from "./ui";
@@ -72,17 +71,6 @@ function allThemeRefs(home?: string): ThemeRef[] {
 
 /** Lowercase slug normalization for editor ids. */
 const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-
-/** Reconstructs which base preset a theme extends (the loader doesn't keep
- * it on the resolved Theme). Reads the file; falls back to tokyo-night. */
-function guessBasePreset(id: string, home: string): string {
-  try {
-    const raw = JSON.parse(readFileSync(join(themesDirOf(home), `${id}.json`), "utf8")) as { extends?: string };
-    return raw.extends && raw.extends in THEMES ? raw.extends : "tokyo-night";
-  } catch {
-    return "tokyo-night";
-  }
-}
 
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, onClose }: SettingsPanelProps) {
   const theme = useTheme();
@@ -266,7 +254,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub({ kind: "theme-pick", options: refs, cursor: Math.max(0, refs.indexOf(config.theme)) });
       }
       case "themes":
-        return setStudio({ base: config.theme.startsWith("user:") ? guessBasePreset(config.theme.slice("user:".length), home ?? homedir()) : (config.theme as string) });
+        return setStudio({ base: config.theme.startsWith("user:") ? guessExtendsOf(home ?? homedir(), config.theme.slice("user:".length)) : (config.theme as string) });
       case "icons": {
         const next = !config.icons;
         setIcons(next);
@@ -399,14 +387,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         const fileTheme = loadUserTheme(home ?? homedir(), id);
         if (!fileTheme) return onToast("theme file unreadable");
         setSub(null);
-        return setStudio({ base: guessBasePreset(id, home ?? homedir()) });
+        return setStudio({ base: guessExtendsOf(home ?? homedir(), id) });
       }
       if (input === "d" && sub.options[sub.cursor]?.startsWith("user:")) {
         const id = sub.options[sub.cursor]!.slice("user:".length);
         const wasActive = config.theme === `user:${id}`;
         // #749: deleting the active theme falls back to its extends base
         // preset first, then the default — never a hardcoded one.
-        const base = guessBasePreset(id, home ?? homedir());
+        const base = guessExtendsOf(home ?? homedir(), id);
         deleteUserTheme(home ?? homedir(), id);
         const fallback: ThemeRef = wasActive ? (base as ThemeRef) : config.theme;
         if (config.theme !== fallback) onChange({ theme: fallback });
@@ -545,6 +533,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       <ThemeStudioModal
         home={home ?? homedir()}
         base={studio.base}
+        activeRef={config.theme}
+        onApplyRef={(ref) => onChange({ theme: ref as ThemeRef })}
         onToast={onToast}
         onSave={(id, name, colors) => {
           saveUserTheme(home ?? homedir(), { version: 1, id, name, extends: studio.base, colors });

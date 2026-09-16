@@ -605,6 +605,54 @@ describe("user themes in settings (#749)", () => {
     i.unmount();
   });
 
+  test("studio: create a theme, then delete it from the manage view (r → d)", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    const { i, changes } = mount(cwd, { home });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await down(i, 2);
+    i.stdin.write("\r");
+    await waitForFrame(frame, "theme studio");
+    i.stdin.write("n"); await sleep(60);
+    i.stdin.write("Temp");
+    await waitForCondition(() => frame().includes("Temp"), () => `for name; frame: ${frame()}`);
+    i.stdin.write("\r"); await sleep(60);
+    await waitForCondition(() => changes.some((c) => "theme" in c), () => "for save");
+    expect(existsSync(join(home, ".moh", "themes", "temp.json"))).toBe(true);
+    // back into settings → studio → manage view → delete
+    i.stdin.write("\x1b"); await sleep(40); // studio → settings
+    i.stdin.write("\r"); await sleep(60); // settings → studio again
+    i.stdin.write("r"); await sleep(60);
+    await waitForCondition(() => frame().includes("my themes"), () => `for manage; frame: ${frame()}`);
+    expect(frame()).toContain("Temp");
+    i.stdin.write("d"); await sleep(80); // delete the active theme
+    await waitForCondition(
+      () => !existsSync(join(home, ".moh", "themes", "temp.json")),
+      () => `for deletion; frame: ${frame()}`,
+    );
+    i.unmount();
+  });
+
+  test("studio: deleting the ACTIVE theme from manage view applies the base fallback", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    mkdirSync(join(home, ".moh", "themes"), { recursive: true });
+    writeFileSync(join(home, ".moh", "themes", "live.json"), JSON.stringify({ version: 1, id: "live", name: "Live", extends: "candy", colors: {} }));
+    const { i, changes } = mount(cwd, { home, config: { ...DEFAULT_USER_CONFIG, theme: "user:live" } });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await down(i, 2);
+    i.stdin.write("\r");
+    await waitForFrame(frame, "theme studio");
+    i.stdin.write("r"); await sleep(60);
+    await waitForCondition(() => frame().includes("my themes"), () => `for manage; frame: ${frame()}`);
+    i.stdin.write("d"); await sleep(80);
+    await waitForCondition(() => !existsSync(join(home, ".moh", "themes", "live.json")), () => "for deletion");
+    expect(changes).toContainEqual({ theme: "candy" });
+    i.unmount();
+  });
+
   test("deleting the active user theme falls back to a built-in", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));

@@ -10,6 +10,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { THEMES, type Theme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { deleteUserTheme, guessExtendsOf, listUserThemes } from "./user-themes";
 
 const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 
@@ -77,13 +78,17 @@ export interface ThemeStudioModalProps {
   home: string;
   /** The preset the studio derives from. */
   base: string;
+  /** The currently active theme ref — deleting it falls back to its base. */
+  activeRef: string;
   onToast: (message: string) => void;
   /** Persist + apply the draft: receives the resolved colors per role. */
   onSave: (id: string, name: string, colors: Record<string, string>) => void;
+  /** Apply another theme ref (delete fallback for the active theme). */
+  onApplyRef: (ref: string) => void;
   onClose: () => void;
 }
 
-export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: ThemeStudioModalProps) {
+export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApplyRef, onClose }: ThemeStudioModalProps) {
   type Row = Main | "ok" | "warn" | "err" | "purple" | string; // box ids in split mode
   const [row, setRow] = useState<Row>("hue");
   const [splitMode, setSplitMode] = useState(false);
@@ -96,6 +101,9 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
   const [warmth, setWarmth] = useState(0);
   const [naming, setNaming] = useState(false);
   const [nameBuf, setNameBuf] = useState("");
+  // Manage view: list personal themes for rename/delete (r toggles it).
+  const [managing, setManaging] = useState(false);
+  const [manageCursor, setManageCursor] = useState(0);
 
   const baseTheme = THEMES[base as keyof typeof THEMES] ?? THEMES["tokyo-night"];
 
@@ -171,6 +179,34 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
         return onClose();
       }
       if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
+      return;
+    }
+    if (managing) {
+      const themes = listUserThemes(home);
+      if (key.escape) return setManaging(false);
+      if (key.upArrow) return setManageCursor((c) => Math.max(0, c - 1));
+      if (key.downArrow) return setManageCursor((c) => Math.min(Math.max(0, themes.length - 1), c + 1));
+      if (input === "d" && !key.ctrl && !key.meta) {
+        const target = themes[manageCursor];
+        if (!target) return;
+        const wasActive = activeRef === `user:${target.id}`;
+        // Read the extends base BEFORE deleting — afterwards the file is
+        // gone and the guess falls back to tokyo-night.
+        const extendsBase = guessExtendsOf(home, target.id);
+        deleteUserTheme(home, target.id);
+        if (wasActive) onApplyRef(extendsBase);
+        onToast(`theme deleted: ${target.name}${wasActive ? " — fell back to its base" : ""}`);
+        // Keep the manage view open; clamp the cursor to the shorter list.
+        setManageCursor((c) => Math.min(c, Math.max(0, themes.length - 2)));
+        return;
+      }
+      return;
+    }
+    // r opens the manage view (list personal themes; d deletes there).
+    if (input === "r" && !key.ctrl && !key.meta) {
+      if (listUserThemes(home).length === 0) return onToast("no personal themes yet — save one with n");
+      setManaging(true);
+      setManageCursor(0);
       return;
     }
     // n names & saves the draft — global, handled before per-row dispatch so
@@ -296,6 +332,21 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
           <Text> </Text>
           <Dim>enter save &amp; apply · esc back to the studio</Dim>
         </Box>
+      ) : managing ? (
+        <Box flexDirection="column">
+          <Text bold>my themes</Text>
+          <Text> </Text>
+          {listUserThemes(home).map((t, i) => {
+            const selected = i === manageCursor;
+            return (
+              <Text key={t.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                {` ${selected ? "›" : " "} ${t.name.padEnd(24)}${activeRef === `user:${t.id}` ? "active" : ""}`}
+              </Text>
+            );
+          })}
+          <Text> </Text>
+          <Dim>d delete{activeRef.startsWith("user:") ? " (active falls back to its base)" : ""} · esc back to the studio</Dim>
+        </Box>
       ) : (
         <Box flexDirection="column">
           {/* main sliders, two columns: hue+brightness left, the rest right */}
@@ -373,7 +424,7 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
             </Box>
           </Box>
           <Text> </Text>
-          <Text color={theme.muted}>{` ↑↓ row · ←→ value (shift = coarse) · s split/auto · ⏎ auto · n name & save `}</Text>
+          <Text color={theme.muted}>{` ↑↓ row · ←→ value (shift = coarse) · s split/auto · ⏎ auto · n name & save · r my themes `}</Text>
           <Dim>{` deriving from "${base}" — nothing is saved until you name it`}</Dim>
         </Box>
       )}
