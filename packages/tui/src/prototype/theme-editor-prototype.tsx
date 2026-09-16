@@ -294,58 +294,92 @@ function VariantC() {
 // Variant D — "seed hue": one hue slider drives the whole palette
 // ---------------------------------------------------------------------------
 function VariantD() {
+  // Sliders (↑↓ moves the focused one, ←→ adjusts it; shift = coarse step):
+  //   hue        — rotates the whole palette around the color wheel
+  //   brightness — global lightness shift
+  //   contrast   — pushes lightness away from / toward the mid point
+  //   saturation — 0 = grayscale, 1 = vivid
+  //   warmth     — splits hue for text (warm) vs chrome (cool) tones
+  type Slider = "hue" | "brightness" | "contrast" | "saturation" | "warmth";
+  const SLIDERS: Slider[] = ["hue", "brightness", "contrast", "saturation", "warmth"];
+  const [slider, setSlider] = useState<Slider>("hue");
   const [hue, setHue] = useState(210);
   const [lightShift, setLightShift] = useState(0);
+  const [contrast, setContrast] = useState(0);      // -0.5 … +0.5
+  const [saturation, setSaturation] = useState(0.6); // 0 … 1
+  const [warmth, setWarmth] = useState(0);           // -60 … +60 degrees
   const theme: Theme = (() => {
     const base = THEMES[BASE as keyof typeof THEMES];
-    const tint = (hex: string, lBoost: number): string => {
+    const tint = (hex: string, lBoost: number, warm: number): string => {
       const [h, s, l] = hexToHsl(hex);
-      return hslToHex(hue, clamp(s, 0.25, 0.85), clamp(l + lBoost + lightShift, 0.04, 0.95));
+      // contrast: push lightness away from the 0.5 midpoint
+      const lc = clamp(0.5 + (l + lBoost + lightShift - 0.5) * (1 + contrast), 0.04, 0.95);
+      return hslToHex((hue + warm + 360) % 360, saturation * clamp(s, 0.25, 0.85) / 0.6, lc);
     };
+    // warmth: text/semantic roles go warm, chrome (bg/surface/border) goes cool
     return {
       ...base,
       label: `Hue ${hue}`,
-      fg: tint(base.fg, 0),
-      accent: tint(base.accent, 0),
-      dim: tint(base.dim, 0),
-      muted: tint(base.muted, 0),
-      ok: tint(base.ok, 0),
-      warn: tint(base.warn, 0),
-      err: tint(base.err, 0),
-      purple: tint(base.purple, 0),
-      border: tint(base.border, 0),
-      bg: tint(base.bg, 0),
-      surface: tint(base.surface, 0),
-      surfaceRaised: tint(base.surfaceRaised, 0),
-      selection: tint(base.selection, 0),
+      fg: tint(base.fg, 0, warmth),
+      accent: tint(base.accent, 0, warmth),
+      dim: tint(base.dim, 0, warmth * 0.5),
+      muted: tint(base.muted, 0, warmth * 0.5),
+      ok: tint(base.ok, 0, warmth * 0.3),
+      warn: tint(base.warn, 0, warmth * 0.3),
+      err: tint(base.err, 0, warmth * 0.3),
+      purple: tint(base.purple, 0, warmth * 0.3),
+      border: tint(base.border, 0, -warmth * 0.5),
+      bg: tint(base.bg, 0, -warmth),
+      surface: tint(base.surface, 0, -warmth),
+      surfaceRaised: tint(base.surfaceRaised, 0, -warmth),
+      selection: tint(base.selection, 0, -warmth),
     };
   })();
 
   useInput((input, key) => {
-    if (key.leftArrow) setHue((h) => (h + 348) % 360);
-    if (key.rightArrow) setHue((h) => (h + 12) % 360);
-    // Brightness: ←→ hold with shift = coarse (±8%), plain = fine (±2%).
-    // Range is wide: -30% (near-black surfaces) to +60% (near-white text).
-    if (key.upArrow) setLightShift((l) => clamp(l + (key.shift ? 0.08 : 0.02), -0.3, 0.6));
-    if (key.downArrow) setLightShift((l) => clamp(l - (key.shift ? 0.08 : 0.02), -0.3, 0.6));
+    const fine = key.shift ? 0.08 : 0.02;
+    if (key.upArrow) setSlider((cur) => SLIDERS[clamp(SLIDERS.indexOf(cur) - 1, 0, SLIDERS.length - 1)]!);
+    if (key.downArrow) setSlider((cur) => SLIDERS[clamp(SLIDERS.indexOf(cur) + 1, 0, SLIDERS.length - 1)]!);
+    const bump = (set: (n: number) => void, get: number, step: number, lo: number, hi: number, wrap = false) =>
+      set(key.leftArrow ? (wrap ? get - step : clamp(get - step, lo, hi)) : key.rightArrow ? (wrap ? get + step : clamp(get + step, lo, hi)) : get);
+    if (slider === "hue") bump((n) => setHue(Math.round(((n % 360) + 360) % 360)), hue, key.shift ? 30 : 6, 0, 359, true);
+    if (slider === "brightness") bump(setLightShift, lightShift, fine, -0.3, 0.6);
+    if (slider === "contrast") bump(setContrast, contrast, fine, -0.5, 0.5);
+    if (slider === "saturation") bump(setSaturation, saturation, fine, 0, 1);
+    if (slider === "warmth") bump(setWarmth, warmth, key.shift ? 15 : 5, -60, 60);
   });
+
+  const value = (s: Slider): string =>
+    s === "hue" ? `${hue}°` :
+    s === "brightness" ? `${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}%` :
+    s === "contrast" ? `${contrast >= 0 ? "+" : ""}${Math.round(contrast * 100)}%` :
+    s === "saturation" ? `${Math.round(saturation * 100)}%` :
+    `${warmth >= 0 ? "+" : ""}${warmth}°`;
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold color={theme.accent}>{` D · one seed hue drives the whole palette `}</Text>
+      <Text bold color={theme.accent}>{` D · five sliders, zero hex — the screen IS the preview `}</Text>
+      <Text> </Text>
+      {SLIDERS.map((s, i) => {
+        const focused = slider === s;
+        return (
+          <Text key={s} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+            {` ${focused ? "›" : " "} ${s.padEnd(12)}${value(s).padStart(5)} ${focused ? "←→ adjusts · shift = coarse" : ""} `}
+          </Text>
+        );
+      })}
       <Text> </Text>
       <Text>
         {Array.from({ length: 30 }, (_, i) => {
           const h = (hue + i * 3) % 360;
-          const hex = hslToHex(h, 0.6, 0.55);
+          const hex = hslToHex(h, saturation, 0.55);
           return <Text key={i} backgroundColor={hex} color={i === 10 ? theme.bg : hex}>{i === 10 ? "╹" : " "}</Text>;
         })}
       </Text>
-      <Dim>{` hue ${hue}° (←→) · brightness ${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}% (↑↓ fine · shift+↑↓ coarse) — the screen IS the preview`}</Dim>
       <Text> </Text>
       <LivePreview theme={theme} />
       <Text> </Text>
-      <Text color={theme.muted}>{` everything else (ok/warn/err/purple…) rotates with the hue — zero hex codes `}</Text>
+      <Text color={theme.muted}>{` ↑↓ slider · ←→ value (shift = coarse) — everything repaints live `}</Text>
     </Box>
   );
 }
