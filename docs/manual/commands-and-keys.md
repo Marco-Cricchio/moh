@@ -20,7 +20,7 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+t | cycle theme |
 | ctrl+y | cycle thinking level |
 | ctrl+s | settings panel |
-| ctrl+q | usage quota modal |
+| ctrl+q | usage quota modal (provider quota + local measured usage, this session and recent sessions) |
 | ctrl+r | rename the current session |
 | ctrl+g | keep my branch (while the external-growth warning is up): move the head back to your local tip |
 | ctrl+k / ? | this command list |
