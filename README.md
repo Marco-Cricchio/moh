@@ -29,10 +29,11 @@ anything risky.
 Three things make it different:
 
 - **It works with the AI provider you choose.** Anthropic, OpenAI, Google,
-  GitHub Copilot, OpenRouter, Kimi, xAI — and local models too (Ollama, LM
-  Studio), all through one configuration. If a provider goes down, moh falls
-  back to the next one on your list. Your agent setup is never locked to a
-  single vendor.
+  GitHub Copilot, OpenRouter, Kimi, xAI — plus 16 pre-built hosted
+  OpenAI-compatible endpoints (DeepSeek, Groq, Cerebras, Mistral, Moonshot,
+  …) and local models too (Ollama, LM Studio), all through one
+  configuration. If a provider goes down, moh falls back to the next one on
+  your list. Your agent setup is never locked to a single vendor.
 - **Your data stays yours.** Sessions, memory, and notes live in a plain
   append-only log on your machine (`~/.moh/`) — nothing is ever deleted, and
   you can resume, fork, or compact any session at any time.
@@ -64,6 +65,9 @@ Three things make it different:
 - **Always up to date** — moh quietly checks for new releases and skill
   updates while you work (never installing anything without your explicit
   consent; fully disableable).
+- **Local usage telemetry** — `moh usage` reports per-model calls, tokens,
+  estimated costs, tool statistics, and route health from your own session
+  logs, with redacted CSV/JSONL export. Measured locally, never phoned home.
 
 ## How moh compares
 
@@ -174,7 +178,7 @@ lives in the headless core; every client is thin.**
 | --- | --- |
 | `@moh/core` | The agent loop, append-only event log, providers, permissions, skills, memory, subagents, extensions. No UI, no global state. |
 | `@moh/tui` | The Ink terminal client. Never talks to providers directly. |
-| `@moh/cli` | `moh` binary: interactive entry, `moh run` (headless, fail-fast), `moh init`. |
+| `@moh/cli` | `moh` binary: interactive entry, `moh run` (headless, fail-fast), `moh usage` (local telemetry reports), `moh init`. |
 | `@moh/extension` | Types-only contract for extensions. |
 
 ## Hack on moh
@@ -183,7 +187,7 @@ The repo builds and tests with Bun:
 
 ```sh
 bun install
-bun test          # 378 tests
+bun test
 bun run typecheck
 ```
 
