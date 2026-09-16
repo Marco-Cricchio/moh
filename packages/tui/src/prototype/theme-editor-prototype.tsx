@@ -523,23 +523,24 @@ function VariantD() {
                 </Text>
               )}
               {focused && sl === "hue" && (
-                // The row label sits INSIDE the chromatic strip: the strip is
-                // 20 cells wide and the word "hue" rides on it, letters
-                // contrasted against the color beneath each one.
-                <Text>
-                  {Array.from({ length: 20 }, (_, i) => {
-                    const h = (hue + (i - 3) * 6 + 360) % 360; // window centered on the value
+                // The row label sits INSIDE the chromatic strip: the word
+                // "hue" IS the position marker, fixed at the strip center —
+                // the color window slides under it when ←→ rotates. The ←→
+                // hint sits at the strip's right end on its own cells.
+                <Box width={24}>
+                  <Text color={theme.muted}>{` › `}</Text>
+                  <Text>
+                    {Array.from({ length: 20 }, (_, i) => {
+                      const h = (hue + (i - 9) * 6 + 3600) % 360; // window centered on cell 9
                     const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
-                    // The word "hue" is the position marker (letters ride
-                    // the strip, centered on the value, cell 3); the ←→ hint
-                    // sits at the strip's right end on its own cells.
-                    const inLabel = i >= 1 && i <= 3;
+                    const inLabel = i >= 8 && i <= 10; // "hue" at the center
                     const inHint = i >= 17 && i <= 18;
-                    const ch = inLabel ? "hue"[i - 1] : inHint ? "←→"[i - 17] : " ";
+                    const ch = inLabel ? "hue"[i - 8] : inHint ? "←→"[i - 17] : " ";
                     const onCell = inLabel || inHint;
-                    return <Text key={i} backgroundColor={hex} color={onCell ? theme.bg : hex}>{ch}</Text>;
-                  })}
-                </Text>
+                      return <Text key={i} backgroundColor={hex} color={onCell ? theme.bg : hex}>{ch}</Text>;
+                    })}
+                  </Text>
+                </Box>
               )}
             </Box>
           );
