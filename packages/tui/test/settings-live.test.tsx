@@ -43,7 +43,12 @@ describe("settings changes apply live (#196)", () => {
     await new Promise((r) => setTimeout(r, 60)); // let the panel's useInput attach
     i.stdin.write("\x1b[B"); // down → Theme row
     await new Promise((r) => setTimeout(r, 20));
-    i.stdin.write("\r"); // activate → next theme (catppuccin)
+    i.stdin.write("\r"); // activate → opens the theme picker
+    await waitForFrame(frame, "· built-in", { timeoutMs: 3_000 });
+    await new Promise((r) => setTimeout(r, 60)); // let the picker's useInput attach
+    i.stdin.write("\x1b[B"); // catppuccin (built-ins in catalog order)
+    await new Promise((r) => setTimeout(r, 20));
+    i.stdin.write("\r"); // apply catppuccin
     await waitForFrame(frame, "Catppuccin Mocha", { timeoutMs: 3_000 });
     i.stdin.write("\x1b"); // close
     // The remount clears the volatile input draft — with the bug

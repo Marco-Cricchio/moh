@@ -477,7 +477,7 @@ const modeCommand: SlashCommand = {
 
 const themeCommand: SlashCommand = {
   name: "theme",
-  description: "cycle the color theme",
+  description: "theme picker (built-ins + personal themes)",
   usage: "/theme",
   run(ctx) {
     if (!ctx.onCycleTheme) return ctx.notify("/theme needs the TUI (themes live in settings)");

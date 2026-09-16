@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
-import { THEME_ORDER, THEMES, type ThemeName } from "./themes";
-import type { AnswerLanguage, DefaultPermissionMode, FilePreview, UserConfig, VibeMode } from "./user-config";
+import { THEMES, THEME_ORDER } from "./themes";
+import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
+import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
+import { ThemeStudioModal } from "./ThemeStudioModal";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
 import { fetchedToCatalog, filterCatalog, freeTextRow, mergePickCatalog, modelRow } from "./model-picker";
@@ -31,6 +34,9 @@ export interface SettingsPanelProps {
   /** Opens the per-project session-handoff transport chooser. */
   onConfigureHandoff?: () => void;
   onToast: (text: string) => void;
+  /** Reports whether the theme studio modal is open, so the App-level
+   * escape handler stands down while the studio owns the keyboard. */
+  onStudioActive?: (active: boolean) => void;
   onClose: () => void;
 }
 
@@ -58,7 +64,15 @@ function renderTosCardText(provider: string, width: number): string[] {
   return renderTosCard(card).split("\n").map((l) => truncate(l, width));
 }
 
-export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onClose }: SettingsPanelProps) {
+/** All selectable theme refs in cycle order: built-ins, then user themes. */
+function allThemeRefs(home?: string): ThemeRef[] {
+  return [...THEME_ORDER, ...listUserThemes(home ?? homedir()).map((t) => `user:${t.id}` as ThemeRef)];
+}
+
+/** Lowercase slug normalization for editor ids. */
+const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
@@ -111,8 +125,16 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; cursor: number; query: string }
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
     | { kind: "remove"; options: string[]; cursor: number }
-    | { kind: "tos"; provider: string };
-  const [sub, setSub] = useState<Sub | null>(null);
+    | { kind: "tos"; provider: string }
+    | { kind: "theme-pick"; options: ThemeRef[]; cursor: number }
+    const [sub, setSub] = useState<Sub | null>(null);
+  // "My themes…" opens the theme studio modal (variant-D redesign): a full
+  // screen visual editor — global sliders + per-element picks + live previews.
+  // Kept outside `sub` because it owns its own key handling end to end.
+  const [studio, setStudio] = useState<{ base: string } | null>(null);
+  useEffect(() => {
+    onStudioActive?.(studio !== null);
+  }, [studio]);
   // #498 max-iterations warning: shown when "unlimited" is selected in the
   // row; any later keypress dismisses it, and it stays dismissed while the
   // value remains unlimited — it reappears only if the value moves away
@@ -163,7 +185,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const rows: Row[] = useMemo(
     () => [
       { key: "mode", label: "Mode", value: config.mode },
-      { key: "theme", label: "Theme", value: THEMES[config.theme]?.label ?? config.theme },
+      { key: "theme", label: "Theme", value: themeLabelFor(config.theme, home) },
+      { key: "themes", label: "My themes…", value: `${listUserThemes(home ?? homedir()).length} personal` },
       { key: "icons", label: "Icons", value: config.icons ? "on" : "off" },
       { key: "filePreview", label: "File preview", value: config.filePreview },
       { key: "answerLanguage", label: "Answer language", value: config.answerLanguage },
@@ -227,10 +250,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       case "mode":
         return onChange({ mode: cycle<VibeMode>(["vibe", "dev"], config.mode) });
       case "theme": {
-        const next = cycle<ThemeName>(THEME_ORDER, config.theme);
-        onChange({ theme: next });
-        return onToast(`theme: ${THEMES[next].label}`);
+        const refs = allThemeRefs(home);
+        return setSub({ kind: "theme-pick", options: refs, cursor: Math.max(0, refs.indexOf(config.theme)) });
       }
+      case "themes":
+        return setStudio({ base: config.theme.startsWith("user:") ? guessExtendsOf(home ?? homedir(), config.theme.slice("user:".length)) : (config.theme as string) });
       case "icons": {
         const next = !config.icons;
         setIcons(next);
@@ -325,6 +349,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     onToast(`provider: ${ref} (new sessions)${userOwned ? " · user endpoint, default not editable here" : " · default saved in moh.json"}`);
   };
 
+  // The studio modal owns the keyboard while open: Ink fans every key out
+  // to all mounted useInput handlers, so this one must stand down or
+  // enter/esc would drive the settings list underneath the modal.
   useInput((input, key) => {
     if (key.escape) {
       if (sub && sub.kind !== "tos") {
@@ -342,6 +369,38 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub(null);
       }
       if (input && !key.ctrl && !key.meta) return setSub({ ...sub, value: sub.value + input });
+      return;
+    }
+    if (sub?.kind === "theme-pick") {
+      if (key.escape) return setSub(null);
+      if (key.upArrow) return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
+      if (key.downArrow) return setSub({ ...sub, cursor: Math.min(sub.options.length - 1, sub.cursor + 1) });
+      if (key.return || input === "\n") {
+        const ref = sub.options[sub.cursor];
+        if (!ref) return;
+        onChange({ theme: ref });
+        onToast(`theme: ${themeLabelFor(ref, home)}`);
+        return setSub(null);
+      }
+      if (input === "e" && sub.options[sub.cursor]?.startsWith("user:")) {
+        const id = sub.options[sub.cursor]!.slice("user:".length);
+        const fileTheme = loadUserTheme(home ?? homedir(), id);
+        if (!fileTheme) return onToast("theme file unreadable");
+        setSub(null);
+        return setStudio({ base: guessExtendsOf(home ?? homedir(), id) });
+      }
+      if (input === "d" && sub.options[sub.cursor]?.startsWith("user:")) {
+        const id = sub.options[sub.cursor]!.slice("user:".length);
+        const wasActive = config.theme === `user:${id}`;
+        // #749: deleting the active theme falls back to its extends base
+        // preset first, then the default — never a hardcoded one.
+        const base = guessExtendsOf(home ?? homedir(), id);
+        deleteUserTheme(home ?? homedir(), id);
+        const fallback: ThemeRef = wasActive ? (base as ThemeRef) : config.theme;
+        if (config.theme !== fallback) onChange({ theme: fallback });
+        onToast(`theme deleted${wasActive ? ` — fell back to ${base}` : ""}`);
+        return setSub(null);
+      }
       return;
     }
     if (sub) {
@@ -467,8 +526,25 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return;
     }
     if (key.return || input === "\n") return activate(rows[cursor]!);
-  });
+  }, { isActive: !studio });
 
+  if (studio) {
+    return (
+      <ThemeStudioModal
+        home={home ?? homedir()}
+        base={studio.base}
+        activeRef={config.theme}
+        onApplyRef={(ref) => onChange({ theme: ref as ThemeRef })}
+        onToast={onToast}
+        onSave={(id, name, colors) => {
+          saveUserTheme(home ?? homedir(), { version: 1, id, name, extends: studio.base, colors });
+          onChange({ theme: `user:${id}` as ThemeRef });
+          onToast(`theme saved: ${name} — applied`);
+        }}
+        onClose={() => setStudio(null)}
+      />
+    );
+  }
   return (
     <Dialog title=" settings " color={theme.ok}>
       {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
@@ -508,6 +584,19 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               <Text bold>{`model id: ${sub.value}▏`}</Text>
               <Text> </Text>
               <Dim>{sub.userOwned ? "user endpoint — the default is not editable here" : "saved as defaultModel in moh.json"}</Dim>
+            </>
+          ) : sub.kind === "theme-pick" ? (
+            <>
+              {sub.options.map((ref, i) => {
+                const selected = i === sub.cursor;
+                return (
+                  <Text key={ref} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                    {truncate(` ${selected ? "›" : " "} ${themeLabelFor(ref, home)}${selected ? " " : ""}`, innerWidth)}
+                  </Text>
+                );
+              })}
+              <Text> </Text>
+              <Dim>↑↓ select · enter apply · e edit · d delete (personal) · esc back</Dim>
             </>
           ) : (
             <>

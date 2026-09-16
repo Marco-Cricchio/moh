@@ -22,8 +22,8 @@ describe("themes catalog (issue #114)", () => {
     ]);
   });
 
-  it("every theme defines the full semantic token set (fg..bg)", () => {
-    const tokens: (keyof Theme)[] = ["label", "fg", "accent", "dim", "ok", "warn", "err", "purple", "border", "bg"];
+  it("every theme defines the full semantic token set (fg..bg + surface tokens, #749)", () => {
+    const tokens: (keyof Theme)[] = ["label", "fg", "accent", "dim", "ok", "warn", "err", "purple", "border", "bg", "surface", "surfaceRaised", "selection"];
     for (const name of THEME_ORDER) {
       for (const token of tokens) expect(THEMES[name][token], `${name}.${token}`).toBeTruthy();
     }

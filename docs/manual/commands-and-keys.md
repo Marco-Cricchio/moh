@@ -17,7 +17,7 @@ page is the same content in manual form, plus the manual's own entries
 | esc esc | stop the running turn |
 | ctrl+d | toggle tool-call detail |
 | ctrl+o | switch vibe / dev mode |
-| ctrl+t | cycle theme |
+| ctrl+t | cycle theme (built-ins + personal) |
 | ctrl+y | cycle thinking level |
 | ctrl+s | settings panel |
 | ctrl+q | usage quota (provider + local, this session and recent) |
@@ -48,7 +48,7 @@ page is the same content in manual form, plus the manual's own entries
 | /reload | hot-reload moh.json + user config |
 | /rename `<name>` | rename the current session |
 | /settings | settings panel |
-| /theme | cycle the color theme |
+| /theme | theme picker (built-ins + personal) |
 | /thinking | reasoning display + thinking level |
 | /tree | session tree panel (switch, branch from here, bookmarks, filters) |
 | /wayfinder | frontier panel (workflow on) |
