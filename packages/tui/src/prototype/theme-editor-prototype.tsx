@@ -385,8 +385,10 @@ function VariantD() {
 
   /** Basic color families the user picks from — names, not hex codes. */
   const BASIC_HUES: { name: string; h: number }[] = [
-    { name: "red", h: 0 }, { name: "orange", h: 30 }, { name: "yellow", h: 55 },
-    { name: "green", h: 130 }, { name: "cyan", h: 185 }, { name: "blue", h: 225 },
+    { name: "red", h: 0 }, { name: "vermilion", h: 15 }, { name: "orange", h: 30 },
+    { name: "amber", h: 45 }, { name: "yellow", h: 55 }, { name: "lime", h: 90 },
+    { name: "green", h: 130 }, { name: "teal", h: 165 }, { name: "cyan", h: 185 },
+    { name: "azure", h: 205 }, { name: "blue", h: 225 }, { name: "indigo", h: 250 },
     { name: "violet", h: 270 }, { name: "pink", h: 320 },
   ];
 
@@ -529,22 +531,29 @@ function VariantD() {
       })}
       <Text> </Text>
       <Text color={splitMode ? theme.accent : theme.muted}>{` overrides: ${splitMode ? "split — pick per element" : "auto — follow the sliders above"} (s toggles)`}</Text>
-      {splitMode && SIGNALS.map(({ role, glyph }) => {
-        const focused = slider === role;
-        return (
-          <Text key={role} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-            {` ${focused ? "›" : " "} ${glyph} ${role.padEnd(12)}${value(role).padStart(5)} ${focused ? "←→ basic colors · ⏎ auto" : ""} `}
+      {splitMode && (() => {
+        // Two columns: signals on the left, boxes on the right — each family
+        // sits above the preview pane it recolors (signals+boxes feed the
+        // gallery heads; the columns align with the two previews below).
+        const rowText = (key: string, label: string, val: string, focused: boolean, hint: string) => (
+          <Text key={key} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+            {` ${focused ? "›" : " "} ${label}${val.padStart(6)} ${focused ? hint : ""}`.padEnd(46)}
           </Text>
         );
-      })}
-      {splitMode && BOXES.map(({ id, label }) => {
-        const focused = slider === id;
-        return (
-          <Text key={id} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-            {` ${focused ? "›" : " "} box ${label.padEnd(11)}${value(id).padStart(5)} ${focused ? "←→ basic colors · ⏎ auto" : ""} `}
-          </Text>
-        );
-      })}
+        const rows = Math.max(SIGNALS.length, BOXES.length);
+        const cells: React.ReactNode[] = [];
+        for (let i = 0; i < rows; i++) {
+          const sig = SIGNALS[i];
+          const box = BOXES[i];
+          cells.push(
+            <Box key={`row-${i}`} gap={2}>
+              <Box>{sig ? rowText(sig.role, `${sig.glyph} ${sig.role.padEnd(8)}`, value(sig.role), slider === sig.role, "←→ colors · ⏎ auto") : <Text>{" ".repeat(46)}</Text>}</Box>
+              <Box>{box ? rowText(box.id, `box ${box.label.padEnd(11)}`, value(box.id), slider === box.id, "←→ colors · ⏎ auto") : <Text>{" ".repeat(46)}</Text>}</Box>
+            </Box>,
+          );
+        }
+        return cells;
+      })()}
       {splitMode && isSplitRow(slider) && (
         <Text>
           {BASIC_HUES.map(({ name, h }, i) => {
@@ -552,7 +561,7 @@ function VariantD() {
             const [/*h0*/, s0, l0] = hexToHsl(THEMES[BASE as keyof typeof THEMES].ok);
             const lc = clamp(0.5 + (l0 + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
             const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), lc);
-            return <Text key={i} backgroundColor={hex} color={i === pickOf(slider) ? theme.bg : hex}>{name.slice(0, 2)}</Text>;
+            return <Text key={i} backgroundColor={hex} color={i === pickOf(slider) ? theme.bg : hex}>{name.slice(0, 3)}</Text>;
           })}
         </Text>
       )}
