@@ -359,17 +359,21 @@ const VARIANTS: [string, string, React.FC][] = [
 ];
 
 function Switcher({ v, setV }: { v: number; setV: (n: number) => void }) {
-  useInput((_, key) => {
-    if (key.leftArrow) setV((v - 1 + VARIANTS.length) % VARIANTS.length);
-    if (key.rightArrow) setV((v + 1) % VARIANTS.length);
+  // ←/→ belong to the variants' own interaction; variant switching lives on
+  // tab / shift+tab (and [ ] as aliases) so both layers never collide.
+  useInput((input, key) => {
+    if (key.tab && !key.shift) setV((v + 1) % VARIANTS.length);
+    if (key.tab && key.shift) setV((v - 1 + VARIANTS.length) % VARIANTS.length);
+    if (input === "]") setV((v + 1) % VARIANTS.length);
+    if (input === "[") setV((v - 1 + VARIANTS.length) % VARIANTS.length);
   });
   const [key, name] = VARIANTS[v];
   return (
     <Box justifyContent="center">
       <Box borderStyle="round" paddingX={1}>
-        <Text>← </Text>
+        <Text>⇥ </Text>
         <Text color="cyan">{`${key} (${name})`}</Text>
-        <Text> →</Text>
+        <Text> ⇥</Text>
       </Box>
     </Box>
   );
