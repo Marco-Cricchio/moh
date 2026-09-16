@@ -125,7 +125,7 @@ describe("semantic transcript projection (#183)", () => {
     ];
     const blocks = projectTranscript(events, { mode: "vibe" });
     const plain = blocks.filter((block) => block.lines.length === 1);
-    expect(plain.map((block) => block.lines[0])).toContain("ran a command · rm");
+    expect(plain.map((block) => block.lines[0])).toContain("ran a command · rm -rf secrets");
     expect(plain.map((block) => block.lines[0])).toContain("read a file · src/a.ts");
     expect(plain.map((block) => block.lines[0])).toContain("searched the code · vibe");
     expect(blocks.some((block) => block.type === "preview")).toBe(false);
@@ -142,7 +142,7 @@ describe("semantic transcript projection (#183)", () => {
 
   test("vibe bash hint skips leading comment lines in multi-line payloads (#749-adjacent)", () => {
     const events: AgentEvent[] = [
-      { type: "tool_call", callId: "c1", name: "bash", args: { command: "# Check:\nbun test packages/tui/test/x.test.ts" } },
+      { type: "tool_call", callId: "c1", name: "bash", args: { command: "# Check:\nbun test pkg/x.test.ts" } },
       { type: "tool_result", callId: "c1", ok: true, output: "ok" },
       { type: "tool_call", callId: "c2", name: "bash", args: { command: "# Maybe\n# Clamp\ngit status" } },
       { type: "tool_result", callId: "c2", ok: true, output: "ok" },
@@ -152,10 +152,10 @@ describe("semantic transcript projection (#183)", () => {
     const lines = projectTranscript(events, { mode: "vibe" })
       .filter((block) => block.lines.length === 1)
       .map((block) => block.lines[0]);
-    expect(lines).toContain("ran a command · bun test");
+    expect(lines).toContain("ran a command · bun test pkg/x.test.ts");
     expect(lines).toContain("ran a command · git status");
     // all-comment payload degrades to the first line rather than crashing/empty
-    expect(lines).toContain("ran a command · # only");
+    expect(lines).toContain("ran a command · # only comments");
   });
 
   test("vibe shows a failed tool as an error with its message (#193)", () => {
@@ -213,10 +213,11 @@ describe("semantic transcript projection (#183)", () => {
       { type: "tool_call", callId: "h3", name: "bash", args: { command: "/usr/bin/git log --oneline" } },
     ];
     const lines = projectTranscript(events, { mode: "vibe" }).filter((block) => block.lines.length === 1).map((block) => block.lines[0]);
-    expect(lines).toContain("ran a command · bun test");
-    expect(lines).toContain("ran a command · git status");
-    expect(lines).toContain("ran a command · git log");
-    expect(lines.some((line) => line.includes("--porcelain") || line.includes("FOO=1") || line.includes("/usr/bin"))).toBe(false);
+    expect(lines).toContain("ran a command · bun test packages/tui");
+    expect(lines).toContain("ran a command · git status --porcelain -b");
+    expect(lines).toContain("ran a command · git log --oneline");
+    // env assignments and wrapper paths stay hidden
+    expect(lines.some((line) => line.includes("FOO=1") || line.includes("/usr/bin"))).toBe(false);
   });
 
   test("fetch collapses to a plain-language line in both modes; failures show (#219)", () => {
