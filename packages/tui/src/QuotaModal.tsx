@@ -149,9 +149,11 @@ function QuotaEndpointTable({ name, state, spinner }: { name: string; state: Quo
   }
   const badge = state.source === "official" ? "●" : "○";
   const t = new Table({
-    head: [{ content: `${badge} ${name}`, colSpan: 3 }],
+    // Runtime supports {content, colSpan} header cells; the type defs
+    // only know strings.
+    head: [{ content: `${badge} ${name}`, colSpan: 3 } as unknown as string],
     style: { head: [], border: ["grey"] },
-    chars: { ...ROUND_CHARS, "top-mid": "", color: theme.border },
+    chars: ROUND_CHARS,
   });
   for (const w of state.windows) {
     const fraction = windowFraction(w);
@@ -227,7 +229,7 @@ function LocalTable({ title, note, rows, empty }: LocalTableProps) {
   const t = new Table({
     head: headers.map((h) => `${fg(theme.accent)}\x1b[1m${h}\x1b[22m\x1b[39m`),
     style: { head: [], border: ["grey"] },
-    chars: { ...ROUND_CHARS, color: theme.border },
+    chars: ROUND_CHARS,
   });
   for (const r of rows) {
     const cells = [r.model, formatCount(r.inputTokens), formatCount(r.outputTokens), String(r.calls)];
