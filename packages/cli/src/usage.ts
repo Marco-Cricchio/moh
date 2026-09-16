@@ -25,7 +25,8 @@ models without a price record remain tokens-only.
 
   (default)   per-model usage: model calls, input and output tokens
   tools       per-tool calls, ok/fail rate, timeouts, average call→result
-              duration where derivable
+              duration where derivable; failed results with a structured
+              errorKind are broken down per reason
   routes      fallback activations (from→to, reason), route_serving
               switches, and turn errors grouped by ProviderError kind
 
@@ -264,6 +265,7 @@ function renderTools(report: Report, json: boolean, out: { write(s: string): voi
               ok: t.ok,
               fail: t.fail,
               timeouts: t.timeouts,
+              ...(t.errorKinds && Object.keys(t.errorKinds).length > 0 ? { errorKinds: t.errorKinds } : {}),
               ...(avg !== null ? { avgDurationMs: avg } : {}),
             };
           }),
@@ -292,6 +294,22 @@ function renderTools(report: Report, json: boolean, out: { write(s: string): voi
     out.write("  (no tool calls in the scanned sessions)\n");
   } else {
     out.write(table(rows[0]!, rows.slice(1)));
+    // #731: structured failure break-down — only kinds the new event field
+    // carries; older session logs have no errorKind and stay unclassified.
+    const kindRows = report.tools
+      .filter((t) => t.errorKinds && Object.keys(t.errorKinds).length > 0)
+      .map((t) => {
+        const kinds = Object.entries(t.errorKinds!).sort((a, b) => b[1] - a[1]);
+        const total = kinds.reduce((s, [, n]) => s + n, 0);
+        const summary = kinds.map(([k, n]) => `${k} ${n}`).join(", ");
+        return ["  ", t.tool, `${total}/${t.fail} classified`, summary];
+      });
+    if (kindRows.length > 0) {
+      out.write("\nFailure reasons (errorKind, sessions on this moh version):\n");
+      for (const [indent, tool, classified, summary] of kindRows) {
+        out.write(`${indent}${tool.padEnd(14)} ${classified.padStart(14)}  ${summary}\n`);
+      }
+    }
   }
   out.write(`\n  ${report.sessionsScanned} session${report.sessionsScanned === 1 ? "" : "s"} scanned\n`);
   skipNotice(report, err);
@@ -361,7 +379,7 @@ function renderRoutes(report: Report, json: boolean, out: { write(s: string): vo
  * your dataset policy requires it. */
 export type UsageExportRecord =
   | { section: "model"; model: string; calls: number; inputTokens: number; outputTokens: number }
-  | { section: "tool"; tool: string; calls: number; ok: number; fail: number; timeouts: number }
+  | { section: "tool"; tool: string; calls: number; ok: number; fail: number; timeouts: number; errorKinds?: Record<string, number> }
   | { section: "route_fallback"; from: string; to: string; reason: string; count: number }
   | { section: "route_serving"; selected: string; serving: string; previous: string; count: number }
   | { section: "turn_error"; kind: string; count: number }
@@ -389,7 +407,7 @@ export function exportRecords(report: ReturnType<typeof aggregateTelemetry>): Us
     outputTokens: m.outputTokens,
   }));
   for (const t of report.tools) {
-    records.push({ section: "tool", tool: t.tool, calls: t.calls, ok: t.ok, fail: t.fail, timeouts: t.timeouts });
+    records.push({ section: "tool", tool: t.tool, calls: t.calls, ok: t.ok, fail: t.fail, timeouts: t.timeouts, ...(t.errorKinds && Object.keys(t.errorKinds).length > 0 ? { errorKinds: t.errorKinds } : {}) });
   }
   for (const f of report.route.fallbacks) {
     records.push({ section: "route_fallback", from: f.from, to: f.to, reason: f.reason, count: f.count });

@@ -286,7 +286,9 @@ const bashTool = (ledger: RunLedger, rerunMinMs = RERUN_MIN_MS): Tool<z.infer<ty
     "Successful runs of 10s+ save their full output to a file (pointer appended); " +
     "grep that file instead of re-running. An identical suite-like re-run on an unchanged " +
     "tree within 10 minutes is short-circuited with a pointer to the saved output — " +
-    `append "${FRESH_MARK}" to the command to force a real run.`,
+    `append "${FRESH_MARK}" to the command to force a real run. ` +
+    "Long-running commands (test suites, installs, builds) should pass `timeoutMs` " +
+    "(up to 600000) — the default 30s limit kills them mid-flight.",
   inputSchema: bashSchema,
   timeoutMs: bashTimeoutMs,
   async execute(args, ctx) {
@@ -382,7 +384,14 @@ const bashTool = (ledger: RunLedger, rerunMinMs = RERUN_MIN_MS): Tool<z.infer<ty
       throw new Error(`bash: timed out after ${timeout}ms${output ? `: ${truncate(output)}` : ""}`);
     }
     if (exitCode !== 0) {
-      throw new Error(`exit code ${exitCode}: ${truncate(output || "(no output)")}`);
+      // #731: exit 127 ("command not found") gets an actionable hint — the
+      // model repeatedly shells to `rg`, which is not installed here, and
+      // burns a turn discovering it.
+      const hint =
+        exitCode === 127 && /^\s*(rg|grep -P)\b/.test(rawCommand)
+          ? " (command not installed — use the built-in grep tool instead)"
+          : "";
+      throw new Error(`exit code ${exitCode}${hint}: ${truncate(output || "(no output)")}`);
     }
     const durationMs = Date.now() - started;
     // #304: capture the full output of expensive successful suite-like
@@ -410,8 +419,10 @@ const bashTool = (ledger: RunLedger, rerunMinMs = RERUN_MIN_MS): Tool<z.infer<ty
 
 const readSchema = z.object({
   path: z.string().min(1),
-  offset: z.number().int().positive().optional(),
-  limit: z.number().int().positive().optional(),
+  // #731: models occasionally send null/""/0 for offset — coalesced below
+  // instead of failing the whole call (20+ observed validation failures).
+  offset: z.coerce.number().int().positive().optional().nullable(),
+  limit: z.coerce.number().int().positive().optional().nullable(),
 });
 
 /** One served read of an unchanged file: content hash, the line ranges
@@ -538,6 +549,18 @@ const glob: Tool<z.infer<typeof globSchema>> = {
       scanRoot = retarget.root;
       pattern = retarget.pattern;
     }
+    // #731: a meta-free pattern may name a single *file* — retargeting
+    // would scan with a file as cwd (ENOTDIR). Answer directly instead:
+    // return the path when it exists, a clear miss otherwise.
+    if (scanRoot !== ctx.cwd && pattern === "*") {
+      const st = statSyncSafe(scanRoot);
+      if (st?.isFile()) {
+        const shown = isAbsolute(args.pattern.replace(/^!+/, ""))
+          ? scanRoot
+          : relative(ctx.cwd, scanRoot) || scanRoot;
+        return truncate(shown);
+      }
+    }
     const globber = new Bun.Glob(pattern);
     const matches: string[] = [];
     // Defense in depth: results are re-resolved canonically (SEC-03) so a
@@ -581,26 +604,50 @@ function globRetarget(pattern: string, cwd: string): { root: string; pattern: st
   return { root, pattern: rest.length ? rest.join("/") : "*" };
 }
 
+/** statSync without throwing — null on any error (missing path, ENOTDIR parent…). */
+function statSyncSafe(path: string): { isFile: () => boolean; isDirectory: () => boolean } | null {
+  try {
+    return statSync(realpathSync(path));
+  } catch {
+    return null;
+  }
+}
+
 const grepSchema = z.object({
   pattern: z.string().min(1),
   path: z.string().optional(),
 });
 const grep: Tool<z.infer<typeof grepSchema>> = {
   name: "grep",
-  description: "Search file contents with a regular expression (case-sensitive).",
+  description:
+    "Search file contents with a regular expression (case-sensitive). " +
+    "`path` may be a directory (searched recursively — default) or a single file (searched directly).",
   inputSchema: grepSchema,
   async execute(args, ctx) {
-    const root = args.path ? inRoot(args.path, ctx.cwd, ctx.filesystemScope) : ctx.cwd;
+    const target = args.path ? inRoot(args.path, ctx.cwd, ctx.filesystemScope) : ctx.cwd;
     const re = new RegExp(args.pattern);
+    // #731: a file `path` is searched directly — scanning with a file as
+    // cwd throws ENOTDIR, which accounted for ~40% of all observed tool
+    // failures (the model legitimately points grep at single files).
+    if (args.path !== undefined && (await Bun.file(target).exists())) {
+      const text = await Bun.file(target).text();
+      const out: string[] = [];
+      const lines = text.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i]!)) out.push(`${args.path}:${i + 1}:${lines[i]}`);
+        if (out.length >= 500) break;
+      }
+      return truncate(out.join("\n"));
+    }
     const out: string[] = [];
     const globber = new Bun.Glob("**/*");
-    outer: for await (const rel of globber.scan({ cwd: root, onlyFiles: true })) {
+    outer: for await (const rel of globber.scan({ cwd: target, onlyFiles: true })) {
       let abs: string;
       try {
         // SEC-03: grep is a read primitive too — never follow an in-root
         // symlink to content outside its selected root (#377: in yolo the
         // resolution stays canonical, the containment filter drops).
-        abs = inRoot(rel, root, ctx.filesystemScope);
+        abs = inRoot(rel, target, ctx.filesystemScope);
       } catch {
         continue;
       }
@@ -874,6 +921,40 @@ const askUserQuestionSchema = z.object({
   suggested: z.string().min(1).optional(),
 });
 
+/**
+ * #731: tolerate the two observed model mistakes instead of failing the
+ * whole ask_user call (~80 validation failures in production): a header
+ * over 12 characters is trimmed to the 12-char budget, and a `suggested`
+ * that does not exactly match an option label is snapped to a
+ * case-insensitive/prefix match when unambiguous, dropped otherwise.
+ * Both are purely visual fields — normalizing them is strictly better
+ * than a failed round trip. Applied in execute (not a schema transform —
+ * JSON Schema cannot represent transforms).
+ */
+function tolerantAskUserQuestions(questions: Array<z.infer<typeof askUserQuestionSchema>>) {
+  return questions.map((q) => {
+    let header = q.header;
+    if (header.length > 12) {
+      const trimmed = header.trim();
+      if (trimmed.length > 0) header = trimmed.slice(0, 12);
+    }
+    let suggested = q.suggested;
+    if (suggested !== undefined) {
+      const labels = q.options.map((o) => o.label);
+      if (!labels.includes(suggested)) {
+        const lower = suggested.toLowerCase();
+        const matches = labels.filter(
+          (l) => l.toLowerCase() === lower || l.toLowerCase().startsWith(lower) || lower.startsWith(l.toLowerCase()),
+        );
+        if (matches.length === 1) suggested = matches[0]!;
+        else if (matches.length === 0 && labels.length === 1) suggested = labels[0]!;
+        else suggested = undefined;
+      }
+    }
+    return { ...q, header, suggested, ...(suggested !== undefined ? {} : { suggested: undefined }) };
+  });
+}
+
 const askUserSchema = z
   .object({ questions: z.array(askUserQuestionSchema).min(1).max(4) })
   .superRefine((args, ctx) => {
@@ -887,26 +968,12 @@ const askUserSchema = z
         });
       }
       seenQuestions.add(q.question);
-      if (q.header.length > 12) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["questions"],
-          message: `header "${q.header}" exceeds 12 characters`,
-        });
-      }
       const labels = new Set(q.options.map((o) => o.label));
       if (labels.size !== q.options.length) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["questions"],
           message: `option labels must be unique within a question ("${q.question}")`,
-        });
-      }
-      if (q.suggested !== undefined && !labels.has(q.suggested)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["questions"],
-          message: `suggested must be one of the option labels ("${q.question}")`,
         });
       }
     }
@@ -978,7 +1045,10 @@ const askUser: Tool<z.infer<typeof askUserSchema>> = {
           "Proceed without asking — rephrase or make the decision yourself.",
       );
     }
-    const result = await ctx.askUser({ questions: args.questions });
+    // #731: normalization lives here (not in a schema transform) — JSON
+    // Schema cannot represent transforms, and the provider-facing schema
+    // must stay expressible.
+    const result = await ctx.askUser({ questions: tolerantAskUserQuestions(args.questions) });
     return formatAskUserSetResult(args.questions, result);
   },
 };

@@ -216,7 +216,7 @@ describe("aggregateTelemetry", () => {
         { id: id(1005), type: "user_message", text: "work" },
         { id: id(1025), type: "tool_result", callId: "r1", ok: true, output: "ok" },
         { id: id(1030), type: "tool_call", callId: "r2", name: "read", args: {} },
-        { id: id(1040), type: "tool_result", callId: "r2", ok: false, output: "nope" },
+        { id: id(1040), type: "tool_result", callId: "r2", ok: false, output: "nope", errorKind: "io" },
         // bash: call with no result — counts in calls, not in duration.
         { id: id(1050), type: "tool_call", callId: "b1", name: "bash", args: {} },
         // edit: result with no call — ignored entirely.
@@ -225,7 +225,7 @@ describe("aggregateTelemetry", () => {
       jsonl(join(dir, "01JTESTEEEEEEEEEEEEEEEEEEEE.jsonl"), events);
       const report = aggregateTelemetry({ cwd, home });
       expect(report.tools).toEqual([
-        { tool: "read", calls: 2, ok: 1, fail: 1, timeouts: 0, totalDurationMs: 35 },
+        { tool: "read", calls: 2, ok: 1, fail: 1, timeouts: 0, totalDurationMs: 35, errorKinds: { io: 1 } },
         { tool: "bash", calls: 1, ok: 0, fail: 0, timeouts: 0, totalDurationMs: 0 },
       ]);
     } finally {
