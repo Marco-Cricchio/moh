@@ -109,13 +109,12 @@ describe("mpm_query tool (#663, ADR-0028)", () => {
     expect(toolResult!.output).toContain("src/types.ts");
   });
 
-  test("an unmapped symbol seed gets fuzzy suggestions from the indexes (#669)", async () => {
+  test("a typo'd symbol resolves directly through graded matching (#743)", async () => {
     const { root, service } = await setup();
-    // One edit-distance from the mapped symbol "formatDate".
+    // One edit-distance from the mapped symbol "formatDate"; the graded
+    // pass resolves it outright instead of merely suggesting.
     const { toolResult } = await queryTurn(root, service, "formatDat");
-    expect(toolResult!.output).toContain("not mapped");
-    expect(toolResult!.output).toContain("suggestions");
-    expect(toolResult!.output).toContain("formatDate");
+    expect(toolResult!.output).toContain("src/date.ts");
   });
 
   test("a near-miss path seed gets path suggestions (#669)", async () => {
@@ -195,6 +194,59 @@ describe("mpm_query tool (#663, ADR-0028)", () => {
     expect(toolResult!.output).toContain("src/date.ts");
     expect(toolResult!.output).toContain("lib/date.ts");
     expect(toolResult!.output).toContain("Re-query with the full path");
+  });
+
+  test("a conceptual term resolves graded candidates (#743)", async () => {
+    const { root } = await setup();
+    // The real-world miss from session 73581578: seed "quota" against
+    // getQuota / QuotaModal — none of the exact forms match.
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src/quota-modal.tsx"), 'import { DateLike } from "./types";\nexport const QuotaModal = 1;');
+    const qmContent = 'import { DateLike } from "./types";\nexport const QuotaModal = 1;';
+    const recs = new Map(FIXTURE.map((r) => [r.path, r]));
+    recs.set("src/quota-modal.tsx", {
+      path: "src/quota-modal.tsx",
+      hash: sha(qmContent),
+      size: qmContent.length,
+      language: "typescript",
+      symbols: [{ name: "QuotaModal", kind: "const", line: 2 }, { name: "getQuota", kind: "function", line: 2 }],
+      relations: [{ kind: "imports", target: "src/types.ts", via: "./types", line: 1 }],
+    });
+    const store = new MpmStore(join(root, "project-map"));
+    store.writeProjection(recs);
+    const service = new MpmService(join(root, "project-map"));
+    service.load();
+    const { toolResult } = await queryTurn(root, service, "quota");
+    expect(toolResult!.output).toContain("src/quota-modal.tsx");
+    expect(toolResult!.output).toContain("## Project map results");
+  });
+
+  test("a graded tie is an honest ambiguity list, not a guess (#743)", async () => {
+    const { root } = await setup();
+    await mkdir(join(root, "src"), { recursive: true });
+    const mk = (name: string) => `export const ${name} = 1;`;
+    await writeFile(join(root, "src/alpha.ts"), mk("AlphaService"));
+    await writeFile(join(root, "src/beta.ts"), mk("BetaService"));
+    const recs = new Map(FIXTURE.map((r) => [r.path, r]));
+    for (const [p, sym] of [["src/alpha.ts", "AlphaService"], ["src/beta.ts", "BetaService"]] as const) {
+      recs.set(p, { path: p, hash: sha(mk(sym)), size: mk(sym).length, language: "typescript", symbols: [{ name: sym, kind: "const", line: 1 }], relations: [] });
+    }
+    const store = new MpmStore(join(root, "project-map"));
+    store.writeProjection(recs);
+    const service = new MpmService(join(root, "project-map"));
+    service.load();
+    // "service" is contained in both symbols with the same score.
+    const { toolResult } = await queryTurn(root, service, "service");
+    expect(toolResult!.output).toContain("ambiguous");
+    expect(toolResult!.output).toContain("src/alpha.ts");
+    expect(toolResult!.output).toContain("src/beta.ts");
+  });
+
+  test("a short seed is never graded (promiscuity gate) (#743)", async () => {
+    const { root, service } = await setup();
+    // "dat" folds below the 4-char gate: no graded match against "date.ts".
+    const { toolResult } = await queryTurn(root, service, "dat");
+    expect(toolResult!.output).toContain("not mapped");
   });
 
   test("the default permission allows mpm_query without prompting (non-yolo)", async () => {

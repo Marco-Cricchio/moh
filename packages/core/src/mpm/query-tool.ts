@@ -25,7 +25,7 @@ const schema = z.object({
     .string()
     .min(1)
     .max(MAX_SEED_LEN)
-    .describe("A mapped file path, a unique path suffix (e.g. 'date.ts'), or a code symbol name (e.g. 'formatDate')."),
+    .describe("A mapped file path, a unique path suffix (e.g. 'date.ts'), a code symbol name (e.g. 'formatDate'), or a conceptual term (e.g. 'quota')."),
 });
 
 interface ResultEntry {
@@ -47,7 +47,9 @@ export interface MpmQueryToolOptions {
 function resolveSeed(
   raw: string,
   service: MpmService,
-): { path: string; how: "path" | "suffix" | "symbol"; candidates: string[] } | { path: null; how: "unmapped" | "ambiguous"; candidates: string[] } {
+):
+  | { path: string; how: "path" | "suffix" | "symbol" | "graded"; candidates: string[] }
+  | { path: null; how: "unmapped" | "ambiguous"; candidates: string[] } {
   const stripped = normalizeSeed(raw);
   if (stripped.length === 0) return { path: null, how: "unmapped", candidates: [] };
   // Exact path first.
@@ -86,7 +88,74 @@ function resolveSeed(
     if (byPath.length === 1) return { path: byPath[0]!, how: "path", candidates: byPath };
     if (byPath.length > 1) return { path: null, how: "ambiguous", candidates: byPath };
   }
+  // #743: graded pass — the model's conceptual vocabulary ("quota",
+  // "usage quota modal") never matches extracted camelCase symbols or
+  // extended paths by exact form. Rank all mapped candidates by affinity
+  // under a family of normalizations; resolve a clear winner, list near
+  // ties honestly. Term-agnostic: no per-word special cases.
+  const ranked = rankCandidates(stripped, service);
+  if (ranked.length === 1) return { path: ranked[0]!.path, how: "graded", candidates: [ranked[0]!.path] };
+  if (ranked.length > 1) return { path: null, how: "ambiguous", candidates: ranked.map((c) => c.path) };
   return { path: null, how: "unmapped", candidates: [] };
+}
+
+/** One scored candidate: mapped path plus how strongly it matches the seed. */
+interface RankedCandidate {
+  path: string;
+  score: number;
+}
+
+/**
+ * #743: scored candidate search over the in-memory indexes. Candidate
+ * generation is substring/affix (seed inside a symbol or base name),
+ * stem (folded seed vs folded base name, or seed as a camel/separator
+ * token prefix), and token overlap (seed tokens ⊆ candidate tokens).
+ * Deterministic scoring; the minimum token gate keeps garbage out
+ * ("dat" never matches, "quota" does). Exact/identity forms never
+ * reach here — the exact ladder above already handled them.
+ */
+function rankCandidates(seed: string, service: MpmService): RankedCandidate[] {
+  const foldedSeed = foldIdentity(seed);
+  if (foldedSeed.length < 4) return []; // short seeds are too promiscuous to grade
+  const seedTokens = tokenize(seed);
+  if (seedTokens.length === 0) return [];
+  const out = new Map<string, RankedCandidate>();
+  const offer = (path: string, score: number) => {
+    const prev = out.get(path);
+    if (!prev || prev.score < score) out.set(path, { path, score });
+  };
+  for (const record of service.allRecords()) {
+    const basePath = record.path.slice(record.path.lastIndexOf("/") + 1);
+    const stem = basePath.replace(/\.[A-Za-z][A-Za-z0-9]{0,11}$/, "");
+    let best = 0;
+    for (const sym of record.symbols) {
+      const foldedSym = foldIdentity(sym.name);
+      const symTokens = tokenize(sym.name);
+      // Affix: the seed appears inside the symbol ("quota" in "getQuota").
+      if (foldedSym.includes(foldedSeed)) best = Math.max(best, 3 + (foldedSeed.length / foldedSym.length));
+      // Token containment: every seed token appears in the symbol's tokens.
+      else if (seedTokens.every((t) => symTokens.includes(t))) best = Math.max(best, 2.5);
+    }
+    const foldedStem = foldIdentity(stem);
+    const stemTokens = tokenize(stem);
+    if (foldedStem.includes(foldedSeed)) best = Math.max(best, 2 + (foldedSeed.length / foldedStem.length));
+    else if (seedTokens.every((t) => stemTokens.includes(t))) best = Math.max(best, 1.5);
+    if (best > 0) offer(record.path, best);
+  }
+  return [...out.values()].sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+}
+
+/**
+ * #743: split an identifier into lowercase word tokens at camelCase
+ * hills and separator boundaries. Non-identifier seeds (paths, prose)
+ * yield their whole folded form as one token so the token rules above
+ * still fire on them.
+ */
+function tokenize(s: string): string[] {
+  const cleaned = s.replace(/[^A-Za-z0-9]+/g, " ").trim();
+  if (cleaned.length === 0) return [];
+  const words = cleaned.split(/\s+/).flatMap((w) => w.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/));
+  return words.filter((w) => w.length >= 3);
 }
 
 /** Shared seed normalization (resolveSeed and suggestions must agree). */
@@ -104,16 +173,19 @@ function foldIdentity(s: string): string {
 }
 
 /**
- * #669: fuzzy suggestions for a no-result seed, harvested from the
- * in-memory indexes only (paths from the record map, symbol names from
- * the records themselves) — no new data structures, metadata only.
- * Only candidate forms the resolver would accept on re-query are
- * suggested (full paths, base names, exact symbol names). Returns at
- * most `limit` near-misses; empty means no usable hint.
+ * #669, rewritten by #743: suggestions for a no-result seed are the
+ * top-N of the same graded search the resolver uses (affix, stem, token
+ * overlap), plus a bounded Levenshtein pass for typos — one scoring
+ * vocabulary, no separate fuzzy path to drift. Only candidate forms the
+ * resolver would accept on re-query are suggested (full paths, base
+ * names, exact symbol names). Empty means no usable hint.
  */
 export function suggestSeeds(seed: string, service: MpmService, limit = 3): string[] {
   const stripped = normalizeSeed(seed);
   if (stripped.length < 4) return [];
+  // Graded candidates first: they are valid re-seeds by construction.
+  const ranked = rankCandidates(stripped, service).map((c) => c.path);
+  if (ranked.length > 0) return ranked.slice(0, limit);
   const maxDist = stripped.length >= 8 ? 3 : 2;
   const scored = new Map<string, number>();
   const consider = (candidate: string) => {
@@ -129,28 +201,23 @@ export function suggestSeeds(seed: string, service: MpmService, limit = 3): stri
   for (const record of service.allRecords()) {
     for (const sym of record.symbols) consider(sym.name);
   }
-  let best = [...scored.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
-  // #737: fuzzy matching cannot bridge case/kebab→camel gaps. When it
-  // finds nothing, fall back to folded identity: map the seed's folded
-  // form onto symbols and base names that normalize identically.
-  if (best.length === 0) {
-    const folded = foldIdentity(stripped);
-    if (folded.length >= 4) {
-      const fallback: string[] = [];
-      for (const record of service.allRecords()) {
-        for (const sym of record.symbols) {
-          if (foldIdentity(sym.name) === folded) fallback.push(sym.name);
-        }
-      }
-      for (const path of service.allPaths()) {
-        const base = path.slice(path.lastIndexOf("/") + 1);
-        if (foldIdentity(base) === folded || foldIdentity(path) === folded) fallback.push(base);
-      }
-      return [...new Set(fallback)].sort().slice(0, limit);
+  const best = [...scored.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+  if (best.length > 0) return best.slice(0, limit).map(([candidate]) => candidate);
+  // Typo pass found nothing: fall back to folded identity (case/kebab
+  // gaps Levenshtein cannot bridge — #737).
+  const folded = foldIdentity(stripped);
+  if (folded.length < 4) return [];
+  const fallback: string[] = [];
+  for (const record of service.allRecords()) {
+    for (const sym of record.symbols) {
+      if (foldIdentity(sym.name) === folded) fallback.push(sym.name);
     }
-    return [];
   }
-  return best.slice(0, limit).map(([candidate]) => candidate);
+  for (const path of service.allPaths()) {
+    const base = path.slice(path.lastIndexOf("/") + 1);
+    if (foldIdentity(base) === folded || foldIdentity(path) === folded) fallback.push(base);
+  }
+  return [...new Set(fallback)].sort().slice(0, limit);
 }
 
 /** Bounded Levenshtein distance with an early exit above `max`. */
@@ -185,7 +252,7 @@ export function mpmQueryTool(options: MpmQueryToolOptions): Tool<{ seed: string 
   return {
     name: "mpm_query",
     description:
-      "Query the project's structural map (Moh Project Map). Given one seed — a mapped file path, a unique path suffix, or a code symbol name — returns the related files (what it imports, what imports it, same-symbol files) with provenance: path, line, and why each entry is returned. " +
+      "Query the project's structural map (Moh Project Map). Given one seed — a mapped file path, a unique path suffix, a code symbol name, or a conceptual term (e.g. 'quota' finds quota-related files) — returns the related files (what it imports, what imports it, same-symbol files) with provenance: path, line, and why each entry is returned. " +
       "Use it when the task is described in general terms and you need to locate the right files, instead of searching with grep/glob. " +
       "Read-only; every returned entry is verified fresh against the current file content. Unmapped or ambiguous candidates are reported, never guessed. " +
       "On session resume the map may have changed — call it again rather than trusting earlier results.",
@@ -202,7 +269,7 @@ export function mpmQueryTool(options: MpmQueryToolOptions): Tool<{ seed: string 
       const lines: string[] = [];
       if (resolved.path === null) {
         if (resolved.how === "ambiguous") {
-          lines.push(`Seed "${args.seed}" is ambiguous — ${resolved.candidates.length} mapped paths end with it. Did you mean one of:`, ...resolved.candidates.map((c) => `- ${c}`), "", "Re-query with the full path.");
+          lines.push(`Seed "${args.seed}" is ambiguous — ${resolved.candidates.length} mapped paths match it. Did you mean one of:`, ...resolved.candidates.map((c) => `- ${c}`), "", "Re-query with the full path.");
         } else {
           const suggestions = suggestSeeds(args.seed, service);
           if (suggestions.length > 0) {
