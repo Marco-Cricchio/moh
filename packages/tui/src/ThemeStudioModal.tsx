@@ -173,6 +173,15 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
       if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
       return;
     }
+    // s toggles split/auto from any row; enabling split moves the focus to
+    // the first override row (ok) so the next ↓ continues down the list.
+    if (input === "s" && !key.ctrl && !key.meta) {
+      setSplitMode((m) => {
+        if (!m) setRow(SIGNALS[0]!.role);
+        return !m;
+      });
+      return;
+    }
     const fine = key.shift ? 0.08 : 0.02;
     const splitRows: Row[] = splitMode ? [...SIGNALS.map((x) => x.role), ...BOXES.map((b) => b.id)] : [];
     const all: Row[] = [...MAIN, ...splitRows];
@@ -204,12 +213,6 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
           : (cur === -1 ? 0 : (cur + 1) % BASIC_HUES.length);
         store((p) => ({ ...p, [row]: next }));
       }
-      return;
-    }
-    // s toggles split/auto for the overridable rows as a whole.
-    if (input === "s") {
-      setSplitMode((m) => !m);
-      setRow("hue");
       return;
     }
     // n names & saves the draft.

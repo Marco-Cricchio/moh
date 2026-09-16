@@ -566,6 +566,27 @@ describe("user themes in settings (#749)", () => {
     i.unmount();
   });
 
+  test("studio: enter on an override row clears to auto and does NOT close the modal", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    const { i, changes } = mount(cwd, { home });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await down(i, 2);
+    i.stdin.write("\r");
+    await waitForFrame(frame, "theme studio");
+    i.stdin.write("s"); await sleep(60); // split on → focus lands on 'ok'
+    await waitForCondition(() => frame().includes("split"), () => `for split; frame: ${frame()}`);
+    expect(frame().includes("› ✓ ok")).toBe(true); // focus moved to the first override
+    i.stdin.write("\x1b[C"); await sleep(60); // pick first basic color
+    await waitForCondition(() => frame().includes("red"), () => `for red pick; frame: ${frame()}`);
+    i.stdin.write("\r"); await sleep(80); // enter → back to auto, NOT close
+    expect(frame()).toContain("theme studio");
+    expect(frame()).toContain("auto");
+    expect(changes.every((c) => !("theme" in c))).toBe(true); // nothing applied
+    i.unmount();
+  });
+
   test("deleting the active user theme falls back to a built-in", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));

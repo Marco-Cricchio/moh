@@ -355,6 +355,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     onToast(`provider: ${ref} (new sessions)${userOwned ? " · user endpoint, default not editable here" : " · default saved in moh.json"}`);
   };
 
+  // The studio modal owns the keyboard while open: Ink fans every key out
+  // to all mounted useInput handlers, so this one must stand down or
+  // enter/esc would drive the settings list underneath the modal.
   useInput((input, key) => {
     if (key.escape) {
       if (sub && sub.kind !== "tos") {
@@ -529,7 +532,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return;
     }
     if (key.return || input === "\n") return activate(rows[cursor]!);
-  });
+  }, { isActive: !studio });
 
   if (studio) {
     return (
