@@ -4,7 +4,7 @@
  * durations) — never message content.
  */
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { aggregateTelemetry, aggregateLocalUsage, type AgentEvent } from "../src/index";
@@ -228,6 +228,41 @@ describe("aggregateTelemetry", () => {
         { tool: "read", calls: 2, ok: 1, fail: 1, timeouts: 0, totalDurationMs: 35 },
         { tool: "bash", calls: 1, ok: 0, fail: 0, timeouts: 0, totalDurationMs: 0 },
       ]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("aggregateTelemetry maxSessions (#718)", () => {
+  it("keeps only the N most recent sessions by mtime, dropped files unscanned", () => {
+    const { home, cwd, dir } = fixtureProject();
+    try {
+      for (const [name, start] of [
+        ["01JTESTAAAAAAAAAAAAAAAAAAAAA.jsonl", 1000],
+        ["01JTESTBBBBBBBBBBBBBBBBBBBB.jsonl", 2000],
+        ["01JTESTCCCCCCCCCCCCCCCCCCCC.jsonl", 3000],
+      ] as const) {
+        jsonl(join(dir, name), [
+          { id: id(start), type: "session_start", schemaVersion: 2, promptVersion: "p" },
+          ...turn({ start: start + 100, model: `prov/${name[7]!.toLowerCase()}`, input: 5, output: 1 }),
+        ]);
+        // Distinct mtimes: newest last (A→day 1, B→day 2, C→day 3).
+        const t = new Date(Date.UTC(2026, 0, 1 + ["A", "B", "C"].indexOf(name[7]!)));
+        utimesSync(join(dir, name), t, t);
+      }
+      const report = aggregateTelemetry({ cwd, home, maxSessions: 2 });
+      expect(report.sessionsScanned).toBe(2);
+      expect(report.sessions.map((s) => s.id).sort()).toEqual([
+        "01JTESTBBBBBBBBBBBBBBBBBBBB",
+        "01JTESTCCCCCCCCCCCCCCCCCCCC",
+      ]);
+      // Only the kept sessions' models aggregate.
+      expect(report.models.map((m) => m.model).sort()).toEqual(["prov/b", "prov/c"]);
+      // N larger than the file count scans everything.
+      const all = aggregateTelemetry({ cwd, home, maxSessions: 10 });
+      expect(all.sessionsScanned).toBe(3);
+      expect(all.sessionsSkipped).toBe(0);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
