@@ -11,6 +11,7 @@ import {
   allManualPages,
   installFirstPartySkills,
   loadFirstPartyManifest,
+  lastAssistantText,
   manualIndex,
   manualPage,
   readBundledSkill,
@@ -25,6 +26,7 @@ import { join } from "node:path";
 import type { UserConfig } from "./user-config";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
+import { copyToClipboard } from "./clipboard";
 
 /** The user config file inside an already-resolved moh home — the one
  * spelling of the path in this module (ADR-0006's `userConfigFile`
@@ -538,11 +540,30 @@ const renameCommand: SlashCommand = {
   },
 };
 
+/** #672: copies the last assistant reply to the system clipboard —
+ * OSC 52 first (ssh-safe), then platform binaries. The command leaves
+ * no permanent transcript artifact: feedback rides the notify channel
+ * (an inline one-liner), including the fresh-session warning. */
+const copyCommand: SlashCommand = {
+  name: "copy",
+  description: "copy the last assistant reply to the clipboard",
+  usage: "/copy",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/copy — nothing to copy yet (no open session)");
+    const text = lastAssistantText(ctx.session.history());
+    if (!text) return ctx.notify("nothing to copy yet");
+    void copyToClipboard(text)
+      .then(() => ctx.notify(`✓ copied ${text.length.toLocaleString("en-US")} chars`))
+      .catch((error) => ctx.notify(`✗ copy failed: ${error instanceof Error ? error.message : String(error)}`));
+  },
+};
+
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
   commandsCommand,
   compactCommand,
+  copyCommand,
   forkCommand,
   helpCommand,
   modeCommand,

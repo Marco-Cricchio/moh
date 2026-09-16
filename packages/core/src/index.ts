@@ -89,6 +89,9 @@ import {
   // the TUI /tree panel and the CLI renderer both consume. Returns the
   // TreeView or { error }; never throws.
   sessionTree,
+  // #672: the text of the last completed assistant turn (cleared by any
+  // later user message) — the /copy command's source. ADR-0004 export.
+  lastAssistantText,
   type TreeView,
   type TreeNode,
 } from "./session-store";
@@ -615,6 +618,9 @@ export {
   type SkillPrompt,
   SessionStore,
   listSessionSummaries,
+  // #672: the text of the last completed assistant turn (cleared by any
+  // later user message) — the /copy command's source. ADR-0004 export.
+  lastAssistantText,
   renameSession,
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.

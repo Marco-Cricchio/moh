@@ -42,6 +42,7 @@ page is the same content in manual form, plus the manual's own entries
 | /ask-moh | router over moh skills + docs |
 | /commands | this command list |
 | /compact | force context compaction (same producer as the auto trigger) |
+| /copy | copy the last assistant reply to the clipboard |
 | /mode | switch vibe / dev mode |
 | /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |
