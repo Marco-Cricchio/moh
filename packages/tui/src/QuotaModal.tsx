@@ -3,7 +3,7 @@ import { Text, useInput } from "ink";
 import { getQuota, aggregateLocalUsage, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import { useTheme } from "./themes";
-import { Dialog, Dim } from "./ui";
+import { Dialog, Dim, formatCount } from "./ui";
 import { SPINNER_FRAMES } from "./icons";
 
 /**
@@ -208,11 +208,6 @@ function fractionColor(fraction: number | undefined, theme: { ok: string; warn: 
   return fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.ok;
 }
 
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
 
 function formatReset(at: number): string {
   const diffMs = at - Date.now();

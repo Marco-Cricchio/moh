@@ -30,7 +30,11 @@ Switch endpoints and models without leaving the session; a switch applies to
 the next turn. For models that support it, choose a thinking level from the
 levels they actually expose, and optionally inspect provider-returned
 reasoning. moh also records per-call and session usage and can show available
-provider quota information where the provider supplies it.
+provider quota information where the provider supplies it. The usage quota
+modal (ctrl+q) also shows a local, metadata-only rollup across your recent
+sessions in this project (model calls and tokens, last 10 sessions), and the
+Home screen shows a compact 7-day local usage line; both come only from your
+own session logs, with no network access.
 
 ## Permissions and safe execution
 

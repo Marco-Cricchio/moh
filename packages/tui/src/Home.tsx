@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { Accent, Dim, Footer, Logo, truncate } from "./ui";
+import { Accent, Dim, Footer, Logo, truncate, formatCount } from "./ui";
 import {
   HOME_LIST_DEFAULT,
   homeBannerFits,
