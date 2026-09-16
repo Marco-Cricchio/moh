@@ -103,6 +103,58 @@ function LivePreview({ theme, compact = false }: { theme: Theme; compact?: boole
   );
 }
 
+/** Chat command-box gallery (#749 prototype): the transcript block types as
+ * they actually render — tinted heads on the same mix() recipe as
+ * blockTint, running/settled states, subagent and thinking chrome. */
+function mix(a: string, b: string, amount: number): string {
+  const rgb = (value: string) => [1, 3, 5].map((i) => Number.parseInt(value.slice(i, i + 2), 16));
+  const aa = rgb(a), bb = rgb(b);
+  return `#${aa.map((value, i) => Math.round(value * amount + bb[i]! * (1 - amount)).toString(16).padStart(2, "0")).join("")}`;
+}
+function BoxRow({ color, bg, head, detail }: { color: string; bg?: string; head: string; detail: string }) {
+  return (
+    <Box width="100%" backgroundColor={bg} paddingLeft={1}>
+      <Text color={color}>{head}</Text>
+      <Text color={undefined}> </Text>
+      <Text>{detail}</Text>
+    </Box>
+  );
+}
+function ChatBoxesPreview({ theme }: { theme: Theme }) {
+  const W = 50;
+  const tintOf = (semantic: string, amount: number): string => mix(semantic, theme.surface, amount);
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={W + 2}>
+      <Text color={theme.dim}> chat command boxes </Text>
+      <Text> </Text>
+      {/* user block (warn tint) */}
+      <BoxRow color={theme.warn} bg={tintOf(theme.warn, 0.14)} head="› you" detail="fix the login redirect" />
+      {/* moh answer block (accent tint) */}
+      <BoxRow color={theme.accent} bg={tintOf(theme.accent, 0.14)} head="◆ moh" detail="checked the router — token expiry" />
+      {/* running tool (accent tint, running glyph) */}
+      <BoxRow color={theme.accent} bg={tintOf(theme.accent, 0.14)} head="◌ bash ⏱ 2.1s / 30s" detail="running rg 'jwt'" />
+      {/* settled tool ok */}
+      <BoxRow color={theme.ok} bg={tintOf(theme.ok, 0.14)} head="✓ edit" detail="src/auth.ts · 12 lines" />
+      {/* failed tool */}
+      <BoxRow color={theme.err} bg={tintOf(theme.err, 0.2)} head="✗ test" detail="2 assertions failed" />
+      {/* error block */}
+      <BoxRow color={theme.err} bg={tintOf(theme.err, 0.2)} head="✗ error" detail="provider unreachable" />
+      {/* code preview block (purple) */}
+      <BoxRow color={theme.purple} bg={tintOf(theme.purple, 0.14)} head="⌨ preview" detail="auth.ts · 40–52" />
+      {/* diff block (purple) */}
+      <BoxRow color={theme.purple} bg={tintOf(theme.purple, 0.14)} head="⌨ diff" detail="+ token refresh · − retry loop" />
+      {/* thinking (dim, no tint) */}
+      <BoxRow color={theme.dim} head="◌ thinking" detail="tracing the refresh path…" />
+      {/* chrome (dim, light tint) */}
+      <BoxRow color={theme.dim} bg={tintOf(theme.dim, 0.07)} head="◌ cancelled" detail="steering · turn interrupted" />
+      {/* subagent (accent, light tint) */}
+      <BoxRow color={theme.accent} bg={tintOf(theme.accent, 0.07)} head="◐ explore" detail="child session · running" />
+      <Text> </Text>
+      <Dim>{` each head's tint follows its semantic token `}</Dim>
+    </Box>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Variant A — "swatch grid": navigable swatch grid + preview beside
 // ---------------------------------------------------------------------------
@@ -453,6 +505,7 @@ function VariantD() {
       )}
       <Text> </Text>
       <LivePreview theme={theme} />
+      <ChatBoxesPreview theme={theme} />
       <Text> </Text>
       <Text color={theme.muted}>{` ↑↓ slider · ←→ value (shift = coarse) · s split/auto signals — everything repaints live `}</Text>
     </Box>
