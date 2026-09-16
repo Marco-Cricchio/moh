@@ -195,6 +195,7 @@ import {
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
+export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
 export { catalogEntryFor, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type KnownCompatEndpointMetadata } from "./model-catalog";
 export {
   fetchLiveCatalogs,

@@ -2,14 +2,20 @@
 
 A **provider** is a backend that talks to LLMs; a **model** is what you
 pick within it. moh ships built-ins for anthropic, openai, google,
-github-copilot, openrouter, kimi-coding and xai, plus a zero-credential
-**mock** provider (the default) and custom endpoints via `openai-compat`.
+github-copilot, openrouter, kimi-coding, xai, and OpenAI-compatible endpoint
+profiles for DeepSeek, Groq, Cerebras, NVIDIA NIM, Together AI, Fireworks AI,
+Hugging Face, Mistral AI, Moonshot AI, MiniMax, Z.ai, Qwen, Xiaomi MiMo,
+Vercel AI Gateway, Cloudflare AI Gateway, and Baseten. It also has a
+zero-credential **mock** provider (the default) and custom endpoints via
+`openai-compat`.
 
 ## Adding a provider
 
 ```
 moh provider add
 ```
+
+The wizard presents a documented endpoint and default model for every built-in profile. Where a provider requires an account- or region-specific URL, it asks for the concrete endpoint instead of guessing. API keys are resolved from the provider's documented environment variable as well as `MOH_ENDPOINT_<NAME>_API_KEY`; values entered in the wizard are stored in `~/.moh/config`, never in moh.json.
 
 The wizard first asks **API key or subscription**. A subscription login
 (Claude Pro/Max, ChatGPT Plus/Pro, personal Google) runs the provider's

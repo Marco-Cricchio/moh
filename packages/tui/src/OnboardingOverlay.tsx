@@ -5,6 +5,11 @@ import {
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
   knownCompatEndpointMetadata,
+  isProviderProfile,
+  providerProfile,
+  providerEndpointChoices,
+  providerRequiresBaseUrlInput,
+  saveStoredApiKey,
   TOS_WARNING,
   minimalConnectionTest,
   readAuthSection,
@@ -68,7 +73,7 @@ export interface OnboardingProps {
 const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint: string }> = {
   model: { label: "Default model", hint: "e.g. claude-sonnet-4-5, gpt-5, qwen3" },
   apiKey: { label: "API key (empty = env var / local, no key)", hint: "stored inline in moh.json — keep it gitignored" },
-  baseUrl: { label: "Base URL", hint: "required for openai-compat, e.g. http://localhost:11434/v1" },
+  baseUrl: { label: "Base URL", hint: "required for openai-compat; built-in profiles prefill their documented endpoint" },
 };
 
 export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, forceWizard, subscriptionLogin, openUrl, onDone }: OnboardingProps) {
@@ -134,7 +139,10 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   const catalog = useMemo(() => subscriptionModelCatalog(wizard.type ?? ""), [wizard.type]);
   const modelWin = windowing(catalog.length + 1, phase.kind === "wizard-model-list" ? phase.cursor : 0, budget);
   // #295: known-endpoint pick-list for openai-compat (before the base URL).
-  const endpointWin = windowing(KNOWN_COMPAT_ENDPOINTS.length, phase.kind === "wizard-endpoint-list" ? phase.cursor : 0, budget);
+  const endpointChoices = useMemo(() => wizard.type === "openai-compat"
+    ? KNOWN_COMPAT_ENDPOINTS.map((entry) => ({ label: `${entry.name}${entry.local ? " (local)" : ""}`, baseUrl: entry.url }))
+    : providerEndpointChoices(wizard.type ?? ""), [wizard.type]);
+  const endpointWin = windowing(endpointChoices.length, phase.kind === "wizard-endpoint-list" ? phase.cursor : 0, budget);
 
   // Where the default provider ref lands after a wizard save/reuse (#129):
   // project moh.json when one exists, user config otherwise.
@@ -265,9 +273,9 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           applyWizard({ name: type, type });
           // openai-compat has no subscription grant — the auth-method step
           // is never shown (byte-identical path, issue #149).
-          if (type === "openai-compat") {
+          if (type === "openai-compat" || isProviderProfile(type)) {
             setAuthKind("api-key");
-            return applyPhase({ kind: "wizard-text", field: "model", value: "" });
+            return applyPhase({ kind: "wizard-text", field: "model", value: providerProfile(type)?.defaultModel ?? "" });
           }
           applyPhase({ kind: "wizard-auth", cursor: 0 });
         }
@@ -339,12 +347,12 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       }
       case "wizard-endpoint-list": {
         if (key.escape) return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
-        if (key.upArrow) return move(KNOWN_COMPAT_ENDPOINTS.length - 1, -1);
-        if (key.downArrow) return move(KNOWN_COMPAT_ENDPOINTS.length - 1, 1);
+        if (key.upArrow) return move(endpointChoices.length - 1, -1);
+        if (key.downArrow) return move(endpointChoices.length - 1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
           // Prefill the (still editable) base URL field; Custom… opens it empty.
-          const url = KNOWN_COMPAT_ENDPOINTS[phase.cursor]!.url;
+          const url = endpointChoices[phase.cursor]!.baseUrl;
           return applyPhase({ kind: "wizard-text", field: "baseUrl", value: url });
         }
         return;
@@ -352,7 +360,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       case "wizard-text": {
         if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
-        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind);
+        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey) => saveStoredApiKey(userFile, name, apiKey));
         if (input && !key.ctrl && !key.meta)
           patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value + input } : p));
         return;
@@ -519,12 +527,12 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           <Text>Pick an API endpoint:</Text>
           <Text> </Text>
           {endpointWin.above > 0 && <Dim>{` ↑ ${endpointWin.above} more`}</Dim>}
-          {KNOWN_COMPAT_ENDPOINTS.slice(endpointWin.start, endpointWin.start + endpointWin.count).map((entry, i) => {
+          {endpointChoices.slice(endpointWin.start, endpointWin.start + endpointWin.count).map((entry, i) => {
             const index = endpointWin.start + i;
-            const metadata = knownCompatEndpointMetadata(entry.url);
-            const label = `${entry.name}${entry.local ? " (local)" : ""}${entry.url ? ` — ${entry.url}` : ""}${metadata ? " · reasoning enabled" : ""}`;
+            const metadata = wizard.type === "openai-compat" ? knownCompatEndpointMetadata(entry.baseUrl) : undefined;
+            const label = `${entry.label}${entry.baseUrl ? ` — ${entry.baseUrl}` : ""}${metadata ? " · reasoning enabled" : ""}`;
             return (
-              <Text key={entry.name} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+              <Text key={entry.label} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
                 {` ${index === phase.cursor ? "›" : " "} ${label}${index === phase.cursor ? " " : ""}`}
               </Text>
             );
@@ -610,6 +618,7 @@ function submitField(
   applyWizard: (w: Partial<EndpointProfile>) => void,
   applyPhase: (p: Phase) => void,
   authKind: "api-key" | "subscription",
+  saveApiKey: (name: string, apiKey: string) => void,
 ): void {
   const value = phase.value.trim();
   if (phase.field === "model") {
@@ -632,11 +641,15 @@ function submitField(
     return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
   }
   if (phase.field === "apiKey") {
-    applyWizard({ ...wizard, ...(value ? { apiKey: value } : {}) });
+    if (value) saveApiKey(wizard.name || wizard.type || "endpoint", value);
+    applyWizard({ ...wizard });
     // #295: openai-compat picks the base URL from the known-endpoint list
     // (selection prefills the still-editable text field); other providers
     // keep the plain base URL text step.
-    if (wizard.type === "openai-compat") return applyPhase({ kind: "wizard-endpoint-list", cursor: 0 });
+    if (wizard.type === "openai-compat" || providerEndpointChoices(wizard.type ?? "").length > 1) return applyPhase({ kind: "wizard-endpoint-list", cursor: 0 });
+    if (providerRequiresBaseUrlInput(wizard.type ?? "")) return applyPhase({ kind: "wizard-text", field: "baseUrl", value: providerProfile(wizard.type ?? "")?.baseUrl ?? "" });
+    const profile = providerProfile(wizard.type ?? "");
+    if (profile) return submitField({ kind: "wizard-text", field: "baseUrl", value: profile.baseUrl }, wizard, applyWizard, applyPhase, authKind, saveApiKey);
     return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl

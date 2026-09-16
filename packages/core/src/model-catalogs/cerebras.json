@@ -1,0 +1,1 @@
+{"openai-completions":{"llama-3.3-70b":{"id":"llama-3.3-70b","name":"Llama 3.3 70B","api":"openai-completions","provider":"cerebras","baseUrl":"https://api.cerebras.ai/v1","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":131072,"maxTokens":8192}}}

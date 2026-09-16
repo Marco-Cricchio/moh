@@ -496,3 +496,15 @@ enters a result.
 the shipped clients need. Provider registry plumbing, memory internals,
 subagent presets, and skills discovery are internal — if you need one of
 those doors opened, that's an issue + ADR, not an import path.
+
+## Built-in endpoint profile metadata
+
+Clients that need to present the first-party OpenAI-compatible endpoint
+profiles can import `PROVIDER_PROFILES` from `@moh/core`. Each entry supplies
+the stable endpoint `id`, display name, documented default `baseUrl`,
+provider credential environment variable, default model, and any explicit
+endpoint alternatives. `providerEndpointChoices(id)` returns the endpoint
+choices a guided client may show; `providerRequiresBaseUrlInput(id)` identifies
+profiles whose URL needs user-owned account details. These are presentation
+metadata only: create sessions through `sessionFromConfig` as usual, and do
+not construct provider transports in the client.
