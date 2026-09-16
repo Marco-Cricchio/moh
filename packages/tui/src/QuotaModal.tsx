@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Text, useInput } from "ink";
 import { getQuota, aggregateLocalUsage, PRICING_SNAPSHOT, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
+import Table from "cli-table3";
 import { useTheme } from "./themes";
 import { Dialog, Dim, formatCount } from "./ui";
 import { SPINNER_FRAMES } from "./icons";
@@ -9,10 +10,11 @@ import { SPINNER_FRAMES } from "./icons";
 /**
  * The usage quota modal (#499): opened with ctrl+q from chat. Probes the
  * session's endpoints on open (60s in-memory cache, `r` forces refresh),
- * renders one row per quota window with a progress bar and a source badge
- * (● documented / ○ undocumented), plus the always-present local section
- * (session tokens per model from the event log). A remote failure degrades
- * to the local section with a discreet note — never an error.
+ * renders one table per endpoint with a cell per quota window (bar and
+ * source badge ● documented / ○ undocumented), plus the always-present
+ * local section as fixed-column tables (model | in | out | calls | est.
+ * USD) with a total row. A remote failure degrades to the local section
+ * with a discreet note — never an error.
  */
 export interface QuotaModalProps {
   /** The session's merged endpoint profiles (`session.endpointProfiles`). */
@@ -102,36 +104,33 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
   return (
     <Dialog title=" usage quota " color={theme.ok}>
       {probed.length === 0 && loading && <Dim>{`${spinner} probing provider quota…`}</Dim>}
-      {probed.map((e) => {
-        const state = reports[e.name];
-        return (
-          <QuotaEndpointRows key={e.name} name={e.name} state={state} spinner={spinner} />
-        );
-      })}
-      {anyUnavailable && <Dim> provider quota unavailable — local measurement only</Dim>}
-      <Text> </Text>
-      <Text bold> local measured (this session)</Text>
-      <Dim>{` estimated USD · pricing snapshot ${PRICING_SNAPSHOT.version}`}</Dim>
-      {localUsage.length === 0 && <Dim> no model calls yet</Dim>}
-      {localUsage.map((row) => (
-        <LocalRow key={row.model} row={row} />
+      {probed.map((e) => (
+        <QuotaEndpointTable key={e.name} name={e.name} state={reports[e.name]} spinner={spinner} />
       ))}
+      {anyUnavailable && <Dim> provider quota unavailable — local measurement only</Dim>}
+      <LocalTable
+        title="local measured (this session)"
+        note={`estimated USD · pricing snapshot ${PRICING_SNAPSHOT.version}`}
+        rows={localUsage}
+        empty="no model calls yet"
+      />
       {recentUsage && recentUsage.models.length > 0 ? (
-        <>
-          <Text> </Text>
-          <Text bold>{` local measured (last ${recentUsage.window} sessions)`}</Text>
-          {recentUsage.models.map((row) => (
-            <LocalRow key={row.model} row={row} />
-          ))}
-        </>
+        <LocalTable
+          title={`local measured (last ${recentUsage.window} sessions)`}
+          rows={recentUsage.models}
+        />
       ) : null}
-      <Text> </Text>
-      <Dim>● documented · ○ provider-reported · r refresh · esc close</Dim>
+      <Dim> ● documented · ○ provider-reported · r refresh · esc close</Dim>
     </Dialog>
   );
 }
 
-function QuotaEndpointRows({ name, state, spinner }: { name: string; state: QuotaReport | null | "loading" | undefined; spinner: string }) {
+/** One bordered table per endpoint: the header row carries the endpoint
+ * name (plus the source badge); each quota window is a body cell with
+ * label, detail, bar and reset — probing and null states stay single
+ * dim rows, they are not worth a frame. */
+function QuotaEndpointTable({ name, state, spinner }: { name: string; state: QuotaReport | null | "loading" | undefined; spinner: string }) {
+  const theme = useTheme();
   if (state === undefined || state === "loading") {
     return (
       <Text>
@@ -148,67 +147,139 @@ function QuotaEndpointRows({ name, state, spinner }: { name: string; state: Quot
       </Text>
     );
   }
+  const badge = state.source === "official" ? "●" : "○";
+  const t = new Table({
+    // Runtime supports {content, colSpan} header cells; the type defs
+    // only know strings.
+    head: [{ content: `${badge} ${name}`, colSpan: 3 } as unknown as string],
+    style: { head: [], border: ["grey"] },
+    chars: ROUND_CHARS,
+  });
+  for (const w of state.windows) {
+    const fraction = windowFraction(w);
+    const detail =
+      w.used !== undefined && w.limit !== undefined
+        ? `${formatCount(w.used)} / ${formatCount(w.limit)}`
+        : w.percent !== undefined
+          ? `${Math.round(w.percent)}%`
+          : "";
+    const reset = w.resetAt !== undefined ? formatReset(w.resetAt) : "";
+    const bar = fraction !== undefined ? barCells(BAR_CELLS, fraction) : "";
+    const cellColor = fraction === undefined ? "" : `${fg(fractionColor(fraction, theme))}`;
+    t.push([
+      w.label,
+      `${cellColor}${detail}${bar ? ` ${bar}` : ""}${cellColor ? "\x1b[39m" : ""}`,
+      `${fg(theme.dim)}${reset}\x1b[39m`,
+    ]);
+  }
+  return <Text>{cleanTable(t.toString())}</Text>;
+}
+
+const BAR_CELLS = 12;
+
+/** Filled/empty bar cell string for a 0..1 fraction. */
+function barCells(cells: number, fraction: number): string {
+  const f = Math.max(0, Math.min(1, fraction));
+  const filled = Math.round(f * cells);
+  return "█".repeat(filled) + "·".repeat(cells - filled);
+}
+
+/** Round-border table glyphs (post-processed by cleanTable into the
+ * minimal bars-only look, keeping cli-table3's width math intact). */
+const ROUND_CHARS = {
+  topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯",
+  left: "│", right: "│", top: "─", bottom: "─", middle: "┼",
+  "left-mid": "├", "mid-mid": "┼", "right-mid": "┤",
+};
+
+/** Strips cli-table3's pure separator rows (no `│` at all) and flattens
+ * every junction in content rows into a plain vertical bar, so tables
+ * read as a single rule on top and bottom with continuous column bars
+ * between. */
+function cleanTable(s: string): string {
+  return s
+    .split("\n")
+    .filter((line) => !/^[^│]*[├┼┤][^│]*$/.test(line))
+    .map((line) =>
+      line.includes("│")
+        ? line.replace(/[├┼┤┬┴]/g, "│")
+        : line.replace(/[├┼┤┬┴]/g, "─"),
+    )
+    .join("\n");
+}
+
+interface LocalTableProps {
+  title: string;
+  note?: string;
+  rows: LocalUsageRow[];
+  empty?: string;
+}
+
+/** Fixed-column local usage table: model | in | out | calls | est. USD,
+ * numbers right-aligned in their cells, colored total row at the foot. */
+function LocalTable({ title, note, rows, empty }: LocalTableProps) {
+  const theme = useTheme();
+  const hasCost = rows.some((r) => r.estimatedCostUsd !== undefined);
+  const total = rows.reduce(
+    (a, r) => ({ in: a.in + r.inputTokens, out: a.out + r.outputTokens, calls: a.calls + r.calls, usd: a.usd + (r.estimatedCostUsd ?? 0) }),
+    { in: 0, out: 0, calls: 0, usd: 0 },
+  );
+  const headers = ["model", "in", "out", "calls"];
+  if (hasCost) headers.push("est. USD");
+  const t = new Table({
+    head: headers.map((h) => `${fg(theme.accent)}\x1b[1m${h}\x1b[22m\x1b[39m`),
+    style: { head: [], border: ["grey"] },
+    chars: ROUND_CHARS,
+  });
+  for (const r of rows) {
+    const cells = [r.model, formatCount(r.inputTokens), formatCount(r.outputTokens), String(r.calls)];
+    if (hasCost) cells.push(r.estimatedCostUsd === undefined ? "—" : formatUsd(r.estimatedCostUsd));
+    t.push(cells);
+  }
+  if (rows.length > 0) {
+    const totalCells = [
+      `${fg(theme.dim)}total\x1b[39m`,
+      `${fg(theme.dim)}${formatCount(total.in)}\x1b[39m`,
+      `${fg(theme.dim)}${formatCount(total.out)}\x1b[39m`,
+      `${fg(theme.dim)}${String(total.calls)}\x1b[39m`,
+    ];
+    if (hasCost) totalCells.push(`${fg(theme.dim)}${formatUsd(total.usd)}\x1b[39m`);
+    t.push(totalCells);
+  }
   return (
     <>
-      <Text bold>{` ${name}`}</Text>
-      {state.windows.map((w, i) => (
-        <WindowRow key={i} name={name} window={w} source={state.source} />
-      ))}
+      <Text> </Text>
+      <Text bold>{` ${title}`}</Text>
+      {note !== undefined && <Dim>{` ${note}`}</Dim>}
+      {rows.length === 0 ? <Dim>{` ${empty ?? ""}`}</Dim> : <Text>{cleanTable(t.toString())}</Text>}
     </>
   );
 }
 
-function WindowRow({ name, window: w, source }: { name: string; window: { label: string; percent?: number; used?: number; limit?: number; resetAt?: number }; source: QuotaSource }) {
-  const theme = useTheme();
-  const badge = source === "official" ? <Text color={theme.ok}>●</Text> : <Text color={theme.dim}>○</Text>;
-  const fraction = w.percent !== undefined ? w.percent / 100 : w.used !== undefined && w.limit ? w.used / w.limit : undefined;
-  const detail =
-    w.used !== undefined && w.limit !== undefined
-      ? `${formatCount(w.used)} / ${formatCount(w.limit)}`
-      : w.percent !== undefined
-        ? `${Math.round(w.percent)}%`
-        : "";
-  const reset = w.resetAt !== undefined ? ` · resets ${formatReset(w.resetAt)}` : "";
-  return (
-    <Text>
-      {" "}
-      {badge} <Text>{`${w.label}: `}</Text>
-      <Text color={fractionColor(fraction, theme)}>{detail}</Text>
-      {fraction !== undefined && <QuotaBar fraction={fraction} />}
-      <Dim>{reset}</Dim>
-    </Text>
-  );
+function windowFraction(w: { percent?: number; used?: number; limit?: number }): number | undefined {
+  if (w.percent !== undefined) return w.percent / 100;
+  if (w.used !== undefined && w.limit) return w.used / w.limit;
+  return undefined;
 }
 
-function LocalRow({ row }: { row: LocalUsageRow }) {
-  const theme = useTheme();
-  return (
-    <Text>
-      <Text color={theme.warn}>—</Text>
-      {` ${row.model}: ${formatCount(row.inputTokens)} in · ${formatCount(row.outputTokens)} out (${row.calls} call${row.calls === 1 ? "" : "s"})${row.estimatedCostUsd === undefined ? "" : ` · est. ${formatUsd(row.estimatedCostUsd)}`}`}
-    </Text>
-  );
-}
-
-/** The quota bar mirrors the BottomBar context bar (███·██). */
-function QuotaBar({ fraction }: { fraction: number }) {
-  const theme = useTheme();
-  const cells = 12;
-  const filled = Math.round(Math.max(0, Math.min(1, fraction)) * cells);
-  return (
-    <Text>
-      <Text color={theme.border}> [</Text>
-      <Text color={fractionColor(fraction, theme)}>{"█".repeat(filled)}</Text>
-      <Text color={theme.border}>{"·".repeat(cells - filled) + "]"}</Text>
-    </Text>
-  );
-}
-
-function fractionColor(fraction: number | undefined, theme: { ok: string; warn: string; err: string }): string | undefined {
-  if (fraction === undefined) return undefined;
+function fractionColor(fraction: number, theme: { ok: string; warn: string; err: string }): string {
   return fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.ok;
 }
 
+function fg(color: string): string {
+  return `\x1b[38;5;${ansi256(color)}m`;
+}
+
+/** Best-effort hex → ANSI-256 for embedding color inside table cells
+ * (cli-table3 builds plain strings; ink's Text can't style cell content
+ * individually). Unrecognized values fall back to the default fg. */
+function ansi256(hex: string): number {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return 39;
+  const n = parseInt(m[1]!, 16);
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  return 16 + 36 * Math.round((r / 255) * 5) + 6 * Math.round((g / 255) * 5) + Math.round((b / 255) * 5);
+}
 
 function formatUsd(usd: number): string {
   return `$${usd.toFixed(usd < 0.01 ? 4 : 2)}`;
