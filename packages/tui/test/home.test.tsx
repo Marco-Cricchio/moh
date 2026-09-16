@@ -488,3 +488,20 @@ describe("home row chip alignment (#480)", () => {
         i.unmount();
   });
 });
+
+describe("home usage summary (#718)", () => {
+  test("shows a 7-day local usage line when sessions have model calls, hidden when empty", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("last 7 days"));
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("tok · top");
+    i.unmount();
+
+    // No sessions at all → no usage line, no error.
+    const emptyHome = mkdtempSync(join(tmpdir(), "moh-tui-home-empty-"));
+    const e = render(<Home cwd={emptyHome} home={emptyHome} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    expect(stripAnsi(e.lastFrame() ?? "")).not.toContain("last 7 days");
+    e.unmount();
+  });
+});

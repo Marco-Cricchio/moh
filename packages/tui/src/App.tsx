@@ -54,7 +54,7 @@ import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { endpointModelCatalog, aggregateLocalUsage } from "@moh/core";
+import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, type LocalUsageRow } from "@moh/core";
 import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
@@ -215,6 +215,23 @@ export function App({
     }
   });
   const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : handoffStartupOffer ? "handoff-onboarding" : null);
+  // #718: the quota modal's "last N sessions" rollup — computed on-open
+  // only (same probe pattern as #499), no background scanning. A failed
+  // aggregator read degrades to `null` (session-only view), never an error.
+  const [recentUsage, setRecentUsage] = useState<{ window: number; models: LocalUsageRow[] } | null>(null);
+  useEffect(() => {
+    if (overlay !== "quota") return;
+    setRecentUsage(() => {
+      try {
+        const report = aggregateTelemetry({ cwd, home, maxSessions: 10 });
+        return report.models.length > 0
+          ? { window: 10, models: report.models.map(({ thinkingLevels: _t, ...row }) => row) }
+          : null;
+      } catch {
+        return null;
+      }
+    });
+  }, [overlay, cwd, home]);
   const [handoffFromSettings, setHandoffFromSettings] = useState(false);
   const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
@@ -1296,6 +1313,7 @@ export function App({
           <QuotaModal
             endpoints={session.endpointProfiles}
             localUsage={aggregateLocalUsage(session.history())}
+            recentUsage={recentUsage}
             onClose={() => setOverlay(null)}
           />
         )}

@@ -180,6 +180,10 @@ export function aggregateTelemetry(options: {
   /** Drop session files whose mtime is older than this epoch ms
    * (`moh usage --days <N>`); filtered before any parsing. */
   sinceMs?: number;
+  /** Keep only the N most recent session files (by mtime) — the bounded
+   * read behind the TUI's "last N sessions" views; filtered before any
+   * parsing, same policy as `sinceMs` (dropped files are not scanned). */
+  maxSessions?: number;
 }): TelemetryReport {
   const dir = projectSessionsDir(options.cwd, options.home, options.slug);
   const report: TelemetryReport = {
@@ -197,8 +201,29 @@ export function aggregateTelemetry(options: {
   const fallbacks = new Map<string, TelemetryFallbackRow>();
   const routeServing = new Map<string, TelemetryRouteServingRow>();
 
-  for (const name of readdirSync(dir).sort()) {
-    if (!name.endsWith(".jsonl")) continue;
+  const jsonl = readdirSync(dir)
+    .filter((name) => name.endsWith(".jsonl"))
+    .sort();
+  // Bounded read: newest-N by mtime, stat before any parsing. Files whose
+  // stat fails are dropped here (counted skipped) — the readdir order is
+  // otherwise preserved for determinism below.
+  let names = jsonl;
+  if (options.maxSessions !== undefined && jsonl.length > options.maxSessions) {
+    const mtimes = new Map<string, number>();
+    for (const name of jsonl) {
+      try {
+        mtimes.set(name, statSync(join(dir, name)).mtimeMs);
+      } catch {
+        report.sessionsSkipped += 1;
+      }
+    }
+    names = jsonl
+      .filter((name) => mtimes.has(name))
+      .sort((a, b) => mtimes.get(b)! - mtimes.get(a)!)
+      .slice(0, options.maxSessions);
+  }
+
+  for (const name of names) {
     if (options.sinceMs !== undefined) {
       let mtimeMs = 0;
       try {
