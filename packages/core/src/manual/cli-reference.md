@@ -250,12 +250,19 @@ delete moves the session's JSONL file into the trash
 ## moh usage
 
 ```
-usage: moh usage [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
+usage: moh usage [export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
 
 Per-model usage report across the project's local sessions: model calls,
 input and output tokens summed over every session file. Failed calls are
 excluded (they consumed nothing measurable).
 
+  export      redacted metadata-only export (CSV or JSONL) of the aggregate
+              telemetry — per-model usage, per-tool stats, per-session
+              rollups. No message content, tool outputs, or reasoning is
+              ever included: everything is redacted by construction.
+  --format    export format: csv (long "section,entity,metric,value" rows)
+              or jsonl (one record per line). Required with export.
+  --out       write the export to a path (default: stdout)
   --project   another project's slug (default: the current project)
   --days      only sessions modified within the last N days
   --json      machine-readable JSON (models, totals, session count)

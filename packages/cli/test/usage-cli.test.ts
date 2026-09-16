@@ -4,7 +4,7 @@
  * filters, empty-project friendly message, corrupt-file skip.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "@moh/core";
@@ -159,5 +159,97 @@ describe("moh usage (#715)", () => {
     const { spawn } = harness();
     const { code } = spawn(["junk"]);
     expect(code).toBe(2);
+  });
+});
+
+describe("moh usage export (#717)", () => {
+  /** Fixture with rich content: the markers must never appear in exports. */
+  function richHarness() {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "session_start", schemaVersion: 1, promptVersion: "p" });
+      s.append({ type: "user_message", text: "SECRET-USER-PROMPT please refactor the widget" });
+      s.append({ type: "model_call", model: "m-a", usage: { inputTokens: 100, outputTokens: 10 }, thinkingLevel: "high" });
+      s.append({ type: "tool_call", callId: "c1", name: "bash", args: "SECRET-TOOL-ARGS cat /etc/passwd" });
+      s.append({ type: "tool_result", callId: "c1", ok: true, output: "SECRET-TOOL-OUTPUT root:x:0:0" });
+      s.append({ type: "fallback", from: "a/one", to: "a/two", reason: "rate_limited" });
+      s.append({ type: "error", reason: "rate_limited", message: "rate limited" });
+      s.append({ type: "done", usage: { inputTokens: 100, outputTokens: 10 }, models: ["m-a"] });
+    });
+    return h;
+  }
+
+  test("--format is required and validated", () => {
+    const h = richHarness();
+    const missing = h.spawn(["export"]);
+    expect(missing.code).toBe(2);
+    expect(missing.stderr).toContain("--format csv|jsonl");
+    const bad = h.spawn(["export", "--format", "xml"]);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain("--format csv|jsonl");
+  });
+
+  test("csv to stdout: metadata-only long format", () => {
+    const h = richHarness();
+    const { code, stdout } = h.spawn(["export", "--format", "csv"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("section,entity,metric,value");
+    expect(stdout).toContain("model,m-a,calls,1");
+    expect(stdout).toContain("model,m-a,inputTokens,100");
+    expect(stdout).toContain("tool,bash,calls,1");
+    expect(stdout).toContain("route_fallback,a/one -> a/two (rate_limited),count,1");
+    expect(stdout).toContain("turn_error,rate_limited,count,1");
+    // The rich content markers never leave the machine.
+    expect(stdout).not.toContain("SECRET-USER-PROMPT");
+    expect(stdout).not.toContain("SECRET-TOOL-ARGS");
+    expect(stdout).not.toContain("SECRET-TOOL-OUTPUT");
+  });
+
+  test("jsonl to stdout: one record per line", () => {
+    const h = richHarness();
+    const { code, stdout } = h.spawn(["export", "--format", "jsonl"]);
+    expect(code).toBe(0);
+    const lines = stdout.trim().split("\n").map((l) => JSON.parse(l));
+    const model = lines.find((r) => r.section === "model");
+    expect(model).toMatchObject({ section: "model", model: "m-a", calls: 1, inputTokens: 100, outputTokens: 10 });
+    const session = lines.find((r) => r.section === "session");
+    expect(session).toMatchObject({ id: session!.id, done: 1, error: 1, inputTokens: 100, modelsServed: ["m-a"] });
+    expect(session.modelsServed).toEqual(["m-a"]);
+    const tool = lines.find((r) => r.section === "tool");
+    expect(tool).toMatchObject({ tool: "bash", calls: 1, ok: 1, fail: 0 });
+    for (const line of stdout.trim().split("\n")) {
+      expect(line).not.toContain("SECRET-");
+    }
+  });
+
+  test("--out writes to a path and not stdout", () => {
+    const h = richHarness();
+    const outPath = join(h.cwd, "usage-export.csv");
+    const { code, stdout } = h.spawn(["export", "--format", "csv", "--out", outPath]);
+    expect(code).toBe(0);
+    expect(stdout).toBe("");
+    const written = readFileSync(outPath, "utf8");
+    expect(written).toContain("model,m-a,inputTokens,100");
+    expect(written).not.toContain("SECRET-");
+    rmSync(outPath);
+  });
+
+  test("csv values are escaped", () => {
+    const h = harness();
+    h.session((s) => {
+      s.append({ type: "fallback", from: "x,a", to: "b", reason: `quote " and, comma` });
+    });
+    const { code, stdout } = h.spawn(["export", "--format", "csv"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain('"x,a -> b (quote "" and, comma)",count,1');
+  });
+
+  test("empty project → friendly message, no output file", () => {
+    const { spawn, cwd } = harness();
+    const outPath = join(cwd, "never.csv");
+    const { code, stderr } = spawn(["export", "--format", "csv", "--out", outPath]);
+    expect(code).toBe(0);
+    expect(stderr).toContain("No sessions found");
+    expect(existsSync(outPath)).toBe(false);
   });
 });
