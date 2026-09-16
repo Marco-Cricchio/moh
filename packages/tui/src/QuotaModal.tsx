@@ -19,6 +19,11 @@ export interface QuotaModalProps {
   endpoints: EndpointProfile[];
   /** Local measured usage: per-model rows from the open session's events. */
   localUsage: LocalUsageRow[];
+  /** #718: per-model rollup over the last N project sessions (bounded
+   * `aggregateTelemetry` read, computed by the caller on open). When
+   * provided, the local section grows a "last N sessions" block; absent
+   * or failed, the modal degrades to the session-only view. */
+  recentUsage?: { window: number; models: LocalUsageRow[] } | null;
   /** Probe seam (defaults to the core `getQuota`; tests inject fixtures). */
   probe?: (endpoint: EndpointProfile) => Promise<QuotaReport | null>;
   onClose: () => void;
@@ -41,7 +46,7 @@ export function clearQuotaCache(): void {
   moduleCache.clear();
 }
 
-export function QuotaModal({ endpoints, localUsage, probe, onClose }: QuotaModalProps) {
+export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose }: QuotaModalProps) {
   const theme = useTheme();
   const [reports, setReports] = useState<ReportState>({});
   const [tick, setTick] = useState(0);
@@ -110,6 +115,15 @@ export function QuotaModal({ endpoints, localUsage, probe, onClose }: QuotaModal
       {localUsage.map((row) => (
         <LocalRow key={row.model} row={row} />
       ))}
+      {recentUsage && recentUsage.models.length > 0 ? (
+        <>
+          <Text> </Text>
+          <Text bold>{` local measured (last ${recentUsage.window} sessions)`}</Text>
+          {recentUsage.models.map((row) => (
+            <LocalRow key={row.model} row={row} />
+          ))}
+        </>
+      ) : null}
       <Text> </Text>
       <Dim>● documented · ○ provider-reported · r refresh · esc close</Dim>
     </Dialog>

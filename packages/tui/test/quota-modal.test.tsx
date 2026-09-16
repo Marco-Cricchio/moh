@@ -133,3 +133,30 @@ describe("QuotaModal (#499)", () => {
     clearQuotaCache();
   });
 });
+
+describe("QuotaModal recent sessions (#718)", () => {
+  test("renders the last-N rollup under its own heading, hiding an empty one", async () => {
+    clearQuotaCache();
+    const { instance } = mount({
+      recentUsage: { window: 10, models: [{ model: "m-2", calls: 9, inputTokens: 20_000, outputTokens: 1_500 }] },
+    });
+    await waitFor(instance, "last 10 sessions");
+    const frame = stripAnsi(instance.lastFrame()!);
+    expect(frame).toContain("local measured (this session)");
+    expect(frame).toContain("m-2: 20.0k in · 1.5k out (9 calls)");
+    instance.unmount();
+
+    // Empty rollup: the section is hidden cleanly.
+    const empty = mount({ recentUsage: { window: 10, models: [] } });
+    await waitFor(empty.instance, "local measured");
+    expect(stripAnsi(empty.instance.lastFrame()!)).not.toContain("last 10 sessions");
+    empty.instance.unmount();
+
+    // Absent rollup (aggregator failure): session-only view, no error.
+    const degraded = mount({ recentUsage: null });
+    await waitFor(degraded.instance, "local measured");
+    const dframe = stripAnsi(degraded.instance.lastFrame()!);
+    expect(dframe).toContain("m-1:");
+    expect(dframe).not.toContain("last 10 sessions");
+  });
+});
