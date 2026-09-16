@@ -5,6 +5,30 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.35.0] - 2026-09-16
+### Added
+
+- **Local usage telemetry and reports** (#714–#718): `moh usage` reports
+  per-model calls and input/output tokens, tool success/failure and duration
+  statistics, route fallbacks/errors, and redacted CSV/JSONL exports across
+  local sessions. The TUI Home and quota modal also show bounded local usage
+  summaries.
+
+- **Estimated model costs** (#719): `moh usage` and the TUI quota modal show
+  clearly labelled approximate USD estimates alongside measured tokens when a
+  model has a maintained price record. Pricing is release-pinned to the
+  vendored catalog; unknown, ambiguous, and placeholder-price models remain
+  tokens-only.
+
+- **Built-in OpenAI-compatible endpoint profiles** (#726): onboarding and
+  guided setup recognize 16 hosted endpoints with their API-key environment
+  variables, model catalogs, and wire compatibility metadata.
+
+### Changed
+
+- **Faster local test execution** (#721): PTY integration tests run in
+  parallel by default with bounded batching and isolated retry.
+
 ## [0.34.3] - 2026-09-14
 ### Fixed
 
@@ -88,7 +112,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.34.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.35.0...develop
+[0.35.0]: https://github.com/Marco-Cricchio/moh/compare/v0.34.3...v0.35.0
 [0.34.3]: https://github.com/Marco-Cricchio/moh/compare/v0.34.2...v0.34.3
 [0.34.2]: https://github.com/Marco-Cricchio/moh/compare/v0.34.1...v0.34.2
 [0.34.1]: https://github.com/Marco-Cricchio/moh/compare/v0.34.0...v0.34.1
