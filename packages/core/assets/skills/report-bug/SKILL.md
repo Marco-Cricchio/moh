@@ -6,6 +6,14 @@ minMohVersion: 0.1.0
 
 # Report a bug or request
 
+**Language rule (mandatory):** issues filed against the moh repository are
+written **exclusively in English** — title, body, and every follow-up comment.
+This holds even when the user converses in another language or explicitly
+asks for the issue in a different language: in that case, draft and publish
+in English anyway and explain to the user (in their language) that repo
+artifacts are English-only. The conversation with the user stays in their
+language; only the published artifact is English.
+
 File an issue against the moh repository (`Marco-Cricchio/moh`) for the user.
 The user's own `gh` account does the publishing — moh never supplies
 credentials, and nothing leaves the machine without the user's explicit
@@ -23,7 +31,8 @@ gh auth status
 - **gh available** → follow the full flow below.
 - **gh missing or unauthenticated** → fall back: give the user the web link —
   https://github.com/Marco-Cricchio/moh/issues/new/choose — and pre-draft the
-  issue body in a scratch block they can paste. Stop there; do not attempt to
+  issue body (in English, per the language rule above) in a scratch block they
+  can paste. Stop there; do not attempt to
   authenticate on their behalf.
 
 ## Collect the report
@@ -43,8 +52,9 @@ Gather (do not invent) the facts a maintainer needs:
 
 ## Draft and confirm
 
-Compose the issue as markdown. Start the body with a single environment
-block:
+Compose the issue as markdown — always in **English** (language rule
+above), translating the user's own words if needed. Start the body with a
+single environment block:
 
 ```
 - moh version: <version>
