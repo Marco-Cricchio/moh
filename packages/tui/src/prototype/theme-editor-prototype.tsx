@@ -344,7 +344,8 @@ function VariantD() {
     const signal = (role: "ok" | "warn" | "err" | "purple", fallbackHex: string): string => {
       const pick = signalPicks[role];
       if (pick === undefined) return tint(fallbackHex, 0, warmth * 0.3);
-      const family = BASIC_HUES[pick]!;
+      const family = BASIC_HUES[pick];
+      if (!family) return tint(fallbackHex, 0, warmth * 0.3); // out-of-range pick: fall back to auto
       const [/*h*/, s, l] = hexToHsl(fallbackHex);
       const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
       return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
@@ -384,8 +385,17 @@ function VariantD() {
     // Signal roles: ←→ walks the basic color chips; enter clears back to auto.
     if (SIGNALS.some((x) => x.role === slider)) {
       const role = slider as "ok" | "warn" | "err" | "purple";
-      bump((n) => setSignalPicks((p) => ({ ...p, [role]: n })), signalPicks[role] ?? -1, 1, 0, BASIC_HUES.length - 1, true);
-      if (key.return || input === "\r") setSignalPicks((p) => { const { [role]: _drop, ...rest } = p; return rest; });
+      if (key.return || input === "\r") {
+        setSignalPicks((p) => { const { [role]: _drop, ...rest } = p; return rest; });
+      } else if (key.leftArrow || key.rightArrow) {
+        // From auto (-1): ← lands on the last chip, → on the first — never
+        // store a sentinel; only real chip indices reach state.
+        const cur = signalPicks[role] ?? -1;
+        const next = key.leftArrow
+          ? (cur === -1 ? BASIC_HUES.length - 1 : (cur - 1 + BASIC_HUES.length) % BASIC_HUES.length)
+          : (cur === -1 ? 0 : (cur + 1) % BASIC_HUES.length);
+        setSignalPicks((p) => ({ ...p, [role]: next }));
+      }
     }
     // s toggles split/auto for the signal colors as a whole.
     if (input === "s") {
