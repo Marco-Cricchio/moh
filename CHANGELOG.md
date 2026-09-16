@@ -5,6 +5,18 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.36.0] - 2026-09-16
+### Added
+
+- **`/copy` command** (#672, PR #736): copies the last assistant reply to the
+  clipboard from the TUI composer.
+
+### Changed
+
+- **mpm_query improvements** (#737, PR #738): the map is served during
+  updates instead of being unavailable, stale seeds are refreshed on
+  query, seed identity is folded, and fallback reasons are more precise.
+
 ## [0.35.1] - 2026-09-16
 ### Fixed
 
@@ -131,7 +143,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.35.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.36.0...develop
+[0.36.0]: https://github.com/Marco-Cricchio/moh/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/Marco-Cricchio/moh/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/Marco-Cricchio/moh/compare/v0.34.3...v0.35.0
 [0.34.3]: https://github.com/Marco-Cricchio/moh/compare/v0.34.2...v0.34.3
