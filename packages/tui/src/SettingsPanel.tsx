@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { setIcons } from "./icons";
 import { COLOR_ROLES, THEMES, THEME_ORDER, contrastWarnings, isHexColor, type ColorRole } from "./themes";
-import { deleteUserTheme, listUserThemes, loadUserTheme, saveUserTheme, themesDir as themesDirOf } from "./user-themes";
+import { deleteUserTheme, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor, themesDir as themesDirOf } from "./user-themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, UserConfig, VibeMode } from "./user-config";
 import { readFileSync } from "node:fs";
 import { useTheme } from "./themes";
@@ -60,33 +61,17 @@ function renderTosCardText(provider: string, width: number): string[] {
   return renderTosCard(card).split("\n").map((l) => truncate(l, width));
 }
 
-/** #749: display label for a theme ref — built-ins show `label · built-in`,
- * user themes `name · personal`, unknown refs the raw ref. */
-function themeLabelFor(ref: ThemeRef, home?: string): string {
-  if (ref.startsWith("user:")) {
-    const id = ref.slice("user:".length);
-    const theme = loadUserTheme(home ?? "", id);
-    return theme ? `${theme.label} · personal` : `${ref} (missing)`;
-  }
-  const preset = THEMES[ref as keyof typeof THEMES];
-  return preset ? `${preset.label} · built-in` : ref;
-}
-
 /** All selectable theme refs in cycle order: built-ins, then user themes. */
 function allThemeRefs(home?: string): ThemeRef[] {
-  return [...THEME_ORDER, ...listUserThemes(home ?? "").map((t) => `user:${t.id}` as ThemeRef)];
+  return [...THEME_ORDER, ...listUserThemes(home ?? homedir()).map((t) => `user:${t.id}` as ThemeRef)];
 }
 
 /** Editable fields of the theme editor, in cursor order (#749). */
 const THEME_EDIT_FIELDS = ["id", "name", "extends", ...COLOR_ROLES] as const;
 type ThemeEditField = (typeof THEME_EDIT_FIELDS)[number];
-const themeEditFields = (_s: unknown): readonly ThemeEditField[] => THEME_EDIT_FIELDS;
 
 /** Lowercase slug normalization for editor ids. */
 const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-
-/** #749: contrast warnings are advisory — never a save blocker. */
-const contrastWarningsFor = (colors: Record<ColorRole, string>): string[] => contrastWarnings(colors);
 
 /** Reconstructs which base preset a theme extends (the loader doesn't keep
  * it on the resolved Theme). Reads the file; falls back to tokyo-night. */
@@ -233,7 +218,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     () => [
       { key: "mode", label: "Mode", value: config.mode },
       { key: "theme", label: "Theme", value: themeLabelFor(config.theme, home) },
-      { key: "themes", label: "Themes…", value: `${listUserThemes(home ?? "").length} personal` },
+      { key: "themes", label: "Themes…", value: `${listUserThemes(home ?? homedir()).length} personal` },
       { key: "icons", label: "Icons", value: config.icons ? "on" : "off" },
       { key: "filePreview", label: "File preview", value: config.filePreview },
       { key: "answerLanguage", label: "Answer language", value: config.answerLanguage },
@@ -416,7 +401,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return;
     }
     if (sub?.kind === "theme-edit") {
-      const fields = themeEditFields(sub);
+      const fields = THEME_EDIT_FIELDS;
       // `s` saves from anywhere in the editor (create and edit alike);
       // saving is never blocked — contrast findings stay warnings.
       if (input === "s" && !key.ctrl && !key.meta && sub.valueBuf === "") {
@@ -424,7 +409,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         if (!id) return onToast("id required (lowercase slug) before saving");
         if (!(sub.extends in THEMES)) return onToast("base preset must be a built-in id");
         try {
-          saveUserTheme(home ?? "", { version: 1, id, name: sub.name || id, extends: sub.extends, colors: sub.colors });
+          saveUserTheme(home ?? homedir(), { version: 1, id, name: sub.name || id, extends: sub.extends, colors: sub.colors });
+          // Renaming to a different id moves the file: the old one must not
+          // survive as an orphan duplicate.
+          if (sub.editing && sub.editing !== id) deleteUserTheme(home ?? homedir(), sub.editing);
         } catch (e) {
           return onToast(`save failed: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -442,13 +430,23 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         const nextField = Math.min(fields.length - 1, sub.field + 1);
         if (field === "id") return setSub({ ...sub, id: slugify(sub.valueBuf), field: nextField, valueBuf: "" });
         if (field === "name") return setSub({ ...sub, name: sub.valueBuf.trim(), field: nextField, valueBuf: "" });
+        if (field === "extends") {
+          // The base preset is picked by cycling (enter), not typed: an
+          // unmodified enter just advances past it.
+          const presets = Object.keys(THEMES);
+          if (sub.valueBuf.trim() === "") return setSub({ ...sub, field: nextField, valueBuf: "" });
+          const typed = sub.valueBuf.trim();
+          if (typed in THEMES) return setSub({ ...sub, extends: typed, field: nextField, valueBuf: "" });
+          const index = presets.indexOf(sub.extends);
+          return setSub({ ...sub, extends: presets[(index + 1) % presets.length]!, field: sub.field, valueBuf: "" });
+        }
         // color role: validate hex before storing
         const value = sub.valueBuf.trim();
         if (value === "") return setSub({ ...sub, valueBuf: "" });
         if (!isHexColor(value)) return onToast(`${field}: not a hex color (#rgb or #rrggbb)`);
         const colors = { ...sub.colors, [field]: value.toLowerCase() };
         const merged = { ...THEMES[sub.extends as keyof typeof THEMES], ...colors } as Record<ColorRole, string>;
-        return setSub({ ...sub, colors, field: nextField, valueBuf: "", warnings: contrastWarningsFor(merged) });
+        return setSub({ ...sub, colors, field: nextField, valueBuf: "", warnings: contrastWarnings(merged) });
       };
       if (key.return || input === "\n") return commit();
       if (input && !key.ctrl && !key.meta) return setSub({ ...sub, valueBuf: sub.valueBuf + input });
@@ -467,15 +465,15 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       }
       if (input === "e" && sub.options[sub.cursor]?.startsWith("user:")) {
         const id = sub.options[sub.cursor]!.slice("user:".length);
-        const fileTheme = loadUserTheme(home ?? "", id);
+        const fileTheme = loadUserTheme(home ?? homedir(), id);
         if (!fileTheme) return onToast("theme file unreadable");
         return setSub({
           kind: "theme-edit",
           editing: id,
           id,
           name: fileTheme.label,
-          extends: guessBasePreset(id, home ?? ""),
-          colors: pickUserColors(id, home ?? ""),
+          extends: guessBasePreset(id, home ?? homedir()),
+          colors: pickUserColors(id, home ?? homedir()),
           field: 0,
           valueBuf: "",
           warnings: [],
@@ -483,10 +481,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       }
       if (input === "d" && sub.options[sub.cursor]?.startsWith("user:")) {
         const id = sub.options[sub.cursor]!.slice("user:".length);
-        deleteUserTheme(home ?? "", id);
-        const fallback: ThemeRef = config.theme === `user:${id}` ? "tokyo-night" : config.theme;
+        const wasActive = config.theme === `user:${id}`;
+        // #749: deleting the active theme falls back to its extends base
+        // preset first, then the default — never a hardcoded one.
+        const base = guessBasePreset(id, home ?? homedir());
+        deleteUserTheme(home ?? homedir(), id);
+        const fallback: ThemeRef = wasActive ? (base as ThemeRef) : config.theme;
         if (config.theme !== fallback) onChange({ theme: fallback });
-        onToast(`theme deleted${config.theme === `user:${id}` ? " — fell back to tokyo-night" : ""}`);
+        onToast(`theme deleted${wasActive ? ` — fell back to ${base}` : ""}`);
         return setSub(null);
       }
       return;

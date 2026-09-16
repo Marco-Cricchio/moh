@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { COLOR_ROLES, DEFAULT_THEME, THEMES, contrastWarnings, isHexColor, type ColorRole, type Theme } from "./themes";
+import { COLOR_ROLES, DEFAULT_THEME, THEMES, isHexColor, type ColorRole, type Theme } from "./themes";
 
 /** The on-disk v1 theme file. */
 export interface UserThemeFile {
@@ -27,6 +27,19 @@ export function themesDir(home: string = homedir()): string {
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
+
+/** #749: display label for a theme ref — built-ins show `label · built-in`,
+ * user themes `name · personal`, unknown refs the raw ref. */
+export function themeLabelFor(ref: ThemeRef, home: string = homedir()): string {
+  if (ref.startsWith("user:")) {
+    const id = ref.slice("user:".length);
+    const theme = loadUserTheme(home, id);
+    return theme ? `${theme.label} · personal` : `${ref} (missing)`;
+  }
+  const preset = THEMES[ref as keyof typeof THEMES];
+  return preset ? `${preset.label} · built-in` : ref;
+}
+
 
 /** Validates and parses one theme file's contents. The file path is part of
  * every error so the TUI can name the culprit; `@ internal` marks validation
@@ -138,7 +151,7 @@ export function deleteUserTheme(home: string, id: string): boolean {
   return true;
 }
 
-export type ThemeRef = string; // built-in preset id or `user:<id>`
+export type ThemeRef = string; // built-in preset id or `user:<id>` (user-config narrows it)
 
 export interface ResolvedTheme {
   theme: Theme;
@@ -163,18 +176,21 @@ export function resolveThemeRef(home: string, ref: ThemeRef | undefined): Resolv
     const file = join(themesDir(home), `${id}.json`);
     const theme = loadUserTheme(home, id);
     if (theme) return { theme, ref };
-    // Fallback to the file's declared base preset when readable.
+    // Fallback to the file's declared base preset even when the file's
+    // colors don't validate — the extends id is often still trustworthy.
+    let extendsBase: string | null = null;
     try {
-      const parsed = parseUserThemeFile(file, readFileSync(file, "utf8"));
-      if (parsed.ok && parsed.theme.extends in THEMES) {
-        return {
-          theme: THEMES[parsed.theme.extends as keyof typeof THEMES],
-          ref: parsed.theme.extends,
-          error: `theme ${ref} is invalid — using base preset "${parsed.theme.extends}" (${file})`,
-        };
-      }
+      const raw = JSON.parse(readFileSync(file, "utf8")) as { extends?: unknown };
+      if (typeof raw.extends === "string" && raw.extends in THEMES) extendsBase = raw.extends;
     } catch {
-      // fall through to the default-theme fallback below
+      // unreadable: fall through to the default-theme fallback below
+    }
+    if (extendsBase) {
+      return {
+        theme: THEMES[extendsBase as keyof typeof THEMES],
+        ref: extendsBase,
+        error: `theme ${ref} is invalid — using base preset "${extendsBase}" (${file})`,
+      };
     }
     return {
       theme: THEMES[DEFAULT_THEME],
@@ -188,10 +204,4 @@ export function resolveThemeRef(home: string, ref: ThemeRef | undefined): Resolv
     ref: DEFAULT_REF,
     error: `unknown theme "${ref}" — using default "${DEFAULT_THEME}"`,
   };
-}
-
-/** Contrast findings (<3:1, text/accent roles) for a resolved user theme —
- * surfaced as non-blocking warnings, never a save blocker. */
-export function userThemeContrastWarnings(theme: Theme): string[] {
-  return contrastWarnings(theme as unknown as Record<ColorRole, string>);
 }

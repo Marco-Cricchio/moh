@@ -225,10 +225,37 @@ describe("user themes (#749)", () => {
       }
     });
 
-    it("an empty theme ref falls back to the default with a visible error", () => {
-      const result = resolveThemeRef("/nonexistent", "user:broken-or-missing");
-      expect(result.theme).toBe(THEMES[DEFAULT_THEME]);
-      expect(result.error).toBeTruthy();
-    });
+  });
+});
+
+describe("broken active theme surfaces a visible startup error (#749 AC8)", () => {
+  it("resolveThemeRef reports the extends base for a corrupted active file", () => {
+    const home = makeHome();
+    try {
+      const dir = themesDir(home);
+      mkdirSync(dir, { recursive: true });
+      // A file that parses but validates badly: resolution must name the
+      // base preset, not silently jump to the default.
+      writeFileSync(join(dir, "corrupt.json"), JSON.stringify({ version: 1, id: "corrupt", name: "Corrupt", extends: "candy", colors: { accent: "not-hex" } }));
+      const result = resolveThemeRef(home, "user:corrupt");
+      expect(result.ref).toBe("candy");
+      expect(result.theme).toBe(THEMES["candy"]);
+      expect(result.error).toContain("user:corrupt");
+      expect(result.error).toContain("candy");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("a healthy active theme resolves with no error", () => {
+    const home = makeHome();
+    try {
+      saveUserTheme(home, validTheme);
+      const result = resolveThemeRef(home, "user:my-violet");
+      expect(result.error).toBeUndefined();
+      expect(result.ref).toBe("user:my-violet");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

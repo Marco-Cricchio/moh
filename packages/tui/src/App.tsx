@@ -28,7 +28,7 @@ import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./u
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
 import { SessionStore, handoffSeedMessage, handoffSeedPrompt, createGistHandoffTransport } from "@moh/core";
 import { THEMES, THEME_ORDER, ThemeProvider, type Theme } from "./themes";
-import { listUserThemes, resolveThemeRef } from "./user-themes";
+import { listUserThemes, resolveThemeRef, themeLabelFor } from "./user-themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
@@ -152,9 +152,8 @@ export function App({
   const [themeRef, setThemeRef] = useState<ThemeRef>(initialTheme ?? config.theme);
   // #749: resolve the ref (built-in or user theme) once per ref change;
   // a broken user theme falls back with a visible error, never a crash.
-  const [{ theme: resolvedTheme, error: themeError }, setTheme] = useState(
-    () => resolveThemeRef(home ?? "", initialTheme ?? config.theme),
-  );
+  const [resolved, setResolvedTheme] = useState(() => resolveThemeRef(home ?? homedir(), initialTheme ?? config.theme));
+  const resolvedTheme = resolved.theme;
   const [themeTick, setThemeTick] = useState(0);
   const [mode, setMode] = useState<Mode>(initialMode ?? config.mode);
   // Settings-panel changes must apply live, not only after a restart:
@@ -167,12 +166,7 @@ export function App({
       configRef.current = next;
       setConfig(next);
       if (patch.mode === "vibe" || patch.mode === "dev") setMode(patch.mode);
-      if (patch.theme && patch.theme !== previous.theme) {
-        setThemeRef(patch.theme);
-        const resolved = resolveThemeRef(home ?? "", patch.theme);
-        setTheme(resolved);
-        setThemeTick((value) => value + 1);
-      }
+      if (patch.theme && patch.theme !== previous.theme) applyThemeRef(patch.theme);
       saveUserConfig(next, cfgFile);
     },
     [cfgFile],
@@ -388,6 +382,12 @@ export function App({
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
   useEffect(() => {
     if (initialSession && "error" in initialSession) push(assemblyErrorToast(initialSession.error));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // #749: a broken active theme must name the path and cause at startup —
+  // the fallback is silent only when the config asked for nothing.
+  useEffect(() => {
+    if (resolved.error) push(resolved.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const blocked = pending !== null || asking !== null || overlay !== null;
@@ -861,20 +861,25 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, modelLabel]);
 
+  /** The single theme transition (#749): resolve, swap, remount. */
+  const applyThemeRef = (ref: ThemeRef) => {
+    const next = resolveThemeRef(home ?? homedir(), ref);
+    setThemeRef(ref);
+    setResolvedTheme(next);
+    setThemeTick((value) => value + 1);
+  };
   /** Applies a theme ref (built-in or user:<id>) — the single theme switch
    * path for Ctrl+T, /theme and settings (#749). */
   const applyTheme = (ref: ThemeRef) => {
-    const resolved = resolveThemeRef(home ?? "", ref);
-    setThemeRef(ref);
-    setTheme(resolved);
-    setThemeTick((value) => value + 1);
+    applyThemeRef(ref);
+    const next = resolveThemeRef(home ?? homedir(), ref);
     updateConfig({ theme: ref });
-    push(resolved.error ? resolved.error : `theme: ${resolved.theme.label}`);
+    push(next.error ? next.error : `theme: ${themeLabelFor(ref, home ?? homedir())}`);
   };
   /** Cycles built-ins, then user themes — every selectable theme reachable. */
   const cycleTheme = () => {
     const builtIn = THEME_ORDER as string[];
-    const user = listUserThemes(home ?? "").map((t) => `user:${t.id}`);
+    const user = listUserThemes(home ?? homedir()).map((t) => `user:${t.id}`);
     const all = [...builtIn, ...user];
     const index = all.indexOf(themeRef);
     const next = all[(index + 1) % all.length]!;

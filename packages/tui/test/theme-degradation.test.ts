@@ -8,31 +8,37 @@ import { highlightThemeFor } from "../src/markdown";
 describe("color degradation through the existing pipeline (#749)", () => {
   it("chalk renders every theme token at level 0 (ANSI-16) without throwing", async () => {
     const chalk = (await import("chalk")).default;
-    for (const level of [0, 1, 2, 3] as const) {
-      chalk.level = level;
-      for (const name of THEME_ORDER) {
-        const theme = THEMES[name] as unknown as Theme;
-        for (const [role, hex] of Object.entries(theme)) {
-          if (role === "label") continue;
-          expect(() => chalk.hex(hex as string)(`${role}`), `${name}.${role}@${level}`).not.toThrow();
+    try {
+      for (const level of [0, 1, 2, 3] as const) {
+        chalk.level = level;
+        for (const name of THEME_ORDER) {
+          const theme = THEMES[name] as unknown as Theme;
+          for (const [role, hex] of Object.entries(theme)) {
+            if (role === "label") continue;
+            expect(() => chalk.hex(hex as string)(`${role}`), `${name}.${role}@${level}`).not.toThrow();
+          }
         }
       }
+    } finally {
+      chalk.level = 3;
     }
-    chalk.level = 3;
   });
 
   it("highlightThemeFor accepts every resolved theme (incl. user themes) and produces ANSI strings", async () => {
     const chalk = (await import("chalk")).default;
     const saved = chalk.level;
-    for (const level of [0, 1, 2, 3] as const) {
-      chalk.level = level;
-      const fake: Theme = { ...THEMES["tokyo-night"], fg: "#123abc", accent: "#456def" };
-      const map = highlightThemeFor(fake);
-      const out = map.keyword("if");
-      expect(typeof out).toBe("string");
-      expect(out).toContain("if");
+    try {
+      for (const level of [0, 1, 2, 3] as const) {
+        chalk.level = level;
+        const fake: Theme = { ...THEMES["tokyo-night"], fg: "#123abc", accent: "#456def" };
+        const map = highlightThemeFor(fake);
+        const out = map.keyword("if");
+        expect(typeof out).toBe("string");
+        expect(out).toContain("if");
+      }
+    } finally {
+      chalk.level = saved;
     }
-    chalk.level = saved;
   });
 });
 

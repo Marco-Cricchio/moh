@@ -577,7 +577,7 @@ describe("user themes in settings (#749)", () => {
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     mkdirSync(join(home, ".moh", "themes"), { recursive: true });
     writeFileSync(join(home, ".moh", "themes", "gone.json"), JSON.stringify({
-      version: 1, id: "gone", name: "Gone", extends: "tokyo-night", colors: {},
+      version: 1, id: "gone", name: "Gone", extends: "candy", colors: {},
     }));
     const { i, changes } = mount(cwd, { home, config: { ...DEFAULT_USER_CONFIG, theme: "user:gone" } });
     await sleep(30);
@@ -589,7 +589,9 @@ describe("user themes in settings (#749)", () => {
     i.stdin.write("d");
     await waitForFrame(frame, "enter change · esc close");
     expect(existsSync(join(home, ".moh", "themes", "gone.json"))).toBe(false);
-    expect(changes).toContainEqual({ theme: "tokyo-night" });
+    // #749: deleting the active theme falls back to its extends base, not a
+    // hardcoded preset.
+    expect(changes).toContainEqual({ theme: "candy" });
     i.unmount();
   });
 });
