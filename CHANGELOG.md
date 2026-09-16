@@ -143,7 +143,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.36.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.37.0...develop
+[0.37.0]: https://github.com/Marco-Cricchio/moh/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/Marco-Cricchio/moh/compare/v0.35.1...v0.36.0
 [0.35.1]: https://github.com/Marco-Cricchio/moh/compare/v0.35.0...v0.35.1
 [0.35.0]: https://github.com/Marco-Cricchio/moh/compare/v0.34.3...v0.35.0

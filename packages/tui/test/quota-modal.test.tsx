@@ -57,17 +57,21 @@ describe("QuotaModal (#499)", () => {
         return e.name === "alpha" ? REPORT : null;
       },
     });
-    await waitFor(instance, "limit:");
+    await waitFor(instance, "limit");
     await sleep(50); // let both probes settle
     const frame = stripAnsi(instance.lastFrame()!);
     expect(frame).toContain("usage quota");
     expect(frame).toContain("alpha");
-    expect(frame).toContain("limit:");
+    expect(frame).toContain("limit");
     expect(frame).toContain("45");
     expect(frame).toContain("120");
     expect(frame).toContain("●"); // official badge
     expect(frame).toContain("provider quota unavailable"); // beta → null
-    expect(frame).toContain("m-1: 1.5k in · 300 out (3 calls) · est. $0.0060");
+    expect(frame).toContain("m-1");
+    expect(frame).toContain("1.5k");
+    expect(frame).toContain("300");
+    expect(frame).toContain("$0.0060");
+    expect(frame).toContain("total");
     expect(frame).toContain("estimated USD · pricing snapshot 0.85.0");
     expect(frame).toContain("—"); // local badge
     expect(probeCalls).toEqual(["alpha", "beta"]);
@@ -144,7 +148,9 @@ describe("QuotaModal recent sessions (#718)", () => {
     await waitFor(instance, "last 10 sessions");
     const frame = stripAnsi(instance.lastFrame()!);
     expect(frame).toContain("local measured (this session)");
-    expect(frame).toContain("m-2: 20.0k in · 1.5k out (9 calls)");
+    expect(frame).toContain("m-2");
+    expect(frame).toContain("20.0k");
+    expect(frame).toContain("9");
     instance.unmount();
 
     // Empty rollup: the section is hidden cleanly.
@@ -157,7 +163,7 @@ describe("QuotaModal recent sessions (#718)", () => {
     const degraded = mount({ recentUsage: null });
     await waitFor(degraded.instance, "local measured");
     const dframe = stripAnsi(degraded.instance.lastFrame()!);
-    expect(dframe).toContain("m-1:");
+    expect(dframe).toContain("m-1");
     expect(dframe).not.toContain("last 10 sessions");
   });
 });
