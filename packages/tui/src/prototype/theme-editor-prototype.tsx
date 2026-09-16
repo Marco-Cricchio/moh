@@ -120,35 +120,29 @@ function BoxRow({ color, bg, head, detail }: { color: string; bg?: string; head:
     </Box>
   );
 }
-function ChatBoxesPreview({ theme }: { theme: Theme }) {
-  const W = 50;
+function ChatBoxesPreview({ theme, overrides = {} }: { theme: Theme; overrides?: Partial<Record<string, string>> }) {
   const tintOf = (semantic: string, amount: number): string => mix(semantic, theme.surface, amount);
+  type BoxSpec = { id: string; color: string; tintAmount: number; head: string; detail: string };
+  const boxes: BoxSpec[] = [
+    { id: "user", color: overrides.user ?? theme.warn, tintAmount: 0.14, head: "› you", detail: "fix the login redirect" },
+    { id: "moh", color: overrides.moh ?? theme.accent, tintAmount: 0.14, head: "◆ moh", detail: "checked the router — token expiry" },
+    { id: "tool-run", color: overrides["tool-run"] ?? theme.accent, tintAmount: 0.14, head: "◌ bash ⏱ 2.1s / 30s", detail: "running rg 'jwt'" },
+    { id: "ok", color: overrides.ok ?? theme.ok, tintAmount: 0.14, head: "✓ edit", detail: "src/auth.ts · 12 lines" },
+    { id: "fail", color: overrides.fail ?? theme.err, tintAmount: 0.2, head: "✗ test", detail: "2 assertions failed" },
+    { id: "error", color: overrides.error ?? theme.err, tintAmount: 0.2, head: "✗ error", detail: "provider unreachable" },
+    { id: "code", color: overrides.code ?? theme.purple, tintAmount: 0.14, head: "⌨ preview", detail: "auth.ts · 40–52" },
+    { id: "diff", color: overrides.diff ?? theme.purple, tintAmount: 0.14, head: "⌨ diff", detail: "+ token refresh · − retry loop" },
+    { id: "thinking", color: overrides.thinking ?? theme.dim, tintAmount: 0, head: "◌ thinking", detail: "tracing the refresh path…" },
+    { id: "chrome", color: overrides.chrome ?? theme.dim, tintAmount: 0.07, head: "◌ cancelled", detail: "steering · turn interrupted" },
+    { id: "subagent", color: overrides.subagent ?? theme.accent, tintAmount: 0.07, head: "◐ explore", detail: "child session · running" },
+  ];
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={W + 2}>
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={52}>
       <Text color={theme.dim}> chat command boxes </Text>
       <Text> </Text>
-      {/* user block (warn tint) */}
-      <BoxRow color={theme.warn} bg={tintOf(theme.warn, 0.14)} head="› you" detail="fix the login redirect" />
-      {/* moh answer block (accent tint) */}
-      <BoxRow color={theme.accent} bg={tintOf(theme.accent, 0.14)} head="◆ moh" detail="checked the router — token expiry" />
-      {/* running tool (accent tint, running glyph) */}
-      <BoxRow color={theme.accent} bg={tintOf(theme.accent, 0.14)} head="◌ bash ⏱ 2.1s / 30s" detail="running rg 'jwt'" />
-      {/* settled tool ok */}
-      <BoxRow color={theme.ok} bg={tintOf(theme.ok, 0.14)} head="✓ edit" detail="src/auth.ts · 12 lines" />
-      {/* failed tool */}
-      <BoxRow color={theme.err} bg={tintOf(theme.err, 0.2)} head="✗ test" detail="2 assertions failed" />
-      {/* error block */}
-      <BoxRow color={theme.err} bg={tintOf(theme.err, 0.2)} head="✗ error" detail="provider unreachable" />
-      {/* code preview block (purple) */}
-      <BoxRow color={theme.purple} bg={tintOf(theme.purple, 0.14)} head="⌨ preview" detail="auth.ts · 40–52" />
-      {/* diff block (purple) */}
-      <BoxRow color={theme.purple} bg={tintOf(theme.purple, 0.14)} head="⌨ diff" detail="+ token refresh · − retry loop" />
-      {/* thinking (dim, no tint) */}
-      <BoxRow color={theme.dim} head="◌ thinking" detail="tracing the refresh path…" />
-      {/* chrome (dim, light tint) */}
-      <BoxRow color={theme.dim} bg={tintOf(theme.dim, 0.07)} head="◌ cancelled" detail="steering · turn interrupted" />
-      {/* subagent (accent, light tint) */}
-      <BoxRow color={theme.accent} bg={tintOf(theme.accent, 0.07)} head="◐ explore" detail="child session · running" />
+      {boxes.map((b) => (
+        <BoxRow key={b.id} color={b.color} bg={b.tintAmount > 0 ? tintOf(b.color, b.tintAmount) : undefined} head={b.head} detail={b.detail} />
+      ))}
       <Text> </Text>
       <Dim>{` each head's tint follows its semantic token `}</Dim>
     </Box>
@@ -347,28 +341,41 @@ function VariantC() {
 // ---------------------------------------------------------------------------
 function VariantD() {
   // Sliders (↑↓ moves the focused one, ←→ adjusts it; shift = coarse step):
-  //   hue        — rotates the whole palette around the color wheel
+  //   hue        — rotates the whole palette around the color wheel (live
+  //                chromatic bar under the row)
   //   brightness — global lightness shift
   //   contrast   — pushes lightness away from / toward the mid point
   //   saturation — 0 = grayscale, 1 = vivid
   //   warmth     — splits hue for text (warm) vs chrome (cool) tones
   //
-  // Signal colors (ok/warn/err/purple) have two modes:
-  //   auto — the global sliders determine them (no per-role overrides)
-  //   split — each signal role picks from basic color chips, but the chips
-  //           are TINTED LIVE by hue/brightness/contrast/etc, so a chosen
-  //           "green" stays in equilibrium with the main settings.
-  type Slider = "hue" | "brightness" | "contrast" | "saturation" | "warmth"
-    | "ok" | "warn" | "err" | "purple";
-  const MAIN: Slider[] = ["hue", "brightness", "contrast", "saturation", "warmth"];
+  // Split mode ('s'): signal colors AND individual chat boxes can each pick
+  // from basic color families. Picks stay in equilibrium: the chosen hue is
+  // re-tinted by the current brightness/contrast/saturation on every render.
+  type Main = "hue" | "brightness" | "contrast" | "saturation" | "warmth";
+  const MAIN: Main[] = ["hue", "brightness", "contrast", "saturation", "warmth"];
   const SIGNALS: { role: "ok" | "warn" | "err" | "purple"; glyph: string }[] = [
     { role: "ok", glyph: "✓" }, { role: "warn", glyph: "⚠" },
     { role: "err", glyph: "✗" }, { role: "purple", glyph: "◆" },
   ];
-  const [slider, setSlider] = useState<Slider>("hue");
+  /** Chat box ids with display labels for the split list. */
+  const BOXES: { id: string; label: string }[] = [
+    { id: "user", label: "› you" },
+    { id: "moh", label: "◆ moh" },
+    { id: "tool-run", label: "◌ tool running" },
+    { id: "ok", label: "✓ tool ok" },
+    { id: "fail", label: "✗ tool failed" },
+    { id: "error", label: "✗ error" },
+    { id: "code", label: "⌨ code" },
+    { id: "diff", label: "⌨ diff" },
+    { id: "thinking", label: "◌ thinking" },
+    { id: "chrome", label: "◌ cancelled" },
+    { id: "subagent", label: "◐ subagent" },
+  ];
+  type Row = Main | "ok" | "warn" | "err" | "purple" | string; // box ids in split mode
+  const [slider, setSlider] = useState<Row>("hue");
   const [splitMode, setSplitMode] = useState(false);
-  // Per-signal base chip index (0..7); null = follow the global sliders.
   const [signalPicks, setSignalPicks] = useState<Partial<Record<string, number>>>({});
+  const [boxPicks, setBoxPicks] = useState<Partial<Record<string, number>>>({});
   const [hue, setHue] = useState(210);
   const [lightShift, setLightShift] = useState(0);
   const [contrast, setContrast] = useState(0);      // -0.5 … +0.5
@@ -390,16 +397,12 @@ function VariantD() {
       const lc = clamp(0.5 + (l + lBoost + lightShift - 0.5) * (1 + contrast), 0.04, 0.95);
       return hslToHex((hue + warm + 360) % 360, saturation * clamp(s, 0.25, 0.85) / 0.6, lc);
     };
-    /** A signal color: either the global derivation or a chosen basic hue —
-     * both pass through brightness/contrast/saturation so the pick stays in
-     * equilibrium with the main settings. */
-    const signal = (role: "ok" | "warn" | "err" | "purple", fallbackHex: string): string => {
-      const pick = signalPicks[role];
+    const pickedHex = (pick: number | undefined, fallbackHex: string, lo = 0.25, hi = 0.75): string => {
       if (pick === undefined) return tint(fallbackHex, 0, warmth * 0.3);
       const family = BASIC_HUES[pick];
-      if (!family) return tint(fallbackHex, 0, warmth * 0.3); // out-of-range pick: fall back to auto
+      if (!family) return tint(fallbackHex, 0, warmth * 0.3);
       const [/*h*/, s, l] = hexToHsl(fallbackHex);
-      const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
+      const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), lo, hi);
       return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
     };
     // warmth: text/semantic roles go warm, chrome (bg/surface/border) goes cool
@@ -410,10 +413,10 @@ function VariantD() {
       accent: tint(base.accent, 0, warmth),
       dim: tint(base.dim, 0, warmth * 0.5),
       muted: tint(base.muted, 0, warmth * 0.5),
-      ok: signal("ok", base.ok),
-      warn: signal("warn", base.warn),
-      err: signal("err", base.err),
-      purple: signal("purple", base.purple),
+      ok: pickedHex(signalPicks.ok, base.ok),
+      warn: pickedHex(signalPicks.warn, base.warn),
+      err: pickedHex(signalPicks.err, base.err),
+      purple: pickedHex(signalPicks.purple, base.purple),
       border: tint(base.border, 0, -warmth * 0.5),
       bg: tint(base.bg, 0, -warmth),
       surface: tint(base.surface, 0, -warmth),
@@ -422,52 +425,81 @@ function VariantD() {
     };
   })();
 
+  /** A picked basic hue re-tinted by the current brightness/contrast/sat. */
+  const pickedHex = (pick: number | undefined, fallbackHex: string, lo = 0.25, hi = 0.75): string => {
+    if (pick === undefined) return fallbackHex;
+    const family = BASIC_HUES[pick];
+    if (!family) return fallbackHex;
+    const [/*h*/, s, l] = hexToHsl(fallbackHex);
+    const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), lo, hi);
+    return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
+  };
+
+  /** Resolved color of one chat box (box pick > signal pick > theme token). */
+  const boxColor = (id: string): string => {
+    const direct = boxPicks[id];
+    if (direct !== undefined) return pickedHex(direct, (THEMES[BASE as keyof typeof THEMES] as unknown as Record<string, string>).fg, 0.3, 0.75);
+    if (id === "ok") return theme.ok;
+    if (id === "fail" || id === "error") return theme.err;
+    if (id === "user") return theme.warn;
+    if (id === "code" || id === "diff") return theme.purple;
+    if (id === "moh" || id === "tool-run" || id === "subagent") return theme.accent;
+    return theme.dim;
+  };
+
   useInput((input, key) => {
     const fine = key.shift ? 0.08 : 0.02;
-    const all: Slider[] = splitMode ? [...MAIN, ...SIGNALS.map((x) => x.role)] : MAIN;
+    const splitRows: Row[] = splitMode ? [...SIGNALS.map((x) => x.role), ...BOXES.map((b) => b.id)] : [];
+    const all: Row[] = [...MAIN, ...splitRows];
     if (key.upArrow) setSlider((cur) => all[clamp(all.indexOf(cur) - 1, 0, all.length - 1)]!);
     if (key.downArrow) setSlider((cur) => all[clamp(all.indexOf(cur) + 1, 0, all.length - 1)]!);
-    const bump = (set: (n: number) => void, get: number, step: number, lo: number, hi: number, wrap = false) =>
-      set(key.leftArrow ? (wrap ? get - step : clamp(get - step, lo, hi)) : key.rightArrow ? (wrap ? get + step : clamp(get + step, lo, hi)) : get);
-    if (slider === "hue") bump((n) => setHue(Math.round(((n % 360) + 360) % 360)), hue, key.shift ? 30 : 6, 0, 359, true);
+    if (slider === "hue") {
+      if (key.leftArrow) setHue((h) => (h + 360 - (key.shift ? 30 : 6)) % 360);
+      if (key.rightArrow) setHue((h) => (h + (key.shift ? 30 : 6)) % 360);
+    }
+    const bump = (set: (n: number) => void, get: number, step: number, lo: number, hi: number) =>
+      set(key.leftArrow ? clamp(get - step, lo, hi) : key.rightArrow ? clamp(get + step, lo, hi) : get);
     if (slider === "brightness") bump(setLightShift, lightShift, fine, -0.3, 0.6);
     if (slider === "contrast") bump(setContrast, contrast, fine, -0.5, 0.5);
     if (slider === "saturation") bump(setSaturation, saturation, fine, 0, 1);
     if (slider === "warmth") bump(setWarmth, warmth, key.shift ? 15 : 5, -60, 60);
-    // Signal roles: ←→ walks the basic color chips; enter clears back to auto.
-    if (SIGNALS.some((x) => x.role === slider)) {
-      const role = slider as "ok" | "warn" | "err" | "purple";
+    // Signal & box rows: ←→ walks the basic color chips; enter clears to auto.
+    const pickingPick = SIGNALS.some((x) => x.role === slider) ? signalPicks : BOXES.some((b) => b.id === slider) ? boxPicks : null;
+    if (pickingPick) {
+      const store = SIGNALS.some((x) => x.role === slider) ? setSignalPicks : setBoxPicks;
       if (key.return || input === "\r") {
-        setSignalPicks((p) => { const { [role]: _drop, ...rest } = p; return rest; });
+        store((p) => { const { [slider]: _drop, ...rest } = p; return rest; });
       } else if (key.leftArrow || key.rightArrow) {
         // From auto (-1): ← lands on the last chip, → on the first — never
         // store a sentinel; only real chip indices reach state.
-        const cur = signalPicks[role] ?? -1;
+        const cur = pickingPick[slider] ?? -1;
         const next = key.leftArrow
           ? (cur === -1 ? BASIC_HUES.length - 1 : (cur - 1 + BASIC_HUES.length) % BASIC_HUES.length)
           : (cur === -1 ? 0 : (cur + 1) % BASIC_HUES.length);
-        setSignalPicks((p) => ({ ...p, [role]: next }));
+        store((p) => ({ ...p, [slider]: next }));
       }
     }
-    // s toggles split/auto for the signal colors as a whole.
+    // s toggles split/auto for the overridable rows as a whole.
     if (input === "s") {
       setSplitMode((m) => !m);
       setSlider("hue");
     }
   });
 
-  const value = (s: Slider): string => {
-    const sig = SIGNALS.find((x) => x.role === s);
-    if (sig) {
-      const pick = signalPicks[sig.role];
-      return pick === undefined ? "auto" : BASIC_HUES[pick]!.name;
+  const pickOf = (s: Row): number | undefined =>
+    signalPicks[s] ?? boxPicks[s];
+  const value = (s: Row): string => {
+    if (s === "hue" || s === "brightness" || s === "contrast" || s === "saturation" || s === "warmth") {
+      return s === "hue" ? `${hue}°` :
+        s === "brightness" ? `${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}%` :
+        s === "contrast" ? `${contrast >= 0 ? "+" : ""}${Math.round(contrast * 100)}%` :
+        s === "saturation" ? `${Math.round(saturation * 100)}%` :
+        `${warmth >= 0 ? "+" : ""}${warmth}°`;
     }
-    return s === "hue" ? `${hue}°` :
-      s === "brightness" ? `${lightShift >= 0 ? "+" : ""}${Math.round(lightShift * 100)}%` :
-      s === "contrast" ? `${contrast >= 0 ? "+" : ""}${Math.round(contrast * 100)}%` :
-      s === "saturation" ? `${Math.round(saturation * 100)}%` :
-      `${warmth >= 0 ? "+" : ""}${warmth}°`;
+    const pick = pickOf(s);
+    return pick === undefined ? "auto" : BASIC_HUES[pick]!.name;
   };
+  const isSplitRow = (s: Row): boolean => SIGNALS.some((x) => x.role === s) || BOXES.some((b) => b.id === s);
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -476,38 +508,60 @@ function VariantD() {
       {MAIN.map((s) => {
         const focused = slider === s;
         return (
-          <Text key={s} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-            {` ${focused ? "›" : " "} ${s.padEnd(12)}${value(s).padStart(5)} ${focused ? "←→ adjusts · shift = coarse" : ""} `}
-          </Text>
+          <Box key={s} flexDirection="column">
+            <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+              {` ${focused ? "›" : " "} ${s.padEnd(12)}${value(s).padStart(5)} ${focused ? "←→ adjusts · shift = coarse" : ""} `}
+            </Text>
+            {focused && s === "hue" && (
+              <Text>
+                {Array.from({ length: 30 }, (_, i) => {
+                  const h = (hue + (i - 5) * 4 + 360) % 360; // window centered on the value
+                  const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), 0.55);
+                  return <Text key={i} backgroundColor={hex} color={i === 5 ? theme.bg : hex}>{i === 5 ? "╹" : " "}</Text>;
+                })}
+                <Dim>{` ←→ rotates · the marker is the current hue `}</Dim>
+              </Text>
+            )}
+          </Box>
         );
       })}
       <Text> </Text>
-      <Text color={splitMode ? theme.accent : theme.muted}>{` signal colors (✓ ⚠ ✗ ◆): ${splitMode ? "split — pick per role" : "auto — follow the sliders above"} (s toggles)`}</Text>
+      <Text color={splitMode ? theme.accent : theme.muted}>{` overrides: ${splitMode ? "split — pick per element" : "auto — follow the sliders above"} (s toggles)`}</Text>
       {splitMode && SIGNALS.map(({ role, glyph }) => {
         const focused = slider === role;
-        const pick = signalPicks[role];
         return (
           <Text key={role} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
-            {` ${focused ? "›" : " "} ${glyph} ${role.padEnd(11)}${value(role).padStart(5)} ${focused ? "←→ basic colors · ⏎ back to auto" : ""} `}
+            {` ${focused ? "›" : " "} ${glyph} ${role.padEnd(12)}${value(role).padStart(5)} ${focused ? "←→ basic colors · ⏎ auto" : ""} `}
           </Text>
         );
       })}
-      {splitMode && slider === SIGNALS.find((x) => x.role === slider)?.role && (
+      {splitMode && BOXES.map(({ id, label }) => {
+        const focused = slider === id;
+        return (
+          <Text key={id} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+            {` ${focused ? "›" : " "} box ${label.padEnd(11)}${value(id).padStart(5)} ${focused ? "←→ basic colors · ⏎ auto" : ""} `}
+          </Text>
+        );
+      })}
+      {splitMode && isSplitRow(slider) && (
         <Text>
           {BASIC_HUES.map(({ name, h }, i) => {
             // Chips tinted with the CURRENT brightness/contrast/saturation
             const [/*h0*/, s0, l0] = hexToHsl(THEMES[BASE as keyof typeof THEMES].ok);
             const lc = clamp(0.5 + (l0 + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
             const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), lc);
-            return <Text key={i} backgroundColor={hex} color={i === signalPicks[slider as "ok"] ? theme.bg : hex}>{name.slice(0, 2)}</Text>;
+            return <Text key={i} backgroundColor={hex} color={i === pickOf(slider) ? theme.bg : hex}>{name.slice(0, 2)}</Text>;
           })}
         </Text>
       )}
       <Text> </Text>
-      <LivePreview theme={theme} />
-      <ChatBoxesPreview theme={theme} />
+      {/* previews side by side: transcript mini-pane + chat-box gallery */}
+      <Box gap={2}>
+        <LivePreview theme={theme} compact />
+        <ChatBoxesPreview theme={theme} overrides={Object.fromEntries(BOXES.map(({ id }) => [id, boxColor(id)]))} />
+      </Box>
       <Text> </Text>
-      <Text color={theme.muted}>{` ↑↓ slider · ←→ value (shift = coarse) · s split/auto signals — everything repaints live `}</Text>
+      <Text color={theme.muted}>{` ↑↓ row · ←→ value (shift = coarse) · s split/auto · ⏎ back to auto — everything repaints live `}</Text>
     </Box>
   );
 }
