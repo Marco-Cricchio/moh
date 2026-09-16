@@ -64,12 +64,43 @@ function resolveSeed(
   // Symbol name.
   const symbols = service.pathsForSymbol(stripped);
   if (symbols.length === 1) return { path: symbols[0]!, how: "symbol", candidates };
+  if (symbols.length > 1) return { path: null, how: "ambiguous", candidates: symbols };
+  // #737: folded pass — case-insensitive and separator-insensitive
+  // (kebab/snake/camel collapse), so "MPM-Query" resolves like
+  // "mpmQuery" and "mpm-query-tool" finds the camelCase symbol.
+  const foldedSeed = foldIdentity(stripped);
+  if (foldedSeed.length >= 3) {
+    const bySymbol = new Set<string>();
+    for (const record of service.allRecords()) {
+      for (const sym of record.symbols) {
+        if (foldIdentity(sym.name) === foldedSeed) bySymbol.add(record.path);
+      }
+    }
+    if (bySymbol.size === 1) return { path: [...bySymbol][0]!, how: "symbol", candidates: [...bySymbol] };
+    if (bySymbol.size > 1) return { path: null, how: "ambiguous", candidates: [...bySymbol] };
+    const byPath: string[] = [];
+    for (const path of service.allPaths()) {
+      const base = path.slice(path.lastIndexOf("/") + 1);
+      if (foldIdentity(path) === foldedSeed || foldIdentity(base) === foldedSeed) byPath.push(path);
+    }
+    if (byPath.length === 1) return { path: byPath[0]!, how: "path", candidates: byPath };
+    if (byPath.length > 1) return { path: null, how: "ambiguous", candidates: byPath };
+  }
   return { path: null, how: "unmapped", candidates: [] };
 }
 
 /** Shared seed normalization (resolveSeed and suggestions must agree). */
 function normalizeSeed(raw: string): string {
   return raw.trim().replace(/^[./@]+/, "").replace(/[.,;:)]+$/, "");
+}
+
+/**
+ * #737: identity folding for seed matching — case and `-`/`_`/`.` are not
+ * significant, so model vocabulary ("mpm_query", "MPM-Query") meets the
+ * extractor's camelCase symbols and path names on equal footing.
+ */
+function foldIdentity(s: string): string {
+  return s.toLowerCase().replace(/[-_.]/g, "");
 }
 
 /**
@@ -98,10 +129,28 @@ export function suggestSeeds(seed: string, service: MpmService, limit = 3): stri
   for (const record of service.allRecords()) {
     for (const sym of record.symbols) consider(sym.name);
   }
-  return [...scored.entries()]
-    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([candidate]) => candidate);
+  let best = [...scored.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+  // #737: fuzzy matching cannot bridge case/kebab→camel gaps. When it
+  // finds nothing, fall back to folded identity: map the seed's folded
+  // form onto symbols and base names that normalize identically.
+  if (best.length === 0) {
+    const folded = foldIdentity(stripped);
+    if (folded.length >= 4) {
+      const fallback: string[] = [];
+      for (const record of service.allRecords()) {
+        for (const sym of record.symbols) {
+          if (foldIdentity(sym.name) === folded) fallback.push(sym.name);
+        }
+      }
+      for (const path of service.allPaths()) {
+        const base = path.slice(path.lastIndexOf("/") + 1);
+        if (foldIdentity(base) === folded || foldIdentity(path) === folded) fallback.push(base);
+      }
+      return [...new Set(fallback)].sort().slice(0, limit);
+    }
+    return [];
+  }
+  return best.slice(0, limit).map(([candidate]) => candidate);
 }
 
 /** Bounded Levenshtein distance with an early exit above `max`. */
@@ -142,7 +191,11 @@ export function mpmQueryTool(options: MpmQueryToolOptions): Tool<{ seed: string 
       "On session resume the map may have changed — call it again rather than trusting earlier results.",
     inputSchema: schema,
     async execute(args) {
-      if (service.status !== "ready" || service.fileCount === 0) {
+      // #737: `updating` no longer rejects — the in-memory projection is a
+      // consistent snapshot mid-sweep (atomic flips + incremental journal
+      // replay), so queries are served during background refreshes. Only a
+      // truly unavailable (unloaded/empty) map degrades.
+      if (service.status === "unavailable" || service.fileCount === 0) {
         return "project map unavailable — no data. Explore with your usual tools.";
       }
       const resolved = resolveSeed(args.seed, service);
@@ -155,21 +208,33 @@ export function mpmQueryTool(options: MpmQueryToolOptions): Tool<{ seed: string 
           if (suggestions.length > 0) {
             lines.push(`Seed "${args.seed}" is not mapped in the project map. No results — suggestions (near-misses from the map):`, ...suggestions.map((s) => `- ${s}`), "", "Re-query with one of these, or explore with your usual tools.");
           } else {
-            lines.push(`Seed "${args.seed}" is not mapped in the project map. No results — explore with your usual tools.`);
+            lines.push(`Seed "${args.seed}" is not mapped in the project map. No results — explore with your usual tools.`, "Accepted seed forms: a full mapped path, a unique path suffix (e.g. `query-tool.ts`), or an exact symbol name (e.g. `formatDate`).");
           }
         }
         return lines.join("\n");
       }
       const seedPath = resolved.path;
       if (!fresh(seedPath)) {
-        lines.push(`Seed "${seedPath}" is mapped but stale (the file changed after mapping). No results — explore with your usual tools.`);
-        return lines.join("\n");
+        // #737: the seed file changed after mapping (the common
+        // edit→query-in-turn case, since the lifecycle defers refreshes
+        // while a turn is busy). Re-extract just this one file and patch
+        // its record — one read+parse, no lifecycle budgets touched —
+        // then re-check freshness honestly.
+        try {
+          service.refresh(root, seedPath);
+        } catch {
+          // Never fatal: fall through to the stale rejection.
+        }
+        if (!fresh(seedPath)) {
+          lines.push(`Seed "${seedPath}" is mapped but stale (the file changed after mapping and could not be re-extracted). No results — explore with your usual tools.`);
+          return lines.join("\n");
+        }
       }
       const entries: ResultEntry[] = [];
       const seen = new Set<string>();
       const consider = (path: string, reason: string, prov: MpmProvenance) => {
         if (seen.has(path) || entries.length >= maxEntries) return;
-        if (!fresh(path)) return;
+        if (!fresh(path)) return; // #737 note: only the seed is refreshed synchronously; a stale neighbor is dropped, never invented.
         seen.add(path);
         entries.push(prov.line !== undefined ? { path, reason, coordinate: `line ${prov.line}` } : { path, reason });
       };
