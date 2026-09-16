@@ -173,6 +173,9 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
       if (input && !key.ctrl && !key.meta) return setNameBuf((b) => b + input);
       return;
     }
+    // n names & saves the draft — global, handled before per-row dispatch so
+    // override rows can't swallow it.
+    if (input === "n" && !key.ctrl && !key.meta) return setNaming(true);
     // s toggles split/auto from any row; enabling split moves the focus to
     // the first override row (ok) so the next ↓ continues down the list.
     if (input === "s" && !key.ctrl && !key.meta) {
@@ -215,8 +218,6 @@ export function ThemeStudioModal({ home, base, onToast, onSave, onClose }: Theme
       }
       return;
     }
-    // n names & saves the draft.
-    if (input === "n") return setNaming(true);
   });
 
   const pickOf = (r: Row): number | undefined => signalPicks[r] ?? boxPicks[r];

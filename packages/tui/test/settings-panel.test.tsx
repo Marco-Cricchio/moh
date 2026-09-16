@@ -587,6 +587,24 @@ describe("user themes in settings (#749)", () => {
     i.unmount();
   });
 
+  test("studio: 'n' opens the name prompt from an override row; esc returns to the studio", async () => {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    const { i, changes } = mount(cwd, { home });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await down(i, 2);
+    i.stdin.write("\r");
+    await waitForFrame(frame, "theme studio");
+    i.stdin.write("s"); await sleep(60); // split mode, focus on 'ok' override
+    i.stdin.write("n"); await sleep(60); // 'n' must NOT be swallowed here
+    await waitForCondition(() => frame().includes("theme name:"), () => `for name prompt; frame: ${frame()}`);
+    i.stdin.write("\x1b"); await sleep(60); // esc → back to the studio, not settings
+    expect(frame()).toContain("theme studio");
+    expect(changes.every((c) => !("theme" in c))).toBe(true);
+    i.unmount();
+  });
+
   test("deleting the active user theme falls back to a built-in", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
