@@ -12,9 +12,9 @@
  * session turns it into a visible diagnostic and never registers the
  * tool; runtime failures are turn errors, never process errors.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, dirname, join, relative, resolve } from "node:path";
 import { projectSlug } from "./session-store";
 import { isPrivateHost } from "./builtin-tools";
 
@@ -168,6 +168,41 @@ export function applySnapshotBudget(text: string, budget = SNAPSHOT_BUDGET_BYTES
   return `${head}\n…[snapshot truncated, ${hiddenLines} more nodes — re-call snapshot with a 'ref' (subtree) or a smaller 'depth' to target one region]`;
 }
 
+/** Default per-action timeouts (#777): act 10s, wait_for arg-capped. */
+export const ACT_TIMEOUT_MS = 10_000;
+
+/** A stale ref: the element the snapshot named is gone from the live DOM.
+ * Carries the fresh snapshot so the model can re-target — never a silent
+ * mis-click, never a bare error. */
+export class StaleRefError extends Error {
+  constructor(
+    ref: string,
+    /** The fresh post-failure snapshot text. */
+    readonly freshSnapshot: string,
+  ) {
+    super(
+      `browser: stale ref "${ref}" — the element is no longer in the live DOM ` +
+        `(a navigation or a mutation killed it). Fresh snapshot:\n${freshSnapshot}`,
+    );
+    this.name = "StaleRefError";
+  }
+}
+
+/** Options for `upload`: the in-root containment contract. */
+export interface UploadOptions {
+  /** Project root the source path must resolve inside (realpath-anchored, like write). */
+  root: string;
+}
+
+/** Downloads staging options (#777). */
+export interface DownloadStagingOptions {
+  /** Staging root (default `<home>/.moh/browser-downloads/<slug>/`). */
+  dir?: string;
+  /** Ask seam for a required download (name + size, known post-save).
+   * Return "allow" to stage, "deny" (or omit) to cancel and delete.
+   * Absent → downloads stay blocked (never a silent write). */
+  ask?: (info: { filename: string; size: number }) => Promise<"allow" | "deny"> | "allow" | "deny";
+}
 /** The playwright surface this module needs — structural, so tests can fake it. */
 export interface BrowserRouteLike {
   url(): string;
@@ -179,12 +214,34 @@ export interface BrowserRouteLike {
 export interface BrowserPageLike {
   goto(url: string, options?: { waitUntil?: string; timeoutMs?: number }): Promise<unknown>;
   ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
+  waitForLoadState?(state: string, options?: { timeout?: number }): Promise<void>;
+  mouse?: {
+    wheel(deltaX: number, deltaY: number): Promise<void>;
+  };
+  keyboard?: {
+    press(key: string): Promise<void>;
+  };
+  /** #777: download seam — accepted only when a download flow is armed. */
+  on?(event: "download", handler: (download: BrowserDownloadLike) => void): void;
+  waitForEvent?(event: "download", options?: { timeout?: number }): Promise<BrowserDownloadLike>;
   locator(selector: string): {
     ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
     textContent(options?: { timeout?: number }): Promise<string | null>;
+    click(options?: { timeout?: number }): Promise<void>;
+    fill(text: string, options?: { timeout?: number }): Promise<void>;
+    selectOption(values: string[], options?: { timeout?: number }): Promise<string[]>;
   };
   route(pattern: string, handler: (route: BrowserRouteLike) => Promise<void>): Promise<void>;
   close(): Promise<void>;
+}
+
+/** #777: playwright download handle (structural, faked in tests). */
+export interface BrowserDownloadLike {
+  suggestedFilename(): string;
+  /** Downloads to a directory; resolves to the saved file path. */
+  saveAs(path: string): Promise<void>;
+  /** When present: cancelled downloads fail this promise. */
+  cancel?(): Promise<void>;
 }
 
 export interface BrowserLike {
@@ -250,17 +307,22 @@ export class BrowserSession {
   #page: BrowserPageLike | null = null;
   #browser: BrowserLike | null = null;
   #disposed = false;
+  /** #777: downloads observed by the page listener, awaiting the ask. */
+  #pendingDownloads: BrowserDownloadLike[] = [];
   /** #775: ref → compact description, from the latest full snapshot. */
   #describe = new Map<string, string>();
   readonly #profileDir: string;
   readonly #headless: boolean;
   readonly #playwright: unknown;
   readonly #lookup: ((host: string) => Promise<{ address: string; family: number }[]>) | undefined;
+  /** #777: download staging dir for this project. */
+  readonly #downloadDir: string;
 
   constructor(options: BrowserOptions = {}) {
     const home = options.home ?? homedir();
     const slug = projectSlug(options.cwd ?? process.cwd(), home);
     this.#profileDir = join(home, ".moh", "browser-profile", slug);
+    this.#downloadDir = join(home, ".moh", "browser-downloads", slug);
     this.#headless = options.headless ?? true;
     this.#playwright = options.playwright;
     this.#lookup = options.lookup;
@@ -295,7 +357,15 @@ export class BrowserSession {
       ],
     });
     this.#page = await this.#browser!.newPage();
-    return this.#page;
+    // #777: collect download events; staging happens only through
+    // stageDownload (ask-gated). Without it, the download is simply
+    // never saved — blocked by default.
+    const page = this.#page as BrowserPageLike & {
+      on?: (event: "download", handler: (download: BrowserDownloadLike) => void) => void;
+    };
+    page.on?.("download", (download) => {
+      this.#pendingDownloads.push(download);
+    });    return this.#page;
   }
 
   /**
@@ -347,6 +417,181 @@ export class BrowserSession {
     }
   }
 
+  /**
+   * #777: act-tier element addressing — resolves `ref` against the live
+   * DOM via the `aria-ref=eN` selector (Playwright actionability:
+   * scroll-into-view, hit-target verification). A ref that no longer
+   * resolves throws `StaleRefError` carrying the fresh snapshot; a ref
+   * the snapshot never named is an immediate invalid-ref error.
+   */
+  async #resolveRef(ref: string): Promise<ReturnType<BrowserPageLike["locator"]>> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    const token = refNumber(ref);
+    if (!this.#describe.has(token)) {
+      // Unknown to the latest snapshot: try the DOM anyway — the snapshot
+      // may have been truncated — but a miss is final (no invented refs).
+      const locator = page.locator(`aria-ref=${token}`);
+      if (!(await refExists(locator))) {
+        const fresh = await this.snapshot();
+        throw new StaleRefError(ref, fresh);
+      }
+      return locator;
+    }
+    return page.locator(`aria-ref=${token}`);
+  }
+
+  /** #777: click with Playwright actionability (hit-target, not coordinates). */
+  async click(ref: string): Promise<string> {
+    const locator = await this.#resolveRef(ref);
+    try {
+      await locator.click({ timeout: ACT_TIMEOUT_MS });
+    } catch (e) {
+      return await this.#actFailure(ref, e);
+    }
+    return this.#actResult(`clicked [${this.describeElement(ref) ?? ref}]`);
+  }
+
+  /** #777: fill (replaces the value) with actionability. */
+  async fill(ref: string, text: string): Promise<string> {
+    const locator = await this.#resolveRef(ref);
+    try {
+      await locator.fill(text, { timeout: ACT_TIMEOUT_MS });
+    } catch (e) {
+      return await this.#actFailure(ref, e);
+    }
+    return this.#actResult(`filled [${this.describeElement(ref) ?? ref}]`);
+  }
+
+  /** #777: select an option (by value or visible label) on a `<select>`. */
+  async select(ref: string, option: string): Promise<string> {
+    const locator = await this.#resolveRef(ref);
+    try {
+      const picked = await locator.selectOption([option], { timeout: ACT_TIMEOUT_MS });
+      return this.#actResult(
+        `selected ${picked.length > 0 ? `"${picked[0]}"` : "nothing"} on [${this.describeElement(ref) ?? ref}]`,
+      );
+    } catch (e) {
+      return await this.#actFailure(ref, e);
+    }
+  }
+
+  /** #777: scroll the viewport (mouse wheel — no element targeting). */
+  async scroll(direction: "up" | "down" | "left" | "right", amount = 600): Promise<string> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    const mouse = page.mouse;
+    if (!mouse) throw new Error("browser: scroll unavailable (no mouse seam)");
+    const dx = direction === "left" ? -amount : direction === "right" ? amount : 0;
+    const dy = direction === "up" ? -amount : direction === "down" ? amount : 0;
+    await mouse.wheel(dx, dy);
+    return this.#actResult(`scrolled ${direction} by ${amount}px`);
+  }
+
+  /** #777: press a key combo on the page (devtools-console semantics). */
+  async pressKey(key: string): Promise<string> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    const keyboard = page.keyboard;
+    if (!keyboard) throw new Error("browser: press_key unavailable (no keyboard seam)");
+    await keyboard.press(key);
+    return this.#actResult(`pressed ${key}`);
+  }
+
+  /** #777: wait until a text appears in the page or a ref becomes visible. */
+  async waitFor(target: { text?: string; ref?: string }, timeoutMs = ACT_TIMEOUT_MS): Promise<string> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    if (target.ref !== undefined) {
+      const locator = await this.#resolveRef(target.ref); // stale refs fail fast, with the fresh snapshot
+      await waitForLocatorVisible(locator, timeoutMs);
+      return this.#actResult(`ref ${target.ref} is visible`);
+    }
+    if (typeof target.text === "string") {
+      const fn = (page as { waitForFunction?: (fn: string, arg: string, o: { timeout?: number }) => Promise<void> })
+        .waitForFunction;
+      if (!fn) throw new Error("browser: wait_for text unavailable (no waitForFunction seam)");
+      await fn.call(page, "(text) => document.body?.innerText?.includes(text)", target.text, { timeout: timeoutMs });
+      return this.#actResult(`text "${target.text}" appeared`);
+    }
+    throw new Error("browser: wait_for needs 'text' or 'ref'");
+  }
+
+  /**
+   * #777: upload a local file into a file input. The source path must
+   * resolve inside the project root (realpath-anchored, like write);
+   * outside root throws — the tool layer turns it into the
+   * per-occurrence out-of-root ask, never a persistable rule.
+   */
+  async upload(ref: string, path: string, options: UploadOptions & { allowOutOfRoot?: boolean }): Promise<string> {
+    const inside = inRootPath(options.root, path);
+    if (!inside) {
+      if (!options.allowOutOfRoot) throw new OutOfRootError(path, options.root);
+    } else {
+      if (!existsSync(inside)) throw new Error(`browser: upload source not found: ${inside}`);
+      if (!statSync(inside).isFile()) throw new Error(`browser: upload source is not a file: ${inside}`);
+    }
+    const locator = await this.#resolveRef(ref);
+    const setInputFiles = (
+      locator as { setInputFiles?: (files: string[], o?: { timeout?: number }) => Promise<void> }
+    ).setInputFiles;
+    if (typeof setInputFiles !== "function") throw new Error("browser: upload unavailable (no setInputFiles seam)");
+    try {
+      await setInputFiles.call(locator, [inside ?? path], { timeout: ACT_TIMEOUT_MS });
+    } catch (e) {
+      return await this.#actFailure(ref, e);
+    }
+    return this.#actResult(`uploaded ${inside ?? path} into [${this.describeElement(ref) ?? ref}]`);
+  }
+
+  /**
+   * #777: consume one pending download, if any, and stage it after the
+   * ask. Downloads are blocked by default: with no ask seam nothing is
+   * ever written and the download is cancelled. The ask carries name +
+   * size (the file is saved to a temp location first — the only way to
+   * know the size — and deleted on refusal). Returns the staged path, or
+   * null when no download materialized (nothing staged, no silent
+   * writes). Never auto-opens the file.
+   */
+  async stageDownload(options: DownloadStagingOptions = {}, timeoutMs = 5000): Promise<string | null> {
+    const pending = this.#pendingDownloads.shift();
+    if (!pending) return null;
+    const filename = pending.suggestedFilename().replace(/[/\\]/g, "_") || "download";
+    const staging = options.dir ?? this.#downloadDir;
+    // Save first (size is only known after the transfer), then ask.
+    mkdirSync(staging, { recursive: true, mode: 0o700 });
+    const tmp = join(mkdtempSync(join(staging, ".dl-")), filename);
+    await pending.saveAs(tmp);
+    const size = statSync(tmp).size;
+    let decision: "allow" | "deny" = "deny";
+    if (options.ask) decision = await options.ask({ filename, size });
+    if (decision !== "allow") {
+      rmSync(dirname(tmp), { recursive: true, force: true });
+      return null;
+    }
+    const target = join(staging, filename);
+    copyFileSync(tmp, target);
+    rmSync(dirname(tmp), { recursive: true, force: true });
+    return target;
+  }
+
+  /** Shared act-failure path: timeout/timeout-like misses return a stale-ref
+   * error with the fresh snapshot; anything else propagates. */
+  async #actFailure(ref: string, e: unknown): Promise<string> {
+    if (e instanceof StaleRefError) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/timeout|timed out|not found|waiting for/i.test(msg)) {
+      throw new StaleRefError(ref, await this.snapshot());
+    }
+    throw e;
+  }
+
+  /** Act results end with the fresh snapshot: actions mutate the DOM, so
+   * the model always sees current refs for the next step. */
+  async #actResult(message: string): Promise<string> {
+    return `${message}\n\n${await this.snapshot()}`;
+  }
+
   /** Visible text of the page or of one `ref` element. */
   async readText(ref?: string): Promise<string> {
     const page = await this.#page;
@@ -372,6 +617,15 @@ export class BrowserSession {
     }
   }
 
+  /**
+   * #777: records a download event (the page listener calls this; tests
+   * inject fakes through it). Staging itself only happens via
+   * `stageDownload`, which is ask-gated.
+   */
+  emitDownload(download: BrowserDownloadLike): void {
+    this.#pendingDownloads.push(download);
+  }
+
   /** Reaps browser and page. Idempotent; safe mid-session and at dispose. */
   async dispose(): Promise<void> {
     if (this.#disposed) return;
@@ -387,11 +641,68 @@ export class BrowserSession {
   }
 }
 
+/** #777: an upload source outside the project root — the per-occurrence
+ * out-of-root ask (never persistable), same class as the write tool's. */
+export class OutOfRootError extends Error {
+  constructor(path: string, root: string) {
+    super(
+      `browser: upload source "${path}" is outside the project root (${root}) — ` +
+        `out-of-root paths require per-occurrence approval and never persist as a rule`,
+    );
+    this.name = "OutOfRootError";
+  }
+}
+
+/**
+ * #777: resolves `path` inside `root` (realpath-anchored when it exists,
+ * like the write tool). Returns the absolute path, or null when it
+ * escapes the root.
+ */
+export function inRootPath(root: string, path: string): string | null {
+  const abs = isAbsolute(path) ? path : resolve(root, path);
+  let base = root;
+  try {
+    // macOS tmpdirs are /var/... symlinks of /private/var/... — compare
+    // both sides through realpath, or every tmpdir file reads out-of-root.
+    base = realpathSync(root);
+  } catch { /* keep lexical root */ }
+  let real = abs;
+  try {
+    real = realpathSync(abs);
+  } catch { /* nonexistent: lexical check only */ }
+  const rel = relative(base, real);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return null;
+  return abs;
+}
+
+/** #777: existence probe on a fake locator (no real DOM in tests). */
+async function refExists(locator: { textContent(o?: { timeout?: number }): Promise<string | null> }): Promise<boolean> {
+  try {
+    await locator.textContent({ timeout: 1000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** #777: waits for a locator's element to be visible. */
+async function waitForLocatorVisible(
+  locator: { ariaSnapshot(o?: { mode?: string }): Promise<string> },
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snap = await locator.ariaSnapshot({ mode: "ai" });
+    if (snap.trim().length > 0) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error("browser: element never became visible");
+}
+
 /** `e12` / `[ref=e12]` → the selector token `e12`. Throws on anything else.
  * Playwright's `aria-ref` engine is keyed by the full `eN` token. */
 export function refNumber(ref: string): string {
-  const m = /^\[?ref=(e\d+)\]?$/.exec(ref.trim()) ?? /^(e\d+)$/.exec(ref.trim());
-  if (!m) throw new Error(`browser: invalid ref "${ref}" (expected eN from the latest snapshot)`);
+  const m = /^\[?ref=(e\d+)\]?$/.exec(ref.trim()) ?? /^(e\d+)$/.exec(ref.trim());  if (!m) throw new Error(`browser: invalid ref "${ref}" (expected eN from the latest snapshot)`);
   return m[1]!;
 }
 

@@ -6,10 +6,11 @@
  * real Chromium is present.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
+  StaleRefError,
   applySnapshotBudget,
   assertNavigable,
   BrowserSession,
@@ -102,6 +103,9 @@ function fakePlaywright(pageBehavior: {
     locator: (selector: string) => ({
       ariaSnapshot: async () => `- link \"sub\" [ref=e2] (via ${selector})`,
       textContent: async () => "hello world",
+      click: async () => {},
+      fill: async (_text: string) => {},
+      selectOption: async (values: string[]) => values,
     }),
     close: async () => {},
     // #776: the session's per-hop SSRF route handler, captured for tests.
@@ -119,10 +123,11 @@ function fakePlaywright(pageBehavior: {
         launchPersistentContext: async (_userDataDir: string, options: Record<string, unknown>) => {
           launched.push({ args: (options.args as string[]) ?? [], options });
           return {
-            newPage: async () => ({
-              ...page,
-              close: async () => { closed.page++; },
-            }),
+            newPage: async () => {
+              const originalClose = page.close.bind(page);
+              (page as any).close = async () => { closed.page++; await originalClose(); };
+              return page;
+            },
             close: async () => { closed.browser++; },
           };
         },
@@ -412,6 +417,262 @@ describe("#776: per-hop redirect re-check", () => {
     await handler(hop);
     expect(hop.continued).toBe(0);
     expect((hop.fulfilled as { body: string }).body).toMatch(/SSRF guard/);
+    await session.dispose();
+  });
+});
+
+describe("#777: act tier (click/fill/select/scroll/press_key/wait_for)", () => {
+  test("click addresses the element via aria-ref and returns the fresh snapshot", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- button "Save" [ref=e5]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const out = await session.click("e5");
+    expect(out).toContain('clicked [[button "Save"]]');
+    expect(out).toContain("[ref=e5]"); // fresh snapshot rides the result
+    await session.dispose();
+  });
+
+  test("fill replaces the value; select picks an option", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- textbox "Email" [ref=e3]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const filled: string[] = [];
+    (fake.page.locator as any) = (selector: string) => ({
+      ariaSnapshot: async () => "- textbox",
+      textContent: async () => "x",
+      click: async () => {},
+      fill: async (text: string) => { filled.push(`${selector}=${text}`); },
+      selectOption: async (values: string[]) => values,
+    });
+    expect(await session.fill("e3", "a@b.c")).toContain("filled [[textbox \"Email\"]]");
+    expect(filled[0]).toBe("aria-ref=e3=a@b.c");
+    expect(await session.select("e3", "option-2")).toContain('selected "option-2" on [[');
+    await session.dispose();
+  });
+
+  test("a ref the snapshot never named produces a stale-ref error with the fresh snapshot", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- button "Real" [ref=e1]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    // The fake locator resolves anything: simulate a dead ref via an
+    // unknown-describe + failing textContent probe.
+    (fake.page.locator as any) = (selector: string) => ({
+      ariaSnapshot: async () => "- button",
+      textContent: async () => { if (selector === "aria-ref=e99") throw new Error("not attached"); return "x"; },
+      click: async () => {},
+      fill: async () => {},
+      selectOption: async (v: string[]) => v,
+    });
+    try {
+      await session.click("e99");
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(StaleRefError);
+      expect((e as Error).message).toContain('stale ref "e99"');
+      expect((e as StaleRefError).freshSnapshot).toContain("[ref=e1]"); // fresh snapshot attached
+    }
+    await session.dispose();
+  });
+
+  test("a click timeout on a live ref degrades to a stale-ref error carrying the fresh snapshot", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- button "Ghost" [ref=e4]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    (fake.page.locator as any) = () => ({
+      ariaSnapshot: async () => "- button",
+      textContent: async () => "x",
+      click: async () => { throw new Error("Timeout 10000ms exceeded"); },
+      fill: async () => {},
+      selectOption: async (v: string[]) => v,
+    });
+    await expect(session.click("e4")).rejects.toThrow(StaleRefError);
+    await session.dispose();
+  });
+
+  test("scroll uses the mouse wheel; press_key uses the keyboard", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const wheels: string[] = [];
+    const keys: string[] = [];
+    (fake.page as any).mouse = { wheel: async (dx: number, dy: number) => { wheels.push(`${dx},${dy}`); } };
+    (fake.page as any).keyboard = { press: async (k: string) => { keys.push(k); } };
+    expect(await session.scroll("down", 800)).toContain("scrolled down by 800px");
+    expect(wheels).toEqual(["0,800"]);
+    expect(await session.pressKey("Enter")).toContain("pressed Enter");
+    expect(keys).toEqual(["Enter"]);
+    await session.dispose();
+  });
+
+  test("wait_for text uses waitForFunction; wait_for ref resolves a live element", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- status "done" [ref=e2]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const fns: string[] = [];
+    (fake.page as any).waitForFunction = async (fn: string, arg: string) => { fns.push(`${fn}|${arg}`); };
+    expect(await session.waitFor({ text: "done" })).toContain('"done" appeared');
+    expect(fns[0]).toContain("done");
+    expect(await session.waitFor({ ref: "e2" })).toContain("visible");
+    await session.dispose();
+  });
+
+  test("wait_for without text or ref is a precise error", async () => {
+    const fake = fakePlaywright({});
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    await expect(session.waitFor({})).rejects.toThrow(/needs 'text' or 'ref'/);
+    await session.dispose();
+  });
+
+  test("the tool dispatches act actions and gateArgs enriches refs", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- button "Go" [ref=e7]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    const tool = browserTool({ session, pageUrl: () => "https://app.example.com/" });
+    await tool.execute({ action: "navigate", url: "http://localhost:3000" }, ctx("/tmp"));
+    expect(await tool.execute({ action: "click", ref: "e7" }, ctx("/tmp"))).toContain("clicked");
+    const gated = tool.gateArgs!({ action: "click", ref: "e7" } as any) as Record<string, unknown>;
+    expect(gated.pageUrl).toBe("https://app.example.com/");
+    await session.dispose();
+  });
+});
+
+describe("#777: upload containment", () => {
+  test("in-root upload resolves through the root and calls setInputFiles", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-root-"));
+    const src = join(root, "report.pdf");
+    writeFileSync(src, "pdf");
+    const fake = fakePlaywright({ snapshot: () => '- fileinput "doc" [ref=e8]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const files: string[][] = [];
+    (fake.page.locator as any) = () => ({
+      ariaSnapshot: async () => "- fileinput",
+      textContent: async () => "x",
+      setInputFiles: async (f: string[]) => { files.push(f); },
+    });
+    const out = await session.upload("e8", "report.pdf", { root });
+    expect(out).toContain("uploaded");
+    expect(files[0]![0]).toBe(src);
+    await session.dispose();
+  });
+
+  test("out-of-root upload throws OutOfRootError; the tool asks per occurrence and never persists", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-root-"));
+    const fake = fakePlaywright({ snapshot: () => '- fileinput "doc" [ref=e8]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    let asked: string | undefined;
+    const tool = browserTool({
+      session,
+      root,
+      askOutOfRoot: (p) => {
+        asked = p;
+        return true;
+      },
+    });
+    const outside = join(mkdtempSync(join(tmpdir(), "moh-out-")), "secret.txt");
+    writeFileSync(outside, "x");
+    (fake.page.locator as any) = () => ({
+      ariaSnapshot: async () => "- fileinput",
+      textContent: async () => "x",
+      setInputFiles: async () => {},
+    });
+    const out = await tool.execute({ action: "upload", ref: "e8", path: outside }, ctx(root));
+    expect(asked).toBe(outside); // per-occurrence ask happened
+    expect(out).toContain("uploaded");
+    await session.dispose();
+  });
+
+  test("out-of-root upload refused: visible refusal, no upload call", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-root-"));
+    const fake = fakePlaywright({ snapshot: () => '- fileinput "doc" [ref=e8]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const tool = browserTool({ session, root, askOutOfRoot: () => false });
+    const outside = join(mkdtempSync(join(tmpdir(), "moh-out-")), "secret.txt");
+    const out = await tool.execute({ action: "upload", ref: "e8", path: outside }, ctx(root));
+    expect(out).toContain("refused");
+    await session.dispose();
+  });
+
+  test("without an ask seam, out-of-root uploads are refused outright", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-root-"));
+    const fake = fakePlaywright({ snapshot: () => '- fileinput "doc" [ref=e8]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const tool = browserTool({ session, root });
+    const out = await tool.execute({ action: "upload", ref: "e8", path: "/etc/passwd" }, ctx(root));
+    expect(out).toContain("refused");
+    await session.dispose();
+  });
+});
+
+describe("#777: download staging", () => {
+  function fakeDownload(filename: string, content: string) {
+    return {
+      suggestedFilename: () => filename,
+      saveAs: async (p: string) => {
+        mkdirSync(dirname(p), { recursive: true });
+        writeFileSync(p, content);
+      },
+      cancel: async () => {},
+    };
+  }
+
+  test("a download asks with name + size, stages to the dir, and the path rides the result", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    session.emitDownload(fakeDownload("report.csv", "a,b,c"));
+    const asks: { filename: string; size: number }[] = [];
+    const tool = browserTool({
+      session,
+      askDownload: (info) => {
+        asks.push(info);
+        return "allow";
+      },
+    });
+    const out = await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(asks).toEqual([{ filename: "report.csv", size: 5 }]); // name + size in the ask
+    expect(out).toMatch(/Download staged: .+report\.csv/);
+    await session.dispose();
+  });
+
+  test("refused download: nothing staged, temp bytes deleted", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    session.emitDownload(fakeDownload("virus.exe", "MZ"));
+    const tool = browserTool({ session, askDownload: () => "deny" });
+    const out = await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(out).not.toContain("Download staged");
+    expect(readdirSync(dir)).toHaveLength(0); // no silent writes
+    await session.dispose();
+  });
+
+  test("no ask seam: downloads stay blocked (nothing ever written)", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    session.emitDownload(fakeDownload("data.json", "{}"));
+    const tool = browserTool({ session });
+    const out = await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(out).not.toContain("Download staged");
+    expect(readdirSync(dir)).toHaveLength(0);
+    await session.dispose();
+  });
+
+  test("no download: nothing staged, no ask", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    let asked = 0;
+    const tool = browserTool({ session, askDownload: () => { asked++; return "allow"; } });
+    await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(asked).toBe(0);
     await session.dispose();
   });
 });
