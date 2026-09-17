@@ -5,6 +5,19 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+### Added
+
+- **MPM orientation seed eligibility: symbols + reasoning identifiers with
+  confidence tiers** (#759): the automatic orientation plan no longer requires
+  the task text to name a mapped path — exact task symbols seed a medium-tier
+  plan and recency-weighted identifiers from persisted prior-call provider
+  reasoning seed a low-tier, visually subordinate one (suppressed after a
+  successful `mpm_query`). Seeds matching more than five files yield no plan
+  (`over-threshold`); new fallback reasons and per-session seed statistics are
+  metadata only. Deterministic tokenization throughout — no fuzzy matching,
+  no LLM in the seed pipeline.
+
 ## [0.38.1] - 2026-09-17
 ### Fixed
 

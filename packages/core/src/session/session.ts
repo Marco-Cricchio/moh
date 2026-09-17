@@ -127,11 +127,10 @@ export class AgentSession {
   /** #759: identifiers source — reasoning text persisted by the previous
    * model call of the active turn; null when none or suppressed. */
   #mpmReasoningText: string | null = null;
-  /** #759: per-turn exploratory tool usage (orientation field validation):
-   * successful grep/glob calls this turn, and whether a successful
-   * mpm_query ran (the model already oriented itself). */
+  /** #759: successful exploratory tool calls this turn (orientation field
+   * validation); the mpm_query suppression itself lives in the orientation
+   * via noteModelQuery(). */
   #mpmExploratoryCalls = 0;
-  #mpmQuerySucceeded = false;
   /** #619: live projection service, held for the client-facing status and
    * diagnostics seams. Null when MPM is off or activation failed. */
   #mpmService: MpmService | null = null;
@@ -212,7 +211,6 @@ export class AgentSession {
       onToolObserved: (tool: string, ok: boolean) => {
         if (!ok) return;
         if (tool === "grep" || tool === "glob") this.#mpmExploratoryCalls += 1;
-        else if (tool === "mpm_query") this.#mpmQuerySucceeded = true;
       },
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
@@ -719,7 +717,6 @@ export class AgentSession {
     // persisted reasoning as a low-tier seed source.
     this.#mpmTaskText = text;
     this.#mpmExploratoryCalls = 0;
-    this.#mpmQuerySucceeded = false;
     // #759: #mpmReasoningText is intentionally kept — the last persisted
     // reasoning (previous turn's final call included) is the seed source.
     this.#mpmOrientation?.beginTurn();

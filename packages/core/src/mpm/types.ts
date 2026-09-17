@@ -96,7 +96,7 @@ export type MpmSeedTier = "high" | "medium" | "low";
 export interface MpmSeedStats {
   /** Plans whose highest tier was a task-named path. */
   pathPlans: number;
-  /** Plans fed (at any tier) by task-named exact symbols. */
+  /** Plans whose decisive tier was a task-named exact symbol. */
   symbolPlans: number;
   /** Plans whose decisive tier was persisted prior-call reasoning. */
   reasoningPlans: number;

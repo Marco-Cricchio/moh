@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { MpmService } from "./service";
-import type { MpmFallbackReason, MpmProvenance, MpmSeedStats } from "./types";
+import type { MpmFallbackReason, MpmProvenance, MpmSeedStats, MpmSeedTier } from "./types";
 
 /**
  * MPM targeted orientation plans (#616, spec #613): a small, source-cited,
@@ -97,8 +97,6 @@ export class MpmOrientation {
   readonly #budgetChars: number;
   /** #618: why the most recent plan lookup produced no plan (diagnostics). */
   #lastFallback: MpmFallbackReason = null;
-  /** #759: the highest tier that fed the most recent rendered plan. */
-  #lastTier: "high" | "medium" | "low" | null = null;
   /** #759: cumulative per-session seed statistics (metadata only). */
   #stats: MpmSeedStats = { pathPlans: 0, symbolPlans: 0, reasoningPlans: 0, overThreshold: 0 };
 
@@ -133,7 +131,7 @@ export class MpmOrientation {
     }
     const entries: PlanEntry[] = [];
     const seen = new Set<string>();
-    const consider = (path: string, reason: string, tier: PlanEntry["tier"], line?: number) => {
+    const consider = (path: string, reason: string, tier: MpmSeedTier, line?: number) => {
       if (seen.has(path) || entries.length >= this.#maxEntries) return;
       if (!this.#fresh(path)) return;
       seen.add(path);
@@ -149,7 +147,7 @@ export class MpmOrientation {
       seed: string,
       paths: string[],
       reasonFor: (path: string) => string,
-      tier: PlanEntry["tier"],
+      tier: MpmSeedTier,
     ): boolean => {
       if (paths.length > AMBIGUITY_THRESHOLD) {
         overThreshold = true;
@@ -175,7 +173,7 @@ export class MpmOrientation {
       }
       return any;
     };
-    const topTier: PlanEntry["tier"] = seeds.length > 0 ? "high" : "medium";
+    const topTier: MpmSeedTier = seeds.length > 0 ? "high" : "medium";
     for (const seed of seeds) {
       if (!this.#fresh(seed)) {
         staleSeed = true;
@@ -278,18 +276,12 @@ export class MpmOrientation {
   #symbolSeeds(text: string): string[] {
     if (this.#service.status !== "ready" || this.#service.fileCount === 0) return [];
     const seeds: string[] = [];
-    const seen = new Set<string>();
     for (const token of extractIdentifiers(text)) {
-      if (seen.has(token)) continue;
+      if (seeds.includes(token)) continue;
       const paths = this.#service.pathsForSymbol(token);
-      // Exact resolution, unambiguous: a symbol shared by many files is a
-      // common name, not a seed (the >5 guard discards it downstream, but
-      // a 2-file symbol is still actionable — keep it and let the ambiguity
-      // threshold decide).
-      if (paths.length > 0 && !seen.has(token)) {
-        seen.add(token);
-        seeds.push(token);
-      }
+      // Exact resolution: any file count is kept here — the ambiguity
+      // threshold (>5) decides downstream; a 2-file symbol is actionable.
+      seeds.push(token);
     }
     return seeds;
   }
