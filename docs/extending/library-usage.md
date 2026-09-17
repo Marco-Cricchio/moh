@@ -477,12 +477,17 @@ Exported from `@moh/core` (ADR-0004).
 
 For relevant codebase tasks the core injects a small, advisory
 orientation plan into the prompt's `mpm` section (between `session_state`
-and the trailing `extension_notes`). `MpmOrientation.planFor(text)` is conservative and
-purely local: the task text must name a mapped path; every ranked entry
+and the trailing `extension_notes`). `MpmOrientation.planFor(text, reasoning?)` is conservative and
+purely local: seeds come from three sources of descending confidence —
+mapped paths named in the task text (high), exact symbols resolved in
+the symbol index (medium), and identifiers extracted from the previous
+model call's persisted provider reasoning (low, recency-weighted and
+suppressed after a successful `mpm_query`). Every ranked entry
 is extracted and fresh (the file's current hash still matches the
 mapped one), cited with path, coordinate, relation, and a concise
-reason. Ineligible or uncertain tasks — stale projections included —
-receive no plan at all. Plans are advisory: they never restrict tools,
+reason; a seed matching more than five files is discarded. Ineligible
+or uncertain tasks — stale or ambiguous scopes included — receive no
+plan at all. Plans are advisory: they never restrict tools,
 and never contain copied source excerpts. `SessionConfig.mpm` opts in
 with an explicit `service`/`root`; `sessionFromConfig` activates
 automatically when the project's projection exists. The plan is
