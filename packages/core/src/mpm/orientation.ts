@@ -312,7 +312,7 @@ export class MpmOrientation {
       if (seen.has(token)) continue;
       // Positional weight: tail (last token) = 1, head → 0. Reasoning
       // converges, so what the model settled on outweighs what it skimmed.
-      const weight = n === 1 ? 1 : i / (n - 1);
+      const weight = n <= 1 ? 1 : i / (n - 1);
       if (weight < MIN_REASONING_WEIGHT) continue;
       if (this.#service.pathsForSymbol(token).length === 0) continue;
       seen.add(token);
