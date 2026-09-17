@@ -32,6 +32,34 @@ Exports are justified per ADR-0004: both `@moh/cli` and `@moh/tui` consume them.
 - `parseRule("write:src/**", …)` yields a rule scoped to `write`; `overridesFromFlags` widens path rules into the shared `pathAllow`/`pathDeny` lists (the resolver's `*` semantics), preserving pre-existing CLI behavior.
 - Tokens containing shell-significant characters are double-quoted on format; the grammar has no escape sequence, so tokens mixing `"` with whitespace cannot round-trip (documented limit).
 
+## Amendment (#775, ADR-0029): the URL-glob argspec
+
+The browser tool needs a third argspec semantic. Browser rules take the
+`browser:<action> [url-glob]` form:
+
+```
+browser:click https://app.example.com/**     // act-tier clicks on this site
+browser:fill http://localhost:3000/app/**    // fills on a dev server path
+browser:click                                // global form: every click, any URL
+```
+
+- The rule's `tool` carries the action scope (`browser:click`); the matcher
+  is a **URL glob**: scheme+host+path matched against the page URL at
+  action time, exact host (no implicit subdomain match), `**` spanning
+  path segments, `*` within one. A glob port matches any page port
+  (localhost dev servers move around); a missing path matches the origin
+  root only.
+- URL-scoped rules need a page URL in the call args — the browser tool
+  supplies it (`Tool.gateArgs`, #775); without one they never match and
+  the call falls back to the default ask.
+- Config tier: `permissions.overrides.browserAllow` / `browserDeny`
+  (canonical rule strings, parsed by `parseRule`). Runtime tier: the
+  act-tier "always for this site" answer writes `browser:<action>
+  <origin>/**` for the current session only — never persisted to
+  moh.json, never proposed proactively.
+- Specificity: URL-scoped rules beat the global `browser:<action>` form;
+  deny still wins ties (#699).
+
 ## Consequences
 
 - One string form everywhere: CLI flags, docs, and TUI previews agree, and every formatted rule reparses.
