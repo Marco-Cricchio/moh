@@ -280,9 +280,28 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   const builtinOpts: import("../builtin-tools").BuiltinToolsOptions = {
     ledgerRoot: join(mohHome, "bash-ledgers"),
     ...(config.browser ? { browser: config.browser } : {}),
+    // #777: upload containment anchors on the session root; the
+    // per-occurrence asks (out-of-root upload, required download) ride
+    // the session's permission consent — headless (no seam) refuses
+    // out-of-root uploads and keeps downloads blocked.
+    browserRoot: options.cwd,
+    ...(options.consent?.onPermissionRequest
+      ? {
+          browserAsk: async (question) => {
+            const detail =
+              question.kind === "download"
+                ? `download "${question.filename}" (${question.size} bytes)`
+                : `upload of the out-of-root path "${question.path}"`;
+            const answer = await options.consent!.onPermissionRequest!("browser", {
+              browserAsk: question.kind,
+              detail,
+            });
+            return answer !== "no";
+          },
+        }
+      : {}),
     diagnostics: browserDiagnostics,
   };
-  builtinOpts.browser = config.browser;
   const builtins = builtinTools(builtinOpts);
   browserDispose = builtinOpts.browserSession ? () => builtinOpts.browserSession!.dispose() : undefined;
 

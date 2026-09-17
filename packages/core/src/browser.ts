@@ -305,6 +305,8 @@ export function browserAvailability(
  */
 export class BrowserSession {
   #page: BrowserPageLike | null = null;
+  /** #777: the SSRF route handler installs once per page, not per navigate. */
+  #routeGuardInstalled = false;
   #browser: BrowserLike | null = null;
   #disposed = false;
   /** #777: downloads observed by the page listener, awaiting the ask. */
@@ -375,7 +377,10 @@ export class BrowserSession {
   async navigate(url: string, allowedHosts: readonly string[] = []): Promise<string> {
     await this.#verify(url, allowedHosts);
     const page = await this.#ensurePage();
-    await installRouteGuard(page, allowedHosts, (u) => this.#verify(u, allowedHosts));
+    if (!this.#routeGuardInstalled) {
+      await installRouteGuard(page, allowedHosts, (u) => this.#verify(u, allowedHosts));
+      this.#routeGuardInstalled = true;
+    }
     await page.goto(url, { waitUntil: "load", timeoutMs: 30_000 });
     return this.snapshot();
   }
@@ -400,7 +405,11 @@ export class BrowserSession {
       text = applySnapshotBudget(text);
     }
     // #775: refresh the element descriptions the permission asks render.
-    this.#describe = parseSnapshotDescriptions(text);
+    // A subtree snapshot merges into the full-page map (a subtree re-call
+    // must not wipe descriptions for refs outside the subtree, #777).
+    this.#describe = ref !== undefined
+      ? new Map([...this.#describe, ...parseSnapshotDescriptions(text)])
+      : parseSnapshotDescriptions(text);
     return text;
   }
 
@@ -525,23 +534,25 @@ export class BrowserSession {
    */
   async upload(ref: string, path: string, options: UploadOptions & { allowOutOfRoot?: boolean }): Promise<string> {
     const inside = inRootPath(options.root, path);
+    const source = inside ?? path;
     if (!inside) {
       if (!options.allowOutOfRoot) throw new OutOfRootError(path, options.root);
-    } else {
-      if (!existsSync(inside)) throw new Error(`browser: upload source not found: ${inside}`);
-      if (!statSync(inside).isFile()) throw new Error(`browser: upload source is not a file: ${inside}`);
     }
+    // Existence checks apply to both branches — an approved out-of-root
+    // path gets the same precise errors as an in-root one.
+    if (!existsSync(source)) throw new Error(`browser: upload source not found: ${source}`);
+    if (!statSync(source).isFile()) throw new Error(`browser: upload source is not a file: ${source}`);
     const locator = await this.#resolveRef(ref);
     const setInputFiles = (
       locator as { setInputFiles?: (files: string[], o?: { timeout?: number }) => Promise<void> }
     ).setInputFiles;
     if (typeof setInputFiles !== "function") throw new Error("browser: upload unavailable (no setInputFiles seam)");
     try {
-      await setInputFiles.call(locator, [inside ?? path], { timeout: ACT_TIMEOUT_MS });
+      await setInputFiles.call(locator, [source], { timeout: ACT_TIMEOUT_MS });
     } catch (e) {
       return await this.#actFailure(ref, e);
     }
-    return this.#actResult(`uploaded ${inside ?? path} into [${this.describeElement(ref) ?? ref}]`);
+    return this.#actResult(`uploaded ${source} into [${this.describeElement(ref) ?? ref}]`);
   }
 
   /**
@@ -575,14 +586,23 @@ export class BrowserSession {
     return target;
   }
 
-  /** Shared act-failure path: timeout/timeout-like misses return a stale-ref
-   * error with the fresh snapshot; anything else propagates. */
+  /** Shared act-failure path: re-probe the ref against the live DOM. A
+   * dead ref (or a Playwright timeout, whose usual cause is the element
+   * being gone or covered after a mutation) surfaces as a stale-ref
+   * error with the fresh snapshot so the model can re-target; a live
+   * ref propagates the real error (e.g. a missing select option). */
   async #actFailure(ref: string, e: unknown): Promise<string> {
     if (e instanceof StaleRefError) throw e;
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/timeout|timed out|not found|waiting for/i.test(msg)) {
-      throw new StaleRefError(ref, await this.snapshot());
+    let known = false;
+    try {
+      known = this.#describe.has(refNumber(ref));
+    } catch {
+      known = false;
     }
+    if (!known) throw new StaleRefError(ref, await this.snapshot());
+    const page = await this.#page;
+    const stillThere = page ? await refExists(page.locator(`aria-ref=${refNumber(ref)}`)).catch(() => false) : false;
+    if (!stillThere) throw new StaleRefError(ref, await this.snapshot());
     throw e;
   }
 

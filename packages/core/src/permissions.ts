@@ -494,10 +494,26 @@ export class PermissionResolver {
       if (tokens.length === 0) return null;
       return { tool: "bash", effect: "allow", tokens };
     }
-    if (typeof args?.path === "string") {
+    if (typeof args?.path === "string" && !(toolName === "browser" && args?.action === "upload")) {
       const rel = this.relativeInRoot(args.path);
       if (rel === null) return null;
       return { tool: toolName, effect: "allow", path: rel };
+    }
+    // #777: an in-root browser upload "always" writes the same
+    // site-scoped URL rule as any other browser act action — never a
+    // path rule (the upload gate matches `browser:<action>` + page URL,
+    // so a path rule could never match: a dead rule and an ask loop).
+    if (toolName === "browser" && typeof args?.path === "string") {
+      if (this.relativeInRoot(args.path) === null) return null; // out-of-root: per-occurrence only
+      const pageUrl = typeof args?.pageUrl === "string" ? args.pageUrl : undefined;
+      if (!pageUrl) return null; // no page URL: no sound site scope — ask again next time
+      let origin: string;
+      try {
+        origin = new URL(pageUrl).origin;
+      } catch {
+        return null;
+      }
+      return { tool: `browser:${args.action}`, effect: "allow", url: `${origin}/**` };
     }
     // #775: "always for this site" — a runtime `browser:<action> <url-glob>`
     // rule scoped to the page's origin. Never persisted (PermissionGate

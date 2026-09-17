@@ -1,6 +1,8 @@
 /**
- * #774 / ADR-0029: the `browser` tool — one action-dispatched tool over
- * the read tier: navigate / snapshot / read_text / close. Element
+ * #774 / #777 / ADR-0029: the `browser` tool — one action-dispatched
+ * tool over the read and act tiers (navigate / snapshot / read_text /
+ * close; click / fill / select / scroll / press_key / wait_for /
+ * upload). Element
  * addressing is exclusively by ref from the latest snapshot; no HTML, no
  * CSS selectors. The tool owns nothing about the browser lifecycle beyond
  * dispatch — `BrowserSession` (one per session, disposed with the session)
@@ -166,10 +168,25 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
         }
         throw e;
       }
-      // #777: stage any download this action produced (ask-gated; without
-      // an ask seam nothing is ever written to disk).
-      const staged = await session.stageDownload({ ask: options.askDownload }).catch(() => null);
-      return staged ? `${result}\n\nDownload staged: ${staged} (read it with the read tool)` : result;
+      // #777: stage any downloads this action produced (ask-gated;
+      // without an ask seam nothing is ever written to disk). Staging
+      // failures are visible in the result, never swallowed.
+      const staged: string[] = [];
+      const failed: string[] = [];
+      for (;;) {
+        try {
+          const path = await session.stageDownload({ ask: options.askDownload });
+          if (!path) break;
+          staged.push(path);
+        } catch (e) {
+          failed.push(e instanceof Error ? e.message : String(e));
+          break; // a broken staging must not loop; report and stop
+        }
+      }
+      let out = result;
+      if (staged.length) out += `\n\n${staged.map((p) => `Download staged: ${p} (read it with the read tool)`).join("\n")}`;
+      if (failed.length) out += `\n\nDownload staging failed: ${failed.join("; ")}`;
+      return out;
     },
   };
 }

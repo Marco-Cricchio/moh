@@ -474,7 +474,7 @@ describe("#777: act tier (click/fill/select/scroll/press_key/wait_for)", () => {
     await session.dispose();
   });
 
-  test("a click timeout on a live ref degrades to a stale-ref error carrying the fresh snapshot", async () => {
+  test("a click timeout on a live ref propagates the real error (not a stale ref)", async () => {
     const fake = fakePlaywright({ snapshot: () => '- button "Ghost" [ref=e4]' });
     const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
     await session.navigate("http://localhost:3000");
@@ -485,7 +485,10 @@ describe("#777: act tier (click/fill/select/scroll/press_key/wait_for)", () => {
       fill: async () => {},
       selectOption: async (v: string[]) => v,
     });
-    await expect(session.click("e4")).rejects.toThrow(StaleRefError);
+    // The fake locator still "exists" (textContent resolves), so the
+    // failure propagates as the real error — a live ref's timeout is
+    // not a stale ref (typically an overlay intercepting the click).
+    await expect(session.click("e4")).rejects.toThrow(/Timeout 10000ms/);
     await session.dispose();
   });
 
@@ -673,6 +676,60 @@ describe("#777: download staging", () => {
     const tool = browserTool({ session, askDownload: () => { asked++; return "allow"; } });
     await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
     expect(asked).toBe(0);
+    await session.dispose();
+  });
+});
+
+describe("#777: staging error visibility + stale-ref re-probe", () => {
+  test("a staging failure surfaces in the result instead of vanishing", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    session.emitDownload({
+      suggestedFilename: () => "x.bin",
+      saveAs: async () => { throw new Error("disk full"); },
+      cancel: async () => {},
+    });
+    const tool = browserTool({ session, askDownload: () => "allow" });
+    const out = await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(out).toContain("staging failed");
+    expect(out).toContain("disk full");
+    await session.dispose();
+  });
+
+  test("a dead ref on act failure is re-classified as stale with a fresh snapshot", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- heading "New page" [ref=e1]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    (fake.page.locator as any) = (selector: string) => ({
+      ariaSnapshot: async () => '- heading "New page" [ref=e1]',
+      textContent: async (_o?: unknown) => {
+        if (selector === "aria-ref=e6") throw new Error("element is not attached");
+        return "x";
+      },
+      click: async () => { throw new Error("Timeout 10000ms exceeded"); },
+      fill: async () => {},
+      selectOption: async (v: string[]) => v,
+    });
+    try {
+      await session.click("e6");
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(StaleRefError);
+      expect((e as StaleRefError).freshSnapshot).toContain("New page");    }
+    await session.dispose();
+  });
+
+  test("an approved out-of-root upload with a missing file gets the precise not-found error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-root-"));
+    const fake = fakePlaywright({ snapshot: () => '- fileinput "doc" [ref=e8]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const missing = join(mkdtempSync(join(tmpdir(), "moh-out-")), "gone.txt");
+    const tool = browserTool({ session, root, askOutOfRoot: () => true });
+    await expect(tool.execute({ action: "upload", ref: "e8", path: missing }, ctx(root))).rejects.toThrow(
+      /upload source not found/,
+    );
     await session.dispose();
   });
 });
