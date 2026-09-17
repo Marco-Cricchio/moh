@@ -1,10 +1,13 @@
 /**
- * Clipboard write seam (#672). Preference order: OSC 52 (works over
- * ssh, no external dependency — both clipboard and primary where the
- * terminal accepts it), then platform binaries (`pbcopy` / `wl-copy` /
- * `xclip` / `clip.exe` via WSL paths). Backend detection happens on
- * first use and is cached; a missing backend degrades to null and the
- * caller shows a warning line — never an error path.
+ * Clipboard write seam (#672). Preference order: platform binaries
+ * (`pbcopy` / `wl-copy` / `xclip` / `clip.exe` via WSL paths) on the
+ * local machine, OSC 52 only over ssh (where the binary would target
+ * the remote clipboard). OSC 52 is a *request* the terminal may
+ * ignore, truncate, or echo raw — a mangled base64 dump in the
+ * viewport is its failure mode — so it is never preferred when a
+ * local binary exists. Backend detection happens on first use and is
+ * cached; a missing backend degrades to null and the caller shows a
+ * warning line — never an error path.
  */
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -62,9 +65,18 @@ function detectBinary(): ClipboardBackend | null {
   return null;
 }
 
+/** True over an ssh connection: OSC 52 is the only backend whose
+ * write reaches the *client* clipboard. */
+function isSsh(): boolean {
+  return Boolean(process.env.SSH_CONNECTION || process.env.SSH_TTY);
+}
+
 /** Base64-encoded OSC 52 write to stdout: the clipboard selection
  * (`c`) plus the primary selection (`p`) — terminals that ignore the
- * primary form just skip that sequence. */
+ * primary form just skip that sequence. Note: this is a request the
+ * terminal may silently ignore (clipboard permission denied, tmux
+ * without `set -g set-clipboard on`) or partially consume, echoing
+ * the raw base64 into the viewport. */
 export function writeOsc52(text: string): Promise<void> {
   const payload = Buffer.from(text, "utf8").toString("base64");
   return new Promise((resolve, reject) => {
@@ -74,18 +86,18 @@ export function writeOsc52(text: string): Promise<void> {
 
 const OSC52_BACKEND: ClipboardBackend = { kind: "osc52", write: writeOsc52 };
 
-/** Detects and caches the backend at first use: OSC 52 first (the
- * spec's preference order — ssh-safe, dependency-free), falling back
- * to platform binaries when stdout is not a terminal (piped/embedded
- * runs, where the escape sequence has no reader) or the OSC 52 write
- * itself fails. Injectable backend overrides the cache (tests,
- * embedders). */
+/** Detects and caches the backend at first use: a local platform
+ * binary when one exists (local runs — always preferred, its write
+ * cannot be ignored), OSC 52 over ssh (ssh-safe, dependency-free),
+ * and the binary fallback when stdout is not a terminal
+ * (piped/embedded runs, where the escape sequence has no reader).
+ * Injectable backend overrides the cache (tests, embedders). */
 export function clipboardBackend(override?: ClipboardBackend | null): ClipboardBackend {
   if (override !== undefined) {
     cached = override;
     return override ?? OSC52_BACKEND;
   }
-  cached ??= process.stdout.isTTY ? OSC52_BACKEND : detectBinary() ?? OSC52_BACKEND;
+  cached ??= isSsh() ? OSC52_BACKEND : detectBinary() ?? OSC52_BACKEND;
   return cached;
 }
 

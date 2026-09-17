@@ -541,7 +541,9 @@ const renameCommand: SlashCommand = {
 };
 
 /** #672: copies the last assistant reply to the system clipboard —
- * OSC 52 first (ssh-safe), then platform binaries. The command leaves
+ * local binaries first (pbcopy & co., whose write cannot be ignored),
+ * OSC 52 over ssh (ssh-safe), then OSC 52 as last resort. The command
+ * leaves
  * no permanent transcript artifact: feedback rides the notify channel
  * (an inline one-liner), including the fresh-session warning. */
 const copyCommand: SlashCommand = {
