@@ -144,8 +144,11 @@ change remote state remain visible and controlled by you.
 The optional Moh Project Map builds a local, rebuildable structural view of a
 project: paths, symbols, and provable relations, never source-content copies.
 moh uses it to orient eligible codebase tasks with concise, source-cited advice
-and can answer a model's focused map query. Its status and diagnostics are
-inspectable, while background maintenance is designed not to block a turn.
+and can answer a model's focused map query. Orientation advice comes in three
+confidence tiers — files the task names, symbols it mentions, and (advisory,
+low-key) identifiers from the model's own recent reasoning; ambiguous matches
+never produce advice. Its status and diagnostics are inspectable, while
+background maintenance is designed not to block a turn.
 
 ## Configuration by user and project
 

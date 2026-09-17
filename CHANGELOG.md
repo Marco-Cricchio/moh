@@ -5,6 +5,28 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.38.2] - 2026-09-17
+### Added
+
+- **MPM orientation seed eligibility: symbols + reasoning identifiers with
+  confidence tiers** (#759): the automatic orientation plan no longer requires
+  the task text to name a mapped path — exact task symbols seed a medium-tier
+  plan and recency-weighted identifiers from persisted prior-call provider
+  reasoning seed a low-tier, visually subordinate one (suppressed after a
+  successful `mpm_query`). Seeds matching more than five files yield no plan
+  (`over-threshold`); new fallback reasons and per-session seed statistics are
+  metadata only. Deterministic tokenization throughout — no fuzzy matching,
+  no LLM in the seed pipeline.
+
+- **Handoff: retry a failed exit publish at next startup** (#758): a handoff
+  publish that failed at exit is kept pending and retried automatically the
+  next time the project session opens.
+
+### Fixed
+
+- **Todo box renders fully expanded in vibe mode** (PR #761): the TUI todo
+  box no longer collapses when a task line exceeds one row.
+
 ## [0.38.1] - 2026-09-17
 ### Fixed
 
@@ -190,7 +212,9 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.38.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.38.2...develop
+[0.38.2]: https://github.com/Marco-Cricchio/moh/compare/v0.38.1...v0.38.2
+[0.38.1]: https://github.com/Marco-Cricchio/moh/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/Marco-Cricchio/moh/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/Marco-Cricchio/moh/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/Marco-Cricchio/moh/compare/v0.35.1...v0.36.0

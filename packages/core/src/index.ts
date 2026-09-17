@@ -331,6 +331,8 @@ import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConf
 import {
   publishHandoffAtExit,
   readRawHandoff,
+  handoffAlreadyPublished,
+  handoffPublishedMarkerFile,
   type HandoffPayload,
   type HandoffTransport,
   type HandoffTransportError,
@@ -697,6 +699,8 @@ export {
   type PublishHandoffResult,
   publishHandoffAtExit,
   readRawHandoff,
+  handoffAlreadyPublished,
+  handoffPublishedMarkerFile,
   HandoffRunner,
   type RawHandoff,
   type HandoffGitAnchor,

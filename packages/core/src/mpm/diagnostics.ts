@@ -13,7 +13,7 @@ import { MPM_DEFAULT_MAX_FILES, MPM_DEFAULT_MAX_TOTAL_BYTES, MpmService, type Mp
 import { capabilityForPath, MPM_CAPABILITIES } from "./capabilities";
 import { MpmStore } from "./store";
 import type { MpmEffectiveConfig } from "./config";
-import type { MpmFallbackReason } from "./types";
+import type { MpmFallbackReason, MpmSeedStats } from "./types";
 
 /** Per-language coverage: mapped files and symbols per capability name. */
 export interface MpmLanguageCoverage {
@@ -51,6 +51,8 @@ export interface MpmDiagnostics {
   evictions: number;
   /** Why the last orientation lookup produced no plan, when it did. */
   fallbackReason: MpmFallbackReason;
+  /** #759: per-session orientation seed statistics (metadata only). */
+  seedStats?: MpmSeedStats;
 }
 
 /** How many mapped paths to hash-check for the stale estimate. */
@@ -64,6 +66,7 @@ export interface MpmDiagnosticsOptions {
   pendingWork?: number;
   evictions?: number;
   fallbackReason?: MpmFallbackReason;
+  seedStats?: MpmSeedStats;
 }
 
 /**
@@ -92,6 +95,7 @@ export function mpmDiagnostics(options: MpmDiagnosticsOptions): MpmDiagnostics {
       exclusions: config.exclude,
       evictions: options.evictions ?? 0,
       fallbackReason: "disabled",
+      ...(options.seedStats ? { seedStats: options.seedStats } : {}),
     };
   }
 
@@ -136,6 +140,7 @@ export function mpmDiagnostics(options: MpmDiagnosticsOptions): MpmDiagnostics {
     exclusions: config.exclude,
     evictions: options.evictions ?? 0,
     fallbackReason: options.fallbackReason ?? null,
+    ...(options.seedStats ? { seedStats: options.seedStats } : {}),
   };
 }
 

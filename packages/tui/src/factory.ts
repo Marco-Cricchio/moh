@@ -141,6 +141,7 @@ export function handoffPublishWork(
   cwd: string,
   home: string | undefined,
   onWarning: (message: string) => void,
+  options?: { timeoutMs?: number },
 ): Promise<unknown> | null {
   let active = false;
   try {
@@ -154,10 +155,34 @@ export function handoffPublishWork(
   return publishHandoffAtExit({
     artifactFile: HandoffRunner.artifactFile(cwd, join(home ?? homedir(), ".moh")),
     transport: createGistHandoffTransport({ cwd, home }),
+    ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
     enrich: async (payload) => enrichHandoffWithWayfinder(payload, await resolveTracker({ cwd })),
   }).then((result) => {
     if (!result.ok) onWarning(handoffWarning(result.error));
   });
+}
+
+/**
+ * Startup publish retry (handoff publish retry): when the exit-time
+ * publish failed — most often the 2s exit budget expiring on a slow
+ * network — the artifact stays local and the next session start retries
+ * it with a generous budget, off the exit path entirely. Idempotent via
+ * the published marker: an artifact already on the remote is a no-op
+ * (the retry resolves without touching gh). Returns `null` when the
+ * transport is off. No retry for `no-artifact` (nothing to send) or
+ * `newer-remote` (deliberate local state — only an explicit publish
+ * may overwrite).
+ */export function retryPendingHandoffPublish(
+  cwd: string,
+  home: string | undefined,
+  onWarning: (message: string) => void,
+): Promise<unknown> | null {
+  return handoffPublishWork(cwd, home, (message) => {
+    // A retry timeout is network reality, not an error worth a toast on
+    // every startup — only persistent failures already warn at exit. And
+    // no artifact simply means nothing to retry: silence.
+    if (!message.includes("exit budget") && !message.includes("no local artifact") && !message.includes("remote handoff is newer")) onWarning(message);
+  }, { timeoutMs: 10_000 });
 }
 
 /** The one warning line per failure reason (#433 story 15). */
