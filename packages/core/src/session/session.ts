@@ -27,6 +27,7 @@ import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
 import { MpmService, projectMapDir, type MpmStatus } from "../mpm/service";
+import type { MpmSeedStats } from "../mpm/types";
 import { MpmLifecycle } from "../mpm/lifecycle";
 import { MpmOrientation } from "../mpm/orientation";
 import { mpmQueryTool } from "../mpm/query-tool";
@@ -119,6 +120,18 @@ export class AgentSession {
   #mpmOrientation: MpmOrientation | null = null;
   #mpmLifecycle: MpmLifecycle | null = null;
   #mpmPlan: string | null = null;
+  /** #759: the task text of the active turn — the plan recomputes at every
+   * prompt assembly (reasoning from call N can seed call N+1, including
+   * mid-turn after a tool result). */
+  #mpmTaskText: string | null = null;
+  /** #759: identifiers source — reasoning text persisted by the previous
+   * model call of the active turn; null when none or suppressed. */
+  #mpmReasoningText: string | null = null;
+  /** #759: per-turn exploratory tool usage (orientation field validation):
+   * successful grep/glob calls this turn, and whether a successful
+   * mpm_query ran (the model already oriented itself). */
+  #mpmExploratoryCalls = 0;
+  #mpmQuerySucceeded = false;
   /** #619: live projection service, held for the client-facing status and
    * diagnostics seams. Null when MPM is off or activation failed. */
   #mpmService: MpmService | null = null;
@@ -194,6 +207,13 @@ export class AgentSession {
       // #617: successful write/edit → targeted MPM refresh queue. Lazy on
       // purpose: the lifecycle is constructed later in this constructor.
       onFileMutation: (rel: string) => this.#mpmLifecycle?.noteEdit(rel),
+      // #759: orientation field validation — count successful exploratory
+      // tool calls per turn; metadata only, never a restriction.
+      onToolObserved: (tool: string, ok: boolean) => {
+        if (!ok) return;
+        if (tool === "grep" || tool === "glob") this.#mpmExploratoryCalls += 1;
+        else if (tool === "mpm_query") this.#mpmQuerySucceeded = true;
+      },
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.
@@ -415,9 +435,12 @@ export class AgentSession {
         }
         // ADR-0011: a turn-scoped skill prompt lives exactly one turn.
         // #616: so does the MPM orientation plan. One reassemble covers both.
-        if (this.#skillPrompt || this.#mpmPlan) {
+        if (this.#skillPrompt || this.#mpmPlan || this.#mpmTaskText) {
           this.#skillPrompt = null;
           this.#mpmPlan = null;
+          this.#mpmTaskText = null;
+          // #759: #mpmReasoningText survives the turn — the last persisted
+          // reasoning seeds the next send's plan.
           this.#assemblePrompt();
         }
       },
@@ -691,7 +714,16 @@ export class AgentSession {
     // #616: turn-scoped MPM orientation — computed at send time from the
     // task text, cleared when the turn settles (same lifecycle as the
     // ADR-0011 skill prompt). Ineligible or uncertain: no plan at all.
-    this.#mpmPlan = this.#mpmOrientation?.planFor(text) ?? null;
+    // #759: the task text and gates persist for the whole turn — the plan
+    // recomputes at every prompt assembly with the previous call's
+    // persisted reasoning as a low-tier seed source.
+    this.#mpmTaskText = text;
+    this.#mpmExploratoryCalls = 0;
+    this.#mpmQuerySucceeded = false;
+    // #759: #mpmReasoningText is intentionally kept — the last persisted
+    // reasoning (previous turn's final call included) is the seed source.
+    this.#mpmOrientation?.beginTurn();
+    this.#mpmPlan = this.#orientationPlan();
     return this.#queue.send(text, options?.prompt).finally(() => {
       this.#turnHead = undefined;
     });
@@ -748,6 +780,17 @@ export class AgentSession {
     this.#memory?.maybeExtract(result, this.#eventLog.live(), this.#disposed);
   }
 
+  /**
+   * #759: the current orientation plan — task text plus, when the previous
+   * model call of this turn persisted reasoning and produced no successful
+   * `mpm_query`, that reasoning text as the low-tier seed source.
+   */
+  #orientationPlan(): string | null {
+    const orientation = this.#mpmOrientation;
+    if (!orientation || this.#mpmTaskText === null) return null;
+    return orientation.planFor(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+  }
+
   /** Reassembles the system prompt for the next model call (#27). */
   #assemblePrompt(): void {
     const assembled = this.#promptComposer.compose({
@@ -760,7 +803,9 @@ export class AgentSession {
       ...(this.#skillPrompt ? { skillPrompt: this.#skillPrompt } : {}),
       memory: this.#memory?.excerpt(),
       extensionNotes: this.#extensions?.notes(),
-      ...(this.#mpmPlan ? { mpmOrientation: this.#mpmPlan } : {}),
+      // #759: recomputed here — reasoning from the previous model call can
+      // seed this one (mid-turn, after a tool result, included).
+      ...(this.#mpmTaskText !== null ? { mpmOrientation: this.#orientationPlan() ?? undefined } : this.#mpmPlan ? { mpmOrientation: this.#mpmPlan } : {}),
     });
     this.#promptVersion = assembled.version;
     this.#lastPrompt = assembled;
@@ -780,13 +825,23 @@ export class AgentSession {
    * activated for this session (disabled, no projection, activation
    * failure) — the client renders nothing.
    */
-  mpmSnapshot(): { status: MpmStatus; pendingWork: number; fallbackReason: MpmDiagnostics["fallbackReason"] } | null {
+  mpmSnapshot(): {
+    status: MpmStatus;
+    pendingWork: number;
+    fallbackReason: MpmDiagnostics["fallbackReason"];
+    /** #759: orientation seed statistics (metadata only). */
+    seedStats?: MpmSeedStats;
+    /** #759: successful exploratory tool calls this turn (field validation). */
+    exploratoryCalls?: number;
+  } | null {
     const service = this.#mpmService;
     if (!service) return null;
     return {
       status: service.status,
       pendingWork: this.#mpmLifecycle?.pendingCount ?? 0,
       fallbackReason: this.#mpmOrientation?.lastFallbackReason ?? null,
+      ...(this.#mpmOrientation ? { seedStats: this.#mpmOrientation.seedStats } : {}),
+      exploratoryCalls: this.#mpmExploratoryCalls,
     };
   }
 
@@ -818,6 +873,7 @@ export class AgentSession {
       pendingWork: this.#mpmLifecycle?.pendingCount ?? 0,
       evictions: this.#mpmLifecycle?.evictionCount ?? 0,
       fallbackReason: this.#mpmOrientation?.lastFallbackReason ?? null,
+      seedStats: this.#mpmOrientation?.seedStats,
     });
   }
 
@@ -839,6 +895,10 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
+    // #759: the reasoning text of the last persisted call is the low-tier
+    // orientation seed source. Content stays in the log; only the plan
+    // (paths + reasons) ever reaches the prompt.
+    if (event.type === "reasoning") this.#mpmReasoningText = event.text;
     // #400 single-writer guard: at every append boundary, growth of the
     // backing file beyond what this writer last appended becomes one
     // `session_file_growth` chrome event (all surfaces warn) recorded

@@ -62,6 +62,10 @@ export interface ToolRunnerOptions {
   /** #617: best-effort callback after a successful in-root write/edit —
    * the session enqueues a targeted MPM refresh for the mutated path. */
   onFileMutation?: (relativePath: string) => void;
+  /** #759: observed after every settled tool call (metadata only) — the
+   * session counts exploratory tool usage per turn to validate the MPM
+   * orientation's reasoning-seeded plans in the field. */
+  onToolObserved?: (tool: string, ok: boolean) => void;
 }
 
 /**
@@ -153,6 +157,7 @@ export class ToolRunner {
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
   readonly #onGitPush: (() => void) | undefined;
   readonly #onFileMutation: ((relativePath: string) => void) | undefined;
+  readonly #onToolObserved: ((tool: string, ok: boolean) => void) | undefined;
 
   /** Workspace-root-relative POSIX form of an (absolute or relative) path. */
   #relativeToRoot(path: string): string | null {
@@ -175,6 +180,7 @@ export class ToolRunner {
     this.#emitLive = options.emitLive;
     this.#onGitPush = options.onGitPush;
     this.#onFileMutation = options.onFileMutation;
+    this.#onToolObserved = options.onToolObserved;
   }
 
   /**
@@ -215,6 +221,8 @@ export class ToolRunner {
       ]);
       this.#append({ type: "tool_result", ...result });
       parts.push({ kind: "tool_result", ...result });
+      // #759: per-turn tool usage counter (orientation field validation).
+      try { this.#onToolObserved?.(call.name, result.ok); } catch { /* metadata only */ }
       if (result.ok && isGitPush(call)) {
         // The bash result is final before publishing begins; a failed or
         // slow transport can neither delay nor alter the tool result/turn.

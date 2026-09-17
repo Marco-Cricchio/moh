@@ -129,3 +129,69 @@ describe("MPM orientation in the session prompt (#616)", () => {
     expect(seen()).not.toContain("Project map orientation");
   });
 });
+
+/** #759: capture provider that emits one reasoning block before finishing. */
+function reasoningCapture(reasoningText: string): { provider: Provider; seen: () => string } {
+  let system = "";
+  const provider: Provider = {
+    name: "capture-reasoning",
+    async *stream(messages: Message[]) {
+      system = (messages[0]!.parts[0] as { text: string }).text;
+      yield { type: "model_call_start" as const, model: "capture-reasoning" };
+      yield { type: "reasoning_start" as const };
+      yield { type: "reasoning_delta" as const, text: reasoningText };
+      yield { type: "reasoning_end" as const };
+      yield { type: "finish" as const, reason: "stop" as const };
+    },
+  };
+  return { provider, seen: () => system };
+}
+
+// #759: seed eligibility extension at the session level — reasoning from
+// the previous model call seeds the next prompt assembly (including
+// mid-turn), suppressed after a successful mpm_query.
+describe("MPM orientation reasoning seeds in the session (#759)", () => {
+  test("a symbol named in the task text yields a medium-tier plan", async () => {
+    const { root, service } = await setup();
+    const { provider, seen } = capture();
+    const session = createSession({ provider, cwd: root, mpm: { service } });
+    await session.send("please refactor formatDate");
+    expect(seen()).toContain("## Project map orientation");
+    expect(seen()).toContain("matches symbol `formatDate`");
+  });
+
+  test("reasoning-only mention seeds the next assembly", async () => {
+    const { root, service } = await setup();
+    // Turn 1 emits reasoning mentioning formatDate; the task text names
+    // nothing mappable → no plan in that call's prompt.
+    const provider: Provider = {
+      name: "capture-seeded",
+      async *stream(messages: Message[]) {
+        const system = (messages[0]!.parts[0] as { text: string }).text;
+        seen.push(system.includes("Project map orientation"));
+        yield { type: "model_call_start" as const, model: "capture-seeded" };
+        yield { type: "reasoning_start" as const };
+        yield { type: "reasoning_delta" as const, text: "We could touch formatDate for this." };
+        yield { type: "reasoning_end" as const };
+        yield { type: "finish" as const, reason: "stop" as const };
+      },
+    };
+    const seen: boolean[] = [];
+    const session = createSession({ provider, cwd: root, mpm: { service } });
+    await session.send("continue the task");
+    expect(seen).toEqual([false]);
+    // The reasoning is now persisted; the next send's assembly seeds from it.
+    await session.send("continue the task");
+    expect(seen).toEqual([false, true]);
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("reasoning-seeded");
+  });
+
+  test("thinking off / no reasoning → behavior identical to today", async () => {
+    const { root, service } = await setup();
+    const { provider, seen } = capture();
+    const session = createSession({ provider, cwd: root, mpm: { service } });
+    await session.send("continue the task");
+    expect(seen()).not.toContain("Project map orientation");
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("no-eligible-seed");
+  });
+});
