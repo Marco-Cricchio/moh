@@ -133,20 +133,43 @@ const vibeDetail = (name: string, args: unknown): string => {
 };
 
 /** Vibe hint for a shell command (#215): enough to tell what kind of
- * thing is running, never the full command line (that's dev's job). The
- * leading words — command plus its main argument, env assignments and
- * option flags dropped — capped short. */
+ * thing is running — and what it is acting on — without being the full
+ * command line. Owner feedback (#751 follow-up): two words truncated
+ * prematurely (`ran a command · cat >>` — on what? `gh pr` — doing what?),
+ * so the hint now carries the command plus its meaningful arguments and
+ * stops at the first shell-control word, capped. */
 const vibeCommandHint = (args: unknown): string => {
   if (!args || typeof args !== "object") return "";
   const command = (args as { command?: unknown }).command;
   if (typeof command !== "string" || !command.trim()) return "";
-  const words = sanitizeForDisplay(command).trim().split(/\s+/)
+  // #749-adjacent regression: multi-line payloads whose first lines are
+  // comments (`# Check: …`) leaked into the vibe hint. Lead with the first
+  // executable line, mirroring bashDetail.
+  const lines = sanitizeForDisplay(command).trim().split("\n");
+  const executable = lines.find((line) => line.trim() !== "" && !line.trimStart().startsWith("#")) ?? lines.find((line) => line.trim() !== "") ?? "";
+  const words = executable.trim().split(/\s+/)
     // Skip leading env assignments (FOO=bar cmd) and wrappers (cd x && cmd)
     .filter((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && word !== "&&" && word !== ";");
-  const first = words[0]?.split("/").pop() ?? "";
-  const second = words[1]?.startsWith("-") ? "" : words[1] ?? "";
-  const hint = [first, second].filter(Boolean).join(" ");
-  return hint.length > 32 ? `${hint.slice(0, 31)}…` : hint;
+  const picked: string[] = [];
+  let pendingRedirect = false;
+  for (const word of words.slice(1)) {
+    // A single redirection target is part of the story (`cat >> log.txt`);
+    // anything past it — more redirections, pipes, control words — is not.
+    const isRedirect = word === ">" || word === ">>" || word === "<" || word === "<<";
+    if (word === "|" || word === "||" || word === "&" || word === ";") break;
+    if (pendingRedirect) {
+      picked.push(word);
+      break;
+    }
+    if (isRedirect) {
+      picked.push(word);
+      pendingRedirect = true;
+      continue;
+    }
+    picked.push(word);
+  }
+  const hint = [words[0]?.split("/").pop() ?? "", ...picked].filter(Boolean).join(" ");
+  return hint.length > 48 ? `${hint.slice(0, 47)}…` : hint;
 };
 
 /** Compact bash titles lead with the executable line rather than narration.
