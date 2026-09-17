@@ -5,6 +5,15 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.38.1] - 2026-09-17
+### Fixed
+
+- **Vibe bash hints skip comment lines and carry real arguments** (#755):
+  the hint generated for a blocked or failing `bash` call no longer quotes
+  leading comment lines as if they were the command, and walks the command's
+  words to the first shell operator so the meaningful arguments are part of
+  the hint (capped, redirect targets included).
+
 ## [0.38.0] - 2026-09-16
 ### Added
 
