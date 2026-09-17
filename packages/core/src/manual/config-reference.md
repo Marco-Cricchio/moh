@@ -90,7 +90,10 @@ All keys are optional. Notes:
   `headless` (default `true`) runs a real Chrome window when `false`.
   Loopback URLs (`localhost` dev servers) are always allowed; other
   private/link-local addresses are blocked by default (prompt-injection
-  SSRF guard) and `allowedHosts` is the exact-host escape hatch. Element
+  SSRF guard) — including public hostnames that resolve to private
+  addresses (DNS verification, checked per redirect hop) — and
+  `allowedHosts` is the exact-host escape hatch (no wildcard subdomain
+  matching; `MOH_FETCH_ALLOW_PRIVATE` does not apply here). Element
   addressing is exclusively by `[ref=eN]` from the latest snapshot.
 - `maxIterations` — per-turn tool-call iteration cap (default 50). `0`
   is the unlimited sentinel (#498): no cap — the anti-runaway wrap-up

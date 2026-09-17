@@ -41,6 +41,8 @@ export interface BrowserOptions {
   headless?: boolean;
   /** Test seam: inject a pre-built playwright-core module. */
   playwright?: unknown;
+  /** #776 test seam: DNS lookup used by the navigation guard. */
+  lookup?: (host: string) => Promise<{ address: string; family: number }[]>;
 }
 
 /** SSRF posture (SEC-05 philosophy at the navigation layer): loopback
@@ -72,6 +74,80 @@ export function assertNavigable(rawUrl: string, allowedHosts: readonly string[] 
 }
 
 /**
+ * #776: full navigation guard — the `assertNavigable` URL-level checks plus
+ * DNS verification (#697/SEC-05 philosophy): a public hostname that
+ * resolves to a private/link-local address is blocked (the DNS-rebinding
+ * TOCTOU). Same resolution philosophy as fetch, one DNS lookup, no pinning
+ * (Chromium resolves and dials itself; the check closes the check/connect
+ * gap that matters — a short-TTL name can no longer answer public for the
+ * check and private for the dial within one navigation, and every
+ * redirect hop is re-checked by the route handler). Env-var overrides
+ * (`MOH_FETCH_ALLOW_PRIVATE`) deliberately do not apply here.
+ */
+export async function verifyNavigable(
+  rawUrl: string,
+  allowedHosts: readonly string[] = [],
+  deps: { lookup?: (host: string) => Promise<{ address: string; family: number }[]> } = {},
+): Promise<URL> {
+  const url = assertNavigable(rawUrl, allowedHosts);
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  // Loopback is allowed before any resolution; numeric public literals
+  // can't rebind; explicitly allowed hosts are the operator's own choice.
+  const loopback = host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "127.0.0.1";
+  const numeric = /^[0-9.]+$/.test(host) || host.includes(":");
+  if (loopback || numeric || allowedHosts.includes(host)) return url;
+  try {
+    const lookup = deps.lookup ?? (async (h: string) => (await import("node:dns/promises")).lookup(h, { all: true }));
+    const addresses = await lookup(host);
+    const bad = addresses.find((a) => isPrivateHost(a.address));
+    if (bad) {
+      throw new Error(
+        `browser: "${host}" resolves to private address ${bad.address}; blocked by default (prompt-injection SSRF guard); allow it with browser.allowedHosts: ["${host}"]`,
+      );
+    }
+  } catch (e) {
+    // Unresolvable here: let the browser surface the real navigation error.
+    if (e instanceof Error && e.message.includes("private address")) throw e;
+  }
+  return url;
+}
+
+/** #776: the response a blocked navigation hop gets — visible, model-readable. */
+function blockedRouteResponse(reason: string): { status: number; contentType: string; body: string } {
+  return {
+    status: 403,
+    contentType: "text/plain",
+    body: `Blocked by moh's browser SSRF guard: ${reason} The page refused to load.`,
+  };
+}
+
+/**
+ * #776: per-hop redirect re-check. Installed once per page; every
+ * document request (the initial navigation and each redirect hop —
+ * redirects surface as fresh document requests) is re-verified against
+ * the same posture. A blocked hop is fulfilled with a 403 naming the
+ * policy, so the failure is model-readable in the navigation response
+ * instead of a stack trace. Subresource requests ride the page's own
+ * network stack — the guard is document-navigation scoped by design.
+ */
+async function installRouteGuard(
+  page: BrowserPageLike,
+  allowedHosts: readonly string[],
+  verify: (url: string) => Promise<URL>,
+): Promise<void> {
+  if (typeof page.route !== "function") return;
+  await page.route("**/*", async (route: BrowserRouteLike) => {
+    if (route.resourceType() !== "document") return route.continue();
+    try {
+      await verify(route.url());
+    } catch (e) {
+      return route.fulfill(blockedRouteResponse(e instanceof Error ? e.message : String(e)));
+    }
+    return route.continue();
+  });
+}
+
+/**
  * Truncates a snapshot to the hard budget with a visible marker and
  * refinement guidance. Pure function — unit-tested in isolation.
  */
@@ -87,6 +163,13 @@ export function applySnapshotBudget(text: string, budget = SNAPSHOT_BUDGET_BYTES
 }
 
 /** The playwright surface this module needs — structural, so tests can fake it. */
+export interface BrowserRouteLike {
+  url(): string;
+  resourceType(): string;
+  continue(): Promise<void>;
+  fulfill(options: { status: number; contentType: string; body: string }): Promise<void>;
+}
+
 export interface BrowserPageLike {
   goto(url: string, options?: { waitUntil?: string; timeoutMs?: number }): Promise<unknown>;
   ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
@@ -94,6 +177,7 @@ export interface BrowserPageLike {
     ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
     textContent(options?: { timeout?: number }): Promise<string | null>;
   };
+  route(pattern: string, handler: (route: BrowserRouteLike) => Promise<void>): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -165,6 +249,7 @@ export class BrowserSession {
   readonly #profileDir: string;
   readonly #headless: boolean;
   readonly #playwright: unknown;
+  readonly #lookup: ((host: string) => Promise<{ address: string; family: number }[]>) | undefined;
 
   constructor(options: BrowserOptions = {}) {
     const home = options.home ?? homedir();
@@ -172,6 +257,12 @@ export class BrowserSession {
     this.#profileDir = join(home, ".moh", "browser-profile", slug);
     this.#headless = options.headless ?? true;
     this.#playwright = options.playwright;
+    this.#lookup = options.lookup;
+  }
+
+  /** #776: the navigation guard, bound to this session's DNS seam. */
+  #verify(url: string, allowedHosts: readonly string[]): Promise<URL> {
+    return verifyNavigable(url, allowedHosts, this.#lookup ? { lookup: this.#lookup } : {});
   }
 
   /** Launches (once) and returns the single page. Never launches after dispose. */
@@ -206,8 +297,9 @@ export class BrowserSession {
    * document — the response always carries the new snapshot).
    */
   async navigate(url: string, allowedHosts: readonly string[] = []): Promise<string> {
-    assertNavigable(url, allowedHosts);
+    await this.#verify(url, allowedHosts);
     const page = await this.#ensurePage();
+    await installRouteGuard(page, allowedHosts, (u) => this.#verify(u, allowedHosts));
     await page.goto(url, { waitUntil: "load", timeoutMs: 30_000 });
     return this.snapshot();
   }
