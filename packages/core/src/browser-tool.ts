@@ -43,7 +43,10 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
   // enriched with it (and a compact element description for the ask).
   const gateArgs = (raw: { action: string; ref?: string; url?: string }): Record<string, unknown> => {
     const enriched: Record<string, unknown> = { ...raw };
-    if (raw.action !== "navigate") {
+    if (raw.action === "navigate") {
+      // navigate carries its own target: URL rules match it directly.
+      if (typeof raw.url === "string") enriched.pageUrl = raw.url;
+    } else {
       const pageUrl = (options.pageUrl ?? (() => options.session.pageUrl()))();
       if (pageUrl) enriched.pageUrl = pageUrl;
     }

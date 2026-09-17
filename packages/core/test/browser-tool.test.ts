@@ -296,7 +296,7 @@ describe("#775: gate enrichment (page URL + element description)", () => {
     expect(gated.pageUrl).toBe("https://app.example.com/settings");
     expect(gated.elementDescription).toBe('[button "Delete permanently"]');
     const nav = tool.gateArgs!({ action: "navigate", url: "https://x.test/" } as any) as Record<string, unknown>;
-    expect(nav.pageUrl).toBeUndefined();
+    expect(nav.pageUrl).toBe("https://x.test/"); // navigate: its own target is the gate URL
     expect(nav.elementDescription).toBeUndefined();
   });
 });

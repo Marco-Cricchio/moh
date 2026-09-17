@@ -102,8 +102,6 @@ import {
   RuleError,
   splitCommandSegments,
   urlGlobMatches,
-  BROWSER_READ_ACTIONS,
-  BROWSER_ACT_ACTIONS,
   type PermissionOverrides,
   type PermissionRule,
 } from "./permissions";
@@ -644,8 +642,6 @@ export {
   parseRule,
   overridesFromFlags,
   urlGlobMatches,
-  BROWSER_READ_ACTIONS,
-  BROWSER_ACT_ACTIONS,
   RuleError,
   McpRuntime,
   mcpServerEntrySchema,

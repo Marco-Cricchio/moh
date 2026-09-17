@@ -109,9 +109,13 @@ export function parseRule(str: string, effect: RuleEffect, tier: PermissionTier 
     return { tier, tool: "bash", effect, tokens };
   }
   if (tool !== "bash" && !rest) throw new RuleError(`invalid rule "${str}": missing argument matcher`);
-  // #775: `browser:<action> <url-glob>` — the URL-glob argspec. A glob
-  // always carries a scheme (`://`); anything else on a browser rule is
-  // not a URL rule and falls through to the path-glob reading.
+  // #775: `browser:<action> [url-glob]` — the URL-glob argspec. A glob
+  // always carries a scheme (`://`); the action-only form (`browser:click`)
+  // is the global form. Anything else on a browser rule is not a URL rule
+  // and falls through to the path-glob reading.
+  if (tool === "browser" && /^[a-z_]+$/.test(rest)) {
+    return { tier, tool: `browser:${rest}`, effect };
+  }
   if (tool === "browser" && rest.includes("://")) {
     const sp = rest.indexOf(" ");
     const action = sp === -1 ? rest.trim() : rest.slice(0, sp).trim();
@@ -176,8 +180,9 @@ export function overridesFromFlags(allow: string[], deny: string[]): PermissionO
     if (rule.tokens) {
       const key = effect === "allow" ? "bashAllow" : "bashDeny";
       (merged[key] ??= []).push(rule.tokens);
-    } else if (rule.url) {
-      // #775: browser URL rules ride their own buckets, rule string intact.
+    } else if (rule.tool.startsWith("browser:") && !rule.path) {
+      // #775: browser rules ride their own buckets, rule string intact
+      // (URL-glob or global form).
       const key = effect === "allow" ? "browserAllow" : "browserDeny";
       (merged[key] ??= []).push(formatRule(rule));
     } else if (rule.path) {
@@ -333,6 +338,8 @@ export function hasUncoveredShellMetachars(command: string): boolean {
 
 function ruleSpecificity(rule: PermissionRule): number {
   if (rule.tokens) return rule.tokens.length + 1;
+  // #775: URL-scoped rules beat the global form within a tier.
+  if (rule.url) return 2;
   if (rule.path) return rule.path.includes("*") || rule.path.includes("?") ? 1 : 2;
   return 0;
 }
@@ -443,7 +450,11 @@ export class PermissionResolver {
     // time. A bare `browser` rule covers every action. URL-scoped rules
     // need a page URL: without one they never match (default ask).
     if (toolName === "browser" && typeof args?.action === "string") {
-      const pageUrl = typeof args?.pageUrl === "string" ? args.pageUrl : undefined;
+      // #775: navigate matches URL rules against its own target URL.
+      const pageUrl =
+        typeof args?.pageUrl === "string" ? args.pageUrl
+        : args?.action === "navigate" && typeof args?.url === "string" ? args.url
+        : undefined;
       return this.#best(`${toolName}:${args.action}`, undefined, undefined, pageUrl);
     }
     return this.#best(toolName, undefined, undefined);

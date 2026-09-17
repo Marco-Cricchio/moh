@@ -46,7 +46,8 @@ browser:click                                // global form: every click, any UR
 - The rule's `tool` carries the action scope (`browser:click`); the matcher
   is a **URL glob**: scheme+host+path matched against the page URL at
   action time, exact host (no implicit subdomain match), `**` spanning
-  path segments, `*` within one. A glob port matches any page port
+  path segments, `*` within one. A glob with an explicit port requires
+  an exact port match; a glob without one matches any page port
   (localhost dev servers move around); a missing path matches the origin
   root only.
 - URL-scoped rules need a page URL in the call args — the browser tool
@@ -57,10 +58,10 @@ browser:click                                // global form: every click, any UR
   act-tier "always for this site" answer writes `browser:<action>
   <origin>/**` for the current session only — never persisted to
   moh.json, never proposed proactively.
-- Specificity: URL-scoped rules beat the global `browser:<action>` form;
-  deny still wins ties (#699).
+- Specificity: URL-scoped rules beat the global `browser:<action>` form
+  within a tier; deny still wins ties (#699).
 
 ## Consequences
 
 - One string form everywhere: CLI flags, docs, and TUI previews agree, and every formatted rule reparses.
-- `moh.json` overrides keep their structured schema (`tools`/`bashAllow`/`pathAllow`/…); the canonical grammar is the string form, not a replacement for the structured config.
+- `moh.json` overrides keep their structured schema (`tools`/`bashAllow`/`pathAllow`/…); the canonical gramm

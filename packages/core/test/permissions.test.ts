@@ -797,3 +797,45 @@ describe("#775: PermissionGate: always_for_site is session-scoped, never persist
     expect(parsed.permissions?.overrides?.browserAllow).toBeUndefined();
   });
 });
+
+describe("#775 review fixes", () => {
+  test("the global form browser:<action> parses, rides the browser buckets and matches", () => {
+    expect(parseRule("browser:click", "allow")).toEqual({ tier: "config", tool: "browser:click", effect: "allow" });
+    const overrides = overridesFromFlags(["browser:click"], []);
+    expect(overrides.browserAllow).toEqual(["browser:click"]);
+    expect(overrides.pathAllow).toBeUndefined();
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides,
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://any.test/" })).toBe("allow");
+    expect(r.resolve("browser", { action: "fill", pageUrl: "https://any.test/" })).toBe("ask");
+    // round-trip
+    const rule = parseRule("browser:click", "allow", "runtime");
+    expect(formatRule(rule)).toBe("browser:click");
+  });
+
+  test("a URL-scoped navigate rule matches the navigate target URL", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { browserDeny: ["browser:navigate https://evil.example/**"] },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "navigate", url: "https://evil.example/phish" })).toBe("deny");
+    expect(r.resolve("browser", { action: "navigate", url: "https://fine.example/" })).toBe("allow");
+  });
+
+  test("a URL-scoped allow beats a same-tier global deny (specificity)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: {
+        tools: { "browser:click": "deny" },
+        browserAllow: ["browser:click https://app.example.com/**"],
+      },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/" })).toBe("allow");
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://other.test/" })).toBe("deny");
+  });
+});
