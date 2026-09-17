@@ -10,11 +10,13 @@
  * real gh CLI's documented interface.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   publishHandoffAtExit,
   readRawHandoff,
+  handoffAlreadyPublished,
+  handoffPublishedMarkerFile,
   type HandoffPayload,
   type HandoffTransport,
   type HandoffTransportError,
@@ -139,6 +141,84 @@ describe("publishHandoffAtExit", () => {
     writeFileSync(file, "{not json");
     expect(readRawHandoff(file)).toBeUndefined();
     expect(readRawHandoff(join(TMP, "absent.json"))).toBeUndefined();
+  });
+});
+
+describe("publish retry: the published marker", () => {
+  test("a successful publish writes the marker; an identical artifact is skipped without calling the transport", async () => {
+    const { file, handoff } = artifact(true);
+    let calls = 0;
+    const counting: HandoffTransport = {
+      async publish() {
+        calls++;
+        return { ok: true, url: "https://gist.github.com/abc" };
+      },
+      async fetch() {
+        throw new Error("unused");
+      },
+    };
+    const first = await publishHandoffAtExit({ artifactFile: file, transport: counting, timeoutMs: 500 });
+    expect(first).toEqual({ ok: true, url: "https://gist.github.com/abc" });
+    expect(calls).toBe(1);
+    expect(handoffAlreadyPublished(file, handoff)).toBe(true);
+
+    // Same artifact again (exit of the next session, startup retry): no
+    // second publish — the remote already has this exact handoff.
+    const second = await publishHandoffAtExit({ artifactFile: file, transport: counting, timeoutMs: 500 });
+    expect(second).toEqual({ ok: true, url: "already-published" });
+    expect(calls).toBe(1);
+  });
+
+  test("a failed (timeout) publish writes no marker — the next attempt publishes for real", async () => {
+    const { file, handoff } = artifact(true);
+    const slow: HandoffTransport = {
+      async publish() {
+        return await new Promise<never>(() => {});
+      },
+      async fetch() {
+        throw new Error("unused");
+      },
+    };
+    const result = await publishHandoffAtExit({ artifactFile: file, transport: slow, timeoutMs: 60 });
+    expect(result).toEqual({ ok: false, error: { reason: "timeout" } });
+    expect(handoffAlreadyPublished(file, handoff)).toBe(false);
+
+    let calls = 0;
+    const retry: HandoffTransport = {
+      async publish() {
+        calls++;
+        return { ok: true, url: "https://gist.github.com/abc" };
+      },
+      async fetch() {
+        throw new Error("unused");
+      },
+    };
+    const retried = await publishHandoffAtExit({ artifactFile: file, transport: retry, timeoutMs: 500 });
+    expect(retried).toEqual({ ok: true, url: "https://gist.github.com/abc" });
+    expect(calls).toBe(1);
+  });
+
+  test("a newer artifact publishes even when an older one was marked", async () => {
+    const { file } = artifact(true);
+    const transport: HandoffTransport = {
+      async publish() {
+        return { ok: true, url: "https://gist.github.com/abc" };
+      },
+      async fetch() {
+        throw new Error("unused");
+      },
+    };
+    await publishHandoffAtExit({ artifactFile: file, transport, timeoutMs: 500 });
+    // A new session turned: same sessionId, newer updatedAt.
+    const newer = JSON.parse(readFileSync(file, "utf8")) as RawHandoff;
+    writeFileSync(file, `${JSON.stringify({ ...newer, updatedAt: "2026-09-03T10:00:00.000Z" })}\n`);
+    const result = await publishHandoffAtExit({ artifactFile: file, transport, timeoutMs: 500 });
+    expect(result).toEqual({ ok: true, url: "https://gist.github.com/abc" });
+  });
+
+  test("marker file lives beside the artifact", () => {
+    const { file } = artifact(true);
+    expect(handoffPublishedMarkerFile(file)).toBe(join(file, "..", "handoff-published.json"));
   });
 });
 
