@@ -59,7 +59,8 @@ export function assertNavigable(rawUrl: string, allowedHosts: readonly string[] 
     throw new Error(`browser: only http/https URLs are supported (got "${url.protocol}")`);
   }
   const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (allowedHosts.includes(host)) return url;
+  const allowed = allowedHosts.map((h) => h.trim().replace(/^\[|\]$/g, "").toLowerCase());
+  if (allowed.includes(host)) return url;
   // Loopback is the feature (localhost dev debugging); everything else
   // private must be explicitly allowed.
   const loopback =
@@ -91,11 +92,13 @@ export async function verifyNavigable(
 ): Promise<URL> {
   const url = assertNavigable(rawUrl, allowedHosts);
   const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  // Loopback is allowed before any resolution; numeric public literals
-  // can't rebind; explicitly allowed hosts are the operator's own choice.
+  // Loopback is allowed before any resolution; numeric literals are
+  // already canonical (WHATWG URL normalizes decimal/hex IPv4 spellings
+  // to dotted quad, which assertNavigable classified above) and can't
+  // rebind; explicitly allowed hosts are the operator's own choice.
   const loopback = host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "127.0.0.1";
   const numeric = /^[0-9.]+$/.test(host) || host.includes(":");
-  if (loopback || numeric || allowedHosts.includes(host)) return url;
+  if (loopback || numeric || allowedHosts.some((h) => h.trim().toLowerCase() === host)) return url;
   try {
     const lookup = deps.lookup ?? (async (h: string) => (await import("node:dns/promises")).lookup(h, { all: true }));
     const addresses = await lookup(host);
@@ -106,8 +109,11 @@ export async function verifyNavigable(
       );
     }
   } catch (e) {
-    // Unresolvable here: let the browser surface the real navigation error.
-    if (e instanceof Error && e.message.includes("private address")) throw e;
+    // Fail closed: a name moh cannot verify could resolve private for
+    // Chromium. Never let a resolver failure become a bypass — the
+    // navigation error names the policy either way.
+    if (e instanceof Error && e.message.includes("SSRF guard")) throw e;
+    throw new Error(`browser: cannot verify "${host}" via DNS (prompt-injection SSRF guard); navigation blocked`);
   }
   return url;
 }

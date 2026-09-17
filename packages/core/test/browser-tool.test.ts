@@ -40,11 +40,22 @@ describe("assertNavigable (SSRF guard)", () => {
     expect(assertNavigable("http://192.168.1.1/", ["192.168.1.1"]).hostname).toBe("192.168.1.1");
     // A different private host stays blocked — no blanket bypass.
     expect(() => assertNavigable("http://10.0.0.1/", ["192.168.1.1"])).toThrow();
+    // #776: config entries are normalized (case-insensitive, no brackets).
+    expect(assertNavigable("http://127.0.0.1:9000/", [" LOCALHOST "]).hostname).toBe("127.0.0.1");
   });
 
   test("public URLs pass; non-http schemes are rejected", () => {
     expect(assertNavigable("https://example.com/").hostname).toBe("example.com");
     expect(() => assertNavigable("file:///etc/passwd")).toThrow(/http\/https/);
+  });
+
+  test("#776: non-canonical IPv4 spellings normalize before the private check", () => {
+    // WHATWG URL canonicalizes decimal/hex/octal IPv4 to dotted quad —
+    // loopback spellings land in the allowed loopback branch, private
+    // spellings (192.168.0.1 = 3232235521) are blocked: no spelling games.
+    expect(assertNavigable("http://2130706433/").hostname).toBe("127.0.0.1");
+    expect(() => assertNavigable("http://3232235521/")).toThrow(/blocked by default/);
+    expect(() => assertNavigable("http://0xC0A80001/")).toThrow(/blocked by default/);
   });
 });
 
@@ -339,9 +350,9 @@ describe("verifyNavigable (#776: DNS verification)", () => {
     }
   });
 
-  test("unresolvable names fall through to the browser's own error", async () => {
-    const url = await verifyNavigable("http://no-such-host.invalid/", [], { lookup: async () => { throw new Error("ENOTFOUND"); } });
-    expect(url.hostname).toBe("no-such-host.invalid");
+  test("unresolvable names fail closed (#776): navigation blocked, policy named", async () => {
+    await expect(verifyNavigable("http://no-such-host.invalid/", [], { lookup: async () => { throw new Error("ENOTFOUND"); } }))
+      .rejects.toThrow(/cannot verify.*SSRF guard/);
   });
 });
 
