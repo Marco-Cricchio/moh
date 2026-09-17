@@ -1,0 +1,264 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e5]:
+      - list [ref=e7]:
+        - listitem [ref=e8]: Engineer.
+        - listitem [ref=e9]: Analyze.
+        - listitem [ref=e10]: Automate.
+        - listitem [ref=e11]: Deploy.
+        - listitem [ref=e12]: Scale.
+        - listitem [ref=e13]: Architect.
+        - listitem [ref=e14]: Ingest.
+        - listitem [ref=e15]: Orchestrate.
+        - listitem [ref=e16]: Infer.
+      - generic [ref=e19]: 36%
+      - generic [ref=e21]: Initializing Intelligence...
+    - generic [ref=e23]:
+      - link "!" [ref=e266] [cursor=pointer]:
+        - /url: index.html
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - generic [ref=e32]:
+            - generic [ref=e34]:
+              - generic [ref=e37]:
+                - generic [ref=e38]: Solutions Architect
+                - generic [ref=e39]: Cloud Architect
+                - generic [ref=e40]: Machine Learning Engineer
+              - generic [ref=e42]:
+                - generic [ref=e43]: I'm
+                - generic [ref=e44]: Mohnish Devadiga
+            - generic [ref=e47]:
+              - heading "Connect" [level=5] [ref=e48]
+              - separator [ref=e51]
+              - generic [ref=e52]:
+                - generic [ref=e54]:
+                  - generic [aria-hidden] [ref=e56]: 
+                  - generic [ref=e57]:
+                    - heading "moh@moh.dev" [level=5] [ref=e58]
+                    - paragraph [ref=e60]: Email
+                - generic [ref=e62]:
+                  - generic [aria-hidden] [ref=e64]: 
+                  - generic [ref=e65]:
+                    - heading [level=5] [ref=e66]:
+                      - link "mohnish226" [ref=e67] [cursor=pointer]:
+                        - /url: https://github.com/mohnish226
+                    - paragraph [ref=e68]: GitHub
+                - generic [ref=e70]:
+                  - generic [aria-hidden] [ref=e72]: 
+                  - generic [ref=e73]:
+                    - heading [level=5] [ref=e74]:
+                      - link "LinkedIn" [ref=e75] [cursor=pointer]:
+                        - /url: https://www.linkedin.com/in/mohnish-devadiga/
+                    - paragraph [ref=e76]: Account
+                - generic [ref=e78]:
+                  - generic [aria-hidden] [ref=e80]: 
+                  - generic [ref=e81]:
+                    - heading [level=5] [ref=e82]:
+                      - link "Stack Overflow" [ref=e83] [cursor=pointer]:
+                        - /url: https://stackoverflow.com/users/7709603/mohnish
+                    - paragraph [ref=e84]: Profile
+            - generic [ref=e85]: I design and ship data platforms and AI systems that learn from real‑world signals, scale with the business, and turn complexity into clear decisions. I blend distributed systems, cloud architecture, and applied ML to solve hard problems-reliably, securely, and at speed.
+          - generic [ref=e93]:
+            - generic [ref=e94]:
+              - generic [ref=e97]:
+                - generic [ref=e100]:
+                  - heading "Projects" [level=3] [ref=e101]
+                  - paragraph [ref=e103]: I’ve built platforms that power outcomes-from better clinical decisions to sharper investment strategy. From HIPAA‑ready pipelines for sensitive health data to automated portfolio analytics, I design secure, scalable systems that deliver measurable value. I work hands‑on with Spark, Delta Lake, Iceberg, and dbt; orchestrate with Airflow; and run production on AWS (Glue, Redshift, EMR, SageMaker). Each build is observable, secure, and performance‑tuned-ready for production.
+                  - separator [ref=e104]
+                - generic [ref=e108]:
+                  - heading "Turning complex data into intelligent, scalable systems that drive outcomes." [level=1] [ref=e109]
+                  - heading "Turning complex data into intelligent, scalable systems that drive outcomes." [level=1] [ref=e110]
+                - generic [ref=e115]:
+                  - generic "Train smarter. Share nothing.":
+                    - generic [ref=e116]:
+                      - generic [ref=e118]:
+                        - link [ref=e119] [cursor=pointer]:
+                          - /url: project-data-org-ai.html
+                        - img "Federated Machine Learning Preview" [ref=e121] [cursor=pointer]
+                        - img "Federated Machine Learning Large Preview"
+                      - generic:
+                        - generic:
+                          - generic: "2025"
+                          - generic:
+                            - generic: AI
+                            - generic: /
+                            - generic: Privacy
+                          - generic:
+                            - generic: Federated
+                            - generic: Machine
+                            - generic: Learning
+                  - generic "Built for foresight. Tuned for speed.":
+                    - generic [ref=e122]:
+                      - generic [ref=e124]:
+                        - link [ref=e125] [cursor=pointer]:
+                          - /url: project-predictive-cdn.html
+                        - img "Predictive CDN Network Preview" [ref=e127] [cursor=pointer]
+                        - img "Predictive CDN Network Large Preview"
+                      - generic:
+                        - generic:
+                          - generic: "2024"
+                          - generic:
+                            - generic: Edge
+                            - generic: Intelligence
+                          - generic:
+                            - generic: Predictive
+                            - generic: CDN
+                            - generic: Network
+                  - generic "Cut the noise. Capture the meaning.":
+                    - generic [ref=e128]:
+                      - generic [ref=e130]:
+                        - link [ref=e131] [cursor=pointer]:
+                          - /url: project-text-summarizer.html
+                        - img "Text Summarizer Preview" [ref=e133] [cursor=pointer]
+                        - img "Text Summarizer Large Preview"
+                      - generic:
+                        - generic:
+                          - generic: "2018"
+                          - generic:
+                            - generic: NLP
+                            - generic: /
+                            - generic: AI
+                          - generic:
+                            - generic: AI
+                            - generic: Text
+                            - generic: Summarizer
+                  - generic "Built for foresight. Tuned for speed.":
+                    - generic [ref=e134]:
+                      - generic [ref=e136]:
+                        - link [ref=e137] [cursor=pointer]:
+                          - /url: project-urlr-app.html
+                        - img "URL Shortener Project Preview" [ref=e139] [cursor=pointer]
+                        - img "URL Shortener Project Large Preview"
+                      - generic:
+                        - generic:
+                          - generic: "2020"
+                          - generic:
+                            - generic: Scalable
+                            - generic: Systems
+                          - generic:
+                            - generic: Lightning-Fast
+                            - generic: URL
+                            - generic: Shortener
+                  - generic "Organize effortlessly. Focus better.":
+                    - generic [ref=e140]:
+                      - generic [ref=e142]:
+                        - link [ref=e143] [cursor=pointer]:
+                          - /url: project-to-do-android.html
+                        - img "To-Do App Preview" [ref=e145] [cursor=pointer]
+                        - img "To-Do App Large Preview"
+                      - generic:
+                        - generic:
+                          - generic: "2017"
+                          - generic: Android
+                          - generic:
+                            - generic: Minimal
+                            - generic: To-Do
+                            - generic: App
+                  - generic "Transfer instantly. Share securely.":
+                    - generic [ref=e146]:
+                      - generic [ref=e148]:
+                        - link [ref=e149] [cursor=pointer]:
+                          - /url: project-send-it-android.html
+                        - img "Send It File Transfer App Preview" [ref=e151] [cursor=pointer]
+                        - img "Send It File Transfer App Large Preview"
+                      - generic:
+                        - generic:
+                          - generic: "2017"
+                          - generic:
+                            - generic: Android
+                            - generic: /
+                            - generic: Utility
+                          - generic:
+                            - generic: Send It
+                            - generic: File
+                            - generic: Transfer
+                - generic [ref=e154]:
+                  - separator [ref=e155]
+                  - generic [ref=e156]:
+                    - heading "Still Curious?" [level=3] [ref=e157]
+                    - heading "See the Work in Action." [level=3] [ref=e159]
+                    - separator [ref=e161]
+                    - paragraph [ref=e162]: Explore production systems I’ve architected-where code, cloud, and machine intelligence come together to scale.
+                    - generic [ref=e163] [cursor=pointer]:
+                      - generic [ref=e164]: 
+                      - link "View the Work":
+                        - /url: ./projects.html
+              - figure [ref=e172]:
+                - img "cluster" [ref=e173]
+                - generic [ref=e176]:
+                  - heading "Scalable intelligence, engineered-where machine learning meets the cloud." [level=3] [ref=e177]
+                  - separator [ref=e179]
+                  - heading "Every solution blends distributed systems, automation, and statistical intelligence to turn real‑world complexity into clear, reliable products." [level=5] [ref=e180]
+              - generic [ref=e183]:
+                - generic [ref=e186]:
+                  - separator [ref=e187]
+                  - generic [ref=e188]:
+                    - heading "Experience" [level=1] [ref=e189]
+                    - paragraph [ref=e191]: I architect and engineer data‑centric platforms that enable real‑time care in healthcare, smarter strategy in finance, and research at scale-combining distributed systems, applied ML, and cloud‑native rigor for durable outcomes.
+                  - generic [ref=e192]:
+                    - heading "Solutions Architect / Data Engineer - Healthcare" [level=4] [ref=e193]
+                    - paragraph [ref=e194]: Own architecture of HIPAA‑compliant clinical data platform handling millions of longitudinal records. Design secure ingestion & normalization (NiFi, Spark, Delta Lake), interoperability layers (FHIR mapping, de‑identification), and real‑time ML pipelines (TFX, MLflow, SageMaker) across AWS Glue & EMR. Drive cost/performance optimization, governance, and reproducibility standards.
+                  - generic [ref=e195]:
+                    - heading "Data Scientist & Software Engineer - Finance" [level=4] [ref=e196]
+                    - paragraph [ref=e197]: Built analytics platforms for investment strategy and client intelligence. Automated segmentation, risk modeling, and portfolio tracking with dbt and Redshift, powered by event‑driven microservices on AWS (Lambda, ECS). Delivered compliant, audit‑ready ML.
+                  - generic [ref=e198]:
+                    - heading "Data Science Researcher - Language Intelligence" [level=4] [ref=e199]
+                    - paragraph [ref=e200]: Modeled developer behavior across large open‑source ecosystems. Used Python, R, MPI/OpenMP, and CUDA to simulate collaboration at scale. Insights informed AI tooling and open research.
+                - generic [ref=e203]:
+                  - separator [ref=e204]
+                  - blockquote [ref=e207]:
+                    - text: ❝ In the architecture of elegant systems, the reduction of complexity to its essential form remains the highest manifestation of technical sophistication.
+                    - generic: "- Claude Shannon"
+                - generic [ref=e210]:
+                  - separator [ref=e211]
+                  - generic [ref=e212]:
+                    - heading "Education" [level=1] [ref=e213]
+                    - heading "Academic Foundation" [level=1] [ref=e215]
+                    - paragraph [ref=e217]: Grounded in systems theory, scalable machine learning, and applied statistical modeling-linking research depth with production execution.
+                  - generic [ref=e218]:
+                    - generic [ref=e219]:
+                      - heading "Master of Data Science" [level=4] [ref=e220]
+                      - paragraph [ref=e221]: "University of Melbourne Focus: scalable ML, cloud‑native data platforms, applied statistical inference. Bridged academic research with production engineering."
+                    - generic [ref=e222]:
+                      - heading "Bachelor of Engineering - Computer Engineering" [level=4] [ref=e223]
+                      - paragraph [ref=e224]: Mumbai University Foundation in algorithms, distributed computing, and low‑level systems-forming a systems‑first engineering mindset.
+            - generic [ref=e228]:
+              - generic [ref=e231]: Behind the Systems
+              - link "Precision. Architecture. Intelligence. Precision. Architecture. Intelligence." [ref=e233] [cursor=pointer]:
+                - /url: projects.html
+                - generic [ref=e234]:
+                  - generic [ref=e235]:
+                    - generic [ref=e236]: Precision.
+                    - generic [ref=e237]: Architecture.
+                    - generic [ref=e238]: Intelligence.
+                  - generic [ref=e239]:
+                    - generic [ref=e240]: Precision.
+                    - generic [ref=e241]: Architecture.
+                    - generic [ref=e242]: Intelligence.
+        - generic:
+          - generic:
+            - generic [ref=e243] [cursor=pointer]:
+              - generic [ref=e244]: 
+              - generic [ref=e247]: Back Top Back Top
+            - generic [ref=e249]:
+              - text: © 2026
+              - link "Mohnish Devadiga" [ref=e250] [cursor=pointer]:
+                - /url: https://mohdeva.com/
+              - text: . All rights reserved.
+            - generic [ref=e251]:
+              - generic [ref=e252]: 
+              - generic [ref=e254]: Follow Me
+              - list [ref=e255]:
+                - listitem [ref=e256]:
+                  - link "" [ref=e258] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/in/mohnish-devadiga/
+                - listitem [ref=e260]:
+                  - link "" [ref=e262] [cursor=pointer]:
+                    - /url: https://www.github.com/mohnish226/
+  - generic:
+    - generic:
+      - text: 
+      - generic:  
+      - generic:  
+      - text: 
+  - status [ref=e267]: injected live region

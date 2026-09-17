@@ -1,0 +1,2639 @@
+- generic [active] [ref=e1]:
+  - list:
+    - listitem:
+      - link "Skip to main content !" [ref=e3161] [cursor=pointer]:
+        - /url: "#content"
+    - listitem:
+      - link "Skip to search" [ref=e3] [cursor=pointer]:
+        - /url: "#mdn-search"
+  - paragraph [ref=e7]:
+    - text: Learn frontend, backend, and AI from our course partner
+    - link "Scrimba" [ref=e8] [cursor=pointer]:
+      - /url: https://scrimba.com/learn/frontend?via=mdn
+  - banner [ref=e9]:
+    - navigation [ref=e10]:
+      - link "MDN" [ref=e12] [cursor=pointer]:
+        - /url: /en-US/
+        - img "MDN" [ref=e13]
+      - generic [ref=e17]:
+        - navigation [ref=e19]:
+          - button "HTML" [ref=e22] [cursor=pointer]
+          - button "CSS" [ref=e26] [cursor=pointer]
+          - button "JavaScript" [ref=e30] [cursor=pointer]
+          - button "Web APIs" [ref=e34] [cursor=pointer]
+          - button "All" [ref=e38] [cursor=pointer]
+          - generic [ref=e41]:
+            - button "Learn" [ref=e42] [cursor=pointer]
+            - text: (external)
+          - button "Tools" [ref=e46] [cursor=pointer]
+          - generic [ref=e49]:
+            - button "About" [ref=e50] [cursor=pointer]
+            - text: (external)
+          - link "Blog" [ref=e53] [cursor=pointer]:
+            - /url: /en-US/blog/
+        - button "Search the site" [ref=e56] [cursor=pointer]
+        - link "Log in" [ref=e62] [cursor=pointer]:
+          - /url: https://developer.mozilla.org/users/fxa/login/authenticate/?next=%2Fen-US%2Fdocs%2FWeb%2FAPI%2FWindow%2Ffetch
+    - generic [ref=e67]:
+      - list [ref=e68]:
+        - listitem [ref=e69]:
+          - link "Web" [ref=e70] [cursor=pointer]:
+            - /url: /en-US/docs/Web
+        - listitem [ref=e71]:
+          - link "Web APIs" [ref=e72] [cursor=pointer]:
+            - /url: /en-US/docs/Web/API
+        - listitem [ref=e73]:
+          - link "Window" [ref=e74] [cursor=pointer]:
+            - /url: /en-US/docs/Web/API/Window
+        - listitem [ref=e75]:
+          - link "fetch()" [ref=e76] [cursor=pointer]:
+            - /url: /en-US/docs/Web/API/Window/fetch
+      - button "Switch color theme" [ref=e80] [cursor=pointer]:
+        - generic [ref=e81]: Theme
+      - generic [ref=e84]:
+        - button "English (US)" [ref=e85] [cursor=pointer]
+        - generic: Remember language
+  - generic [ref=e88]:
+    - main [ref=e89]:
+      - generic [ref=e90]:
+        - 'heading "Window: fetch() method" [level=1] [ref=e91]'
+        - group [ref=e92]:
+          - generic "Baseline Check Baseline Widely available * Chrome check Edge check Firefox check Safari check" [ref=e93] [cursor=pointer]:
+            - img "Baseline Check" [ref=e94]
+            - generic [ref=e95]: Baseline
+            - generic [ref=e96]: Widely available
+            - generic [ref=e97]: "*"
+            - generic [ref=e98]:
+              - generic "Supported in Chrome and Edge" [ref=e99]:
+                - img "Chrome check" [ref=e100]
+                - img "Edge check" [ref=e101]
+              - generic "Supported in Firefox" [ref=e102]:
+                - img "Firefox check" [ref=e103]
+              - generic "Supported in Safari" [ref=e104]:
+                - img "Safari check" [ref=e105]
+        - generic [ref=e107]:
+          - paragraph [ref=e108]:
+            - text: The
+            - strong [ref=e109]:
+              - code [ref=e110]: fetch()
+            - text: method of the
+            - link [ref=e111] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Window
+              - code [ref=e112]: Window
+            - text: interface starts the process of fetching a resource from the network, returning a promise that is fulfilled once the response is available.
+          - paragraph [ref=e113]:
+            - text: The promise resolves to the
+            - link [ref=e114] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Response
+              - code [ref=e115]: Response
+            - text: object representing the response to your request.
+          - paragraph [ref=e116]:
+            - text: A
+            - code [ref=e117]: fetch()
+            - text: promise only rejects when the request fails, for example, because of a badly-formed request URL or a network error. A
+            - code [ref=e118]: fetch()
+            - text: promise
+            - emphasis [ref=e119]: does not
+            - text: reject if the server responds with HTTP status codes that indicate errors (
+            - code [ref=e120]: "404"
+            - text: ","
+            - code [ref=e121]: "504"
+            - text: ", etc.). Instead, a"
+            - code [ref=e122]: then()
+            - text: handler must check the
+            - link [ref=e123] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Response/ok
+              - code [ref=e124]: Response.ok
+            - text: and/or
+            - link [ref=e125] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Response/status
+              - code [ref=e126]: Response.status
+            - text: properties.
+          - paragraph [ref=e127]:
+            - text: The
+            - code [ref=e128]: fetch()
+            - text: method is controlled by the
+            - code [ref=e129]: connect-src
+            - text: directive of
+            - link "Content Security Policy" [ref=e130] [cursor=pointer]:
+              - /url: /en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy
+            - text: rather than the directive of the resources it's retrieving.
+          - paragraph [ref=e132]:
+            - strong [ref=e133]: "Note:"
+            - text: The
+            - code [ref=e134]: fetch()
+            - text: method's parameters are identical to those of the
+            - link [ref=e135] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Request/Request
+              - code [ref=e136]: Request()
+            - text: constructor.
+      - complementary [ref=e137]:
+        - navigation [ref=e138]:
+          - heading "In this article" [level=2] [ref=e139]
+          - list [ref=e140]:
+            - listitem [ref=e141]:
+              - link "Syntax" [ref=e142] [cursor=pointer]:
+                - /url: "#syntax"
+            - listitem [ref=e143]:
+              - link "Examples" [ref=e144] [cursor=pointer]:
+                - /url: "#examples"
+            - listitem [ref=e145]:
+              - link "Specifications" [ref=e146] [cursor=pointer]:
+                - /url: "#specifications"
+            - listitem [ref=e147]:
+              - link "Browser compatibility" [ref=e148] [cursor=pointer]:
+                - /url: "#browser_compatibility"
+            - listitem [ref=e149]:
+              - link "See also" [ref=e150] [cursor=pointer]:
+                - /url: "#see_also"
+      - generic [ref=e151]:
+        - region [ref=e152]:
+          - heading [level=2] [ref=e153]:
+            - link "Syntax" [ref=e154] [cursor=pointer]:
+              - /url: "#syntax"
+          - generic [ref=e156]:
+            - generic [ref=e157]:
+              - generic [ref=e158]: js
+              - button "Copy" [ref=e161] [cursor=pointer]
+            - code [ref=e164]: fetch(resource) fetch(resource, options)
+        - region [ref=e165]:
+          - heading [level=3] [ref=e166]:
+            - link "Parameters" [ref=e167] [cursor=pointer]:
+              - /url: "#parameters"
+          - generic [ref=e168]:
+            - term [ref=e169]:
+              - link [ref=e170] [cursor=pointer]:
+                - /url: "#resource"
+                - code [ref=e171]: resource
+            - definition [ref=e172]:
+              - paragraph [ref=e173]: "This defines the resource that you wish to fetch. This can either be:"
+              - list [ref=e174]:
+                - listitem [ref=e175]:
+                  - text: A string or any other object with a
+                  - link "stringifier" [ref=e176] [cursor=pointer]:
+                    - /url: /en-US/docs/Glossary/Stringifier
+                  - text: — including a
+                  - link [ref=e177] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/URL
+                    - code [ref=e178]: URL
+                  - text: object — that provides the URL of the resource you want to fetch. The URL may be relative to the base URL, which is the document's
+                  - link [ref=e179] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Node/baseURI
+                    - code [ref=e180]: baseURI
+                  - text: in a window context, or
+                  - link [ref=e181] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/WorkerGlobalScope/location
+                    - code [ref=e182]: WorkerGlobalScope.location
+                  - text: in a worker context.
+                - listitem [ref=e183]:
+                  - text: A
+                  - link [ref=e184] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Request
+                    - code [ref=e185]: Request
+                  - text: object.
+            - term [ref=e186]:
+              - link [ref=e187] [cursor=pointer]:
+                - /url: "#options"
+                - code [ref=e188]: options
+                - text: Optional
+            - definition [ref=e189]:
+              - paragraph [ref=e190]:
+                - text: A
+                - link [ref=e191] [cursor=pointer]:
+                  - /url: /en-US/docs/Web/API/RequestInit
+                  - code [ref=e192]: RequestInit
+                - text: object containing any custom settings that you want to apply to the request.
+        - region [ref=e193]:
+          - heading [level=3] [ref=e194]:
+            - link "Return value" [ref=e195] [cursor=pointer]:
+              - /url: "#return_value"
+          - paragraph [ref=e196]:
+            - text: A
+            - link [ref=e197] [cursor=pointer]:
+              - /url: /en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
+              - code [ref=e198]: Promise
+            - text: that resolves to a
+            - link [ref=e199] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Response
+              - code [ref=e200]: Response
+            - text: object.
+        - region [ref=e201]:
+          - heading [level=3] [ref=e202]:
+            - link "Exceptions" [ref=e203] [cursor=pointer]:
+              - /url: "#exceptions"
+          - generic [ref=e204]:
+            - term [ref=e205]:
+              - code [ref=e206]: AbortError
+              - link [ref=e207] [cursor=pointer]:
+                - /url: /en-US/docs/Web/API/DOMException
+                - code [ref=e208]: DOMException
+            - definition [ref=e209]:
+              - paragraph [ref=e210]:
+                - text: The request was aborted due to a call to the
+                - link [ref=e211] [cursor=pointer]:
+                  - /url: /en-US/docs/Web/API/AbortController
+                  - code [ref=e212]: AbortController
+                - link [ref=e213] [cursor=pointer]:
+                  - /url: /en-US/docs/Web/API/AbortController/abort
+                  - code [ref=e214]: abort()
+                - text: method.
+            - term [ref=e215]:
+              - code [ref=e216]: NotAllowedError
+              - link [ref=e217] [cursor=pointer]:
+                - /url: /en-US/docs/Web/API/DOMException
+                - code [ref=e218]: DOMException
+            - definition [ref=e219]:
+              - paragraph [ref=e220]: "Thrown if:"
+              - list [ref=e221]:
+                - listitem [ref=e222]:
+                  - text: Use of the
+                  - link "Topics API" [ref=e223] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Topics_API
+                  - text: is specifically disallowed by a
+                  - link [ref=e224] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy/browsing-topics
+                    - code [ref=e225]: browsing-topics
+                  - link "Permissions Policy" [ref=e226] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/HTTP/Guides/Permissions_Policy
+                  - text: ", and"
+                  - code [ref=e227]: browsingTopics
+                  - text: is set to
+                  - code [ref=e228]: "true"
+                  - text: .
+                - listitem [ref=e229]:
+                  - text: Use of
+                  - link "Private State Token API" [ref=e230] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Private_State_Token_API
+                  - text: operations is specifically disallowed by a
+                  - link [ref=e231] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy/private-state-token-issuance
+                    - code [ref=e232]: private-state-token-issuance
+                  - text: or
+                  - link [ref=e233] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy/private-state-token-redemption
+                    - code [ref=e234]: private-state-token-redemption
+                  - link "Permissions Policy" [ref=e235] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/HTTP/Guides/Permissions_Policy
+                  - text: ", and the"
+                  - code [ref=e236]: privateToken
+                  - text: option is specified, including a disallowed
+                  - code [ref=e237]: privateToken.operation
+                  - text: type.
+            - term [ref=e238]:
+              - link [ref=e239] [cursor=pointer]:
+                - /url: /en-US/docs/Web/JavaScript/Reference/Global_Objects/TypeError
+                - code [ref=e240]: TypeError
+            - definition [ref=e241]:
+              - paragraph [ref=e242]: "Can occur for the following reasons:"
+              - list [ref=e243]:
+                - listitem [ref=e244]: The requested URL is invalid.
+                - listitem [ref=e245]: The requested URL includes credentials (username and password).
+                - listitem [ref=e246]:
+                  - text: The
+                  - link [ref=e247] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/RequestInit
+                    - code [ref=e248]: RequestInit
+                  - text: object passed as the value of
+                  - code [ref=e249]: options
+                  - text: included properties with invalid values.
+                - listitem [ref=e250]: The request is blocked by a permissions policy.
+                - listitem [ref=e251]: There is a network error (for example, because the device does not have connectivity).
+                - listitem [ref=e252]:
+                  - text: The
+                  - code [ref=e253]: privateToken
+                  - text: init option is specified, including a
+                  - code [ref=e254]: privateToken.operation
+                  - text: type of
+                  - code [ref=e255]: send-redemption-record
+                  - text: ", and the"
+                  - code [ref=e256]: privateToken.issues
+                  - text: array was empty or not set, or one or more of the specified
+                  - code [ref=e257]: issuers
+                  - text: are not trustworthy, HTTPS URLs.
+        - region [ref=e258]:
+          - heading [level=2] [ref=e259]:
+            - link "Examples" [ref=e260] [cursor=pointer]:
+              - /url: "#examples"
+          - paragraph [ref=e261]:
+            - text: In our
+            - link "Fetch Request example (external)" [ref=e262] [cursor=pointer]:
+              - /url: https://github.com/mdn/dom-examples/tree/main/fetch/fetch-request
+            - text: (see
+            - link "Fetch Request live (external)" [ref=e263] [cursor=pointer]:
+              - /url: https://mdn.github.io/dom-examples/fetch/fetch-request/
+            - text: ) we create a new
+            - link [ref=e264] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Request
+              - code [ref=e265]: Request
+            - text: object using the relevant constructor, then fetch it using a
+            - code [ref=e266]: fetch()
+            - text: call. Since we are fetching an image, we run
+            - link [ref=e267] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Response/blob
+              - code [ref=e268]: Response.blob()
+            - text: on the response to give it the proper MIME type so it will be handled properly, then create an Object URL of it and display it in an
+            - link [ref=e269] [cursor=pointer]:
+              - /url: /en-US/docs/Web/HTML/Reference/Elements/img
+              - code [ref=e270]: <img>
+            - text: element.
+          - generic [ref=e272]:
+            - generic [ref=e273]:
+              - generic [ref=e274]: js
+              - button "Copy" [ref=e277] [cursor=pointer]
+            - code [ref=e280]:
+              - text: "const myImage = document.querySelector(\"img\"); const myRequest = new Request(\"flowers.jpg\"); window .fetch(myRequest) .then((response) => { if (!response.ok) { throw new Error("
+              - generic [ref=e281]:
+                - text: "`HTTP error! Status:"
+                - generic [ref=e282]: "${response.status}"
+                - text: "`"
+              - text: "); } return response.blob(); }) .then((response) => { myImage.src = URL.createObjectURL(response); });"
+          - paragraph [ref=e283]:
+            - text: In our
+            - link "Fetch Request with init example (external)" [ref=e284] [cursor=pointer]:
+              - /url: https://github.com/mdn/dom-examples/tree/main/fetch/fetch-request-with-init
+            - text: (see
+            - link "Fetch Request init live (external)" [ref=e285] [cursor=pointer]:
+              - /url: https://mdn.github.io/dom-examples/fetch/fetch-request-with-init/
+            - text: ) we do the same thing except that we pass in an
+            - emphasis [ref=e286]: options
+            - text: object when we invoke
+            - code [ref=e287]: fetch()
+            - text: . In this case, we can set a
+            - link [ref=e288] [cursor=pointer]:
+              - /url: /en-US/docs/Web/HTTP/Reference/Headers/Cache-Control
+              - code [ref=e289]: Cache-Control
+            - text: "value to indicate what kind of cached responses we're okay with:"
+          - generic [ref=e291]:
+            - generic [ref=e292]:
+              - generic [ref=e293]: js
+              - button "Copy" [ref=e296] [cursor=pointer]
+            - code [ref=e299]: "const myImage = document.querySelector(\"img\"); const reqHeaders = new Headers(); // A cached response is okay unless it's more than a week old reqHeaders.set(\"Cache-Control\", \"max-age=604800\"); const options = { headers: reqHeaders, }; // Pass init as an \"options\" object with our headers. const req = new Request(\"flowers.jpg\", options); fetch(req).then((response) => { // … });"
+          - paragraph [ref=e300]:
+            - text: You could also pass the
+            - code [ref=e301]: init
+            - text: object in with the
+            - code [ref=e302]: Request
+            - text: "constructor to get the same effect:"
+          - generic [ref=e304]:
+            - generic [ref=e305]:
+              - generic [ref=e306]: js
+              - button "Copy" [ref=e309] [cursor=pointer]
+            - code [ref=e312]: const req = new Request("flowers.jpg", options);
+          - paragraph [ref=e313]:
+            - text: You can also use an object literal as
+            - code [ref=e314]: headers
+            - text: in
+            - code [ref=e315]: init
+            - text: ":"
+          - generic [ref=e317]:
+            - generic [ref=e318]:
+              - generic [ref=e319]: js
+              - button "Copy" [ref=e322] [cursor=pointer]
+            - code [ref=e325]: "const options = { headers: { \"Cache-Control\": \"max-age=60480\", }, }; const req = new Request(\"flowers.jpg\", options);"
+          - paragraph [ref=e326]:
+            - text: The
+            - link "Using fetch" [ref=e327] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Fetch_API/Using_Fetch
+            - text: article provides more examples of using
+            - code [ref=e328]: fetch()
+            - text: .
+        - region [ref=e329]:
+          - heading [level=2] [ref=e330]:
+            - link "Specifications" [ref=e331] [cursor=pointer]:
+              - /url: "#specifications"
+          - table [ref=e332]:
+            - rowgroup [ref=e333]:
+              - row [ref=e334]:
+                - columnheader "Specification" [ref=e335]
+            - rowgroup [ref=e336]:
+              - row [ref=e337]:
+                - cell [ref=e338]:
+                  - 'link "Fetch # fetch-method (external)" [ref=e339] [cursor=pointer]':
+                    - /url: https://fetch.spec.whatwg.org/#fetch-method
+                    - text: Fetch# fetch-method (external)
+        - region [ref=e340]:
+          - heading [level=2] [ref=e341]:
+            - link "Browser compatibility" [ref=e342] [cursor=pointer]:
+              - /url: "#browser_compatibility"
+          - generic [ref=e344]:
+            - figure [ref=e345]:
+              - figure [ref=e346]:
+                - generic [ref=e347]:
+                  - link "Report problems with this compatibility data (external)" [ref=e348] [cursor=pointer]:
+                    - /url: https://github.com/mdn/browser-compat-data/issues/new?mdn-url=https%3A%2F%2Fdeveloper.mozilla.org%2Fen-US%2Fdocs%2FWeb%2FAPI%2FWindow%2Ffetch&metadata=%3C%21--+Do+not+make+changes+below+this+line+--%3E%0A%3Cdetails%3E%0A%3Csummary%3EMDN+page+report+details%3C%2Fsummary%3E%0A%0A*+Query%3A+%60api.fetch%60%0A*+Report+started%3A+2026-09-17T11%3A31%3A49.436Z%0A%0A%3C%2Fdetails%3E&title=api.fetch+-+%3CSUMMARIZE+THE+PROBLEM%3E&template=data-problem.yml
+                  - text: •
+                  - link "View data on GitHub (external)" [ref=e349] [cursor=pointer]:
+                    - /url: https://github.com/mdn/browser-compat-data/tree/main/api/_globals/fetch.json
+                - table [ref=e350]:
+                  - rowgroup [ref=e351]:
+                    - row [ref=e352]:
+                      - cell [ref=e353]
+                      - columnheader "desktop" [ref=e354]
+                      - columnheader "mobile" [ref=e357]
+                      - columnheader "server" [ref=e360]
+                    - row [ref=e363]:
+                      - cell [ref=e364]
+                      - columnheader "Chrome" [ref=e365]
+                      - columnheader "Edge" [ref=e368]
+                      - columnheader "Firefox" [ref=e371]
+                      - columnheader "Opera" [ref=e374]
+                      - columnheader "Safari" [ref=e377]
+                      - columnheader "Chrome Android" [ref=e380]
+                      - columnheader "Firefox for Android" [ref=e383]
+                      - columnheader "Opera Android" [ref=e386]
+                      - columnheader "Safari on iOS" [ref=e389]
+                      - columnheader "Samsung Browser" [ref=e392]
+                      - columnheader "WebView Android" [ref=e395]
+                      - columnheader "WebView on iOS" [ref=e398]
+                      - columnheader "Bun" [ref=e401]
+                      - columnheader "Deno" [ref=e404]
+                      - columnheader "Node.js" [ref=e407]
+                  - rowgroup [ref=e410]:
+                    - row [ref=e411]:
+                      - rowheader [ref=e412]:
+                        - code [ref=e414]: fetch
+                      - cell [ref=e415]:
+                        - button "42" [ref=e416] [cursor=pointer]:
+                          - generic [ref=e417]:
+                            - generic "Chrome – Full support" [ref=e420]
+                            - 'generic "Chrome 42 – Release date: 2015-04-14" [ref=e422]': "42"
+                      - cell [ref=e423]:
+                        - button "14" [ref=e424] [cursor=pointer]:
+                          - generic [ref=e425]:
+                            - generic "Edge – Full support" [ref=e428]
+                            - 'generic "Edge 14 – Release date: 2016-08-02" [ref=e430]': "14"
+                      - cell [ref=e431]:
+                        - button "39" [ref=e432] [cursor=pointer]:
+                          - generic [ref=e433]:
+                            - generic "Firefox – Full support" [ref=e436]
+                            - 'generic "Firefox 39 – Release date: 2015-07-02" [ref=e438]': "39"
+                      - cell [ref=e439]:
+                        - button "29" [ref=e440] [cursor=pointer]:
+                          - generic [ref=e441]:
+                            - generic "Opera – Full support" [ref=e444]
+                            - 'generic "Opera 29 – Release date: 2015-04-28" [ref=e446]': "29"
+                      - cell [ref=e447]:
+                        - button "10.1" [ref=e448] [cursor=pointer]:
+                          - generic [ref=e449]:
+                            - generic "Safari – Full support" [ref=e452]
+                            - 'generic "Safari 10.1 – Release date: 2017-03-27" [ref=e454]': "10.1"
+                      - cell [ref=e455]:
+                        - button "42" [ref=e456] [cursor=pointer]:
+                          - generic [ref=e457]:
+                            - generic "Chrome Android – Full support" [ref=e460]
+                            - 'generic "Chrome Android 42 – Release date: 2015-04-15" [ref=e462]': "42"
+                      - cell [ref=e463]:
+                        - button "39" [ref=e464] [cursor=pointer]:
+                          - generic [ref=e465]:
+                            - generic "Firefox for Android – Full support" [ref=e468]
+                            - 'generic "Firefox for Android 39 – Release date: 2015-07-02" [ref=e470]': "39"
+                      - cell [ref=e471]:
+                        - button "29" [ref=e472] [cursor=pointer]:
+                          - generic [ref=e473]:
+                            - generic "Opera Android – Full support" [ref=e476]
+                            - 'generic "Opera Android 29 – Release date: 2015-04-28" [ref=e478]': "29"
+                      - cell [ref=e479]:
+                        - button "10.3" [ref=e480] [cursor=pointer]:
+                          - generic [ref=e481]:
+                            - generic "Safari on iOS – Full support" [ref=e484]
+                            - 'generic "Safari on iOS 10.3 – Release date: 2017-03-27" [ref=e486]': "10.3"
+                      - cell [ref=e487]:
+                        - button "4" [ref=e488] [cursor=pointer]:
+                          - generic [ref=e489]:
+                            - generic "Samsung Browser – Full support" [ref=e492]
+                            - 'generic "Samsung Browser 4.0 – Release date: 2016-03-11" [ref=e494]': "4"
+                      - cell [ref=e495]:
+                        - button "42" [ref=e496] [cursor=pointer]:
+                          - generic [ref=e497]:
+                            - generic "WebView Android – Full support" [ref=e500]
+                            - 'generic "WebView Android 42 – Release date: 2015-04-15" [ref=e502]': "42"
+                      - cell [ref=e503]:
+                        - button "10.3" [ref=e504] [cursor=pointer]:
+                          - generic [ref=e505]:
+                            - generic "WebView on iOS – Full support" [ref=e508]
+                            - 'generic "WebView on iOS 10.3 – Release date: 2017-03-27" [ref=e510]': "10.3"
+                      - cell [ref=e511]:
+                        - button "1" [ref=e512] [cursor=pointer]:
+                          - generic [ref=e513]:
+                            - generic "Bun – Full support" [ref=e516]
+                            - 'generic "Bun 1.0.0 – Release date: 2023-09-08" [ref=e518]': "1"
+                      - cell [ref=e519]:
+                        - button "1 footnote" [ref=e520] [cursor=pointer]:
+                          - generic [ref=e521]:
+                            - generic "Deno – Full support" [ref=e524]
+                            - 'generic "Deno 1.0 – Release date: 2020-05-13" [ref=e526]': "1"
+                            - generic "See implementation notes." [ref=e529]: footnote
+                      - cell [ref=e532]:
+                        - button "18" [ref=e533] [cursor=pointer]:
+                          - generic [ref=e534]:
+                            - generic "Node.js – Full support" [ref=e537]
+                            - 'generic "Node.js 18.0.0 – Release date: 2022-04-19" [ref=e539]': "18"
+                    - row [ref=e540]:
+                      - rowheader [ref=e541]:
+                        - generic [ref=e543]:
+                          - code [ref=e544]: Authorization
+                          - text: header removed from cross-origin redirects
+                      - cell [ref=e545]:
+                        - button "No" [ref=e546] [cursor=pointer]:
+                          - generic [ref=e547]:
+                            - generic "Chrome – No support" [ref=e550]
+                            - generic [ref=e551]: "No"
+                      - cell [ref=e553]:
+                        - button "No" [ref=e554] [cursor=pointer]:
+                          - generic [ref=e555]:
+                            - generic "Edge – No support" [ref=e558]
+                            - generic [ref=e559]: "No"
+                      - cell [ref=e561]:
+                        - button "111" [ref=e562] [cursor=pointer]:
+                          - generic [ref=e563]:
+                            - generic "Firefox – Full support" [ref=e566]
+                            - 'generic "Firefox 111 – Release date: 2023-03-14" [ref=e568]': "111"
+                      - cell [ref=e569]:
+                        - button "No" [ref=e570] [cursor=pointer]:
+                          - generic [ref=e571]:
+                            - generic "Opera – No support" [ref=e574]
+                            - generic [ref=e575]: "No"
+                      - cell [ref=e577]:
+                        - button "16.1" [ref=e578] [cursor=pointer]:
+                          - generic [ref=e579]:
+                            - generic "Safari – Full support" [ref=e582]
+                            - 'generic "Safari 16.1 – Release date: 2022-10-24" [ref=e584]': "16.1"
+                      - cell [ref=e585]:
+                        - button "No" [ref=e586] [cursor=pointer]:
+                          - generic [ref=e587]:
+                            - generic "Chrome Android – No support" [ref=e590]
+                            - generic [ref=e591]: "No"
+                      - cell [ref=e593]:
+                        - button "111" [ref=e594] [cursor=pointer]:
+                          - generic [ref=e595]:
+                            - generic "Firefox for Android – Full support" [ref=e598]
+                            - 'generic "Firefox for Android 111 – Release date: 2023-03-14" [ref=e600]': "111"
+                      - cell [ref=e601]:
+                        - button "No" [ref=e602] [cursor=pointer]:
+                          - generic [ref=e603]:
+                            - generic "Opera Android – No support" [ref=e606]
+                            - generic [ref=e607]: "No"
+                      - cell [ref=e609]:
+                        - button "16.1" [ref=e610] [cursor=pointer]:
+                          - generic [ref=e611]:
+                            - generic "Safari on iOS – Full support" [ref=e614]
+                            - 'generic "Safari on iOS 16.1 – Release date: 2022-10-24" [ref=e616]': "16.1"
+                      - cell [ref=e617]:
+                        - button "No" [ref=e618] [cursor=pointer]:
+                          - generic [ref=e619]:
+                            - generic "Samsung Browser – No support" [ref=e622]
+                            - generic [ref=e623]: "No"
+                      - cell [ref=e625]:
+                        - button "No" [ref=e626] [cursor=pointer]:
+                          - generic [ref=e627]:
+                            - generic "WebView Android – No support" [ref=e630]
+                            - generic [ref=e631]: "No"
+                      - cell [ref=e633]:
+                        - button "16.1" [ref=e634] [cursor=pointer]:
+                          - generic [ref=e635]:
+                            - generic "WebView on iOS – Full support" [ref=e638]
+                            - 'generic "WebView on iOS 16.1 – Release date: 2022-10-24" [ref=e640]': "16.1"
+                      - cell [ref=e641]:
+                        - button "No" [ref=e642] [cursor=pointer]:
+                          - generic [ref=e643]:
+                            - generic "Bun – No support" [ref=e646]
+                            - generic [ref=e647]: "No"
+                      - cell [ref=e649]:
+                        - button "No" [ref=e650] [cursor=pointer]:
+                          - generic [ref=e651]:
+                            - generic "Deno – No support" [ref=e654]
+                            - generic [ref=e655]: "No"
+                      - cell [ref=e657]:
+                        - button "No" [ref=e658] [cursor=pointer]:
+                          - generic [ref=e659]:
+                            - generic "Node.js – No support" [ref=e662]
+                            - generic [ref=e663]: "No"
+                    - row [ref=e665]:
+                      - 'rowheader "Support for blob: and data:" [ref=e666]'
+                      - cell [ref=e669]:
+                        - button "48" [ref=e670] [cursor=pointer]:
+                          - generic [ref=e671]:
+                            - generic "Chrome – Full support" [ref=e674]
+                            - 'generic "Chrome 48 – Release date: 2016-01-20" [ref=e676]': "48"
+                      - cell [ref=e677]:
+                        - button "79" [ref=e678] [cursor=pointer]:
+                          - generic [ref=e679]:
+                            - generic "Edge – Full support" [ref=e682]
+                            - 'generic "Edge 79 – Release date: 2020-01-15" [ref=e684]': "79"
+                      - cell [ref=e685]:
+                        - button "39" [ref=e686] [cursor=pointer]:
+                          - generic [ref=e687]:
+                            - generic "Firefox – Full support" [ref=e690]
+                            - 'generic "Firefox 39 – Release date: 2015-07-02" [ref=e692]': "39"
+                      - cell [ref=e693]:
+                        - button "35" [ref=e694] [cursor=pointer]:
+                          - generic [ref=e695]:
+                            - generic "Opera – Full support" [ref=e698]
+                            - 'generic "Opera 35 – Release date: 2016-02-02" [ref=e700]': "35"
+                      - cell [ref=e701]:
+                        - button "10.1" [ref=e702] [cursor=pointer]:
+                          - generic [ref=e703]:
+                            - generic "Safari – Full support" [ref=e706]
+                            - 'generic "Safari 10.1 – Release date: 2017-03-27" [ref=e708]': "10.1"
+                      - cell [ref=e709]:
+                        - button "48" [ref=e710] [cursor=pointer]:
+                          - generic [ref=e711]:
+                            - generic "Chrome Android – Full support" [ref=e714]
+                            - 'generic "Chrome Android 48 – Release date: 2016-01-26" [ref=e716]': "48"
+                      - cell [ref=e717]:
+                        - button "39" [ref=e718] [cursor=pointer]:
+                          - generic [ref=e719]:
+                            - generic "Firefox for Android – Full support" [ref=e722]
+                            - 'generic "Firefox for Android 39 – Release date: 2015-07-02" [ref=e724]': "39"
+                      - cell [ref=e725]:
+                        - button "35" [ref=e726] [cursor=pointer]:
+                          - generic [ref=e727]:
+                            - generic "Opera Android – Full support" [ref=e730]
+                            - 'generic "Opera Android 35 – Release date: 2016-02-04" [ref=e732]': "35"
+                      - cell [ref=e733]:
+                        - button "10.3" [ref=e734] [cursor=pointer]:
+                          - generic [ref=e735]:
+                            - generic "Safari on iOS – Full support" [ref=e738]
+                            - 'generic "Safari on iOS 10.3 – Release date: 2017-03-27" [ref=e740]': "10.3"
+                      - cell [ref=e741]:
+                        - button "5" [ref=e742] [cursor=pointer]:
+                          - generic [ref=e743]:
+                            - generic "Samsung Browser – Full support" [ref=e746]
+                            - 'generic "Samsung Browser 5.0 – Release date: 2016-12-15" [ref=e748]': "5"
+                      - cell [ref=e749]:
+                        - button "43" [ref=e750] [cursor=pointer]:
+                          - generic [ref=e751]:
+                            - generic "WebView Android – Full support" [ref=e754]
+                            - 'generic "WebView Android 43 – Release date: 2015-05-27" [ref=e756]': "43"
+                      - cell [ref=e757]:
+                        - button "10.3" [ref=e758] [cursor=pointer]:
+                          - generic [ref=e759]:
+                            - generic "WebView on iOS – Full support" [ref=e762]
+                            - 'generic "WebView on iOS 10.3 – Release date: 2017-03-27" [ref=e764]': "10.3"
+                      - cell [ref=e765]:
+                        - button "No" [ref=e766] [cursor=pointer]:
+                          - generic [ref=e767]:
+                            - generic "Bun – No support" [ref=e770]
+                            - generic [ref=e771]: "No"
+                      - cell [ref=e773]:
+                        - button "1.9" [ref=e774] [cursor=pointer]:
+                          - generic [ref=e775]:
+                            - generic "Deno – Full support" [ref=e778]
+                            - 'generic "Deno 1.9 – Release date: 2021-04-13" [ref=e780]': "1.9"
+                      - cell [ref=e781]:
+                        - button "No" [ref=e782] [cursor=pointer]:
+                          - generic [ref=e783]:
+                            - generic "Node.js – No support" [ref=e786]
+                            - generic [ref=e787]: "No"
+                    - row [ref=e789]:
+                      - rowheader [ref=e790]:
+                        - generic [ref=e792]:
+                          - code [ref=e793]: options
+                          - text: parameter
+                      - cell [ref=e794]:
+                        - button "42 footnote" [ref=e795] [cursor=pointer]:
+                          - generic [ref=e796]:
+                            - generic "Chrome – Full support" [ref=e799]
+                            - 'generic "Chrome 42 – Release date: 2015-04-14" [ref=e801]': "42"
+                            - generic "See implementation notes." [ref=e804]: footnote
+                      - cell [ref=e807]:
+                        - button "14" [ref=e808] [cursor=pointer]:
+                          - generic [ref=e809]:
+                            - generic "Edge – Full support" [ref=e812]
+                            - 'generic "Edge 14 – Release date: 2016-08-02" [ref=e814]': "14"
+                      - cell [ref=e815]:
+                        - button "39" [ref=e816] [cursor=pointer]:
+                          - generic [ref=e817]:
+                            - generic "Firefox – Full support" [ref=e820]
+                            - 'generic "Firefox 39 – Release date: 2015-07-02" [ref=e822]': "39"
+                      - cell [ref=e823]:
+                        - button "29 footnote" [ref=e824] [cursor=pointer]:
+                          - generic [ref=e825]:
+                            - generic "Opera – Full support" [ref=e828]
+                            - 'generic "Opera 29 – Release date: 2015-04-28" [ref=e830]': "29"
+                            - generic "See implementation notes." [ref=e833]: footnote
+                      - cell [ref=e836]:
+                        - button "10.1" [ref=e837] [cursor=pointer]:
+                          - generic [ref=e838]:
+                            - generic "Safari – Full support" [ref=e841]
+                            - 'generic "Safari 10.1 – Release date: 2017-03-27" [ref=e843]': "10.1"
+                      - cell [ref=e844]:
+                        - button "42 footnote" [ref=e845] [cursor=pointer]:
+                          - generic [ref=e846]:
+                            - generic "Chrome Android – Full support" [ref=e849]
+                            - 'generic "Chrome Android 42 – Release date: 2015-04-15" [ref=e851]': "42"
+                            - generic "See implementation notes." [ref=e854]: footnote
+                      - cell [ref=e857]:
+                        - button "39" [ref=e858] [cursor=pointer]:
+                          - generic [ref=e859]:
+                            - generic "Firefox for Android – Full support" [ref=e862]
+                            - 'generic "Firefox for Android 39 – Release date: 2015-07-02" [ref=e864]': "39"
+                      - cell [ref=e865]:
+                        - button "29 footnote" [ref=e866] [cursor=pointer]:
+                          - generic [ref=e867]:
+                            - generic "Opera Android – Full support" [ref=e870]
+                            - 'generic "Opera Android 29 – Release date: 2015-04-28" [ref=e872]': "29"
+                            - generic "See implementation notes." [ref=e875]: footnote
+                      - cell [ref=e878]:
+                        - button "10.3" [ref=e879] [cursor=pointer]:
+                          - generic [ref=e880]:
+                            - generic "Safari on iOS – Full support" [ref=e883]
+                            - 'generic "Safari on iOS 10.3 – Release date: 2017-03-27" [ref=e885]': "10.3"
+                      - cell [ref=e886]:
+                        - button "4 footnote" [ref=e887] [cursor=pointer]:
+                          - generic [ref=e888]:
+                            - generic "Samsung Browser – Full support" [ref=e891]
+                            - 'generic "Samsung Browser 4.0 – Release date: 2016-03-11" [ref=e893]': "4"
+                            - generic "See implementation notes." [ref=e896]: footnote
+                      - cell [ref=e899]:
+                        - button "42 footnote" [ref=e900] [cursor=pointer]:
+                          - generic [ref=e901]:
+                            - generic "WebView Android – Full support" [ref=e904]
+                            - 'generic "WebView Android 42 – Release date: 2015-04-15" [ref=e906]': "42"
+                            - generic "See implementation notes." [ref=e909]: footnote
+                      - cell [ref=e912]:
+                        - button "10.3" [ref=e913] [cursor=pointer]:
+                          - generic [ref=e914]:
+                            - generic "WebView on iOS – Full support" [ref=e917]
+                            - 'generic "WebView on iOS 10.3 – Release date: 2017-03-27" [ref=e919]': "10.3"
+                      - cell [ref=e920]:
+                        - button "1" [ref=e921] [cursor=pointer]:
+                          - generic [ref=e922]:
+                            - generic "Bun – Full support" [ref=e925]
+                            - 'generic "Bun 1.0.0 – Release date: 2023-09-08" [ref=e927]': "1"
+                      - cell [ref=e928]:
+                        - button "1 footnote" [ref=e929] [cursor=pointer]:
+                          - generic [ref=e930]:
+                            - generic "Deno – Full support" [ref=e933]
+                            - 'generic "Deno 1.0 – Release date: 2020-05-13" [ref=e935]': "1"
+                            - generic "See implementation notes." [ref=e938]: footnote
+                      - cell [ref=e941]:
+                        - button "18" [ref=e942] [cursor=pointer]:
+                          - generic [ref=e943]:
+                            - generic "Node.js – Full support" [ref=e946]
+                            - 'generic "Node.js 18.0.0 – Release date: 2022-04-19" [ref=e948]': "18"
+                    - row [ref=e949]:
+                      - rowheader "attributionReporting property Deprecated Non-standard" [ref=e950]:
+                        - generic [ref=e951]:
+                          - generic [ref=e952]:
+                            - code [ref=e953]: attributionReporting
+                            - text: property
+                          - generic [ref=e954]:
+                            - generic "Deprecated. Not for use in new websites." [ref=e955]: Deprecated
+                            - generic "Non-standard. Check cross-browser support before using." [ref=e957]: Non-standard
+                      - cell [ref=e959]:
+                        - button "125" [ref=e960] [cursor=pointer]:
+                          - generic [ref=e961]:
+                            - generic "Chrome – Full support" [ref=e964]
+                            - 'generic "Chrome 125 – Release date: 2024-05-14" [ref=e966]': "125"
+                      - cell [ref=e967]:
+                        - button "125" [ref=e968] [cursor=pointer]:
+                          - generic [ref=e969]:
+                            - generic "Edge – Full support" [ref=e972]
+                            - 'generic "Edge 125 – Release date: 2024-05-17" [ref=e974]': "125"
+                      - cell [ref=e975]:
+                        - button "No" [ref=e976] [cursor=pointer]:
+                          - generic [ref=e977]:
+                            - generic "Firefox – No support" [ref=e980]
+                            - generic [ref=e981]: "No"
+                      - cell [ref=e983]:
+                        - button "111" [ref=e984] [cursor=pointer]:
+                          - generic [ref=e985]:
+                            - generic "Opera – Full support" [ref=e988]
+                            - 'generic "Opera 111 – Release date: 2024-06-12" [ref=e990]': "111"
+                      - cell [ref=e991]:
+                        - button "No" [ref=e992] [cursor=pointer]:
+                          - generic [ref=e993]:
+                            - generic "Safari – No support" [ref=e996]
+                            - generic [ref=e997]: "No"
+                      - cell [ref=e999]:
+                        - button "125" [ref=e1000] [cursor=pointer]:
+                          - generic [ref=e1001]:
+                            - generic "Chrome Android – Full support" [ref=e1004]
+                            - 'generic "Chrome Android 125 – Release date: 2024-05-14" [ref=e1006]': "125"
+                      - cell [ref=e1007]:
+                        - button "No" [ref=e1008] [cursor=pointer]:
+                          - generic [ref=e1009]:
+                            - generic "Firefox for Android – No support" [ref=e1012]
+                            - generic [ref=e1013]: "No"
+                      - cell [ref=e1015]:
+                        - button "83" [ref=e1016] [cursor=pointer]:
+                          - generic [ref=e1017]:
+                            - generic "Opera Android – Full support" [ref=e1020]
+                            - 'generic "Opera Android 83 – Release date: 2024-06-25" [ref=e1022]': "83"
+                      - cell [ref=e1023]:
+                        - button "No" [ref=e1024] [cursor=pointer]:
+                          - generic [ref=e1025]:
+                            - generic "Safari on iOS – No support" [ref=e1028]
+                            - generic [ref=e1029]: "No"
+                      - cell [ref=e1031]:
+                        - button "27" [ref=e1032] [cursor=pointer]:
+                          - generic [ref=e1033]:
+                            - generic "Samsung Browser – Full support" [ref=e1036]
+                            - 'generic "Samsung Browser 27.0 – Release date: 2024-11-06" [ref=e1038]': "27"
+                      - cell [ref=e1039]:
+                        - button "125" [ref=e1040] [cursor=pointer]:
+                          - generic [ref=e1041]:
+                            - generic "WebView Android – Full support" [ref=e1044]
+                            - 'generic "WebView Android 125 – Release date: 2024-05-14" [ref=e1046]': "125"
+                      - cell [ref=e1047]:
+                        - button "No" [ref=e1048] [cursor=pointer]:
+                          - generic [ref=e1049]:
+                            - generic "WebView on iOS – No support" [ref=e1052]
+                            - generic [ref=e1053]: "No"
+                      - cell [ref=e1055]:
+                        - button "No" [ref=e1056] [cursor=pointer]:
+                          - generic [ref=e1057]:
+                            - generic "Bun – No support" [ref=e1060]
+                            - generic [ref=e1061]: "No"
+                      - cell [ref=e1063]:
+                        - button "No" [ref=e1064] [cursor=pointer]:
+                          - generic [ref=e1065]:
+                            - generic "Deno – No support" [ref=e1068]
+                            - generic [ref=e1069]: "No"
+                      - cell [ref=e1071]:
+                        - button "No" [ref=e1072] [cursor=pointer]:
+                          - generic [ref=e1073]:
+                            - generic "Node.js – No support" [ref=e1076]
+                            - generic [ref=e1077]: "No"
+                    - row [ref=e1079]:
+                      - rowheader [ref=e1080]:
+                        - generic [ref=e1082]:
+                          - code [ref=e1083]: body
+                          - text: property
+                      - cell [ref=e1084]:
+                        - button "42" [ref=e1085] [cursor=pointer]:
+                          - generic [ref=e1086]:
+                            - generic "Chrome – Full support" [ref=e1089]
+                            - 'generic "Chrome 42 – Release date: 2015-04-14" [ref=e1091]': "42"
+                      - cell [ref=e1092]:
+                        - button "14" [ref=e1093] [cursor=pointer]:
+                          - generic [ref=e1094]:
+                            - generic "Edge – Full support" [ref=e1097]
+                            - 'generic "Edge 14 – Release date: 2016-08-02" [ref=e1099]': "14"
+                      - cell [ref=e1100]:
+                        - button "39" [ref=e1101] [cursor=pointer]:
+                          - generic [ref=e1102]:
+                            - generic "Firefox – Full support" [ref=e1105]
+                            - 'generic "Firefox 39 – Release date: 2015-07-02" [ref=e1107]': "39"
+                      - cell [ref=e1108]:
+                        - button "29" [ref=e1109] [cursor=pointer]:
+                          - generic [ref=e1110]:
+                            - generic "Opera – Full support" [ref=e1113]
+                            - 'generic "Opera 29 – Release date: 2015-04-28" [ref=e1115]': "29"
+                      - cell [ref=e1116]:
+                        - button "10.1" [ref=e1117] [cursor=pointer]:
+                          - generic [ref=e1118]:
+                            - generic "Safari – Full support" [ref=e1121]
+                            - 'generic "Safari 10.1 – Release date: 2017-03-27" [ref=e1123]': "10.1"
+                      - cell [ref=e1124]:
+                        - button "42" [ref=e1125] [cursor=pointer]:
+                          - generic [ref=e1126]:
+                            - generic "Chrome Android – Full support" [ref=e1129]
+                            - 'generic "Chrome Android 42 – Release date: 2015-04-15" [ref=e1131]': "42"
+                      - cell [ref=e1132]:
+                        - button "39" [ref=e1133] [cursor=pointer]:
+                          - generic [ref=e1134]:
+                            - generic "Firefox for Android – Full support" [ref=e1137]
+                            - 'generic "Firefox for Android 39 – Release date: 2015-07-02" [ref=e1139]': "39"
+                      - cell [ref=e1140]:
+                        - button "29" [ref=e1141] [cursor=pointer]:
+                          - generic [ref=e1142]:
+                            - generic "Opera Android – Full support" [ref=e1145]
+                            - 'generic "Opera Android 29 – Release date: 2015-04-28" [ref=e1147]': "29"
+                      - cell [ref=e1148]:
+                        - button "10.3" [ref=e1149] [cursor=pointer]:
+                          - generic [ref=e1150]:
+                            - generic "Safari on iOS – Full support" [ref=e1153]
+                            - 'generic "Safari on iOS 10.3 – Release date: 2017-03-27" [ref=e1155]': "10.3"
+                      - cell [ref=e1156]:
+                        - button "4" [ref=e1157] [cursor=pointer]:
+                          - generic [ref=e1158]:
+                            - generic "Samsung Browser – Full support" [ref=e1161]
+                            - 'generic "Samsung Browser 4.0 – Release date: 2016-03-11" [ref=e1163]': "4"
+                      - cell [ref=e1164]:
+                        - button "42" [ref=e1165] [cursor=pointer]:
+                          - generic [ref=e1166]:
+                            - generic "WebView Android – Full support" [ref=e1169]
+                            - 'generic "WebView Android 42 – Release date: 2015-04-15" [ref=e1171]': "42"
+                      - cell [ref=e1172]:
+                        - button "10.3" [ref=e1173] [cursor=pointer]:
+                          - generic [ref=e1174]:
+                            - generic "WebView on iOS – Full support" [ref=e1177]
+                            - 'generic "WebView on iOS 10.3 – Release date: 2017-03-27" [ref=e1179]': "10.3"
+                      - cell [ref=e1180]:
+                        - button "1" [ref=e1181] [cursor=pointer]:
+                          - generic [ref=e1182]:
+                            - generic "Bun – Full support" [ref=e1185]
+                            - 'generic "Bun 1.0.0 – Release date: 2023-09-08" [ref=e1187]': "1"
+                      - cell [ref=e1188]:
+                        - button "1" [ref=e1189] [cursor=pointer]:
+                          - generic [ref=e1190]:
+                            - generic "Deno – Full support" [ref=e1193]
+                            - 'generic "Deno 1.0 – Release date: 2020-05-13" [ref=e1195]': "1"
+                      - cell [ref=e1196]:
+                        - button "18" [ref=e1197] [cursor=pointer]:
+                          - generic [ref=e1198]:
+                            - generic "Node.js – Full support" [ref=e1201]
+                            - 'generic "Node.js 18.0.0 – Release date: 2022-04-19" [ref=e1203]': "18"
+                    - row [ref=e1204]:
+                      - rowheader "ReadableStream body Experimental" [ref=e1205]:
+                        - generic [ref=e1206]:
+                          - generic [ref=e1207]:
+                            - code [ref=e1208]: ReadableStream
+                            - text: body
+                          - generic "Experimental. Expect behavior to change in the future." [ref=e1210]: Experimental
+                      - cell [ref=e1212]:
+                        - button "105" [ref=e1213] [cursor=pointer]:
+                          - generic [ref=e1214]:
+                            - generic "Chrome – Full support" [ref=e1217]
+                            - 'generic "Chrome 105 – Release date: 2022-09-02" [ref=e1219]': "105"
+                      - cell [ref=e1220]:
+                        - button "105" [ref=e1221] [cursor=pointer]:
+                          - generic [ref=e1222]:
+                            - generic "Edge – Full support" [ref=e1225]
+                            - 'generic "Edge 105 – Release date: 2022-09-01" [ref=e1227]': "105"
+                      - cell [ref=e1228]:
+                        - button "No footnote" [ref=e1229] [cursor=pointer]:
+                          - generic [ref=e1230]:
+                            - generic "Firefox – No support" [ref=e1233]
+                            - generic [ref=e1234]: "No"
+                            - generic "See implementation notes." [ref=e1238]: footnote
+                      - cell [ref=e1241]:
+                        - button "91" [ref=e1242] [cursor=pointer]:
+                          - generic [ref=e1243]:
+                            - generic "Opera – Full support" [ref=e1246]
+                            - 'generic "Opera 91 – Release date: 2022-09-14" [ref=e1248]': "91"
+                      - cell [ref=e1249]:
+                        - button "No" [ref=e1250] [cursor=pointer]:
+                          - generic [ref=e1251]:
+                            - generic "Safari – No support" [ref=e1254]
+                            - generic [ref=e1255]: "No"
+                      - cell [ref=e1257]:
+                        - button "105" [ref=e1258] [cursor=pointer]:
+                          - generic [ref=e1259]:
+                            - generic "Chrome Android – Full support" [ref=e1262]
+                            - 'generic "Chrome Android 105 – Release date: 2022-09-02" [ref=e1264]': "105"
+                      - cell [ref=e1265]:
+                        - button "No footnote" [ref=e1266] [cursor=pointer]:
+                          - generic [ref=e1267]:
+                            - generic "Firefox for Android – No support" [ref=e1270]
+                            - generic [ref=e1271]: "No"
+                            - generic "See implementation notes." [ref=e1275]: footnote
+                      - cell [ref=e1278]:
+                        - button "72" [ref=e1279] [cursor=pointer]:
+                          - generic [ref=e1280]:
+                            - generic "Opera Android – Full support" [ref=e1283]
+                            - 'generic "Opera Android 72 – Release date: 2022-10-21" [ref=e1285]': "72"
+                      - cell [ref=e1286]:
+                        - button "No" [ref=e1287] [cursor=pointer]:
+                          - generic [ref=e1288]:
+                            - generic "Safari on iOS – No support" [ref=e1291]
+                            - generic [ref=e1292]: "No"
+                      - cell [ref=e1294]:
+                        - button "20" [ref=e1295] [cursor=pointer]:
+                          - generic [ref=e1296]:
+                            - generic "Samsung Browser – Full support" [ref=e1299]
+                            - 'generic "Samsung Browser 20.0 – Release date: 2023-02-10" [ref=e1301]': "20"
+                      - cell [ref=e1302]:
+                        - button "105" [ref=e1303] [cursor=pointer]:
+                          - generic [ref=e1304]:
+                            - generic "WebView Android – Full support" [ref=e1307]
+                            - 'generic "WebView Android 105 – Release date: 2022-09-02" [ref=e1309]': "105"
+                      - cell [ref=e1310]:
+                        - button "No" [ref=e1311] [cursor=pointer]:
+                          - generic [ref=e1312]:
+                            - generic "WebView on iOS – No support" [ref=e1315]
+                            - generic [ref=e1316]: "No"
+                      - cell [ref=e1318]:
+                        - button "No" [ref=e1319] [cursor=pointer]:
+                          - generic [ref=e1320]:
+                            - generic "Bun – No support" [ref=e1323]
+                            - generic [ref=e1324]: "No"
+                      - cell [ref=e1326]:
+                        - button "1.7" [ref=e1327] [cursor=pointer]:
+                          - generic [ref=e1328]:
+                            - generic "Deno – Full support" [ref=e1331]
+                            - 'generic "Deno 1.7 – Release date: 2021-01-19" [ref=e1333]': "1.7"
+                      - cell [ref=e1334]:
+                        - button "18" [ref=e1335] [cursor=pointer]:
+                          - generic [ref=e1336]:
+                            - generic "Node.js – Full support" [ref=e1339]
+                            - 'generic "Node.js 18.0.0 – Release date: 2022-04-19" [ref=e1341]': "18"
+                    - row [ref=e1342]:
+                      - rowheader "browsingTopics property Deprecated Non-standard" [ref=e1343]:
+                        - generic [ref=e1344]:
+                          - generic [ref=e1345]:
+                            - code [ref=e1346]: browsingTopics
+                            - text: property
+                          - generic [ref=e1347]:
+                            - generic "Deprecated. Not for use in new websites." [ref=e1348]: Deprecated
+                            - generic "Non-standard. Check cross-browser support before using." [ref=e1350]: Non-standard
+                      - cell [ref=e1352]:
+                        - button "126" [ref=e1353] [cursor=pointer]:
+                          - generic [ref=e1354]:
+                            - generic "Chrome – Full support" [ref=e1357]
+                            - 'generic "Chrome 126 – Release date: 2024-06-11" [ref=e1359]': "126"
+                      - cell [ref=e1360]:
+                        - button "126" [ref=e1361] [cursor=pointer]:
+                          - generic [ref=e1362]:
+                            - generic "Edge – Full support" [ref=e1365]
+                            - 'generic "Edge 126 – Release date: 2024-06-13" [ref=e1367]': "126"
+                      - cell [ref=e1368]:
+                        - button "No" [ref=e1369] [cursor=pointer]:
+                          - generic [ref=e1370]:
+                            - generic "Firefox – No support" [ref=e1373]
+                            - generic [ref=e1374]: "No"
+                      - cell [ref=e1376]:
+                        - button "112" [ref=e1377] [cursor=pointer]:
+                          - generic [ref=e1378]:
+                            - generic "Opera – Full support" [ref=e1381]
+                            - 'generic "Opera 112 – Release date: 2024-07-11" [ref=e1383]': "112"
+                      - cell [ref=e1384]:
+                        - button "No" [ref=e1385] [cursor=pointer]:
+                          - generic [ref=e1386]:
+                            - generic "Safari – No support" [ref=e1389]
+                            - generic [ref=e1390]: "No"
+                      - cell [ref=e1392]:
+                        - button "126" [ref=e1393] [cursor=pointer]:
+                          - generic [ref=e1394]:
+                            - generic "Chrome Android – Full support" [ref=e1397]
+                            - 'generic "Chrome Android 126 – Release date: 2024-06-11" [ref=e1399]': "126"
+                      - cell [ref=e1400]:
+                        - button "No" [ref=e1401] [cursor=pointer]:
+                          - generic [ref=e1402]:
+                            - generic "Firefox for Android – No support" [ref=e1405]
+                            - generic [ref=e1406]: "No"
+                      - cell [ref=e1408]:
+                        - button "83" [ref=e1409] [cursor=pointer]:
+                          - generic [ref=e1410]:
+                            - generic "Opera Android – Full support" [ref=e1413]
+                            - 'generic "Opera Android 83 – Release date: 2024-06-25" [ref=e1415]': "83"
+                      - cell [ref=e1416]:
+                        - button "No" [ref=e1417] [cursor=pointer]:
+                          - generic [ref=e1418]:
+                            - generic "Safari on iOS – No support" [ref=e1421]
+                            - generic [ref=e1422]: "No"
+                      - cell [ref=e1424]:
+                        - button "28" [ref=e1425] [cursor=pointer]:
+                          - generic [ref=e1426]:
+                            - generic "Samsung Browser – Full support" [ref=e1429]
+                            - 'generic "Samsung Browser 28.0 – Release date: 2025-04-02" [ref=e1431]': "28"
+                      - cell [ref=e1432]:
+                        - button "126" [ref=e1433] [cursor=pointer]:
+                          - generic [ref=e1434]:
+                            - generic "WebView Android – Full support" [ref=e1437]
+                            - 'generic "WebView Android 126 – Release date: 2024-06-11" [ref=e1439]': "126"
+                      - cell [ref=e1440]:
+                        - button "No" [ref=e1441] [cursor=pointer]:
+                          - generic [ref=e1442]:
+                            - generic "WebView on iOS – No support" [ref=e1445]
+                            - generic [ref=e1446]: "No"
+                      - cell [ref=e1448]:
+                        - button "No" [ref=e1449] [cursor=pointer]:
+                          - generic [ref=e1450]:
+                            - generic "Bun – No support" [ref=e1453]
+                            - generic [ref=e1454]: "No"
+                      - cell [ref=e1456]:
+                        - button "No" [ref=e1457] [cursor=pointer]:
+                          - generic [ref=e1458]:
+                            - generic "Deno – No support" [ref=e1461]
+                            - generic [ref=e1462]: "No"
+                      - cell [ref=e1464]:
+                        - button "No" [ref=e1465] [cursor=pointer]:
+                          - generic [ref=e1466]:
+                            - generic "Node.js – No support" [ref=e1469]
+                            - generic [ref=e1470]: "No"
+                    - row [ref=e1472]:
+                      - rowheader "duplex property Experimental" [ref=e1473]:
+                        - generic [ref=e1474]:
+                          - generic [ref=e1475]:
+                            - code [ref=e1476]: duplex
+                            - text: property
+                          - generic "Experimental. Expect behavior to change in the future." [ref=e1478]: Experimental
+                      - cell [ref=e1480]:
+                        - button "105" [ref=e1481] [cursor=pointer]:
+                          - generic [ref=e1482]:
+                            - generic "Chrome – Full support" [ref=e1485]
+                            - 'generic "Chrome 105 – Release date: 2022-09-02" [ref=e1487]': "105"
+                      - cell [ref=e1488]:
+                        - button "105" [ref=e1489] [cursor=pointer]:
+                          - generic [ref=e1490]:
+                            - generic "Edge – Full support" [ref=e1493]
+                            - 'generic "Edge 105 – Release date: 2022-09-01" [ref=e1495]': "105"
+                      - cell [ref=e1496]:
+                        - button "No footnote" [ref=e1497] [cursor=pointer]:
+                          - generic [ref=e1498]:
+                            - generic "Firefox – No support" [ref=e1501]
+                            - generic [ref=e1502]: "No"
+                            - generic "See implementation notes." [ref=e1506]: footnote
+                      - cell [ref=e1509]:
+                        - button "91" [ref=e1510] [cursor=pointer]:
+                          - generic [ref=e1511]:
+                            - generic "Opera – Full support" [ref=e1514]
+                            - 'generic "Opera 91 – Release date: 2022-09-14" [ref=e1516]': "91"
+                      - cell [ref=e1517]:
+                        - button "No footnote" [ref=e1518] [cursor=pointer]:
+                          - generic [ref=e1519]:
+                            - generic "Safari – No support" [ref=e1522]
+                            - generic [ref=e1523]: "No"
+                            - generic "See implementation notes." [ref=e1527]: footnote
+                      - cell [ref=e1530]:
+                        - button "No" [ref=e1531] [cursor=pointer]:
+                          - generic [ref=e1532]:
+                            - generic "Chrome Android – No support" [ref=e1535]
+                            - generic [ref=e1536]: "No"
+                      - cell [ref=e1538]:
+                        - button "No footnote" [ref=e1539] [cursor=pointer]:
+                          - generic [ref=e1540]:
+                            - generic "Firefox for Android – No support" [ref=e1543]
+                            - generic [ref=e1544]: "No"
+                            - generic "See implementation notes." [ref=e1548]: footnote
+                      - cell [ref=e1551]:
+                        - button "No" [ref=e1552] [cursor=pointer]:
+                          - generic [ref=e1553]:
+                            - generic "Opera Android – No support" [ref=e1556]
+                            - generic [ref=e1557]: "No"
+                      - cell [ref=e1559]:
+                        - button "No footnote" [ref=e1560] [cursor=pointer]:
+                          - generic [ref=e1561]:
+                            - generic "Safari on iOS – No support" [ref=e1564]
+                            - generic [ref=e1565]: "No"
+                            - generic "See implementation notes." [ref=e1569]: footnote
+                      - cell [ref=e1572]:
+                        - button "No" [ref=e1573] [cursor=pointer]:
+                          - generic [ref=e1574]:
+                            - generic "Samsung Browser – No support" [ref=e1577]
+                            - generic [ref=e1578]: "No"
+                      - cell [ref=e1580]:
+                        - button "No" [ref=e1581] [cursor=pointer]:
+                          - generic [ref=e1582]:
+                            - generic "WebView Android – No support" [ref=e1585]
+                            - generic [ref=e1586]: "No"
+                      - cell [ref=e1588]:
+                        - button "No footnote" [ref=e1589] [cursor=pointer]:
+                          - generic [ref=e1590]:
+                            - generic "WebView on iOS – No support" [ref=e1593]
+                            - generic [ref=e1594]: "No"
+                            - generic "See implementation notes." [ref=e1598]: footnote
+                      - cell [ref=e1601]:
+                        - button "No" [ref=e1602] [cursor=pointer]:
+                          - generic [ref=e1603]:
+                            - generic "Bun – No support" [ref=e1606]
+                            - generic [ref=e1607]: "No"
+                      - cell [ref=e1609]:
+                        - button "No" [ref=e1610] [cursor=pointer]:
+                          - generic [ref=e1611]:
+                            - generic "Deno – No support" [ref=e1614]
+                            - generic [ref=e1615]: "No"
+                      - cell [ref=e1617]:
+                        - button "19.1 more" [ref=e1618] [cursor=pointer]:
+                          - generic [ref=e1619]:
+                            - generic "Node.js – Full support" [ref=e1622]
+                            - 'generic "Node.js 19.1.0 – Release date: 2022-11-14" [ref=e1624]': "19.1"
+                            - generic "Has more compatibility info." [ref=e1627]: more
+                    - row [ref=e1630]:
+                      - rowheader [ref=e1631]:
+                        - generic [ref=e1633]:
+                          - code [ref=e1634]: keepalive
+                          - text: property
+                      - cell [ref=e1635]:
+                        - button "66" [ref=e1636] [cursor=pointer]:
+                          - generic [ref=e1637]:
+                            - generic "Chrome – Full support" [ref=e1640]
+                            - 'generic "Chrome 66 – Release date: 2018-04-17" [ref=e1642]': "66"
+                      - cell [ref=e1643]:
+                        - button "15" [ref=e1644] [cursor=pointer]:
+                          - generic [ref=e1645]:
+                            - generic "Edge – Full support" [ref=e1648]
+                            - 'generic "Edge 15 – Release date: 2017-04-05" [ref=e1650]': "15"
+                      - cell [ref=e1651]:
+                        - button "133" [ref=e1652] [cursor=pointer]:
+                          - generic [ref=e1653]:
+                            - generic "Firefox – Full support" [ref=e1656]
+                            - 'generic "Firefox 133 – Release date: 2024-11-26" [ref=e1658]': "133"
+                      - cell [ref=e1659]:
+                        - button "53" [ref=e1660] [cursor=pointer]:
+                          - generic [ref=e1661]:
+                            - generic "Opera – Full support" [ref=e1664]
+                            - 'generic "Opera 53 – Release date: 2018-05-10" [ref=e1666]': "53"
+                      - cell [ref=e1667]:
+                        - button "13" [ref=e1668] [cursor=pointer]:
+                          - generic [ref=e1669]:
+                            - generic "Safari – Full support" [ref=e1672]
+                            - 'generic "Safari 13 – Release date: 2019-09-19" [ref=e1674]': "13"
+                      - cell [ref=e1675]:
+                        - button "66" [ref=e1676] [cursor=pointer]:
+                          - generic [ref=e1677]:
+                            - generic "Chrome Android – Full support" [ref=e1680]
+                            - 'generic "Chrome Android 66 – Release date: 2018-04-17" [ref=e1682]': "66"
+                      - cell [ref=e1683]:
+                        - button "133" [ref=e1684] [cursor=pointer]:
+                          - generic [ref=e1685]:
+                            - generic "Firefox for Android – Full support" [ref=e1688]
+                            - 'generic "Firefox for Android 133 – Release date: 2024-11-26" [ref=e1690]': "133"
+                      - cell [ref=e1691]:
+                        - button "47" [ref=e1692] [cursor=pointer]:
+                          - generic [ref=e1693]:
+                            - generic "Opera Android – Full support" [ref=e1696]
+                            - 'generic "Opera Android 47 – Release date: 2018-07-23" [ref=e1698]': "47"
+                      - cell [ref=e1699]:
+                        - button "13" [ref=e1700] [cursor=pointer]:
+                          - generic [ref=e1701]:
+                            - generic "Safari on iOS – Full support" [ref=e1704]
+                            - 'generic "Safari on iOS 13 – Release date: 2019-09-19" [ref=e1706]': "13"
+                      - cell [ref=e1707]:
+                        - button "9" [ref=e1708] [cursor=pointer]:
+                          - generic [ref=e1709]:
+                            - generic "Samsung Browser – Full support" [ref=e1712]
+                            - 'generic "Samsung Browser 9.0 – Release date: 2018-09-15" [ref=e1714]': "9"
+                      - cell [ref=e1715]:
+                        - button "66" [ref=e1716] [cursor=pointer]:
+                          - generic [ref=e1717]:
+                            - generic "WebView Android – Full support" [ref=e1720]
+                            - 'generic "WebView Android 66 – Release date: 2018-04-17" [ref=e1722]': "66"
+                      - cell [ref=e1723]:
+                        - button "13" [ref=e1724] [cursor=pointer]:
+                          - generic [ref=e1725]:
+                            - generic "WebView on iOS – Full support" [ref=e1728]
+                            - 'generic "WebView on iOS 13 – Release date: 2019-09-19" [ref=e1730]': "13"
+                      - cell [ref=e1731]:
+                        - button "No" [ref=e1732] [cursor=pointer]:
+                          - generic [ref=e1733]:
+                            - generic "Bun – No support" [ref=e1736]
+                            - generic [ref=e1737]: "No"
+                      - cell [ref=e1739]:
+                        - button "No" [ref=e1740] [cursor=pointer]:
+                          - generic [ref=e1741]:
+                            - generic "Deno – No support" [ref=e1744]
+                            - generic [ref=e1745]: "No"
+                      - cell [ref=e1747]:
+                        - button "18" [ref=e1748] [cursor=pointer]:
+                          - generic [ref=e1749]:
+                            - generic "Node.js – Full support" [ref=e1752]
+                            - 'generic "Node.js 18.0.0 – Release date: 2022-04-19" [ref=e1754]': "18"
+                    - row [ref=e1755]:
+                      - rowheader [ref=e1756]:
+                        - generic [ref=e1758]:
+                          - code [ref=e1759]: priority
+                          - text: property
+                      - cell [ref=e1760]:
+                        - button "101" [ref=e1761] [cursor=pointer]:
+                          - generic [ref=e1762]:
+                            - generic "Chrome – Full support" [ref=e1765]
+                            - 'generic "Chrome 101 – Release date: 2022-04-26" [ref=e1767]': "101"
+                      - cell [ref=e1768]:
+                        - button "101" [ref=e1769] [cursor=pointer]:
+                          - generic [ref=e1770]:
+                            - generic "Edge – Full support" [ref=e1773]
+                            - 'generic "Edge 101 – Release date: 2022-04-28" [ref=e1775]': "101"
+                      - cell [ref=e1776]:
+                        - button "132" [ref=e1777] [cursor=pointer]:
+                          - generic [ref=e1778]:
+                            - generic "Firefox – Full support" [ref=e1781]
+                            - 'generic "Firefox 132 – Release date: 2024-10-29" [ref=e1783]': "132"
+                      - cell [ref=e1784]:
+                        - button "87" [ref=e1785] [cursor=pointer]:
+                          - generic [ref=e1786]:
+                            - generic "Opera – Full support" [ref=e1789]
+                            - 'generic "Opera 87 – Release date: 2022-05-17" [ref=e1791]': "87"
+                      - cell [ref=e1792]:
+                        - button "17.2" [ref=e1793] [cursor=pointer]:
+                          - generic [ref=e1794]:
+                            - generic "Safari – Full support" [ref=e1797]
+                            - 'generic "Safari 17.2 – Release date: 2023-12-11" [ref=e1799]': "17.2"
+                      - cell [ref=e1800]:
+                        - button "101" [ref=e1801] [cursor=pointer]:
+                          - generic [ref=e1802]:
+                            - generic "Chrome Android – Full support" [ref=e1805]
+                            - 'generic "Chrome Android 101 – Release date: 2022-04-26" [ref=e1807]': "101"
+                      - cell [ref=e1808]:
+                        - button "132" [ref=e1809] [cursor=pointer]:
+                          - generic [ref=e1810]:
+                            - generic "Firefox for Android – Full support" [ref=e1813]
+                            - 'generic "Firefox for Android 132 – Release date: 2024-10-29" [ref=e1815]': "132"
+                      - cell [ref=e1816]:
+                        - button "70" [ref=e1817] [cursor=pointer]:
+                          - generic [ref=e1818]:
+                            - generic "Opera Android – Full support" [ref=e1821]
+                            - 'generic "Opera Android 70 – Release date: 2022-06-29" [ref=e1823]': "70"
+                      - cell [ref=e1824]:
+                        - button "17.2" [ref=e1825] [cursor=pointer]:
+                          - generic [ref=e1826]:
+                            - generic "Safari on iOS – Full support" [ref=e1829]
+                            - 'generic "Safari on iOS 17.2 – Release date: 2023-12-11" [ref=e1831]': "17.2"
+                      - cell [ref=e1832]:
+                        - button "19" [ref=e1833] [cursor=pointer]:
+                          - generic [ref=e1834]:
+                            - generic "Samsung Browser – Full support" [ref=e1837]
+                            - 'generic "Samsung Browser 19.0 – Release date: 2022-11-01" [ref=e1839]': "19"
+                      - cell [ref=e1840]:
+                        - button "101" [ref=e1841] [cursor=pointer]:
+                          - generic [ref=e1842]:
+                            - generic "WebView Android – Full support" [ref=e1845]
+                            - 'generic "WebView Android 101 – Release date: 2022-04-26" [ref=e1847]': "101"
+                      - cell [ref=e1848]:
+                        - button "17.2" [ref=e1849] [cursor=pointer]:
+                          - generic [ref=e1850]:
+                            - generic "WebView on iOS – Full support" [ref=e1853]
+                            - 'generic "WebView on iOS 17.2 – Release date: 2023-12-11" [ref=e1855]': "17.2"
+                      - cell [ref=e1856]:
+                        - button "No" [ref=e1857] [cursor=pointer]:
+                          - generic [ref=e1858]:
+                            - generic "Bun – No support" [ref=e1861]
+                            - generic [ref=e1862]: "No"
+                      - cell [ref=e1864]:
+                        - button "No" [ref=e1865] [cursor=pointer]:
+                          - generic [ref=e1866]:
+                            - generic "Deno – No support" [ref=e1869]
+                            - generic [ref=e1870]: "No"
+                      - cell [ref=e1872]:
+                        - button "No" [ref=e1873] [cursor=pointer]:
+                          - generic [ref=e1874]:
+                            - generic "Node.js – No support" [ref=e1877]
+                            - generic [ref=e1878]: "No"
+                    - row [ref=e1880]:
+                      - rowheader "privateToken property Experimental" [ref=e1881]:
+                        - generic [ref=e1882]:
+                          - generic [ref=e1883]:
+                            - code [ref=e1884]: privateToken
+                            - text: property
+                          - generic "Experimental. Expect behavior to change in the future." [ref=e1886]: Experimental
+                      - cell [ref=e1888]:
+                        - button "117" [ref=e1889] [cursor=pointer]:
+                          - generic [ref=e1890]:
+                            - generic "Chrome – Full support" [ref=e1893]
+                            - 'generic "Chrome 117 – Release date: 2023-09-12" [ref=e1895]': "117"
+                      - cell [ref=e1896]:
+                        - button "117" [ref=e1897] [cursor=pointer]:
+                          - generic [ref=e1898]:
+                            - generic "Edge – Full support" [ref=e1901]
+                            - 'generic "Edge 117 – Release date: 2023-09-15" [ref=e1903]': "117"
+                      - cell [ref=e1904]:
+                        - button "No" [ref=e1905] [cursor=pointer]:
+                          - generic [ref=e1906]:
+                            - generic "Firefox – No support" [ref=e1909]
+                            - generic [ref=e1910]: "No"
+                      - cell [ref=e1912]:
+                        - button "103" [ref=e1913] [cursor=pointer]:
+                          - generic [ref=e1914]:
+                            - generic "Opera – Full support" [ref=e1917]
+                            - 'generic "Opera 103 – Release date: 2023-10-03" [ref=e1919]': "103"
+                      - cell [ref=e1920]:
+                        - button "No" [ref=e1921] [cursor=pointer]:
+                          - generic [ref=e1922]:
+                            - generic "Safari – No support" [ref=e1925]
+                            - generic [ref=e1926]: "No"
+                      - cell [ref=e1928]:
+                        - button "117" [ref=e1929] [cursor=pointer]:
+                          - generic [ref=e1930]:
+                            - generic "Chrome Android – Full support" [ref=e1933]
+                            - 'generic "Chrome Android 117 – Release date: 2023-09-12" [ref=e1935]': "117"
+                      - cell [ref=e1936]:
+                        - button "No" [ref=e1937] [cursor=pointer]:
+                          - generic [ref=e1938]:
+                            - generic "Firefox for Android – No support" [ref=e1941]
+                            - generic [ref=e1942]: "No"
+                      - cell [ref=e1944]:
+                        - button "78" [ref=e1945] [cursor=pointer]:
+                          - generic [ref=e1946]:
+                            - generic "Opera Android – Full support" [ref=e1949]
+                            - 'generic "Opera Android 78 – Release date: 2023-10-23" [ref=e1951]': "78"
+                      - cell [ref=e1952]:
+                        - button "No" [ref=e1953] [cursor=pointer]:
+                          - generic [ref=e1954]:
+                            - generic "Safari on iOS – No support" [ref=e1957]
+                            - generic [ref=e1958]: "No"
+                      - cell [ref=e1960]:
+                        - button "24" [ref=e1961] [cursor=pointer]:
+                          - generic [ref=e1962]:
+                            - generic "Samsung Browser – Full support" [ref=e1965]
+                            - 'generic "Samsung Browser 24.0 – Release date: 2024-01-25" [ref=e1967]': "24"
+                      - cell [ref=e1968]:
+                        - button "No" [ref=e1969] [cursor=pointer]:
+                          - generic [ref=e1970]:
+                            - generic "WebView Android – No support" [ref=e1973]
+                            - generic [ref=e1974]: "No"
+                      - cell [ref=e1976]:
+                        - button "No" [ref=e1977] [cursor=pointer]:
+                          - generic [ref=e1978]:
+                            - generic "WebView on iOS – No support" [ref=e1981]
+                            - generic [ref=e1982]: "No"
+                      - cell [ref=e1984]:
+                        - button "No" [ref=e1985] [cursor=pointer]:
+                          - generic [ref=e1986]:
+                            - generic "Bun – No support" [ref=e1989]
+                            - generic [ref=e1990]: "No"
+                      - cell [ref=e1992]:
+                        - button "No" [ref=e1993] [cursor=pointer]:
+                          - generic [ref=e1994]:
+                            - generic "Deno – No support" [ref=e1997]
+                            - generic [ref=e1998]: "No"
+                      - cell [ref=e2000]:
+                        - button "No" [ref=e2001] [cursor=pointer]:
+                          - generic [ref=e2002]:
+                            - generic "Node.js – No support" [ref=e2005]
+                            - generic [ref=e2006]: "No"
+                    - row [ref=e2008]:
+                      - rowheader [ref=e2009]:
+                        - generic [ref=e2011]:
+                          - code [ref=e2012]: referrerPolicy
+                          - text: property
+                      - cell [ref=e2013]:
+                        - button "52" [ref=e2014] [cursor=pointer]:
+                          - generic [ref=e2015]:
+                            - generic "Chrome – Full support" [ref=e2018]
+                            - 'generic "Chrome 52 – Release date: 2016-07-20" [ref=e2020]': "52"
+                      - cell [ref=e2021]:
+                        - button "79" [ref=e2022] [cursor=pointer]:
+                          - generic [ref=e2023]:
+                            - generic "Edge – Full support" [ref=e2026]
+                            - 'generic "Edge 79 – Release date: 2020-01-15" [ref=e2028]': "79"
+                      - cell [ref=e2029]:
+                        - button "52" [ref=e2030] [cursor=pointer]:
+                          - generic [ref=e2031]:
+                            - generic "Firefox – Full support" [ref=e2034]
+                            - 'generic "Firefox 52 – Release date: 2017-03-07" [ref=e2036]': "52"
+                      - cell [ref=e2037]:
+                        - button "39" [ref=e2038] [cursor=pointer]:
+                          - generic [ref=e2039]:
+                            - generic "Opera – Full support" [ref=e2042]
+                            - 'generic "Opera 39 – Release date: 2016-08-02" [ref=e2044]': "39"
+                      - cell [ref=e2045]:
+                        - button "11.1" [ref=e2046] [cursor=pointer]:
+                          - generic [ref=e2047]:
+                            - generic "Safari – Full support" [ref=e2050]
+                            - 'generic "Safari 11.1 – Release date: 2018-04-12" [ref=e2052]': "11.1"
+                      - cell [ref=e2053]:
+                        - button "52" [ref=e2054] [cursor=pointer]:
+                          - generic [ref=e2055]:
+                            - generic "Chrome Android – Full support" [ref=e2058]
+                            - 'generic "Chrome Android 52 – Release date: 2016-07-27" [ref=e2060]': "52"
+                      - cell [ref=e2061]:
+                        - button "52" [ref=e2062] [cursor=pointer]:
+                          - generic [ref=e2063]:
+                            - generic "Firefox for Android – Full support" [ref=e2066]
+                            - 'generic "Firefox for Android 52 – Release date: 2017-03-07" [ref=e2068]': "52"
+                      - cell [ref=e2069]:
+                        - button "41" [ref=e2070] [cursor=pointer]:
+                          - generic [ref=e2071]:
+                            - generic "Opera Android – Full support" [ref=e2074]
+                            - 'generic "Opera Android 41 – Release date: 2016-10-25" [ref=e2076]': "41"
+                      - cell [ref=e2077]:
+                        - button "No" [ref=e2078] [cursor=pointer]:
+                          - generic [ref=e2079]:
+                            - generic "Safari on iOS – No support" [ref=e2082]
+                            - generic [ref=e2083]: "No"
+                      - cell [ref=e2085]:
+                        - button "6" [ref=e2086] [cursor=pointer]:
+                          - generic [ref=e2087]:
+                            - generic "Samsung Browser – Full support" [ref=e2090]
+                            - 'generic "Samsung Browser 6.0 – Release date: 2017-08-23" [ref=e2092]': "6"
+                      - cell [ref=e2093]:
+                        - button "52" [ref=e2094] [cursor=pointer]:
+                          - generic [ref=e2095]:
+                            - generic "WebView Android – Full support" [ref=e2098]
+                            - 'generic "WebView Android 52 – Release date: 2016-07-27" [ref=e2100]': "52"
+                      - cell [ref=e2101]:
+                        - button "No" [ref=e2102] [cursor=pointer]:
+                          - generic [ref=e2103]:
+                            - generic "WebView on iOS – No support" [ref=e2106]
+                            - generic [ref=e2107]: "No"
+                      - cell [ref=e2109]:
+                        - button "No" [ref=e2110] [cursor=pointer]:
+                          - generic [ref=e2111]:
+                            - generic "Bun – No support" [ref=e2114]
+                            - generic [ref=e2115]: "No"
+                      - cell [ref=e2117]:
+                        - button "No" [ref=e2118] [cursor=pointer]:
+                          - generic [ref=e2119]:
+                            - generic "Deno – No support" [ref=e2122]
+                            - generic [ref=e2123]: "No"
+                      - cell [ref=e2125]:
+                        - button "No" [ref=e2126] [cursor=pointer]:
+                          - generic [ref=e2127]:
+                            - generic "Node.js – No support" [ref=e2130]
+                            - generic [ref=e2131]: "No"
+                    - row [ref=e2133]:
+                      - rowheader [ref=e2134]:
+                        - generic [ref=e2136]:
+                          - code [ref=e2137]: signal
+                          - text: property
+                      - cell [ref=e2138]:
+                        - button "66" [ref=e2139] [cursor=pointer]:
+                          - generic [ref=e2140]:
+                            - generic "Chrome – Full support" [ref=e2143]
+                            - 'generic "Chrome 66 – Release date: 2018-04-17" [ref=e2145]': "66"
+                      - cell [ref=e2146]:
+                        - button "16" [ref=e2147] [cursor=pointer]:
+                          - generic [ref=e2148]:
+                            - generic "Edge – Full support" [ref=e2151]
+                            - 'generic "Edge 16 – Release date: 2017-10-17" [ref=e2153]': "16"
+                      - cell [ref=e2154]:
+                        - button "57" [ref=e2155] [cursor=pointer]:
+                          - generic [ref=e2156]:
+                            - generic "Firefox – Full support" [ref=e2159]
+                            - 'generic "Firefox 57 – Release date: 2017-11-14" [ref=e2161]': "57"
+                      - cell [ref=e2162]:
+                        - button "53" [ref=e2163] [cursor=pointer]:
+                          - generic [ref=e2164]:
+                            - generic "Opera – Full support" [ref=e2167]
+                            - 'generic "Opera 53 – Release date: 2018-05-10" [ref=e2169]': "53"
+                      - cell [ref=e2170]:
+                        - button "11.1" [ref=e2171] [cursor=pointer]:
+                          - generic [ref=e2172]:
+                            - generic "Safari – Full support" [ref=e2175]
+                            - 'generic "Safari 11.1 – Release date: 2018-04-12" [ref=e2177]': "11.1"
+                      - cell [ref=e2178]:
+                        - button "66" [ref=e2179] [cursor=pointer]:
+                          - generic [ref=e2180]:
+                            - generic "Chrome Android – Full support" [ref=e2183]
+                            - 'generic "Chrome Android 66 – Release date: 2018-04-17" [ref=e2185]': "66"
+                      - cell [ref=e2186]:
+                        - button "57" [ref=e2187] [cursor=pointer]:
+                          - generic [ref=e2188]:
+                            - generic "Firefox for Android – Full support" [ref=e2191]
+                            - 'generic "Firefox for Android 57 – Release date: 2017-11-28" [ref=e2193]': "57"
+                      - cell [ref=e2194]:
+                        - button "47" [ref=e2195] [cursor=pointer]:
+                          - generic [ref=e2196]:
+                            - generic "Opera Android – Full support" [ref=e2199]
+                            - 'generic "Opera Android 47 – Release date: 2018-07-23" [ref=e2201]': "47"
+                      - cell [ref=e2202]:
+                        - button "11.3" [ref=e2203] [cursor=pointer]:
+                          - generic [ref=e2204]:
+                            - generic "Safari on iOS – Full support" [ref=e2207]
+                            - 'generic "Safari on iOS 11.3 – Release date: 2018-03-29" [ref=e2209]': "11.3"
+                      - cell [ref=e2210]:
+                        - button "9" [ref=e2211] [cursor=pointer]:
+                          - generic [ref=e2212]:
+                            - generic "Samsung Browser – Full support" [ref=e2215]
+                            - 'generic "Samsung Browser 9.0 – Release date: 2018-09-15" [ref=e2217]': "9"
+                      - cell [ref=e2218]:
+                        - button "66" [ref=e2219] [cursor=pointer]:
+                          - generic [ref=e2220]:
+                            - generic "WebView Android – Full support" [ref=e2223]
+                            - 'generic "WebView Android 66 – Release date: 2018-04-17" [ref=e2225]': "66"
+                      - cell [ref=e2226]:
+                        - button "11.3" [ref=e2227] [cursor=pointer]:
+                          - generic [ref=e2228]:
+                            - generic "WebView on iOS – Full support" [ref=e2231]
+                            - 'generic "WebView on iOS 11.3 – Release date: 2018-03-29" [ref=e2233]': "11.3"
+                      - cell [ref=e2234]:
+                        - button "No" [ref=e2235] [cursor=pointer]:
+                          - generic [ref=e2236]:
+                            - generic "Bun – No support" [ref=e2239]
+                            - generic [ref=e2240]: "No"
+                      - cell [ref=e2242]:
+                        - button "1.11" [ref=e2243] [cursor=pointer]:
+                          - generic [ref=e2244]:
+                            - generic "Deno – Full support" [ref=e2247]
+                            - 'generic "Deno 1.11 – Release date: 2021-06-08" [ref=e2249]': "1.11"
+                      - cell [ref=e2250]:
+                        - button "18" [ref=e2251] [cursor=pointer]:
+                          - generic [ref=e2252]:
+                            - generic "Node.js – Full support" [ref=e2255]
+                            - 'generic "Node.js 18.0.0 – Release date: 2022-04-19" [ref=e2257]': "18"
+                    - row [ref=e2258]:
+                      - rowheader "targetAddressSpace property Experimental" [ref=e2259]:
+                        - generic [ref=e2260]:
+                          - generic [ref=e2261]:
+                            - code [ref=e2262]: targetAddressSpace
+                            - text: property
+                          - generic "Experimental. Expect behavior to change in the future." [ref=e2264]: Experimental
+                      - cell [ref=e2266]:
+                        - button "142" [ref=e2267] [cursor=pointer]:
+                          - generic [ref=e2268]:
+                            - generic "Chrome – Full support" [ref=e2271]
+                            - 'generic "Chrome 142 – Release date: 2025-10-28" [ref=e2273]': "142"
+                      - cell [ref=e2274]:
+                        - button "142" [ref=e2275] [cursor=pointer]:
+                          - generic [ref=e2276]:
+                            - generic "Edge – Full support" [ref=e2279]
+                            - 'generic "Edge 142 – Release date: 2025-10-31" [ref=e2281]': "142"
+                      - cell [ref=e2282]:
+                        - button "No" [ref=e2283] [cursor=pointer]:
+                          - generic [ref=e2284]:
+                            - generic "Firefox – No support" [ref=e2287]
+                            - generic [ref=e2288]: "No"
+                      - cell [ref=e2290]:
+                        - button "126" [ref=e2291] [cursor=pointer]:
+                          - generic [ref=e2292]:
+                            - generic "Opera – Full support" [ref=e2295]
+                            - 'generic "Opera 126 – Release date: 2026-01-08" [ref=e2297]': "126"
+                      - cell [ref=e2298]:
+                        - button "No" [ref=e2299] [cursor=pointer]:
+                          - generic [ref=e2300]:
+                            - generic "Safari – No support" [ref=e2303]
+                            - generic [ref=e2304]: "No"
+                      - cell [ref=e2306]:
+                        - button "142" [ref=e2307] [cursor=pointer]:
+                          - generic [ref=e2308]:
+                            - generic "Chrome Android – Full support" [ref=e2311]
+                            - 'generic "Chrome Android 142 – Release date: 2025-10-28" [ref=e2313]': "142"
+                      - cell [ref=e2314]:
+                        - button "No" [ref=e2315] [cursor=pointer]:
+                          - generic [ref=e2316]:
+                            - generic "Firefox for Android – No support" [ref=e2319]
+                            - generic [ref=e2320]: "No"
+                      - cell [ref=e2322]:
+                        - button "93" [ref=e2323] [cursor=pointer]:
+                          - generic [ref=e2324]:
+                            - generic "Opera Android – Full support" [ref=e2327]
+                            - 'generic "Opera Android 93 – Release date: 2025-11-25" [ref=e2329]': "93"
+                      - cell [ref=e2330]:
+                        - button "No" [ref=e2331] [cursor=pointer]:
+                          - generic [ref=e2332]:
+                            - generic "Safari on iOS – No support" [ref=e2335]
+                            - generic [ref=e2336]: "No"
+                      - cell [ref=e2338]:
+                        - button "30" [ref=e2339] [cursor=pointer]:
+                          - generic [ref=e2340]:
+                            - generic "Samsung Browser – Full support" [ref=e2343]
+                            - 'generic "Samsung Browser 30.0 – Release date: 2026-05-11" [ref=e2345]': "30"
+                      - cell [ref=e2346]:
+                        - button "No" [ref=e2347] [cursor=pointer]:
+                          - generic [ref=e2348]:
+                            - generic "WebView Android – No support" [ref=e2351]
+                            - generic [ref=e2352]: "No"
+                      - cell [ref=e2354]:
+                        - button "No" [ref=e2355] [cursor=pointer]:
+                          - generic [ref=e2356]:
+                            - generic "WebView on iOS – No support" [ref=e2359]
+                            - generic [ref=e2360]: "No"
+                      - cell [ref=e2362]:
+                        - button "No" [ref=e2363] [cursor=pointer]:
+                          - generic [ref=e2364]:
+                            - generic "Bun – No support" [ref=e2367]
+                            - generic [ref=e2368]: "No"
+                      - cell [ref=e2370]:
+                        - button "No" [ref=e2371] [cursor=pointer]:
+                          - generic [ref=e2372]:
+                            - generic "Deno – No support" [ref=e2375]
+                            - generic [ref=e2376]: "No"
+                      - cell [ref=e2378]:
+                        - button "No" [ref=e2379] [cursor=pointer]:
+                          - generic [ref=e2380]:
+                            - generic "Node.js – No support" [ref=e2383]
+                            - generic [ref=e2384]: "No"
+            - generic [ref=e2386]:
+              - heading "Legend" [level=3] [ref=e2387]
+              - paragraph [ref=e2388]: "Tip: you can click/tap on a cell for more information."
+              - generic [ref=e2389]:
+                - generic [ref=e2390]:
+                  - term [ref=e2391]:
+                    - generic "Full support" [ref=e2393]
+                  - definition [ref=e2395]: Full support
+                - generic [ref=e2396]:
+                  - term [ref=e2397]:
+                    - generic "No support" [ref=e2399]
+                  - definition [ref=e2401]: No support
+                - generic [ref=e2402]:
+                  - term [ref=e2403]:
+                    - generic "Experimental. Expect behavior to change in the future." [ref=e2404]
+                  - definition [ref=e2405]: Experimental. Expect behavior to change in the future.
+                - generic [ref=e2406]:
+                  - term [ref=e2407]:
+                    - generic "Non-standard. Check cross-browser support before using." [ref=e2408]
+                  - definition [ref=e2409]: Non-standard. Check cross-browser support before using.
+                - generic [ref=e2410]:
+                  - term [ref=e2411]:
+                    - generic "Deprecated. Not for use in new websites." [ref=e2412]
+                  - definition [ref=e2413]: Deprecated. Not for use in new websites.
+                - generic [ref=e2414]:
+                  - term [ref=e2415]:
+                    - generic "See implementation notes." [ref=e2416]
+                  - definition [ref=e2417]: See implementation notes.
+                - generic [ref=e2418]:
+                  - term [ref=e2419]:
+                    - generic "Has more compatibility info." [ref=e2420]
+                  - definition [ref=e2421]: Has more compatibility info.
+        - region [ref=e2422]:
+          - heading [level=2] [ref=e2423]:
+            - link "See also" [ref=e2424] [cursor=pointer]:
+              - /url: "#see_also"
+          - list [ref=e2425]:
+            - listitem [ref=e2426]:
+              - link [ref=e2427] [cursor=pointer]:
+                - /url: /en-US/docs/Web/API/WorkerGlobalScope/fetch
+                - code [ref=e2428]: WorkerGlobalScope.fetch()
+            - listitem [ref=e2429]:
+              - link "Fetch API" [ref=e2430] [cursor=pointer]:
+                - /url: /en-US/docs/Web/API/Fetch_API
+            - listitem [ref=e2431]:
+              - link "ServiceWorker API" [ref=e2432] [cursor=pointer]:
+                - /url: /en-US/docs/Web/API/Service_Worker_API
+            - listitem [ref=e2433]:
+              - link "HTTP access control (CORS)" [ref=e2434] [cursor=pointer]:
+                - /url: /en-US/docs/Web/HTTP/Guides/CORS
+            - listitem [ref=e2435]:
+              - link "HTTP" [ref=e2436] [cursor=pointer]:
+                - /url: /en-US/docs/Web/HTTP
+        - region [ref=e2437]:
+          - generic [ref=e2438]:
+            - heading "Help improve MDN" [level=2] [ref=e2446]
+            - group [ref=e2448]:
+              - generic [ref=e2449]: Was this page helpful to you?
+              - generic [ref=e2450]:
+                - button "Yes" [ref=e2452] [cursor=pointer]
+                - button "No" [ref=e2458] [cursor=pointer]
+            - link "Learn how to contribute" [ref=e2463] [cursor=pointer]:
+              - /url: /en-US/docs/MDN/Community/Getting_started
+            - paragraph [ref=e2464]:
+              - text: This page was last modified on
+              - time [ref=e2465]: Dec 16, 2025
+              - text: by
+              - link "MDN contributors" [ref=e2466] [cursor=pointer]:
+                - /url: /en-US/docs/Web/API/Window/fetch/contributors.txt
+              - text: .
+            - generic [ref=e2467]:
+              - link "View this page on GitHub (external)" [ref=e2468] [cursor=pointer]:
+                - /url: https://github.com/mdn/content/blob/main/files/en-us/web/api/window/fetch/index.md?plain=1
+              - text: •
+              - link "Report a problem with this content (external)" [ref=e2469] [cursor=pointer]:
+                - /url: https://github.com/mdn/content/issues/new?template=page-report.yml&mdn-url=https%3A%2F%2Fdeveloper.mozilla.org%2Fen-US%2Fdocs%2FWeb%2FAPI%2FWindow%2Ffetch&metadata=%3C%21--+Do+not+make+changes+below+this+line+--%3E%0A%3Cdetails%3E%0A%3Csummary%3EPage+report+details%3C%2Fsummary%3E%0A%0A*+Folder%3A+%60en-us%2Fweb%2Fapi%2Fwindow%2Ffetch%60%0A*+MDN+URL%3A+https%3A%2F%2Fdeveloper.mozilla.org%2Fen-US%2Fdocs%2FWeb%2FAPI%2FWindow%2Ffetch%0A*+GitHub+URL%3A+https%3A%2F%2Fgithub.com%2Fmdn%2Fcontent%2Fblob%2Fmain%2Ffiles%2Fen-us%2Fweb%2Fapi%2Fwindow%2Ffetch%2Findex.md%0A*+Last+commit%3A+https%3A%2F%2Fgithub.com%2Fmdn%2Fcontent%2Fcommit%2Ff6e66d18205c93fcaeb2ea9ad51541b5b4d7d2b1%0A*+Document+last+modified%3A+2025-12-16T10%3A03%3A04.000Z%0A%0A%3C%2Fdetails%3E
+    - complementary [ref=e2470]:
+      - navigation [ref=e2471]:
+        - generic [ref=e2473]:
+          - generic [ref=e2474]: Filter sidebar
+          - textbox "Filter sidebar" [ref=e2476]:
+            - /placeholder: Filter
+        - list [ref=e2478]:
+          - listitem [ref=e2479]:
+            - link "Fetch API" [ref=e2480] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Fetch_API
+          - listitem [ref=e2481]:
+            - link [ref=e2482] [cursor=pointer]:
+              - /url: /en-US/docs/Web/API/Window
+              - code [ref=e2483]: Window
+          - listitem [ref=e2484]:
+            - group [ref=e2485]:
+              - generic "Instance properties" [ref=e2486] [cursor=pointer]
+              - list [ref=e2488]:
+                - listitem [ref=e2489]:
+                  - link [ref=e2490] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/caches
+                    - code [ref=e2491]: caches
+                - listitem [ref=e2492]:
+                  - link [ref=e2493] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/closed
+                    - code [ref=e2494]: closed
+                - listitem [ref=e2495]:
+                  - link [ref=e2496] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/cookieStore
+                    - code [ref=e2497]: cookieStore
+                - listitem [ref=e2498]:
+                  - link [ref=e2499] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/crashReport
+                    - code [ref=e2500]: crashReport
+                    - img "Experimental" [ref=e2501]
+                - listitem [ref=e2502]:
+                  - link [ref=e2503] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/credentialless
+                    - code [ref=e2504]: credentialless
+                    - img "Experimental" [ref=e2505]
+                - listitem [ref=e2506]:
+                  - link [ref=e2507] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/crossOriginIsolated
+                    - code [ref=e2508]: crossOriginIsolated
+                - listitem [ref=e2509]:
+                  - link [ref=e2510] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/crypto
+                    - code [ref=e2511]: crypto
+                - listitem [ref=e2512]:
+                  - link [ref=e2513] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/customElements
+                    - code [ref=e2514]: customElements
+                - listitem [ref=e2515]:
+                  - link [ref=e2516] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/devicePixelRatio
+                    - code [ref=e2517]: devicePixelRatio
+                - listitem [ref=e2518]:
+                  - link [ref=e2519] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/document
+                    - code [ref=e2520]: document
+                - listitem [ref=e2521]:
+                  - link [ref=e2522] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/documentPictureInPicture
+                    - code [ref=e2523]: documentPictureInPicture
+                - listitem [ref=e2524]:
+                  - link [ref=e2525] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/event
+                    - code [ref=e2526]: event
+                    - img "Deprecated" [ref=e2527]
+                - listitem [ref=e2528]:
+                  - link [ref=e2529] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/external
+                    - code [ref=e2530]: external
+                    - img "Deprecated" [ref=e2531]
+                - listitem [ref=e2532]:
+                  - link [ref=e2533] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/fence
+                    - code [ref=e2534]: fence
+                    - img "Deprecated, pending removal" [ref=e2535]
+                - listitem [ref=e2536]:
+                  - link [ref=e2537] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/frameElement
+                    - code [ref=e2538]: frameElement
+                - listitem [ref=e2539]:
+                  - link [ref=e2540] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/frames
+                    - code [ref=e2541]: frames
+                - listitem [ref=e2542]:
+                  - link [ref=e2543] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/fullScreen
+                    - code [ref=e2544]: fullScreen
+                    - img "Non-standard" [ref=e2545]
+                - listitem [ref=e2546]:
+                  - link [ref=e2547] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/history
+                    - code [ref=e2548]: history
+                - listitem [ref=e2549]:
+                  - link [ref=e2550] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/indexedDB
+                    - code [ref=e2551]: indexedDB
+                - listitem [ref=e2552]:
+                  - link [ref=e2553] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/innerHeight
+                    - code [ref=e2554]: innerHeight
+                - listitem [ref=e2555]:
+                  - link [ref=e2556] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/innerWidth
+                    - code [ref=e2557]: innerWidth
+                - listitem [ref=e2558]:
+                  - link [ref=e2559] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/isSecureContext
+                    - code [ref=e2560]: isSecureContext
+                - listitem [ref=e2561]:
+                  - link [ref=e2562] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/launchQueue
+                    - code [ref=e2563]: launchQueue
+                    - img "Experimental" [ref=e2564]
+                - listitem [ref=e2565]:
+                  - link [ref=e2566] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/length
+                    - code [ref=e2567]: length
+                - listitem [ref=e2568]:
+                  - link [ref=e2569] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/localStorage
+                    - code [ref=e2570]: localStorage
+                - listitem [ref=e2571]:
+                  - link [ref=e2572] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/location
+                    - code [ref=e2573]: location
+                - listitem [ref=e2574]:
+                  - link [ref=e2575] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/locationbar
+                    - code [ref=e2576]: locationbar
+                - listitem [ref=e2577]:
+                  - link [ref=e2578] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/menubar
+                    - code [ref=e2579]: menubar
+                - listitem [ref=e2580]:
+                  - link [ref=e2581] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/mozInnerScreenX
+                    - code [ref=e2582]: mozInnerScreenX
+                    - img "Non-standard" [ref=e2583]
+                - listitem [ref=e2584]:
+                  - link [ref=e2585] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/mozInnerScreenY
+                    - code [ref=e2586]: mozInnerScreenY
+                    - img "Non-standard" [ref=e2587]
+                - listitem [ref=e2588]:
+                  - link [ref=e2589] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/name
+                    - code [ref=e2590]: name
+                - listitem [ref=e2591]:
+                  - link [ref=e2592] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/navigation
+                    - code [ref=e2593]: navigation
+                - listitem [ref=e2594]:
+                  - link [ref=e2595] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/navigator
+                    - code [ref=e2596]: navigator
+                - listitem [ref=e2597]:
+                  - link [ref=e2598] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/opener
+                    - code [ref=e2599]: opener
+                - listitem [ref=e2600]:
+                  - link [ref=e2601] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/orientation
+                    - code [ref=e2602]: orientation
+                    - img "Deprecated" [ref=e2603]
+                - listitem [ref=e2604]:
+                  - link [ref=e2605] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/origin
+                    - code [ref=e2606]: origin
+                - listitem [ref=e2607]:
+                  - link [ref=e2608] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/originAgentCluster
+                    - code [ref=e2609]: originAgentCluster
+                - listitem [ref=e2610]:
+                  - link [ref=e2611] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/outerHeight
+                    - code [ref=e2612]: outerHeight
+                - listitem [ref=e2613]:
+                  - link [ref=e2614] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/outerWidth
+                    - code [ref=e2615]: outerWidth
+                - listitem [ref=e2616]:
+                  - link [ref=e2617] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/parent
+                    - code [ref=e2618]: parent
+                - listitem [ref=e2619]:
+                  - link [ref=e2620] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/performance
+                    - code [ref=e2621]: performance
+                - listitem [ref=e2622]:
+                  - link [ref=e2623] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/personalbar
+                    - code [ref=e2624]: personalbar
+                - listitem [ref=e2625]:
+                  - link [ref=e2626] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scheduler
+                    - code [ref=e2627]: scheduler
+                - listitem [ref=e2628]:
+                  - link [ref=e2629] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/screen
+                    - code [ref=e2630]: screen
+                - listitem [ref=e2631]:
+                  - link [ref=e2632] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/screenLeft
+                    - code [ref=e2633]: screenLeft
+                - listitem [ref=e2634]:
+                  - link [ref=e2635] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/screenTop
+                    - code [ref=e2636]: screenTop
+                - listitem [ref=e2637]:
+                  - link [ref=e2638] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/screenX
+                    - code [ref=e2639]: screenX
+                - listitem [ref=e2640]:
+                  - link [ref=e2641] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/screenY
+                    - code [ref=e2642]: screenY
+                - listitem [ref=e2643]:
+                  - link [ref=e2644] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollbars
+                    - code [ref=e2645]: scrollbars
+                - listitem [ref=e2646]:
+                  - link [ref=e2647] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollMaxX
+                    - code [ref=e2648]: scrollMaxX
+                    - img "Non-standard" [ref=e2649]
+                - listitem [ref=e2650]:
+                  - link [ref=e2651] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollMaxY
+                    - code [ref=e2652]: scrollMaxY
+                    - img "Non-standard" [ref=e2653]
+                - listitem [ref=e2654]:
+                  - link [ref=e2655] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollX
+                    - code [ref=e2656]: scrollX
+                - listitem [ref=e2657]:
+                  - link [ref=e2658] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollY
+                    - code [ref=e2659]: scrollY
+                - listitem [ref=e2660]:
+                  - link [ref=e2661] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/self
+                    - code [ref=e2662]: self
+                - listitem [ref=e2663]:
+                  - link [ref=e2664] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/sessionStorage
+                    - code [ref=e2665]: sessionStorage
+                - listitem [ref=e2666]:
+                  - link [ref=e2667] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/sharedStorage
+                    - code [ref=e2668]: sharedStorage
+                    - img "Deprecated, pending removal" [ref=e2669]
+                - listitem [ref=e2670]:
+                  - link [ref=e2671] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/speechSynthesis
+                    - code [ref=e2672]: speechSynthesis
+                - listitem [ref=e2673]:
+                  - link [ref=e2674] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/status
+                    - code [ref=e2675]: status
+                    - img "Deprecated" [ref=e2676]
+                - listitem [ref=e2677]:
+                  - link [ref=e2678] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/statusbar
+                    - code [ref=e2679]: statusbar
+                - listitem [ref=e2680]:
+                  - link [ref=e2681] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/toolbar
+                    - code [ref=e2682]: toolbar
+                - listitem [ref=e2683]:
+                  - link [ref=e2684] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/top
+                    - code [ref=e2685]: top
+                - listitem [ref=e2686]:
+                  - link [ref=e2687] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/trustedTypes
+                    - code [ref=e2688]: trustedTypes
+                - listitem [ref=e2689]:
+                  - link [ref=e2690] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/viewport
+                    - code [ref=e2691]: viewport
+                    - img "Experimental" [ref=e2692]
+                - listitem [ref=e2693]:
+                  - link [ref=e2694] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/visualViewport
+                    - code [ref=e2695]: visualViewport
+                - listitem [ref=e2696]:
+                  - link [ref=e2697] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/window
+                    - code [ref=e2698]: window
+          - listitem [ref=e2699]:
+            - group [ref=e2700]:
+              - generic "Instance methods" [ref=e2701] [cursor=pointer]
+              - list [ref=e2703]:
+                - listitem [ref=e2704]:
+                  - link [ref=e2705] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/alert
+                    - code [ref=e2706]: alert()
+                - listitem [ref=e2707]:
+                  - link [ref=e2708] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/atob
+                    - code [ref=e2709]: atob()
+                - listitem [ref=e2710]:
+                  - link [ref=e2711] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/blur
+                    - code [ref=e2712]: blur()
+                    - img "Deprecated" [ref=e2713]
+                - listitem [ref=e2714]:
+                  - link [ref=e2715] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/btoa
+                    - code [ref=e2716]: btoa()
+                - listitem [ref=e2717]:
+                  - link [ref=e2718] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/cancelAnimationFrame
+                    - code [ref=e2719]: cancelAnimationFrame()
+                - listitem [ref=e2720]:
+                  - link [ref=e2721] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/cancelIdleCallback
+                    - code [ref=e2722]: cancelIdleCallback()
+                - listitem [ref=e2723]:
+                  - link [ref=e2724] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/captureEvents
+                    - code [ref=e2725]: captureEvents()
+                    - img "Deprecated" [ref=e2726]
+                - listitem [ref=e2727]:
+                  - link [ref=e2728] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/clearImmediate
+                    - code [ref=e2729]: clearImmediate()
+                    - img "Deprecated" [ref=e2730]
+                - listitem [ref=e2731]:
+                  - link [ref=e2732] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/clearInterval
+                    - code [ref=e2733]: clearInterval()
+                - listitem [ref=e2734]:
+                  - link [ref=e2735] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/clearTimeout
+                    - code [ref=e2736]: clearTimeout()
+                - listitem [ref=e2737]:
+                  - link [ref=e2738] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/close
+                    - code [ref=e2739]: close()
+                - listitem [ref=e2740]:
+                  - link [ref=e2741] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/confirm
+                    - code [ref=e2742]: confirm()
+                - listitem [ref=e2743]:
+                  - link [ref=e2744] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/createImageBitmap
+                    - code [ref=e2745]: createImageBitmap()
+                - listitem [ref=e2746]:
+                  - link [ref=e2747] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/dump
+                    - code [ref=e2748]: dump()
+                    - img "Non-standard" [ref=e2749]
+                - listitem [ref=e2750]:
+                  - emphasis [ref=e2751]:
+                    - link [ref=e2752] [cursor=pointer]:
+                      - /url: /en-US/docs/Web/API/Window/fetch
+                      - code [ref=e2753]: fetch()
+                - listitem [ref=e2754]:
+                  - link [ref=e2755] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/fetchLater
+                    - code [ref=e2756]: fetchLater()
+                    - img "Experimental" [ref=e2757]
+                - listitem [ref=e2758]:
+                  - link [ref=e2759] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/find
+                    - code [ref=e2760]: find()
+                    - img "Non-standard" [ref=e2761]
+                - listitem [ref=e2762]:
+                  - link [ref=e2763] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/focus
+                    - code [ref=e2764]: focus()
+                - listitem [ref=e2765]:
+                  - link [ref=e2766] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/getComputedStyle
+                    - code [ref=e2767]: getComputedStyle()
+                - listitem [ref=e2768]:
+                  - link [ref=e2769] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/getDefaultComputedStyle
+                    - code [ref=e2770]: getDefaultComputedStyle()
+                    - img "Non-standard" [ref=e2771]
+                - listitem [ref=e2772]:
+                  - link [ref=e2773] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/getScreenDetails
+                    - code [ref=e2774]: getScreenDetails()
+                    - img "Experimental" [ref=e2775]
+                - listitem [ref=e2776]:
+                  - link [ref=e2777] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/getSelection
+                    - code [ref=e2778]: getSelection()
+                - listitem [ref=e2779]:
+                  - link [ref=e2780] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/matchMedia
+                    - code [ref=e2781]: matchMedia()
+                - listitem [ref=e2782]:
+                  - link [ref=e2783] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/moveBy
+                    - code [ref=e2784]: moveBy()
+                - listitem [ref=e2785]:
+                  - link [ref=e2786] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/moveTo
+                    - code [ref=e2787]: moveTo()
+                - listitem [ref=e2788]:
+                  - link [ref=e2789] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/open
+                    - code [ref=e2790]: open()
+                - listitem [ref=e2791]:
+                  - link [ref=e2792] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/postMessage
+                    - code [ref=e2793]: postMessage()
+                - listitem [ref=e2794]:
+                  - link [ref=e2795] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/print
+                    - code [ref=e2796]: print()
+                - listitem [ref=e2797]:
+                  - link [ref=e2798] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/prompt
+                    - code [ref=e2799]: prompt()
+                - listitem [ref=e2800]:
+                  - link [ref=e2801] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/queryLocalFonts
+                    - code [ref=e2802]: queryLocalFonts()
+                    - img "Experimental" [ref=e2803]
+                - listitem [ref=e2804]:
+                  - link [ref=e2805] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/queueMicrotask
+                    - code [ref=e2806]: queueMicrotask()
+                - listitem [ref=e2807]:
+                  - link [ref=e2808] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/releaseEvents
+                    - code [ref=e2809]: releaseEvents()
+                    - img "Deprecated" [ref=e2810]
+                - listitem [ref=e2811]:
+                  - link [ref=e2812] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/reportError
+                    - code [ref=e2813]: reportError()
+                - listitem [ref=e2814]:
+                  - link [ref=e2815] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/requestAnimationFrame
+                    - code [ref=e2816]: requestAnimationFrame()
+                - listitem [ref=e2817]:
+                  - link [ref=e2818] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/requestFileSystem
+                    - code [ref=e2819]: requestFileSystem()
+                    - img "Deprecated" [ref=e2820]
+                - listitem [ref=e2821]:
+                  - link [ref=e2822] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/requestIdleCallback
+                    - code [ref=e2823]: requestIdleCallback()
+                - listitem [ref=e2824]:
+                  - link [ref=e2825] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/requestResize
+                    - code [ref=e2826]: requestResize()
+                    - img "Experimental" [ref=e2827]
+                - listitem [ref=e2828]:
+                  - link [ref=e2829] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/resizeBy
+                    - code [ref=e2830]: resizeBy()
+                - listitem [ref=e2831]:
+                  - link [ref=e2832] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/resizeTo
+                    - code [ref=e2833]: resizeTo()
+                - listitem [ref=e2834]:
+                  - link [ref=e2835] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scroll
+                    - code [ref=e2836]: scroll()
+                - listitem [ref=e2837]:
+                  - link [ref=e2838] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollBy
+                    - code [ref=e2839]: scrollBy()
+                - listitem [ref=e2840]:
+                  - link [ref=e2841] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollByLines
+                    - code [ref=e2842]: scrollByLines()
+                    - img "Non-standard" [ref=e2843]
+                - listitem [ref=e2844]:
+                  - link [ref=e2845] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollByPages
+                    - code [ref=e2846]: scrollByPages()
+                    - img "Non-standard" [ref=e2847]
+                - listitem [ref=e2848]:
+                  - link [ref=e2849] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollTo
+                    - code [ref=e2850]: scrollTo()
+                - listitem [ref=e2851]:
+                  - link [ref=e2852] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/setImmediate
+                    - code [ref=e2853]: setImmediate()
+                    - img "Deprecated" [ref=e2854]
+                - listitem [ref=e2855]:
+                  - link [ref=e2856] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/setInterval
+                    - code [ref=e2857]: setInterval()
+                - listitem [ref=e2858]:
+                  - link [ref=e2859] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/setResizable
+                    - code [ref=e2860]: setResizable()
+                    - img "Deprecated" [ref=e2861]
+                - listitem [ref=e2862]:
+                  - link [ref=e2863] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/setTimeout
+                    - code [ref=e2864]: setTimeout()
+                - listitem [ref=e2865]:
+                  - link [ref=e2866] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/showDirectoryPicker
+                    - code [ref=e2867]: showDirectoryPicker()
+                    - img "Experimental" [ref=e2868]
+                - listitem [ref=e2869]:
+                  - link [ref=e2870] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/showOpenFilePicker
+                    - code [ref=e2871]: showOpenFilePicker()
+                    - img "Experimental" [ref=e2872]
+                - listitem [ref=e2873]:
+                  - link [ref=e2874] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/showSaveFilePicker
+                    - code [ref=e2875]: showSaveFilePicker()
+                    - img "Experimental" [ref=e2876]
+                - listitem [ref=e2877]:
+                  - link [ref=e2878] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/sizeToContent
+                    - code [ref=e2879]: sizeToContent()
+                    - img "Non-standard" [ref=e2880]
+                - listitem [ref=e2881]:
+                  - link [ref=e2882] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/stop
+                    - code [ref=e2883]: stop()
+                - listitem [ref=e2884]:
+                  - link [ref=e2885] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/structuredClone
+                    - code [ref=e2886]: structuredClone()
+                - listitem [ref=e2887]:
+                  - link [ref=e2888] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/webkitConvertPointFromNodeToPage
+                    - code [ref=e2889]: webkitConvertPointFromNodeToPage()
+                    - img "Deprecated" [ref=e2890]
+                - listitem [ref=e2891]:
+                  - link [ref=e2892] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/webkitConvertPointFromPageToNode
+                    - code [ref=e2893]: webkitConvertPointFromPageToNode()
+                    - img "Deprecated" [ref=e2894]
+          - listitem [ref=e2895]:
+            - group [ref=e2896]:
+              - generic "Events" [ref=e2897] [cursor=pointer]
+              - list [ref=e2899]:
+                - listitem [ref=e2900]:
+                  - link [ref=e2901] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/afterprint_event
+                    - code [ref=e2902]: afterprint
+                - listitem [ref=e2903]:
+                  - link [ref=e2904] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/appinstalled_event
+                    - code [ref=e2905]: appinstalled
+                - listitem [ref=e2906]:
+                  - link [ref=e2907] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/beforeinstallprompt_event
+                    - code [ref=e2908]: beforeinstallprompt
+                - listitem [ref=e2909]:
+                  - link [ref=e2910] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/beforeprint_event
+                    - code [ref=e2911]: beforeprint
+                - listitem [ref=e2912]:
+                  - link [ref=e2913] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/beforeunload_event
+                    - code [ref=e2914]: beforeunload
+                - listitem [ref=e2915]:
+                  - link [ref=e2916] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/blur_event
+                    - code [ref=e2917]: blur
+                - listitem [ref=e2918]:
+                  - link [ref=e2919] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/devicemotion_event
+                    - code [ref=e2920]: devicemotion
+                - listitem [ref=e2921]:
+                  - link [ref=e2922] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/deviceorientation_event
+                    - code [ref=e2923]: deviceorientation
+                - listitem [ref=e2924]:
+                  - link [ref=e2925] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/deviceorientationabsolute_event
+                    - code [ref=e2926]: deviceorientationabsolute
+                - listitem [ref=e2927]:
+                  - link [ref=e2928] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/error_event
+                    - code [ref=e2929]: error
+                - listitem [ref=e2930]:
+                  - link [ref=e2931] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/focus_event
+                    - code [ref=e2932]: focus
+                - listitem [ref=e2933]:
+                  - link [ref=e2934] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/gamepadconnected_event
+                    - code [ref=e2935]: gamepadconnected
+                - listitem [ref=e2936]:
+                  - link [ref=e2937] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/gamepaddisconnected_event
+                    - code [ref=e2938]: gamepaddisconnected
+                - listitem [ref=e2939]:
+                  - link [ref=e2940] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/hashchange_event
+                    - code [ref=e2941]: hashchange
+                - listitem [ref=e2942]:
+                  - link [ref=e2943] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/languagechange_event
+                    - code [ref=e2944]: languagechange
+                - listitem [ref=e2945]:
+                  - link [ref=e2946] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/load_event
+                    - code [ref=e2947]: load
+                - listitem [ref=e2948]:
+                  - link [ref=e2949] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/message_event
+                    - code [ref=e2950]: message
+                - listitem [ref=e2951]:
+                  - link [ref=e2952] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/messageerror_event
+                    - code [ref=e2953]: messageerror
+                - listitem [ref=e2954]:
+                  - link [ref=e2955] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/offline_event
+                    - code [ref=e2956]: offline
+                - listitem [ref=e2957]:
+                  - link [ref=e2958] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/online_event
+                    - code [ref=e2959]: online
+                - listitem [ref=e2960]:
+                  - link [ref=e2961] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/orientationchange_event
+                    - code [ref=e2962]: orientationchange
+                    - img "Deprecated" [ref=e2963]
+                - listitem [ref=e2964]:
+                  - link [ref=e2965] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/pagehide_event
+                    - code [ref=e2966]: pagehide
+                - listitem [ref=e2967]:
+                  - link [ref=e2968] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/pagereveal_event
+                    - code [ref=e2969]: pagereveal
+                - listitem [ref=e2970]:
+                  - link [ref=e2971] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/pageshow_event
+                    - code [ref=e2972]: pageshow
+                - listitem [ref=e2973]:
+                  - link [ref=e2974] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/pageswap_event
+                    - code [ref=e2975]: pageswap
+                - listitem [ref=e2976]:
+                  - link [ref=e2977] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/popstate_event
+                    - code [ref=e2978]: popstate
+                - listitem [ref=e2979]:
+                  - link [ref=e2980] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/rejectionhandled_event
+                    - code [ref=e2981]: rejectionhandled
+                - listitem [ref=e2982]:
+                  - link [ref=e2983] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/resize_event
+                    - code [ref=e2984]: resize
+                - listitem [ref=e2985]:
+                  - link [ref=e2986] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollsnapchange_event
+                    - code [ref=e2987]: scrollsnapchange
+                    - img "Experimental" [ref=e2988]
+                - listitem [ref=e2989]:
+                  - link [ref=e2990] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/scrollsnapchanging_event
+                    - code [ref=e2991]: scrollsnapchanging
+                    - img "Experimental" [ref=e2992]
+                - listitem [ref=e2993]:
+                  - link [ref=e2994] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/storage_event
+                    - code [ref=e2995]: storage
+                - listitem [ref=e2996]:
+                  - link [ref=e2997] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/unhandledrejection_event
+                    - code [ref=e2998]: unhandledrejection
+                - listitem [ref=e2999]:
+                  - link [ref=e3000] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/unload_event
+                    - code [ref=e3001]: unload
+                - listitem [ref=e3002]:
+                  - link [ref=e3003] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/vrdisplayactivate_event
+                    - code [ref=e3004]: vrdisplayactivate
+                    - img "Deprecated" [ref=e3005]
+                - listitem [ref=e3006]:
+                  - link [ref=e3007] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/vrdisplayconnect_event
+                    - code [ref=e3008]: vrdisplayconnect
+                    - img "Deprecated" [ref=e3009]
+                - listitem [ref=e3010]:
+                  - link [ref=e3011] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/vrdisplaydeactivate_event
+                    - code [ref=e3012]: vrdisplaydeactivate
+                    - img "Deprecated" [ref=e3013]
+                - listitem [ref=e3014]:
+                  - link [ref=e3015] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/vrdisplaydisconnect_event
+                    - code [ref=e3016]: vrdisplaydisconnect
+                    - img "Deprecated" [ref=e3017]
+                - listitem [ref=e3018]:
+                  - link [ref=e3019] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/vrdisplaypresentchange_event
+                    - code [ref=e3020]: vrdisplaypresentchange
+                    - img "Deprecated" [ref=e3021]
+          - listitem [ref=e3022]:
+            - group [ref=e3023]:
+              - generic "Inheritance" [ref=e3024] [cursor=pointer]
+              - list [ref=e3026]:
+                - listitem [ref=e3027]:
+                  - link [ref=e3028] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/EventTarget
+                    - code [ref=e3029]: EventTarget
+          - listitem [ref=e3030]:
+            - group [ref=e3031]:
+              - generic "Related pages for Fetch API" [ref=e3032] [cursor=pointer]
+              - list [ref=e3034]:
+                - listitem [ref=e3035]:
+                  - link [ref=e3036] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/DeferredRequestInit
+                    - code [ref=e3037]: DeferredRequestInit
+                    - img "Experimental" [ref=e3038]
+                - listitem [ref=e3039]:
+                  - link [ref=e3040] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/FetchLaterResult
+                    - code [ref=e3041]: FetchLaterResult
+                    - img "Experimental" [ref=e3042]
+                - listitem [ref=e3043]:
+                  - link [ref=e3044] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Headers
+                    - code [ref=e3045]: Headers
+                - listitem [ref=e3046]:
+                  - link [ref=e3047] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Request
+                    - code [ref=e3048]: Request
+                - listitem [ref=e3049]:
+                  - link [ref=e3050] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/RequestInit
+                    - code [ref=e3051]: RequestInit
+                - listitem [ref=e3052]:
+                  - link [ref=e3053] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Response
+                    - code [ref=e3054]: Response
+                - listitem [ref=e3055]:
+                  - link [ref=e3056] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/fetch
+                    - code [ref=e3057]: Window.fetch()
+                - listitem [ref=e3058]:
+                  - link [ref=e3059] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Window/fetchLater
+                    - code [ref=e3060]: Window.fetchLater()
+                    - img "Experimental" [ref=e3061]
+                - listitem [ref=e3062]:
+                  - link [ref=e3063] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/WorkerGlobalScope/fetch
+                    - code [ref=e3064]: WorkerGlobalScope.fetch()
+          - listitem [ref=e3065]:
+            - group [ref=e3066]:
+              - generic "Guides" [ref=e3067] [cursor=pointer]
+              - list [ref=e3069]:
+                - listitem [ref=e3070]:
+                  - link "Using the Fetch API" [ref=e3071] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Fetch_API/Using_Fetch
+                - listitem [ref=e3072]:
+                  - link "Using Deferred Fetch" [ref=e3073] [cursor=pointer]:
+                    - /url: /en-US/docs/Web/API/Fetch_API/Using_Deferred_Fetch
+  - generic [ref=e3074]:
+    - generic [ref=e3077]:
+      - link [ref=e3078] [cursor=pointer]:
+        - /url: /pong/click?code=aHR0cHM6Ly9zcnYuYnV5c2VsbGFkcy5jb20vYWRzL2NsaWNrL3gvR1RORDQyN1lGNkJJTEtRTkM2N0xZS1FVRlRBSVRLN0xDSzdJNlozSkNBQURFNTNZQzZTRDUyN0tDNkJJNDVRTUNLU0lUMjdMQ1dCREtLNzdDQTdJNjIzWUhFWUk1NTM3Q1lCRDY1M0VDVE5DWUJaNTJL.7lhdHIMa%2FeCIZWhLIGEA9HXws6DgozSUir7vfvf%2Bh9c%3D&version=2
+        - img "Auth0" [ref=e3079]
+      - link "Ad" [ref=e3081] [cursor=pointer]:
+        - /url: /en-US/advertising
+    - contentinfo [ref=e3082]:
+      - generic [ref=e3083]:
+        - generic [ref=e3084]:
+          - link "MDN logo" [ref=e3085] [cursor=pointer]:
+            - /url: /
+            - img "MDN" [ref=e3086]
+          - paragraph [ref=e3088]: Your blueprint for a better internet.
+        - list [ref=e3089]:
+          - listitem [ref=e3090]:
+            - link "MDN on GitHub" [ref=e3091] [cursor=pointer]:
+              - /url: https://github.com/mdn/
+          - listitem [ref=e3092]:
+            - link "MDN on Bluesky" [ref=e3093] [cursor=pointer]:
+              - /url: https://bsky.app/profile/developer.mozilla.org
+          - listitem [ref=e3094]:
+            - link "MDN on X" [ref=e3095] [cursor=pointer]:
+              - /url: https://x.com/mozdevnet
+          - listitem [ref=e3096]:
+            - link "MDN on Mastodon" [ref=e3097] [cursor=pointer]:
+              - /url: https://mastodon.social/@mdn
+          - listitem [ref=e3098]:
+            - link "MDN blog RSS feed" [ref=e3099] [cursor=pointer]:
+              - /url: /en-US/blog/rss.xml
+        - generic [ref=e3100]:
+          - term [ref=e3101]: MDN
+          - definition [ref=e3102]:
+            - list [ref=e3103]:
+              - listitem [ref=e3104]:
+                - link "About" [ref=e3105] [cursor=pointer]:
+                  - /url: /en-US/about
+              - listitem [ref=e3106]:
+                - link "Blog" [ref=e3107] [cursor=pointer]:
+                  - /url: /en-US/blog/
+              - listitem [ref=e3108]:
+                - link "Mozilla careers (external)" [ref=e3109] [cursor=pointer]:
+                  - /url: https://www.mozilla.org/en-US/careers/listings/
+              - listitem [ref=e3110]:
+                - link "Advertise with us" [ref=e3111] [cursor=pointer]:
+                  - /url: /en-US/advertising
+              - listitem [ref=e3112]:
+                - link "MDN Plus" [ref=e3113] [cursor=pointer]:
+                  - /url: /en-US/plus
+              - listitem [ref=e3114]:
+                - link "Product help (external)" [ref=e3115] [cursor=pointer]:
+                  - /url: https://support.mozilla.org/products/mdn-plus
+        - generic [ref=e3116]:
+          - term [ref=e3117]: Contribute
+          - definition [ref=e3118]:
+            - list [ref=e3119]:
+              - listitem [ref=e3120]:
+                - link "MDN Community" [ref=e3121] [cursor=pointer]:
+                  - /url: /en-US/community
+              - listitem [ref=e3122]:
+                - link "Community resources" [ref=e3123] [cursor=pointer]:
+                  - /url: /en-US/docs/MDN/Community
+              - listitem [ref=e3124]:
+                - link "Writing guidelines" [ref=e3125] [cursor=pointer]:
+                  - /url: /en-US/docs/MDN/Writing_guidelines
+              - listitem [ref=e3126]:
+                - link "MDN Discord (external)" [ref=e3127] [cursor=pointer]:
+                  - /url: /discord
+              - listitem [ref=e3128]:
+                - link "MDN on GitHub (external)" [ref=e3129] [cursor=pointer]:
+                  - /url: https://github.com/mdn
+        - generic [ref=e3130]:
+          - term [ref=e3131]: Developers
+          - definition [ref=e3132]:
+            - list [ref=e3133]:
+              - listitem [ref=e3134]:
+                - link "Web technologies" [ref=e3135] [cursor=pointer]:
+                  - /url: /en-US/docs/Web
+              - listitem [ref=e3136]:
+                - link "Learn web development" [ref=e3137] [cursor=pointer]:
+                  - /url: /en-US/docs/Learn_web_development
+              - listitem [ref=e3138]:
+                - link "Guides" [ref=e3139] [cursor=pointer]:
+                  - /url: /en-US/docs/MDN/Guides
+              - listitem [ref=e3140]:
+                - link "Tutorials" [ref=e3141] [cursor=pointer]:
+                  - /url: /en-US/docs/MDN/Tutorials
+              - listitem [ref=e3142]:
+                - link "Glossary" [ref=e3143] [cursor=pointer]:
+                  - /url: /en-US/docs/Glossary
+              - listitem [ref=e3144]:
+                - link "Hacks blog (external)" [ref=e3145] [cursor=pointer]:
+                  - /url: https://hacks.mozilla.org/
+      - generic [ref=e3146]:
+        - link "Mozilla logo" [ref=e3147] [cursor=pointer]:
+          - /url: https://www.mozilla.org/
+          - img "Mozilla" [ref=e3148]
+        - list [ref=e3150]:
+          - listitem [ref=e3151]:
+            - link "Website Privacy Notice (external)" [ref=e3152] [cursor=pointer]:
+              - /url: https://www.mozilla.org/privacy/websites/
+          - listitem [ref=e3153]:
+            - link "Telemetry Settings (external)" [ref=e3154] [cursor=pointer]:
+              - /url: https://www.mozilla.org/en-US/privacy/websites/data-preferences/
+          - listitem [ref=e3155]:
+            - link "Legal (external)" [ref=e3156] [cursor=pointer]:
+              - /url: https://www.mozilla.org/about/legal/terms/mozilla
+          - listitem [ref=e3157]:
+            - link "Community Participation Guidelines (external)" [ref=e3158] [cursor=pointer]:
+              - /url: https://www.mozilla.org/about/governance/policies/participation/
+        - paragraph [ref=e3159]:
+          - text: Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under
+          - link "a Creative Commons license" [ref=e3160] [cursor=pointer]:
+            - /url: /docs/MDN/Writing_guidelines/Attrib_copyright_license
+          - text: .
+  - status [ref=e3162]: injected live region

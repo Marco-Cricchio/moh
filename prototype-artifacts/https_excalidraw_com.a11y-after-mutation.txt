@@ -1,0 +1,80 @@
+- generic [ref=e1]:
+  - banner:
+    - heading "Excalidraw" [level=1] [ref=e2]
+  - generic [active] [ref=e5]:
+    - generic:
+      - generic:
+        - generic: Your drawings are saved in your browser's storage.Browser storage can be cleared unexpectedly.Save your work to a file regularly to avoid losing it.
+        - generic:
+          - button "OpenCmd+O !" [ref=e203] [cursor=pointer]
+          - button "Help ?" [ref=e12] [cursor=pointer]:
+            - generic [ref=e19]: Help
+            - generic [ref=e20]: "?"
+          - button "Live collaboration..." [ref=e21] [cursor=pointer]
+          - link "Sign up" [ref=e31] [cursor=pointer]:
+            - /url: https://plus.excalidraw.com/plus?utm_source=excalidraw&utm_medium=app&utm_content=welcomeScreenGuest
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - button [ref=e41] [cursor=pointer]
+              - generic: Export, preferences, languages, ...
+          - region "Shapes":
+            - generic [ref=e45]:
+              - generic: Pick a tool & Start drawing!
+              - generic [ref=e48]:
+                - generic:
+                  - generic:
+                    - text: To move canvas, hold
+                    - generic: Scroll wheel
+                    - text: or
+                    - generic: Space
+                    - text: while dragging, or use the hand tool
+                - heading "Shapes" [level=2] [ref=e49]
+                - generic [ref=e50]:
+                  - button "Keep selected tool active after drawing" [ref=e51] [cursor=pointer]
+                  - button "Hand (panning tool)" [ref=e60] [cursor=pointer]
+                  - button "Selection" [pressed] [ref=e69] [cursor=pointer]:
+                    - generic [ref=e70]: V
+                  - button "Rectangle" [ref=e77] [cursor=pointer]:
+                    - generic [ref=e78]: R
+                  - button "Diamond" [ref=e84] [cursor=pointer]:
+                    - generic [ref=e85]: D
+                  - button "Ellipse" [ref=e91] [cursor=pointer]:
+                    - generic [ref=e92]: O
+                  - button "Arrow" [ref=e98] [cursor=pointer]:
+                    - generic [ref=e99]: A
+                  - button "Line" [ref=e106] [cursor=pointer]:
+                    - generic [ref=e107]: L
+                  - button "Draw" [ref=e110] [cursor=pointer]:
+                    - generic [ref=e111]: P
+                  - button "Text" [ref=e117] [cursor=pointer]:
+                    - generic [ref=e118]: T
+                  - button "Sticky note" [ref=e125] [cursor=pointer]:
+                    - generic [ref=e126]: "N"
+                  - button "Eraser" [ref=e133] [cursor=pointer]:
+                    - generic [ref=e134]: E
+                  - button "More tools" [ref=e143] [cursor=pointer]
+          - generic:
+            - generic [ref=e150]:
+              - link "Excalidraw+" [ref=e151] [cursor=pointer]:
+                - /url: https://plus.excalidraw.com/plus?utm_source=excalidraw&utm_medium=app&utm_content=guestBanner#excalidraw-redirect
+              - button "Live collaboration..." [ref=e152] [cursor=pointer]
+            - button "Library" [ref=e155] [cursor=pointer]
+      - contentinfo:
+        - region [ref=e163]:
+          - heading "Canvas actions" [level=2] [ref=e164]
+          - generic [ref=e166]:
+            - button "Zoom out" [ref=e167] [cursor=pointer]
+            - button "Reset zoom" [ref=e171] [cursor=pointer]: 100%
+            - button "Zoom in" [ref=e172] [cursor=pointer]
+          - generic [ref=e176]:
+            - button "Undo" [disabled] [ref=e179]
+            - button "Redo" [disabled] [ref=e185]
+        - link "Blog post on end-to-end encryption in Excalidraw" [ref=e190] [cursor=pointer]:
+          - /url: https://plus.excalidraw.com/blog/end-to-end-encryption
+        - generic [ref=e194]:
+          - generic: Shortcuts & help
+          - button "Help" [ref=e196] [cursor=pointer]
+    - generic [ref=e202]: Drawing canvas
+  - status [ref=e204]: injected live region

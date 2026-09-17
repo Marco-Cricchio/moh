@@ -1,0 +1,879 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - link "Skip to content !" [ref=e999] [cursor=pointer]:
+        - /url: "#start-of-content"
+      - banner [ref=e9]:
+        - heading "Navigation Menu" [level=2] [ref=e10]
+        - generic [ref=e11]:
+          - link "Homepage" [ref=e13] [cursor=pointer]:
+            - /url: /
+          - generic [ref=e16]:
+            - navigation "Global" [ref=e17]:
+              - list [ref=e18]:
+                - listitem [ref=e19]:
+                  - button "Platform" [ref=e21] [cursor=pointer]
+                - listitem [ref=e24]:
+                  - button "Solutions" [ref=e26] [cursor=pointer]
+                - listitem [ref=e29]:
+                  - button "Resources" [ref=e31] [cursor=pointer]
+                - listitem [ref=e34]:
+                  - button "Open Source" [ref=e36] [cursor=pointer]
+                - listitem [ref=e39]:
+                  - button "Enterprise" [ref=e41] [cursor=pointer]
+                - listitem [ref=e44]:
+                  - link "Pricing" [ref=e45] [cursor=pointer]:
+                    - /url: https://github.com/pricing
+            - generic [ref=e46]:
+              - button "Search or jump to, type / to search" [ref=e48] [cursor=pointer]
+              - link "Sign in" [ref=e55] [cursor=pointer]:
+                - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FMarco-Cricchio%2Fmoh
+              - link "Sign up" [ref=e58] [cursor=pointer]:
+                - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=Marco-Cricchio%2Fmoh
+              - button "Appearance settings" [ref=e61] [cursor=pointer]
+    - main [ref=e68]:
+      - generic [ref=e69]:
+        - generic [ref=e70]:
+          - generic [ref=e72]:
+            - link "Marco-Cricchio" [ref=e76] [cursor=pointer]:
+              - /url: /Marco-Cricchio
+            - generic [ref=e77]: /
+            - strong [ref=e78]:
+              - link "moh" [ref=e79] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh
+            - generic [ref=e80]: Public
+          - generic [ref=e81]:
+            - list:
+              - listitem [ref=e82]:
+                - link "You must be signed in to change notification settings" [ref=e83] [cursor=pointer]:
+                  - /url: /login?return_to=%2FMarco-Cricchio%2Fmoh
+                  - text: Notifications
+              - listitem [ref=e86]:
+                - link "Fork 1" [ref=e87] [cursor=pointer]:
+                  - /url: /login?return_to=%2FMarco-Cricchio%2Fmoh
+                  - text: Fork
+                  - generic "1" [ref=e90]
+              - listitem [ref=e91]:
+                - link "You must be signed in to star a repository" [ref=e93] [cursor=pointer]:
+                  - /url: /login?return_to=%2FMarco-Cricchio%2Fmoh
+                  - text: Star
+                  - generic "1 user starred this repository" [ref=e96]: "1"
+        - navigation "Repository" [ref=e97]:
+          - list [ref=e98]:
+            - listitem [ref=e99]:
+              - link "Code" [ref=e100] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh
+            - listitem [ref=e104]:
+              - link "Issues 8" [ref=e105] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/issues
+                - generic [ref=e109]: Issues
+                - generic "8" [ref=e110]
+            - listitem [ref=e111]:
+              - link "Pull requests 1" [ref=e112] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/pulls
+                - generic [ref=e115]: Pull requests
+                - generic "1" [ref=e116]
+            - listitem [ref=e117]:
+              - link "Discussions" [ref=e118] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/discussions
+            - listitem [ref=e122]:
+              - link "Actions" [ref=e123] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/actions
+            - listitem [ref=e127]:
+              - link "Projects" [ref=e128] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/projects
+            - listitem [ref=e132]:
+              - link "Security and quality" [ref=e133] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/security
+            - listitem [ref=e137]:
+              - link "Insights" [ref=e138] [cursor=pointer]:
+                - /url: /Marco-Cricchio/moh/pulse
+      - generic [ref=e155]:
+        - generic [ref=e158]:
+          - generic [ref=e159]:
+            - generic [ref=e160]:
+              - button "main branch" [ref=e162] [cursor=pointer]:
+                - generic [ref=e163]: main
+              - generic [ref=e167]:
+                - link [ref=e168] [cursor=pointer]:
+                  - /url: /Marco-Cricchio/moh/branches
+                  - generic [ref=e171]:
+                    - strong [ref=e172]: "20"
+                    - text: Branches
+                - link [ref=e173] [cursor=pointer]:
+                  - /url: /Marco-Cricchio/moh/tags
+                  - generic [ref=e176]:
+                    - strong [ref=e177]: "63"
+                    - text: Tags
+            - generic [ref=e178]:
+              - combobox "Go to file" [ref=e186]
+              - button "Code" [ref=e187] [cursor=pointer]
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - generic [ref=e193]:
+                - heading "Latest commit" [level=2] [ref=e194]
+                - generic [ref=e195]:
+                  - generic [ref=e197]:
+                    - link [ref=e198] [cursor=pointer]:
+                      - /url: /Marco-Cricchio
+                      - img "Marco-Cricchio" [ref=e199]
+                    - link "commits by Marco-Cricchio" [ref=e200] [cursor=pointer]:
+                      - /url: /Marco-Cricchio/moh/commits?author=Marco-Cricchio
+                      - text: Marco-Cricchio
+                  - generic [ref=e201]:
+                    - generic [ref=e203]:
+                      - link "Merge pull request" [ref=e204] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/commit/5d72e61896a1563449826695319c3d58a60f9392
+                      - link "#763" [ref=e205] [cursor=pointer]:
+                        - /url: https://github.com/Marco-Cricchio/moh/pull/763
+                      - link "from Marco-Cricchio/promote/v0.38.2" [ref=e206] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/commit/5d72e61896a1563449826695319c3d58a60f9392
+                    - button "Open commit details" [ref=e207] [cursor=pointer]
+                    - button "success" [ref=e210] [cursor=pointer]
+                - generic [ref=e213]:
+                  - generic [ref=e215]:
+                    - link "Commit 5d72e61" [ref=e216] [cursor=pointer]:
+                      - /url: /Marco-Cricchio/moh/commit/5d72e61896a1563449826695319c3d58a60f9392
+                      - text: 5d72e61
+                    - text: ·
+                    - generic "Sep 17, 2026, 11:09 AM GMT+2" [ref=e217]: Sep 17, 20262 hours ago
+                  - generic [ref=e218]:
+                    - heading "History" [level=2] [ref=e219]
+                    - link "1,163 Commits" [ref=e220] [cursor=pointer]:
+                      - /url: /Marco-Cricchio/moh/commits/main/
+              - heading "Folders and files" [level=2] [ref=e223]
+              - table "Folders and files" [ref=e224]:
+                - rowgroup:
+                  - row "Name Last commit message Last commit date":
+                    - columnheader "Name"
+                    - columnheader "Last commit message"
+                    - columnheader "Last commit date"
+                - rowgroup [ref=e225]:
+                  - row [ref=e226]:
+                    - cell [ref=e227]:
+                      - link ".github, (Directory)" [ref=e234] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/tree/main/.github
+                        - text: .github
+                    - cell [ref=e235]:
+                      - 'link "ci: drop paths-ignore — required checks on develop make skipped runs …" [ref=e238] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/0d90722754e04230b75135b0f99cfb1098a16add
+                    - cell "Sep 11, 2026last week" [ref=e239]
+                  - row [ref=e241]:
+                    - cell [ref=e242]:
+                      - link ".moh, (Directory)" [ref=e249] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/tree/main/.moh
+                        - text: .moh
+                    - cell [ref=e250]:
+                      - 'link "refactor(core): true newest-wins between gist and imported handoffs" [ref=e253] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/a1ced82b1b74607dbad9671f837a6a40d9ba0f0e
+                    - cell "Sep 3, 20262 weeks ago" [ref=e254]
+                  - row [ref=e256]:
+                    - cell [ref=e257]:
+                      - link "docs, (Directory)" [ref=e264] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/tree/main/docs
+                        - text: docs
+                    - cell [ref=e265]:
+                      - generic [ref=e267]:
+                        - 'link "refactor(mpm): review cleanup for" [ref=e268] [cursor=pointer]':
+                          - /url: /Marco-Cricchio/moh/commit/c4ad4dbd4141c5de23d6ce28a61c13078c6607f1
+                        - link "#759" [ref=e269] [cursor=pointer]:
+                          - /url: https://github.com/Marco-Cricchio/moh/issues/759
+                    - cell "Sep 17, 20263 hours ago" [ref=e270]
+                  - row [ref=e272]:
+                    - cell [ref=e273]:
+                      - link "packages, (Directory)" [ref=e280] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/tree/main/packages
+                        - text: packages
+                    - cell [ref=e281]:
+                      - 'link "fix(tui): render the todo box fully expanded in vibe mode" [ref=e284] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/18939d9152527ec71d81b59c6f56ed309ff516a6
+                    - cell "Sep 17, 20262 hours ago" [ref=e285]
+                  - row [ref=e287]:
+                    - cell [ref=e288]:
+                      - link "scripts, (Directory)" [ref=e295] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/tree/main/scripts
+                        - text: scripts
+                    - cell [ref=e296]:
+                      - 'link "test: PTY parallel by default, retry-in-isolation, full suite only fo…" [ref=e299] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/bba10486d8dc20d6828f3edec0acc1d3fc03be76
+                    - cell "Sep 15, 20262 days ago" [ref=e300]
+                  - row [ref=e302]:
+                    - cell [ref=e303]:
+                      - link ".gitignore, (File)" [ref=e310] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/.gitignore
+                        - text: .gitignore
+                    - cell [ref=e311]:
+                      - 'link "fix(tui,core): no synchronous spawns inside React commits (ADR-0024)" [ref=e314] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/85171fc6c5bdb1c36d24c4518606d453625aecd2
+                    - cell "Sep 10, 2026last week" [ref=e315]
+                  - row [ref=e317]:
+                    - cell [ref=e318]:
+                      - link "CHANGELOG.md, (File)" [ref=e325] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/CHANGELOG.md
+                        - text: CHANGELOG.md
+                    - cell [ref=e326]:
+                      - 'link "release: v0.38.2 comparison links" [ref=e329] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/074f10f86f4dbb850f2acf04230f4eceafe21125
+                    - cell "Sep 17, 20262 hours ago" [ref=e330]
+                  - row [ref=e332]:
+                    - cell [ref=e333]:
+                      - link "CODE_OF_CONDUCT.md, (File)" [ref=e340] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/CODE_OF_CONDUCT.md
+                        - text: CODE_OF_CONDUCT.md
+                    - cell [ref=e341]:
+                      - 'link "docs: add Code of Conduct and Security policy (community standards)" [ref=e344] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/2d2eb8ed8777ee802849293486f0d000116d27c2
+                    - cell "Sep 5, 20262 weeks ago" [ref=e345]
+                  - row [ref=e347]:
+                    - cell [ref=e348]:
+                      - link "CONTEXT.md, (File)" [ref=e355] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/CONTEXT.md
+                        - text: CONTEXT.md
+                    - cell [ref=e356]:
+                      - generic [ref=e358]:
+                        - link "docs(mpm):" [ref=e359] [cursor=pointer]:
+                          - /url: /Marco-Cricchio/moh/commit/c5159c5d6367c7fe23f5e772b6592b6f9dc53a65
+                        - link "#759" [ref=e360] [cursor=pointer]:
+                          - /url: https://github.com/Marco-Cricchio/moh/issues/759
+                        - link "orientation tiers in glossary and manual; fix single-…" [ref=e361] [cursor=pointer]:
+                          - /url: /Marco-Cricchio/moh/commit/c5159c5d6367c7fe23f5e772b6592b6f9dc53a65
+                    - cell "Sep 17, 20263 hours ago" [ref=e362]
+                  - row [ref=e364]:
+                    - cell [ref=e365]:
+                      - link "CONTRIBUTING.md, (File)" [ref=e372] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/CONTRIBUTING.md
+                        - text: CONTRIBUTING.md
+                    - cell [ref=e373]:
+                      - 'link "docs: refresh README for non-technical readers; fix 404 links in CONT…" [ref=e376] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/da9cd3e5db51d12f3c973deb789f1f6e6fc5e8ea
+                    - cell "Sep 4, 20262 weeks ago" [ref=e377]
+                  - row [ref=e379]:
+                    - cell [ref=e380]:
+                      - link "LICENSE, (File)" [ref=e387] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/LICENSE
+                        - text: LICENSE
+                    - cell [ref=e388]:
+                      - link "Initial commit" [ref=e391] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/commit/12521e94a4d8cb52a0182b6573ad076ff365c576
+                    - cell "Aug 20, 2026last month" [ref=e392]
+                  - row [ref=e394]:
+                    - cell [ref=e395]:
+                      - link "README.md, (File)" [ref=e402] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/README.md
+                        - text: README.md
+                    - cell [ref=e403]:
+                      - 'link "docs(readme): add local usage telemetry, OpenAI-compatible endpoint p…" [ref=e406] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/824b3c09b6f034a0935c77eab4f3ced6ec794709
+                    - cell "Sep 16, 2026yesterday" [ref=e407]
+                  - row [ref=e409]:
+                    - cell [ref=e410]:
+                      - link "SECURITY.md, (File)" [ref=e417] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/SECURITY.md
+                        - text: SECURITY.md
+                    - cell [ref=e418]:
+                      - 'link "docs: add Code of Conduct and Security policy (community standards)" [ref=e421] [cursor=pointer]':
+                        - /url: /Marco-Cricchio/moh/commit/2d2eb8ed8777ee802849293486f0d000116d27c2
+                    - cell "Sep 5, 20262 weeks ago" [ref=e422]
+                  - row [ref=e424]:
+                    - cell [ref=e425]:
+                      - link "bun.lock, (File)" [ref=e432] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/bun.lock
+                        - text: bun.lock
+                    - cell [ref=e433]:
+                      - generic [ref=e435]:
+                        - 'link "fix: pin fetch connections to the DNS-verified address (" [ref=e436] [cursor=pointer]':
+                          - /url: /Marco-Cricchio/moh/commit/9c9b18d8e19615d942c91eab554cc0bf4b5d5d43
+                        - link "#697" [ref=e437] [cursor=pointer]:
+                          - /url: https://github.com/Marco-Cricchio/moh/issues/697
+                        - link ")" [ref=e438] [cursor=pointer]:
+                          - /url: /Marco-Cricchio/moh/commit/9c9b18d8e19615d942c91eab554cc0bf4b5d5d43
+                    - cell "Sep 14, 20263 days ago" [ref=e439]
+                  - row [ref=e441]:
+                    - cell [ref=e442]:
+                      - link "package.json, (File)" [ref=e449] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/package.json
+                        - text: package.json
+                    - cell [ref=e450]:
+                      - generic [ref=e452]:
+                        - 'link "fix: pin fetch connections to the DNS-verified address (" [ref=e453] [cursor=pointer]':
+                          - /url: /Marco-Cricchio/moh/commit/9c9b18d8e19615d942c91eab554cc0bf4b5d5d43
+                        - link "#697" [ref=e454] [cursor=pointer]:
+                          - /url: https://github.com/Marco-Cricchio/moh/issues/697
+                        - link ")" [ref=e455] [cursor=pointer]:
+                          - /url: /Marco-Cricchio/moh/commit/9c9b18d8e19615d942c91eab554cc0bf4b5d5d43
+                    - cell "Sep 14, 20263 days ago" [ref=e456]
+                  - row [ref=e458]:
+                    - cell [ref=e459]:
+                      - link "tsconfig.json, (File)" [ref=e466] [cursor=pointer]:
+                        - /url: /Marco-Cricchio/moh/blob/main/tsconfig.json
+                        - text: tsconfig.json
+                    - cell [ref=e467]:
+                      - generic [ref=e469]:
+                        - 'link "feat(evals): first-party eval harness with deterministic scoring (" [ref=e470] [cursor=pointer]':
+                          - /url: /Marco-Cricchio/moh/commit/77aa31640de003fd7374367670d2c5786fe410b0
+                        - link "#524" [ref=e471] [cursor=pointer]:
+                          - /url: https://github.com/Marco-Cricchio/moh/issues/524
+                        - link ")" [ref=e472] [cursor=pointer]:
+                          - /url: /Marco-Cricchio/moh/commit/77aa31640de003fd7374367670d2c5786fe410b0
+                    - cell "Sep 6, 20262 weeks ago" [ref=e473]
+            - generic [ref=e476]:
+              - generic [ref=e477]:
+                - heading "Repository files navigation" [level=2] [ref=e478]
+                - navigation "Repository files" [ref=e479]:
+                  - list [ref=e480]:
+                    - listitem [ref=e481]:
+                      - link "README" [ref=e482] [cursor=pointer]:
+                        - /url: "#"
+                    - listitem [ref=e487]:
+                      - link "Code of conduct" [ref=e488] [cursor=pointer]:
+                        - /url: "#"
+                    - listitem [ref=e493]:
+                      - link "Contributing" [ref=e494] [cursor=pointer]:
+                        - /url: "#"
+                    - listitem [ref=e499]:
+                      - link "MIT license" [ref=e500] [cursor=pointer]:
+                        - /url: "#"
+                    - listitem [ref=e505]:
+                      - link "Security" [ref=e506] [cursor=pointer]:
+                        - /url: "#"
+                - button "Outline" [ref=e511] [cursor=pointer]
+              - article [ref=e515]:
+                - generic [ref=e516]:
+                  - link [ref=e517] [cursor=pointer]:
+                    - /url: /Marco-Cricchio/moh/blob/main/docs/assets/logo.png
+                    - img "moh logo" [ref=e518]
+                  - generic [ref=e519]:
+                    - heading "moh" [level=1] [ref=e520]
+                    - 'link "Permalink: moh" [ref=e521] [cursor=pointer]':
+                      - /url: "#moh"
+                  - paragraph [ref=e524]:
+                    - strong [ref=e525]: Your terminal, with a coding agent inside.
+                  - paragraph [ref=e526]:
+                    - link [ref=e527] [cursor=pointer]:
+                      - /url: https://github.com/Marco-Cricchio/moh/releases/latest
+                      - img "Release" [ref=e528]
+                    - link [ref=e529] [cursor=pointer]:
+                      - /url: /Marco-Cricchio/moh/blob/main/LICENSE
+                      - 'img "License: MIT" [ref=e530]'
+                  - generic [ref=e532]:
+                    - generic:
+                      - link:
+                        - /url: https://github.com/Marco-Cricchio/moh/blob/main/docs/assets/demo.gif
+                      - button
+                  - paragraph [ref=e533]:
+                    - emphasis [ref=e534]: Open source · MIT licensed · Runs on macOS and Linux · No Node, no Bun, no npm required
+                - separator [ref=e535]
+                - generic [ref=e536]:
+                  - heading "What is moh?" [level=2] [ref=e537]
+                  - 'link "Permalink: What is moh?" [ref=e538] [cursor=pointer]':
+                    - /url: "#what-is-moh"
+                - paragraph [ref=e541]: "moh is a coding agent that lives in your terminal: you describe what you want in plain language, and moh reads your code, edits files, runs commands, and gets the work done — showing you every step and asking permission before anything risky."
+                - paragraph [ref=e542]: "Three things make it different:"
+                - list [ref=e543]:
+                  - listitem [ref=e544]:
+                    - strong [ref=e545]: It works with the AI provider you choose.
+                    - text: Anthropic, OpenAI, Google, GitHub Copilot, OpenRouter, Kimi, xAI — plus 16 pre-built hosted OpenAI-compatible endpoints (DeepSeek, Groq, Cerebras, Mistral, Moonshot, …) and local models too (Ollama, LM Studio), all through one configuration. If a provider goes down, moh falls back to the next one on your list. Your agent setup is never locked to a single vendor.
+                  - listitem [ref=e546]:
+                    - strong [ref=e547]: Your data stays yours.
+                    - text: Sessions, memory, and notes live in a plain append-only log on your machine (
+                    - code [ref=e548]: ~/.moh/
+                    - text: ) — nothing is ever deleted, and you can resume, fork, or compact any session at any time.
+                  - listitem [ref=e549]:
+                    - strong [ref=e550]: It asks before it acts.
+                    - text: A layered permission system gates every file write and every shell command; extensions can veto actions but can never grant more than you allowed.
+                - generic [ref=e551]:
+                  - heading "Highlights" [level=2] [ref=e552]
+                  - 'link "Permalink: Highlights" [ref=e553] [cursor=pointer]':
+                    - /url: "#highlights"
+                - list [ref=e556]:
+                  - listitem [ref=e557]:
+                    - strong [ref=e558]: Terminal UI (TUI)
+                    - text: — a fast, keyboard-driven interface with file mentions (
+                    - code [ref=e559]: "@path"
+                    - text: ), image previews, session picker, and guided provider onboarding. Or go headless with
+                    - code [ref=e560]: moh run
+                    - text: for scripts and CI — no prompts, fail-fast.
+                  - listitem [ref=e561]:
+                    - strong [ref=e562]: Workflow mode
+                    - text: — an optional first-party port of the Matt Pocock agent workflow (wayfinder, grilling, to-spec, to-tickets, tdd, code-review, …) plus declarative GitHub repo management (
+                    - link "gh-manager" [ref=e563] [cursor=pointer]:
+                      - /url: https://github.com/ddlaws0n/gh-manager
+                    - text: ", by David Lawson). One command to turn it on:"
+                    - code [ref=e564]: /workflow on
+                    - text: .
+                  - listitem [ref=e565]:
+                    - strong [ref=e566]: Skills
+                    - text: — progressive-disclosure capabilities you can author yourself; bundled ones are user-owned and only upgraded when you haven't modified them.
+                  - listitem [ref=e567]:
+                    - strong [ref=e568]: Memory
+                    - text: — durable, per-project facts kept across sessions, written automatically after each turn and consolidated in the background.
+                  - listitem [ref=e569]:
+                    - strong [ref=e570]: Subagents & MCP
+                    - text: — in-process subagents with strict tool inheritance, and Model Context Protocol servers configured lazily per project.
+                  - listitem [ref=e571]:
+                    - strong [ref=e572]: Handoff between machines
+                    - text: "— carry a session from one machine to another with a single command: moh publishes a structured synthesis plus a filtered event-log extract as a secret GitHub gist, and offers it at the next startup on the other machine (manual file export/import when"
+                    - code [ref=e573]: gh
+                    - text: isn't available).
+                  - listitem [ref=e574]:
+                    - strong [ref=e575]: Always up to date
+                    - text: — moh quietly checks for new releases and skill updates while you work (never installing anything without your explicit consent; fully disableable).
+                  - listitem [ref=e576]:
+                    - strong [ref=e577]: Local usage telemetry
+                    - text: —
+                    - code [ref=e578]: moh usage
+                    - text: reports per-model calls, tokens, estimated costs, tool statistics, and route health from your own session logs, with redacted CSV/JSONL export. Measured locally, never phoned home.
+                - generic [ref=e579]:
+                  - heading "How moh compares" [level=2] [ref=e580]
+                  - 'link "Permalink: How moh compares" [ref=e581] [cursor=pointer]':
+                    - /url: "#how-moh-compares"
+                - paragraph [ref=e584]: "moh is not a fork or a clone — it is an independent, MIT-licensed agent you own end to end. Compared with the well-known terminal agents:"
+                - table [ref=e586]:
+                  - rowgroup [ref=e587]:
+                    - row [ref=e588]:
+                      - columnheader [ref=e589]
+                      - columnheader "moh" [ref=e590]
+                      - columnheader "Claude Code" [ref=e591]
+                      - columnheader "OpenAI Codex" [ref=e592]
+                      - columnheader "OpenCode" [ref=e593]
+                  - rowgroup [ref=e594]:
+                    - row [ref=e595]:
+                      - cell [ref=e596]:
+                        - strong [ref=e597]: Providers
+                      - 'cell "Any: Anthropic, OpenAI, Google, GitHub Copilot, OpenRouter, Kimi, xAI, Ollama, LM Studio — with per-model fallback chains" [ref=e598]'
+                      - cell "Anthropic only" [ref=e599]
+                      - cell "OpenAI only" [ref=e600]
+                      - cell "Multiple" [ref=e601]
+                    - row [ref=e602]:
+                      - cell [ref=e603]:
+                        - strong [ref=e604]: License
+                      - cell "MIT" [ref=e605]
+                      - cell "Commercial" [ref=e606]
+                      - cell "Commercial" [ref=e607]
+                      - cell "OSS" [ref=e608]
+                    - row [ref=e609]:
+                      - cell [ref=e610]:
+                        - strong [ref=e611]: Your data
+                      - cell [ref=e612]:
+                        - text: Append-only log in
+                        - code [ref=e613]: ~/.moh/
+                        - text: — resume, fork, rename, trash, export; nothing silently rewritten
+                      - cell "Vendor-controlled" [ref=e614]
+                      - cell "Vendor-controlled" [ref=e615]
+                      - cell "Local" [ref=e616]
+                    - row [ref=e617]:
+                      - cell [ref=e618]:
+                        - strong [ref=e619]: Permissions
+                      - cell "Layered allow/ask/deny rules per tool & argument, out-of-root writes always re-ask, extension veto" [ref=e620]
+                      - cell "Prompt-based approval" [ref=e621]
+                      - cell "Prompt-based approval" [ref=e622]
+                      - cell "Configurable" [ref=e623]
+                    - row [ref=e624]:
+                      - cell [ref=e625]:
+                        - strong [ref=e626]: Headless
+                      - cell [ref=e627]:
+                        - code [ref=e628]: moh run
+                        - text: — fail-fast, no prompts, CI-ready
+                      - cell "Yes" [ref=e629]
+                      - cell "Yes" [ref=e630]
+                      - cell "Yes" [ref=e631]
+                    - row [ref=e632]:
+                      - cell [ref=e633]:
+                        - strong [ref=e634]: Extensibility
+                      - cell "Typed phase hooks, skills, custom providers, embeddable core library" [ref=e635]
+                      - cell "Skills/hooks" [ref=e636]
+                      - cell "Limited" [ref=e637]
+                      - cell "Extensions" [ref=e638]
+                - paragraph [ref=e639]:
+                  - emphasis [ref=e640]: Vendor names are trademarks of their respective owners; comparison is informational, based on publicly documented behavior.
+                - generic [ref=e641]:
+                  - heading "Not sure where to start? Ask moh." [level=2] [ref=e642]
+                  - 'link "Permalink: Not sure where to start? Ask moh." [ref=e643] [cursor=pointer]':
+                    - /url: "#not-sure-where-to-start-ask-moh"
+                - paragraph [ref=e646]:
+                  - text: Bundled with moh is
+                  - strong [ref=e647]: ask-moh
+                  - text: ", a guide agent that knows every skill, command and page of documentation moh ships. When you don't know where to begin — or which tool fits your situation — just ask it in plain language:"
+                  - emphasis [ref=e648]: "\"how do I plan a big feature?\""
+                  - text: ","
+                  - emphasis [ref=e649]: "\"something's broken, what do I do?\""
+                  - text: ","
+                  - emphasis [ref=e650]: "\"how do permissions work?\""
+                  - text: . It routes you to the right skill or flow, walks you through the idea-to-shipped cycle (sharpen the idea → spec → tickets → implement → review), and answers questions about moh itself from the built-in user manual — grounded in the actual docs, never invented.
+                - generic [ref=e651]:
+                  - heading "The user manual" [level=2] [ref=e652]
+                  - 'link "Permalink: The user manual" [ref=e653] [cursor=pointer]':
+                    - /url: "#the-user-manual"
+                - paragraph [ref=e656]:
+                  - text: "moh ships a complete user manual: ten pages bundled inside the binary and mirrored online in"
+                  - link [ref=e657] [cursor=pointer]:
+                    - /url: /Marco-Cricchio/moh/blob/main/docs/manual/README.md
+                    - code [ref=e658]: docs/manual/
+                  - text: "— getting started, sessions (resume, fork, trash, handoff), permissions, providers and models, memory and compaction, MCP, configuration reference, CLI reference, commands and keys. It's also readable in-app: the ask-moh agent answers from it directly."
+                - generic [ref=e659]:
+                  - 'heading "Make it yours: extensions" [level=2] [ref=e660]'
+                  - 'link "Permalink: Make it yours: extensions" [ref=e661] [cursor=pointer]':
+                    - /url: "#make-it-yours-extensions"
+                - paragraph [ref=e664]:
+                  - text: moh is built to be extended. The
+                  - code [ref=e665]: "@moh/extension"
+                  - text: contract lets you observe and influence the agent loop through typed phase hooks (
+                  - code [ref=e666]: beforeModelCall
+                  - text: ","
+                  - code [ref=e667]: onToolCall
+                  - text: ", …) — including vetoing tool calls, never granting more than you allowed. You can also author your own skills, register custom providers programmatically, or embed the headless core as a library in your own application. See"
+                  - link [ref=e668] [cursor=pointer]:
+                    - /url: /Marco-Cricchio/moh/blob/main/docs/extending/index.md
+                    - code [ref=e669]: docs/extending/
+                  - text: .
+                - generic [ref=e670]:
+                  - heading "Install" [level=2] [ref=e671]
+                  - 'link "Permalink: Install" [ref=e672] [cursor=pointer]':
+                    - /url: "#install"
+                - paragraph [ref=e675]: "Requirements: none — the binary is self-contained (Bun runtime embedded); no Node, no Bun, no npm."
+                - paragraph [ref=e676]: "One command, from the latest GitHub Release (macOS arm64/x64, Linux x64):"
+                - generic [ref=e677]:
+                  - generic [ref=e678]: curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/develop/scripts/install.sh | sh
+                  - button "Copy code to clipboard" [ref=e680] [cursor=pointer]
+                - paragraph [ref=e684]:
+                  - text: The script detects your platform, downloads the self-contained binary, verifies its sha256 against
+                  - code [ref=e685]: checksums.txt
+                  - text: ", and installs it to"
+                  - code [ref=e686]: ~/.local/bin
+                  - text: (upgrade-over-itself on re-run). If that directory is not on your
+                  - code [ref=e687]: PATH
+                  - text: ", the script prints the line to add. Set"
+                  - code [ref=e688]: MOH_INSTALL_DIR
+                  - text: to install elsewhere.
+                - paragraph [ref=e689]: "On macOS (or Linux) with Homebrew:"
+                - generic [ref=e690]:
+                  - generic [ref=e691]: brew install Marco-Cricchio/moh/moh
+                  - button "Copy code to clipboard" [ref=e693] [cursor=pointer]
+                - paragraph [ref=e697]:
+                  - text: The tap formula (
+                  - link "Marco-Cricchio/homebrew-moh" [ref=e698] [cursor=pointer]:
+                    - /url: https://github.com/Marco-Cricchio/homebrew-moh
+                  - text: ) installs the same checksummed release binary and is updated automatically after each published release.
+                - generic [ref=e699]:
+                  - heading "Use moh" [level=2] [ref=e700]
+                  - 'link "Permalink: Use moh" [ref=e701] [cursor=pointer]':
+                    - /url: "#use-moh"
+                - paragraph [ref=e704]: "Run the TUI client and complete guided provider onboarding:"
+                - generic [ref=e705]:
+                  - generic [ref=e706]: moh
+                  - button "Copy code to clipboard" [ref=e708] [cursor=pointer]
+                - paragraph [ref=e712]: "Headless, scripted sessions never prompt — unpermitted tools fail fast:"
+                - generic [ref=e713]:
+                  - generic [ref=e714]: moh run --allow bash
+                  - button "Copy code to clipboard" [ref=e716] [cursor=pointer]
+                - paragraph [ref=e720]:
+                  - text: Scaffold agent docs for your repo (AGENTS.md +
+                  - code [ref=e721]: docs/agents/
+                  - text: "tracker layout):"
+                - generic [ref=e722]:
+                  - generic [ref=e723]: moh init
+                  - button "Copy code to clipboard" [ref=e725] [cursor=pointer]
+                - generic [ref=e729]:
+                  - heading "Found a bug? Report it from the session" [level=2] [ref=e730]
+                  - 'link "Permalink: Found a bug? Report it from the session" [ref=e731] [cursor=pointer]':
+                    - /url: "#found-a-bug-report-it-from-the-session"
+                - paragraph [ref=e734]:
+                  - text: Run
+                  - code [ref=e735]: /report-bug
+                  - text: (workflow mode) — the agent collects your version and environment, drafts the issue, and files it through your own authenticated
+                  - code [ref=e736]: gh
+                  - text: after showing you the draft. Prefer the browser? Open
+                  - link "an issue" [ref=e737] [cursor=pointer]:
+                    - /url: https://github.com/Marco-Cricchio/moh/issues/new/choose
+                  - text: — templates will guide you.
+                - generic [ref=e738]:
+                  - heading "How it's built" [level=2] [ref=e739]
+                  - 'link "Permalink: How it''s built" [ref=e740] [cursor=pointer]':
+                    - /url: "#how-its-built"
+                - paragraph [ref=e743]:
+                  - text: "moh is a monorepo of four packages built around one rule:"
+                  - strong [ref=e744]: all agent logic lives in the headless core; every client is thin.
+                - table [ref=e746]:
+                  - rowgroup [ref=e747]:
+                    - row [ref=e748]:
+                      - columnheader "Package" [ref=e749]
+                      - columnheader "What it is" [ref=e750]
+                  - rowgroup [ref=e751]:
+                    - row [ref=e752]:
+                      - cell [ref=e753]:
+                        - code [ref=e754]: "@moh/core"
+                      - cell "The agent loop, append-only event log, providers, permissions, skills, memory, subagents, extensions. No UI, no global state." [ref=e755]
+                    - row [ref=e756]:
+                      - cell [ref=e757]:
+                        - code [ref=e758]: "@moh/tui"
+                      - cell "The Ink terminal client. Never talks to providers directly." [ref=e759]
+                    - row [ref=e760]:
+                      - cell [ref=e761]:
+                        - code [ref=e762]: "@moh/cli"
+                      - cell [ref=e763]:
+                        - code [ref=e764]: moh
+                        - text: "binary: interactive entry,"
+                        - code [ref=e765]: moh run
+                        - text: (headless, fail-fast),
+                        - code [ref=e766]: moh usage
+                        - text: (local telemetry reports),
+                        - code [ref=e767]: moh init
+                        - text: .
+                    - row [ref=e768]:
+                      - cell [ref=e769]:
+                        - code [ref=e770]: "@moh/extension"
+                      - cell "Types-only contract for extensions." [ref=e771]
+                - generic [ref=e772]:
+                  - heading "Hack on moh" [level=2] [ref=e773]
+                  - 'link "Permalink: Hack on moh" [ref=e774] [cursor=pointer]':
+                    - /url: "#hack-on-moh"
+                - paragraph [ref=e777]: "The repo builds and tests with Bun:"
+                - generic [ref=e778]:
+                  - generic [ref=e779]: bun install bun test bun run typecheck
+                  - button "Copy code to clipboard" [ref=e781] [cursor=pointer]
+                - paragraph [ref=e785]:
+                  - text: Before changing anything, read
+                  - code [ref=e786]: docs/principles.md
+                  - text: "— the seven principles govern every change, and a change that violates one needs an explicit ADR saying why. Decisions are recorded, not implied: see"
+                  - code [ref=e787]: docs/adr/
+                  - text: .
+                - generic [ref=e788]:
+                  - heading "Documentation" [level=2] [ref=e789]
+                  - 'link "Permalink: Documentation" [ref=e790] [cursor=pointer]':
+                    - /url: "#documentation"
+                - list [ref=e793]:
+                  - listitem [ref=e794]:
+                    - code [ref=e795]: docs/extending/
+                    - text: "— extending moh: writing extensions, embedding the core as a library, authoring skills"
+                  - listitem [ref=e796]:
+                    - code [ref=e797]: docs/provider-reasoning.md
+                    - text: — provider reasoning privacy, persistence, display controls, and thinking-level availability
+                  - listitem [ref=e798]:
+                    - code [ref=e799]: docs/principles.md
+                    - text: — the seven principles governing every change
+                  - listitem [ref=e800]:
+                    - code [ref=e801]: docs/adr/
+                    - text: — architecture decision records
+                  - listitem [ref=e802]:
+                    - code [ref=e803]: CONTRIBUTING.md
+                    - text: — conventions for contributors and forkers
+                - generic [ref=e804]:
+                  - heading "Acknowledgements & disclaimer" [level=2] [ref=e805]
+                  - 'link "Permalink: Acknowledgements & disclaimer" [ref=e806] [cursor=pointer]':
+                    - /url: "#acknowledgements--disclaimer"
+                - paragraph [ref=e809]:
+                  - text: moh is an independent project,
+                  - strong [ref=e810]: not affiliated with or endorsed by
+                  - text: "Matt Pocock or the authors of Pi. It was created drawing inspiration from:"
+                - list [ref=e811]:
+                  - listitem [ref=e812]:
+                    - text: the
+                    - strong [ref=e813]: architectural principles of pi
+                    - text: (Mario Zechner's coding agent harness) — headless core, thin clients, skills and progressive disclosure, subagents; and
+                  - listitem [ref=e814]:
+                    - text: the
+                    - strong [ref=e815]: Matt Pocock's agent workflow
+                    - text: — the wayfinder/grilling/to-spec/to-tickets cycle, ported as first-party skills under the terms of the upstream MIT license (see
+                    - code [ref=e816]: packages/core/assets/skills/NOTICE.md
+                    - text: ); and
+                  - listitem [ref=e817]:
+                    - strong [ref=e818]: David Lawson's gh-manager
+                    - text: (
+                    - link "@ddlaws0n" [ref=e819] [cursor=pointer]:
+                      - /url: https://github.com/ddlaws0n
+                    - text: ","
+                    - link "https://github.com/ddlaws0n/gh-manager" [ref=e820] [cursor=pointer]:
+                      - /url: https://github.com/ddlaws0n/gh-manager
+                    - text: ) — whose declarative
+                    - code [ref=e821]: init → plan → apply
+                    - text: repository-management approach is ported as the first-party
+                    - code [ref=e822]: gh-manager
+                    - text: skill under the terms of its MIT license.
+                - generic [ref=e823]:
+                  - heading "License" [level=2] [ref=e824]
+                  - 'link "Permalink: License" [ref=e825] [cursor=pointer]':
+                    - /url: "#license"
+                - paragraph [ref=e828]:
+                  - text: MIT — see
+                  - link "LICENSE" [ref=e829] [cursor=pointer]:
+                    - /url: /Marco-Cricchio/moh/blob/main/LICENSE
+                  - text: .
+        - generic [ref=e832]:
+          - generic [ref=e833]:
+            - heading "About" [level=2] [ref=e834]
+            - paragraph [ref=e835]: "Your terminal, with a coding agent inside: reads your code, edits files, runs commands — with permission gates on every risky step."
+            - heading "Topics" [level=3] [ref=e836]
+            - generic [ref=e837]:
+              - link "agent" [ref=e838] [cursor=pointer]:
+                - /url: /topics/agent
+              - link "ai" [ref=e839] [cursor=pointer]:
+                - /url: /topics/ai
+              - link "ai-agent" [ref=e840] [cursor=pointer]:
+                - /url: /topics/ai-agent
+              - link "anthropic" [ref=e841] [cursor=pointer]:
+                - /url: /topics/anthropic
+              - link "bun" [ref=e842] [cursor=pointer]:
+                - /url: /topics/bun
+              - link "claude-code" [ref=e843] [cursor=pointer]:
+                - /url: /topics/claude-code
+              - link "claude-code-alternative" [ref=e844] [cursor=pointer]:
+                - /url: /topics/claude-code-alternative
+              - link "cli" [ref=e845] [cursor=pointer]:
+                - /url: /topics/cli
+              - link "coding-agent" [ref=e846] [cursor=pointer]:
+                - /url: /topics/coding-agent
+              - link "developer-tools" [ref=e847] [cursor=pointer]:
+                - /url: /topics/developer-tools
+              - link "google-gemini" [ref=e848] [cursor=pointer]:
+                - /url: /topics/google-gemini
+              - link "ink" [ref=e849] [cursor=pointer]:
+                - /url: /topics/ink
+              - link "llm" [ref=e850] [cursor=pointer]:
+                - /url: /topics/llm
+              - link "openai" [ref=e851] [cursor=pointer]:
+                - /url: /topics/openai
+              - link "openrouter" [ref=e852] [cursor=pointer]:
+                - /url: /topics/openrouter
+              - link "terminal" [ref=e853] [cursor=pointer]:
+                - /url: /topics/terminal
+              - link "terminal-ui" [ref=e854] [cursor=pointer]:
+                - /url: /topics/terminal-ui
+              - link "tui" [ref=e855] [cursor=pointer]:
+                - /url: /topics/tui
+              - link "typescript" [ref=e856] [cursor=pointer]:
+                - /url: /topics/typescript
+            - heading "Resources" [level=3] [ref=e857]
+            - link "Readme" [ref=e859] [cursor=pointer]:
+              - /url: "#readme-ov-file"
+            - link "MIT license" [ref=e863] [cursor=pointer]:
+              - /url: "#MIT-1-ov-file"
+            - heading "Code of conduct" [level=3] [ref=e866]
+            - link "Code of conduct" [ref=e868] [cursor=pointer]:
+              - /url: /Marco-Cricchio/moh#coc-ov-file
+            - heading "Contributing" [level=3] [ref=e871]
+            - link "Contributing" [ref=e873] [cursor=pointer]:
+              - /url: "#contributing-ov-file"
+            - heading "Security policy" [level=3] [ref=e876]
+            - link "Security policy" [ref=e878] [cursor=pointer]:
+              - /url: "#security-ov-file"
+            - link "Activity" [ref=e882] [cursor=pointer]:
+              - /url: /Marco-Cricchio/moh/activity
+            - heading "Stars" [level=3] [ref=e885]
+            - generic [ref=e887]:
+              - strong [ref=e890]: "1"
+              - text: star
+            - heading "Watchers" [level=3] [ref=e891]
+            - generic [ref=e893]:
+              - strong [ref=e896]: "0"
+              - text: watching
+            - heading "Forks" [level=3] [ref=e897]
+            - link [ref=e899] [cursor=pointer]:
+              - /url: /Marco-Cricchio/moh/forks
+              - strong [ref=e903]: "1"
+              - text: fork
+            - link "Report repository" [ref=e905] [cursor=pointer]:
+              - /url: /contact/report-content?content_url=https%3A%2F%2Fgithub.com%2FMarco-Cricchio%2Fmoh&report=Marco-Cricchio+%28user%29
+          - generic [ref=e906]:
+            - heading "Releases (63)" [level=2] [ref=e907]:
+              - generic [ref=e908]:
+                - link "Releases" [ref=e909] [cursor=pointer]:
+                  - /url: /Marco-Cricchio/moh/releases
+                - generic [aria-hidden] [ref=e910]: "63"
+                - generic [ref=e911]: (63)
+            - link "v0.38.2 Latest Sep 17, 20262 hours ago" [ref=e912] [cursor=pointer]:
+              - /url: /Marco-Cricchio/moh/releases/tag/v0.38.2
+              - generic [ref=e915]:
+                - generic [ref=e916]:
+                  - generic "v0.38.2" [ref=e917]
+                  - generic [ref=e918]: Latest
+                - generic [ref=e919]: Sep 17, 20262 hours ago
+            - link "+ 62 releases" [ref=e921] [cursor=pointer]:
+              - /url: /Marco-Cricchio/moh/releases
+          - generic [ref=e922]:
+            - heading "Contributors (3)" [level=2] [ref=e923]:
+              - generic [ref=e924]:
+                - link "Contributors" [ref=e925] [cursor=pointer]:
+                  - /url: /Marco-Cricchio/moh/graphs/contributors
+                - generic [aria-hidden] [ref=e926]: "3"
+                - generic [ref=e927]: (3)
+            - list [ref=e928]:
+              - listitem [ref=e929]:
+                - link [ref=e930] [cursor=pointer]:
+                  - /url: /Marco-Cricchio
+                  - img "@Marco-Cricchio" [ref=e931]
+                - generic "Marco-Cricchio Marco" [ref=e932]:
+                  - link [ref=e933] [cursor=pointer]:
+                    - /url: /Marco-Cricchio
+                    - strong [ref=e934]: Marco-Cricchio
+                    - text: Marco
+              - listitem [ref=e935]:
+                - link [ref=e936] [cursor=pointer]:
+                  - /url: /claude
+                  - img "@claude" [ref=e937]
+                - generic "claude Claude" [ref=e938]:
+                  - link [ref=e939] [cursor=pointer]:
+                    - /url: /claude
+                    - strong [ref=e940]: claude
+                    - text: Claude
+              - listitem [ref=e941]:
+                - link [ref=e942] [cursor=pointer]:
+                  - /url: /ddlaws0n
+                  - img "@ddlaws0n" [ref=e943]
+                - generic "ddlaws0n David D Lawson" [ref=e944]:
+                  - link [ref=e945] [cursor=pointer]:
+                    - /url: /ddlaws0n
+                    - strong [ref=e946]: ddlaws0n
+                    - text: David D Lawson
+          - generic [ref=e947]:
+            - heading "Languages" [level=2] [ref=e948]
+            - generic [ref=e950]:
+              - 'progressbar "TypeScript: 98.9%" [ref=e951]'
+              - 'progressbar "Other: 1.1%" [ref=e952]'
+            - list [ref=e953]:
+              - listitem [ref=e954]:
+                - link "TypeScript 98.9%" [ref=e955] [cursor=pointer]:
+                  - /url: /Marco-Cricchio/moh/search?l=typescript
+                  - generic [ref=e957]: TypeScript
+                  - generic [ref=e958]: 98.9%
+              - listitem [ref=e959]:
+                - link "Other 1.1%" [ref=e960] [cursor=pointer]:
+                  - /url: /Marco-Cricchio/moh/search?l=Other
+                  - generic [ref=e962]: Other
+                  - generic [ref=e963]: 1.1%
+    - contentinfo [ref=e965]:
+      - heading "Footer" [level=2] [ref=e966]
+      - generic [ref=e967]:
+        - generic [ref=e968]:
+          - link "GitHub Homepage" [ref=e969] [cursor=pointer]:
+            - /url: https://github.com
+          - generic [ref=e972]: © 2026 GitHub, Inc.
+        - navigation "Footer" [ref=e973]:
+          - heading "Footer navigation" [level=3] [ref=e974]
+          - list "Footer navigation" [ref=e975]:
+            - listitem [ref=e976]:
+              - link "Terms" [ref=e977] [cursor=pointer]:
+                - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+            - listitem [ref=e978]:
+              - link "Privacy" [ref=e979] [cursor=pointer]:
+                - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+            - listitem [ref=e980]:
+              - link "Security" [ref=e981] [cursor=pointer]:
+                - /url: https://github.com/security
+            - listitem [ref=e982]:
+              - link "Status" [ref=e983] [cursor=pointer]:
+                - /url: https://www.githubstatus.com/
+            - listitem [ref=e984]:
+              - link "Community" [ref=e985] [cursor=pointer]:
+                - /url: https://github.community/
+            - listitem [ref=e986]:
+              - link "Docs" [ref=e987] [cursor=pointer]:
+                - /url: https://docs.github.com/
+            - listitem [ref=e988]:
+              - link "Contact" [ref=e989] [cursor=pointer]:
+                - /url: https://support.github.com?tags=dotcom-footer
+            - listitem [ref=e990]:
+              - button "Manage cookies" [ref=e992] [cursor=pointer]
+            - listitem [ref=e993]:
+              - button "Do not share my personal information" [ref=e995] [cursor=pointer]
+  - alert [ref=e998]
+  - status [ref=e1000]: injected live region
