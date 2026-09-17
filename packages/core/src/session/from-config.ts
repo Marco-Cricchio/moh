@@ -152,6 +152,8 @@ function mergePermissionFlags(
     bashDeny: [...(flags.bashDeny ?? []), ...(base?.bashDeny ?? [])],
     pathAllow: [...(flags.pathAllow ?? []), ...(base?.pathAllow ?? [])],
     pathDeny: [...(flags.pathDeny ?? []), ...(base?.pathDeny ?? [])],
+    browserAllow: [...(flags.browserAllow ?? []), ...(base?.browserAllow ?? [])],
+    browserDeny: [...(flags.browserDeny ?? []), ...(base?.browserDeny ?? [])],
   };
 }
 
