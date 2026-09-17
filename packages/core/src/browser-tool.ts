@@ -6,6 +6,7 @@
  * dispatch — `BrowserSession` (one per session, disposed with the session)
  * holds the process.
  */
+import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import type { Tool } from "./types";
 import { BrowserSession, BrowserUnavailableError, OutOfRootError, inRootPath } from "./browser";
@@ -67,7 +68,7 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
   // #775: the permission gate matches `browser:<action> <url-glob>` rules
   // against the page URL at action time; the args the gate sees are
   // enriched with it (and a compact element description for the ask).
-  const gateArgs = (raw: { action: string; ref?: string; url?: string }): Record<string, unknown> => {
+  const gateArgs = (raw: { action: string; ref?: string; url?: string; path?: string }): Record<string, unknown> => {
     const enriched: Record<string, unknown> = { ...raw };
     if (raw.action === "navigate") {
       // navigate carries its own target: URL rules match it directly.
@@ -75,6 +76,11 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
     } else {
       const pageUrl = (options.pageUrl ?? (() => options.session.pageUrl()))();
       if (pageUrl) enriched.pageUrl = pageUrl;
+    }
+    // #777: upload resolves its source against the project root before
+    // the gate sees it (absolute, so the containment check is exact).
+    if (raw.action === "upload" && typeof raw.path === "string" && options.root) {
+      enriched.path = isAbsolute(raw.path) ? raw.path : resolve(options.root, raw.path);
     }
     const ref = raw.ref;
     if (ref) {

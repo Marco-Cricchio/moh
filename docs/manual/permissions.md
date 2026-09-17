@@ -33,4 +33,18 @@ throwaway work.
 ## Out-of-root writes
 
 A write **outside the project root** is authorizable per-occurrence
-only: asked again every time, never persistable as a rule.
+only: asked again every time, never persistable as a rule. The
+browser's `upload` action follows the same rule for its source path
+(#777): an out-of-root source asks per occurrence and never persists,
+even under a site-wide `browser:upload` allow rule.
+
+## Browser act tier
+
+Read-tier browser actions run without prompts; the act tier (`click`,
+`fill`, `select`, `scroll`, `press_key`, `wait_for`, `upload`) asks by
+default. The prompt renders the action, the element from the latest
+snapshot and the domain; "always for this site" records a session-only
+`browser:<action> <url-glob>` rule. Downloads are blocked by default:
+a required download asks with name + size, then stages under
+`~/.moh/browser-downloads/<slug>/` with the path in the tool result —
+refuse, and nothing is ever written.

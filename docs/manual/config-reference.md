@@ -81,8 +81,10 @@ All keys are optional. Notes:
   storage bounds (`maxFiles`, `maxTotalBytes`), `exclude` adds
   gitignore-style workspace exclusion patterns.
 - `browser` — the native browser tool (#774, ADR-0029), **off by
-  default**: `enabled: true` registers a read-tier `browser` tool
-  (`navigate`, `snapshot`, `read_text`, `close`) driving a headless
+  default**: `enabled: true` registers the `browser` tool
+  (`navigate`, `snapshot`, `read_text`, `close`, plus the act tier:
+  `click`, `fill`, `select`, `scroll`, `press_key`, `wait_for`,
+  `upload`) driving a headless
   Chromium via playwright-core. Requires the optional toolchain
   (`npm i -g playwright-core && npx playwright-core install chromium`);
   when missing, the tool is not registered and a visible
@@ -95,6 +97,12 @@ All keys are optional. Notes:
   `allowedHosts` is the exact-host escape hatch (no wildcard subdomain
   matching; `MOH_FETCH_ALLOW_PRIVATE` does not apply here). Element
   addressing is exclusively by `[ref=eN]` from the latest snapshot.
+  Act-tier actions ask by default (#777); acting on a stale ref
+  returns a visible error with the fresh snapshot. `upload` sources
+  must be inside the project root (out-of-root paths ask per
+  occurrence and never persist as a rule); a required download asks
+  with name + size and stages to `~/.moh/browser-downloads/<slug>/`
+  (blocked entirely when refused or unattended — no silent writes).
 - `maxIterations` — per-turn tool-call iteration cap (default 50). `0`
   is the unlimited sentinel (#498): no cap — the anti-runaway wrap-up
   never fires. Any integer 1–500 is accepted (the 50/100/200/500
