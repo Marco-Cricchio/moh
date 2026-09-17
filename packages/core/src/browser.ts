@@ -1,0 +1,266 @@
+/**
+ * #774 / ADR-0029: the headless-browser seam behind the `browser` tool's
+ * read tier. One browser per session, lazily launched on first use:
+ * playwright-core (optional peer) drives a user-installed Chromium through
+ * `--remote-debugging-pipe` (never a TCP debug port) with a dedicated
+ * per-project profile dir. The model's only textual view is the ref-
+ * annotated a11y snapshot (`[ref=eN]`), hard-budgeted; the element
+ * addressing for later act-tier work is the `aria-ref=eN` selector.
+ *
+ * Failure model: every absence (no playwright-core, no Chromium) is an
+ * explicit `BrowserUnavailableError` carrying the install command — the
+ * session turns it into a visible diagnostic and never registers the
+ * tool; runtime failures are turn errors, never process errors.
+ */
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { projectSlug } from "./session-store";
+import { isPrivateHost } from "./builtin-tools";
+
+/** Hard snapshot budget: ~20k tokens ≈ 80 KiB of text. */
+const SNAPSHOT_BUDGET_BYTES = 80 * 1024;
+
+export const BROWSER_INSTALL_HINT =
+  "npm i -g playwright-core && npx playwright-core install chromium";
+
+/** Thrown when the toolchain (playwright-core or a Chromium build) is missing. */
+export class BrowserUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BrowserUnavailableError";
+  }
+}
+
+export interface BrowserOptions {
+  /** Working root: picks the per-project profile dir slug. Default process.cwd(). */
+  cwd?: string;
+  /** moh home dir (default `~`). Profile lives at `<home>/.moh/browser-profile/<slug>/`. */
+  home?: string;
+  /** Headful when false (spec: `browser.headless` config key, default true). */
+  headless?: boolean;
+  /** Test seam: inject a pre-built playwright-core module. */
+  playwright?: unknown;
+}
+
+/** SSRF posture (SEC-05 philosophy at the navigation layer): loopback
+ * allowed by default (dev-debug use case), all other private/link-local
+ * ranges blocked; `allowedHosts` is the only escape hatch, per-host. */
+export function assertNavigable(rawUrl: string, allowedHosts: readonly string[] = []): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`browser: invalid URL: ${rawUrl}`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`browser: only http/https URLs are supported (got "${url.protocol}")`);
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (allowedHosts.includes(host)) return url;
+  // Loopback is the feature (localhost dev debugging); everything else
+  // private must be explicitly allowed.
+  const loopback =
+    host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "127.0.0.1" || host === "[::1]";
+  if (loopback) return url;
+  if (isPrivateHost(host)) {
+    throw new Error(
+      `browser: "${host}" is a private/link-local address, blocked by default (prompt-injection SSRF guard); allow it with browser.allowedHosts: ["${host}"]`,
+    );
+  }
+  return url;
+}
+
+/**
+ * Truncates a snapshot to the hard budget with a visible marker and
+ * refinement guidance. Pure function — unit-tested in isolation.
+ */
+export function applySnapshotBudget(text: string, budget = SNAPSHOT_BUDGET_BYTES): string {
+  if (text.length <= budget) return text;
+  const cut = text.slice(0, budget);
+  // Never split a `[ref=eN]` token across the boundary — an actor must
+  // never see a half ref and guess the rest.
+  const lastComplete = Math.max(cut.lastIndexOf("\n"), 0);
+  const head = cut.slice(0, lastComplete > 0 ? lastComplete : cut.length);
+  const hiddenLines = text.slice(head.length).split("\n").filter((l) => l.trim()).length;
+  return `${head}\n…[snapshot truncated, ${hiddenLines} more nodes — re-call snapshot with a 'ref' (subtree) or a smaller 'depth' to target one region]`;
+}
+
+/** The playwright surface this module needs — structural, so tests can fake it. */
+export interface BrowserPageLike {
+  goto(url: string, options?: { waitUntil?: string; timeoutMs?: number }): Promise<unknown>;
+  ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
+  locator(selector: string): {
+    ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
+    textContent(options?: { timeout?: number }): Promise<string | null>;
+  };
+  close(): Promise<void>;
+}
+
+export interface BrowserLike {
+  newPage(): Promise<BrowserPageLike>;
+  close(): Promise<void>;
+}
+
+interface PlaywrightChromium {
+  launchPersistentContext(userDataDir: string, options: Record<string, unknown>): Promise<BrowserLike>;
+  executablePath(): string;
+}
+
+interface PlaywrightModule {
+  chromium: PlaywrightChromium;
+}
+
+/** Probes for the optional peer: null (with a reason) when absent. */
+export function loadPlaywrightSync(): { pw: PlaywrightModule } | { missing: string } {
+  try {
+    // Synchronous on purpose: the registration decision (register the
+    // tool or emit the diagnostic) happens inside the sync session
+    // assembly. createRequire dodges Bun's eager-async import graph.
+    const { createRequire } = require("node:module") as typeof import("node:module");
+    const req = createRequire(import.meta.url);
+    const pw = req("playwright-core") as PlaywrightModule;
+    if (typeof pw?.chromium?.launchPersistentContext !== "function") return { missing: "playwright-core is installed but unusable" };
+    return { pw };
+  } catch {
+    return { missing: "playwright-core is not installed" };
+  }
+}
+
+/** True when a Chromium build exists in playwright's registry. */
+export function chromiumInstalled(pw: PlaywrightModule): boolean {
+  try {
+    const p = pw.chromium.executablePath();
+    return typeof p === "string" && p.length > 0 && existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
+/** Availability probe for the registration diagnostic: never throws. */
+export function browserAvailability(
+  injected?: unknown,
+): { available: true; pw: PlaywrightModule } | { available: false; reason: string } {
+  const loaded = injected !== undefined ? injected : loadPlaywrightSync();
+  if (typeof loaded === "object" && loaded !== null && "missing" in (loaded as object)) {
+    return { available: false, reason: (loaded as { missing: string }).missing };
+  }
+  const mod = (loaded as { pw: PlaywrightModule }).pw;
+  if (!chromiumInstalled(mod)) {
+    return { available: false, reason: "no Chromium build found" };
+  }
+  return { available: true, pw: mod };
+}
+
+/**
+ * One browser per session. Lazily launches on first `navigate`; `dispose`
+ * reaps the process (idempotent). Blocks until the first page exists.
+ */
+export class BrowserSession {
+  #page: BrowserPageLike | null = null;
+  #browser: BrowserLike | null = null;
+  #disposed = false;
+  readonly #profileDir: string;
+  readonly #headless: boolean;
+  readonly #playwright: unknown;
+
+  constructor(options: BrowserOptions = {}) {
+    const home = options.home ?? homedir();
+    const slug = projectSlug(options.cwd ?? process.cwd(), home);
+    this.#profileDir = join(home, ".moh", "browser-profile", slug);
+    this.#headless = options.headless ?? true;
+    this.#playwright = options.playwright;
+  }
+
+  /** Launches (once) and returns the single page. Never launches after dispose. */
+  async #ensurePage(): Promise<BrowserPageLike> {
+    if (this.#disposed) throw new Error("browser: session disposed");
+    if (this.#page) return this.#page;
+    const probe = browserAvailability(this.#playwright);
+    if (!probe.available) {
+      throw new BrowserUnavailableError(`${probe.reason}. Install with: ${BROWSER_INSTALL_HINT}`);
+    }
+    const pw = probe.pw;
+    mkdirSync(this.#profileDir, { recursive: true, mode: 0o700 });
+    chmodSync(this.#profileDir, 0o700);
+    // The profile dir rides launchPersistentContext, which makes
+    // playwright-core spawn Chromium with `--user-data-dir=<dedicated
+    // profile>` and `--remote-debugging-pipe` itself (driven over fds
+    // 3/4 — never a TCP debug port, never the user's real profile;
+    // passing either flag by hand makes playwright refuse to launch).
+    this.#browser = await pw.chromium.launchPersistentContext(this.#profileDir, {
+      headless: this.#headless,
+      args: [
+        "--no-first-run",
+        "--no-default-browser-check",
+      ],
+    });
+    this.#page = await this.#browser!.newPage();
+    return this.#page;
+  }
+
+  /**
+   * Navigates and returns the fresh a11y snapshot (all refs die with the
+   * document — the response always carries the new snapshot).
+   */
+  async navigate(url: string, allowedHosts: readonly string[] = []): Promise<string> {
+    assertNavigable(url, allowedHosts);
+    const page = await this.#ensurePage();
+    await page.goto(url, { waitUntil: "load", timeoutMs: 30_000 });
+    return this.snapshot();
+  }
+
+  /** a11y snapshot of the page, or of one `ref` subtree. */
+  async snapshot(ref?: string, depth?: number): Promise<string> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    const options = { mode: "ai", ...(depth ? { depth } : {}) } as const;
+    // Older playwright builds lack Page.ariaSnapshot: snapshot via the
+    // body locator, which is present across all versions that have the
+    // a11y snapshot API at all.
+    if (ref !== undefined) {
+      const locator = page.locator(`aria-ref=${refNumber(ref)}`);
+      return applySnapshotBudget(await locator.ariaSnapshot(options));
+    }
+    const snapshottable = page as BrowserPageLike & { ariaSnapshot?: (o: typeof options) => Promise<string> };
+    const text = snapshottable.ariaSnapshot
+      ? await snapshottable.ariaSnapshot(options)
+      : await page.locator("body").ariaSnapshot(options);
+    return applySnapshotBudget(text);
+  }
+
+  /** Visible text of the page or of one `ref` element. */
+  async readText(ref?: string): Promise<string> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    if (ref !== undefined) {
+      const locator = page.locator(`aria-ref=${refNumber(ref)}`);
+      return applySnapshotBudget((await locator.textContent({ timeout: 10_000 })) ?? "");
+    }
+    // Whole-page text: the DOM body's textContent is the honest read view.
+    const text = await page.locator("body").textContent({ timeout: 10_000 });
+    return applySnapshotBudget(text ?? "");
+  }
+
+  /** Reaps browser and page. Idempotent; safe mid-session and at dispose. */
+  async dispose(): Promise<void> {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    try {
+      await this.#page?.close();
+    } catch { /* already gone */ }
+    try {
+      await this.#browser?.close();
+    } catch { /* already gone */ }
+    this.#page = null;
+    this.#browser = null;
+  }
+}
+
+/** `e12` / `[ref=e12]` → the selector token `e12`. Throws on anything else.
+ * Playwright's `aria-ref` engine is keyed by the full `eN` token. */
+export function refNumber(ref: string): string {
+  const m = /^\[?ref=(e\d+)\]?$/.exec(ref.trim()) ?? /^(e\d+)$/.exec(ref.trim());
+  if (!m) throw new Error(`browser: invalid ref "${ref}" (expected eN from the latest snapshot)`);
+  return m[1]!;
+}

@@ -176,4 +176,12 @@ export interface SessionConfig {
    * custom providers the catalog cannot describe).
    */
   images?: { imageCapable?: boolean | (() => boolean) };
+  /**
+   * #774: awaited at session dispose — reaps the per-session browser.
+   * Owned by the assembly (from-config); never a tool concern.
+   */
+  onDispose?: () => Promise<void>;
+  /** #774: visible startup diagnostics (e.g. missing browser toolchain).
+   * Each entry becomes a `browser_unavailable` chrome event at open. */
+  diagnostics?: readonly string[];
 }

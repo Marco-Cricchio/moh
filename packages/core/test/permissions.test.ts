@@ -32,6 +32,19 @@ describe("PermissionResolver: most-specific-wins across 3 tiers", () => {
     expect(r.resolve("write", { path: "src/x.ts" })).toBe("ask");
   });
 
+  test("#774: browser read tier is allow by default; a browser:<action> deny rule wins", () => {
+    const r = new PermissionResolver({ defaults: DEFAULT_TOOL_PERMISSIONS, cwd: root });
+    expect(r.resolve("browser", { action: "navigate", url: "http://localhost:3000" })).toBe("allow");
+    // Action-scoped rule (browser:<action> grammar) beats the bare allow.
+    const scoped = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { tools: { "browser:snapshot": "deny" } },
+      cwd: root,
+    });
+    expect(scoped.resolve("browser", { action: "snapshot" })).toBe("deny");
+    expect(scoped.resolve("browser", { action: "read_text" })).toBe("allow");
+  });
+
   test("moh.json override allows bash [git,status] — git status allowed, git push still ask", () => {
     const r = new PermissionResolver({
       defaults: DEFAULT_TOOL_PERMISSIONS,

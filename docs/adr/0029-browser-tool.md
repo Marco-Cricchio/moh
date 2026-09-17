@@ -56,7 +56,10 @@ Key decisions, each with its rationale:
 - `@moh/core` exports nothing new beyond the tool's standard registration; config keys
   join `SessionConfig` per ADR-0004 (the tool is a builtin, config a documented surface).
 - Missing-Playwright degradation follows the visible-diagnostic rule (like a broken MCP
-  server): diagnosed, never silent, never a turn error on session start.
+  server): diagnosed, never silent, never a turn error on session start. The diagnostic
+  rides a dedicated `browser_unavailable` chrome event in the event log (an explicit,
+  recorded amendment to the spec's "no new chrome events" note: a visible warning in
+  every surface is the point, and the log stays the one projection).
 - Spec: the spec lives at `docs/spec/browser-tool.md` (local-only per repo policy —
   `docs/spec/` is gitignored planning space; the spec text is preserved in the
   wayfinder map #770's resolution trail). The ADR summarizes every normative decision;

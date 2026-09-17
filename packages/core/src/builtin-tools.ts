@@ -2,6 +2,18 @@ import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
+import type { BrowserSession } from "./browser";
+
+declare module "bun" {}
+// `require` for the lazy browser peer (see builtinTools below). Loaded
+// through a runtime-resolved path so the optional dependency stays
+// optional — the module is only touched when `browser.enabled` is true.
+const lazyRequire: (id: string) => unknown =
+  typeof require === "function"
+    ? (require as unknown as (id: string) => unknown)
+    : (id: string) => {
+        throw new Error(`browser: cannot load "${id}" on this runtime`);
+      };
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
@@ -1064,13 +1076,44 @@ export interface BuiltinToolsOptions {
    * (default 10s). Tests inject a small value so the capture/re-run
    * paths run against sub-second fake suites. */
   rerunMinMs?: number;
+  /** #774 / ADR-0029: moh.json `browser` section. Absent or
+   * `enabled: false` → the tool is not registered at all (zero-config
+   * silence). When enabled but the toolchain is missing, the tool is
+   * still not registered and `diagnostics` carries the install hint. */
+  browser?: { enabled?: boolean; headless?: boolean; allowedHosts?: string[] };
+  /** Out-param: why the browser tool is absent (toolchain missing), for
+   * the session-start diagnostic. Always null when enabled is falsy. */
+  diagnostics?: string[];
+  /** Out-param: the live browser session, present only when the tool
+   * registered. The caller disposes it with the session (#774). */
+  browserSession?: BrowserSession;
 }
 
 export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, Tool> {
-  // Per-session ledgers: the read tool's re-read nudge (#196) and the bash
-  // tool's re-run interception (#304) share this session scope only.
   const readLedger = new Map<string, ServedRead>();
   const runLedger = createRunLedger(options.ledgerRoot);
-  const all = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
+  const all: Tool[] = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
+  // #774 / ADR-0029: the browser tool registers only when explicitly
+  // enabled. A missing toolchain is a visible diagnostic, never a turn
+  // error and never a session failure — the other tools stay untouched.
+  if (options.browser?.enabled) {
+    const { browserAvailability, BrowserSession, BROWSER_INSTALL_HINT } = lazyRequire("./browser") as typeof import("./browser");
+    const { browserTool } = lazyRequire("./browser-tool") as typeof import("./browser-tool");
+    const availability = browserAvailability();
+    if (availability.available) {
+      const session = new BrowserSession({
+        home: options.ledgerRoot ? dirname(dirname(options.ledgerRoot)) : undefined,
+        headless: options.browser.headless ?? true,
+      });
+      all.push(browserTool({ session, allowedHosts: options.browser.allowedHosts }));
+      // Session-lifecycle seam: the caller (from-config) reads it to reap
+      // the browser at session dispose.
+      (options as { browserSession?: BrowserSession }).browserSession = session;
+    } else {
+      (options.diagnostics ??= []).push(
+        `browser tool disabled: ${availability.reason}. Install with: ${BROWSER_INSTALL_HINT}`,
+      );
+    }
+  }
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));
 }

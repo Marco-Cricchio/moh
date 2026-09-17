@@ -58,6 +58,8 @@ export class AgentSession {
   readonly #turn = (): number => this.#turnSeq;
   readonly #permissions: PermissionResolver;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
+  /** #774: browser reap seam, awaited at dispose. */
+  #onDispose: (() => Promise<void>) | undefined;
   /** The permission gate (#90): 3-tier check + "always" persistence. */
   readonly #gate: PermissionGate;
   /** Same-turn tool execution (#91): parallel run + gated execution. */
@@ -247,8 +249,14 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
+    this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
+    // #774: visible startup diagnostics — a missing browser toolchain is
+    // chrome (every surface can warn), never a turn error and never silence.
+    for (const message of config.diagnostics ?? []) {
+      this.#append({ type: "browser_unavailable", reason: message });
+    }
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
     // #616: MPM orientation — opt-in via SessionConfig.mpm (a root the
     // projection maps). The service is supplied or constructed+loaded here;
@@ -1029,6 +1037,10 @@ export class AgentSession {
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
+    // #774: reap the per-session browser (no orphan Chromium at exit).
+    try {
+      await this.#onDispose?.();
+    } catch { /* reaping is best-effort at shutdown */ }
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
     // The end-of-session events were just queued: let the dispatch drain

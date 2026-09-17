@@ -134,6 +134,9 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   tracker_list: "allow",
   // #663 (ADR-0028): read-only over projection metadata.
   mpm_query: "allow",
+  // #774 (ADR-0029): the browser tool is read-tier only in this slice;
+  // the act tier (#775+) will add its own action-aware defaults.
+  browser: "allow",
   tracker_claim: "ask",
 };
 
@@ -336,6 +339,12 @@ export class PermissionResolver {
       const rel = this.relativeInRoot(args.path);
       if (rel === null) return "ask"; // out-of-root: always ask, never persistable
       return this.#best(toolName, undefined, rel);
+    }
+    // #774 (ADR-0029, action-aware gate): the browser tool's rules match
+    // `browser:<action>` — a bare `browser` rule covers every action.
+    if (toolName === "browser" && typeof args?.action === "string") {
+      const scoped = this.#best(`${toolName}:${args.action}`, undefined, undefined);
+      if (scoped !== "ask") return scoped;
     }
     return this.#best(toolName, undefined, undefined);
   }
