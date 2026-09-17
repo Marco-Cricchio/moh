@@ -17,9 +17,10 @@
  * the raw artifact is published as `kind: "raw"` — a receiver may
  * synthesize locally at import.
  */
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { RawHandoff } from "./handoff";
-
 /** The published handoff payload. T2 publishes the raw artifact as-is;
  * the chain fields (supersedes + anchor + timestamp, already present in
  * `RawHandoff`) are the append-only ordering keys T3/T4 consume. */
@@ -61,7 +62,6 @@ function deadline<T>(p: Promise<T>, timeoutMs: number): Promise<T | "timeout"> {
 }
 
 export interface PublishHandoffOptions {
-  /** The raw artifact file (#434): `<mohHome>/projects/<slug>/handoff.json`. */
   artifactFile: string;
   transport: HandoffTransport;
   /** Best-effort read-only payload enrichment (T6). A failure leaves the
@@ -90,6 +90,9 @@ export async function publishHandoffAtExit(options: PublishHandoffOptions): Prom
     payload = undefined;
   }
   if (!payload) return { ok: false, error: { reason: "no-artifact" } };
+  // Publish retry: this exact artifact already reached the remote on an
+  // earlier attempt (exit or startup retry) — never re-publish.
+  if (handoffAlreadyPublished(options.artifactFile, payload)) return { ok: true, url: "already-published" };
   // Enrichment is optional but must share the exit budget with transport:
   // a slow tracker can never hold the bounded interactive exit path.
   const budget = options.timeoutMs ?? 2_000;
@@ -112,6 +115,7 @@ export async function publishHandoffAtExit(options: PublishHandoffOptions): Prom
     remaining,
   );
   if (raced === "timeout") return { ok: false, error: { reason: "timeout" } };
+  if (raced.ok) writePublishedMarker(options.artifactFile, payload);
   return raced;
 }
 
@@ -126,6 +130,49 @@ export function readRawHandoff(file: string): RawHandoff | undefined {
   }
   return readRawHandoffText(text);
 }
+
+/** The local record of "this exact artifact already reached the remote"
+ * (publish retry): `handoff-published.json` beside the raw artifact,
+ * holding the `sessionId` + `updatedAt` of the last successful publish.
+ * Written after a successful publish, consulted before one — an artifact
+ * whose keys match is already safe on the remote, so exit-time and
+ * startup-retry publish are no-ops for it. */
+export function handoffPublishedMarkerFile(artifactFile: string): string {
+  return join(artifactFile, "..", "handoff-published.json");
+}
+
+function readPublishedMarker(artifactFile: string): { sessionId: string; updatedAt: string } | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(handoffPublishedMarkerFile(artifactFile), "utf8")) as
+      | { sessionId?: unknown; updatedAt?: unknown }
+      | null;
+    if (typeof parsed?.sessionId === "string" && typeof parsed?.updatedAt === "string")
+      return { sessionId: parsed.sessionId, updatedAt: parsed.updatedAt };
+  } catch {
+    // absent or corrupt → treated as never published
+  }
+  return undefined;
+}
+
+function writePublishedMarker(artifactFile: string, payload: RawHandoff): void {
+  try {
+    const file = handoffPublishedMarkerFile(artifactFile);
+    mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify({ sessionId: payload.sessionId, updatedAt: payload.updatedAt }, null, 2)}\n`, { mode: 0o600 });
+    renameSync(tmp, file);
+  } catch {
+    // a marker write failure never fails a publish that already succeeded
+  }
+}
+
+/** True when the artifact's identity keys match the last successful
+ * publish record — nothing new to send. */
+export function handoffAlreadyPublished(artifactFile: string, payload: RawHandoff): boolean {
+  const marker = readPublishedMarker(artifactFile);
+  return marker?.sessionId === payload.sessionId && marker?.updatedAt === payload.updatedAt;
+}
+
 
 /** Validates an already-parsed/raw JSON text payload. */
 export function readRawHandoffText(text: string | RawHandoff): RawHandoff | undefined {

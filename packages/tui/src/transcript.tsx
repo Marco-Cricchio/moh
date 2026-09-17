@@ -335,7 +335,34 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           }
           break;
         }
+        // #liveness: a running tool with live partial output shows its
+        // scrolling tail (last lines, dim) inside the volatile block.
+        // Settled blocks keep the usual result cap — determinism #194.
+        const liveTail = state === "run" ? options.toolTails?.get(event.callId) : undefined;
+        // Computed before the vibe branch: the todo box is always fully
+        // open (both modes — vibe's plain-language collapse never hides it).
+        const todoLines = event.name === "todo" && event.args && typeof event.args === "object"
+          ? (event.args as { todos?: Array<{ content?: unknown; status?: unknown; activeForm?: unknown }> }).todos
+              ?.filter((t) => typeof t.content === "string" && t.content !== "")
+              .map((t) => `${t.status === "done" ? "[x]" : t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content as string}`)
+          : undefined;
         if (vibe) {
+          // The todo box is always fully open (both modes): vibe's
+          // plain-language collapse must never hide the task list — the
+          // user watches progress on it (regression: vibe showed only the
+          // one-line "updated the plan" head, no list).
+          if (todoLines) {
+            blocks.push({
+              key,
+              kind: "moh",
+              glyph: "◆",
+              type: "plan",
+              lines: todoLines,
+              state,
+              ...timingFields,
+            });
+            break;
+          }
           if (state !== "fail") {
             const action = TOOL_ACTION[event.name] ?? `used ${event.name}`;
             const target = event.name === "bash" ? vibeCommandHint(event.args) : vibeDetail(event.name, event.args);
@@ -345,15 +372,6 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           blocks.push({ key, kind: "error", glyph: "✗", type: event.name, detail: detailOf(event.args, event.name), lines: result?.ok === false ? result.output.split("\n").slice(0, 5).map(sanitizeLine) : [], state: "fail" });
           break;
         }
-        // #liveness: a running tool with live partial output shows its
-        // scrolling tail (last lines, dim) inside the volatile block.
-        // Settled blocks keep the usual result cap — determinism #194.
-        const liveTail = state === "run" ? options.toolTails?.get(event.callId) : undefined;
-        const todoLines = event.name === "todo" && event.args && typeof event.args === "object"
-          ? (event.args as { todos?: Array<{ content?: unknown; status?: unknown; activeForm?: unknown }> }).todos
-              ?.filter((t) => typeof t.content === "string" && t.content !== "")
-              .map((t) => `${t.status === "done" ? "[x]" : t.status === "in_progress" ? "[~]" : "[ ]"} ${t.content as string}`)
-          : undefined;
         blocks.push({
           key,
           kind: "tool",

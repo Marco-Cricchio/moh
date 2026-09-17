@@ -140,6 +140,21 @@ describe("semantic transcript projection (#183)", () => {
     expect(dev.some((block) => block.type === "preview")).toBe(true);
   });
 
+  test("vibe renders the todo box fully expanded like dev (task list is always visible)", () => {
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "t1", name: "todo", args: { todos: [
+        { content: "first task", status: "done" },
+        { content: "second task", status: "in_progress" },
+        { content: "third task", status: "pending" },
+      ] } },
+      { type: "tool_result", callId: "t1", ok: true, output: "updated" },
+    ];
+    for (const mode of ["vibe", "dev"] as const) {
+      const block = projectTranscript(events, { mode }).find((b) => b.type === "todo" || b.type === "plan");
+      expect(block?.lines).toEqual(["[x] first task", "[~] second task", "[ ] third task"]);
+    }
+  });
+
   test("vibe bash hint skips leading comment lines in multi-line payloads (#749-adjacent)", () => {
     const events: AgentEvent[] = [
       { type: "tool_call", callId: "c1", name: "bash", args: { command: "# Check:\nbun test pkg/x.test.ts" } },

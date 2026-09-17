@@ -72,5 +72,34 @@ export interface MpmProvenance {
   extractor: string;
 }
 
-/** Why a task got no orientation plan — the last computed fallback reason. */
-export type MpmFallbackReason = "disabled" | "unavailable" | "stale" | "no-eligible-seed" | "model-seeded" | null;
+/**
+ * Why a task got no orientation plan — the last computed fallback reason.
+ * #759: "over-threshold" when every candidate seed resolved to too many
+ * files to stay useful; "reasoning-seeded" is not a fallback but the
+ * marker of a rendered low-tier plan (set as the fallback slot's
+ * positive counterpart, mirroring "model-seeded").
+ */
+export type MpmFallbackReason =
+  | "disabled"
+  | "unavailable"
+  | "stale"
+  | "no-eligible-seed"
+  | "model-seeded"
+  | "over-threshold"
+  | "reasoning-seeded"
+  | null;
+
+/** Confidence tier of an orientation plan's seed source (#759). */
+export type MpmSeedTier = "high" | "medium" | "low";
+
+/** #759: which seed sources fed a plan (diagnostics metadata, never content). */
+export interface MpmSeedStats {
+  /** Plans whose highest tier was a task-named path. */
+  pathPlans: number;
+  /** Plans whose decisive tier was a task-named exact symbol. */
+  symbolPlans: number;
+  /** Plans whose decisive tier was persisted prior-call reasoning. */
+  reasoningPlans: number;
+  /** Lookups where all candidates exceeded the ambiguity threshold. */
+  overThreshold: number;
+}
