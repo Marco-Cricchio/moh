@@ -214,6 +214,19 @@ export class AgentSession {
         if (!ok) return;
         if (tool === "grep" || tool === "glob") this.#mpmExploratoryCalls += 1;
       },
+      // #778: browser screenshots become typed image parts only when the
+      // serving model declares image input — the exact #488 probe.
+      imageCapable: () => {
+        const pin = config.images?.imageCapable;
+        if (typeof pin === "boolean") return pin;
+        if (typeof pin === "function") return pin();
+        const ref = this.#provider.name;
+        const slash = ref.indexOf("/");
+        const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
+        const profile = this.#endpoints.find((e) => e.name === endpointName);
+        if (profile?.capabilities?.multimodal === false) return false;
+        return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
+      },
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.

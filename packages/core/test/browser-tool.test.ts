@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   StaleRefError,
+  applyEvalBudget,
   applySnapshotBudget,
   assertNavigable,
   BrowserSession,
@@ -20,7 +21,7 @@ import {
   verifyNavigable,
   BROWSER_INSTALL_HINT,
 } from "../src/browser";
-import { browserTool } from "../src/browser-tool";
+import { browserTool, isScreenshotToolResult } from "../src/browser-tool";
 import { builtinTools } from "../src/builtin-tools";
 
 const ctx = (cwd: string) => ({ signal: new AbortController().signal, cwd, onProgress: () => {} });
@@ -731,5 +732,132 @@ describe("#777: staging error visibility + stale-ref re-probe", () => {
       /upload source not found/,
     );
     await session.dispose();
+  });
+});
+
+describe("#778: screenshot", () => {
+  test("viewport screenshot returns PNG bytes + target (page seam)", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const shots: string[] = [];
+    (fake.page as any).screenshot = async (o?: { fullPage?: boolean }) => {
+      shots.push(`page:${o?.fullPage === true}`);
+      return Buffer.from("png-bytes");
+    };
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const out = await session.screenshot();
+    expect(out.mime).toBe("image/png");
+    expect(out.base64).toBe(Buffer.from("png-bytes").toString("base64"));
+    expect(out.target).toBe("viewport");
+    expect(shots).toEqual(["page:false"]); // viewport default
+    await session.dispose();
+  });
+
+  test("element-scoped screenshot captures just that region via ref", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- canvas "board" [ref=e3]' });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    (fake.page.locator as any) = (selector: string) => ({
+      ariaSnapshot: async () => "- canvas",
+      textContent: async () => "x",
+      click: async () => {},
+      fill: async () => {},
+      selectOption: async (v: string[]) => v,
+      screenshot: async () => Buffer.from(`element-png@${selector}`),
+    });
+    const out = await session.screenshot("e3");
+    expect(out.base64).toBe(Buffer.from("element-png@aria-ref=e3").toString("base64"));
+    expect(out.target).toContain("canvas");
+    await session.dispose();
+  });
+
+  test("screenshot before navigate is a precise error; missing seam names the gap", async () => {
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fakePlaywright({}) });
+    await expect(session.screenshot()).rejects.toThrow(/navigate first/);
+    const fake = fakePlaywright({});
+    const s2 = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await s2.navigate("http://localhost:3000");
+    await expect(s2.screenshot()).rejects.toThrow(/no page screenshot seam/);
+    await s2.dispose();
+  });
+
+  test("tool dispatch: image-capable runner gets the branded structured result path via the tool layer", async () => {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    (fake.page as any).screenshot = async () => Buffer.from("png");
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const tool = browserTool({ session });
+    const out = await tool.execute({ action: "screenshot" }, ctx("/tmp"));
+    expect(isScreenshotToolResult(out)).toBe(true);
+    if (isScreenshotToolResult(out)) {
+      expect(out.mime).toBe("image/png");
+      expect(out.target).toBe("viewport");
+    }
+    await session.dispose();
+  });
+});
+
+describe("#778: eval_js", () => {
+  test("evaluates in page context and serializes strings/numbers/objects", async () => {
+    const fake = fakePlaywright({});
+    let expr = "";
+    (fake.page as any).evaluate = async (fn: string) => {
+      expr = fn;
+      return { a: 1, b: "two" };
+    };
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const out = await session.evalJs("({ a: 1, b: 'two' })");
+    expect(out).toBe('{"a":1,"b":"two"}');
+    expect(expr).toContain("return"); // wrapped expression, page-context semantics
+    await session.dispose();
+  });
+
+  test("undefined serializes visibly; evaluation errors surface with a reason", async () => {
+    const fake = fakePlaywright({});
+    (fake.page as any).evaluate = async () => undefined;
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    expect(await session.evalJs("void 0")).toBe("undefined");
+    (fake.page as any).evaluate = async () => { throw new Error("SyntaxError: Unexpected token"); };
+    await expect(session.evalJs("((( ")).rejects.toThrow(/eval_js failed.*SyntaxError/s);
+    await session.dispose();
+  });
+
+  test("large output is capped with a visible truncation marker", async () => {
+    expect(applyEvalBudget("x".repeat(100), 50)).toContain(
+      `${"x".repeat(50)}\n…[eval_js result truncated at 50 bytes`,
+    );
+    expect(applyEvalBudget("short")).toBe("short");
+    const fake = fakePlaywright({});
+    (fake.page as any).evaluate = async () => "y".repeat(30_000);
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const out = await session.evalJs("document.title");
+    expect(out).toContain("truncated");
+    expect(out.length).toBeLessThan(25_000);
+    await session.dispose();
+  });
+});
+
+describe("#778: headful mode", () => {
+  test("browser.headless: false reaches launch; permission behavior unchanged (same gate path)", async () => {
+    const fake = fakePlaywright({});
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), headless: false, playwright: fake });
+    await session.navigate("http://localhost:3000");
+    expect(fake.launched[0]!.options.headless).toBe(false);
+    expect(fake.launched[0]!.args).toContain("--no-first-run");
+    await session.dispose();
+  });
+
+  test("dispose with a headful window open reaps browser and page (no orphan)", async () => {
+    const fake = fakePlaywright({});
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), headless: false, playwright: fake });
+    await session.navigate("http://localhost:3000");
+    await session.dispose();
+    expect(fake.closed.browser).toBe(1);
+    expect(fake.closed.page).toBe(1);
+    await session.dispose(); // idempotent
+    expect(fake.closed.browser).toBe(1);
   });
 });

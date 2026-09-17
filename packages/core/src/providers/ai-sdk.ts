@@ -192,6 +192,12 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
           toolName: toolNames.get(part.callId) ?? part.callId,
           output: { type: "text", value: part.output },
         });
+        // #778: a screenshot rides next to its tool_result as a standard
+        // multimodal image block (only present when the model is
+        // image-capable — the runner decides at capture time).
+        if (part.image) {
+          content.push({ type: "file", mediaType: part.image.mime, data: part.image.base64 });
+        }
       }
     }
     // The SDK requires tool results in a `tool` role message (v5+); moh

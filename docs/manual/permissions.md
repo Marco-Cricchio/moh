@@ -41,10 +41,22 @@ even under a site-wide `browser:upload` allow rule.
 ## Browser act tier
 
 Read-tier browser actions run without prompts; the act tier (`click`,
-`fill`, `select`, `scroll`, `press_key`, `wait_for`, `upload`) asks by
+`fill`, `select`, `scroll`, `press_key`, `wait_for`, `upload`,
+`eval_js`) asks by
 default. The prompt renders the action, the element from the latest
 snapshot and the domain; "always for this site" records a session-only
 `browser:<action> <url-glob>` rule. Downloads are blocked by default:
 a required download asks with name + size, then stages under
 `~/.moh/browser-downloads/<slug>/` with the path in the tool result —
 refuse, and nothing is ever written.
+
+`eval_js` runs one expression in the page's full JS context (the same
+reach as the devtools console — no sandbox is promised; the control is
+the ask). A rule like `browser:eval_js https://app.example.com/**`
+allows it per domain like any other act action. Large results are
+truncated with a visible marker.
+
+`screenshot` captures the viewport (or one `ref` element) as a PNG.
+When the serving model declares image input the pixels ride the result
+as a typed image part; otherwise a visible chip + warning is returned
+and nothing is silently dropped.
