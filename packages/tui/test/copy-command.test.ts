@@ -34,27 +34,28 @@ describe("clipboard backend (#672)", () => {
     expect(chunks).toEqual([`\x1b]52;c;${b64}\x1b]52;p;${b64}\x07`]);
   });
 
-  test("on a TTY, OSC 52 is preferred over platform binaries (spec order)", () => {
-    const originalIsTTY = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+  test("local run (no ssh): a platform binary is preferred over OSC 52", () => {
+    const original = process.env.SSH_CONNECTION;
+    delete process.env.SSH_CONNECTION;
     try {
       clipboardBackend(null);
-      expect(clipboardBackend().kind).toBe("osc52");
+      // darwin CI has pbcopy; on platforms without a binary OSC 52 remains the fallback
+      expect(["binary", "osc52"]).toContain(clipboardBackend().kind);
     } finally {
-      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+      if (original !== undefined) process.env.SSH_CONNECTION = original;
       clipboardBackend(null);
     }
   });
 
-  test("without a TTY (piped/embedded), a platform binary is preferred, OSC 52 last", () => {
-    const originalIsTTY = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+  test("over ssh, OSC 52 is preferred (the binary would target the remote clipboard)", () => {
+    const original = process.env.SSH_CONNECTION;
+    process.env.SSH_CONNECTION = "1.2.3.4 5678 5.6.7.8 22";
     try {
       clipboardBackend(null);
-      // darwin CI has pbcopy; the exact kind depends on the platform
-      expect(["binary", "osc52"]).toContain(clipboardBackend().kind);
+      expect(clipboardBackend().kind).toBe("osc52");
     } finally {
-      Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true });
+      if (original === undefined) delete process.env.SSH_CONNECTION;
+      else process.env.SSH_CONNECTION = original;
       clipboardBackend(null);
     }
   });
