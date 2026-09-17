@@ -315,6 +315,9 @@ type AgentEventBase =
   | { type: "compaction"; summary: string; upTo?: number; upToId?: string }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
+  /** #774 / ADR-0029: the browser tool was requested but the toolchain is
+   * missing. Visible diagnostic chrome — never a turn error. */
+  | { type: "browser_unavailable"; reason: string }
   /** MCP lifecycle (#15): lazy start, per-server failures, session-end stop. */
   | { type: "mcp_server_started"; server: string; tools: string[] }
   | { type: "mcp_server_failed"; server: string; reason: string; message: string }

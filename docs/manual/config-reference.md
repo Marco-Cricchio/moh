@@ -39,6 +39,7 @@ moh reads two files:
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
+  "browser": { "enabled": true, "headless": true, "allowedHosts": ["192.168.1.1"] },
   "maxIterations": 50
 }
 ```
@@ -79,6 +80,18 @@ All keys are optional. Notes:
   **disabled** — MPM is opt-in), `quota` tightens the
   storage bounds (`maxFiles`, `maxTotalBytes`), `exclude` adds
   gitignore-style workspace exclusion patterns.
+- `browser` — the native browser tool (#774, ADR-0029), **off by
+  default**: `enabled: true` registers a read-tier `browser` tool
+  (`navigate`, `snapshot`, `read_text`, `close`) driving a headless
+  Chromium via playwright-core. Requires the optional toolchain
+  (`npm i -g playwright-core && npx playwright-core install chromium`);
+  when missing, the tool is not registered and a visible
+  `browser_unavailable` diagnostic is recorded at session start.
+  `headless` (default `true`) runs a real Chrome window when `false`.
+  Loopback URLs (`localhost` dev servers) are always allowed; other
+  private/link-local addresses are blocked by default (prompt-injection
+  SSRF guard) and `allowedHosts` is the exact-host escape hatch. Element
+  addressing is exclusively by `[ref=eN]` from the latest snapshot.
 - `maxIterations` — per-turn tool-call iteration cap (default 50). `0`
   is the unlimited sentinel (#498): no cap — the anti-runaway wrap-up
   never fires. Any integer 1–500 is accepted (the 50/100/200/500

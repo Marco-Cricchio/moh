@@ -268,13 +268,28 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       }
     : (event: AgentEvent) => store.append(event);
 
+  // #774 / ADR-0029: the browser tool rides the builtin assembly when
+  // enabled; a missing toolchain surfaces as a `browser_unavailable`
+  // chrome event (visible diagnostic, never a session error), and the
+  // live browser is reaped at session dispose via `onDispose`.
+  let browserDispose: (() => Promise<void>) | undefined;
+  const browserDiagnostics: string[] = [];
+  const builtinOpts: import("../builtin-tools").BuiltinToolsOptions = {
+    ledgerRoot: join(mohHome, "bash-ledgers"),
+    ...(config.browser ? { browser: config.browser } : {}),
+    diagnostics: browserDiagnostics,
+  };
+  builtinOpts.browser = config.browser;
+  const builtins = builtinTools(builtinOpts);
+  browserDispose = builtinOpts.browserSession ? () => builtinOpts.browserSession!.dispose() : undefined;
+
   try {
     const session = new AgentSession({
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
       ...(mpm ? { mpm } : {}),
-      tools: o.tools ?? builtinTools({ ledgerRoot: join(mohHome, "bash-ledgers") }),
+      tools: o.tools ?? builtins,
       mohHome,
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
@@ -312,6 +327,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         ? { maxIterations: o.maxIterations ?? config.maxIterations }
         : {}),
       ...(resumeEvents?.length ? { resume: { events: resumeEvents, consume: o.resumeConsume !== false } } : {}),
+      // #774: reap the browser at session dispose; emit the visible
+      // missing-toolchain diagnostic at session start.
+      ...(browserDispose ? { onDispose: browserDispose } : {}),
+      ...(browserDiagnostics.length ? { diagnostics: browserDiagnostics } : {}),
     });
     return { session, store };
   } catch (e) {
