@@ -16,6 +16,7 @@ import {
   BrowserUnavailableError,
   browserAvailability,
   refNumber,
+  verifyNavigable,
   BROWSER_INSTALL_HINT,
 } from "../src/browser";
 import { browserTool } from "../src/browser-tool";
@@ -39,11 +40,22 @@ describe("assertNavigable (SSRF guard)", () => {
     expect(assertNavigable("http://192.168.1.1/", ["192.168.1.1"]).hostname).toBe("192.168.1.1");
     // A different private host stays blocked — no blanket bypass.
     expect(() => assertNavigable("http://10.0.0.1/", ["192.168.1.1"])).toThrow();
+    // #776: config entries are normalized (case-insensitive, no brackets).
+    expect(assertNavigable("http://127.0.0.1:9000/", [" LOCALHOST "]).hostname).toBe("127.0.0.1");
   });
 
   test("public URLs pass; non-http schemes are rejected", () => {
     expect(assertNavigable("https://example.com/").hostname).toBe("example.com");
     expect(() => assertNavigable("file:///etc/passwd")).toThrow(/http\/https/);
+  });
+
+  test("#776: non-canonical IPv4 spellings normalize before the private check", () => {
+    // WHATWG URL canonicalizes decimal/hex/octal IPv4 to dotted quad —
+    // loopback spellings land in the allowed loopback branch, private
+    // spellings (192.168.0.1 = 3232235521) are blocked: no spelling games.
+    expect(assertNavigable("http://2130706433/").hostname).toBe("127.0.0.1");
+    expect(() => assertNavigable("http://3232235521/")).toThrow(/blocked by default/);
+    expect(() => assertNavigable("http://0xC0A80001/")).toThrow(/blocked by default/);
   });
 });
 
@@ -92,6 +104,9 @@ function fakePlaywright(pageBehavior: {
       textContent: async () => "hello world",
     }),
     close: async () => {},
+    // #776: the session's per-hop SSRF route handler, captured for tests.
+    routeInterceptor: null as unknown,
+    route: async (_pattern: string, handler: unknown) => { page.routeInterceptor = handler; },
   };
   const closed = { browser: 0, page: 0 };
   const launched: { args: string[]; options: Record<string, unknown> }[] = [];
@@ -298,5 +313,105 @@ describe("#775: gate enrichment (page URL + element description)", () => {
     const nav = tool.gateArgs!({ action: "navigate", url: "https://x.test/" } as any) as Record<string, unknown>;
     expect(nav.pageUrl).toBe("https://x.test/"); // navigate: its own target is the gate URL
     expect(nav.elementDescription).toBeUndefined();
+  });
+});
+
+describe("verifyNavigable (#776: DNS verification)", () => {
+  test("a public hostname resolving to a private address is blocked", async () => {
+    for (const address of ["169.254.169.254", "192.168.1.1", "10.0.0.1", "172.16.0.9"]) {
+      await expect(verifyNavigable("http://rebind.example/", [], { lookup: async () => [{ address, family: 4 }] }))
+        .rejects.toThrow(/resolves to (the )?private address/);
+    }
+  });
+
+  test("a public hostname resolving publicly passes; loopback names skip DNS", async () => {
+    const url = await verifyNavigable("http://example.com/", [], { lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
+    expect(url.hostname).toBe("example.com");
+    // Loopback is allowed by default — no DNS resolution needed.
+    await verifyNavigable("http://localhost:3000/", [], { lookup: async () => { throw new Error("no DNS"); } });
+  });
+
+  test("allowedHosts skips the DNS check for exactly that host (no wildcard subdomains)", async () => {
+    const lookup = async () => { throw new Error("no DNS"); };
+    // Explicit host: allowed even when it would resolve private.
+    await verifyNavigable("http://host.example/", ["host.example"], { lookup });
+    // Subdomain of an allowed host is NOT covered — the check applies.
+    await expect(verifyNavigable("http://sub.host.example/", ["host.example"], { lookup: async () => [{ address: "10.0.0.1", family: 4 }] }))
+      .rejects.toThrow(/private address/);
+  });
+
+  test("env overrides like MOH_FETCH_ALLOW_PRIVATE do not unlock the browser", async () => {
+    process.env.MOH_FETCH_ALLOW_PRIVATE = "1";
+    try {
+      await expect(verifyNavigable("http://192.168.1.1/", [], { lookup: async () => { throw new Error("no DNS"); } }))
+        .rejects.toThrow(/blocked by default/);
+    } finally {
+      delete process.env.MOH_FETCH_ALLOW_PRIVATE;
+    }
+  });
+
+  test("unresolvable names fail closed (#776): navigation blocked, policy named", async () => {
+    await expect(verifyNavigable("http://no-such-host.invalid/", [], { lookup: async () => { throw new Error("ENOTFOUND"); } }))
+      .rejects.toThrow(/cannot verify.*SSRF guard/);
+  });
+});
+
+describe("#776: per-hop redirect re-check", () => {
+  const routeObj = (url: string, resourceType = "document") => {
+    const r: {
+      url(): string; resourceType(): string; continue(): Promise<void>;
+      fulfill(o: { status: number; contentType: string; body: string }): Promise<void>;
+      continued: number; fulfilled: { body: string } | null;
+    } = {
+      url: () => url,
+      resourceType: () => resourceType,
+      continued: 0,
+      fulfilled: null,
+      continue: async () => { r.continued++; },
+      fulfill: async (o) => { r.fulfilled = o; },
+    };
+    return r;
+  };
+
+  test("a redirect hop bouncing a public URL into private space is caught", async () => {
+    const fake = fakePlaywright({});
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const handler = fake.page.routeInterceptor! as (route: ReturnType<typeof routeObj>) => Promise<void>;
+    const hop = routeObj("http://example.com/");
+    await handler(hop);
+    expect(hop.continued).toBe(1); // public hop passes
+    const bad = routeObj("http://169.254.169.254/latest/meta-data/");
+    await handler(bad);
+    expect(bad.continued).toBe(0);
+    expect((bad.fulfilled as { body: string }).body).toMatch(/SSRF guard/);
+    await session.dispose();
+  });
+
+  test("only document requests are re-checked; subresources ride the page's own guard", async () => {
+    const fake = fakePlaywright({});
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const handler = fake.page.routeInterceptor! as (route: ReturnType<typeof routeObj>) => Promise<void>;
+    const sub = routeObj("http://169.254.169.254/track.png", "image");
+    await handler(sub);
+    expect(sub.continued).toBe(1);
+    await session.dispose();
+  });
+
+  test("a redirect to a rebinding name is caught by DNS re-verification", async () => {
+    const fake = fakePlaywright({});
+    const session = new BrowserSession({
+      home: mkdtempSync(join(tmpdir(), "moh-browser-")),
+      playwright: fake,
+      lookup: async () => [{ address: "10.9.9.9", family: 4 }],
+    });
+    await session.navigate("http://localhost:3000");
+    const handler = fake.page.routeInterceptor! as (route: ReturnType<typeof routeObj>) => Promise<void>;
+    const hop = routeObj("http://rebind.example/");
+    await handler(hop);
+    expect(hop.continued).toBe(0);
+    expect((hop.fulfilled as { body: string }).body).toMatch(/SSRF guard/);
+    await session.dispose();
   });
 });
