@@ -1105,7 +1105,13 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
         home: options.ledgerRoot ? dirname(dirname(options.ledgerRoot)) : undefined,
         headless: options.browser.headless ?? true,
       });
-      all.push(browserTool({ session, allowedHosts: options.browser.allowedHosts }));
+      all.push(
+        browserTool({
+          session,
+          allowedHosts: options.browser.allowedHosts,
+          describeElement: (ref) => session.describeElement(ref),
+        }),
+      );
       // Session-lifecycle seam: the caller (from-config) reads it to reap
       // the browser at session dispose.
       (options as { browserSession?: BrowserSession }).browserSession = session;

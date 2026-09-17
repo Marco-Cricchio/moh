@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -725,5 +725,75 @@ describe("#775: URL-glob argspec (ADR-0007 third semantic)", () => {
     expect(urlGlobMatches("http://localhost/**", "http://localhost:8080/app")).toBe(true);
     expect(urlGlobMatches("not a url", "https://app.example.com/")).toBe(false);
     expect(urlGlobMatches("https://app.example.com/**", "::::")).toBe(false);
+  });
+});
+
+describe("#775: PermissionGate: always_for_site is session-scoped, never persisted", () => {
+  function tool(name: string) {
+    return {
+      name,
+      description: name,
+      inputSchema: undefined,
+      async execute() {
+        return `${name} ok`;
+      },
+    };
+  }
+
+  function browserSession(answers: string[]) {
+    let i = 0;
+    const asks: Array<{ tool: string; args: unknown }> = [];
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "browser", args: { action: "click", ref: "e1", pageUrl: "https://app.example.com/settings" } }] },
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "browser", args: { action: "click", ref: "e2", pageUrl: "https://app.example.com/other" } }] },
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "browser", args: { action: "click", ref: "e3", pageUrl: "https://other.test/" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { browser: tool("browser") },
+      cwd: root,
+      onPermissionRequest: (t, a) => {
+        asks.push({ tool: t, args: a });
+        return answers[i++] as any;
+      },
+    });
+    return { session, asks };
+  }
+
+  test("always_for_site writes a site-scoped runtime rule; other sites still ask", async () => {
+    const { session, asks } = browserSession(["always_for_site", "no"]);
+    await session.send("go");
+    // Same-site second click is covered by the runtime rule (no ask);
+    // the other site asks and is denied.
+    expect(asks.length).toBe(2);
+    const log = session.history();
+    const added = log.filter((e) => e.type === "permission_rule_added") as any[];
+    expect(added.length).toBe(1);
+    expect(added[0]!.rule).toEqual({
+      tool: "browser:click",
+      effect: "allow",
+      url: "https://app.example.com/**",
+      tier: "runtime",
+    });
+    // The moh.json was never touched (no persistence seam for browser rules).
+  });
+
+  test("plain always on a browser call builds the same site-scoped rule (never tool-wide)", async () => {
+    const { session } = browserSession(["always", "yes", "no"]);
+    await session.send("go");
+    const added = session.history().filter((e) => e.type === "permission_rule_added") as any[];
+    expect(added.length).toBe(1);
+    expect(added[0]!.rule.url).toBe("https://app.example.com/**");
+    expect(added[0]!.rule.tool).toBe("browser:click");
+  });
+
+  test("the site rule is not written to moh.json even when one exists", async () => {
+    const mohJson = join(root, "moh.json");
+    writeFileSync(mohJson, JSON.stringify({ permissions: { overrides: { pathAllow: [] } } }));
+    const { session } = browserSession(["always", "yes", "no"]);
+    await session.send("go");
+    const parsed = JSON.parse(readFileSync(mohJson, "utf8"));
+    expect(parsed.permissions?.overrides?.tools?.["browser:click"]).toBeUndefined();
+    expect(parsed.permissions?.overrides?.browserAllow).toBeUndefined();
   });
 });
