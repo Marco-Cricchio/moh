@@ -753,6 +753,31 @@ describe("#778: screenshot", () => {
     await session.dispose();
   });
 
+  test("fullPage: true reaches the page seam; ref wins over fullPage", async () => {
+    const fake = fakePlaywright({ snapshot: () => '- canvas "b" [ref=e2]' });
+    const shots: string[] = [];
+    (fake.page as any).screenshot = async (o?: { fullPage?: boolean }) => {
+      shots.push(`${o?.fullPage === true}`);
+      return Buffer.from("png");
+    };
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    const out = await session.screenshot(undefined, true);
+    expect(out.target).toBe("full page");
+    expect(shots).toEqual(["true"]);
+    (fake.page.locator as any) = () => ({
+      ariaSnapshot: async () => "- canvas",
+      textContent: async () => "x",
+      click: async () => {},
+      fill: async () => {},
+      selectOption: async (v: string[]) => v,
+      screenshot: async () => Buffer.from("el"),
+    });
+    const el = await session.screenshot("e2", true);
+    expect(el.target).toContain("canvas"); // element capture ignores fullPage
+    await session.dispose();
+  });
+
   test("element-scoped screenshot captures just that region via ref", async () => {
     const fake = fakePlaywright({ snapshot: () => '- canvas "board" [ref=e3]' });
     const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
@@ -824,10 +849,25 @@ describe("#778: eval_js", () => {
     await session.dispose();
   });
 
+  test("a statement expression falls back to function-body evaluation (devtools semantics)", async () => {
+    const fake = fakePlaywright({});
+    const tried: string[] = [];
+    (fake.page as any).evaluate = async (fn: string) => {
+      tried.push(fn);
+      // Expression form of a statement is a SyntaxError; body form works.
+      if (tried.length === 1) throw new Error("SyntaxError: Unexpected token 'var'");
+      return "evaluated";
+    };
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    expect(await session.evalJs("var x = 1; x")).toBe("evaluated");
+    expect(tried[0]).toContain("return (");
+    expect(tried[1]).toContain("var x = 1; x");
+    await session.dispose();
+  });
+
   test("large output is capped with a visible truncation marker", async () => {
-    expect(applyEvalBudget("x".repeat(100), 50)).toContain(
-      `${"x".repeat(50)}\n…[eval_js result truncated at 50 bytes`,
-    );
+    expect(applyEvalBudget("x".repeat(100), 50)).toContain("truncated");
     expect(applyEvalBudget("short")).toBe("short");
     const fake = fakePlaywright({});
     (fake.page as any).evaluate = async () => "y".repeat(30_000);

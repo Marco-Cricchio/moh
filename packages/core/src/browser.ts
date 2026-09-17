@@ -189,7 +189,21 @@ export const EVAL_OUTPUT_BUDGET_BYTES = 20 * 1024;
  */
 export function applyEvalBudget(text: string, budget = EVAL_OUTPUT_BUDGET_BYTES): string {
   if (text.length <= budget) return text;
-  return `${text.slice(0, budget)}\n…[eval_js result truncated at ${budget} bytes — narrow the expression (e.g. return only the fields you need)]`;
+  return `${text.slice(0, budget)}\n…[eval_js result truncated at ${budget} characters — narrow the expression (e.g. return only the fields you need)]`;
+}
+
+/**
+ * #778: wraps a user expression the way the devtools console would:
+ * first as an expression (its completion value is the result); when
+ * that is not valid as an expression (statements like `var x = 1`),
+ * falls back to a function-body evaluation. Both compile in the page
+ * context; the caller only sees the final value or error.
+ */
+export function wrapEvalExpression(expression: string): { expression: string; body: string } {
+  return {
+    expression: `(() => { "use strict"; return (${expression}); })()`,
+    body: `(() => { "use strict"; ${expression} })()`,
+  };
 }
 
 /**
@@ -584,7 +598,7 @@ export class BrowserSession {
    * (element-scoped). Returns raw bytes + a target description for the
    * text chip; the tool layer decides image part vs chip + warning.
    */
-  async screenshot(ref?: string): Promise<ScreenshotResult> {
+  async screenshot(ref?: string, fullPage = false): Promise<ScreenshotResult> {
     const page = await this.#page;
     if (!page) throw new Error("browser: no page open — navigate first");
     const toResult = (bytes: Buffer, target: string): ScreenshotResult => ({
@@ -599,12 +613,12 @@ export class BrowserSession {
       try {
         return toResult(await shot.call(locator, { timeout: ACT_TIMEOUT_MS }), this.describeElement(ref) ?? `element ${ref}`);
       } catch (e) {
-        throw await this.#actFailure2(ref, e);
+        throw await this.#actFailure(ref, e);
       }
     }
     const pageShot = (page as { screenshot?: (o?: { fullPage?: boolean }) => Promise<Buffer> }).screenshot;
     if (typeof pageShot !== "function") throw new Error("browser: screenshot unavailable (no page screenshot seam)");
-    return toResult(await pageShot.call(page, { fullPage: false }), "viewport");
+    return toResult(await pageShot.call(page, { fullPage }), fullPage ? "full page" : "viewport");
   }
 
   /**
@@ -618,9 +632,17 @@ export class BrowserSession {
     if (!page) throw new Error("browser: no page open — navigate first");
     const evaluate = (page as { evaluate?: (fn: string, arg?: unknown) => Promise<unknown> }).evaluate;
     if (typeof evaluate !== "function") throw new Error("browser: eval_js unavailable (no evaluate seam)");
+    const wrapped = wrapEvalExpression(expression);
     let value: unknown;
     try {
-      value = await evaluate.call(page, `(() => { "use strict"; return (${expression}); })()`);
+      try {
+        value = await evaluate.call(page, wrapped.expression);
+      } catch (expressionError) {
+        // Statement form (var/let/const/if/for…): evaluate as a function
+        // body — the devtools console accepts both; so do we.
+        value = await evaluate.call(page, wrapped.body);
+        void expressionError;
+      }
     } catch (e) {
       throw new Error(`browser: eval_js failed: ${e instanceof Error ? e.message : String(e)}`);
     }

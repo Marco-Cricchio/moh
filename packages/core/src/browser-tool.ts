@@ -45,6 +45,8 @@ const readTierSchema = z.discriminatedUnion("action", [
     action: z.literal("screenshot"),
     /** Element-scoped capture: an `eN` ref from the latest snapshot. */
     ref: z.string().min(1).optional(),
+    /** Full-page capture instead of the viewport (ignored with a ref). */
+    fullPage: z.boolean().optional(),
   }),
   z.object({ action: z.literal("eval_js"), expression: z.string().min(1) }),
 ]);
@@ -155,8 +157,7 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
       const action = (args as { action?: string } | null | undefined)?.action;
       if (action === "navigate") return 30_000;
       if (action === "wait_for") return 30_000; // arg-capped by the session's wait budget
-      if (action === "screenshot") return 15_000;
-      if (action === "eval_js") return 15_000;
+      if (action === "screenshot") return 15_000; // a full-page shot can exceed the act default
       return 10_000;
     },
     async execute(args) {
@@ -202,9 +203,10 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
           // #778: screenshot returns a structured result the runner
           // promotes to a typed image part (or the chip fallback).
           case "screenshot": {
-            const shot = await session.screenshot(args.ref);
+            const shot = await session.screenshot(args.ref, args.fullPage === true);
             return { __screenshot: true, mime: shot.mime, base64: shot.base64, target: shot.target } as unknown as string;
-          }          case "eval_js":
+          }
+          case "eval_js":
             return await session.evalJs(args.expression);
         }
       };

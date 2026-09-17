@@ -186,18 +186,23 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
           ...(part.continuation ? { providerOptions: part.continuation } : {}),
         });
       } else if (part.kind === "tool_result") {
+        // #778: a screenshot rides INSIDE its tool-result as a standard
+        // multimodal `content` output (v5 shape) — never as a sibling
+        // part in the tool-role message, which providers drop.
         content.push({
           type: "tool-result",
           toolCallId: part.callId,
           toolName: toolNames.get(part.callId) ?? part.callId,
-          output: { type: "text", value: part.output },
+          output: part.image
+            ? {
+                type: "content",
+                value: [
+                  { type: "text", text: part.output },
+                  { type: "file", data: { type: "data", data: part.image.base64 }, mediaType: part.image.mime },
+                ],
+              }
+            : { type: "text", value: part.output },
         });
-        // #778: a screenshot rides next to its tool_result as a standard
-        // multimodal image block (only present when the model is
-        // image-capable — the runner decides at capture time).
-        if (part.image) {
-          content.push({ type: "file", mediaType: part.image.mime, data: part.image.base64 });
-        }
       }
     }
     // The SDK requires tool results in a `tool` role message (v5+); moh
