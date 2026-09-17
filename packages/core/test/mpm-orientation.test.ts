@@ -160,3 +160,130 @@ describe("MpmOrientation plan content (#616)", () => {
     }
   });
 });
+
+// #759: seed eligibility extension — exact task symbols (medium tier) and
+// recency-weighted reasoning identifiers (low tier), with ambiguity guard.
+describe("MpmOrientation symbol seeds (#759)", () => {
+  test("a task naming an exact symbol yields a medium-tier plan", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      const plan = o.planFor("please refactor formatDate handling");
+      expect(plan).not.toBeNull();
+      expect(plan).toContain("matches symbol `formatDate`");
+      // The symbol's relations render as ordinary plan entries.
+      expect(plan).toContain("src/date.test.ts");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("generic prose and unresolved identifiers never seed", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      expect(o.planFor("improve the update of the system")).toBeNull();
+      expect(o.planFor("handle the NotThere symbol properly")).toBeNull();
+      expect(o.lastFallbackReason).toBe("no-eligible-seed");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("MpmOrientation reasoning seeds (#759)", () => {
+  const REASONING =
+    "Could touch unrelatedThing or DateHelper, but formatDate is the right place.";
+
+  test("reasoning-only symbol mention yields a low-tier plan", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      const plan = o.planFor("continue", REASONING);
+      expect(plan).not.toBeNull();
+      expect(plan).toContain("mentioned in recent reasoning (advisory)");
+      // Low tier renders visually subordinate.
+      expect(plan).toMatch(/^  \u00b7 /m);
+      expect(o.lastFallbackReason).toBe("reasoning-seeded");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("recency weighting: tail mentions win over head mentions", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      // DateLike first (discarded alternative), formatDate last (chosen).
+      const plan = o.planFor("continue", "DateLike seems relevant; also DateLike again; going with formatDate");
+      expect(plan).not.toBeNull();
+      // formatDate is at the tail — its weight survives; the head mention
+      // of DateLike is below the threshold and never seeded.
+      expect(plan).not.toContain("DateLike");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a successful prior mpm_query suppresses the reasoning source", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      o.noteModelQuery();
+      expect(o.planFor("continue", REASONING)).toBeNull();
+      expect(o.lastFallbackReason).toBe("no-eligible-seed");
+      // A new turn re-arms it.
+      o.beginTurn();
+      expect(o.planFor("continue", REASONING)).not.toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("no reasoning → today's behavior, zero regression", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      expect(o.planFor("continue")).toBeNull();
+      // Paths still seed high-tier plans.
+      expect(o.planFor("work on src/date.ts")).toContain("in the same module as src/date.ts");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("MpmOrientation ambiguity and stats (#759)", () => {
+  test("a symbol matching more than 5 files yields no plan (over-threshold)", async () => {
+    const { root, svc } = await setup();
+    try {
+      // Add six files all declaring the same helper symbol.
+      for (let i = 0; i < 6; i++) {
+        const p = `src/gen${i}.ts`;
+        const content = `export function helper${i}(): number { return ${i}; }`;
+        await writeFile(join(root, p), content);
+        svc.upsert({ ...rec(p, content), symbols: [{ name: "sharedHelper", kind: "function", line: 1 }] });
+      }
+      const o = make(root, svc);
+      expect(o.planFor("update sharedHelper usage")).toBeNull();
+      expect(o.lastFallbackReason).toBe("over-threshold");
+      expect(o.seedStats.overThreshold).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("seedStats count decisive tiers", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      o.planFor("work on src/date.ts");
+      o.planFor("refactor formatDate");
+      o.planFor("continue", "settling on formatDate");
+      const stats = o.seedStats;
+      expect(stats).toEqual({ pathPlans: 1, symbolPlans: 1, reasoningPlans: 1, overThreshold: 0 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
