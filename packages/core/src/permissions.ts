@@ -439,6 +439,15 @@ export class PermissionResolver {
       if (prefixMatchedOnly && hasUncoveredShellMetachars(args.command)) return "ask";
       return "allow";
     }
+    // #777: browser `upload` carries a local source path — containment
+    // runs FIRST and the action rides `browser:<action>` URL rules, not
+    // the generic path-rule branch below. An out-of-root source is a
+    // per-occurrence ask, never a rule match, never persistable.
+    if (toolName === "browser" && args?.action === "upload" && typeof args?.path === "string") {
+      if (this.relativeInRoot(args.path) === null) return "ask"; // out-of-root source
+      const pageUrl = typeof args?.pageUrl === "string" ? args.pageUrl : undefined;
+      return this.#best(`${toolName}:${args.action}`, undefined, undefined, pageUrl);
+    }
     if (typeof args?.path === "string") {
       const rel = this.relativeInRoot(args.path);
       if (rel === null) return "ask"; // out-of-root: always ask, never persistable
@@ -460,8 +469,12 @@ export class PermissionResolver {
     return this.#best(toolName, undefined, undefined);
   }
 
-  /** False when persisting an "always" rule would be unsound (out-of-root path). */
-  persistable(_toolName: string, args: any): boolean {
+  /** False when persisting an "always" rule would be unsound (out-of-root path,
+   * or #777's out-of-root browser upload source — per-occurrence only). */
+  persistable(toolName: string, args: any): boolean {
+    if (toolName === "browser" && args?.action === "upload" && typeof args?.path === "string") {
+      return this.relativeInRoot(args.path) !== null;
+    }
     if (typeof args?.path !== "string") return true;
     return this.relativeInRoot(args.path) !== null;
   }
@@ -481,10 +494,26 @@ export class PermissionResolver {
       if (tokens.length === 0) return null;
       return { tool: "bash", effect: "allow", tokens };
     }
-    if (typeof args?.path === "string") {
+    if (typeof args?.path === "string" && !(toolName === "browser" && args?.action === "upload")) {
       const rel = this.relativeInRoot(args.path);
       if (rel === null) return null;
       return { tool: toolName, effect: "allow", path: rel };
+    }
+    // #777: an in-root browser upload "always" writes the same
+    // site-scoped URL rule as any other browser act action — never a
+    // path rule (the upload gate matches `browser:<action>` + page URL,
+    // so a path rule could never match: a dead rule and an ask loop).
+    if (toolName === "browser" && typeof args?.path === "string") {
+      if (this.relativeInRoot(args.path) === null) return null; // out-of-root: per-occurrence only
+      const pageUrl = typeof args?.pageUrl === "string" ? args.pageUrl : undefined;
+      if (!pageUrl) return null; // no page URL: no sound site scope — ask again next time
+      let origin: string;
+      try {
+        origin = new URL(pageUrl).origin;
+      } catch {
+        return null;
+      }
+      return { tool: `browser:${args.action}`, effect: "allow", url: `${origin}/**` };
     }
     // #775: "always for this site" — a runtime `browser:<action> <url-glob>`
     // rule scoped to the page's origin. Never persisted (PermissionGate

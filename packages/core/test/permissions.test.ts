@@ -839,3 +839,41 @@ describe("#775 review fixes", () => {
     expect(r.resolve("browser", { action: "click", pageUrl: "https://other.test/" })).toBe("deny");
   });
 });
+
+describe("#777: browser upload containment in the permission gate", () => {
+  test("an out-of-root upload source asks even under a site-wide browser:upload allow rule", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { browserAllow: ["browser:upload https://app.example.com/**"] },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "upload", ref: "e1", path: "/etc/passwd", pageUrl: "https://app.example.com/" })).toBe("ask");
+  });
+
+  test("an in-root upload source rides the normal browser rules", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { browserAllow: ["browser:upload https://app.example.com/**"] },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "upload", ref: "e1", path: "doc.pdf", pageUrl: "https://app.example.com/" })).toBe("allow");
+  });
+
+  test("an out-of-root upload source is never persistable", () => {
+    const r = new PermissionResolver({ defaults: DEFAULT_TOOL_PERMISSIONS, cwd: root });
+    expect(r.persistable("browser", { action: "upload", ref: "e1", path: "/etc/passwd" })).toBe(false);
+    expect(r.persistable("browser", { action: "upload", ref: "e1", path: "doc.pdf" })).toBe(true);
+  });
+});
+
+describe("#777: browser upload 'always' runtime rule", () => {
+  test("an in-root upload 'always' writes a site-scoped URL rule, not a dead path rule", () => {
+    const r = new PermissionResolver({ defaults: DEFAULT_TOOL_PERMISSIONS, cwd: root });
+    const args = { action: "upload", ref: "e1", path: "doc.pdf", pageUrl: "https://app.example.com/" };
+    const rule = r.runtimeRuleFor("browser", args);
+    expect(rule).toEqual({ tool: "browser:upload", effect: "allow", url: "https://app.example.com/**" });
+    r.addRuntimeRule(rule!);
+    expect(r.resolve("browser", args)).toBe("allow");
+    expect(r.resolve("browser", { ...args, path: "/etc/passwd" })).toBe("ask"); // out-of-root never covered
+  });
+});

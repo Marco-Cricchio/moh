@@ -1081,6 +1081,18 @@ export interface BuiltinToolsOptions {
    * silence). When enabled but the toolchain is missing, the tool is
    * still not registered and `diagnostics` carries the install hint. */
   browser?: { enabled?: boolean; headless?: boolean; allowedHosts?: string[] };
+  /** #777: project root for `upload` containment (default process.cwd()). */
+  browserRoot?: string;
+  /**
+   * #777: consent seam for the browser's per-occurrence asks. Used for
+   * an out-of-root upload source (never persistable) and a required
+   * download (name + size). Absent → out-of-root uploads are refused
+   * and downloads stay blocked (no silent writes). Wired by from-config
+   * to the session's permission consent; the TUI renders the question.
+   */
+  browserAsk?: (question: { kind: "out_of_root_upload" | "download"; path?: string; filename?: string; size?: number }) =>
+    | Promise<boolean>
+    | boolean;
   /** Out-param: why the browser tool is absent (toolchain missing), for
    * the session-start diagnostic. Always null when enabled is falsy. */
   diagnostics?: string[];
@@ -1110,6 +1122,14 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
           session,
           allowedHosts: options.browser.allowedHosts,
           describeElement: (ref) => session.describeElement(ref),
+          root: options.browserRoot,
+          // #777: per-occurrence asks ride the session's consent seam.
+          askOutOfRoot: options.browserAsk
+            ? (path) => options.browserAsk!({ kind: "out_of_root_upload", path })
+            : undefined,
+          askDownload: options.browserAsk
+            ? async (info) => ((await options.browserAsk!({ kind: "download", ...info })) ? "allow" : "deny")
+            : undefined,
         }),
       );
       // Session-lifecycle seam: the caller (from-config) reads it to reap
