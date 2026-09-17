@@ -51,7 +51,8 @@ export interface OpenSessionOptions {
   onHandoffWarning?: (message: string) => void;
   home?: string;
   /** Consent seam for the TUI permission modal (#33). */
-  onPermissionRequest?: (tool: string, args: unknown) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  onPermissionRequest?:
+    | ((tool: string, args: unknown) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no");
   /** Interactive question channel for the ask_user tool (#70). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Default permission mode for new sessions (user config; yolo stays launch-only). */
@@ -89,7 +90,11 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
       ...(options.onPermissionRequest
         ? {
             onPermissionRequest: options.onPermissionRequest,
-            onMcpTrust: (server: string) => options.onPermissionRequest!(`mcp__${server}`, {}),
+            onMcpTrust: (server: string) => {
+              const answer = options.onPermissionRequest!(`mcp__${server}`, {});
+              // MCP trust has no "always_for_site" — map it to plain always.
+              return Promise.resolve(answer).then((a) => (a === "always_for_site" ? "always" : a));
+            },
           }
         : {}),
       ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),

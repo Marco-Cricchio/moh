@@ -27,9 +27,36 @@ export interface BrowserToolOptions {
   session: BrowserSession;
   /** Exact-host SSRF escape hatch (spec: browser.allowedHosts). */
   allowedHosts?: readonly string[];
+  /**
+   * #775: element description for the permission ask, resolved from the
+   * latest snapshot (`click [button "Delete permanently"] on host`).
+   * Returns a compact single-line description or null.
+   */
+  describeElement?: (ref: string) => string | null;
+  /** #775: gate-seam override for the live page URL (tests); defaults to the session's page. */
+  pageUrl?: () => string | null;
 }
 
 export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof readTierSchema>> {
+  // #775: the permission gate matches `browser:<action> <url-glob>` rules
+  // against the page URL at action time; the args the gate sees are
+  // enriched with it (and a compact element description for the ask).
+  const gateArgs = (raw: { action: string; ref?: string; url?: string }): Record<string, unknown> => {
+    const enriched: Record<string, unknown> = { ...raw };
+    if (raw.action === "navigate") {
+      // navigate carries its own target: URL rules match it directly.
+      if (typeof raw.url === "string") enriched.pageUrl = raw.url;
+    } else {
+      const pageUrl = (options.pageUrl ?? (() => options.session.pageUrl()))();
+      if (pageUrl) enriched.pageUrl = pageUrl;
+    }
+    const ref = raw.ref;
+    if (ref) {
+      const desc = options.describeElement?.(ref);
+      if (desc) enriched.elementDescription = desc;
+    }
+    return enriched;
+  };
   return {
     name: "browser",
     description:
@@ -43,6 +70,7 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
       "Loopback URLs (localhost dev servers) are allowed; other private " +
       "networks are blocked.",
     inputSchema: readTierSchema,
+    gateArgs: (raw) => gateArgs(raw as { action: string; ref?: string; url?: string }),
     timeoutMs: (args) => {
       const action = (args as { action?: string } | null | undefined)?.action;
       return action === "navigate" ? 30_000 : 10_000;

@@ -288,7 +288,13 @@ export class ToolRunner {
       }
       args = parsed.data;
     }
-    const gate = await this.#gate.check(call.name, call.callId, args);
+    // #775 (ADR-0029): the browser tool enriches its validated args with
+    // the live page URL (URL-glob permission matching) and an element
+    // description (the ask renders action + element + domain). The
+    // enrichment is presentation + policy context only — execute still
+    // receives the model's own args.
+    const gateArgs = tool.gateArgs ? tool.gateArgs(args) : args;
+    const gate = await this.#gate.check(call.name, call.callId, gateArgs);
     if (!gate.allowed) {
       return { callId: call.callId, ok: false, output: gate.denial, errorKind: "permission" };
     }

@@ -466,6 +466,12 @@ export interface Tool<A = any> {
    * on the `tool_call` event; a tool without a timeout concept simply
    * omits this. Must be self-sanitizing: never trust the raw arg shape. */
   timeoutMs?: (args: unknown) => number | undefined;
+  /**
+   * #775: args the permission gate should see for this call, when they
+   * differ from the model's validated args (the browser tool adds the
+   * live page URL and an element description). Absent = use the args.
+   */
+  gateArgs?: (args: A) => unknown;
   execute(args: A, ctx: ToolContext): Promise<string> | string;
 }
 

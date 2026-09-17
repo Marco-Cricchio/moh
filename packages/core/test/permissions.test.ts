@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -589,5 +589,253 @@ describe("SEC-04: bash token-prefix rules vs shell metacharacters", () => {
     expect(r.runtimeRuleFor("bash", { command: "git status" })).toEqual({ tool: "bash", effect: "allow", tokens: ["git", "status"] });
     expect(r.runtimeRuleFor("bash", { command: "git status && rm x" })).toBeNull();
     expect(r.runtimeRuleFor("bash", { command: "a | b" })).toBeNull();
+  });
+});
+
+describe("#775: browser permission tiers and URL-glob rules", () => {
+  test("read-tier actions allow by default; act-tier actions ask", () => {
+    const r = new PermissionResolver({ defaults: DEFAULT_TOOL_PERMISSIONS, cwd: root });
+    for (const action of ["navigate", "snapshot", "read_text", "screenshot", "close"]) {
+      expect(r.resolve("browser", { action, pageUrl: "https://example.com/" })).toBe("allow");
+    }
+    for (const action of ["click", "fill", "select", "scroll", "press_key", "wait_for", "upload", "eval_js"]) {
+      expect(r.resolve("browser", { action, pageUrl: "https://example.com/" })).toBe("ask");
+    }
+  });
+
+  test("a config URL-glob allow silences asks for that domain+action and still asks elsewhere", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { browserAllow: ["browser:click https://app.example.com/**"] },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/settings/profile" })).toBe("allow");
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/" })).toBe("allow");
+    // other host, other action: still ask
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://other.example.com/" })).toBe("ask");
+    expect(r.resolve("browser", { action: "fill", pageUrl: "https://app.example.com/" })).toBe("ask");
+  });
+
+  test("bare browser:<action> rules work as the global form", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { tools: { "browser:fill": "allow" } },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "fill", pageUrl: "https://anywhere.org/x" })).toBe("allow");
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://anywhere.org/x" })).toBe("ask");
+  });
+
+  test("a bare browser rule covers every action, including the act tier", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { tools: { browser: "allow" } },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://x.test/" })).toBe("allow");
+  });
+
+  test("deny beats allow at equal specificity (fail-safe)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: {
+        browserAllow: ["browser:click https://app.example.com/**"],
+        browserDeny: ["browser:click https://app.example.com/admin/**"],
+      },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/admin/users" })).toBe("deny");
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/settings" })).toBe("allow");
+  });
+
+  test("a browser deny override beats the builtin read-tier allow (config tier wins)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { tools: { browser: "deny" } },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "navigate", pageUrl: "https://x.test/" })).toBe("deny");
+  });
+
+  test("URL rules without a page URL degrade to ask (never match blind)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { browserAllow: ["browser:click https://app.example.com/**"] },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click" })).toBe("ask");
+  });
+
+  test("runtime 'always for this site' rule wins over config and is site-scoped", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/a" })).toBe("ask");
+    const rule = r.runtimeRuleFor("browser", { action: "click", pageUrl: "https://app.example.com/settings#privacy" });
+    expect(rule).toEqual({ tool: "browser:click", effect: "allow", url: "https://app.example.com/**" });
+    r.addRuntimeRule(rule!);
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/other" })).toBe("allow");
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://other.test/" })).toBe("ask");
+    // a fresh resolver (fresh session) asks again
+    const fresh = new PermissionResolver({ defaults: DEFAULT_TOOL_PERMISSIONS, cwd: root });
+    expect(fresh.resolve("browser", { action: "click", pageUrl: "https://app.example.com/a" })).toBe("ask");
+  });
+});
+
+describe("#775: URL-glob argspec (ADR-0007 third semantic)", () => {
+  test("parseRule recognizes scheme+host+path matchers on browser rules", () => {
+    expect(parseRule("browser:click https://app.example.com/**", "allow")).toEqual({
+      tier: "config", tool: "browser:click", effect: "allow", url: "https://app.example.com/**",
+    });
+    expect(parseRule("browser:fill http://localhost:3000/app/**", "deny")).toEqual({
+      tier: "config", tool: "browser:fill", effect: "deny", url: "http://localhost:3000/app/**",
+    });
+  });
+
+  test("formatRule renders URL rules canonically and the corpus round-trips", () => {
+    const rule = parseRule("browser:click https://app.example.com/**", "allow", "runtime");
+    expect(formatRule(rule)).toBe("browser:click https://app.example.com/**");
+    const corpus: PermissionRule[] = [
+      { tier: "runtime", tool: "browser:click", effect: "allow", url: "https://app.example.com/**" },
+      { tier: "config", tool: "browser:fill", effect: "deny", url: "http://localhost:3000/app/**" },
+    ];
+    for (const rule of corpus) {
+      expect(parseRule(formatRule(rule), rule.effect, rule.tier)).toEqual(rule);
+    }
+  });
+
+  test("overridesFromFlags routes URL rules to the browser buckets, keeping tool scope", () => {
+    const overrides = overridesFromFlags(
+      ["browser:click https://app.example.com/**"],
+      ["browser:eval_js http://localhost:3000/**"],
+    );
+    expect(overrides.browserAllow).toEqual(["browser:click https://app.example.com/**"]);
+    expect(overrides.browserDeny).toEqual(["browser:eval_js http://localhost:3000/**"]);
+  });
+
+  test("urlGlobMatches: ** spans path segments; exact host, no implicit subdomains; scheme must match", () => {
+    const { urlGlobMatches } = require("../src/permissions") as { urlGlobMatches(p: string, u: string): boolean };
+    expect(urlGlobMatches("https://app.example.com/**", "https://app.example.com/a/b/c?x=1")).toBe(true);
+    expect(urlGlobMatches("https://app.example.com", "https://app.example.com/")).toBe(true);
+    expect(urlGlobMatches("https://app.example.com", "https://app.example.com/deep/path")).toBe(false);
+    expect(urlGlobMatches("https://app.example.com/**", "https://sub.app.example.com/")).toBe(false);
+    expect(urlGlobMatches("https://app.example.com/**", "http://app.example.com/")).toBe(false);
+    expect(urlGlobMatches("http://localhost:3000/**", "http://localhost:3000/app")).toBe(true);
+    expect(urlGlobMatches("http://localhost/**", "http://localhost:8080/app")).toBe(true);
+    expect(urlGlobMatches("not a url", "https://app.example.com/")).toBe(false);
+    expect(urlGlobMatches("https://app.example.com/**", "::::")).toBe(false);
+  });
+});
+
+describe("#775: PermissionGate: always_for_site is session-scoped, never persisted", () => {
+  function tool(name: string) {
+    return {
+      name,
+      description: name,
+      inputSchema: undefined,
+      async execute() {
+        return `${name} ok`;
+      },
+    };
+  }
+
+  function browserSession(answers: string[]) {
+    let i = 0;
+    const asks: Array<{ tool: string; args: unknown }> = [];
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "browser", args: { action: "click", ref: "e1", pageUrl: "https://app.example.com/settings" } }] },
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "browser", args: { action: "click", ref: "e2", pageUrl: "https://app.example.com/other" } }] },
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "browser", args: { action: "click", ref: "e3", pageUrl: "https://other.test/" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { browser: tool("browser") },
+      cwd: root,
+      onPermissionRequest: (t, a) => {
+        asks.push({ tool: t, args: a });
+        return answers[i++] as any;
+      },
+    });
+    return { session, asks };
+  }
+
+  test("always_for_site writes a site-scoped runtime rule; other sites still ask", async () => {
+    const { session, asks } = browserSession(["always_for_site", "no"]);
+    await session.send("go");
+    // Same-site second click is covered by the runtime rule (no ask);
+    // the other site asks and is denied.
+    expect(asks.length).toBe(2);
+    const log = session.history();
+    const added = log.filter((e) => e.type === "permission_rule_added") as any[];
+    expect(added.length).toBe(1);
+    expect(added[0]!.rule).toEqual({
+      tool: "browser:click",
+      effect: "allow",
+      url: "https://app.example.com/**",
+      tier: "runtime",
+    });
+    // The moh.json was never touched (no persistence seam for browser rules).
+  });
+
+  test("plain always on a browser call builds the same site-scoped rule (never tool-wide)", async () => {
+    const { session } = browserSession(["always", "yes", "no"]);
+    await session.send("go");
+    const added = session.history().filter((e) => e.type === "permission_rule_added") as any[];
+    expect(added.length).toBe(1);
+    expect(added[0]!.rule.url).toBe("https://app.example.com/**");
+    expect(added[0]!.rule.tool).toBe("browser:click");
+  });
+
+  test("the site rule is not written to moh.json even when one exists", async () => {
+    const mohJson = join(root, "moh.json");
+    writeFileSync(mohJson, JSON.stringify({ permissions: { overrides: { pathAllow: [] } } }));
+    const { session } = browserSession(["always", "yes", "no"]);
+    await session.send("go");
+    const parsed = JSON.parse(readFileSync(mohJson, "utf8"));
+    expect(parsed.permissions?.overrides?.tools?.["browser:click"]).toBeUndefined();
+    expect(parsed.permissions?.overrides?.browserAllow).toBeUndefined();
+  });
+});
+
+describe("#775 review fixes", () => {
+  test("the global form browser:<action> parses, rides the browser buckets and matches", () => {
+    expect(parseRule("browser:click", "allow")).toEqual({ tier: "config", tool: "browser:click", effect: "allow" });
+    const overrides = overridesFromFlags(["browser:click"], []);
+    expect(overrides.browserAllow).toEqual(["browser:click"]);
+    expect(overrides.pathAllow).toBeUndefined();
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides,
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://any.test/" })).toBe("allow");
+    expect(r.resolve("browser", { action: "fill", pageUrl: "https://any.test/" })).toBe("ask");
+    // round-trip
+    const rule = parseRule("browser:click", "allow", "runtime");
+    expect(formatRule(rule)).toBe("browser:click");
+  });
+
+  test("a URL-scoped navigate rule matches the navigate target URL", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: { browserDeny: ["browser:navigate https://evil.example/**"] },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "navigate", url: "https://evil.example/phish" })).toBe("deny");
+    expect(r.resolve("browser", { action: "navigate", url: "https://fine.example/" })).toBe("allow");
+  });
+
+  test("a URL-scoped allow beats a same-tier global deny (specificity)", () => {
+    const r = new PermissionResolver({
+      defaults: DEFAULT_TOOL_PERMISSIONS,
+      overrides: {
+        tools: { "browser:click": "deny" },
+        browserAllow: ["browser:click https://app.example.com/**"],
+      },
+      cwd: root,
+    });
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://app.example.com/" })).toBe("allow");
+    expect(r.resolve("browser", { action: "click", pageUrl: "https://other.test/" })).toBe("deny");
   });
 });

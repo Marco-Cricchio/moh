@@ -11,7 +11,7 @@ import { formatRule, splitCommandSegments } from "@moh/core";
 import { truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
 
-export type PermissionAnswer = "yes" | "always" | "no";
+export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
 
 export interface PermissionRequestView {
   tool: string;
@@ -51,6 +51,37 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
       detail: [`issue: #${sanitizeForDisplay(a.id)}`],
       rulePreview: sanitizeForDisplay(formatRule({ tier: "runtime", tool, effect: "allow" })),
     };
+  }
+  // #775 (ADR-0029): browser asks render action + element description +
+  // domain from the snapshot, and the "always for this site" rule they
+  // would write (session-scoped `browser:<action> <origin>/**`).
+  if (tool === "browser" && typeof a.action === "string") {
+    const detail: string[] = [];
+    const element = typeof a.elementDescription === "string" ? a.elementDescription : `[${
+      typeof a.ref === "string" ? `ref ${a.ref}` : "page"
+    }]`;
+    let host = "";
+    if (typeof a.pageUrl === "string") {
+      try {
+        host = new URL(a.pageUrl).host;
+      } catch { /* rendered without a domain */
+      }
+    }
+    detail.push(`${a.action} ${element}${host ? ` on ${host}` : ""}`);
+    if (typeof a.pageUrl === "string" && host) {
+      let origin: string;
+      try {
+        origin = new URL(a.pageUrl).origin;
+      } catch {
+        origin = "";
+      }
+      if (origin) {
+        const rule = formatRule({ tier: "runtime", tool: `browser:${a.action}`, effect: "allow", url: `${origin}/**` });
+        detail.push(`site: ${sanitizeForDisplay(rule)}`);
+        return { tool, args, detail: detail.map(sanitizeForDisplay), rulePreview: sanitizeForDisplay(rule) };
+      }
+    }
+    return { tool, args, detail: detail.map(sanitizeForDisplay), rulePreview: null };
   }
   let rendered: string;
   try {
@@ -148,7 +179,9 @@ export class PermissionGate {
     const pending = this.#pending;
     if (!pending) return;
     this.#pending = null;
-    if (answer === "always" && pending.view.rulePreview) {
+    // #775: on a browser ask, "always" and "always for this site" both
+    // record the site-scoped rule — there is no tool-wide browser rule.
+    if ((answer === "always" || answer === "always_for_site") && pending.view.rulePreview) {
       this.#runtimeAllows.add(pending.view.rulePreview);
     }
     this.#emit();

@@ -82,11 +82,12 @@ export interface AssemblyError {
 
 /** The client interaction seams. Without them (headless), unpermitted calls and project MCP servers fail fast. */
 export interface SessionConsent {
-  /** Tool "ask" decisions (TUI: the permission modal). */
+  /** Tool "ask" decisions (TUI: the permission modal). `always_for_site`
+   * (#775) is the browser act-tier answer — session-scoped, never persisted. */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
-  ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** ask_user channel (TUI: the inline question block, ADR-0019). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Project MCP server consent (TUI: reuses the permission modal). */
@@ -152,6 +153,8 @@ function mergePermissionFlags(
     bashDeny: [...(flags.bashDeny ?? []), ...(base?.bashDeny ?? [])],
     pathAllow: [...(flags.pathAllow ?? []), ...(base?.pathAllow ?? [])],
     pathDeny: [...(flags.pathDeny ?? []), ...(base?.pathDeny ?? [])],
+    browserAllow: [...(flags.browserAllow ?? []), ...(base?.browserAllow ?? [])],
+    browserDeny: [...(flags.browserDeny ?? []), ...(base?.browserDeny ?? [])],
   };
 }
 

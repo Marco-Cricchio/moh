@@ -262,3 +262,41 @@ describe("BrowserUnavailableError", () => {
     expect(new BrowserUnavailableError("x")).toBeInstanceOf(BrowserUnavailableError);
   });
 });
+
+describe("#775: gate enrichment (page URL + element description)", () => {
+  test("parseSnapshotDescriptions extracts compact labels per ref", () => {
+    const { parseSnapshotDescriptions } = require("../src/browser") as {
+      parseSnapshotDescriptions(s: string): Map<string, string>;
+    };
+    const snap = [
+      '- button "Delete permanently" [ref=e12]',
+      '- textbox "Email" [ref=e3]',
+      "no refs here",
+      '- link "Docs" [ref=e7]',
+    ].join("\n");
+    const map = parseSnapshotDescriptions(snap);
+    expect(map.get("e12")).toBe('[button "Delete permanently"]');
+    expect(map.get("e3")).toBe('[textbox "Email"]');
+    expect(map.get("e7")).toBe('[link "Docs"]');
+    expect(map.size).toBe(3);
+  });
+
+  test("gateArgs adds the live page URL and element description; navigate carries none", () => {
+    const session = {
+      pageUrl: () => "https://app.example.com/settings",
+      describeElement: (ref: string) => (ref === "e12" ? '[button "Delete permanently"]' : null),
+    };
+    const tool = browserTool({
+      session: session as any,
+      pageUrl: () => session.pageUrl() as string,
+      describeElement: (ref) => (session as any).describeElement(ref),
+    });
+    const gated = tool.gateArgs!({ action: "click", ref: "e12" } as any) as Record<string, unknown>;
+    expect(gated.action).toBe("click");
+    expect(gated.pageUrl).toBe("https://app.example.com/settings");
+    expect(gated.elementDescription).toBe('[button "Delete permanently"]');
+    const nav = tool.gateArgs!({ action: "navigate", url: "https://x.test/" } as any) as Record<string, unknown>;
+    expect(nav.pageUrl).toBe("https://x.test/"); // navigate: its own target is the gate URL
+    expect(nav.elementDescription).toBeUndefined();
+  });
+});

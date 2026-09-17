@@ -101,6 +101,7 @@ import {
   parseRule,
   RuleError,
   splitCommandSegments,
+  urlGlobMatches,
   type PermissionOverrides,
   type PermissionRule,
 } from "./permissions";
@@ -640,6 +641,7 @@ export {
   formatRule,
   parseRule,
   overridesFromFlags,
+  urlGlobMatches,
   RuleError,
   McpRuntime,
   mcpServerEntrySchema,

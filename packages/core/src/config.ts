@@ -90,6 +90,9 @@ const permissionOverridesSchema = z.object({
   bashDeny: z.array(z.array(z.string())).optional(),
   pathAllow: z.array(z.string()).optional(),
   pathDeny: z.array(z.string()).optional(),
+  // #775: canonical browser rules (`browser:click https://app.example.com/**`).
+  browserAllow: z.array(z.string()).optional(),
+  browserDeny: z.array(z.string()).optional(),
 });
 
 export const mohConfigSchema = z.object({

@@ -30,7 +30,10 @@ export function PermissionModal({
   useInput((input, key) => {
     if (!view) return;
     if (input === "y" || key.return) return gate.resolve("yes");
-    if (input === "a") return gate.resolve("always");
+    if (view.tool === "browser") {
+      // #775: on browser asks the "always" slot is the site-scoped rule.
+      if (input === "a" || input === "s") return gate.resolve("always_for_site");
+    } else if (input === "a") return gate.resolve("always");
     if (input === "n" || key.escape) return gate.resolve("no");
     if (input === "e") editTarget(view.tool, view.args, editor);
   });
@@ -48,7 +51,9 @@ export function PermissionModal({
       ))}
       <Text> </Text>
       {view.rulePreview ? (
-        <Dim>{`  “always” writes the session rule: ${view.rulePreview}`}</Dim>
+        <Dim>
+          {`  “always” writes the session rule: ${view.rulePreview}${view.tool === "browser" ? " (this site, this session only)" : ""}`}
+        </Dim>
       ) : null}
       <Text> </Text>
       <Text>
@@ -57,7 +62,7 @@ export function PermissionModal({
         </Text>
         {" yes  "}
         <Text color={theme.accent}>a</Text>
-        {" always  "}
+        {view.tool === "browser" ? " always for this site  " : " always  "}
         <Text color={theme.accent}>e</Text>
         {" edit  "}
         <Text color={theme.accent}>n</Text>

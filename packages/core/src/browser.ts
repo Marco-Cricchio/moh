@@ -160,6 +160,8 @@ export class BrowserSession {
   #page: BrowserPageLike | null = null;
   #browser: BrowserLike | null = null;
   #disposed = false;
+  /** #775: ref → compact description, from the latest full snapshot. */
+  #describe = new Map<string, string>();
   readonly #profileDir: string;
   readonly #headless: boolean;
   readonly #playwright: unknown;
@@ -218,15 +220,33 @@ export class BrowserSession {
     // Older playwright builds lack Page.ariaSnapshot: snapshot via the
     // body locator, which is present across all versions that have the
     // a11y snapshot API at all.
+    let text: string;
     if (ref !== undefined) {
       const locator = page.locator(`aria-ref=${refNumber(ref)}`);
-      return applySnapshotBudget(await locator.ariaSnapshot(options));
+      text = applySnapshotBudget(await locator.ariaSnapshot(options));
+    } else {
+      const snapshottable = page as BrowserPageLike & { ariaSnapshot?: (o: typeof options) => Promise<string> };
+      text = snapshottable.ariaSnapshot
+        ? await snapshottable.ariaSnapshot(options)
+        : await page.locator("body").ariaSnapshot(options);
+      text = applySnapshotBudget(text);
     }
-    const snapshottable = page as BrowserPageLike & { ariaSnapshot?: (o: typeof options) => Promise<string> };
-    const text = snapshottable.ariaSnapshot
-      ? await snapshottable.ariaSnapshot(options)
-      : await page.locator("body").ariaSnapshot(options);
-    return applySnapshotBudget(text);
+    // #775: refresh the element descriptions the permission asks render.
+    this.#describe = parseSnapshotDescriptions(text);
+    return text;
+  }
+
+  /**
+   * #775: compact description of one `ref` element from the latest
+   * snapshot (`[button "Delete permanently"]`), for the permission ask.
+   * Null when the ref is unknown or stale.
+   */
+  describeElement(ref: string): string | null {
+    try {
+      return this.#describe.get(refNumber(ref)) ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** Visible text of the page or of one `ref` element. */
@@ -240,6 +260,18 @@ export class BrowserSession {
     // Whole-page text: the DOM body's textContent is the honest read view.
     const text = await page.locator("body").textContent({ timeout: 10_000 });
     return applySnapshotBudget(text ?? "");
+  }
+
+  /** The live page URL (permission-gate seam, #775): null before the first
+   * navigate or after dispose. Never throws. */
+  pageUrl(): string | null {
+    try {
+      const page = this.#page as (BrowserPageLike & { url?: () => string }) | null;
+      const url = page?.url?.();
+      return typeof url === "string" && url ? url : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Reaps browser and page. Idempotent; safe mid-session and at dispose. */
@@ -263,4 +295,20 @@ export function refNumber(ref: string): string {
   const m = /^\[?ref=(e\d+)\]?$/.exec(ref.trim()) ?? /^(e\d+)$/.exec(ref.trim());
   if (!m) throw new Error(`browser: invalid ref "${ref}" (expected eN from the latest snapshot)`);
   return m[1]!;
+}
+
+/**
+ * #775: extracts per-ref compact element descriptions from a ref-annotated
+ * snapshot line (`- button "Delete permanently" [ref=e12]`). Best-effort:
+ * refs without a recognizable label simply have no description.
+ */
+export function parseSnapshotDescriptions(snapshot: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const line of snapshot.split("\n")) {
+    const m = /^(.*)\[ref=(e\d+)\]\s*$/.exec(line.trim());
+    if (!m) continue;
+    const label = m[1]!.replace(/^[-\s]+/, "").replace(/\s+/g, " ").trim();
+    if (label) out.set(m[2]!, `[${label}]`);
+  }
+  return out;
 }
