@@ -34,7 +34,7 @@ import { Home, updateNoticeText } from "./Home";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { useSubagentCount } from "./subagent-panel";
 import { Chat, type Mode } from "./Chat";
-import { handoffPublishWork, discoverHandoffForHome, makeSession, providerLabel, transportActiveFor } from "./factory";
+import { handoffPublishWork, retryPendingHandoffPublish, discoverHandoffForHome, makeSession, providerLabel, transportActiveFor } from "./factory";
 import { ColdWizard } from "./ColdWizard";
 import { isColdDirectory, discoverGistHandoffs, type GistHandoffOffer } from "@moh/core";
 import { listSessionSummaries, type SessionSummary } from "./sessions";
@@ -668,6 +668,21 @@ export function App({
     });
     return () => {
       cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd]);
+
+  // Handoff publish retry (startup): a previous exit-time publish that
+  // hit the 2s exit budget (or otherwise failed with the artifact kept
+  // local) is retried here with a generous budget, off the exit path.
+  // Idempotent — the published marker makes an already-sent artifact a
+  // no-op — so it runs on every Home mount without spamming gh.
+  useEffect(() => {
+    const retry = retryPendingHandoffPublish(cwd, home, (message) =>
+      push(sanitizeForDisplay(message), "warn"),
+    );
+    return () => {
+      retry?.catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
