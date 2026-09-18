@@ -154,6 +154,31 @@ describe("routing judge (#787)", () => {
     expect(verdict!.decision).toBe("switch");
   });
 
+  test("an unusable answer leaves the streak exactly where it was", async () => {
+    // First turn: a real judgment for `potente` (streak 1).
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    const { judge } = judgeFor(fake);
+    expect(await judge.decide("design", "a/cheap")).toMatchObject({ streak: 1, reason: "streak" });
+
+    // Second turn: an answer naming a tier this pool cannot reach.
+    const twoTiers = [
+      { ref: "a/cheap", price: 1 },
+      { ref: "a/big", price: 100 },
+    ];
+    const stray = judgeFor(fakeClient({ choice: "bilanciato", confidence: 0.99 }), twoTiers);
+    await stray.judge.decide("design", "a/cheap");
+    expect(await stray.judge.decide("design more", "a/cheap")).toMatchObject({
+      decision: "stay",
+      reason: "low-confidence",
+      confidence: 0,
+      streak: 0,
+    });
+
+    // Third turn: back to a real answer for the same tier — a fresh streak,
+    // not a continuation of anything the unusable answer touched.
+    expect(await judge.decide("still designing", "a/cheap")).toMatchObject({ streak: 2, decision: "switch" });
+  });
+
   test("a failed call produces nothing: no switch, no record, no state change", async () => {
     const fake = fakeClient({ fail: "rate_limited" });
     const { judge, state } = judgeFor(fake);

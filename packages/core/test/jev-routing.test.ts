@@ -8,7 +8,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ExtensionRuntime, createSession, type AgentEvent, type Provider } from "../src/index";
+import type { Route } from "../src/route";
+import { ExtensionRuntime, createSession, defaultRegistry, resolveProviderRef, type AgentEvent, type Provider } from "../src/index";
 import { ProviderRegistry } from "../src/provider-registry";
 import { createJevGuardExtension } from "@moh/jev-guard";
 
@@ -85,6 +86,20 @@ describe("Jev routing in a session (#787)", () => {
     const secondTurn = events.map((e) => e.type).lastIndexOf("user_message");
     expect(switchedAt).toBeLessThan(secondTurn);
     await session.dispose();
+  });
+
+  test("a router pick lands on a route with its fallback chain intact", async () => {
+    // The router names one ref; the ref resolves through the same path the
+    // manual switch uses, so the endpoint's own fallback stops survive and
+    // Jev is never involved in a fallback (the router is transparent to it).
+    const endpoints = [
+      { name: "pa", type: "openai", defaultModel: "m" },
+      { name: "pb", type: "openai", defaultModel: "m" },
+      { name: "pc", type: "openai", defaultModel: "m" },
+    ];
+    const route = resolveProviderRef("pb/m", defaultRegistry.freeze(), endpoints) as Route;
+    expect(route.chain).toEqual(["pb/m", "pa/m", "pc/m"]);
+    expect(route.chain[0]).toBe("pb/m");
   });
 
   test("low confidence keeps the current model and still records the turn", async () => {

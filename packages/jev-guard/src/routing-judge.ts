@@ -58,8 +58,9 @@ export interface RoutingVerdict {
   /** `switch` + `ref`, or `stay` + the reason the decision table gave. */
   readonly decision: "switch" | "stay";
   readonly reason: RoutingDecision["reason"];
-  /** The tier the judgment named. */
-  readonly tier: RoutingTier;
+  /** The tier the judgment named — present only when it is usable, i.e. a
+   * tier this session's pool can actually reach (never a guess). */
+  readonly tier?: RoutingTier;
   readonly confidence: number;
   /** The tier of the serving model, when it is in the pool. */
   readonly currentTier?: RoutingTier;
@@ -87,9 +88,7 @@ const INITIAL: RoutingJudgeState = { streak: 0, streakTier: null, override: fals
 export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHost) {
   const state = (deps.state.routing as RoutingJudgeState | undefined) ?? { ...INITIAL };
   deps.state.routing = state;
-  /** In-session memo of the tier assignment; null = nothing to choose. */
-  let assignment: Promise<TierAssignment | null> | undefined;
-
+  /** In-session memo of the resolution: one pool look-up, one listing. */
   let resolution: Promise<RoutingResolution> | undefined;
 
   const resolveAssignment = async (): Promise<RoutingResolution> => {
@@ -129,8 +128,9 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       const message = truncateToBytes(text);
       // The decision is taken inside `record` so the recorded payload and
       // the action come from one computation — the client calls it exactly
-      // once per completed judgment, and never for a failure.
-      let decided: Omit<RoutingVerdict, "message"> | undefined;
+      // once per completed judgment, and never for a failure. `counts`
+      // tells the caller whether the answer was usable at all.
+      let decided: (Omit<RoutingVerdict, "message"> & { counts: boolean }) | undefined;
       const outcome = await deps.client.judge({
         state: message,
         questions: routingQuestions(tiers),
@@ -139,34 +139,38 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
           const answered = answer?.type === "choice" ? tierFromAnswer(answer.choice) : undefined;
           const confidence = answer?.type === "choice" ? answer.confidence : 0;
           // An answer naming a tier the pool cannot reach (or a malformed
-          // one) is not a judgment: it stays, unconfident. Never a guess.
+          // one) is not a judgment: it stays, unconfident, and it does not
+          // count toward the hysteresis. Never a guess.
           const routable = answered !== undefined && tiers.targets[answered] !== undefined;
-          const tier: RoutingTier = routable ? answered : "bilanciato";
           const verdictConfidence = routable ? confidence : 0;
-          const streak = nextStreak(state.streakTier, state.streak, tier);
+          const streak = routable ? nextStreak(state.streakTier, state.streak, answered) : state.streak;
           const decision = decideRouting({
-            tier,
+            // An unusable answer is judged as the middle tier *only* so the
+            // table has something to compare; its confidence is zero, so it
+            // can never switch.
+            tier: routable ? answered : "bilanciato",
             confidence: verdictConfidence,
             ...(currentTier !== undefined ? { currentTier } : {}),
             streak,
             paused: false,
             override: false,
           });
-          const ref = decision.switch ? tiers.targets[tier] : undefined;
+          const ref = decision.switch && answered !== undefined ? tiers.targets[answered] : undefined;
           decided = {
             decision: decision.switch ? "switch" : "stay",
             reason: decision.reason,
-            tier,
+            ...(routable ? { tier: answered } : {}),
             confidence: verdictConfidence,
             ...(currentTier !== undefined ? { currentTier } : {}),
             streak,
+            counts: routable,
             ...(ref !== undefined ? { ref } : {}),
           };
           return {
             useCase: "routing",
             decision: decided.decision,
             reason: decided.reason,
-            tier: decided.tier,
+            tier: decided.tier ?? null,
             confidence: verdictConfidence,
             currentTier: currentTier ?? null,
             streak,
@@ -180,9 +184,12 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
         },
       });
       if (!outcome.ok || !decided) return null;
-      state.streakTier = decided.tier;
-      state.streak = decided.streak;
-      return { ...decided, message };
+      const { counts, ...verdict } = decided;
+      // An unusable answer (a tier the pool cannot reach, or a malformed
+      // one) leaves the streak untouched: it is not a judgment.
+      if (counts && verdict.tier) state.streakTier = verdict.tier;
+      state.streak = verdict.streak;
+      return { ...verdict, message };
     },
 
     /**

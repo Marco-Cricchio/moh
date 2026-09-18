@@ -9,7 +9,9 @@
  * - three canonical tiers, `economico` / `bilanciato` / `potente`;
  * - an explicit label wins, otherwise a price heuristic over the pool;
  * - a switch needs confidence ≥ 0.60 and two consecutive turns naming the
- *   same target tier.
+ *   same target tier;
+ * - an answer naming a tier this session cannot reach (or a malformed one)
+ *   is not a judgment at all: no tier, no streak, no switch.
  */
 import type { JevChoiceQuestion, JevNoulQuestion, JevQuestion } from "./client";
 
@@ -179,12 +181,19 @@ export function nextStreak(previousTier: RoutingTier | null, previous: number, t
   return previousTier === tier ? previous + 1 : 1;
 }
 
-/** Truncates to a byte budget without splitting a character. */
+/**
+ * Truncates to a byte budget without splitting a character. Encodes once,
+ * cuts on a code-point boundary: the message can be arbitrarily long (a
+ * pasted file is normal), and this runs before every judged turn.
+ */
 export function truncateToBytes(text: string, maxBytes = ROUTING_MESSAGE_MAX_BYTES): string {
-  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-  let end = text.length;
-  while (end > 0 && Buffer.byteLength(text.slice(0, end), "utf8") > maxBytes) end -= 1;
-  return text.slice(0, end);
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.length <= maxBytes) return text;
+  // Walk back over continuation bytes (0b10xxxxxx) so a multi-byte
+  // character never becomes U+FFFD.
+  let end = maxBytes;
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+  return bytes.subarray(0, end).toString("utf8");
 }
 
 const TIER_RUBRIC: Record<RoutingTier, string> = {
