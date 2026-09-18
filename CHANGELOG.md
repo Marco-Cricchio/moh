@@ -5,6 +5,15 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.39.2] - 2026-09-18
+### Fixed
+
+- **OpenCode anthropic-wire authentication** (#798 follow-up): OpenCode's
+  `/messages` endpoint ignores `Authorization: Bearer` entirely — the wizard
+  connection test 401'd on Go's default minimax-m3 even with a valid key. The
+  test now sends the key as `x-api-key` with `anthropic-version` on the
+  anthropic wire (Bearer elsewhere), matching the streaming path.
+
 ## [0.39.1] - 2026-09-18
 ### Fixed
 
@@ -249,7 +258,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...develop
+[0.39.2]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...v0.39.2
 [0.39.1]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/Marco-Cricchio/moh/compare/v0.38.2...v0.39.0
 [0.38.2]: https://github.com/Marco-Cricchio/moh/compare/v0.38.1...v0.38.2
