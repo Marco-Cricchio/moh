@@ -423,7 +423,13 @@ describe("the typesafe config block (#784)", () => {
   });
 
   test("resolve defaults and the masked hint", () => {
-    expect(resolveTypesafeConfig(undefined)).toEqual({ active: false, timeoutMs: 2500, routing: false, tiers: {} });
+    expect(resolveTypesafeConfig(undefined)).toEqual({
+      active: false,
+      timeoutMs: 2500,
+      routing: false,
+      injection: false,
+      tiers: {},
+    });
     expect(resolveTypesafeConfig({ apiKey: "   " })).toMatchObject({ active: false, timeoutMs: 2500 });
     expect(
       resolveTypesafeConfig({ apiKey: "sk-abcdef", timeoutMs: 900, routing: true, tiers: { "a/one": "potente" } }),

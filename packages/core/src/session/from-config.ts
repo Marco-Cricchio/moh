@@ -247,6 +247,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
         routing,
         enabled: typesafe.routing,
+        // #791: the anti-injection opt-in, off unless the user asked.
+        injection: typesafe.injection,
       }),
     );
   } else {

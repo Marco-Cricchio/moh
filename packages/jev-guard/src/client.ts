@@ -120,8 +120,13 @@ export interface JevJudgeInput {
    * Builds the payload appended to the session log for this judgment
    * (including a pass). Required: the client records every judgment through
    * this hook, so no caller can sample them away (ratified: no sampling).
+   *
+   * Returning `null` hands the record to the caller instead: the client
+   * appends nothing, and the caller owns the entry (used by a check whose
+   * outcome — the user's answer to a confirmation — is not known yet, and
+   * which must still be recorded exactly once).
    */
-  record: (answers: Record<string, JevAnswer>, meta: JevJudgmentMeta) => Record<string, unknown>;
+  record: (answers: Record<string, JevAnswer>, meta: JevJudgmentMeta) => Record<string, unknown> | null;
   /** The turn's abort signal, composed with the timeout. */
   signal?: AbortSignal;
 }
@@ -323,9 +328,14 @@ export function createJevClient(options: JevClientOptions): JevClient {
       }
       setOffline(false);
       try {
-        options.onJudgment?.(
-          input.record(outcome.answers, { model: outcome.model, latencyMs: outcome.latencyMs, usage: outcome.usage }),
-        );
+        const payload = input.record(outcome.answers, {
+          model: outcome.model,
+          latencyMs: outcome.latencyMs,
+          usage: outcome.usage,
+        });
+        // `null` = the caller records this judgment itself (see the
+        // contract): the client never appends an empty entry.
+        if (payload !== null) options.onJudgment?.(payload);
       } catch {
         // Observability must never break the judgment it describes.
       }

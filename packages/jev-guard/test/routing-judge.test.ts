@@ -45,7 +45,7 @@ function fakeClient(
         needs_context: { type: "noul", noul: answer.needsContext ?? 0 },
       };
       const meta = { model: "jev-latest", latencyMs: 12, usage: { inputTokens: 40, outputTokens: 4 } };
-      records.push(input.record(answers, meta));
+      records.push(input.record(answers, meta) as Record<string, unknown>);
       return { ok: true, answers, model: meta.model, latencyMs: meta.latencyMs, usage: meta.usage };
     },
   };
