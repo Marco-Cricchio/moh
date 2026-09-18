@@ -70,6 +70,8 @@ export class AgentSession {
   readonly #interactive: boolean;
   /** ADR-0032: the last status text announced on stderr (null after a clear). */
   #announcedStatus: string | null = null;
+  /** The resumed history's active-path projection, seeded at construction. */
+  #resumeProjection: AgentEvent[] | undefined;
   /** Startup chrome (#774 / #784), appended once the session's own start
    * events are in — the file's first line stays `session_start`. */
   #startupDiagnostics: readonly string[] = [];
@@ -191,6 +193,14 @@ export class AgentSession {
     });
     this.#onAskUser = config.onAskUser;
     this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    // Resume (#31): the persisted history seeds the log here, before anything
+    // else can append. Registration of a bundled extension resolves on a
+    // microtask — which Bun may run inside a synchronous child-process spawn
+    // (ADR-0024) — so an `extension_loaded` landing before the history would
+    // reorder the log and, on a legacy (identity-less) file, leave the
+    // recorded history off the active path.
+    this.#resumeProjection = config.resume?.events.length ? activePath(config.resume.events) : undefined;
+    if (this.#resumeProjection) this.#eventLog.seed(this.#resumeProjection);
     this.#sessionFile = config.sessionFile;
     this.#externalGrowth = config.externalGrowth;
     this.#gate = new PermissionGate({
@@ -498,11 +508,10 @@ export class AgentSession {
       // branches is how the model sees a different past; whole-tree
       // context does not exist. The projection is the single pass that
       // linearizes once; everything downstream keeps its index logic.
-      const resumeEvents = activePath(config.resume.events);
       // Resume (#31): the log continues in a new AgentSession over the same
-      // persisted history. Seeded events are never re-appended (the file
-      // already has them); only new events reach the sink.
-      this.#eventLog.seed(resumeEvents);
+      // persisted history, seeded above. Seeded events are never re-appended
+      // (the file already has them); only new events reach the sink.
+      const resumeEvents = this.#resumeProjection!;
       this.#messages.splice(0, 0, ...replayMessages(resumeEvents));
       // #578 (d6): a compaction pointer that does not resolve on the
       // active path (corruption, truncation) restarts context from the
@@ -553,7 +562,6 @@ export class AgentSession {
       // A mode change across resume is auditable like any startup flag.
       const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
       if (!lastMode || lastMode.mode !== mode) this.#append({ type: "session_mode", mode });
-      this.#appendStartupChrome();
       return;
     }
     this.#assemblePrompt();
@@ -600,6 +608,12 @@ export class AgentSession {
    * inactive). Both are *chrome*, so they are appended after the session's
    * own start events — a session file must still begin with `session_start`
    * (the store's log-format invariant).
+   *
+   * Only a fresh session appends this: a resumed file already carries the
+   * startup context of its first open, and repeating it on every resume is
+   * noise. It is also mechanical — a legacy (identity-less) log's active
+   * path starts at its own tail, so a fresh identified event appended at
+   * resume-open would leave the recorded history off-path.
    */
   #appendStartupChrome(): void {
     for (const message of this.#startupDiagnostics) {
