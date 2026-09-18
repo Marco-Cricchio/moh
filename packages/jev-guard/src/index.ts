@@ -21,6 +21,7 @@
  */
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
 import { createJevClient, type JevClientOptions } from "./client";
+import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -61,6 +62,51 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         onJudgment: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }),
         onStatus: (text) => ctx.setStatus(text),
       });
+
+      // ---- #786 guardrail: the first use case --------------------------
+      // Jev judges EVERY bash call (before rules, ADR-0031 gate order):
+      // deny → veto, ask → the human consent flow (never auto-accepted,
+      // never "always"), pass → nothing. Yolo gets lethal checks only.
+      const judge = createGuardrailJudge(
+        { client, state: ctx.state },
+        {
+          mode: () => mode,
+          cwd: (args) => {
+            const a = (args ?? {}) as Record<string, unknown>;
+            return typeof a.cwd === "string" ? a.cwd : process.cwd();
+          },
+        },
+      );
+      /** Session mode, tracked from the log's `session_mode` chrome. */
+      let mode: "normal" | "auto-accept" | "yolo" = "normal";
+
+      ctx.onSessionStart(() => {
+        judge.invalidateOnGitChange();
+      });
+      ctx.onEvent(({ event }) => {
+        if (event.type === "session_mode" && (event.mode === "normal" || event.mode === "auto-accept" || event.mode === "yolo")) {
+          mode = event.mode;
+        }
+      });
+      ctx.afterTurn(() => {
+        judge.invalidateOnGitChange();
+      });
+      ctx.onSessionEnd(() => judge.reset());
+      ctx.onToolCall(async (call) => {
+        if (call.name !== GUARDRAIL_TOOL) return;
+        const result = await judge.judge(call.callId, call.args);
+        const v = result.verdict.verdict;
+        if (v === "deny") {
+          return { veto: true, reason: result.verdict.reason };
+        }
+        if (v === "ask") {
+          // ask = human confirmation, not a grant: auto-accept evaluates it
+          // before its allow branch (ADR-0031), yolo ignores it, headless
+          // denies it — all core behaviour, nothing to do here but ask.
+          return { ask: true, reason: result.verdict.badge };
+        }
+        return;
+      });
     },
   });
 }
@@ -94,4 +140,26 @@ export type {
   JevScoreAnswer,
   JevScoreQuestion,
 } from "./client";
-export { questions } from "./questions";
+export { questions } from "./questions-core";
+export {
+  decideGuardrail,
+  GUARDRAIL_QUESTIONS,
+  GUARDRAIL_THRESHOLDS,
+  type GuardrailDecision,
+  type GuardrailSignals,
+  type GuardrailVerdict as GuardrailRuleVerdict,
+} from "./guardrail";
+export {
+  askBadge,
+  createGuardrailJudge,
+  GUARDRAIL_TOOL,
+  type GuardrailJudgeResult,
+} from "./guardrail-judge";
+export {
+  createGuardrailCache,
+  gitSnapshot,
+  guardrailStateKey,
+  type GuardrailCache,
+  type GuardrailState,
+  type GuardrailVerdict,
+} from "./session-state";
