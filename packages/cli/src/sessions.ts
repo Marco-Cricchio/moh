@@ -10,17 +10,20 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
+  analyzeSession,
   bookmarkNode,
   deleteSession,
   isSessionOpen,
   listSessionSummaries,
   parseLineRef,
+  PRICING_SNAPSHOT,
   renameSession,
   resolveEventRef,
   SessionStore,
   sessionTree,
   switchBranch,
   type AgentEvent,
+  type SessionAnalysisReport,
   type TreeView,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
@@ -30,6 +33,7 @@ export const SESSIONS_USAGE = `usage: moh sessions rename <file|id> <name> [--cw
        moh sessions tree <file|id> [--cwd <dir>]
        moh sessions switch <file|id> <node|bookmark-name> [--cwd <dir>]
        moh sessions bookmark <file|id> <node> [name] [--cwd <dir>]
+       moh sessions analyze <file|id> [--json] [--cwd <dir>]
 
 Renames a session: the display name shows in the TUI home picker and
 overrides the derived first-message title. An empty name resets to the
@@ -55,6 +59,13 @@ live writer belongs to the TUI.
 
 bookmark names a node (a turn or an earlier event) for humans; with an
 empty (or blank) name it clears the node's bookmark.
+
+analyze renders the session analysis report (#767): per-model usage with
+estimated USD (pricing-snapshot convention: tokens always shown, cost
+omitted for unpriced models), tool health with errorKind breakdown,
+permission counts, shape (turns, compactions, model switches, fallbacks),
+tree stats, wall and tool durations. Stats cover the active branch; tree
+stats describe the full topology. --json emits the same data as JSON.
 
   file|id   the session JSONL path, or a session id from \`moh run --list\`
   name      the new display name (empty string resets)
@@ -91,14 +102,15 @@ export async function sessionsCommand({
     err.write(SESSIONS_USAGE + "\n");
     return sub ? 0 : 2;
   }
-  if (!["rename", "delete", "tree", "switch", "bookmark"].includes(sub)) {
+  if (!["rename", "delete", "tree", "switch", "bookmark", "analyze"].includes(sub)) {
     err.write(`moh sessions: unknown command "${sub}"\n\n${SESSIONS_USAGE}\n`);
     return 2;
   }
   const isDelete = sub === "delete";
+  const isAnalyze = sub === "analyze";
   let parsed;
   try {
-    parsed = parseArgs(rest, { strings: ["cwd"], booleans: isDelete ? ["yes"] : [] });
+    parsed = parseArgs(rest, { strings: ["cwd"], booleans: [...(isDelete ? ["yes"] : []), ...(isAnalyze ? ["json"] : [])] });
   } catch (e) {
     if (e instanceof ArgError) {
       err.write(`moh sessions ${sub}: ${e.message}\n`);
@@ -119,6 +131,7 @@ export async function sessionsCommand({
     return 2;
   }
   if (sub === "tree") return sessionsTree(file, err);
+  if (isAnalyze) return sessionsAnalyze(file, parsed.booleans["json"] === true, err);
   if (sub === "switch") {
     if (positional.length < 2) {
       err.write(`moh sessions switch: <node|bookmark-name> is required\n`);
@@ -201,6 +214,123 @@ function sessionsTree(file: string, err: { write(s: string): void }): number {
     return CLI_ERROR;
   }
   process.stdout.write(renderTree(view));
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Session analysis CLI (#767)
+// ---------------------------------------------------------------------------
+
+const num = (n: number): string => n.toLocaleString("en-US");
+const formatUsd = (usd: number): string => `${usd.toFixed(usd < 0.01 ? 4 : 2)}`;
+const formatMs = (ms: number): string =>
+  ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+
+/** The shared moh-usage convention: tokens always, cost only where the
+ * pricing snapshot has a record — never $0 for an unpriced model. */
+function costCell(row: SessionAnalysisReport["models"][number]): string {
+  return row.estimatedCostUsd === undefined ? "—" : formatUsd(row.estimatedCostUsd);
+}
+
+function analysisJson(report: SessionAnalysisReport): string {
+  const priced = report.models.filter((m) => m.estimatedCostUsd !== undefined);
+  const unpriced = report.models.length - priced.length;
+  return (
+    JSON.stringify(
+      {
+        file: report.file,
+        models: report.models.map(({ model, calls, inputTokens, outputTokens, estimatedCostUsd }) => ({
+          model,
+          calls,
+          inputTokens,
+          outputTokens,
+          ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+        })),
+        pricing: {
+          estimate: true,
+          snapshot: PRICING_SNAPSHOT.version,
+          pricedModels: priced.length,
+          unpricedModels: unpriced,
+        },
+        tools: report.tools,
+        permissions: report.permissions,
+        shape: report.shape,
+        tree: report.tree,
+        wallTimeMs: report.wallTimeMs,
+        toolDurationMs: report.toolDurationMs,
+      },
+      null,
+      2,
+    ) + "\n"
+  );
+}
+
+/** `moh sessions analyze` — renders the single-session report as text. */
+export function renderAnalysis(report: SessionAnalysisReport): string {
+  const lines: string[] = [];
+  const totalTok = report.models.reduce((a, m) => a + m.inputTokens + m.outputTokens, 0);
+  const unpriced = report.models.filter((m) => m.estimatedCostUsd === undefined).length;
+  const priced = report.models.filter((m) => m.estimatedCostUsd !== undefined);
+  const totalUsd = priced.reduce((a, m) => a + m.estimatedCostUsd!, 0);
+
+  lines.push(`Session analysis (pricing snapshot ${PRICING_SNAPSHOT.version}):\n`);
+
+  lines.push("Usage by model:");
+  if (report.models.length === 0) lines.push("  (no model calls on the active path)\n");
+  else {
+    const rows = [
+      ["Model", "Calls", "Input tok", "Output tok", "Est. USD"],
+      ...report.models.map((m) => [m.model, num(m.calls), num(m.inputTokens), num(m.outputTokens), costCell(m)]),
+    ];
+    const widths = [0, 1, 2, 3, 4].map((c) => Math.max(...rows.map((r) => r[c]!.length)));
+    const pad = (s: string, n: number): string => s + " ".repeat(Math.max(0, n - s.length));
+    for (const [i, row] of rows.entries()) {
+      lines.push(
+        `  ${pad(row[0]!, widths[0]!)}  ${pad(row[1]!, widths[1]!)}  ${pad(row[2]!, widths[2]!)}  ${pad(row[3]!, widths[3]!)}  ${row[4]!}` +
+          (i === 0 ? `\n  ${widths.map((w) => "─".repeat(w)).join("  ")}` : ""),
+      );
+    }
+    lines.push(
+      `\n  ${num(totalTok)} tokens · wall ${formatMs(report.wallTimeMs)} · model-serving tools ${formatMs(report.toolDurationMs)}` +
+        (priced.length > 0
+          ? ` · est. ${formatUsd(totalUsd)}${unpriced > 0 ? ` (partial; ${unpriced} model${unpriced === 1 ? "" : "s"} unpriced)` : ""}`
+          : unpriced > 0
+            ? ` (no pricing for ${unpriced} model${unpriced === 1 ? "" : "s"})`
+            : ""),
+    );
+  }
+
+  lines.push(`\nTool health (calls / ok / fail):`);
+  if (report.tools.length === 0) lines.push("  (no tool calls on the active path)");
+  for (const t of report.tools) {
+    const kinds =
+      t.errorKinds && Object.keys(t.errorKinds).length > 0
+        ? ` [${Object.entries(t.errorKinds).map(([k, v]) => `${k}: ${v}`).join(", ")}]`
+        : "";
+    lines.push(`  ${t.tool}: ${t.calls} / ${t.ok} / ${t.fail}${kinds}`);
+  }
+
+  lines.push(
+    `\nPermissions: ${report.permissions.requested} requested, ${report.permissions.granted} granted, ${report.permissions.denied} denied`,
+  );
+  const s = report.shape;
+  lines.push(
+    `Shape: ${s.turns} turns (${s.done} done, ${s.error} error, ${s.cancelled} cancelled), ${s.userMessages} user messages, ${s.compactions} compaction${s.compactions === 1 ? "" : "s"}${s.compactionFailures > 0 ? ` (${s.compactionFailures} failed)` : ""}, ${s.modelSwitches} model switch${s.modelSwitches === 1 ? "" : "es"}, ${s.fallbacks} fallback${s.fallbacks === 1 ? "" : "s"}`,
+  );
+  lines.push(
+    `Tree: ${report.tree.branchCount} branch${report.tree.branchCount === 1 ? "" : "es"}, ${report.tree.activePathTurns} turns on the active path, ${report.tree.bookmarks} bookmark${report.tree.bookmarks === 1 ? "" : "s"}`,
+  );
+  return lines.join("\n") + "\n";
+}
+
+/** `moh sessions analyze` — resolves, aggregates, renders (text or JSON). */
+function sessionsAnalyze(file: string, json: boolean, err: { write(s: string): void }): number {
+  const report = analyzeSession(file);
+  if ("error" in report) {
+    err.write(`moh sessions analyze: ${report.error}\n`);
+    return CLI_ERROR;
+  }
+  process.stdout.write(json ? analysisJson(report) : renderAnalysis(report));
   return 0;
 }
 
