@@ -50,8 +50,11 @@ export interface ResolvedTypesafeConfig {
   apiKey?: string;
   /** Effective hook timeout in ms. */
   timeoutMs: number;
-  /** Routing opt-in (consumed by #787; inert here). */
+  /** Routing opt-in (#787). Off by default — routing turns is a choice. */
   routing: boolean;
+  /** Explicit tier labels (#787): `<endpoint>/<model-id>` → tier. `{}` when
+   * none — the routing code falls back to its price heuristic. */
+  tiers: Record<string, TypesafeTier>;
 }
 
 /**
@@ -82,6 +85,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     ...(apiKey ? { apiKey } : {}),
     timeoutMs: block?.timeoutMs ?? TYPESAFE_TIMEOUT_MS_DEFAULT,
     routing: block?.routing === true,
+    tiers: block?.tiers ?? {},
   };
 }
 
@@ -101,6 +105,22 @@ export function saveTypesafeApiKey(file: string, key: string, io: UserConfigIo =
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, apiKey: key.trim() };
+    },
+    io,
+  );
+}
+
+/**
+ * Persists the model-routing opt-in (#787) — the Settings toggle's writer.
+ * Read at session assembly: a running session keeps the flag it started
+ * with (the router is built once, with the session).
+ */
+export function saveTypesafeRouting(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, routing: enabled };
     },
     io,
   );

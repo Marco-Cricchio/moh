@@ -6,12 +6,19 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createJevGuardExtension, JEV_GUARD_NAME } from "../src/index";
-import type { ExtensionDefinition, ExtensionSetupContext, ToolCallHook } from "@moh/extension";
+import type {
+  BeforeTurnHook,
+  ExtensionDefinition,
+  ExtensionSetupContext,
+  ToolCallHook,
+} from "@moh/extension";
 
 interface FakeCtx {
   events: Array<{ name: string; payload?: unknown }>;
   statuses: (string | null)[];
   toolHooks: ToolCallHook[];
+  beforeTurnHooks: BeforeTurnHook[];
+  sessionStartHooks: Array<() => void>;
   eventHooks: Array<(e: { event: { type: string; [k: string]: unknown } }) => void>;
   mode: "normal" | "auto-accept" | "yolo";
 }
@@ -22,8 +29,9 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
     appendToPrompt: () => {},
     appendEvent: (event: { name: string; payload?: unknown }) => (hooks as unknown as FakeCtx).events.push(event),
     setStatus: (text: string | null) => (hooks as unknown as FakeCtx).statuses.push(text),
-    onSessionStart: () => {},
+    onSessionStart: (h: () => void) => (hooks as unknown as FakeCtx).sessionStartHooks.push(h),
     onSessionEnd: () => {},
+    beforeTurn: (h: BeforeTurnHook) => (hooks as unknown as FakeCtx).beforeTurnHooks.push(h),
     beforeModelCall: () => {},
     onToolCall: (h: ToolCallHook) => (hooks as unknown as FakeCtx).toolHooks.push(h),
     onEvent: (h: (e: { event: { type: string; [k: string]: unknown } }) => void) => (hooks as unknown as FakeCtx).eventHooks.push(h),
@@ -33,6 +41,8 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
   self.events = [];
   self.statuses = [];
   self.toolHooks = [];
+  self.beforeTurnHooks = [];
+  self.sessionStartHooks = [];
   self.eventHooks = [];
   self.mode = mode;
   return self;
@@ -117,5 +127,120 @@ describe("jev-guard extension setup (#786)", () => {
     const out = await runHook(ctx.toolHooks, bash);
     expect(out ?? undefined).toBeUndefined();
     expect(ctx.statuses).toEqual(["∅ jev offline"]);
+  });
+});
+
+describe("jev-guard routing (#787)", () => {
+  const pool = {
+    models: [
+      { ref: "a/cheap", price: 1 },
+      { ref: "a/mid", price: 10 },
+      { ref: "a/big", price: 100 },
+    ],
+  };
+  const answers = (choice: string, confidence: number) => ({
+    difficulty: { type: "choice", choice, probabilities: { [choice]: confidence }, confidence },
+    needs_context: { type: "noul", noul: 0 },
+  });
+  const fetchOk = (body: Record<string, unknown>) =>
+    (async () => new Response(JSON.stringify({ model: "jev-latest", answers: body, usage: {} }), { status: 200 })) as unknown as typeof fetch;
+  const turn = (text: string, index: number, model = "a/cheap") => ({ text, turnIndex: index, model });
+
+  test("no routing option means no beforeTurn hook: zero cost", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({ apiKey: "sk-test", fetchImpl: fetchOk(answers("potente", 0.9)) }).setup(ctx);
+    expect(ctx.beforeTurnHooks).toHaveLength(0);
+  });
+
+  test("two consecutive confident turns switch the model; every judgment is recorded", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      routing: { pool: async () => pool },
+    }).setup(ctx);
+    expect(ctx.beforeTurnHooks).toHaveLength(1);
+    const hook = ctx.beforeTurnHooks[0]!;
+
+    expect(await hook(turn("design a module", 1))).toBeUndefined();
+    expect(await hook(turn("still designing", 2))).toEqual({ model: "a/big" });
+
+    const judgments = ctx.events.filter((e) => e.name === "jev_judgment");
+    expect(judgments).toHaveLength(2);
+    expect(judgments[1]!.payload).toMatchObject({ useCase: "routing", decision: "switch", reason: "hysteresis", target: "a/big" });
+  });
+
+  test("the router's own switch is not an override; a hand-picked model suspends it", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      routing: { pool: async () => pool },
+    }).setup(ctx);
+    const hook = ctx.beforeTurnHooks[0]!;
+    const emit = (event: { type: string } & Record<string, unknown>) => ctx.eventHooks.forEach((h) => h({ event }));
+
+    await hook(turn("design", 1));
+    await hook(turn("design more", 2));
+    // The switch the router asked for.
+    emit({ type: "model_switched", from: "a/cheap", to: "a/big" });
+    expect(ctx.events.some((e) => (e.payload as { kind?: string } | undefined)?.kind === "override")).toBe(false);
+
+    // A switch nobody asked for: the user took the wheel.
+    emit({ type: "model_switched", from: "a/big", to: "a/handpicked" });
+    const notices = ctx.events.filter((e) => (e.payload as { kind?: string } | undefined)?.kind === "override");
+    expect(notices).toHaveLength(1);
+    expect(await hook(turn("design again", 3, "a/handpicked"))).toBeUndefined();
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(2);
+  });
+
+  test("a single-tier pool is inert, and says so once at session start", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      routing: { pool: async () => ({ models: [{ ref: "a/only", price: 1 }] }) },
+    }).setup(ctx);
+
+    ctx.sessionStartHooks.forEach((h) => h());
+    await Bun.sleep(1);
+
+    const notices = ctx.events.filter((e) => e.name === "jev_routing");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.payload).toEqual({ kind: "inert" });
+    expect(await ctx.beforeTurnHooks[0]!(turn("anything", 1, "a/only"))).toBeUndefined();
+  });
+
+  test("a misconfigured label and an unpriced model are reported once, visibly", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("bilanciato", 0.9)),
+      routing: {
+        pool: async () => ({ models: [{ ref: "a/mystery" }, { ref: "a/cheap", price: 1 }, { ref: "a/big", price: 90 }] }),
+        labels: { "b/nope": "potente" },
+      },
+    }).setup(ctx);
+
+    ctx.sessionStartHooks.forEach((h) => h());
+    await Bun.sleep(1);
+
+    const payloads = ctx.events.filter((e) => e.name === "jev_routing").map((e) => e.payload);
+    expect(payloads).toContainEqual({ kind: "ignored-label", ref: "b/nope" });
+    expect(payloads).toContainEqual({ kind: "unpriced", count: 1, models: ["a/mystery"] });
+  });
+
+  test("a failed Jev call routes nothing and records nothing", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch,
+      routing: { pool: async () => pool },
+    }).setup(ctx);
+    const hook = ctx.beforeTurnHooks[0]!;
+
+    expect(await hook(turn("design", 1))).toBeUndefined();
+    expect(await hook(turn("design more", 2))).toBeUndefined();
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toEqual([]);
   });
 });

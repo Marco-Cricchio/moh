@@ -22,12 +22,21 @@
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
 import { createJevClient, type JevClientOptions } from "./client";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
+import { createRoutingJudge, type RoutingPool } from "./routing-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
 
 /** The definition's version, reported by the `extension_loaded` event. */
 export const JEV_GUARD_VERSION = "0.1.0";
+
+/** #787: the model-routing use case's inputs, resolved by the core. */
+export interface JevRoutingOptions {
+  /** The models this session can actually reach (core-resolved pool). */
+  pool: () => Promise<RoutingPool>;
+  /** Explicit tier labels (`typesafe.tiers`): `<endpoint>/<model-id>` → tier. */
+  labels?: Record<string, string>;
+}
 
 export interface JevGuardOptions {
   /** TypeSafe API key (from the user config's `typesafe.apiKey`). */
@@ -36,6 +45,11 @@ export interface JevGuardOptions {
   timeoutMs?: number;
   /** Test seam: the fetch implementation handed to the client. */
   fetchImpl?: typeof fetch;
+  /**
+   * #787: model routing. Present = the router is registered; absent = the
+   * extension is active but routes nothing (the zero-cost case).
+   */
+  routing?: JevRoutingOptions;
 }
 
 /**
@@ -107,6 +121,64 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         }
         return;
       });
+      // ---- #787 routing: one tier per turn -----------------------------
+      // Opt-in and off by default (`typesafe.routing`). Jev judges the last
+      // user message only, answers with a tier, and the session switches to
+      // that tier's model through the same resolution as a manual `/model`
+      // — never to a model the user has not configured. Inert when there is
+      // nothing to choose (fewer than two reachable tiers).
+      if (options.routing) {
+        const routing = options.routing;
+        const judge = createRoutingJudge(
+          { client, state: ctx.state ?? {} },
+          {
+            pool: routing.pool,
+            labels: routing.labels ?? {},
+            // One visible line per resolved problem, once per session —
+            // never a turn error, never silence about a misconfiguration.
+            onResolved: (resolution) => {
+              for (const warning of resolution.warnings) {
+                ctx.appendEvent({ name: "jev_routing", payload: { kind: "listing-failed", message: warning } });
+              }
+              if (!resolution.assignment) {
+                ctx.appendEvent({ name: "jev_routing", payload: { kind: "inert" } });
+                return;
+              }
+              for (const ref of resolution.assignment.ignoredLabels) {
+                ctx.appendEvent({ name: "jev_routing", payload: { kind: "ignored-label", ref } });
+              }
+              const unpriced = resolution.assignment.unpriced;
+              if (unpriced.length > 0) {
+                ctx.appendEvent({
+                  name: "jev_routing",
+                  payload: { kind: "unpriced", count: unpriced.length, models: unpriced.slice(0, 5) },
+                });
+              }
+            },
+          },
+        );
+        ctx.beforeTurn(async (call) => {
+          const verdict = await judge.decide(call.text, call.model);
+          if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
+          // Arm the switch before returning: the `model_switched` it causes
+          // is the router's, not the user taking the wheel.
+          judge.noteSwitch(verdict.ref);
+          return { model: verdict.ref };
+        });
+        ctx.onEvent(({ event }) => {
+          if (event.type !== "model_switched" || typeof event.to !== "string") return;
+          if (!judge.noteModelSwitched(event.to)) return;
+          // The user switched by hand: routing is suspended for the rest of
+          // the session. Releasing it needs the client→extension control
+          // seam that `/routing` and `/model auto` will bring (their issue).
+          ctx.appendEvent({ name: "jev_routing", payload: { kind: "override", model: event.to } });
+        });
+        // Resolve the assignment (and its diagnostics) at session start:
+        // the pool listing overlaps the first turn instead of delaying it.
+        ctx.onSessionStart(() => {
+          void judge.resolution();
+        });
+      }
     },
   });
 }
@@ -149,6 +221,34 @@ export {
   type GuardrailSignals,
   type GuardrailVerdict as GuardrailRuleVerdict,
 } from "./guardrail";
+export {
+  assignTiers,
+  decideRouting,
+  nextStreak,
+  routableTierCount,
+  routingQuestions,
+  tierOfModel,
+  truncateToBytes,
+  ROUTING_CONFIDENCE_MIN,
+  ROUTING_MESSAGE_MAX_BYTES,
+  ROUTING_STREAK_REQUIRED,
+  ROUTING_TIERS,
+  type RoutingDecision,
+  type RoutingModel,
+  type RoutingSignals,
+  type RoutingStayReason,
+  type RoutingTier,
+  type TierAssignment,
+  type TierLabels,
+} from "./routing";
+export {
+  createRoutingJudge,
+  type RoutingJudge,
+  type RoutingJudgeState,
+  type RoutingPool,
+  type RoutingResolution,
+  type RoutingVerdict,
+} from "./routing-judge";
 export {
   askBadge,
   createGuardrailJudge,

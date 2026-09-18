@@ -423,13 +423,16 @@ describe("the typesafe config block (#784)", () => {
   });
 
   test("resolve defaults and the masked hint", () => {
-    expect(resolveTypesafeConfig(undefined)).toEqual({ active: false, timeoutMs: 2500, routing: false });
+    expect(resolveTypesafeConfig(undefined)).toEqual({ active: false, timeoutMs: 2500, routing: false, tiers: {} });
     expect(resolveTypesafeConfig({ apiKey: "   " })).toMatchObject({ active: false, timeoutMs: 2500 });
-    expect(resolveTypesafeConfig({ apiKey: "sk-abcdef", timeoutMs: 900, routing: true })).toMatchObject({
+    expect(
+      resolveTypesafeConfig({ apiKey: "sk-abcdef", timeoutMs: 900, routing: true, tiers: { "a/one": "potente" } }),
+    ).toMatchObject({
       active: true,
       apiKey: "sk-abcdef",
       timeoutMs: 900,
       routing: true,
+      tiers: { "a/one": "potente" },
     });
     expect(maskApiKey("sk-abcdef")).toBe("…cdef");
     expect(maskApiKey("ab")).toBe("…");
@@ -482,6 +485,34 @@ describe("activation in session assembly (#784)", () => {
     expect(loaded?.name).toBe("jev-guard");
     expect(active.session.history().some((e) => e.type === "session_note")).toBe(false);
     await active.session.dispose();
+  });
+
+  test("routing off registers no router; routing on with nothing to route reports it once", async () => {
+    const cwd = tmpDir("moh-jev-cwd-");
+    const home = tmpDir("moh-jev-assembly-");
+
+    // Default (off): the extension is active but registers no beforeTurn
+    // hook — routing is a choice, never a side effect of having a key.
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
+    const off = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    if ("error" in off) throw new Error(off.error.message);
+    await off.session.send("hello");
+    expect(off.session.history().some((e) => e.type === "extension_event" && e.name === "jev_routing")).toBe(false);
+    await off.session.dispose();
+
+    // On, but this session has no model pool at all (no endpoints): the
+    // router is inert and says so exactly once.
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test", routing: true } });
+    const on = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    if ("error" in on) throw new Error(on.error.message);
+    await on.session.send("hello");
+    await Bun.sleep(5); // the pool resolution is asynchronous by design
+    const notices = on.session
+      .history()
+      .filter((e) => e.type === "extension_event" && e.name === "jev_routing");
+    expect(notices).toHaveLength(1);
+    expect((notices[0] as { payload?: { kind?: string } }).payload).toEqual({ kind: "inert" });
+    await on.session.dispose();
   });
 
   test("a malformed typesafe section fails the assembly loudly", () => {
