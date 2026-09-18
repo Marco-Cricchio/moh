@@ -67,7 +67,7 @@ export class AgentSession {
   readonly #extensions: ExtensionRuntime | undefined;
   /** ADR-0032: a client with a consent seam renders statuses itself; a
    * headless one gets the single stderr line instead. */
-  readonly #interactive: boolean;
+  readonly #hasConsentSeam: boolean;
   /** ADR-0032: the last status text announced on stderr (null after a clear). */
   #announcedStatus: string | null = null;
   /** The resumed history's active-path projection, seeded at construction. */
@@ -294,7 +294,7 @@ export class AgentSession {
     // ADR-0032: an extension status is client chrome — it never enters the
     // log. A headless client (no consent seam: there is no one to prompt,
     // hence no TUI) gets one stderr line per new status text instead.
-    this.#interactive = config.onPermissionRequest !== undefined;
+    this.#hasConsentSeam = config.onPermissionRequest !== undefined;
     this.#startupDiagnostics = config.diagnostics ?? [];
     this.#startupNotes = config.notes ?? [];
     this.#extensions?.onStatusChange((extension, text) => this.#onExtensionStatus(extension, text));
@@ -562,12 +562,13 @@ export class AgentSession {
       // A mode change across resume is auditable like any startup flag.
       const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
       if (!lastMode || lastMode.mode !== mode) this.#append({ type: "session_mode", mode });
+      this.#appendStartupChrome(false);
       return;
     }
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode });
-    this.#appendStartupChrome();
+    this.#appendStartupChrome(true);
     this.#flushExtensionEvents();
     // Fire-and-forget: construction is sync, the session is not yet running.
     // The bundled-definition registration settles first (ADR-0032/ADR-0005):
@@ -601,7 +602,6 @@ export class AgentSession {
     this.#tools = { ...this.#tools, ...tools };
   }
 
-  /** Drains buffered extension load events (failed loads = warnings) into the log. */
   /**
    * Visible startup chrome: the browser toolchain diagnostic (#774) and the
    * informational session notes (a bundled integration that stayed
@@ -609,21 +609,23 @@ export class AgentSession {
    * own start events — a session file must still begin with `session_start`
    * (the store's log-format invariant).
    *
-   * Only a fresh session appends this: a resumed file already carries the
-   * startup context of its first open, and repeating it on every resume is
-   * noise. It is also mechanical — a legacy (identity-less) log's active
-   * path starts at its own tail, so a fresh identified event appended at
-   * resume-open would leave the recorded history off-path.
+   * `withNotes` is false on resume: a resumed file already carries the
+   * informational lines of its first open, and repeating them on every
+   * resume is noise. The browser diagnostic keeps its #774 semantics — the
+   * toolchain may well be missing in the environment a session is resumed
+   * in.
    */
-  #appendStartupChrome(): void {
+  #appendStartupChrome(withNotes: boolean): void {
     for (const message of this.#startupDiagnostics) {
       this.#append({ type: "browser_unavailable", reason: message });
     }
+    if (!withNotes) return;
     for (const note of this.#startupNotes) {
       this.#append({ type: "session_note", text: note });
     }
   }
 
+  /** Drains buffered extension load events (failed loads = warnings) into the log. */
   #flushExtensionEvents(): void {
     for (const event of this.#extensions?.consumeLoadEvents() ?? []) this.#append(event);
   }
@@ -917,7 +919,7 @@ export class AgentSession {
       this.#announcedStatus = null;
       return;
     }
-    if (this.#interactive || this.#announcedStatus === text) return;
+    if (this.#hasConsentSeam || this.#announcedStatus === text) return;
     this.#announcedStatus = text;
     process.stderr.write(`moh: ${extension}: ${text}\n`);
   }

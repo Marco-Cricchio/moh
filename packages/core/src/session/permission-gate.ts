@@ -9,7 +9,7 @@ import type { SessionConfig } from "./config";
  * it now carries both the `veto` and the `ask` outcomes, ADR-0031).
  */
 export interface ToolHookChecker {
-  checkToolVeto(call: {
+  checkToolHooks(call: {
     callId: string;
     name: string;
     args: unknown;
@@ -67,7 +67,7 @@ export class PermissionGate {
     // grant. An `ask` escalates the call to the consent flow below.
     let extensionAsk: { extension?: string; reason?: string } | undefined;
     if (this.#extensions) {
-      const hook = await this.#extensions.checkToolVeto({ callId, name: tool, args });
+      const hook = await this.#extensions.checkToolHooks({ callId, name: tool, args });
       for (const e of hook.errors) this.#append(e);
       if (hook.veto) {
         this.#append({ type: "permission_denied", callId, tool, reason: "extension" });

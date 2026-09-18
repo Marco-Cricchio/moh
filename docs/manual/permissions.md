@@ -55,7 +55,8 @@ Where an ask lands:
   ask without a prompt to raise.
 
 The bundled Jev guardrail is the first-party extension that raises these
-asks (see the Jev page); a plain extension ask looks the same without it.
+asks (see [Jev (TypeSafe)](./jev.md)); a plain extension ask looks the same
+without it.
 
 ## Out-of-root writes
 

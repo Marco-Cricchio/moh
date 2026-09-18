@@ -600,7 +600,7 @@ export class ExtensionRuntime {
    * ADR-0031: a hook may instead `ask` — hand the call to the human
    * consent flow. `veto` wins when a hook returns both.
    */
-  async checkToolVeto(
+  async checkToolHooks(
     call: { callId: string; name: string; args: unknown },
   ): Promise<{ veto: boolean; ask: boolean; reason?: string; by?: string; errors: AgentEvent[] }> {
     for (const instance of this.#instances) {
