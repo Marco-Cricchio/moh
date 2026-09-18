@@ -13,6 +13,7 @@
     "@ai-sdk/google": "^4.0.48",
     "@ai-sdk/openai": "^4.0.45",
     "@moh/extension": "workspace:*",
+    "@moh/jev-guard": "workspace:*",
     "ai": "^7.0.71",
     "undici": "^7.28.0"
   }

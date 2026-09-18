@@ -19,7 +19,7 @@ import {
   type SessionFromConfigResult,
   type SessionOverrides,
 } from "./session/from-config";
-import { type PermissionsConfig, type SessionConfig } from "./session/config";
+import { type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
@@ -343,6 +343,22 @@ import {
   type TrackerBackend,
 } from "./tracker";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
+// #784: the `typesafe` (Jev) user-config block — the guardrail (#786) and
+// routing (#787) read it through these seams; clients (TUI Settings entry,
+// `moh jev status`) read and write the key through the same owner.
+import {
+  TYPESAFE_SETTINGS_HINT,
+  TYPESAFE_TIMEOUT_MS_DEFAULT,
+  TYPESAFE_TIERS,
+  maskApiKey,
+  readTypesafeConfig,
+  removeTypesafeApiKey,
+  resolveTypesafeConfig,
+  saveTypesafeApiKey,
+  type ResolvedTypesafeConfig,
+  type TypesafeConfig,
+  type TypesafeTier,
+} from "./typesafe";
 import {
   publishHandoffAtExit,
   readRawHandoff,
@@ -697,6 +713,18 @@ export {
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,
+  // #784: TypeSafe / Jev configuration and key management.
+  TYPESAFE_SETTINGS_HINT,
+  TYPESAFE_TIMEOUT_MS_DEFAULT,
+  TYPESAFE_TIERS,
+  maskApiKey,
+  readTypesafeConfig,
+  removeTypesafeApiKey,
+  resolveTypesafeConfig,
+  saveTypesafeApiKey,
+  type ResolvedTypesafeConfig,
+  type TypesafeConfig,
+  type TypesafeTier,
   loadMergedConfig,
   readUserProviderConfig,
   upsertUserEndpoint,
@@ -761,6 +789,9 @@ export {
   type ImportHandoffOptions,
   type ImportHandoffResult,
   type SessionConfig,
+  // #784/ADR-0031: the extension-ask context a client's consent seam
+  // receives (the TUI renders yes/no only, labelled with the reason).
+  type PermissionAskContext,
   type AssemblyError,
   type AssemblyErrorKind,
   type SessionConsent,

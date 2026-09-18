@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./session/config";
+import type { ExtensionRuntime } from "./extensions";
 import { AgentSession } from "./session/session";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
@@ -116,6 +117,10 @@ export interface SubagentHostOptions {
   runtimeRules: () => import("./permissions").PermissionRule[];
   /** Consent seam surfaced through the parent TUI. */
   onPermissionRequest?: SessionConfig["onPermissionRequest"];
+  /** The parent's extension runtime (#784 spec §5): children get it as
+   * their tool-call hook checker, so the guardrail judges child tool calls
+   * through the same gate. Lifecycle hooks and statuses stay the parent's. */
+  extensions?: ExtensionRuntime;
   /** Registry used to resolve string provider refs for children. */
   registry?: ProviderRegistry;
   /** Configured endpoint profiles — used to pre-validate string refs (#339). */
@@ -296,6 +301,7 @@ export class SubagentHost {
         maxIterations: spec.maxIterations,
         permissions: { ...perms, runtimeRules: this.#options.runtimeRules() },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
+        ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
         sink: (event) => store.append(event),
         promptComposer: new PromptComposer({
           projectDir: this.#options.cwd,

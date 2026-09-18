@@ -9,6 +9,10 @@
  * apiVersion policy: additive-only. The runtime loads any extension whose
  * apiVersion shares the same *major* as MOH_EXTENSION_API_VERSION; a major
  * mismatch is refused at load with a warning (the session continues).
+ *
+ * 1.1 (ADR-0031/ADR-0032): the `ask` outcome on the tool-call hook and the
+ * two observation-only setup seams (`appendEvent`, `setStatus`). An older
+ * runtime ignores both, which is a no-op (fail-open) — never an error.
  */
 
 /**
@@ -16,7 +20,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.0";
+export const MOH_EXTENSION_API_VERSION = "1.1";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -49,10 +53,32 @@ export interface ToolCallContext {
   readonly args: unknown;
 }
 
-/** What a `onToolCall` hook may return. Veto only — never a grant. */
+/**
+ * What an `onToolCall` hook may return. Restrict only — never a grant.
+ *
+ * - `veto` kills the call: it outranks user rules, defaults and every
+ *   session mode (including yolo), and produces the standard denied
+ *   `tool_result`.
+ * - `ask` (ADR-0031, apiVersion 1.1) hands the call to the existing human
+ *   consent flow. It is not a grant: it never writes a permission rule and
+ *   the prompt it raises offers no "always" answer. In auto-accept it still
+ *   reaches the user, in yolo it is ignored (yolo is sovereign — use `veto`
+ *   for anything lethal), and headless it degrades to a denial.
+ * - Both together are contradictory: `veto` wins.
+ * - The first hook returning a decision wins, in registration order.
+ */
 export interface ToolCallHookResult {
-  readonly veto: true;
+  readonly veto?: true;
+  readonly ask?: true;
   readonly reason?: string;
+}
+
+/** One structured record an extension may append to the session log. */
+export interface ExtensionEventInput {
+  /** Short machine-readable name (e.g. `jev_judgment`). */
+  readonly name: string;
+  /** JSON-serializable, ≤ 8 KiB once serialized. */
+  readonly payload?: unknown;
 }
 
 export interface EventContext {
@@ -82,6 +108,23 @@ export interface ExtensionSetupContext {
   readonly state: Record<string, unknown>;
   /** Append a note to the trailing `extension_notes` prompt section. */
   appendToPrompt(note: string): void;
+  /**
+   * Record a structured chrome event in the session log (ADR-0032). The
+   * runtime stamps the emitting extension: an extension never names itself
+   * and can never impersonate another. The payload must be JSON-serializable
+   * and within 8 KiB — a non-serializable or oversized payload is dropped
+   * (never truncated) with a visible `extension_failed`. Volume is capped at
+   * 50 events per extension per turn. Observation only: never permissions,
+   * never model context.
+   */
+  appendEvent(event: ExtensionEventInput): void;
+  /**
+   * Publish this extension's footer status (ADR-0032); `null` clears it.
+   * One status per extension, replaced on each call, ephemeral (never
+   * logged, cleared at session end and on reload). In headless the first
+   * publish writes one stderr line; the exit code is never affected.
+   */
+  setStatus(text: string | null): void;
   onSessionStart(hook: SessionStartHook): void;
   onSessionEnd(hook: SessionEndHook): void;
   beforeModelCall(hook: BeforeModelCallHook): void;
