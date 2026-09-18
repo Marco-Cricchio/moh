@@ -297,6 +297,10 @@ export class SubagentHost {
         ...(typeof childProviderRef === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
         subagents: null, // depth 1 (#339): children never see the spawn tool
         tools: this.#childTools(spec),
+        // #787: the parent's endpoint profiles serve the child too — a
+        // `beforeTurn` model ref names `endpoint/model-id`, and a child
+        // must resolve it against the same profiles the parent routes on.
+        ...(this.#options.endpoints?.length ? { endpoints: this.#options.endpoints } : {}),
         cwd: this.#options.cwd,
         maxIterations: spec.maxIterations,
         permissions: { ...perms, runtimeRules: this.#options.runtimeRules() },

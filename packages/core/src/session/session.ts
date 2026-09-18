@@ -409,12 +409,32 @@ export class AgentSession {
         },
       });
     }
+    // ADR-0033/#787: the runtime whose `beforeTurn` hooks run for this
+    // session's turns. A child session owns no runtime, but shares the
+    // parent's for the turn-start decision point (its switch then lands in
+    // the child's own log, because the seam below is *this* session's
+    // switchModel).
+    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn"> | undefined =
+      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn"> : undefined;
+    const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
+    const dispatchBeforeTurn = beforeTurnSeam
+      ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) => beforeTurnSeam.dispatchBeforeTurn(ctx)
+      : undefined;
     this.#loop = new AgentLoop({
       provider: () => this.#provider,
       maxIterations,
       tools: () => this.#allTools(),
       toolRunner: this.#toolRunner,
       ...(this.#extensions ? { extensions: this.#extensions } : {}),
+      ...(dispatchBeforeTurn
+        ? {
+            beforeTurn: {
+              dispatch: (text, turnIndex, model) => dispatchBeforeTurn({ text, turnIndex, model }),
+              applyModel: (ref) => this.switchModel(ref),
+            },
+          }
+        : {}),
+      turnIndex: () => this.#turnSeq,
       ...(this.#mcp ? { mcp: this.#mcp } : {}),
       messages: this.#messages,
       assemblePrompt: () => this.#assemblePrompt(),

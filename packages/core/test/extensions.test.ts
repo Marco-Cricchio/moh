@@ -55,8 +55,9 @@ describe("@moh/extension contract", () => {
   test("defineExtension is an identity tag; apiVersion parses", () => {
     const def = defineExtension({ name: "x", version: "1.0.0", apiVersion: "1.0", setup: () => {} });
     expect(def.name).toBe("x");
-    // ADR-0031/ADR-0032: the ask outcome + the two observability seams.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 1 });
+    // ADR-0031/ADR-0032/ADR-0033: the ask outcome, the two observability
+    // seams and the beforeTurn hook.
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 2 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
