@@ -16,6 +16,7 @@ describe("wire separation (#159)", () => {
     expect(wireForKind("github-copilot")).toBe("openai-chat"); // per-model override comes from the catalog
     expect(wireForKind("openrouter")).toBe("openai-chat");
     expect(wireForKind("xai")).toBe("openai-chat");
+    expect(wireForKind("opencode")).toBe("openai-responses");
   });
 
   test("new builtin base URLs point at the vendor backends", () => {

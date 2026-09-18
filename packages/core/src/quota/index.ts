@@ -77,6 +77,10 @@ export async function getQuota(endpoint: EndpointProfile, opts: QuotaOptions = {
       case "kimi-coding":
         if (token) return await probeKimi(token.accessToken, fetchImpl);
         return null;
+      case "opencode":
+        // OpenCode usage is available in its Console, not through a stable
+        // quota API. Do not make an unsupported remote request.
+        return null;
       case "openai-compat":
         // z.ai / Zhipu is the only compat host with a known quota endpoint
         // (unstable schema); every other compat host reports nothing.

@@ -56,6 +56,7 @@ const LISTING_URLS: Record<string, string | undefined> = {
   // coding backend; zai: Coding Plan documents inference endpoints only).
   "kimi-coding": undefined,
   zai: undefined,
+  opencode: undefined,
 };
 
 /** True when the kind has a vendored catalog worth augmenting. */
@@ -146,6 +147,7 @@ const PARSERS: Record<string, Parser> = {
   openrouter: parseOpenAiData,
   xai: parseOpenAiData,
   "github-copilot": parseOpenAiData,
+  opencode: parseOpenAiData,
 };
 
 /** Legacy union parser kept for compatibility with the #555 tests:
@@ -228,7 +230,7 @@ export async function listProviderModels(
   endpointName: string,
   opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string } = {},
 ): Promise<LiveModelListing[]> {
-  const base = opts.baseUrl ?? LISTING_URLS[kind];
+  const base = opts.baseUrl ?? (kind === "opencode" ? opencodeBaseUrl(endpointName) : LISTING_URLS[kind]);
   const parser = PARSERS[kind];
   if (!base || !parser) throw new Error(`no verified model listing contract for provider kind "${kind}"`);
   const clientVersion = opts.clientVersion ?? "0.0.0";
@@ -272,6 +274,12 @@ export async function listProviderModels(
     if (!hasNextPage(kind, json)) break;
   }
   return out;
+}
+
+function opencodeBaseUrl(endpointName: string): string | undefined {
+  if (endpointName === "opencode-zen") return "https://opencode.ai/zen/v1";
+  if (endpointName === "opencode-go") return "https://opencode.ai/zen/go/v1";
+  return undefined;
 }
 
 function hasNextPage(kind: string, body: unknown): boolean {
@@ -414,7 +422,7 @@ export async function fetchLiveCatalogs(
 ): Promise<Record<string, LiveModelListing[]>> {
   const config = readLiveModelsConfig(opts.mohHome);
   if (config.enabled === false) return {};
-  const targets = endpoints.filter((e) => hasVendoredCatalog(e.type) && LISTING_URLS[e.type] !== undefined);
+  const targets = endpoints.filter((e) => hasVendoredCatalog(e.type) && (LISTING_URLS[e.type] !== undefined || e.type === "opencode"));
   if (targets.length === 0) return {};
   const cacheFile = opts.cacheFile ?? liveModelCacheFile(opts.mohHome);
   const now = opts.now ?? Date.now();

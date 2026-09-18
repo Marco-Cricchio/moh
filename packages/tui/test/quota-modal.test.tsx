@@ -21,6 +21,13 @@ const ENDPOINTS: EndpointProfile[] = [
   { name: "beta", type: "openai-compat", apiKey: "k", baseUrl: "https://example.com/v1" },
 ];
 
+const OPENCODE: EndpointProfile = {
+  name: "opencode-go",
+  type: "opencode",
+  apiKey: "key",
+  baseUrl: "https://opencode.ai/zen/go/v1",
+};
+
 const REPORT: QuotaReport = {
   source: "official",
   windows: [{ label: "limit", used: 45, limit: 120 }],
@@ -75,6 +82,25 @@ describe("QuotaModal (#499)", () => {
     expect(frame).toContain("estimated USD · pricing snapshot 0.85.0");
     expect(frame).toContain("—"); // local badge
     expect(probeCalls).toEqual(["alpha", "beta"]);
+  });
+
+  test("links OpenCode Console and retains local usage without a remote probe", async () => {
+    clearQuotaCache();
+    const probeCalls: string[] = [];
+    const { instance } = mount({
+      endpoints: [OPENCODE],
+      probe: async (e) => {
+        probeCalls.push(e.name);
+        return REPORT;
+      },
+    });
+    await waitFor(instance, "OpenCode usage:");
+    const frame = stripAnsi(instance.lastFrame()!);
+    expect(frame).toContain("https://opencode.ai/console");
+    expect(frame).toContain("measurement below");
+    expect(frame).toContain("m-1");
+    expect(frame).not.toContain("provider quota unavailable");
+    expect(probeCalls).toEqual([]);
   });
 
   test("shows spinner while probing, then rows (undocumented badge ○)", async () => {
