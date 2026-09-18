@@ -781,13 +781,14 @@ export class AgentSession {
     this.#mpmOrientation?.beginTurn();
     this.#mpmPlan = this.#orientationPlan();
     // ADR-0032/bundled activation: the runtime registers fire-and-forget
-    // from the assembly, so the first turn waits for the setup to settle —
-    // a hook is never missing from a turn's first tool call.
-    const run = async (): Promise<TurnResult> => {
-      await this.#extensions?.ready();
-      return this.#queue.send(text, options?.prompt);
-    };
-    return run().finally(() => {
+    // from the assembly, so a turn started while that is still in flight
+    // waits for the setup to settle — a hook is never missing from a turn's
+    // first tool call. No pending registration (the common case): `send`
+    // starts the turn synchronously, exactly as before.
+    const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
+    const run =
+      this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready().then(start) : start();
+    return run.finally(() => {
       this.#turnHead = undefined;
     });
   }

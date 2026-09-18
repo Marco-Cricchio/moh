@@ -252,6 +252,11 @@ export class ExtensionRuntime {
     }
   }
 
+  /** True while a registration started earlier has not settled yet. */
+  hasPendingRegistrations(): boolean {
+    return this.#registering.length > 0;
+  }
+
   /**
    * Resolves when every registration started so far has settled (the
    * bundled-definition path registers fire-and-forget from the assembly;
