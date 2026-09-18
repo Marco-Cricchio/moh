@@ -73,15 +73,39 @@ validated when you saved it. It exits 0 whether Jev is active or not
 back to the Settings panel. Only a malformed `typesafe` section is an error
 (exit 2), like every other broken config section.
 
-## Use cases: not shipped yet
+## Use cases: guardrail (shipped)
 
-What this release ships is the infrastructure only: it registers no hook by
-itself, so activating Jev changes nothing about a turn until a use case
-lands. The planned ones, with their opt-in state:
+The first use case is the **bash guardrail**: every `bash` tool call is
+judged by Jev with one call — four questions (`destructive`, `in_scope`,
+`exfiltration`, `risk_level`) — before your permission rules are even
+consulted. The verdicts:
 
-- **Guardrail** — judges a tool call before it runs and can hand a call that
-  is neither clearly safe nor clearly dangerous to the ordinary permission
-  prompt. Planned: active whenever Jev is.
+- **deny** (destructive or exfiltration probability > 0.75, or risk ≥ 1.5)
+  — the call is vetoed and the model receives the reason plus an
+  actionable suggestion ("scope the path to /tmp and re-run").
+- **ask** (either probability in 0.40–0.75, or risk in 0.75–1.5) — the
+  call reaches the ordinary permission prompt even in auto-accept mode,
+  marked **Jev: caso incerto (…)** with the key probability. The prompt
+  offers yes/no only: a guardrail false positive must never write an
+  "always" rule that disarms the filter.
+- **pass** — nothing changes; your rules and modes decide as always.
+
+In **yolo** mode only the lethal checks run (destructive, exfiltration):
+they can still deny, but Jev never prompts — yolo means zero prompts.
+In headless (`moh run`) an "ask" degrades to a denial, like every other
+prompt. When Jev is unreachable the guardrail fails open (the call
+proceeds) and the `∅ jev offline` chip appears as described above.
+
+Identical commands are judged once per session: verdicts are cached
+against the command plus the current git branch and dirty/clean state,
+so switching branch or staging changes re-judges. Every judgment —
+including passes and cache hits — is recorded as a `jev_judgment` event
+in the session log.
+
+The v1 guardrail gates `bash` only; write/edit follow in v1.1 once
+thresholds are calibrated on real data. The planned remaining use cases,
+with their opt-in state:
+
 - **Model routing** — picks a model per turn from the tiers you label.
   Planned: opt-in, off by default.
 - **The ★★ pack** — prompt classification, quality gate, MPM rerank,
