@@ -22,6 +22,7 @@ import {
   publishHandoffAtExit,
   sessionFromConfig,
   resolveTracker,
+  type SessionConsent,
   transportActive,
   type AgentEvent,
 } from "@moh/core";
@@ -63,6 +64,29 @@ notes:
     restored automatically).
   - a turn an extension asks to confirm is refused here (one stderr line,
     exit 0): headless cannot ask, so it never sends what it cannot show.`;
+
+/**
+ * ADR-0033 §4 (#791): the headless answer to a pre-send confirmation.
+ * `moh run` cannot ask a human, so it refuses — with one stderr line (the
+ * extension's own copy: who asked and why) and the run's normal exit code.
+ * The extension's record (`refused-headless`) lands in the session log, so
+ * the refusal is auditable rather than silent. The refusal reason is kept
+ * for the caller: a refused turn must not be reported as a 130 cancel.
+ */
+export function headlessConfirm(stderr: { write(s: string): void }): {
+  seam: NonNullable<SessionConsent["onConfirmTurn"]>;
+  refused: () => string | null;
+} {
+  let refusal: string | null = null;
+  return {
+    seam: (request) => {
+      refusal = `${request.by}: ${request.reason}`;
+      stderr.write(`moh run: turn refused — ${refusal}\n`);
+      return "refuse";
+    },
+    refused: () => refusal,
+  };
+}
 
 export interface RunOptions {
   argv: string[];
@@ -285,9 +309,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
 
   // ADR-0033 §4 (#791): headless cannot ask. A turn an extension asked to
   // confirm is refused with one stderr line and the run's *normal* exit
-  // code — a refusal is not a crash, and never a silent send. The
-  // extension's own record (decision `refused-headless`) lands in the log.
-  let confirmRefusal: string | null = null;
+  // code — a refusal is not a crash, and never a silent send.
+  const confirm = headlessConfirm(err);
 
   // Single assembly path (#100): the builder owns moh.json reading, the
   // MCP merge, provider resolution and session wiring. Headless: no
@@ -299,13 +322,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     ...(parsed.strings["provider"]
       ? { providerRef: parsed.strings["provider"] }
       : {}),
-    consent: {
-      onConfirmTurn: (request) => {
-        confirmRefusal = `${request.by}: ${request.reason}`;
-        err.write(`moh run: turn refused — ${confirmRefusal}\n`);
-        return "refuse";
-      },
-    },
+    consent: { onConfirmTurn: confirm.seam },
     overrides: {
       maxIterations,
       permissionFlags: cliOverrides,
@@ -388,6 +405,6 @@ export async function runCommand(options: RunOptions): Promise<number> {
   }
   // A refused confirmation is not a cancellation: the run did what it was
   // told and exits normally.
-  if (result.status === "cancelled") return confirmRefusal !== null ? 0 : 130;
+  if (result.status === "cancelled") return confirm.refused() !== null ? 0 : 130;
   return 0;
 }

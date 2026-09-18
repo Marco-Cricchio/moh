@@ -259,9 +259,17 @@ const assembled = sessionFromConfig({
     onPermissionRequest: async (tool, args) => /* "yes" | "always" | "no" */ "no",
     onAskUser: async (set) => /* an AskUserSetResult */ { answers: [{ labels: ["1"] }] },
     onMcpTrust: async (server) => /* "yes" | "always" | "no" */ "no",
+    onConfirmTurn: async (request) => /* "send" | "cancel" | "refuse" */ "send",
   },
 });
 ```
+
+`onConfirmTurn` (ADR-0033 §4) is the one seam with no fail-open default:
+an extension's `beforeTurn` hook may ask the user to confirm a turn before
+it is sent, and **without the seam the turn is refused**, never sent
+unasked. Answer `"send"` to let it through, `"cancel"` when the user said
+no (the text is yours to put back in a composer; nothing is logged about
+the turn), or `"refuse"` when your client cannot ask at all.
 
 `"always"` answers become runtime rules (tier 3 — they only narrow, never
 widen built-in defaults) and are recorded as `permission_rule_added`
