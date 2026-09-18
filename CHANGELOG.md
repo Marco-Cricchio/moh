@@ -5,6 +5,17 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.39.1] - 2026-09-18
+### Fixed
+
+- **OpenCode wire resolved per model and product** (#798): the OpenCode
+  provider no longer assumes one wire per endpoint kind — Zen and Go serve
+  different wires for the same model id (e.g. minimax-m3 is openai-chat on
+  Zen but anthropic-messages on Go). Wire, endpoint URL, and request body
+  are now selected per model and product, fixing the wizard connection test
+  (HTTP 401 "Model minimax-m3 is not supported for format openai" on Go) and
+  real streaming through route targets.
+
 ## [0.39.0] - 2026-09-18
 ### Added
 
@@ -238,7 +249,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...develop
+[0.39.1]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/Marco-Cricchio/moh/compare/v0.38.2...v0.39.0
 [0.38.2]: https://github.com/Marco-Cricchio/moh/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/Marco-Cricchio/moh/compare/v0.38.0...v0.38.1
