@@ -649,3 +649,18 @@ describe("OpenCode onboarding cancellation (#794)", () => {
     expect(io.said).toContain("OpenCode account and API keys: https://opencode.ai/auth");
   });
 });
+
+describe("OpenCode session header (#798, docs/go MissingSessionID)", () => {
+  test("the connection test sends x-opencode-session on every wire", async () => {
+    for (const [model, wire] of [["minimax-m3", "messages"], ["gpt-5.6-luna", "responses"], ["glm-5.3", "chat/completions"]] as const) {
+      let headers: Record<string, string> = {};
+      await minimalConnectionTest(
+        { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: model },
+        (async (_input: string | URL | Request, init?: RequestInit) => { headers = init?.headers as Record<string, string>; return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+        AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_GO_API_KEY: "key" },
+      );
+      expect(headers["x-opencode-session"]).toMatch(/^[0-9a-f-]{36}$/);
+      expect(wire).toBeTruthy();
+    }
+  });
+});
