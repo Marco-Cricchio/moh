@@ -55,11 +55,12 @@ import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, type LocalUsageRow } from "@moh/core";
+import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
 import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { SessionRenameModal } from "./SessionRenameModal";
+import { SessionModal } from "./SessionModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
 import { contextWindowForLabel } from "./model-picker";
@@ -108,7 +109,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -1144,6 +1145,7 @@ export function App({
         growthWarning: () => growth !== null,
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
+        onOpenSession: () => setOverlay("session"),
       })}
     />
   ) : null;
@@ -1359,6 +1361,9 @@ export function App({
         )}
         {overlay === "mpm" && session && (
           <MpmModal diagnostics={session.mpmDiagnostics()} onClose={() => setOverlay(null)} />
+        )}
+        {overlay === "session" && session && session.sessionFile && (
+          <SessionModal report={analyzeSession(session.sessionFile) as SessionAnalysisReport} onClose={() => setOverlay(null)} />
         )}
         {overlay === "quota" && session && (
           <QuotaModal
