@@ -12,6 +12,11 @@ import type { PermissionGate } from "./permission-gate";
  * command/path detail, choices yes / always (shows the runtime rule it
  * writes) / edit / deny. The turn loop is suspended in the core while
  * this modal is up; answers settle the gate.
+ *
+ * ADR-0031: an ask raised by an extension (the hook's `ask` outcome) offers
+ * yes/no only — never "always", so a false positive cannot disarm the
+ * filter that raised it — and carries the extension's own reason as its
+ * label.
  */
 export function PermissionModal({
   gate,
@@ -30,12 +35,14 @@ export function PermissionModal({
   useInput((input, key) => {
     if (!view) return;
     if (input === "y" || key.return) return gate.resolve("yes");
-    if (view.tool === "browser") {
-      // #775: on browser asks the "always" slot is the site-scoped rule.
-      if (input === "a" || input === "s") return gate.resolve("always_for_site");
-    } else if (input === "a") return gate.resolve("always");
+    if (!view.extensionAsk) {
+      if (view.tool === "browser") {
+        // #775: on browser asks the "always" slot is the site-scoped rule.
+        if (input === "a" || input === "s") return gate.resolve("always_for_site");
+      } else if (input === "a") return gate.resolve("always");
+    }
     if (input === "n" || key.escape) return gate.resolve("no");
-    if (input === "e") editTarget(view.tool, view.args, editor);
+    if (input === "e" && !view.extensionAsk) editTarget(view.tool, view.args, editor);
   });
 
   if (!view) return null;
@@ -43,6 +50,11 @@ export function PermissionModal({
   return (
     <Dialog title=" permission " color={theme.warn}>
       <Text>{mode === "vibe" ? "Quick check — may I do this?" : "A tool call needs your approval:"}</Text>
+      {view.extensionAsk ? (
+        <Text color={theme.warn}>
+          {`extension ask${view.extensionAsk.extension ? ` (${view.extensionAsk.extension})` : ""}${view.extensionAsk.reason ? `: ${view.extensionAsk.reason}` : ""}`}
+        </Text>
+      ) : null}
       <Text> </Text>
       {view.detail.map((line, i) => (
         <Text key={i} wrap="truncate-end">
@@ -61,10 +73,14 @@ export function PermissionModal({
           y
         </Text>
         {" yes  "}
-        <Text color={theme.accent}>a</Text>
-        {view.tool === "browser" ? " always for this site  " : " always  "}
-        <Text color={theme.accent}>e</Text>
-        {" edit  "}
+        {view.extensionAsk ? null : (
+          <>
+            <Text color={theme.accent}>a</Text>
+            {view.tool === "browser" ? " always for this site  " : " always  "}
+            <Text color={theme.accent}>e</Text>
+            {" edit  "}
+          </>
+        )}
         <Text color={theme.accent}>n</Text>
         {" no"}
       </Text>

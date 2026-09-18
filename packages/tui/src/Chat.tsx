@@ -34,6 +34,9 @@ const ESC_WINDOW_MS = 1500;
 /** #329: debounce for the width-change transcript rebuild. */
 const RESIZE_REBUILD_DELAY_MS = 150;
 const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
+/** Stable identity for "no extension statuses": a fresh `[]` per render
+ * would defeat the footer's memo comparison on every keystroke. */
+const EMPTY_EXTENSION_STATUSES: { extension: string; text: string }[] = [];
 
 export interface ChatProps {
   session: AgentSession;
@@ -67,6 +70,8 @@ export interface ChatProps {
   memoryFresh?: boolean;
   /** #619: live MPM status chip (null renders nothing). */
   mpmStatus?: "ready" | "updating" | "unavailable" | null;
+  /** ADR-0032 (#784): statuses extensions publish right now (empty = no chip). */
+  extensionStatuses?: { extension: string; text: string }[];
   /** #466/ADR-0022: sticky compaction-failure indicator. */
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
@@ -145,6 +150,7 @@ export function Chat({
   workflowOn = false,
   memoryFresh = false,
   mpmStatus = null,
+  extensionStatuses = EMPTY_EXTENSION_STATUSES,
   compactionFailed = false,
   growthWarning = null,
   onKeepMyBranch,
@@ -1140,6 +1146,7 @@ export function Chat({
         workflowOn={workflowOn}
         memoryFresh={memoryFresh}
         mpmStatus={mpmStatus}
+        extensionStatuses={extensionStatuses}
         compactionFailed={compactionFailed}
         growthWarning={growthWarning}
         onKeepMyBranch={onKeepMyBranch}

@@ -206,6 +206,37 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
   return { startIndex: first, sourceOffset: prefix.length, previousLine: prefix.trimEnd().split("\n").at(-1) ?? "" };
 }
 
+/** ADR-0032 (#784): the one line an `extension_event` gets. The payload is
+ * `unknown` by contract (the core never inspects it), so every field is
+ * narrowed defensively: a shape this renderer does not recognize degrades to
+ * the bare event name — it never guesses and never throws.
+ *
+ * `jev_judgment` (the Jev guardrail's record, #786) is phrased as
+ * `jev · guardrail · ask (destructive 0.42)`: the event name minus its
+ * `_judgment` suffix names the product, then the payload's `useCase` and
+ * `decision`, then the first question with its answer. */
+export function extensionEventLine(name: string, payload: unknown): string {
+  const record = asRecord(payload);
+  if (record === undefined || !name.endsWith("_judgment")) return name;
+  const parts = [name.slice(0, -"_judgment".length)];
+  if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
+  if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
+  const first = Object.entries(asRecord(record.questions) ?? {})[0];
+  // Only a numeric answer is short enough to be worth reading inline; the
+  // distribution shapes (choice/score) stay in the log for /jev-style views.
+  if (first !== undefined && typeof first[1] === "number" && Number.isFinite(first[1])) {
+    parts[parts.length - 1] = `${parts[parts.length - 1]} (${first[0]} ${first[1]})`;
+  }
+  return parts.join(" · ");
+}
+
+/** A JSON object as an inspectable record; anything else (arrays, null,
+ * primitives, a getter that throws) is not something to read fields from. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
 /** Complete, deterministic projection of the append-only event log. Events
  * may be grouped (assistant deltas, tool call/result), but none disappear
  * without an intentional chrome representation.
@@ -559,6 +590,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "extension_loaded":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "extension loaded", detail: `${event.name} ${event.version}`, lines: [] });
+        break;
+      case "extension_event":
+        // ADR-0032 (#784): an extension's own chrome record — one dim line.
+        // The renderer stays generic: only the records this client can
+        // phrase get a summary, every other name renders as itself.
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: extensionEventLine(event.name, event.payload), lines: [] });
+        break;
+      case "session_note":
+        // One informational startup line (e.g. a bundled integration that
+        // stayed inactive): information, never a warning — dim, no glyph
+        // beyond the marker that says "this is chrome".
+        blocks.push({ key, kind: "chrome", glyph: "·", type: event.text, lines: [] });
         break;
       case "extension_failed":
         blocks.push({ key, kind: "error", glyph: "✗", type: "extension failed", detail: event.name, lines: [event.message], state: "fail" });
