@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -81,6 +81,8 @@ interface JevState {
   active: boolean;
   keyHint?: string;
   timeoutMs: number;
+  /** #787: the model-routing opt-in (off by default). */
+  routing: boolean;
   /** The `typesafe` section is malformed: loud on the next save, still
    * rendered as inactive rather than crashing the whole panel. */
   broken?: boolean;
@@ -89,6 +91,9 @@ interface JevState {
 /** #784: the ratified disclosure line, shown under the Jev entry. */
 const JEV_DISCLOSURE =
   "judgments send the command, working directory and git branch/state to TypeSafe (US). TypeSafe declares no training on inputs.";
+
+/** #787: the Jev entry's sub-menu — the key, the routing opt-in, status, remove. */
+const JEV_OPTIONS = ["API key", "Model routing", "Status", "Remove"] as const;
 
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
   const theme = useTheme();
@@ -147,9 +152,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         active: resolved.active,
         ...(resolved.apiKey ? { keyHint: maskApiKey(resolved.apiKey) } : {}),
         timeoutMs: resolved.timeoutMs,
+        routing: resolved.routing,
       };
     } catch {
-      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, broken: true };
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, broken: true };
     }
   };
   const [jev, setJev] = useState<JevState>(readJev);
@@ -275,7 +281,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return rows;
     }
     if (sub.kind === "model-free") return [];
-    if (sub.kind === "jev") return ["API key", "Status", "Remove"];
+    if (sub.kind === "jev") return [...JEV_OPTIONS];
     if (sub.kind === "remove") return sub.options;
     return (moh.endpoints ?? []).map((e) => e.name);
   }, [sub, moh, projectNames, remote]);
@@ -398,7 +404,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           });
           return;
         }
-        setJev((j) => ({ active: true, keyHint: maskApiKey(trimmed), timeoutMs: j.timeoutMs }));
+        setJev((j) => ({ ...j, active: true, keyHint: maskApiKey(trimmed) }));
         if (result.status === "active") {
           onToast("jev: active");
           return setSub({ kind: "jev", cursor: 0 });
@@ -420,8 +426,25 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     } catch (e) {
       return onToast(`jev: could not remove the key (${e instanceof Error ? e.message : String(e)})`);
     }
-    setJev((j) => ({ active: false, timeoutMs: j.timeoutMs }));
+    setJev((j) => ({ ...j, active: false }));
     onToast("jev: key removed — inactive");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
+  /**
+   * #787: the model-routing opt-in. Off by default; the flag is read when
+   * a session is assembled, so the running one keeps what it started with
+   * (the router is built once, with the session).
+   */
+  const toggleJevRouting = () => {
+    const next = !jev.routing;
+    try {
+      saveTypesafeRouting(jevFile, next);
+    } catch (e) {
+      return onToast(`routing: could not save (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ ...j, routing: next }));
+    onToast(next ? "routing on · from your next session" : "routing off · from your next session");
     setSub({ kind: "jev", cursor: 0 });
   };
 
@@ -547,6 +570,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           // Status is a read-only row: enter on it is a no-op (no probe, no
           // toast spam) — the panel already shows the live value.
           if (option === "API key") return setSub({ kind: "jev-key", value: "", busy: false });
+          if (option === "Model routing") return toggleJevRouting();
           if (option === "Remove") return removeJevKey();
           return;
         }
@@ -702,18 +726,22 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             </>
           ) : sub.kind === "jev" ? (
             <>
-              {["API key", "Status", "Remove"].map((option, i) => {
+              {JEV_OPTIONS.map((option, i) => {
                 const selected = i === sub.cursor;
                 const value =
                   option === "API key"
                     ? jev.active
                       ? "replace the stored key"
                       : "enter the key"
-                    : option === "Status"
-                      ? jevLabel
-                      : jev.active
-                        ? "clear the key"
-                        : "nothing to remove";
+                    : option === "Model routing"
+                      ? jev.routing
+                        ? "on"
+                        : "off"
+                      : option === "Status"
+                        ? jevLabel
+                        : jev.active
+                          ? "clear the key"
+                          : "nothing to remove";
                 return (
                   <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
                     {truncate(` ${selected ? "›" : " "} ${option.padEnd(10)}${value}${selected ? " " : ""}`, innerWidth)}

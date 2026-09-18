@@ -214,10 +214,17 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * `jev_judgment` (the Jev guardrail's record, #786) is phrased as
  * `jev · guardrail · ask (destructive 0.42)`: the event name minus its
  * `_judgment` suffix names the product, then the payload's `useCase` and
- * `decision`, then the first question with its answer. */
+ * `decision`, then the first question with its answer. A routing judgment
+ * (#787) reads `jev · routing · switch to a/big` instead — its payload has
+ * no numeric question to inline. `jev_routing` (the router's own notices:
+ * a misconfigured label, an unpriced model, a manual override) gets one
+ * short line per kind. */
 export function extensionEventLine(name: string, payload: unknown): string {
   const record = asRecord(payload);
-  if (record === undefined || !name.endsWith("_judgment")) return name;
+  if (record === undefined) return name;
+  if (name === "jev_routing") return routingNoticeLine(record);
+  if (!name.endsWith("_judgment")) return name;
+  if (record.useCase === "routing") return routingJudgmentLine(record);
   const parts = [name.slice(0, -"_judgment".length)];
   if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
   if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
@@ -228,6 +235,37 @@ export function extensionEventLine(name: string, payload: unknown): string {
     parts[parts.length - 1] = `${parts[parts.length - 1]} (${first[0]} ${first[1]})`;
   }
   return parts.join(" · ");
+}
+
+/** #787: the router's notices — one line each, never a warning, never a
+ * turn error. An unknown kind degrades to the bare product name. */
+function routingNoticeLine(record: Record<string, unknown>): string {
+  const kind = typeof record.kind === "string" ? record.kind : "";
+  if (kind === "ignored-label" && typeof record.ref === "string") {
+    return `jev · routing · label ${record.ref} ignored (not in the model pool)`;
+  }
+  if (kind === "unpriced" && typeof record.count === "number") {
+    return `jev · routing · ${record.count} model(s) have no catalog price → bilanciato`;
+  }
+  if (kind === "listing-failed" && typeof record.message === "string") {
+    return `jev · routing · ${record.message}`;
+  }
+  if (kind === "inert") return "jev · routing · inert (fewer than two tiers to choose from)";
+  if (kind === "override" && typeof record.model === "string") {
+    return `jev · routing · suspended by your manual model switch (${record.model})`;
+  }
+  return "jev · routing";
+}
+
+/** #787: one routing judgment — what the router decided, and why. */
+function routingJudgmentLine(record: Record<string, unknown>): string {
+  const tier = typeof record.tier === "string" ? record.tier : undefined;
+  if (record.decision === "switch") {
+    const target = typeof record.target === "string" ? record.target : tier;
+    return `jev · routing · switch to ${target}${tier ? ` (${tier})` : ""}`;
+  }
+  const reason = typeof record.reason === "string" ? record.reason : "stay";
+  return `jev · routing · stay (${reason})`;
 }
 
 /** A JSON object as an inspectable record; anything else (arrays, null,

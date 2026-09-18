@@ -90,6 +90,9 @@ describe("settings Jev entry (#784)", () => {
     expect(frame).toContain("API key");
     expect(frame).toContain("Status");
     expect(frame).toContain("Remove");
+    // #787: the routing opt-in lives in the same entry, off by default.
+    expect(frame).toContain("Model routing");
+    expect(frame).toContain("off");
     expect(frame).toContain("inactive");
     i.unmount();
   });
@@ -168,8 +171,9 @@ describe("settings Jev entry (#784)", () => {
     i.stdin.write("\r");
     await sleep(80);
     expect(storedKey(home)).toBe("sk-remove-me");
-    // Back to the entry menu (the valid path returns there), then "Remove".
-    await down(i, 2);
+    // Back to the entry menu (the valid path returns there), then "Remove"
+    // (API key · Model routing · Status · Remove, #787).
+    await down(i, 3);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedKey(home)).toBeUndefined();
@@ -189,6 +193,55 @@ describe("settings Jev entry (#784)", () => {
     // are what a user reads there, and the full key never appears.
     expect(frame).toContain("active (key …abcd, timeout");
     expect(frame).not.toContain("sk-existing-abcd");
+    i.unmount();
+  });
+});
+
+describe("settings Jev entry: model routing (#787)", () => {
+  const storedRouting = (home: string): boolean | undefined => {
+    const file = userConfigFile(home);
+    if (!existsSync(file)) return undefined;
+    return readTypesafeConfig(file).routing;
+  };
+
+  test("the toggle writes the opt-in and reports that it starts next session", async () => {
+    const { cwd, home } = setup();
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await down(i, JEV_ROW);
+    i.stdin.write("\r"); // open the Jev entry
+    await sleep(30);
+    await down(i, 1); // "Model routing"
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedRouting(home)).toBe(true);
+    expect(toasts.some((t) => t.includes("routing on"))).toBe(true);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Model routing");
+    expect(frame).toContain("on");
+    i.unmount();
+  });
+
+  test("toggling twice turns it back off, and an unrelated section survives", async () => {
+    const { cwd, home } = setup();
+    const file = userConfigFile(home);
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-abcd", routing: true }, theme: "dark" }));
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await down(i, JEV_ROW);
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, 1);
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedRouting(home)).toBe(false);
+    expect(toasts.some((t) => t.includes("routing off"))).toBe(true);
+    // The read-modify-write keeps the key and every unrelated section.
+    const written = readTypesafeConfig(file);
+    expect(written.apiKey).toBe("sk-keep-abcd");
     i.unmount();
   });
 });

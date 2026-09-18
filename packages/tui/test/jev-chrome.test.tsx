@@ -42,6 +42,41 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_judgment", [1, 2, 3])).toBe("jev_judgment");
   });
 
+  test("a routing judgment reads as the router's decision (#787)", () => {
+    expect(
+      extensionEventLine("jev_judgment", {
+        useCase: "routing",
+        decision: "switch",
+        tier: "potente",
+        target: "a/big",
+        reason: "hysteresis",
+      }),
+    ).toBe("jev · routing · switch to a/big (potente)");
+    expect(extensionEventLine("jev_judgment", { useCase: "routing", decision: "stay", reason: "low-confidence" })).toBe(
+      "jev · routing · stay (low-confidence)",
+    );
+  });
+
+  test("the router's own notices read as one short line each (#787)", () => {
+    expect(extensionEventLine("jev_routing", { kind: "ignored-label", ref: "b/nope" })).toBe(
+      "jev · routing · label b/nope ignored (not in the model pool)",
+    );
+    expect(extensionEventLine("jev_routing", { kind: "unpriced", count: 3, models: ["a/x"] })).toBe(
+      "jev · routing · 3 model(s) have no catalog price → bilanciato",
+    );
+    expect(extensionEventLine("jev_routing", { kind: "listing-failed", message: 'endpoint "local": listing failed (HTTP 500)' })).toBe(
+      'jev · routing · endpoint "local": listing failed (HTTP 500)',
+    );
+    expect(extensionEventLine("jev_routing", { kind: "inert" })).toBe(
+      "jev · routing · inert (fewer than two tiers to choose from)",
+    );
+    expect(extensionEventLine("jev_routing", { kind: "override", model: "a/handpicked" })).toBe(
+      "jev · routing · suspended by your manual model switch (a/handpicked)",
+    );
+    // An unknown kind never guesses.
+    expect(extensionEventLine("jev_routing", { kind: "who-knows" })).toBe("jev · routing");
+  });
+
   test("both variants land as chrome blocks, never as errors", () => {
     const events = [
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
