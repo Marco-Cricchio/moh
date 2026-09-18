@@ -33,6 +33,16 @@ export interface PermissionsConfig {
   runtimeRules?: PermissionRule[];
 }
 
+/** ADR-0031: why an "ask" reached the consent flow beyond the tool's own rules. */
+export interface PermissionAskContext {
+  /** Present (and "extension") only when an extension's `ask` outcome raised this prompt. */
+  source?: "extension";
+  /** Name of the extension that asked. */
+  extension?: string;
+  /** The extension's own one-line reason, rendered as the prompt's label. */
+  reason?: string;
+}
+
 export interface SessionConfig {
   /**
    * A Provider instance (e.g. `MockProvider.scripted([...])`), or a
@@ -58,10 +68,14 @@ export interface SessionConfig {
   permissions?: PermissionsConfig;
   /** Consent callback for "ask" decisions. Without it (headless) unpermitted calls fail fast.
    * `always_for_site` (#775) is the browser act-tier answer: it writes a session-scoped
-   * URL-scoped runtime rule only — never persisted. */
+   * URL-scoped runtime rule only — never persisted.
+   * ADR-0031: the optional third argument is present only when an extension
+   * escalated the call via `ask` — the prompt then offers yes/no only (no
+   * "always": a false positive must not disarm the filter that raised it). */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
+    context?: PermissionAskContext,
   ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** Interactive question channel for the ask_user tool. Without it (headless) the tool fails fast. */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
@@ -109,6 +123,14 @@ export interface SessionConfig {
    * outrank user permission rules. Failed loads are warnings only.
    */
   extensions?: ExtensionRuntime;
+  /**
+   * #784 (spec §5): tool-call hooks from a runtime this session does NOT
+   * own — subagent children share the parent's runtime for the gate only.
+   * Session lifecycle hooks, statuses and load events stay the parent's:
+   * a child ending must never end the extension's session, and a child's
+   * `appendEvent` still lands in the runtime's single event channel.
+   */
+  toolHooks?: import("./permission-gate").ToolHookChecker;
   /**
    * MCP tool sources (#15): merged project + user server declarations.
    * Servers start lazily on the first turn and shut down at dispose;
@@ -186,4 +208,11 @@ export interface SessionConfig {
   /** #774: visible startup diagnostics (e.g. missing browser toolchain).
    * Each entry becomes a `browser_unavailable` chrome event at open. */
   diagnostics?: readonly string[];
+  /**
+   * Informational startup lines (e.g. a bundled integration that stayed
+   * inactive for lack of configuration). Each entry becomes a `session_note`
+   * chrome event at open: visible, dim, never a warning and never a turn
+   * error.
+   */
+  notes?: readonly string[];
 }

@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
+import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
@@ -65,6 +65,17 @@ export class AgentSession {
   /** Same-turn tool execution (#91): parallel run + gated execution. */
   readonly #toolRunner: ToolRunner;
   readonly #extensions: ExtensionRuntime | undefined;
+  /** ADR-0032: a client with a consent seam renders statuses itself; a
+   * headless one gets the single stderr line instead. */
+  readonly #hasConsentSeam: boolean;
+  /** ADR-0032: the last status text announced on stderr (null after a clear). */
+  #announcedStatus: string | null = null;
+  /** The resumed history's active-path projection, seeded at construction. */
+  #resumeProjection: AgentEvent[] | undefined;
+  /** Startup chrome (#774 / #784), appended once the session's own start
+   * events are in — the file's first line stays `session_start`. */
+  #startupDiagnostics: readonly string[] = [];
+  #startupNotes: readonly string[] = [];
   /** The append-only event log (#89): storage, sink, listeners, dispatch. */
   readonly #eventLog: EventLog;
   /** The send queue + steering pump (#92): preempt semantics unchanged. */
@@ -182,11 +193,21 @@ export class AgentSession {
     });
     this.#onAskUser = config.onAskUser;
     this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    // Resume (#31): the persisted history seeds the log here, before anything
+    // else can append. Registration of a bundled extension resolves on a
+    // microtask — which Bun may run inside a synchronous child-process spawn
+    // (ADR-0024) — so an `extension_loaded` landing before the history would
+    // reorder the log and, on a legacy (identity-less) file, leave the
+    // recorded history off the active path.
+    this.#resumeProjection = config.resume?.events.length ? activePath(config.resume.events) : undefined;
+    if (this.#resumeProjection) this.#eventLog.seed(this.#resumeProjection);
     this.#sessionFile = config.sessionFile;
     this.#externalGrowth = config.externalGrowth;
     this.#gate = new PermissionGate({
       permissions: this.#permissions,
-      extensions: config.extensions,
+      // #784 spec §5: a subagent child owns no runtime but still judges its
+      // tool calls through the parent's (shared) hook checker.
+      extensions: config.extensions ?? config.toolHooks,
       onPermissionRequest: config.onPermissionRequest,
       cwd: this.#cwd,
       append: (event) => this.#append(event),
@@ -243,6 +264,11 @@ export class AgentSession {
         permissions: config.permissions,
         runtimeRules: () => this.#permissions.rules,
         onPermissionRequest: config.onPermissionRequest,
+        // ADR-0031/ADR-0032: children are in-process sessions created by the
+        // host, never re-assembled from config — they share the parent's
+        // extension runtime, so the guardrail judges child tool calls through
+        // the same gate and statuses stay one per extension (#784 spec §5).
+        ...(config.extensions ? { extensions: config.extensions } : {}),
         registry: config.registry,
         endpoints: this.#endpoints,
         defaultProvider: subagents.provider ?? (() => this.#provider),
@@ -265,11 +291,13 @@ export class AgentSession {
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
-    // #774: visible startup diagnostics — a missing browser toolchain is
-    // chrome (every surface can warn), never a turn error and never silence.
-    for (const message of config.diagnostics ?? []) {
-      this.#append({ type: "browser_unavailable", reason: message });
-    }
+    // ADR-0032: an extension status is client chrome — it never enters the
+    // log. A headless client (no consent seam: there is no one to prompt,
+    // hence no TUI) gets one stderr line per new status text instead.
+    this.#hasConsentSeam = config.onPermissionRequest !== undefined;
+    this.#startupDiagnostics = config.diagnostics ?? [];
+    this.#startupNotes = config.notes ?? [];
+    this.#extensions?.onStatusChange((extension, text) => this.#onExtensionStatus(extension, text));
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
     // #616: MPM orientation — opt-in via SessionConfig.mpm (a root the
     // projection maps). The service is supplied or constructed+loaded here;
@@ -480,11 +508,10 @@ export class AgentSession {
       // branches is how the model sees a different past; whole-tree
       // context does not exist. The projection is the single pass that
       // linearizes once; everything downstream keeps its index logic.
-      const resumeEvents = activePath(config.resume.events);
       // Resume (#31): the log continues in a new AgentSession over the same
-      // persisted history. Seeded events are never re-appended (the file
-      // already has them); only new events reach the sink.
-      this.#eventLog.seed(resumeEvents);
+      // persisted history, seeded above. Seeded events are never re-appended
+      // (the file already has them); only new events reach the sink.
+      const resumeEvents = this.#resumeProjection!;
       this.#messages.splice(0, 0, ...replayMessages(resumeEvents));
       // #578 (d6): a compaction pointer that does not resolve on the
       // active path (corruption, truncation) restarts context from the
@@ -535,15 +562,19 @@ export class AgentSession {
       // A mode change across resume is auditable like any startup flag.
       const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
       if (!lastMode || lastMode.mode !== mode) this.#append({ type: "session_mode", mode });
+      this.#appendStartupChrome(false);
       return;
     }
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode });
+    this.#appendStartupChrome(true);
     this.#flushExtensionEvents();
     // Fire-and-forget: construction is sync, the session is not yet running.
-    void this.#extensions?.dispatchSessionStart().then((errors) => {
-      for (const e of errors) this.#append(e);
+    // The bundled-definition registration settles first (ADR-0032/ADR-0005):
+    // `session_start` must never reach an extension whose setup is pending.
+    void this.#extensions?.ready().then(() => this.#extensions?.dispatchSessionStart()).then((errors) => {
+      for (const e of errors ?? []) this.#append(e);
     });
   }
 
@@ -569,6 +600,29 @@ export class AgentSession {
    */
   addTools(tools: Record<string, Tool>): void {
     this.#tools = { ...this.#tools, ...tools };
+  }
+
+  /**
+   * Visible startup chrome: the browser toolchain diagnostic (#774) and the
+   * informational session notes (a bundled integration that stayed
+   * inactive). Both are *chrome*, so they are appended after the session's
+   * own start events — a session file must still begin with `session_start`
+   * (the store's log-format invariant).
+   *
+   * `withNotes` is false on resume: a resumed file already carries the
+   * informational lines of its first open, and repeating them on every
+   * resume is noise. The browser diagnostic keeps its #774 semantics — the
+   * toolchain may well be missing in the environment a session is resumed
+   * in.
+   */
+  #appendStartupChrome(withNotes: boolean): void {
+    for (const message of this.#startupDiagnostics) {
+      this.#append({ type: "browser_unavailable", reason: message });
+    }
+    if (!withNotes) return;
+    for (const note of this.#startupNotes) {
+      this.#append({ type: "session_note", text: note });
+    }
   }
 
   /** Drains buffered extension load events (failed loads = warnings) into the log. */
@@ -742,7 +796,15 @@ export class AgentSession {
     // reasoning (previous turn's final call included) is the seed source.
     this.#mpmOrientation?.beginTurn();
     this.#mpmPlan = this.#orientationPlan();
-    return this.#queue.send(text, options?.prompt).finally(() => {
+    // ADR-0032/bundled activation: the runtime registers fire-and-forget
+    // from the assembly, so a turn started while that is still in flight
+    // waits for the setup to settle — a hook is never missing from a turn's
+    // first tool call. No pending registration (the common case): `send`
+    // starts the turn synchronously, exactly as before.
+    const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
+    const run =
+      this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready().then(start) : start();
+    return run.finally(() => {
       this.#turnHead = undefined;
     });
   }
@@ -838,6 +900,31 @@ export class AgentSession {
   }
 
   /**
+   * ADR-0032: the statuses extensions currently publish, in registration
+   * order (empty when none). Client chrome, polled like `mpmSnapshot`;
+   * ephemeral — never in the log, cleared at session end and on reload.
+   */
+  extensionStatuses(): ExtensionStatus[] {
+    return this.#extensions?.statuses() ?? [];
+  }
+
+  /**
+   * ADR-0032 headless signal: one stderr line per *new* status text (a
+   * repeat of the current text prints nothing, a clear prints nothing and
+   * re-arms the announcement). The exit code is never affected — a status
+   * is information, not an error.
+   */
+  #onExtensionStatus(extension: string, text: string | null): void {
+    if (text === null) {
+      this.#announcedStatus = null;
+      return;
+    }
+    if (this.#hasConsentSeam || this.#announcedStatus === text) return;
+    this.#announcedStatus = text;
+    process.stderr.write(`moh: ${extension}: ${text}\n`);
+  }
+
+  /**
    * #619: live MPM status for the client chrome (TUI status row) plus
    * pending background work and fallback reason; null when MPM never
    * activated for this session (disabled, no projection, activation
@@ -913,6 +1000,10 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
+    // ADR-0032: a turn begins with its user_message — the per-extension
+    // `extension_event` cap counts per turn, so the counter resets here
+    // (steering sends are turns too).
+    if (event.type === "user_message") this.#extensions?.beginTurn();
     // #759: the reasoning text of the last persisted call is the low-tier
     // orientation seed source. Content stays in the log; only the plan
     // (paths + reasons) ever reaches the prompt.
@@ -1055,6 +1146,8 @@ export class AgentSession {
       await this.#onDispose?.();
     } catch { /* reaping is best-effort at shutdown */ }
     if (!this.#extensions) return;
+    // ADR-0032: statuses are ephemeral — nothing survives the session.
+    this.#extensions.clearStatuses();
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
     // The end-of-session events were just queued: let the dispatch drain
     // settle before the session is considered disposed.

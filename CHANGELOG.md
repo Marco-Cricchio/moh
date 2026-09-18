@@ -5,6 +5,19 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+### Added
+
+- **Bundled Jev (TypeSafe) integration** (#784): moh can consult the
+  TypeSafe service for typed judgments. Activate it by entering an API key
+  in the TUI Settings panel entry `Jev (TypeSafe)` (validated once, on save;
+  the presence of the key is the state — no toggle, no wizard), check it
+  offline with `moh jev status`, and forget about it when TypeSafe is
+  unreachable: judgments fail open, the agent behaves as it does today, and
+  the only trace is one `∅ jev offline` footer chip. Extension authors get
+  the matching contract additions — the `ask` outcome on the tool-call hook
+  and the `appendEvent` / `setStatus` observation seams (apiVersion 1.1).
+
 ## [0.39.3] - 2026-09-18
 ### Fixed
 

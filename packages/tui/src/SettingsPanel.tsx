@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { validateJevKey, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
@@ -37,6 +38,9 @@ export interface SettingsPanelProps {
   /** Reports whether the theme studio modal is open, so the App-level
    * escape handler stands down while the studio owns the keyboard. */
   onStudioActive?: (active: boolean) => void;
+  /** #784: the one real validation call the Jev entry makes on key save.
+   * Injectable so tests never touch the network. */
+  validateKey?: (key: string) => Promise<JevKeyValidation>;
   onClose: () => void;
 }
 
@@ -72,7 +76,21 @@ function allThemeRefs(home?: string): ThemeRef[] {
 /** Lowercase slug normalization for editor ids. */
 const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 
-export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, onClose }: SettingsPanelProps) {
+/** #784: the Jev entry's view of the user config (never a live probe). */
+interface JevState {
+  active: boolean;
+  keyHint?: string;
+  timeoutMs: number;
+  /** The `typesafe` section is malformed: loud on the next save, still
+   * rendered as inactive rather than crashing the whole panel. */
+  broken?: boolean;
+}
+
+/** #784: the ratified disclosure line, shown under the Jev entry. */
+const JEV_DISCLOSURE =
+  "judgments send the command, working directory and git branch/state to TypeSafe (US). TypeSafe declares no training on inputs.";
+
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
@@ -120,8 +138,31 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // (free-text fallback for unknown types). Selecting a model rewrites
   // `defaultModel` on the project moh.json endpoint (user-level endpoints
   // are display-only here) and switches the default `provider` ref.
+  // #784: the Jev (TypeSafe) entry — key input, status, remove, disclosure.
+  const jevFile = userFile;
+  const readJev = (): JevState => {
+    try {
+      const resolved = resolveTypesafeConfig(readTypesafeConfig(jevFile));
+      return {
+        active: resolved.active,
+        ...(resolved.apiKey ? { keyHint: maskApiKey(resolved.apiKey) } : {}),
+        timeoutMs: resolved.timeoutMs,
+      };
+    } catch {
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, broken: true };
+    }
+  };
+  const [jev, setJev] = useState<JevState>(readJev);
+  const jevLabel = jev.broken
+    ? "invalid config section"
+    : jev.active
+      ? `active (key ${jev.keyHint ?? "…"}, timeout ${jev.timeoutMs}ms)`
+      : "inactive";
+  const validate = validateKey ?? ((key: string) => validateJevKey(key, { timeoutMs: jev.timeoutMs }));
   type Sub =
     | { kind: "endpoint"; cursor: number }
+    | { kind: "jev"; cursor: number }
+    | { kind: "jev-key"; value: string; busy: boolean; message?: string }
     | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; cursor: number; query: string }
     | { kind: "model-free"; name: string; userOwned: boolean; value: string }
     | { kind: "remove"; options: string[]; cursor: number }
@@ -195,6 +236,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "provider", label: "Provider", value: modelLabel },
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
+      { key: "jev", label: "Jev (TypeSafe)", value: jevLabel },
       { key: "handoff", label: "Session handoff", value: handoffTransport === "gist" ? "GitHub Gist" : handoffTransport === "none" ? "Disabled" : "Not Set" },
       { key: "mpm", label: "Moh Project Map", value: mpmSettingLabel(mpmSetting) },
       { key: "maxIterations", label: "Max iterations/turn", value: maxIterationsLabel(moh.maxIterations ?? DEFAULT_MAX_ITERATIONS) },
@@ -202,7 +244,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
     ],
-    [config, modelLabel, moh, handoffTransport, mpmSetting],
+    [config, modelLabel, moh, handoffTransport, mpmSetting, jevLabel],
   );
 
   // Endpoints defined in the project moh.json (editable defaultModel);
@@ -233,11 +275,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       return rows;
     }
     if (sub.kind === "model-free") return [];
+    if (sub.kind === "jev") return ["API key", "Status", "Remove"];
     if (sub.kind === "remove") return sub.options;
     return (moh.endpoints ?? []).map((e) => e.name);
   }, [sub, moh, projectNames, remote]);
 
-  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model") ? sub.cursor : 0;
+  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev") ? sub.cursor : 0;
   const subWin = windowing(
     subOptions.length,
     subCursor,
@@ -289,6 +332,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       case "provider-remove":
         if ((moh.endpoints ?? []).length === 0) return onToast("no endpoints to remove");
         return setSub({ kind: "remove", options: (moh.endpoints ?? []).map((e) => e.name), cursor: 0 });
+      case "jev":
+        return setSub({ kind: "jev", cursor: 0 });
       case "handoff":
         return onConfigureHandoff?.();
       case "maxIterations": {
@@ -324,6 +369,62 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     setMaxIterations(MAX_ITERATION_PRESETS[(at + MAX_ITERATION_PRESETS.length - 1) % MAX_ITERATION_PRESETS.length]!);
   };
 
+  /**
+   * #784: validate with one real call, then persist. The order matters: a
+   * key the service rejects must never reach the config (it would read as
+   * active while being useless) and must never overwrite a good stored key.
+   * The two failure modes stay distinct on purpose — an unreachable service
+   * IS persisted, because the user typed what they meant and moh fails open.
+   */
+  const submitJevKey = (key: string) => {
+    const trimmed = key.trim();
+    if (!trimmed) return setSub({ kind: "jev-key", value: "", busy: false });
+    setSub({ kind: "jev-key", value: trimmed, busy: true, message: "validating…" });
+    void validate(trimmed)
+      .then((result) => {
+        if (result.status === "invalid") {
+          setSub({ kind: "jev-key", value: trimmed, busy: false, message: "invalid key — not saved" });
+          return onToast("jev: invalid key — not saved");
+        }
+        // Active or unverified: both are the user's decision to store.
+        try {
+          saveTypesafeApiKey(jevFile, trimmed);
+        } catch (e) {
+          setSub({
+            kind: "jev-key",
+            value: trimmed,
+            busy: false,
+            message: `could not save: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          return;
+        }
+        setJev((j) => ({ active: true, keyHint: maskApiKey(trimmed), timeoutMs: j.timeoutMs }));
+        if (result.status === "active") {
+          onToast("jev: active");
+          return setSub({ kind: "jev", cursor: 0 });
+        }
+        onToast("jev: could not verify — saved, will activate when reachable");
+        return setSub({ kind: "jev", cursor: 0 });
+      })
+      .catch((e: unknown) => {
+        // `validateJevKey` never throws; a custom seam might.
+        setSub({ kind: "jev-key", value: trimmed, busy: false, message: e instanceof Error ? e.message : String(e) });
+      });
+  };
+
+  /** #784: Remove — clears the key; the extension is unregistered from the
+   * next session on (nothing to disable in the running one). */
+  const removeJevKey = () => {
+    try {
+      removeTypesafeApiKey(jevFile);
+    } catch (e) {
+      return onToast(`jev: could not remove the key (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ active: false, timeoutMs: j.timeoutMs }));
+    onToast("jev: key removed — inactive");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
   /** #181: model committed for one endpoint — rewrites `defaultModel` in
    * the project moh.json (user endpoints display-only) and switches the
    * default `provider` ref. moh.json only; user config untouched. */
@@ -355,12 +456,20 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   useInput((input, key) => {
     if (key.escape) {
       if (sub && sub.kind !== "tos") {
+        if (sub.kind === "jev-key") return setSub({ kind: "jev", cursor: 0 });
         if (sub.kind === "model") return setSub({ kind: "endpoint", cursor: 0 });
         if (sub.kind === "model-free") return setSub({ kind: "endpoint", cursor: 0 });
         return setSub(null);
       }
       if (sub?.kind === "tos") return setSub({ kind: "endpoint", cursor: 0 });
       return onClose();
+    }
+    if (sub?.kind === "jev-key") {
+      if (sub.busy) return; // one validation call at a time
+      if (key.backspace || key.delete) return setSub({ ...sub, value: sub.value.slice(0, -1) });
+      if ((key.return || input === "\n") && sub.value.trim()) return submitJevKey(sub.value);
+      if (input && !key.ctrl && !key.meta) return setSub({ ...sub, value: sub.value + input, message: undefined });
+      return;
     }
     if (sub?.kind === "model-free") {
       if (key.backspace || key.delete) return setSub({ ...sub, value: sub.value.slice(0, -1) });
@@ -415,12 +524,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub({ kind: "tos", provider: endpoint.type });
       }
       if (key.upArrow) {
-        if (sub.kind === "endpoint" || sub.kind === "remove") return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
         if (sub.kind === "tos") return;
         return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
       }
       if (key.downArrow) {
-        if (sub.kind === "endpoint" || sub.kind === "remove") return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
         if (sub.kind === "tos") return;
         return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
       }
@@ -432,9 +539,17 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub({ ...sub, query: sub.query.slice(0, -1), cursor: 0 });
       }
       if (key.return || input === "\n") {
-        const index = sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" ? sub.cursor : 0;
+        const index =
+          sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" ? sub.cursor : 0;
         const option = subOptions[index];
         if (option === undefined) return;
+        if (sub.kind === "jev") {
+          // Status is a read-only row: enter on it is a no-op (no probe, no
+          // toast spam) — the panel already shows the live value.
+          if (option === "API key") return setSub({ kind: "jev-key", value: "", busy: false });
+          if (option === "Remove") return removeJevKey();
+          return;
+        }
         if (sub.kind === "endpoint") {
           if (option === "mock") {
             const project = loadMohConfig(configFile);
@@ -585,6 +700,44 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               <Text> </Text>
               <Dim>{sub.userOwned ? "user endpoint — the default is not editable here" : "saved as defaultModel in moh.json"}</Dim>
             </>
+          ) : sub.kind === "jev" ? (
+            <>
+              {["API key", "Status", "Remove"].map((option, i) => {
+                const selected = i === sub.cursor;
+                const value =
+                  option === "API key"
+                    ? jev.active
+                      ? "replace the stored key"
+                      : "enter the key"
+                    : option === "Status"
+                      ? jevLabel
+                      : jev.active
+                        ? "clear the key"
+                        : "nothing to remove";
+                return (
+                  <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(10)}${value}${selected ? " " : ""}`, innerWidth)}
+                  </Text>
+                );
+              })}
+              <Text> </Text>
+              <Text color={theme.dim} wrap="wrap">
+                {JEV_DISCLOSURE}
+              </Text>
+            </>
+          ) : sub.kind === "jev-key" ? (
+            <>
+              <Text bold>{`api key: ${"•".repeat(Math.min(24, sub.value.length))}▏`}</Text>
+              <Text> </Text>
+              <Dim>
+                {sub.busy
+                  ? "validating with one real call…"
+                  : (sub.message ??
+                    (jev.broken
+                      ? "the typesafe section is invalid — saving a key here rewrites it"
+                      : "saved to ~/.moh/config, then validated with one real call"))}
+              </Dim>
+            </>
           ) : sub.kind === "theme-pick" ? (
             <>
               {sub.options.map((ref, i) => {
@@ -623,6 +776,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           <Dim>
             {sub.kind === "tos"
               ? "esc back"
+              : sub.kind === "jev"
+                ? "↑↓ select · enter confirm · esc back — Jev (TypeSafe)"
+                : sub.kind === "jev-key"
+                  ? "type the key · enter save and validate · esc back"
               : sub.kind === "endpoint"
               ? "↑↓ · enter · t ToS · esc — switch endpoint"
               : sub.kind === "model"
@@ -636,7 +793,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         <Dim>
           {rows[cursor]?.key === "maxIterations"
             ? "enter/→ next · shift+tab back · iterations are send→tools→reply cycles, not tool calls"
-            : "enter change · esc close"}
+            : rows[cursor]?.key === "jev"
+              ? JEV_DISCLOSURE
+              : "enter change · esc close"}
         </Dim>
       )}
     </Dialog>

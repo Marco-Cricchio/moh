@@ -31,8 +31,11 @@ import { SessionStore } from "../session-store";
 import type { PermissionOverrides } from "../permissions";
 import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool } from "../types";
 import { AgentSession } from "./session";
+import { ExtensionRuntime } from "../extensions";
 import { userConfigFile } from "../user-config";
-import type { PermissionsConfig } from "./config";
+import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
+import { createJevGuardExtension } from "@moh/jev-guard";
+import type { PermissionAskContext, PermissionsConfig } from "./config";
 
 /**
  * Initial projection build for a never-mapped project (MPM activation
@@ -83,10 +86,13 @@ export interface AssemblyError {
 /** The client interaction seams. Without them (headless), unpermitted calls and project MCP servers fail fast. */
 export interface SessionConsent {
   /** Tool "ask" decisions (TUI: the permission modal). `always_for_site`
-   * (#775) is the browser act-tier answer — session-scoped, never persisted. */
+   * (#775) is the browser act-tier answer — session-scoped, never persisted.
+   * ADR-0031: `context.source === "extension"` marks an ask raised by an
+   * extension hook — the prompt offers yes/no only, labelled with its reason. */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
+    context?: PermissionAskContext,
   ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** ask_user channel (TUI: the inline question block, ADR-0019). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
@@ -196,12 +202,44 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
 
   const o = options.overrides ?? {};
   const mohHome = join(home, ".moh");
+  // The user config (guardian-owned) is read once and used by every
+  // section that lives there: `typesafe` here, MCP trust below.
+  const userFile = userConfigFile(home);
+
+  // #784: the bundled Jev extension is activated by the *user* config's
+  // `typesafe.apiKey` — read here, in the one assembly path every client
+  // uses (TUI, `moh run`, `moh serve`, `moh compact`). No key = nothing is
+  // registered and one informational line is recorded; no wizard, no
+  // prompt, no warning. A broken `typesafe` section fails loudly above,
+  // like a broken `provider` section.
+  let typesafe;
+  try {
+    typesafe = resolveTypesafeConfig(readTypesafeConfig(userFile));
+  } catch (e) {
+    return assemblyError("config", e);
+  }
+  const notes: string[] = [];
+  let extensions: ExtensionRuntime | undefined;
+  if (typesafe.active) {
+    // Bundled first-party code: no consent prompt, no dependency
+    // authorization (the host shipped the bytes — see `bundledTrust`).
+    extensions = new ExtensionRuntime({ mohHome, bundledTrust: true });
+    // Fire-and-forget: `AgentSession` awaits `ready()` before its first
+    // turn, so no hook is ever missing from a tool call.
+    void extensions.register(
+      createJevGuardExtension({
+        apiKey: typesafe.apiKey!,
+        ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
+      }),
+    );
+  } else {
+    notes.push("jev: inactive (no api key)");
+  }
 
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
   // Computed before the store exists so a throwing read leaves no orphan
   // session file behind. Project trust is resolved from the user config's
   // `mcpTrust` section (#352/SEC-01): the repo's own `trusted` field is ignored.
-  const userFile = userConfigFile(home);
   const servers = [
     ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, options.cwd, s.name) ? { ...s, trusted: true } : s)),
     ...declaredUserMcpServers(userFile),
@@ -316,6 +354,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),
+      ...(extensions ? { extensions } : {}),
+      ...(notes.length ? { notes } : {}),
       ...(servers.length
         ? {
             mcp: {

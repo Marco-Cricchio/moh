@@ -45,8 +45,8 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     // Settings → Provider reasoning row → toggle (default hide → show).
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 15; n++) {
-      i.stdin.write("\x1b[B"); // down to the "Provider reasoning" row (Themes… at 2 shifts it to 15)
+    for (let n = 0; n < 16; n++) {
+      i.stdin.write("\x1b[B"); // down to the "Provider reasoning" row (Themes… at 2 and the Jev entry at 11 shift it to 16)
       await sleep(20);
     }
     i.stdin.write("\r"); // toggle show
@@ -96,7 +96,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 15; n++) {
+    for (let n = 0; n < 16; n++) {
       i.stdin.write("\x1b[B");
       await sleep(20);
     }
@@ -136,7 +136,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 14; n++) {
+    for (let n = 0; n < 16; n++) {
       i.stdin.write("\x1b[B");
       await sleep(20);
     }
