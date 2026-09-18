@@ -11,7 +11,7 @@ import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
 export default defineExtension({
   name: "no-rm-rf",
   version: "0.1.0",
-  apiVersion: MOH_EXTENSION_API_VERSION, // "1.1" — major must match the host
+  apiVersion: MOH_EXTENSION_API_VERSION, // "1.3" — major must match the host
   setup(ctx) {
     // Durable per-extension state; carried across hot-reloads.
     ctx.state.seen ??= 0;

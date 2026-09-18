@@ -125,7 +125,7 @@ preserved verbatim):
 | `mcpTrust` | core (`mcp/types.ts`) | recorded "always" consent for project MCP servers, keyed by project slug → server names (the repo's own `trusted` field is ignored) |
 | `liveModels` | core (`live-model-catalog.ts`) | `enabled` (default `true`; `false` restores the fully static model catalog), `ttlHours` (default 24) for the `~/.moh/live-models.json` picker cache |
 | `mpm` | core (`mpm/config.ts`) | the user default for the Moh Project Map: `enabled` (default `false` — MPM is opt-in; `true` enables it everywhere unless a project opts out), `quota` (`maxFiles`, `maxTotalBytes`), `exclude` (gitignore-style patterns) |
-| `typesafe` | core (`typesafe.ts`) | the bundled Jev (TypeSafe) integration (#784): `apiKey` (present = active, absent = nothing is registered — there is no toggle; entered from the TUI Settings panel entry `Jev (TypeSafe)`, never hand-edited), `timeoutMs` (per-call hook timeout in ms, default `2500`, configuration only), `routing` (model-routing opt-in, #787), `tiers` (`"<endpoint>/<model-id>"` → `economico` \| `bilanciato` \| `potente`, #787). User config only — a cloned project must not be able to activate an account |
+| `typesafe` | core (`typesafe.ts`) | the bundled Jev (TypeSafe) integration (#784): `apiKey` (present = active, absent = nothing is registered — there is no toggle; entered from the TUI Settings panel entry `Jev (TypeSafe)`, never hand-edited), `timeoutMs` (per-call hook timeout in ms, default `2500`, configuration only), `routing` (per-turn model-routing opt-in, default `false`; changed from the same Settings entry and read when a session starts — the session command `/routing off|on` pauses and enables it for that session without touching this file), `tiers` (explicit tier labels for routing: `"<endpoint>/<model-id>"` → `economico` \| `bilanciato` \| `potente`; an unlabeled model is ranked by catalog price — see the Jev page). User config only — a cloned project must not be able to activate an account |
 
 The `typesafe` block lives in the user config only — never in moh.json: a
 cloned repository must not be able to declare `apiKey` on your behalf. See
@@ -134,8 +134,9 @@ degrades. It is
 strict when present (a malformed block fails loudly at session start, like
 `provider`/`endpoints`) and unknown keys inside it are stripped. The key is
 entered from the TUI Settings panel (`Jev (TypeSafe)`), where it is validated
-and stored; the presence of the key *is* the activation state, there is no
-separate toggle, and `timeoutMs` has no UI field. See the Jev page.
+and stored; the presence of the key *is* the activation state, and
+`timeoutMs` and `tiers` have no UI field (the routing opt-in has one). See
+the Jev page.
 
 The file is always written through the guardian: read-modify-write of
 the whole JSON, temp file + rename, 0600 file / 0700 dir.

@@ -16,11 +16,24 @@ import type {
   TurnResult,
 } from "../types";
 import type { AssembledPrompt } from "../prompt-composer";
-import type { ExtensionRuntime } from "../extensions";
+import type { BeforeTurnDispatch, ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall" | "dispatchAfterTurn">;
+
+/**
+ * ADR-0033: the turn-start seam. `dispatch` runs the extensions'
+ * `beforeTurn` hooks (once per user send, before the provider is read);
+ * `applyModel` resolves and applies a returned ref exactly like the manual
+ * `/model` switch, which the session owns (it appends the `model_switched`
+ * chrome). The loop never invents a model: an unresolvable ref is a
+ * visible `extension_failed`, and the turn proceeds on the active model.
+ */
+export interface LoopBeforeTurn {
+  dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
+  applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string };
+}
 
 /** Default per-turn iteration cap (#190), used when `maxIterations` is absent. */
 export const DEFAULT_MAX_ITERATIONS = 50;
@@ -57,6 +70,13 @@ export interface AgentLoopOptions {
   toolRunner: LoopToolRunner;
   /** Extension hooks; absent in headless sessions. */
   extensions?: LoopExtensions;
+  /**
+   * ADR-0033: the turn-start hook seam. Absent = no extension can
+   * influence which model serves a turn (the historical behavior).
+   */
+  beforeTurn?: LoopBeforeTurn;
+  /** 1-based live-run turn sequence, for the `beforeTurn` context. */
+  turnIndex?: () => number;
   /** Lazy MCP start, when configured. */
   mcp?: { ensureStarted(): Promise<void> };
   /** The conversation so far — mutated in place by each turn. */
@@ -100,6 +120,8 @@ export class AgentLoop {
   readonly #tools: () => Record<string, Tool>;
   readonly #toolRunner: LoopToolRunner;
   readonly #extensions: LoopExtensions | undefined;
+  readonly #beforeTurn: LoopBeforeTurn | undefined;
+  readonly #turnIndex: (() => number) | undefined;
   readonly #mcp: { ensureStarted(): Promise<void> } | undefined;
   readonly #messages: Message[];
   readonly #assemblePrompt: () => void;
@@ -131,6 +153,8 @@ export class AgentLoop {
     this.#tools = options.tools;
     this.#toolRunner = options.toolRunner;
     this.#extensions = options.extensions;
+    this.#beforeTurn = options.beforeTurn;
+    this.#turnIndex = options.turnIndex;
     this.#mcp = options.mcp;
     this.#messages = options.messages;
     this.#assemblePrompt = options.assemblePrompt;
@@ -205,6 +229,11 @@ export class AgentLoop {
   }
 
   async #runInner(text: string, controller: AbortController): Promise<TurnResult> {
+    // ADR-0033: the turn-start decision point — once per user send, before
+    // the provider is read and before anything is logged. A model named
+    // here serves *this* turn; the hook is the only seam that can do so
+    // (#166 reads the provider once per turn, below).
+    await this.#dispatchBeforeTurn(text);
     // #166: the provider is read once per turn — a mid-session switch
     // (AgentSession.switchModel) takes effect from the next turn, never
     // mid-stream.
@@ -429,6 +458,29 @@ export class AgentLoop {
       models: [...new Set(this.#turnModels)],
     });
     return { status: "done" };
+  }
+
+  /**
+   * ADR-0033: runs the extensions' `beforeTurn` hooks and applies the
+   * model ref they name. Never a turn error: hook failures and invalid
+   * refs are visible chrome, and the turn proceeds on the active model.
+   * `confirm` is collected by the dispatch but its client behaviour is
+   * wired by the use case that needs it (apiVersion 1.2 shape only).
+   */
+  async #dispatchBeforeTurn(text: string): Promise<void> {
+    const seam = this.#beforeTurn;
+    if (!seam) return;
+    const outcome = await seam.dispatch(text, this.#turnIndex?.() ?? 1, this.#provider().name);
+    for (const event of outcome.errors) this.#append(event);
+    if (outcome.model === undefined) return;
+    const applied = seam.applyModel(outcome.model);
+    if (applied.ok) return; // same ref = silent no-op; new ref = the session's chrome
+    this.#append({
+      type: "extension_failed",
+      name: outcome.modelBy ?? "extension",
+      reason: "invalid_model",
+      message: `${outcome.model}: ${applied.error}`,
+    });
   }
 
   /** Drops an interrupted call without checkpointing resumable context: its

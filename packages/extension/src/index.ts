@@ -13,6 +13,15 @@
  * 1.1 (ADR-0031/ADR-0032): the `ask` outcome on the tool-call hook and the
  * two observation-only setup seams (`appendEvent`, `setStatus`). An older
  * runtime ignores both, which is a no-op (fail-open) — never an error.
+ *
+ * 1.2 (ADR-0033): the `beforeTurn` hook — one turn-start decision point,
+ * fired once per user send before the turn exists. An older runtime never
+ * calls it, which is a no-op (fail-open) — never an error.
+ *
+ * 1.3 (ADR-0038): the client→extension control channel — a client command
+ * addressed to one extension arrives as an `extension_control` event on
+ * `onEvent`. An older runtime never emits one, which is a no-op: an
+ * extension that waits for a command must tolerate never receiving it.
  */
 
 /**
@@ -20,7 +29,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.1";
+export const MOH_EXTENSION_API_VERSION = "1.3";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -45,6 +54,44 @@ export interface BeforeModelCallContext {
     readonly version: string;
   };
   readonly messages: readonly unknown[];
+}
+
+/**
+ * The turn-start context (ADR-0033, apiVersion 1.2): what a `beforeTurn`
+ * hook sees. The user's message **as typed** (mentions are not expanded
+ * yet) — the rest of the conversation is never handed to the hook.
+ */
+export interface BeforeTurnContext {
+  /** The user's message as typed (pre-mention-expansion). */
+  readonly text: string;
+  /** 1-based count of user turns in this session, including this one. */
+  readonly turnIndex: number;
+  /** The model ref currently serving the session. */
+  readonly model: string;
+}
+
+/**
+ * What a `beforeTurn` hook may return. Restriction-shaped only: it may
+ * name an *existing* model ref and may ask the user a question — it can
+ * never grant a permission, widen a tool's scope, or invent a model.
+ *
+ * - `model` — the ref to serve **this** turn. It resolves exactly like the
+ *   manual `/model` switch (same registry and endpoint profiles); a ref
+ *   equal to the active model is a silent no-op, an unresolvable ref is
+ *   ignored with a visible `extension_failed { reason: "invalid_model" }`
+ *   and the turn proceeds on the active model — never a turn error.
+ * - `confirm` — ask the user to confirm **before** this turn is sent
+ *   (apiVersion 1.2, ADR-0033 §4). Its client behaviour — the TUI modal,
+ *   the headless refusal — is wired by the use case that needs it.
+ *
+ * The hook fires once per user send, before anything is logged: a turn
+ * that is cancelled on `confirm` leaves no `user_message` behind.
+ */
+export interface BeforeTurnResult {
+  /** Model ref to serve this turn (resolved like `/model`). */
+  readonly model?: string;
+  /** Ask the user to confirm before this turn is sent. */
+  readonly confirm?: { readonly reason: string };
 }
 
 export interface ToolCallContext {
@@ -85,12 +132,26 @@ export interface EventContext {
   readonly event: ExtensionEvent;
 }
 
+/**
+ * A client command addressed to one extension (ADR-0038, apiVersion 1.3).
+ * The core carries it opaquely; the runtime delivers it to the named
+ * extension's `onEvent` hooks alone, and only to that extension.
+ */
+export interface ExtensionControlEvent {
+  readonly type: "extension_control";
+  /** The addressed extension's own name. */
+  readonly extension: string;
+  /** JSON-serializable command payload; its meaning is yours. */
+  readonly payload: Record<string, unknown>;
+}
+
 export interface AfterTurnContext {
   readonly result: { readonly status: string; readonly reason?: string; readonly message?: string };
 }
 
 export type SessionStartHook = (ctx: SessionStartContext) => void | Promise<void>;
 export type SessionEndHook = (ctx: SessionEndContext) => void | Promise<void>;
+export type BeforeTurnHook = (ctx: BeforeTurnContext) => BeforeTurnResult | void | Promise<BeforeTurnResult | void>;
 export type BeforeModelCallHook = (ctx: BeforeModelCallContext) => void | Promise<void>;
 export type ToolCallHook = (ctx: ToolCallContext) => ToolCallHookResult | void | Promise<ToolCallHookResult | void>;
 export type EventHook = (ctx: EventContext) => void | Promise<void>;
@@ -127,6 +188,12 @@ export interface ExtensionSetupContext {
   setStatus(text: string | null): void;
   onSessionStart(hook: SessionStartHook): void;
   onSessionEnd(hook: SessionEndHook): void;
+  /**
+   * Turn-start decision point (ADR-0033, apiVersion 1.2): fires once per
+   * user send, before the turn's provider is read and before anything is
+   * logged. First hook returning a field wins, in registration order.
+   */
+  beforeTurn(hook: BeforeTurnHook): void;
   beforeModelCall(hook: BeforeModelCallHook): void;
   onToolCall(hook: ToolCallHook): void;
   onEvent(hook: EventHook): void;

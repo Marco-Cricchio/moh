@@ -22,7 +22,7 @@ import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
 export default defineExtension({
   name: "no-rm-rf",
   version: "0.1.0",
-  apiVersion: MOH_EXTENSION_API_VERSION, // "1.1" — major must match the host
+  apiVersion: MOH_EXTENSION_API_VERSION, // "1.3" — major must match the host
   setup(ctx) {
     ctx.state.seen ??= 0; // durable state; carried across hot-reloads
 
@@ -86,7 +86,7 @@ await session.dispose();
 - `appendToPrompt(note)` — append to the trailing `extension_notes`
   system-prompt section (append-only; you can never rewrite other
   sections).
-- Hook registration: `onSessionStart`, `onSessionEnd`,
+- Hook registration: `onSessionStart`, `onSessionEnd`, `beforeTurn`,
   `beforeModelCall`, `onToolCall`, `onEvent`, `afterTurn`.
 
 ## Hooks and their ordering
@@ -95,22 +95,90 @@ All hooks are additive-only and observe/influence; none can widen
 permissions. Within one turn, the ordering is:
 
 1. `onSessionStart` — once, at session start.
-2. Per model call: `beforeModelCall` — read the assembled prompt
+2. Per user send: `beforeTurn` — read-only context
+   (`{ text, turnIndex, model }`), and the only hook that can influence
+   *which model serves a turn*: return `{ model: "<endpoint>/<model-id>" }`
+   and that model serves the turn the hook was called for. Return
+   `{ confirm: { reason } }` to ask the user before the turn is sent (the
+   contract is in place; its client behaviour ships with the use case that
+   needs it). It fires before the turn's provider is read and before
+   anything is logged, so a turn that is never sent leaves no trace.
+3. Per model call: `beforeModelCall` — read the assembled prompt
    (`{ sections, system, version }`) and messages; read-only.
-3. Per tool call: `onToolCall` — return `{ veto: true, reason? }` to deny,
+4. Per tool call: `onToolCall` — return `{ veto: true, reason? }` to deny,
    or `{ ask: true, reason? }` to hand the call to the human consent flow;
    runs before the permission gate's user-rule tiers.
-4. Per event-log entry: `onEvent` — every event, appended order, including
+5. Per event-log entry: `onEvent` — every event, appended order, including
    the `tool_call`/`tool_result` pair your veto produced. Dispatch runs on a
    serial queue, so hooks see events shortly after they are appended.
-5. Per turn end: `afterTurn` — the turn outcome
+6. Per turn end: `afterTurn` — the turn outcome
    (`{ status, reason?, message? }`).
-6. `onSessionEnd` — once, when the client disposes the session.
+7. `onSessionEnd` — once, when the client disposes the session.
 
 A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
 produces the same denied `tool_result` the model sees for any denial, so
 the loop can react to it.
+
+## Choosing the model of a turn
+
+`beforeTurn` is the turn-start decision point (apiVersion 1.2). It fires
+once per user send — not per model call, and not for the follow-up calls a
+turn makes after tools — and it is the one place where an extension can
+name the model that serves the current turn:
+
+```ts
+ctx.beforeTurn(({ text, turnIndex, model }) => {
+  if (shouldUseCheapModel(text)) return { model: "my-anthropic/claude-haiku-4-5" };
+});
+```
+
+- The ref resolves exactly like the manual `/model` switch, against the
+  same registry and endpoint profiles: you select among models the session
+  can already reach, and a ref it cannot resolve is **ignored** — one
+  visible `extension_failed { reason: "invalid_model" }`, the turn proceeds
+  on the active model. Never a turn error, never a silent fallback to some
+  other model.
+- A resolved ref appends the ordinary `model_switched` chrome; a ref equal
+  to the active model is a silent no-op.
+- The first hook returning `model` wins, in registration order (the same
+  rule as `veto`). A hook that throws is fail-open: one
+  `extension_failed { reason: "hook" }` and the turn proceeds.
+- Subagent children get the hook too (a child's switch lands in the child's
+  own log), and never for their in-turn follow-up calls.
+
+## Receiving commands from the client
+
+An extension can keep session state (a streak, a cache, an override flag).
+apiVersion 1.3 adds the other half: a client can **command** a running
+extension, by name, through the session API.
+
+```ts
+// client side (the TUI's /routing does exactly this)
+session.setExtensionState("my-extension", { cmd: "off" });
+
+// extension side
+ctx.onEvent(({ event }) => {
+  if (event.type !== "extension_control") return;   // always yours when it arrives
+  if (event.payload.cmd === "off") paused = true;
+});
+```
+
+- **Targeted delivery.** The event reaches the addressed extension's
+  `onEvent` hooks and nobody else's — two extensions listening on `onEvent`
+  never see each other's commands.
+- **Opaque payload.** The core carries a JSON-serializable record and never
+  interprets it: `{ cmd: "off" }` and `{ cmd: "auto" }` mean whatever you
+  decide. The resulting `extension_control` log entry keeps the request, so
+  a replayed session still explains the state your extension ended up in.
+- **Chrome, not context.** It is never fed to the model and never a turn
+  error, and it cannot grant anything — a command can only make you *more*
+  restrictive. The core renderer shows one dim line (`<extension> · <cmd>`).
+- **You may never be commanded.** An older runtime does not know the event,
+  and a client may not offer the command at all: design the extension so it
+  works with the default state and treats a command as an override of it.
+- Naming an extension that is not registered is not an error: the event is
+  logged and delivered to nobody.
 
 ## Asking instead of vetoing
 
@@ -192,7 +260,9 @@ replay.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.1**.
+  current version is **1.3** (1.1 added `ask` and the two observation
+  seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
+  command channel).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

@@ -409,12 +409,32 @@ export class AgentSession {
         },
       });
     }
+    // ADR-0033/#787: the runtime whose `beforeTurn` hooks run for this
+    // session's turns. A child session owns no runtime, but shares the
+    // parent's for the turn-start decision point (its switch then lands in
+    // the child's own log, because the seam below is *this* session's
+    // switchModel).
+    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn"> | undefined =
+      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn"> : undefined;
+    const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
+    const dispatchBeforeTurn = beforeTurnSeam
+      ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) => beforeTurnSeam.dispatchBeforeTurn(ctx)
+      : undefined;
     this.#loop = new AgentLoop({
       provider: () => this.#provider,
       maxIterations,
       tools: () => this.#allTools(),
       toolRunner: this.#toolRunner,
       ...(this.#extensions ? { extensions: this.#extensions } : {}),
+      ...(dispatchBeforeTurn
+        ? {
+            beforeTurn: {
+              dispatch: (text, turnIndex, model) => dispatchBeforeTurn({ text, turnIndex, model }),
+              applyModel: (ref) => this.switchModel(ref),
+            },
+          }
+        : {}),
+      turnIndex: () => this.#turnSeq,
       ...(this.#mcp ? { mcp: this.#mcp } : {}),
       messages: this.#messages,
       assemblePrompt: () => this.#assemblePrompt(),
@@ -746,6 +766,36 @@ export class AgentSession {
    * /reload seam); sessions without a file store return undefined. */
   get sessionFile(): string | undefined {
     return this.#sessionFile;
+  }
+
+  /**
+   * ADR-0038: sends one control command to a running extension (by its own
+   * `name`, as published in `extension_loaded`). The payload is opaque to
+   * the core and must be JSON-serializable; the event is appended through
+   * the normal path (sink, listeners, single-writer guard) and delivered to
+   * that extension's `onEvent` hooks alone. Naming an extension that is not
+   * registered is not an error: the log records what was asked, and nobody
+   * receives it.
+   */
+  setExtensionState(extension: string, payload: Record<string, unknown>): void {
+    this.#append({ type: "extension_control", extension, payload });
+  }
+
+  /** The names of the extensions currently registered on this session. */
+  extensionNames(): string[] {
+    return this.#extensions?.instances.map((i) => i.def.name) ?? [];
+  }
+
+  /**
+   * ADR-0038: reads one value from a registered extension's own `state`
+   * store — how a client command reports what an extension is thinking
+   * (the status seam reaches the footer, and an `appendEvent` is a
+   * transcript line, not a return value). Undefined when the extension is
+   * not registered or never stored that key; the value is opaque to the
+   * core.
+   */
+  extensionState(extension: string, name: string): unknown {
+    return this.#extensions?.instances.find((i) => i.def.name === extension)?.state[name];
   }
 
   /** Appends a session display-name event through the configured sink, so

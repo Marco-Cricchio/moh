@@ -34,7 +34,7 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
   test("BASE_COMMANDS lists the base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -168,11 +168,134 @@ describe("workflow slash command", () => {
   });
 });
 
+describe("/routing and /model auto (#787, ADR-0038)", () => {
+  /** A session stub that records commands and answers `extensionState`. */
+  function routingSession(state: Record<string, unknown> | null, names: string[] = ["jev-guard"]) {
+    const commands: { extension: string; payload: Record<string, unknown> }[] = [];
+    return {
+      commands,
+      session: {
+        activeModel: "a/mid",
+        extensionNames: () => names,
+        setExtensionState: (extension: string, payload: Record<string, unknown>) => {
+          commands.push({ extension, payload });
+        },
+        extensionState: (_extension: string, name: string) =>
+          name === "routingState" ? () => state : undefined,
+      } as any,
+    };
+  }
+
+  const resolved = {
+    paused: false,
+    override: false,
+    streak: 0,
+    streakTier: null,
+    decidedModel: "a/mid",
+    assignment: { targets: { economico: "a/cheap", bilanciato: "a/mid", potente: "a/big" }, ignoredLabels: [], unpriced: [] },
+  };
+
+  test("is a base command and needs an open session", () => {
+    expect(BASE_COMMANDS.map((c) => c.name)).toContain("routing");
+    const ctx = makeCtx();
+    runSlashCommand("/routing", ctx);
+    expect(ctx.notices().at(-1)).toBe("/routing needs an open session");
+  });
+
+  test("off/on/auto are sent to the extension, never written to the config", () => {
+    const { session, commands } = routingSession(resolved);
+    const ctx = makeCtx({ session });
+    runSlashCommand("/routing off", ctx);
+    runSlashCommand("/routing on", ctx);
+    runSlashCommand("/routing auto", ctx);
+    expect(commands).toEqual([
+      { extension: "jev-guard", payload: { cmd: "off" } },
+      { extension: "jev-guard", payload: { cmd: "on" } },
+      { extension: "jev-guard", payload: { cmd: "auto" } },
+    ]);
+    // No config file was ever touched.
+    expect(existsSync(ctx.cfgFile)).toBe(false);
+    expect(ctx.notices().at(-1)).toContain("routing released");
+  });
+
+  test("the bare command reports the state and the resolved assignment", () => {
+    const { session } = routingSession(resolved);
+    const ctx = makeCtx({ session });
+    runSlashCommand("/routing", ctx);
+    const report = ctx.notices().at(-1)!;
+    expect(report).toContain("routing: on");
+    expect(report).toContain("economico: a/cheap");
+    expect(report).toContain("bilanciato: a/mid");
+    expect(report).toContain("potente: a/big");
+    expect(report).toContain("Settings entry");
+  });
+
+  test("the report names a pause, an override, and an unresolved assignment", () => {
+    const paused = routingSession({ ...resolved, paused: true });
+    const ctx = makeCtx({ session: paused.session });
+    runSlashCommand("/routing", ctx);
+    expect(ctx.notices().at(-1)).toContain("paused (this session)");
+
+    const overridden = routingSession({ ...resolved, override: true });
+    const ctx2 = makeCtx({ session: overridden.session });
+    runSlashCommand("/routing", ctx2);
+    expect(ctx2.notices().at(-1)).toContain("you picked the model by hand");
+
+    const starting = routingSession({ ...resolved, assignment: null });
+    const ctx3 = makeCtx({ session: starting.session });
+    runSlashCommand("/routing", ctx3);
+    expect(ctx3.notices().at(-1)).toContain("not resolved yet");
+  });
+
+  test("without the extension both the command and the report explain themselves", () => {
+    const { session, commands } = routingSession(resolved, []);
+    const ctx = makeCtx({ session });
+    runSlashCommand("/routing on", ctx);
+    expect(ctx.notices().at(-1)).toContain("needs the Jev extension");
+    expect(commands).toEqual([]);
+
+    runSlashCommand("/routing", ctx);
+    expect(ctx.notices().at(-1)).toContain("needs the Jev extension");
+  });
+
+  test("an unknown argument is refused with the usage", () => {
+    const { session, commands } = routingSession(resolved);
+    const ctx = makeCtx({ session });
+    runSlashCommand("/routing banana", ctx);
+    expect(ctx.notices().at(-1)).toContain('unknown argument "banana"');
+    expect(commands).toEqual([]);
+  });
+
+  test("/model auto releases routing; a registered-model name still switches", () => {
+    const { session, commands } = routingSession(resolved);
+    const switched: string[] = [];
+    const ctx = makeCtx({
+      session: { ...session, switchModel: (ref: string) => (switched.push(ref), { ok: true as const, model: ref }) },
+      onModelSwitched: (model) => switched.push(`notified:${model}`),
+    });
+    runSlashCommand("/model auto", ctx);
+    expect(commands).toEqual([{ extension: "jev-guard", payload: { cmd: "auto" } }]);
+    expect(switched).toEqual([]);
+    expect(ctx.notices().at(-1)).toContain("routing released");
+
+    runSlashCommand("/model a/big", ctx);
+    expect(switched).toEqual(["a/big", "notified:a/big"]);
+  });
+
+  test("/model auto without the extension points at the endpoint form", () => {
+    const { session, commands } = routingSession(resolved, []);
+    const ctx = makeCtx({ session });
+    runSlashCommand("/model auto", ctx);
+    expect(commands).toEqual([]);
+    expect(ctx.notices().at(-1)).toContain("/model <endpoint>/auto");
+  });
+});
+
 describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
+      "ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);

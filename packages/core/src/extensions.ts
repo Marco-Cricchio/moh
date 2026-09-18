@@ -19,6 +19,7 @@ import {
   type ExtensionDefinition,
   type ExtensionDependencies,
   type ExtensionSetupContext,
+  type BeforeTurnHook,
   type BeforeModelCallHook,
   type EventHook,
   type ExtensionEvent,
@@ -29,7 +30,21 @@ import {
   type ToolCallHook,
   type ToolCallHookResult,
 } from "@moh/extension";
+import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
+
+/**
+ * ADR-0033: what one `beforeTurn` dispatch produced. `model`/`confirm` are
+ * the first hook answers in registration order; `errors` are the
+ * fail-open `extension_failed` records the caller appends to the log.
+ */
+export interface BeforeTurnDispatch {
+  readonly model?: string;
+  /** The extension that named the model (for the invalid-ref diagnostic). */
+  readonly modelBy?: string;
+  readonly confirm?: { readonly reason: string; readonly by: string };
+  readonly errors: AgentEvent[];
+}
 
 export interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
@@ -62,6 +77,7 @@ export interface ExtensionRuntimeOptions {
 interface HookSet {
   sessionStart: SessionStartHook[];
   sessionEnd: SessionEndHook[];
+  beforeTurn: BeforeTurnHook[];
   beforeModelCall: BeforeModelCallHook[];
   onToolCall: ToolCallHook[];
   onEvent: EventHook[];
@@ -96,6 +112,7 @@ interface ExtensionStore {
 const EMPTY_HOOKS = (): HookSet => ({
   sessionStart: [],
   sessionEnd: [],
+  beforeTurn: [],
   beforeModelCall: [],
   onToolCall: [],
   onEvent: [],
@@ -444,6 +461,7 @@ export class ExtensionRuntime {
       setStatus: (text) => this.#setStatus(instance, text),
       onSessionStart: (h) => instance.hooks.sessionStart.push(h),
       onSessionEnd: (h) => instance.hooks.sessionEnd.push(h),
+      beforeTurn: (h) => instance.hooks.beforeTurn.push(h),
       beforeModelCall: (h) => instance.hooks.beforeModelCall.push(h),
       onToolCall: (h) => instance.hooks.onToolCall.push(h),
       onEvent: (h) => instance.hooks.onEvent.push(h),
@@ -579,12 +597,65 @@ export class ExtensionRuntime {
     return this.#drainErrors();
   }
 
+  /**
+   * ADR-0033: the turn-start decision point. Fired once per user send,
+   * before the provider is read. First hook returning `model` sets it and
+   * first returning `confirm` sets it — the two fields are collected
+   * independently, in registration order. A throwing hook is fail-open:
+   * one `extension_failed { reason: "hook" }` and the turn proceeds.
+   */
+  async dispatchBeforeTurn(ctx: Parameters<BeforeTurnHook>[0]): Promise<BeforeTurnDispatch> {
+    let model: string | undefined;
+    let modelBy: string | undefined;
+    let confirm: { reason: string; by: string } | undefined;
+    for (const instance of this.#instances) {
+      for (const hook of instance.hooks.beforeTurn) {
+        let out: BeforeTurnResult | void;
+        try {
+          out = await hook(ctx);
+        } catch (err) {
+          this.#hookErrors.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(err),
+          });
+          continue;
+        }
+        if (!out) continue;
+        if (model === undefined && typeof out.model === "string" && out.model.trim() !== "") {
+          model = out.model.trim();
+          modelBy = instance.def.name;
+        }
+        if (confirm === undefined && out.confirm && typeof out.confirm.reason === "string") {
+          confirm = { reason: out.confirm.reason, by: instance.def.name };
+        }
+      }
+    }
+    return {
+      ...(model !== undefined ? { model } : {}),
+      ...(modelBy !== undefined ? { modelBy } : {}),
+      ...(confirm !== undefined ? { confirm } : {}),
+      errors: this.#drainErrors(),
+    };
+  }
+
   async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
     await this.#each("beforeModelCall", (h) => h(ctx));
     return this.#drainErrors();
   }
 
   async dispatchEvent(event: AgentEvent): Promise<AgentEvent[]> {
+    // ADR-0038: a client command reaches the extension it names, and only
+    // that one — one extension's control payload must never be another's
+    // (the guardrail also listens on `onEvent`).
+    if (event.type === "extension_control") {
+      const target = this.#instances.find((i) => i.def.name === event.extension);
+      if (target) {
+        await this.#each("onEvent", (h) => h({ event: event as unknown as ExtensionEvent }), [target]);
+      }
+      return this.#drainErrors();
+    }
     await this.#each("onEvent", (h) => h({ event: event as unknown as ExtensionEvent }));
     return this.#drainErrors();
   }
@@ -631,8 +702,12 @@ export class ExtensionRuntime {
     return { veto: false, ask: false, errors: this.#drainErrors() };
   }
 
-  async #each<K extends keyof HookSet>(key: K, invoke: (hook: HookSet[K][number]) => Promise<void> | void): Promise<void> {
-    for (const instance of this.#instances) {
+  async #each<K extends keyof HookSet>(
+    key: K,
+    invoke: (hook: HookSet[K][number]) => Promise<void> | void,
+    only?: readonly RuntimeExtension[],
+  ): Promise<void> {
+    for (const instance of only ?? this.#instances) {
       for (const hook of instance.hooks[key]) {
         try {
           await (invoke(hook) as Promise<void> | void);

@@ -43,12 +43,19 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     expect((i.frames.at(-1) ?? "").includes("ANSWERMARKER")).toBe(true);
 
     // Settings → Provider reasoning row → toggle (default hide → show).
+    // The walk is tolerant by design: the panel's row order grows as
+    // entries are added (the Jev entry landed at 11, the ported MPM/
+    // highlight entries shift it further), and a fixed count ages into a
+    // false failure. Walk until the row is selected, then toggle.
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 16; n++) {
-      i.stdin.write("\x1b[B"); // down to the "Provider reasoning" row (Themes… at 2 and the Jev entry at 11 shift it to 16)
+    let onRow = false;
+    for (let n = 0; n < 24 && !onRow; n++) {
+      i.stdin.write("\x1b[B");
       await sleep(20);
+      onRow = (i.frames.at(-1) ?? "").includes("Provider reasoning");
     }
+    expect(onRow).toBe(true);
     i.stdin.write("\r"); // toggle show
     await sleep(150);
     const frameBefore = i.frames.at(-1) ?? "";

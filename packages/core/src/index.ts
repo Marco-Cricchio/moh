@@ -25,6 +25,7 @@ import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
+  ExtensionControlPayload,
   ExtensionStatus,
   ReasoningStreamEvent,
   AskUserAnswer,
@@ -356,6 +357,7 @@ import {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeRouting,
   type ResolvedTypesafeConfig,
   type TypesafeConfig,
   type TypesafeTier,
@@ -723,6 +725,7 @@ export {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeRouting,
   type ResolvedTypesafeConfig,
   type TypesafeConfig,
   type TypesafeTier,

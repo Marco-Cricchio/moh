@@ -423,13 +423,16 @@ describe("the typesafe config block (#784)", () => {
   });
 
   test("resolve defaults and the masked hint", () => {
-    expect(resolveTypesafeConfig(undefined)).toEqual({ active: false, timeoutMs: 2500, routing: false });
+    expect(resolveTypesafeConfig(undefined)).toEqual({ active: false, timeoutMs: 2500, routing: false, tiers: {} });
     expect(resolveTypesafeConfig({ apiKey: "   " })).toMatchObject({ active: false, timeoutMs: 2500 });
-    expect(resolveTypesafeConfig({ apiKey: "sk-abcdef", timeoutMs: 900, routing: true })).toMatchObject({
+    expect(
+      resolveTypesafeConfig({ apiKey: "sk-abcdef", timeoutMs: 900, routing: true, tiers: { "a/one": "potente" } }),
+    ).toMatchObject({
       active: true,
       apiKey: "sk-abcdef",
       timeoutMs: 900,
       routing: true,
+      tiers: { "a/one": "potente" },
     });
     expect(maskApiKey("sk-abcdef")).toBe("…cdef");
     expect(maskApiKey("ab")).toBe("…");
@@ -482,6 +485,57 @@ describe("activation in session assembly (#784)", () => {
     expect(loaded?.name).toBe("jev-guard");
     expect(active.session.history().some((e) => e.type === "session_note")).toBe(false);
     await active.session.dispose();
+  });
+
+  test("routing off registers no router; routing on with nothing to route reports it once", async () => {
+    const cwd = tmpDir("moh-jev-cwd-");
+    const home = tmpDir("moh-jev-assembly-");
+
+    // Default (off): the extension is active but registers no beforeTurn
+    // hook — routing is a choice, never a side effect of having a key.
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
+    const off = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    if ("error" in off) throw new Error(off.error.message);
+    await off.session.send("hello");
+    expect(off.session.history().some((e) => e.type === "extension_event" && e.name === "jev_routing")).toBe(false);
+    await off.session.dispose();
+
+    // On, but this session has no model pool at all (no endpoints): the
+    // router is inert and says so exactly once.
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test", routing: true } });
+    const on = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    if ("error" in on) throw new Error(on.error.message);
+    await on.session.send("hello");
+    await Bun.sleep(5); // the pool resolution is asynchronous by design
+    const notices = on.session
+      .history()
+      .filter((e) => e.type === "extension_event" && e.name === "jev_routing");
+    expect(notices).toHaveLength(1);
+    expect((notices[0] as { payload?: { kind?: string } }).payload).toEqual({ kind: "inert" });
+    await on.session.dispose();
+  });
+
+  test("routing off still registers the router, paused: /routing on enables the session", async () => {
+    const cwd = tmpDir("moh-jev-cwd-");
+    const home = tmpDir("moh-jev-assembly-");
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
+    const assembled = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    if ("error" in assembled) throw new Error(assembled.error.message);
+    const { session } = assembled;
+    await session.send("hello");
+
+    // The config did not opt in: the router exists (the session command can
+    // enable it) but starts paused, and it costs nothing either way.
+    const read = () => (session.extensionState("jev-guard", "routingState") as () => Record<string, unknown>)();
+    expect(read()).toMatchObject({ paused: true });
+
+    session.setExtensionState("jev-guard", { cmd: "on" });
+    await Bun.sleep(5);
+    expect(read()).toMatchObject({ paused: false });
+    expect(
+      session.history().some((e) => e.type === "extension_event" && e.name === "jev_routing"),
+    ).toBe(true);
+    await session.dispose();
   });
 
   test("a malformed typesafe section fails the assembly loudly", () => {
@@ -544,5 +598,58 @@ describe("subagent children share the parent's hook checker (#784 spec §5)", ()
     expect(childEvents.some((e) => e.type === "tool_call" && e.name === "echo")).toBe(true);
     // The child's consent trail never leaks into the parent's transcript.
     expect(events.some((e) => e.type === "permission_denied")).toBe(false);
+  });
+});
+
+describe("client→extension control (ADR-0038)", () => {
+  test("a command reaches the named extension only, and lands in the log", async () => {
+    const home = tmpDir("moh-control-");
+    const received: { owner: string; event: Record<string, unknown> }[] = [];
+    const rt = new ExtensionRuntime({ mohHome: home, consent: () => true });
+    for (const name of ["first", "second"]) {
+      await rt.register(
+        defineExtension({
+          name,
+          version: "1.0.0",
+          apiVersion: "1.3",
+          setup: (ctx) =>
+            ctx.onEvent(({ event }) => {
+              received.push({ owner: name, event });
+            }),
+        }),
+      );
+    }
+    const session = createSession({ provider: "mock", extensions: rt });
+    await session.send("hello");
+
+    session.setExtensionState("second", { cmd: "off" });
+    await Bun.sleep(10); // the dispatch queue is asynchronous by design
+
+    // Only the addressed extension saw it (the others still got the turn's
+    // own events — that is what makes this assertion meaningful).
+    const control = received.filter((r) => r.event.type === "extension_control");
+    expect(control).toHaveLength(1);
+    expect(control[0]!.owner).toBe("second");
+    expect(control[0]!.event).toMatchObject({ extension: "second", payload: { cmd: "off" } });
+
+    // The log keeps the intent, so a resumed session can explain the state.
+    const logged = session.history().filter((e) => e.type === "extension_control");
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ extension: "second", payload: { cmd: "off" } });
+    expect(session.extensionNames()).toEqual(["first", "second"]);
+    await session.dispose();
+  });
+
+  test("addressing an extension that is not registered is silent, never an error", async () => {
+    const rt = new ExtensionRuntime({ mohHome: tmpDir("moh-control-"), consent: () => true });
+    const session = createSession({ provider: "mock", extensions: rt });
+    await session.send("hello");
+
+    expect(() => session.setExtensionState("ghost", { cmd: "off" })).not.toThrow();
+    await Bun.sleep(5);
+
+    expect(session.history().some((e) => e.type === "extension_control")).toBe(true);
+    expect(session.extensionNames()).toEqual([]);
+    await session.dispose();
   });
 });
