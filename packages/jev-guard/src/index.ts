@@ -67,8 +67,10 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // Jev judges EVERY bash call (before rules, ADR-0031 gate order):
       // deny → veto, ask → the human consent flow (never auto-accepted,
       // never "always"), pass → nothing. Yolo gets lethal checks only.
+      /** Session mode, tracked from the log's `session_mode` chrome. */
+      let mode: "normal" | "auto-accept" | "yolo" = "normal";
       const judge = createGuardrailJudge(
-        { client, state: ctx.state },
+        { client, state: ctx.state ?? {} },
         {
           mode: () => mode,
           cwd: (args) => {
@@ -77,8 +79,6 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           },
         },
       );
-      /** Session mode, tracked from the log's `session_mode` chrome. */
-      let mode: "normal" | "auto-accept" | "yolo" = "normal";
 
       ctx.onSessionStart(() => {
         judge.invalidateOnGitChange();
