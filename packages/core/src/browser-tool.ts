@@ -40,6 +40,15 @@ const readTierSchema = z.discriminatedUnion("action", [
     ref: z.string().min(1).optional(),
   }),
   z.object({ action: z.literal("upload"), ref: z.string().min(1), path: z.string().min(1) }),
+  // #778: visual + power actions.
+  z.object({
+    action: z.literal("screenshot"),
+    /** Element-scoped capture: an `eN` ref from the latest snapshot. */
+    ref: z.string().min(1).optional(),
+    /** Full-page capture instead of the viewport (ignored with a ref). */
+    fullPage: z.boolean().optional(),
+  }),
+  z.object({ action: z.literal("eval_js"), expression: z.string().min(1) }),
 ]);
 
 export interface BrowserToolOptions {
@@ -64,6 +73,36 @@ export interface BrowserToolOptions {
   askDownload?: (info: { filename: string; size: number }) => Promise<"allow" | "deny"> | "allow" | "deny";
   /** #777: out-of-root upload consent — per-occurrence, never persistable. */
   askOutOfRoot?: (path: string) => Promise<boolean> | boolean;
+}
+
+/**
+ * #778: the structured result a `screenshot` execute() resolves to. The
+ * tool contract stays `Promise<string>` for every other action; the
+ * runner recognizes this shape (branded) and promotes it to a typed
+ * image part on the tool_result when the serving model declares image
+ * input (#490 pipeline), else renders the visible chip + warning text.
+ */
+export interface ScreenshotToolResult {
+  __screenshot: true;
+  mime: string;
+  base64: string;
+  target: string;
+}
+
+/** Structural recognition — never a blind cast of arbitrary tool output. */
+export function isScreenshotToolResult(value: unknown): value is ScreenshotToolResult {
+  return (
+    typeof value === "object" && value !== null &&
+    (value as { __screenshot?: unknown }).__screenshot === true &&
+    typeof (value as { mime?: unknown }).mime === "string" &&
+    typeof (value as { base64?: unknown }).base64 === "string" &&
+    typeof (value as { target?: unknown }).target === "string"
+  );
+}
+
+/** #778: the visible chip when the model cannot receive images. */
+export function renderScreenshotChip(result: ScreenshotToolResult): string {
+  return `[screenshot: ${result.target}] image captured (${result.mime}, ${Math.round((result.base64.length * 3) / 4 / 1024)} KB) — the serving model does not support image input, so the pixels are not visible to it`;
 }
 
 export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof readTierSchema>> {
@@ -102,7 +141,11 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
       "Act tier (asks for permission): `click` {ref}; `fill` {ref, text}; " +
       "`select` {ref, option}; `scroll` {direction: up|down|left|right, amount?}; " +
       "`press_key` {key}; `wait_for` {text | ref}; `upload` {ref, path} — path " +
-      "must be inside the project root. " +
+      "must be inside the project root; `eval_js` {expression} — run JS in " +
+      "the full page context (asks). " +
+      "`screenshot` {ref?} — capture the viewport or one element as an " +
+      "image; the model receives it as an image when the serving model " +
+      "declares image input, otherwise a reference chip is returned. " +
       "Address elements only by their [ref=eN] from the latest snapshot; a " +
       "navigation invalidates all refs (navigate always returns fresh ones, and " +
       "acting on a stale ref returns the fresh snapshot so you can re-target). " +
@@ -114,6 +157,7 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
       const action = (args as { action?: string } | null | undefined)?.action;
       if (action === "navigate") return 30_000;
       if (action === "wait_for") return 30_000; // arg-capped by the session's wait budget
+      if (action === "screenshot") return 15_000; // a full-page shot can exceed the act default
       return 10_000;
     },
     async execute(args) {
@@ -156,6 +200,14 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
             }
             return await session.upload(args.ref, inside, { root });
           }
+          // #778: screenshot returns a structured result the runner
+          // promotes to a typed image part (or the chip fallback).
+          case "screenshot": {
+            const shot = await session.screenshot(args.ref, args.fullPage === true);
+            return { __screenshot: true, mime: shot.mime, base64: shot.base64, target: shot.target } as unknown as string;
+          }
+          case "eval_js":
+            return await session.evalJs(args.expression);
         }
       };
       let result: string;

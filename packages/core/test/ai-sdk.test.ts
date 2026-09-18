@@ -167,3 +167,47 @@ describe("ai-sdk image parts (vision note 4 / #490)", () => {
     expect((content[1].data as { data: string }).data).toBe("QUJD");
   });
 });
+
+describe("#778: screenshot pixels ride the tool-result", () => {
+  it("maps a tool_result image to a multimodal content output inside the tool-result", async () => {
+    const h = harness([finish("stop")]);
+    await h.run([
+      { role: "assistant", parts: [{ kind: "tool_call", callId: "call_s", name: "browser", args: { action: "screenshot" } }] },
+      {
+        role: "user",
+        parts: [{
+          kind: "tool_result",
+          callId: "call_s",
+          ok: true,
+          output: "[screenshot: viewport]",
+          image: { mime: "image/png", base64: "cG5n" },
+        }],
+      },
+    ]);
+    const toolMsg = h.calls[0]!.prompt.at(-1)!;
+    expect(toolMsg.role).toBe("tool");
+    expect(toolMsg.content[0]).toMatchObject({
+      type: "tool-result",
+      toolName: "browser",
+      output: {
+        type: "content",
+        value: [
+          { type: "text", text: "[screenshot: viewport]" },
+          { type: "file", data: { type: "data", data: "cG5n" }, mediaType: "image/png" },
+        ],
+      },
+    });
+  });
+
+  it("a tool_result without image keeps the plain text output", async () => {
+    const h = harness([finish("stop")]);
+    await h.run([
+      { role: "assistant", parts: [{ kind: "tool_call", callId: "c1", name: "bash", args: {} }] },
+      { role: "user", parts: [{ kind: "tool_result", callId: "c1", ok: true, output: "ok" }] },
+    ]);
+    expect(h.calls[0]!.prompt.at(-1)!.content[0]).toMatchObject({
+      type: "tool-result",
+      output: { type: "text", value: "ok" },
+    });
+  });
+});

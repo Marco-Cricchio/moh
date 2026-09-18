@@ -575,6 +575,7 @@ describe("user themes in settings (#749)", () => {
     await down(i, 2);
     i.stdin.write("\r");
     await waitForFrame(frame, "theme studio");
+    await sleep(100); // the studio's useInput mounts a frame after its first paint
     i.stdin.write("s"); await sleep(60); // split on → focus lands on 'ok'
     await waitForCondition(() => frame().includes("split"), () => `for split; frame: ${frame()}`);
     expect(frame().includes("› ✓ ok")).toBe(true); // focus moved to the first override
@@ -645,10 +646,16 @@ describe("user themes in settings (#749)", () => {
     await down(i, 2);
     i.stdin.write("\r");
     await waitForFrame(frame, "theme studio");
-    i.stdin.write("r"); await sleep(60);
-    await waitForCondition(() => frame().includes("my themes"), () => `for manage; frame: ${frame()}`);
-    i.stdin.write("d"); await sleep(80);
-    await waitForCondition(() => !existsSync(join(home, ".moh", "themes", "live.json")), () => "for deletion");
+    await sleep(100); // the studio's useInput mounts a frame after its first paint
+    i.stdin.write("r");
+    // wait for the manage view to actually LIST the theme, not just for the heading
+    await waitForCondition(() => frame().includes("› Live"), () => `for manage list; frame: ${frame()}`);
+    i.stdin.write("d");
+    await waitForCondition(
+      () => !existsSync(join(home, ".moh", "themes", "live.json")),
+      () => `for deletion; frame: ${frame()}`,
+      { timeoutMs: 10_000 },
+    );
     expect(changes).toContainEqual({ theme: "candy" });
     i.unmount();
   });

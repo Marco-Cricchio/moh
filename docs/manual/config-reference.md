@@ -82,14 +82,16 @@ All keys are optional. Notes:
   gitignore-style workspace exclusion patterns.
 - `browser` — the native browser tool (#774, ADR-0029), **off by
   default**: `enabled: true` registers the `browser` tool
-  (`navigate`, `snapshot`, `read_text`, `close`, plus the act tier:
-  `click`, `fill`, `select`, `scroll`, `press_key`, `wait_for`,
-  `upload`) driving a headless
+  (`navigate`, `snapshot`, `read_text`, `close`, `screenshot`, plus the
+  act tier: `click`, `fill`, `select`, `scroll`, `press_key`,
+  `wait_for`, `upload`, `eval_js`) driving a headless
   Chromium via playwright-core. Requires the optional toolchain
   (`npm i -g playwright-core && npx playwright-core install chromium`);
   when missing, the tool is not registered and a visible
   `browser_unavailable` diagnostic is recorded at session start.
-  `headless` (default `true`) runs a real Chrome window when `false`.
+  `headless` (default `true`) runs a real Chrome window when `false`
+  (same permission rules; the window is reaped when the session
+  closes).
   Loopback URLs (`localhost` dev servers) are always allowed; other
   private/link-local addresses are blocked by default (prompt-injection
   SSRF guard) — including public hostnames that resolve to private

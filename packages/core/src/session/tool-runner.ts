@@ -1,6 +1,9 @@
 import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, ToolCall, ToolErrorKind } from "../types";
 import { resolve, relative, sep } from "node:path";
 import { splitCommandSegments, type FilesystemScope } from "../permissions";
+// #778: the screenshot brand lives next to the tool that produces it — a
+// type-only cycle would be fine, but the guard is a runtime function.
+import { isScreenshotToolResult, renderScreenshotChip } from "../browser-tool";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
 import type { SessionConfig } from "./config";
 
@@ -66,6 +69,10 @@ export interface ToolRunnerOptions {
    * session counts exploratory tool usage per turn to validate the MPM
    * orientation's reasoning-seeded plans in the field. */
   onToolObserved?: (tool: string, ok: boolean) => void;
+  /** #778: per-turn probe of the serving model's image input (same seam
+   * as #488 mentions). Screenshots become typed image parts only when
+   * true; absent/false → chip + warning text. */
+  imageCapable?: () => boolean;
 }
 
 /**
@@ -121,6 +128,10 @@ interface ToolOutcome {
   output: string;
   /** #731: structured failure reason — present on failures only. */
   errorKind?: ToolErrorKind;
+  /** #778: a screenshot's pixels, when the model can see them. Rides the
+   * tool_result event and the feedback part (replay rebuilds the part
+   * from the event, so resume/fork inherit exactly what the model saw). */
+  image?: { mime: string; base64: string };
 }
 
 /**
@@ -158,6 +169,7 @@ export class ToolRunner {
   readonly #onGitPush: (() => void) | undefined;
   readonly #onFileMutation: ((relativePath: string) => void) | undefined;
   readonly #onToolObserved: ((tool: string, ok: boolean) => void) | undefined;
+  readonly #imageCapable: (() => boolean) | undefined;
 
   /** Workspace-root-relative POSIX form of an (absolute or relative) path. */
   #relativeToRoot(path: string): string | null {
@@ -181,6 +193,7 @@ export class ToolRunner {
     this.#onGitPush = options.onGitPush;
     this.#onFileMutation = options.onFileMutation;
     this.#onToolObserved = options.onToolObserved;
+    this.#imageCapable = options.imageCapable;
   }
 
   /**
@@ -215,12 +228,19 @@ export class ToolRunner {
     // reflects completion order; collect parts in that same order.
     const parts: Message["parts"] = [];
     const runOne = async (call: ToolCall) => {
-      const result = await Promise.race([
+      const result: ToolOutcome = await Promise.race([
         this.#execute(call, signal),
         cancelledResult(call.callId, signal),
       ]);
       this.#append({ type: "tool_result", ...result });
-      parts.push({ kind: "tool_result", ...result });
+      parts.push({
+        kind: "tool_result" as const,
+        callId: result.callId,
+        ok: result.ok,
+        output: result.output,
+        ...(result.errorKind ? { errorKind: result.errorKind } : {}),
+        ...(result.image ? { image: result.image } : {}),
+      });
       // #759: per-turn tool usage counter (orientation field validation).
       try { this.#onToolObserved?.(call.name, result.ok); } catch { /* metadata only */ }
       if (result.ok && isGitPush(call)) {
@@ -316,6 +336,17 @@ export class ToolRunner {
     };
     try {
       const output = await tool.execute(args, ctx);
+      // #778: a screenshot result is promoted to a typed image part when
+      // the serving model declares image input (#490 pipeline); the chip
+      // + warning text is the visible fallback otherwise. ToolOutcome
+      // gains the optional image either way — the event log's
+      // tool_result and the feedback parts both carry it.
+      if (isScreenshotToolResult(output)) {
+        if (this.#imageCapable?.() === true) {
+          return { callId: call.callId, ok: true, output: `[screenshot: ${output.target}]`, image: { mime: output.mime, base64: output.base64 } };
+        }
+        return { callId: call.callId, ok: true, output: renderScreenshotChip(output) };
+      }
       return { callId: call.callId, ok: true, output: String(output) };
     } catch (err) {
       const output = err instanceof Error ? err.message : String(err);

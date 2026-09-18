@@ -168,6 +168,66 @@ export function applySnapshotBudget(text: string, budget = SNAPSHOT_BUDGET_BYTES
   return `${head}\n…[snapshot truncated, ${hiddenLines} more nodes — re-call snapshot with a 'ref' (subtree) or a smaller 'depth' to target one region]`;
 }
 
+/**
+ * #778: captures the viewport (or one `ref` element) as a PNG. Returns
+ * the raw bytes; the tool layer owns the image-part decision (#490
+ * pipeline) and the chip + warning for non-multimodal models.
+ */
+export interface ScreenshotResult {
+  mime: "image/png";
+  base64: string;
+  /** What was captured, for the text chip (`viewport` or the element description). */
+  target: string;
+}
+
+/** #778: large-output cap for `eval_js` results (≈5k tokens of text). */
+export const EVAL_OUTPUT_BUDGET_BYTES = 20 * 1024;
+
+/**
+ * #778: truncates an eval_js result over budget with a visible marker.
+ * Pure function — unit-tested in isolation.
+ */
+export function applyEvalBudget(text: string, budget = EVAL_OUTPUT_BUDGET_BYTES): string {
+  if (text.length <= budget) return text;
+  return `${text.slice(0, budget)}\n…[eval_js result truncated at ${budget} characters — narrow the expression (e.g. return only the fields you need)]`;
+}
+
+/**
+ * #778: wraps a user expression the way the devtools console would:
+ * first as an expression (its completion value is the result); when
+ * that is not valid as an expression (statements like `var x = 1`),
+ * falls back to a function-body evaluation. Both compile in the page
+ * context; the caller only sees the final value or error.
+ */
+export function wrapEvalExpression(expression: string): { expression: string; body: string } {
+  return {
+    expression: `(() => { "use strict"; return (${expression}); })()`,
+    body: `(() => { "use strict"; ${expression} })()`,
+  };
+}
+
+/**
+ * #778: serializes one evaluated value the way the devtools console
+ * would accept back into a conversation: strings as-is (quoted only at
+ * the budget layer's discretion — no, strings stay raw for readability),
+ * everything else JSON with a stable key order; `undefined` becomes the
+ * visible string "undefined". Throws nothing: a non-serializable value
+ * (circular structure, BigInt) degrades to its String() form.
+ */
+export function serializeEvalValue(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? String(v) : v)) ?? String(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return "[unserializable value]";
+    }
+  }
+}
+
 /** Default per-action timeouts (#777): act 10s, wait_for arg-capped. */
 export const ACT_TIMEOUT_MS = 10_000;
 
@@ -224,12 +284,19 @@ export interface BrowserPageLike {
   /** #777: download seam — accepted only when a download flow is armed. */
   on?(event: "download", handler: (download: BrowserDownloadLike) => void): void;
   waitForEvent?(event: "download", options?: { timeout?: number }): Promise<BrowserDownloadLike>;
+  /** #778: screenshot seam — accepted only on fakes/real pages that have it. */
+  screenshot?(options?: { fullPage?: boolean }): Promise<Buffer>;
+  /** #778: page-context JS evaluation (devtools-console semantics). */
+  evaluate?<R>(fn: string, arg?: unknown): Promise<R>;
+  /** #778: headful diagnostics (real window) — never used for behavior. */
   locator(selector: string): {
     ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
     textContent(options?: { timeout?: number }): Promise<string | null>;
     click(options?: { timeout?: number }): Promise<void>;
     fill(text: string, options?: { timeout?: number }): Promise<void>;
     selectOption(values: string[], options?: { timeout?: number }): Promise<string[]>;
+    /** #778: element-scoped screenshot (viewport-clipped to the element). */
+    screenshot?(options?: { timeout?: number }): Promise<Buffer>;
   };
   route(pattern: string, handler: (route: BrowserRouteLike) => Promise<void>): Promise<void>;
   close(): Promise<void>;
@@ -524,6 +591,80 @@ export class BrowserSession {
       return this.#actResult(`text "${target.text}" appeared`);
     }
     throw new Error("browser: wait_for needs 'text' or 'ref'");
+  }
+
+  /**
+   * #778: captures a PNG of the viewport, or of one `ref` element
+   * (element-scoped). Returns raw bytes + a target description for the
+   * text chip; the tool layer decides image part vs chip + warning.
+   */
+  async screenshot(ref?: string, fullPage = false): Promise<ScreenshotResult> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    const toResult = (bytes: Buffer, target: string): ScreenshotResult => ({
+      mime: "image/png",
+      base64: bytes.toString("base64"),
+      target,
+    });
+    if (ref !== undefined) {
+      const locator = (await this.#resolveRef(ref)) as ReturnType<BrowserPageLike["locator"]>;
+      const shot = locator.screenshot;
+      if (typeof shot !== "function") throw new Error("browser: screenshot unavailable (no element screenshot seam)");
+      try {
+        return toResult(await shot.call(locator, { timeout: ACT_TIMEOUT_MS }), this.describeElement(ref) ?? `element ${ref}`);
+      } catch (e) {
+        throw await this.#actFailure(ref, e);
+      }
+    }
+    const pageShot = (page as { screenshot?: (o?: { fullPage?: boolean }) => Promise<Buffer> }).screenshot;
+    if (typeof pageShot !== "function") throw new Error("browser: screenshot unavailable (no page screenshot seam)");
+    return toResult(await pageShot.call(page, { fullPage }), fullPage ? "full page" : "viewport");
+  }
+
+  /**
+   * #778: evaluates one expression in the full page context
+   * (devtools-console semantics — no read-only sandbox is promised; the
+   * control is the act-tier ask, not a wrapper). The result is
+   * serialized with a hard output cap and a visible truncation marker.
+   */
+  async evalJs(expression: string): Promise<string> {
+    const page = await this.#page;
+    if (!page) throw new Error("browser: no page open — navigate first");
+    const evaluate = (page as { evaluate?: (fn: string, arg?: unknown) => Promise<unknown> }).evaluate;
+    if (typeof evaluate !== "function") throw new Error("browser: eval_js unavailable (no evaluate seam)");
+    const wrapped = wrapEvalExpression(expression);
+    let value: unknown;
+    try {
+      try {
+        value = await evaluate.call(page, wrapped.expression);
+      } catch (expressionError) {
+        // Statement form (var/let/const/if/for…): evaluate as a function
+        // body — the devtools console accepts both; so do we.
+        value = await evaluate.call(page, wrapped.body);
+        void expressionError;
+      }
+    } catch (e) {
+      throw new Error(`browser: eval_js failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return applyEvalBudget(serializeEvalValue(value));
+  }
+
+  /** #778: screenshot-flavored act-failure — same re-probe contract as
+   * #actFailure, kept separate only because screenshots do not append a
+   * fresh snapshot to a binary result. */
+  async #actFailure2(ref: string, e: unknown): Promise<never> {
+    if (e instanceof StaleRefError) throw e;
+    let known = false;
+    try {
+      known = this.#describe.has(refNumber(ref));
+    } catch {
+      known = false;
+    }
+    if (!known) throw new StaleRefError(ref, await this.snapshot());
+    const page = await this.#page;
+    const stillThere = page ? await refExists(page.locator(`aria-ref=${refNumber(ref)}`)).catch(() => false) : false;
+    if (!stillThere) throw new StaleRefError(ref, await this.snapshot());
+    throw e;
   }
 
   /**

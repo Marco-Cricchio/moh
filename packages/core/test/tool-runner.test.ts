@@ -19,6 +19,7 @@ function harness(opts: {
   gate?: ToolRunnerOptions["gate"];
   askUser?: boolean;
   onGitPush?: () => void;
+  imageCapable?: () => boolean;
 } = {}) {
   const events: AgentEvent[] = [];
   const tools = opts.tools ?? {};
@@ -32,6 +33,7 @@ function harness(opts: {
     turn: () => 1,
     ...(opts.askUser ? { onAskUser: (async () => ({ kind: "answer", text: "y" })) as never } : {}),
     ...(opts.onGitPush ? { onGitPush: opts.onGitPush } : {}),
+    ...(opts.imageCapable ? { imageCapable: opts.imageCapable } : {}),
     append: (e) => events.push(e),
   });
   return { runner, events, tools };
@@ -304,5 +306,53 @@ describe("ToolRunner", () => {
     await runner.run([call("weird", { timeoutMs: "soon" })], new AbortController().signal);
     const event = events[0] as { timeoutMs?: number };
     expect("timeoutMs" in event).toBe(false);
+  });
+});
+
+describe("#778: browser screenshot image-part pipeline", () => {
+  const screenshotTool = (brand: boolean): Tool => ({
+    name: "browser",
+    description: "browser",
+    inputSchema: undefined,
+    async execute() {
+      return brand
+        ? { __screenshot: true, mime: "image/png", base64: "cG5nLWJ5dGVz", target: "viewport" } as unknown as string
+        : "fallback";
+    },
+  });
+
+  test("image-capable: the tool_result event and feedback part carry the typed image", async () => {
+    const { runner, events } = harness({ tools: { browser: screenshotTool(true) }, imageCapable: () => true });
+    const { parts } = await runner.run([call("browser")], new AbortController().signal);
+    expect(parts[0]).toEqual({
+      kind: "tool_result",
+      callId: "c-browser",
+      ok: true,
+      output: "[screenshot: viewport]",
+      image: { mime: "image/png", base64: "cG5nLWJ5dGVz" },
+    });
+    expect((events.find((e) => e.type === "tool_result") as any).image).toEqual({ mime: "image/png", base64: "cG5nLWJ5dGVz" });
+  });
+
+  test("non-image-capable: visible chip + warning, never an image part", async () => {
+    const { runner, events } = harness({ tools: { browser: screenshotTool(true) }, imageCapable: () => false });
+    const { parts } = await runner.run([call("browser")], new AbortController().signal);
+    expect(String((parts[0] as any).output)).toContain("[screenshot: viewport]");
+    expect(String((parts[0] as any).output)).toContain("does not support image input");
+    expect((parts[0] as any).image).toBeUndefined();
+    expect((events.find((e) => e.type === "tool_result") as any).image).toBeUndefined();
+  });
+
+  test("no probe seam: degrades to the chip (never a crash)", async () => {
+    const { runner } = harness({ tools: { browser: screenshotTool(true) } });
+    const { parts } = await runner.run([call("browser")], new AbortController().signal);
+    expect((parts[0] as any).image).toBeUndefined();
+    expect(String((parts[0] as any).output)).toContain("does not support image input");
+  });
+
+  test("non-screenshot output is untouched", async () => {
+    const { runner } = harness({ tools: { browser: screenshotTool(false) } });
+    const { parts } = await runner.run([call("browser")], new AbortController().signal);
+    expect(parts[0]).toEqual({ kind: "tool_result", callId: "c-browser", ok: true, output: "fallback" });
   });
 });
