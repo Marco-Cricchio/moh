@@ -170,6 +170,18 @@ export {
   type TelemetrySubagentRow,
 } from "./telemetry";
 
+// #767: the single-session analysis report — `moh sessions analyze` and the
+// TUI `/session` modal project it. Read-only metadata projection (ADR-0004).
+export {
+  analyzeSession,
+  type SessionAnalysisReport,
+  type SessionModelRow,
+  type SessionToolRow,
+  type SessionPermissionStats,
+  type SessionShapeStats,
+  type SessionTreeStats,
+} from "./session-analyze";
+
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
