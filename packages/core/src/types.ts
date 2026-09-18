@@ -44,7 +44,7 @@ export type ImagePart = { kind: "image"; mime: string; base64: string };
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
 export type ToolCallPart = ToolCall & { kind: "tool_call" };
-export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind };
+export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind; /** #778: screenshot pixels when image-capable (rides the #490 pipeline). */ image?: { mime: string; base64: string } };
 export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
 
 /**
@@ -263,7 +263,11 @@ type AgentEventBase =
     })
   | { type: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason on failed results only — lets
              * telemetry classify errors without parsing output text. */
-        errorKind?: ToolErrorKind }
+        errorKind?: ToolErrorKind;
+        /** #778: a browser screenshot's pixels, present only when the
+         * serving model declared image input (#490 pipeline). Replay
+         * rebuilds the image part, so resume/fork inherit what the model saw. */
+        image?: { mime: string; base64: string } }
   /** #83: one record per model call — which model served it and what it cost.
    * #240: `thinkingLevel` audits the effective level actually sent, if any
    * (#239 decision 9: switches, fallbacks, provider defaults accounted). */
@@ -315,6 +319,9 @@ type AgentEventBase =
   | { type: "compaction"; summary: string; upTo?: number; upToId?: string }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
+  /** #774 / ADR-0029: the browser tool was requested but the toolchain is
+   * missing. Visible diagnostic chrome — never a turn error. */
+  | { type: "browser_unavailable"; reason: string }
   /** MCP lifecycle (#15): lazy start, per-server failures, session-end stop. */
   | { type: "mcp_server_started"; server: string; tools: string[] }
   | { type: "mcp_server_failed"; server: string; reason: string; message: string }
@@ -463,6 +470,12 @@ export interface Tool<A = any> {
    * on the `tool_call` event; a tool without a timeout concept simply
    * omits this. Must be self-sanitizing: never trust the raw arg shape. */
   timeoutMs?: (args: unknown) => number | undefined;
+  /**
+   * #775: args the permission gate should see for this call, when they
+   * differ from the model's validated args (the browser tool adds the
+   * live page URL and an element description). Absent = use the args.
+   */
+  gateArgs?: (args: A) => unknown;
   execute(args: A, ctx: ToolContext): Promise<string> | string;
 }
 

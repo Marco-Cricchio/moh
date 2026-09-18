@@ -90,6 +90,9 @@ const permissionOverridesSchema = z.object({
   bashDeny: z.array(z.array(z.string())).optional(),
   pathAllow: z.array(z.string()).optional(),
   pathDeny: z.array(z.string()).optional(),
+  // #775: canonical browser rules (`browser:click https://app.example.com/**`).
+  browserAllow: z.array(z.string()).optional(),
+  browserDeny: z.array(z.string()).optional(),
 });
 
 export const mohConfigSchema = z.object({
@@ -128,6 +131,20 @@ export const mohConfigSchema = z.object({
   /** MPM per-project override (ADR-0026): an explicit `enabled` (either
    * value) overrides the user default; absent = inherit. */
   mpm: mpmProjectConfigSchema.optional(),
+  /**
+   * #774 / ADR-0029: native browser tool (read tier). Absent/false =
+   * tool not registered, no diagnostics. `headless` (default true) runs a
+   * real Chrome window when false; `allowedHosts` is the exact-host SSRF
+   * escape hatch (loopback is always allowed; other private ranges need
+   * an explicit entry here).
+   */
+  browser: z
+    .object({
+      enabled: z.boolean().optional(),
+      headless: z.boolean().optional(),
+      allowedHosts: z.array(z.string().min(1)).optional(),
+    })
+    .optional(),
 });
 
 export type EndpointProfile = z.infer<typeof endpointProfileSchema>;

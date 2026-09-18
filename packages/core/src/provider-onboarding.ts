@@ -31,9 +31,18 @@ export const BUILTIN_PROVIDER_TYPES = [
   "openrouter",
   "kimi-coding",
   "xai",
+  "opencode",
   ...PROVIDER_PROFILES.map((profile) => profile.id),
 ] as const;
 export type BuiltinProviderType = (typeof BUILTIN_PROVIDER_TYPES)[number];
+
+export const OPENCODE_AUTH_URL = "https://opencode.ai/auth";
+export const OPENCODE_ENDPOINTS = {
+  zen: { name: "opencode-zen", baseUrl: "https://opencode.ai/zen/v1", defaultModel: "gpt-5.6-terra" },
+  go: { name: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
+} as const;
+const MULTI_PROFILES = Symbol("onboarding multi profiles");
+type MultiProfile = EndpointProfile & { [MULTI_PROFILES]?: EndpointProfile[] };
 
 /**
  * Curated base URLs for the openai-compat wizard's endpoint pick-list
@@ -123,6 +132,7 @@ export async function runProviderAdd(
   options: ProviderAddOptions = {},
 ): Promise<EndpointProfile> {
   const type = await askOneOf(io, `Provider type (${BUILTIN_PROVIDER_TYPES.join(" | ")})`, [...BUILTIN_PROVIDER_TYPES]);
+  if (type === "opencode") return runOpenCodeAdd(io, tester, options);
   // #444: one discreet ToS line right after the provider choice — the link
   // plus the verification date. Unknown/custom types have no bundled card.
   const tosLine = tosWizardLine(type);
@@ -225,6 +235,30 @@ export async function runProviderAdd(
   }
 }
 
+async function runOpenCodeAdd(io: OnboardingIo, tester: ConnectionTester, options: ProviderAddOptions): Promise<EndpointProfile> {
+  const selection = await askOneOf(io, "OpenCode product (zen | go | both)", ["zen", "go", "both"]);
+  await io.info(`OpenCode account and API keys: ${OPENCODE_AUTH_URL}`);
+  try { await io.openUrl?.(OPENCODE_AUTH_URL); } catch { /* URL above is the manual fallback. */ }
+  const apiKey = (await io.ask("OpenCode API key: ")).trim();
+  if (!apiKey) throw new OnboardingAborted("an OpenCode API key is required");
+  const selected: readonly (keyof typeof OPENCODE_ENDPOINTS)[] = selection === "both" ? ["zen", "go"] : [selection as keyof typeof OPENCODE_ENDPOINTS];
+  const profiles = selected.map((product) => {
+    const endpoint = OPENCODE_ENDPOINTS[product];
+    saveStoredApiKey(options.authFile ?? userConfigFile(), endpoint.name, apiKey);
+    return { name: endpoint.name, type: "opencode", baseUrl: endpoint.baseUrl, defaultModel: endpoint.defaultModel } satisfies EndpointProfile;
+  });
+  await io.info(`OpenCode API key stored securely in ${options.authFile ?? userConfigFile()} (not moh.json)`);
+  for (const profile of profiles) {
+    await io.info(`Testing connection to ${profile.name} (${profile.defaultModel})...`);
+    const result = await tester(profile);
+    if (!result.ok) throw new OnboardingAborted(`connection test failed: ${result.error}`);
+    await io.info(`✓ Connected (${result.modelId} responded)`);
+  }
+  const first = profiles[0]! as MultiProfile;
+  if (profiles.length > 1) Object.defineProperty(first, MULTI_PROFILES, { value: profiles, enumerable: false });
+  return first;
+}
+
 async function askOneOf(io: OnboardingIo, prompt: string, options: readonly string[]): Promise<string> {
   while (true) {
     const answer = (await io.ask(`${prompt}: `)).trim().toLowerCase();
@@ -308,7 +342,8 @@ export async function addProviderToFile(
 ): Promise<{ profile: EndpointProfile; config: MohConfig }> {
   const { tester, registry, ...addOptions } = options;
   const profile = await runProviderAdd(io, tester, { configFile: file, ...addOptions });
-  const config = upsertEndpoint(loadMohConfig(file), profile);
+  const profiles = (profile as MultiProfile)[MULTI_PROFILES] ?? [profile];
+  const config = profiles.reduce((current, next) => upsertEndpoint(current, next), loadMohConfig(file));
   const withDefault: MohConfig = { ...config, provider: `${profile.name}/${profile.defaultModel}` };
   // Sanity: the saved config must resolve before we write it.
   resolveProvider(withDefault, registry ?? defaultRegistry);
@@ -436,6 +471,14 @@ export async function minimalConnectionTest(
     // #157: subscription or api-key, the stream path (AI SDK google
     // factory) always sends the credential as x-goog-api-key — never a
     // Bearer header.
+    if (profile.type === "opencode") {
+      const base = profile.baseUrl ?? (profile.name === "opencode-go" ? OPENCODE_ENDPOINTS.go.baseUrl : OPENCODE_ENDPOINTS.zen.baseUrl);
+      const res = await fetchImpl(`${base}/responses`, {
+        method: "POST", signal, headers: { "content-type": "application/json", ...auth },
+        body: JSON.stringify({ model: modelId, input: "ping", max_output_tokens: 1 }),
+      });
+      return verdict(res, modelId);
+    }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
       const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
       const res = await fetchImpl(`${base}/chat/completions`, {

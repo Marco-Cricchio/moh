@@ -82,6 +82,9 @@ export interface SlashContext {
   /** #619: opens the project-map inspection modal (/mpm). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenMpm?: () => void;
+  /** #767: opens the session analysis modal (/session). Absent
+   * (headless): the command explains it needs the TUI. */
+  onOpenSession?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -418,6 +421,19 @@ const mpmCommand: SlashCommand = {
   },
 };
 
+/** #767: opens the session analysis modal — a snapshot of the current
+ * session's usage, tool health, shape and tree stats at open time. */
+const sessionCommand: SlashCommand = {
+  name: "session",
+  description: "session analysis report (usage, tools, shape)",
+  usage: "/session",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/session needs an open session");
+    if (!ctx.onOpenSession) return ctx.notify("/session needs the TUI session shell");
+    ctx.onOpenSession();
+  },
+};
+
 /** #468/ADR-0020: the explicit fork action, reachable only while the
  * session-file-growth warning is up — no general fork command. */
 const forkCommand: SlashCommand = {
@@ -541,7 +557,9 @@ const renameCommand: SlashCommand = {
 };
 
 /** #672: copies the last assistant reply to the system clipboard —
- * OSC 52 first (ssh-safe), then platform binaries. The command leaves
+ * local binaries first (pbcopy & co., whose write cannot be ignored),
+ * OSC 52 over ssh (ssh-safe), then OSC 52 as last resort. The command
+ * leaves
  * no permanent transcript artifact: feedback rides the notify channel
  * (an inline one-liner), including the fresh-session warning. */
 const copyCommand: SlashCommand = {
@@ -571,6 +589,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   mpmCommand,
   reloadCommand,
   renameCommand,
+  sessionCommand,
   settingsCommand,
   themeCommand,
   thinkingCommand,

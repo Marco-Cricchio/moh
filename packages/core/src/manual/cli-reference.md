@@ -22,7 +22,7 @@ commands:
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
   mpm      project map diagnostics (see: moh mpm --help)
-  sessions session management (rename, delete, tree; see: moh sessions --help)
+  sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
   handoff  publish a session handoff (see: moh handoff --help)
@@ -234,6 +234,7 @@ usage: moh sessions rename <file|id> <name> [--cwd <dir>]
        moh sessions tree <file|id> [--cwd <dir>]
        moh sessions switch <file|id> <node|bookmark-name> [--cwd <dir>]
        moh sessions bookmark <file|id> <node> [name] [--cwd <dir>]
+       moh sessions analyze <file|id> [--json] [--cwd <dir>]
 
 Renames a session: the display name shows in the TUI home picker and
 overrides the derived first-message title. An empty name resets to the

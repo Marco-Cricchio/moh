@@ -24,6 +24,8 @@ import {
   type ConnectionTester,
   type EndpointProfile,
   subscriptionModelCatalog,
+  OPENCODE_AUTH_URL,
+  OPENCODE_ENDPOINTS,
 } from "@moh/core";
 import { userConfigFile } from "@moh/core";
 import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, saveWizardProviderUser, saveProviderRefProject, profileDiff, wizardSavePlan, readUserWizardEndpoints, projectConfigExists, type EnvCandidate } from "./onboarding";
@@ -43,13 +45,14 @@ type Phase =
   | { kind: "detect"; cursor: number }
   | { kind: "wizard-type"; cursor: number }
   | { kind: "wizard-auth"; cursor: number }
+  | { kind: "opencode-product"; cursor: number }
   | { kind: "tos" }
   | { kind: "sub-login"; error?: string }
   | { kind: "wizard-model-list"; cursor: number }
   | { kind: "wizard-endpoint-list"; cursor: number }
   | { kind: "wizard-text"; field: "model" | "apiKey" | "baseUrl"; value: string }
-  | { kind: "test"; profile: EndpointProfile; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
-  | { kind: "save-scope"; profile: EndpointProfile; cursor: number }
+  | { kind: "test"; profile: EndpointProfile; profiles?: EndpointProfile[]; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
+  | { kind: "save-scope"; profile: EndpointProfile; profiles?: EndpointProfile[]; cursor: number }
   | { kind: "conflict"; profile: EndpointProfile; existing: EndpointProfile }
   | { kind: "duplicate"; profile: EndpointProfile; existing: EndpointProfile };
 
@@ -72,7 +75,7 @@ export interface OnboardingProps {
 
 const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint: string }> = {
   model: { label: "Default model", hint: "e.g. claude-sonnet-4-5, gpt-5, qwen3" },
-  apiKey: { label: "API key (empty = env var / local, no key)", hint: "stored inline in moh.json — keep it gitignored" },
+  apiKey: { label: "API key (empty = env var / local, no key)", hint: "stored securely in ~/.moh/config — never in moh.json" },
   baseUrl: { label: "Base URL", hint: "required for openai-compat; built-in profiles prefill their documented endpoint" },
 };
 
@@ -147,6 +150,16 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   // Where the default provider ref lands after a wizard save/reuse (#129):
   // project moh.json when one exists, user config otherwise.
   const endpointRef = (profile: EndpointProfile): string => `${profile.name}/${profile.defaultModel}`;
+  const saveProfiles = (profiles: EndpointProfile[], project: boolean): string => {
+    for (const profile of profiles) {
+      if (project) saveWizardProvider(configFile, profile);
+      else saveWizardProviderUser(userFile, profile);
+    }
+    const ref = endpointRef(profiles[0]!);
+    if (project || hasProject) saveProviderRefProject(configFile, ref);
+    else saveUserProviderRef(userFile, ref);
+    return ref;
+  };
   const setRef = (profile: EndpointProfile): string => {
     const ref = endpointRef(profile);
     if (hasProject) {
@@ -160,7 +173,8 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   useEffect(() => {
     if (phase.kind !== "test" || phase.result) return;
     let live = true;
-    void tester(phase.profile).then((result) => {
+    void Promise.all((phase.profiles ?? [phase.profile]).map((profile) => tester(profile))).then((results) => {
+      const result = results.find((candidate) => !candidate.ok) ?? results[0]!;
       if (!live) return;
       if (result.ok) {
         if (phase.envCandidate) {
@@ -178,6 +192,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           else saveUserProviderRef(userFile, ref);
           return onDone(ref);
         }
+        if (phase.profiles) return applyPhase({ kind: "save-scope", profile: phase.profile, profiles: phase.profiles, cursor: hasProject ? 1 : 0 });
         // Wizard save semantics (#129 decision 7).
         const plan = wizardSavePlan(phase.profile, userEndpoints, hasProject);
         if (plan.kind === "reuse") return onDone(setRef(plan.existing));
@@ -273,11 +288,24 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           applyWizard({ name: type, type });
           // openai-compat has no subscription grant — the auth-method step
           // is never shown (byte-identical path, issue #149).
+          if (type === "opencode") return applyPhase({ kind: "opencode-product", cursor: 0 });
           if (type === "openai-compat" || isProviderProfile(type)) {
             setAuthKind("api-key");
             return applyPhase({ kind: "wizard-text", field: "model", value: providerProfile(type)?.defaultModel ?? "" });
           }
           applyPhase({ kind: "wizard-auth", cursor: 0 });
+        }
+        return;
+      }
+      case "opencode-product": {
+        if (key.upArrow) return move(2, -1);
+        if (key.downArrow) return move(2, 1);
+        if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
+        if (key.return || input === "\n") {
+          const selected = phase.cursor === 0 ? ["zen"] : phase.cursor === 1 ? ["go"] : ["zen", "go"];
+          void openUrl?.(OPENCODE_AUTH_URL).catch(() => false);
+          applyWizard({ ...wizard, name: selected[0] === "go" ? "opencode-go" : "opencode-zen", type: "opencode", ...(selected.length === 2 ? { opencodeBoth: true } : {}) } as Partial<EndpointProfile>);
+          return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
         }
         return;
       }
@@ -378,6 +406,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         if (key.downArrow) return move(1, 1);
         if (input === "s") return onDone(null);
         if (key.return || input === "\n") {
+          if (phase.profiles) return onDone(saveProfiles(phase.profiles, phase.cursor === 1));
           if (phase.cursor === 0) return onDone(saveWizardProviderUser(userFile, phase.profile));
           return onDone(saveWizardProvider(configFile, phase.profile)?.provider ?? endpointRef(phase.profile));
         }
@@ -439,6 +468,13 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           {typeWin.below > 0 && <Dim>{` ↓ ${typeWin.below} more`}</Dim>}
           <Text> </Text>
           <Dim>enter select · s skip</Dim>
+        </>
+      )}
+      {phase.kind === "opencode-product" && (
+        <>
+          <Text>OpenCode product:</Text><Text> </Text>
+          {["Zen", "Go", "Zen and Go"].map((row, i) => <Text key={row} color={i === phase.cursor ? theme.bg : undefined} backgroundColor={i === phase.cursor ? theme.accent : undefined}>{` ${i === phase.cursor ? "›" : " "} ${row}${i === phase.cursor ? " " : ""}`}</Text>)}
+          <Text> </Text><Dim>{`Sign in or create an API key: ${OPENCODE_AUTH_URL}`}</Dim><Dim>enter select · esc back</Dim>
         </>
       )}
       {phase.kind === "wizard-auth" && (
@@ -641,6 +677,17 @@ function submitField(
     return applyPhase({ kind: "wizard-text", field: "apiKey", value: "" });
   }
   if (phase.field === "apiKey") {
+    if (wizard.type === "opencode") {
+      if (!value) return;
+      const both = (wizard as Partial<EndpointProfile> & { opencodeBoth?: boolean }).opencodeBoth;
+      const products = both ? ["zen", "go"] as const : [wizard.name === "opencode-go" ? "go" : "zen"] as const;
+      const profiles = products.map((product) => {
+        const endpoint = OPENCODE_ENDPOINTS[product];
+        saveApiKey(endpoint.name, value);
+        return { name: endpoint.name, type: "opencode", baseUrl: endpoint.baseUrl, defaultModel: endpoint.defaultModel } as EndpointProfile;
+      });
+      return applyPhase({ kind: "test", profile: profiles[0]!, profiles });
+    }
     if (value) saveApiKey(wizard.name || wizard.type || "endpoint", value);
     applyWizard({ ...wizard });
     // #295: openai-compat picks the base URL from the known-endpoint list

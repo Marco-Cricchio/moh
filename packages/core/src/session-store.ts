@@ -636,6 +636,9 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
           callId: event.callId,
           ok: event.ok,
           output: event.output,
+          // #778: a screenshot's pixels ride the rebuilt provider context
+          // exactly as the live turn saw them.
+          ...(event.image ? { image: event.image } : {}),
         });
         break;
       case "model_call":

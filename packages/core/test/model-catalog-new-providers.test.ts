@@ -97,3 +97,14 @@ describe("vendored-data drift checks (#164)", () => {
     }
   });
 });
+
+describe("OpenCode packaged overlays (#794)", () => {
+  test("Zen and Go overlays are versioned, Responses-wired, and conservative", () => {
+    const zen = subscriptionModelCatalog("opencode-zen");
+    const go = subscriptionModelCatalog("opencode-go");
+    expect(zen.length).toBeGreaterThan(0);
+    expect(go.length).toBeGreaterThan(0);
+    expect(zen.every((model) => model.wire === "openai-responses" && !model.reasoning && model.pricing === undefined)).toBe(true);
+    expect(go.every((model) => model.wire === "openai-responses" && !model.reasoning && model.pricing === undefined)).toBe(true);
+  });
+});

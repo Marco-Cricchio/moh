@@ -878,3 +878,39 @@ describe("isSessionOpen (#582, the #478 registry seam)", () => {
     expect(isSessionOpen("/nope/missing.jsonl")).toBe(false);
   });
 });
+
+describe("#778: screenshot pixels ride replay", () => {
+  test("a tool_result with image rebuilds the typed image part on resume/fork", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
+      { type: "user_message", text: "screenshot the canvas" },
+      { type: "assistant_delta", text: "taking it" },
+      { type: "tool_call", callId: "cs", name: "browser", args: { action: "screenshot" } },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "tool_result", callId: "cs", ok: true, output: "[screenshot: viewport]", image: { mime: "image/png", base64: "cG5n" } },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "assistant_delta", text: "done" },
+      { type: "done" },
+    ];
+    const messages = replayMessages(events);
+    const results = messages.flatMap((m) => m.parts.filter((p) => p.kind === "tool_result"));
+    expect(results[0]).toMatchObject({ callId: "cs", ok: true, output: "[screenshot: viewport]", image: { mime: "image/png", base64: "cG5n" } });
+  });
+
+  test("a tool_result without image replays exactly as before", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" },
+      { type: "user_message", text: "ls" },
+      { type: "assistant_delta", text: "ok" },
+      { type: "tool_call", callId: "c1", name: "bash", args: { command: "ls" } },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "tool_result", callId: "c1", ok: true, output: "file.txt" },
+      { type: "model_call", model: "glm-5.3", usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: "assistant_delta", text: "done" },
+      { type: "done" },
+    ];
+    const messages = replayMessages(events);
+    const results = messages.flatMap((m) => m.parts.filter((p) => p.kind === "tool_result"));
+    expect(results[0]).toEqual({ kind: "tool_result", callId: "c1", ok: true, output: "file.txt" });
+  });
+});

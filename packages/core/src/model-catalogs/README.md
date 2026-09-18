@@ -17,6 +17,9 @@ and an auditable, versioned data surface.
   + compat flags)
 - `xai.json` — xAI grok models
 - `zai.json` — Z.ai GLM models (generated from pi-ai's `ZAI_MODELS` provider module; Z.ai speaks openai-compat in moh)
+- `opencode-zen.json` / `opencode-go.json` — official OpenCode Zen and Go `/models`
+  snapshots (2026-09-18). They intentionally contain model IDs only: OpenCode
+  does not publish the metadata needed to assert capabilities or pricing.
 
 Source version at the last regeneration: **pi-ai 0.85.0**.
 

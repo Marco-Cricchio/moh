@@ -34,7 +34,7 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
   test("BASE_COMMANDS lists the base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -172,7 +172,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
+      "ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
@@ -532,5 +532,34 @@ describe("/compact slash command (#466)", () => {
 
   test("is a base command: available with workflow mode off", () => {
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toContain("compact");
+  });
+});
+
+describe("/session (#767)", () => {
+  test("registered as a base command with the snapshot description", () => {
+    const cmd = BASE_COMMANDS.find((c) => c.name === "session");
+    expect(cmd).toBeDefined();
+    expect(cmd!.usage).toBe("/session");
+  });
+
+  test("needs an open session", () => {
+    const ctx = makeCtx({ onOpenSession: () => opened.push("session") });
+    const opened: string[] = [];
+    expect(runSlashCommand("/session", ctx)).toBe(true);
+    expect(ctx.notices()).toEqual(["/session needs an open session"]);
+    expect(opened).toEqual([]);
+  });
+
+  test("opens the modal through the shell seam", () => {
+    const opened: string[] = [];
+    const ctx = makeCtx({ session: { activeModel: "ep/x" } as any, onOpenSession: () => opened.push("session") });
+    expect(runSlashCommand("/session", ctx)).toBe(true);
+    expect(opened).toEqual(["session"]);
+  });
+
+  test("without a session it explains instead of opening", () => {
+    const ctx = makeCtx({});
+    expect(runSlashCommand("/session", ctx)).toBe(true);
+    expect(ctx.notices()).toEqual(["/session needs an open session"]);
   });
 });

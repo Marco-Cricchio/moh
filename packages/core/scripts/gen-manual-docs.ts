@@ -145,6 +145,7 @@ const CONFIG_PAGE_PINNED_KEYS = [
   "memory",
   "handoff",
   "skillRouting",
+  "browser",
   "maxIterations",
 ];
 

@@ -98,6 +98,22 @@ matches. `switch` refuses while the session is currently open (switching
 under a live writer belongs to the TUI); `moh run --resume` reopens the
 session at the head automatically — no extra flag needed.
 
+## Analyze a session
+
+```
+moh sessions analyze <file|id> [--json]
+```
+
+renders the single-session analysis report: per-model usage with
+estimated cost (tokens are always shown; a model without a pricing
+record shows no cost instead of $0), tool health with the failure
+kinds, permission counts, the session's shape (turns, compactions,
+model switches, fallbacks), tree stats, and both wall time and
+model-serving tool time. Stats cover the **active branch** — the
+history resume and fork see; tree stats describe the full topology.
+`--json` emits the same data as JSON. In the TUI, `/session` shows the
+same report for the currently open session in a snapshot modal.
+
 ## Delete and the trash
 
 Deleting a session (home screen: `d` on a selected session row, `y`

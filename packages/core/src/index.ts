@@ -101,6 +101,7 @@ import {
   parseRule,
   RuleError,
   splitCommandSegments,
+  urlGlobMatches,
   type PermissionOverrides,
   type PermissionRule,
 } from "./permissions";
@@ -169,6 +170,18 @@ export {
   type TelemetrySubagentRow,
 } from "./telemetry";
 
+// #767: the single-session analysis report — `moh sessions analyze` and the
+// TUI `/session` modal project it. Read-only metadata projection (ADR-0004).
+export {
+  analyzeSession,
+  type SessionAnalysisReport,
+  type SessionModelRow,
+  type SessionToolRow,
+  type SessionPermissionStats,
+  type SessionShapeStats,
+  type SessionTreeStats,
+} from "./session-analyze";
+
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
@@ -190,6 +203,8 @@ import {
   runProviderAdd,
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
+  OPENCODE_AUTH_URL,
+  OPENCODE_ENDPOINTS,
   OnboardingAborted,
   type BuiltinProviderType,
   type KnownCompatEndpoint,
@@ -640,6 +655,7 @@ export {
   formatRule,
   parseRule,
   overridesFromFlags,
+  urlGlobMatches,
   RuleError,
   McpRuntime,
   mcpServerEntrySchema,
@@ -657,6 +673,8 @@ export {
   OnboardingAborted,
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
+  OPENCODE_AUTH_URL,
+  OPENCODE_ENDPOINTS,
   installFirstPartySkills,
   checkUpstreamUpdates,
   applyUpstreamUpdates,

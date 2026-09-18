@@ -328,3 +328,41 @@ describe("moh sessions switch open-session guard (#582)", () => {
     store.dispose();
   });
 });
+
+describe("moh sessions analyze (#767)", () => {
+  test("--help prints the analyze usage", () => {
+    const { spawn } = harness();
+    const { code, stdout } = spawn(["sessions", "--help"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("moh sessions analyze");
+  });
+
+  test("renders the report for a session file by id", () => {
+    const { spawn, id } = harness();
+    const r = spawn(["sessions", "analyze", id]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Session analysis");
+    expect(r.stdout).toContain("Tool health");
+    expect(r.stdout).toContain("Shape:");
+    expect(r.stdout).toContain("Tree:");
+  });
+
+  test("--json emits the same data as structured JSON", () => {
+    const { spawn, id } = harness();
+    const r = spawn(["sessions", "analyze", id, "--json"]);
+    expect(r.code).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.file).toEndWith(".jsonl");
+    expect(Array.isArray(parsed.models)).toBe(true);
+    expect(parsed.pricing.estimate).toBe(true);
+    expect(parsed.permissions).toEqual({ requested: 0, granted: 0, denied: 0 });
+    expect(parsed.shape.turns).toBeGreaterThanOrEqual(1);
+  });
+
+  test("unknown session errors with exit code 2", () => {
+    const { spawn } = harness();
+    const r = spawn(["sessions", "analyze", "20990101T000000000Z-00000000"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("no session");
+  });
+});

@@ -628,6 +628,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #579: chrome-only bookmark event — the /tree panel (#581) renders
         // bookmarked nodes from the log; the transcript has no projection.
         break;
+      case "browser_unavailable":
+        // #774: chrome-only diagnostic — surfaces render the warning from
+        // the log; the transcript has no dedicated projection.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
