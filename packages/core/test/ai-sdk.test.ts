@@ -211,3 +211,26 @@ describe("#778: screenshot pixels ride the tool-result", () => {
     });
   });
 });
+
+describe("OpenCode session header (#798, docs/go MissingSessionID)", () => {
+  it("an opencode target's model carries a stable x-opencode-session header on every wire", async () => {
+    const mod = await import("../src/providers/ai-sdk");
+    const target = (wire: "anthropic-messages" | "openai-chat" | "openai-responses"): RouteTarget => ({
+      endpoint: new Endpoint({ name: "opencode-go", kind: "opencode", apiKey: "k", baseUrl: "https://opencode.ai/zen/go/v1" }),
+      modelId: "m",
+      wire,
+    });
+    for (const wire of ["anthropic-messages", "openai-chat", "openai-responses"] as const) {
+      const model = mod.languageModelFor(target(wire), "k", undefined) as unknown as { config: Record<string, unknown> };
+      const headers = (model.config?.headers ?? {}) as Record<string, string>;
+      expect(headers["x-opencode-session"]).toMatch(/^[0-9a-f-]{36}$/);
+    }
+    // One stable id per process (routing/prompt caching benefit).
+    const a = mod.languageModelFor(target("openai-chat"), "k", undefined) as unknown as { config: Record<string, unknown> };
+    const b = mod.languageModelFor(target("openai-chat"), "k", undefined) as unknown as { config: Record<string, unknown> };
+    expect((a.config!.headers as Record<string, string>)["x-opencode-session"]).toBe((b.config!.headers as Record<string, string>)["x-opencode-session"]);
+    // Non-opencode endpoints are untouched (byte-identical invariant).
+    const plain = mod.languageModelFor({ endpoint: new Endpoint({ name: "e", kind: "openai", apiKey: "k" }), modelId: "m" }, "k", undefined) as unknown as { config: Record<string, unknown> };
+    expect((plain.config?.headers as Record<string, string> | undefined)?.["x-opencode-session"]).toBeUndefined();
+  });
+});
