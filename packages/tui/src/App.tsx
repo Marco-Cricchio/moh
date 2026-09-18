@@ -43,6 +43,8 @@ import { listSessionSummaries, type SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type ThemeRef, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
+import { ConfirmTurnGate } from "./confirm-turn-gate";
+import { ConfirmTurnModal } from "./ConfirmTurnModal";
 import { useViewport } from "./viewport";
 import { listFiles } from "./file-index";
 import { detectPreviewMode } from "./image-preview";
@@ -320,6 +322,18 @@ export function App({
   useSyncExternalStore(askGate.subscribe, askGate.getSnapshot);
   const asking = askGate.current;
 
+  // ADR-0033 §4 (#791): the pre-send confirmation an extension asked for.
+  // A cancel hands the message back to the composer — nothing else knows
+  // what the user typed, and nothing was logged.
+  const confirmGateRef = useRef<ConfirmTurnGate | null>(null);
+  if (confirmGateRef.current === null) confirmGateRef.current = new ConfirmTurnGate();
+  const confirmGate = confirmGateRef.current;
+  useSyncExternalStore(confirmGate.subscribe, confirmGate.getSnapshot);
+  const confirming = confirmGate.current;
+  useEffect(() => {
+    confirmGate.onCancelled((text) => setComposerPrefill(text));
+  }, [confirmGate]);
+
   const { toasts, push } = useToasts();
   const [memoryFresh, setMemoryFresh] = useState(false);
   /** #619: live MPM projection status for the footer chip — polled every
@@ -415,7 +429,7 @@ export function App({
     if (resolved.error) push(resolved.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const blocked = pending !== null || asking !== null || overlay !== null;
+  const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
 
   // Memory (#38): discreet indicator only — a brief toast, never chat noise.
   useEffect(() => {
@@ -639,6 +653,7 @@ export function App({
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
+      onConfirmTurn: confirmGate.ask,
       permissionMode: config.permissionMode,
       ...(yolo ? { yolo } : {}),
       ...(handoffOffer ? { handoffOffer } : {}),
@@ -792,6 +807,7 @@ export function App({
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
+      onConfirmTurn: confirmGate.ask,
       permissionMode: configRef.current.permissionMode,
       ...(yolo ? { yolo } : {}),
       store: SessionStore.open(file),
@@ -823,6 +839,7 @@ export function App({
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
+      onConfirmTurn: confirmGate.ask,
       permissionMode: configRef.current.permissionMode,
       ...(yolo ? { yolo } : {}),
       store: forkedStore,
@@ -1537,6 +1554,7 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
+        {confirming && <ConfirmTurnModal gate={confirmGate} />}
         </OverlayLayer>}
         {/* Toasts remain non-blocking bottom chrome on every screen. */}
         {!showChat && <Toasts toasts={toasts} />}

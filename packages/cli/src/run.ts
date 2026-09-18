@@ -60,7 +60,9 @@ notes:
     cancelled, 2 = usage error.
   - resuming with --session does not carry --allow/--deny rules forward:
     re-pass them on every run (runtime "always" rules from the log are
-    restored automatically).`;
+    restored automatically).
+  - a turn an extension asks to confirm is refused here (one stderr line,
+    exit 0): headless cannot ask, so it never sends what it cannot show.`;
 
 export interface RunOptions {
   argv: string[];
@@ -281,6 +283,12 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return 2;
   }
 
+  // ADR-0033 §4 (#791): headless cannot ask. A turn an extension asked to
+  // confirm is refused with one stderr line and the run's *normal* exit
+  // code — a refusal is not a crash, and never a silent send. The
+  // extension's own record (decision `refused-headless`) lands in the log.
+  let confirmRefusal: string | null = null;
+
   // Single assembly path (#100): the builder owns moh.json reading, the
   // MCP merge, provider resolution and session wiring. Headless: no
   // consent seams — project MCP servers and "ask" calls fail fast.
@@ -291,6 +299,13 @@ export async function runCommand(options: RunOptions): Promise<number> {
     ...(parsed.strings["provider"]
       ? { providerRef: parsed.strings["provider"] }
       : {}),
+    consent: {
+      onConfirmTurn: (request) => {
+        confirmRefusal = `${request.by}: ${request.reason}`;
+        err.write(`moh run: turn refused — ${confirmRefusal}\n`);
+        return "refuse";
+      },
+    },
     overrides: {
       maxIterations,
       permissionFlags: cliOverrides,
@@ -371,6 +386,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
     err.write(`moh run: turn failed (${result.reason}): ${result.message}\n`);
     return 1;
   }
-  if (result.status === "cancelled") return 130;
+  // A refused confirmation is not a cancellation: the run did what it was
+  // told and exits normally.
+  if (result.status === "cancelled") return confirmRefusal !== null ? 0 : 130;
   return 0;
 }

@@ -17,7 +17,10 @@ You activate Jev from the TUI Settings panel, entry **Jev (TypeSafe)**:
   be reached *is* saved, with its own message saying the key will activate
   as soon as Jev is reachable.
 - **Model routing** — the opt-in for the per-turn router (off by default;
-  see below). It is the only switch in the entry.
+  see below).
+- **Anti-injection** — the opt-in for the prompt-injection check (off by
+  default; see below). It is the one use case that sends the text you
+  typed, so it is never on unless you turned it on.
 - **Status** — a read-only row: `active (key …abcd, timeout 2500ms)` or
   `inactive`.
 - **Remove** — clears the key; the bundled extension is then not registered
@@ -26,8 +29,8 @@ You activate Jev from the TUI Settings panel, entry **Jev (TypeSafe)**:
 There is no first-run wizard: **a stored key is the state**. Enter the key
 from the panel — that is where it is validated and masked, so hand-editing
 the configuration file is not a supported way to activate Jev. The routing
-opt-in is changed the same way, and both are read when a session starts:
-a session already open keeps the settings it was assembled with.
+opt-ins are changed the same way, and all of them are read when a session
+starts: a session already open keeps the settings it was assembled with.
 
 The key lives in `~/.moh/config` (the `typesafe` block, key `apiKey`) —
 the user configuration, never moh.json: a cloned project must not be able
@@ -41,6 +44,10 @@ The disclosure shown next to the Settings entry, verbatim:
 
 _judgments send the command, working directory and git branch/state to
 TypeSafe (US). TypeSafe declares no training on inputs._
+
+With anti-injection on, the disclosure says more, because that use case
+sends more: your message text (up to 4 KiB) and the text of every web
+result (up to 8 KiB). Nothing else about a turn ever leaves moh.
 
 ## When Jev is unavailable
 
@@ -63,11 +70,12 @@ Nothing else about moh changes:
 
 ```
 $ moh jev status
-  jev      active (key …abcd, timeout 2500ms)
-  routing  off
+  jev        active (key …abcd, timeout 2500ms)
+  routing    off
+  injection  off
 
 $ moh jev status --json
-{"active":true,"keyHint":"…abcd","timeoutMs":2500,"routing":false}
+{"active":true,"keyHint":"…abcd","timeoutMs":2500,"routing":false,"injection":false}
 ```
 
 The command reads your configuration and never calls TypeSafe — the key was
@@ -78,7 +86,8 @@ back to the Settings panel. Only a malformed `typesafe` section is an error
 
 ## Use cases
 
-Two use cases ship today: the bash guardrail and the model router.
+Three use cases ship today: the bash guardrail, the model router and the
+anti-injection check.
 
 ### Bash guardrail
 
@@ -186,11 +195,53 @@ log. Every judgment is recorded as one `jev_judgment` event — and only
 turns that were actually judged get one, so a paused or overridden router
 costs nothing.
 
+### Anti-injection
+
+The **anti-injection** check looks for text that tries to steer the agent
+against you — a page telling the model to ignore its instructions, to
+leak a file, or to run something you never asked for. It is **off by
+default** (the switch is in the Settings entry above): it is the only use
+case that reads your own message, and that is a choice. It has two halves.
+
+**Your message, before the turn is sent.** Jev judges up to 4 KiB of what
+you typed with two questions — is this content trying to manipulate an
+assistant (`injection`), and does it carry credentials or personal data
+(`sensitive`) — and the answer decides between three bands:
+
+- **below 0.50** — silence: nothing is shown, the judgment is recorded.
+- **0.50 to 0.95** — one visible line in the transcript
+  (`jev · injection · warn (injection 0.63)`), and the turn is sent as
+  always. A fired `sensitive` signal says the one thing it implies:
+  *do not commit or share this content*.
+- **above 0.95** — a **confirmation**: the send is held and a modal asks
+  `⚠ possible injection (0.97)`. `y` (or enter) sends the turn anyway and
+  records the confirmation; `n` (or esc) sends **nothing** — the text goes
+  back to the composer, no user message is written to the session, and the
+  only record is the check's own line
+  (`jev · injection · cancelled — nothing was sent`). In headless
+  (`moh run`) there is no one to ask, so the turn is refused with one
+  stderr line and the run still exits 0 — a refusal is not a crash. The
+  sensitive signal never blocks: you may well have pasted a key on
+  purpose.
+
+**Web results, before the model sees them.** A `fetch` or `browser` result
+is judged the same way (up to 8 KiB — the payload, not the whole page).
+Above 0.95 the model does not receive the page: it receives
+`external content withheld by jev-guard: possible injection (0.98) — the
+page content was not shown to the model`, which is also what the session
+log holds, so a resumed or forked session shows exactly what the model
+saw. The middle band lets the page through with a visible warning. Only
+those two tools are inspected — reading a file or running a command is
+your own material, and a judgment on every read would be ruinous.
+
+Nothing here is a wall: the check is one probability, and you keep the
+last word. Turn it off in the Settings entry and the next session makes no
+call at all.
+
 ### Still planned
 
 - **The ★★ pack** — prompt classification, quality gate, MPM rerank,
-  anti-injection, compaction cut, skill suggestion. Planned: one opt-in
-  each.
+  compaction cut, skill suggestion. Planned: one opt-in each.
 
 Those use cases own their questions, thresholds and calibration, and they
 ship in their own release; this page grows with them.

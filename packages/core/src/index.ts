@@ -189,6 +189,10 @@ import { skillRecommendations, formatSkillCommand, type SkillRecommendation, typ
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.
 export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
+// ADR-0033 §4: the outcome vocabulary a client's confirmation seam answers
+// with ("send" | "cancel" | "refuse") — the extension contract's type,
+// re-exported so a client needs one import for the whole seam.
+export type { TurnConfirmOutcome } from "@moh/extension";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
@@ -799,7 +803,9 @@ export {
   // receives (the TUI renders yes/no only, labelled with the reason).
   type PermissionAskContext,
   // ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
-  // answers — one request per confirmed turn.
+  // answers — one request per confirmed turn, and the outcome vocabulary
+  // it answers with (the extension contract's own type, re-exported so a
+  // client needs one import).
   type ConfirmTurnRequest,
   type AssemblyError,
   type AssemblyErrorKind,

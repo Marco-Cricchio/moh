@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeInjection, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -83,6 +83,8 @@ interface JevState {
   timeoutMs: number;
   /** #787: the model-routing opt-in (off by default). */
   routing: boolean;
+  /** #791: the anti-injection opt-in (off by default). */
+  injection: boolean;
   /** The `typesafe` section is malformed: loud on the next save, still
    * rendered as inactive rather than crashing the whole panel. */
   broken?: boolean;
@@ -92,8 +94,15 @@ interface JevState {
 const JEV_DISCLOSURE =
   "judgments send the command, working directory and git branch/state to TypeSafe (US). TypeSafe declares no training on inputs.";
 
-/** #787: the Jev entry's sub-menu — the key, the routing opt-in, status, remove. */
-const JEV_OPTIONS = ["API key", "Model routing", "Status", "Remove"] as const;
+/**
+ * #787/#791: the Jev entry's sub-menu — the key, the two per-use-case
+ * opt-ins (both off by default), status, remove.
+ */
+const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Status", "Remove"] as const;
+
+/** #791: what the anti-injection opt-in sends, stated where it is toggled. */
+const JEV_INJECTION_DISCLOSURE =
+  "anti-injection sends your message text (up to 4 KiB) and the text of every web result (up to 8 KiB) to TypeSafe.";
 
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
   const theme = useTheme();
@@ -153,9 +162,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         ...(resolved.apiKey ? { keyHint: maskApiKey(resolved.apiKey) } : {}),
         timeoutMs: resolved.timeoutMs,
         routing: resolved.routing,
+        injection: resolved.injection,
       };
     } catch {
-      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, broken: true };
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, broken: true };
     }
   };
   const [jev, setJev] = useState<JevState>(readJev);
@@ -448,6 +458,23 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     setSub({ kind: "jev", cursor: 0 });
   };
 
+  /**
+   * #791: the anti-injection opt-in. Off by default because it is the one
+   * use case that sends the user's own message text; like the routing flag
+   * it is read at session assembly.
+   */
+  const toggleJevInjection = () => {
+    const next = !jev.injection;
+    try {
+      saveTypesafeInjection(jevFile, next);
+    } catch (e) {
+      return onToast(`anti-injection: could not save (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ ...j, injection: next }));
+    onToast(next ? "anti-injection on · from your next session" : "anti-injection off · from your next session");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
   /** #181: model committed for one endpoint — rewrites `defaultModel` in
    * the project moh.json (user endpoints display-only) and switches the
    * default `provider` ref. moh.json only; user config untouched. */
@@ -571,6 +598,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           // toast spam) — the panel already shows the live value.
           if (option === "API key") return setSub({ kind: "jev-key", value: "", busy: false });
           if (option === "Model routing") return toggleJevRouting();
+          if (option === "Anti-injection") return toggleJevInjection();
           if (option === "Remove") return removeJevKey();
           return;
         }
@@ -737,20 +765,25 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                       ? jev.routing
                         ? "on"
                         : "off"
-                      : option === "Status"
-                        ? jevLabel
-                        : jev.active
-                          ? "clear the key"
-                          : "nothing to remove";
+                      : option === "Anti-injection"
+                        ? jev.injection
+                          ? "on"
+                          : "off"
+                        : option === "Status"
+                          ? jevLabel
+                          : jev.active
+                            ? "clear the key"
+                            : "nothing to remove";
                 return (
                   <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
-                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(10)}${value}${selected ? " " : ""}`, innerWidth)}
+                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(15)}${value}${selected ? " " : ""}`, innerWidth)}
                   </Text>
                 );
               })}
               <Text> </Text>
               <Text color={theme.dim} wrap="wrap">
                 {JEV_DISCLOSURE}
+                {jev.injection ? ` ${JEV_INJECTION_DISCLOSURE}` : ""}
               </Text>
             </>
           ) : sub.kind === "jev-key" ? (

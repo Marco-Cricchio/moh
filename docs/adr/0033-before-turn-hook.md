@@ -135,3 +135,34 @@ Key decisions, each with its rationale:
   (the user, not an extension, decides whether to send; a confirm modal already gives the
   extension a veto-equivalent when the risk is real); separate hooks for model and confirm
   (one turn-start decision point, one registration).
+
+## Amendment — 2026-09-18, #791 (the `confirm` outcome, implemented)
+
+The use case that needed the confirmation (anti-injection) had to be implemented, and §4
+presupposed a channel the decision left unnamed: the extension is the one that records the
+outcome ("the extension's own refusal record is the only trace"), but a cancelled turn
+leaves no `user_message`, so there was nothing in the log for it to observe. Four details
+are fixed here; the rest of the decision stands.
+
+1. **apiVersion `1.4`** (not the `1.2` this record assigned: `1.3` was consumed by
+   ADR-0038's control channel, and the two additions below travel with the `onToolResult`
+   of ADR-0034 in one PR).
+
+2. **The client seam is `SessionConfig.onConfirmTurn`** (with its `ConfirmTurnRequest`
+   re-exported from `@moh/core`, as the config surface requires — ADR-0004): the client
+   answers `"send" | "cancel" | "refuse"`. `send` proceeds; `cancel` means the turn never
+   happens; `refuse` is what a client that cannot ask answers, and **what the core answers
+   when no seam is present** — silence-by-default is implemented, not implied. The loop
+   returns `{ status: "cancelled" }` for both, before anything is logged, and the model a
+   hook named in the same call is discarded with the turn.
+
+3. **`confirm.onResolved(outcome)`** — an optional callback riding the hook's result. The
+   core calls it exactly once, after the client answered (or immediately with `refuse`), so
+   the asking extension can record what became of the turn. It is the only way §4's "the
+   extension's own refusal record" can be written; a throwing callback is swallowed, like
+   every other extension-side observability path.
+
+4. **The headless exit code is unchanged.** `moh run` refuses the turn with one stderr line
+   and exits 0: a refusal is not a crash, and it is not the 130 of a cancelled run (which
+   the client's own flag distinguishes). The TUI's cancel additionally returns the message
+   to the composer — the client's own affordance, since the core holds no draft.

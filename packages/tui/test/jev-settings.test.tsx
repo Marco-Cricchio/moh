@@ -172,8 +172,8 @@ describe("settings Jev entry (#784)", () => {
     await sleep(80);
     expect(storedKey(home)).toBe("sk-remove-me");
     // Back to the entry menu (the valid path returns there), then "Remove"
-    // (API key · Model routing · Status · Remove, #787).
-    await down(i, 3);
+    // (API key · Model routing · Anti-injection · Status · Remove, #791).
+    await down(i, 4);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedKey(home)).toBeUndefined();
@@ -242,6 +242,57 @@ describe("settings Jev entry: model routing (#787)", () => {
     // The read-modify-write keeps the key and every unrelated section.
     const written = readTypesafeConfig(file);
     expect(written.apiKey).toBe("sk-keep-abcd");
+    i.unmount();
+  });
+});
+
+describe("settings Jev entry: anti-injection (#791)", () => {
+  const storedInjection = (home: string): boolean | undefined => {
+    const file = userConfigFile(home);
+    if (!existsSync(file)) return undefined;
+    return readTypesafeConfig(file).injection;
+  };
+
+  test("off by default, the toggle writes the opt-in and states what it sends", async () => {
+    const { cwd, home } = setup();
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    expect(storedInjection(home)).toBeUndefined();
+
+    await down(i, JEV_ROW);
+    i.stdin.write("\r"); // open the Jev entry
+    await sleep(30);
+    await down(i, 2); // "Anti-injection"
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedInjection(home)).toBe(true);
+    expect(toasts.some((t) => t.includes("anti-injection on"))).toBe(true);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Anti-injection");
+    // The disclosure grows with the one use case that sends the message
+    // (the copy wraps inside the dialog, so a fragment is what to assert).
+    expect(frame).toContain("sends your message");
+    i.unmount();
+  });
+
+  test("toggling twice turns it back off, and the key survives", async () => {
+    const { cwd, home } = setup();
+    const file = userConfigFile(home);
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-abcd", injection: true } }));
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await down(i, JEV_ROW);
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, 2);
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedInjection(home)).toBe(false);
+    expect(toasts.some((t) => t.includes("anti-injection off"))).toBe(true);
+    expect(readTypesafeConfig(file).apiKey).toBe("sk-keep-abcd");
     i.unmount();
   });
 });

@@ -22,7 +22,7 @@ import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
 export default defineExtension({
   name: "no-rm-rf",
   version: "0.1.0",
-  apiVersion: MOH_EXTENSION_API_VERSION, // "1.3" — major must match the host
+  apiVersion: MOH_EXTENSION_API_VERSION, // "1.4" — major must match the host
   setup(ctx) {
     ctx.state.seen ??= 0; // durable state; carried across hot-reloads
 
@@ -87,7 +87,7 @@ await session.dispose();
   system-prompt section (append-only; you can never rewrite other
   sections).
 - Hook registration: `onSessionStart`, `onSessionEnd`, `beforeTurn`,
-  `beforeModelCall`, `onToolCall`, `onEvent`, `afterTurn`.
+  `beforeModelCall`, `onToolCall`, `onToolResult`, `onEvent`, `afterTurn`.
 
 ## Hooks and their ordering
 
@@ -97,23 +97,27 @@ permissions. Within one turn, the ordering is:
 1. `onSessionStart` — once, at session start.
 2. Per user send: `beforeTurn` — read-only context
    (`{ text, turnIndex, model }`), and the only hook that can influence
-   *which model serves a turn*: return `{ model: "<endpoint>/<model-id>" }`
+   *which model serves the turn*: return `{ model: "<endpoint>/<model-id>" }`
    and that model serves the turn the hook was called for. Return
-   `{ confirm: { reason } }` to ask the user before the turn is sent (the
-   contract is in place; its client behaviour ships with the use case that
-   needs it). It fires before the turn's provider is read and before
-   anything is logged, so a turn that is never sent leaves no trace.
+   `{ confirm: { reason, onResolved? } }` to ask the user before the turn is
+   sent — a modal in the TUI, a refusal where nothing can ask — and the
+   `onResolved` callback hands you the answer so you can record it (below).
+   It fires before the turn's provider is read and before anything is
+   logged, so a turn that is never sent leaves no trace.
 3. Per model call: `beforeModelCall` — read the assembled prompt
    (`{ sections, system, version }`) and messages; read-only.
 4. Per tool call: `onToolCall` — return `{ veto: true, reason? }` to deny,
    or `{ ask: true, reason? }` to hand the call to the human consent flow;
    runs before the permission gate's user-rule tiers.
-5. Per event-log entry: `onEvent` — every event, appended order, including
+5. Per settled tool call: `onToolResult` — the tool's text output, before it
+   is logged and before the model sees it; return `{ withhold: { reason } }`
+   to replace it with a refusal (apiVersion 1.4, ADR-0034).
+6. Per event-log entry: `onEvent` — every event, appended order, including
    the `tool_call`/`tool_result` pair your veto produced. Dispatch runs on a
    serial queue, so hooks see events shortly after they are appended.
-6. Per turn end: `afterTurn` — the turn outcome
+7. Per turn end: `afterTurn` — the turn outcome
    (`{ status, reason?, message? }`).
-7. `onSessionEnd` — once, when the client disposes the session.
+8. `onSessionEnd` — once, when the client disposes the session.
 
 A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
@@ -217,6 +221,78 @@ gate's ordinary consent trail — `permission_requested` with
 `reason: "extension"`, then the `permission_granted`/`permission_denied`
 pair — so replay and the transcript render it like any other prompt.
 
+## Asking the user before a turn
+
+`beforeTurn`'s `confirm` is the pre-send question (apiVersion 1.4, ADR-0033
+§4). You return the copy (`reason`), the client renders it, and the answer
+comes back through `onResolved`:
+
+```ts
+ctx.beforeTurn(({ text }) => {
+  const shot = myJudge(text);                      // your logic, your copy
+  if (!shot.risky) return;
+  return {
+    confirm: {
+      reason: `possible injection (${shot.probability.toFixed(2)})`,
+      onResolved: (outcome) => {
+        // "send" | "cancel" | "refuse" — record what happened.
+        record(shot, outcome);
+      },
+    },
+  };
+});
+```
+
+- **The answer is only "send" or "not send".** A TUI cancel means the turn
+  never happened: nothing about a user message is logged, and the text goes
+  back to the composer. Where nothing can ask (headless), the turn is
+  refused. Either way the answer reaches `onResolved` as `cancel` or, for a
+  client that cannot ask, `refuse`.
+- **Record it yourself.** A cancelled turn leaves no `user_message` in the
+  log, so your own entry (`ctx.appendEvent`, typically from inside
+  `onResolved`) is the only trace that the message was ever typed. The
+  callback is called exactly once, and a throw inside it is swallowed.
+- **A confirmation is a question, never a grant.** It cannot widen a
+  permission, write a rule, or make an unpermitted tool call succeed. And a
+  `model` you return in the same hook is discarded when the user cancels:
+  nothing was switched for a turn that never ran.
+- **First ask wins**, in registration order, like every other hook
+  decision; a hook that throws is fail-open (the turn proceeds, unnasked).
+
+## Inspecting a tool result before the model sees it
+
+`onToolResult` (apiVersion 1.4, ADR-0034) is the post-execution seam: the
+tool's output, the moment before it enters the conversation. It is
+registered **per tool name** — the scope is explicit, and the core
+dispatches only those:
+
+```ts
+ctx.onToolResult(["fetch", "browser"], ({ name, output }) => {
+  if (isHostile(output)) return { withhold: { reason: "possible injection (0.98)" } };
+});
+```
+
+- **One outcome: `withhold`.** You may replace a result with a
+  refusal-shaped text; you may not rewrite, truncate or redact one in place
+  (a half-edited result is a corrupted one). Failures cannot be turned into
+  successes, and permissions are out of reach.
+- **The withheld text is what the log holds.** The hook runs before the
+  `tool_result` event and before the feedback part the model receives, so
+  the log, the transcript and the next model call all agree. Replay, resume
+  and fork rebuild from that same event.
+- **The refusal names you.** Your `reason` is rendered as
+  `external content withheld by <extension>: <reason>`, and the model can
+  read it — tell it *why*, and it will explain the block to the user
+  instead of fetching the same page again.
+- **Text results only.** A result carrying an image (a browser screenshot)
+  is never offered: an image is not judgeable text, and withholding a
+  screenshot the model explicitly asked for would break the calling turn.
+- **Every hook sees it, the first withhold wins** (deterministic by
+  registration order) — unlike `onToolCall` and `beforeTurn`, where the
+  *decision* is exclusive. A hook that throws, or one that returns a
+  reason-less `withhold`, is fail-open: one `extension_failed` and the
+  original result proceeds.
+
 ## Recording events and publishing a status
 
 Two observation-only seams in `setup(ctx)` let an extension leave a trace
@@ -260,9 +336,9 @@ replay.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.3** (1.1 added `ask` and the two observation
+  current version is **1.4** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
-  command channel).
+  command channel; 1.4 added `onToolResult` and `confirm.onResolved`).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
