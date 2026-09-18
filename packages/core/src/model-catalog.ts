@@ -272,7 +272,10 @@ export function endpointModelCatalog(type: string, baseUrl?: string): CatalogMod
  * route target attaches. First matching api wins, matching the picker's
  * dedupe order. Absent entry = use the kind's default wire.
  */
-export function catalogEntryFor(type: string, modelId: string): CatalogModel | undefined {
+export function catalogEntryFor(type: string, modelId: string, baseUrl?: string): CatalogModel | undefined {
+  // OpenCode's wire is per model and differs per product (Zen vs Go) with
+  // the same ids — resolve through the endpoint's own overlay.
+  if (type === "opencode") return endpointModelCatalog("opencode", baseUrl).find((m) => m.id === modelId);
   return subscriptionModelCatalog(type).find((m) => m.id === modelId);
 }
 
