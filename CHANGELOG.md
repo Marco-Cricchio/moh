@@ -5,6 +5,15 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.39.3] - 2026-09-18
+### Fixed
+
+- **OpenCode session identification** (#809): OpenCode Go requires coding-agent
+  clients to send a stable session id in `x-opencode-session` for routing and
+  prompt caching; requests without it fail with HTTP 400 `MissingSessionID`.
+  moh now sends one stable id per process on every OpenCode wire, in both the
+  wizard connection test and streaming.
+
 ## [0.39.2] - 2026-09-18
 ### Fixed
 
@@ -258,7 +267,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...develop
+[0.39.3]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...v0.39.3
 [0.39.2]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...v0.39.2
 [0.39.1]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/Marco-Cricchio/moh/compare/v0.38.2...v0.39.0
