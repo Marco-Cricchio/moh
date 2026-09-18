@@ -63,7 +63,7 @@ the session log.
 ## OpenCode usage
 
 OpenCode has separate **Zen** and **Go** endpoints. Its usage quota is shown
-in the official OpenCode Console at <https://opencode.ai/console>; moh does
+in the official OpenCode Console at `https://opencode.ai/console`; moh does
 not make a remote quota request for OpenCode. Press `ctrl+q` to see the
 session's local token measurement per model and follow the Console link for
 account usage. Zen USD estimates appear only when moh ships an official

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { allTosCards, renderTosCard, tosCardFor, tosWizardLine, TOS_DISCLAIMER } from "../src/tos-cards";
 
 /** The ADR-0010 provider list + the generic openai-compat card (#444). */
-const COVERED = ["anthropic", "openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai", "openai-compat"];
+const COVERED = ["anthropic", "openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai", "opencode", "openai-compat"];
 
 describe("tos cards (#444)", () => {
   test("one card per covered provider id, exactly", () => {
