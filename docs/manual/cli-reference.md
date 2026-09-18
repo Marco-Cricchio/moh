@@ -293,5 +293,6 @@ the model-routing opt-in.
 
 Config read only: no call is ever made to TypeSafe. The key is validated
 when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is
-never printed here — only its masked tail. Exit code is always 0.
+never printed here — only its masked tail. The status of an active or
+inactive Jev exits 0; a malformed "typesafe" section exits 2.
 ```

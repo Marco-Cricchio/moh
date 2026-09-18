@@ -20,7 +20,7 @@
  * than one ready-made definition.
  */
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
-import { createJevClient, validateJevKey, type JevClient, type JevClientOptions } from "./client";
+import { createJevClient, type JevClientOptions } from "./client";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -35,11 +35,6 @@ export interface JevGuardOptions {
   timeoutMs?: number;
   /** Test seam: the fetch implementation handed to the client. */
   fetchImpl?: typeof fetch;
-  /**
-   * Receives the live client once `setup` ran (the use-case layer attaches
-   * its hooks to this instance; `undefined` until the runtime loads us).
-   */
-  onClient?: (client: JevClient) => void;
 }
 
 /**
@@ -66,7 +61,6 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         onJudgment: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }),
         onStatus: (text) => ctx.setStatus(text),
       });
-      options.onClient?.(client);
     },
   });
 }

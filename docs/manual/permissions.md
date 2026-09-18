@@ -54,6 +54,9 @@ Where an ask lands:
 - Headless (`moh run`) degrades the ask to a denial, exactly as any other
   ask without a prompt to raise.
 
+The bundled Jev guardrail is the first-party extension that raises these
+asks (see the Jev page); a plain extension ask looks the same without it.
+
 ## Out-of-root writes
 
 A write **outside the project root** is authorizable per-occurrence

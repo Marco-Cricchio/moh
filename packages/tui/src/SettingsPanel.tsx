@@ -370,39 +370,39 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   };
 
   /**
-   * #784: persist first, then validate with one real call. The two failure
-   * modes stay distinct on purpose: an invalid key must NOT be persisted
-   * (it would look active while being useless), a service that cannot be
-   * reached MUST be (the user typed what they meant, and moh fails open).
+   * #784: validate with one real call, then persist. The order matters: a
+   * key the service rejects must never reach the config (it would read as
+   * active while being useless) and must never overwrite a good stored key.
+   * The two failure modes stay distinct on purpose — an unreachable service
+   * IS persisted, because the user typed what they meant and moh fails open.
    */
   const submitJevKey = (key: string) => {
     const trimmed = key.trim();
     if (!trimmed) return setSub({ kind: "jev-key", value: "", busy: false });
-    try {
-      saveTypesafeApiKey(jevFile, trimmed);
-    } catch (e) {
-      return setSub({ kind: "jev-key", value: trimmed, busy: false, message: `could not save: ${e instanceof Error ? e.message : String(e)}` });
-    }
     setSub({ kind: "jev-key", value: trimmed, busy: true, message: "validating…" });
     void validate(trimmed)
       .then((result) => {
+        if (result.status === "invalid") {
+          setSub({ kind: "jev-key", value: trimmed, busy: false, message: "invalid key — not saved" });
+          return onToast("jev: invalid key — not saved");
+        }
+        // Active or unverified: both are the user's decision to store.
+        try {
+          saveTypesafeApiKey(jevFile, trimmed);
+        } catch (e) {
+          setSub({
+            kind: "jev-key",
+            value: trimmed,
+            busy: false,
+            message: `could not save: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          return;
+        }
+        setJev((j) => ({ active: true, keyHint: maskApiKey(trimmed), timeoutMs: j.timeoutMs }));
         if (result.status === "active") {
-          setJev((j) => ({ active: true, keyHint: maskApiKey(trimmed), timeoutMs: j.timeoutMs }));
           onToast("jev: active");
           return setSub({ kind: "jev", cursor: 0 });
         }
-        if (result.status === "invalid") {
-          // Not a usable key: undo the persist so the state never lies.
-          try {
-            removeTypesafeApiKey(jevFile);
-          } catch {
-            /* best effort: the toast below still tells the truth */
-          }
-          setJev((j) => ({ active: false, timeoutMs: j.timeoutMs }));
-          onToast("jev: invalid key — not saved");
-          return setSub({ kind: "jev-key", value: trimmed, busy: false, message: "invalid key — not saved" });
-        }
-        setJev((j) => ({ active: true, keyHint: maskApiKey(trimmed), timeoutMs: j.timeoutMs }));
         onToast("jev: could not verify — saved, will activate when reachable");
         return setSub({ kind: "jev", cursor: 0 });
       })

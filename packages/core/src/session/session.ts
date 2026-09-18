@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
+import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
@@ -888,7 +888,7 @@ export class AgentSession {
    * order (empty when none). Client chrome, polled like `mpmSnapshot`;
    * ephemeral — never in the log, cleared at session end and on reload.
    */
-  extensionStatuses(): { extension: string; text: string }[] {
+  extensionStatuses(): ExtensionStatus[] {
     return this.#extensions?.statuses() ?? [];
   }
 

@@ -392,6 +392,16 @@ type AgentEventBase =
       preview?: string;
     };
 
+/**
+ * ADR-0032: one status an extension currently publishes (its name plus its
+ * own text). Ephemeral client chrome: never in the event log, cleared at
+ * session end and on extension reload.
+ */
+export interface ExtensionStatus {
+  extension: string;
+  text: string;
+}
+
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
 export type PermissionGrantReason = "yolo" | "auto_accept" | "user";
 

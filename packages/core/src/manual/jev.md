@@ -68,8 +68,10 @@ $ moh jev status --json
 ```
 
 The command reads your configuration and never calls TypeSafe — the key was
-validated when you saved it. It always exits 0, and when Jev is inactive it
-prints the way back to the Settings panel.
+validated when you saved it. It exits 0 whether Jev is active or not
+(information, not verification) and, when Jev is inactive, prints the way
+back to the Settings panel. Only a malformed `typesafe` section is an error
+(exit 2), like every other broken config section.
 
 ## Use cases: not shipped yet
 

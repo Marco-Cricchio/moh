@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { useTheme, type Theme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
 import { fitRow } from "./viewport";
-import type { ThinkingLevel } from "@moh/core";
+import type { ExtensionStatus, ThinkingLevel } from "@moh/core";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -81,7 +81,7 @@ interface StatusProps {
   mpmStatus?: "ready" | "updating" | "unavailable" | null;
   /** ADR-0032 (#784): statuses extensions currently publish, in
    * registration order (empty when none) — one dim chip each. */
-  extensionStatuses?: { extension: string; text: string }[];
+  extensionStatuses?: ExtensionStatus[];
   /** #466/ADR-0022: sticky compaction-failure indicator — set by
    * `compaction_failed`, cleared by the next successful marker. */
   compactionFailed?: boolean;
@@ -126,7 +126,7 @@ export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "upda
  * the extension's name leads it so two extensions' statuses never read as
  * one. Compact terminals drop the name — the texts carry their own marker
  * (e.g. `∅ jev offline`) and the row must stay a row. */
-export function ExtensionStatusChip({ status, wide, theme }: { status: { extension: string; text: string }; wide: boolean; theme: Theme }) {
+export function ExtensionStatusChip({ status, wide, theme }: { status: ExtensionStatus; wide: boolean; theme: Theme }) {
   return <Text color={theme.dim} wrap="truncate">{wide ? `${status.extension} ${status.text}` : status.text}</Text>;
 }
 

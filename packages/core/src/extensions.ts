@@ -29,7 +29,7 @@ import {
   type ToolCallHook,
   type ToolCallHookResult,
 } from "@moh/extension";
-import type { AgentEvent } from "./types";
+import type { AgentEvent, ExtensionStatus } from "./types";
 
 export interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
@@ -226,7 +226,7 @@ export class ExtensionRuntime {
   }
 
   /** ADR-0032: the currently published statuses, in registration order. */
-  statuses(): { extension: string; text: string }[] {
+  statuses(): ExtensionStatus[] {
     return this.#instances
       .filter((i) => i.status !== null)
       .map((i) => ({ extension: i.def.name, text: i.status! }));
@@ -476,7 +476,10 @@ export class ExtensionRuntime {
     let payload: unknown;
     if (event.payload !== undefined) {
       try {
-        const serialized = JSON.stringify(redactPayload(event.payload));
+        // Redact once: the same value is what gets measured and what gets
+        // recorded.
+        const redacted = redactPayload(event.payload);
+        const serialized = JSON.stringify(redacted);
         // `undefined` back from JSON.stringify: a function/symbol payload —
         // nothing to record, and the event is still well-formed.
         if (serialized !== undefined && Buffer.byteLength(serialized, "utf8") > MAX_PAYLOAD_BYTES) {
@@ -488,7 +491,7 @@ export class ExtensionRuntime {
           });
           return;
         }
-        if (serialized !== undefined) payload = redactPayload(event.payload);
+        if (serialized !== undefined) payload = redacted;
       } catch (err) {
         // Cycles, BigInt, throwing getters: dropped, never truncated.
         this.#emit({

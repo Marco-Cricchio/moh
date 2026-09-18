@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTypesafeConfig, userConfigFile } from "@moh/core";
@@ -124,6 +124,24 @@ describe("settings Jev entry (#784)", () => {
     i.unmount();
   });
 
+  test("an invalid key never overwrites a stored one", async () => {
+    const { cwd, home } = setup();
+    const file = userConfigFile(home);
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-previous-abcd" } }));
+    const { i } = mount(cwd, home, async () => ({ status: "invalid", message: "HTTP 401" }));
+    await sleep(30);
+    await openKeyInput(i);
+    i.stdin.write("sk-bad");
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(80);
+    // Validation runs first: the rejected key never reaches the file, and
+    // the good one the user already had is still there.
+    expect(storedKey(home)).toBe("sk-previous-abcd");
+    i.unmount();
+  });
+
   test("an unreachable service keeps the key (fail-open) with its own message", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "unreachable", kind: "network", message: "fetch failed" }));
@@ -162,7 +180,6 @@ describe("settings Jev entry (#784)", () => {
   test("an existing key shows as active with a masked hint", async () => {
     const { cwd, home } = setup();
     const file = userConfigFile(home);
-    const { mkdirSync } = await import("node:fs");
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-existing-abcd", timeoutMs: 1200 } }));
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));

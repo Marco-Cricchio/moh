@@ -18,6 +18,7 @@ import {
   readUserProviderConfig,
   type AgentSession,
   type AssemblyError,
+  type ExtensionStatus,
   type HandoffOffer,
   type Provider,
   type TrackerBackend,
@@ -328,7 +329,7 @@ export function App({
   const [mpmStatus, setMpmStatus] = useState<"ready" | "updating" | "unavailable" | null>(null);
   /** ADR-0032 (#784): statuses extensions publish right now, for the footer
    * chips. Ephemeral chrome, polled like the MPM status; empty = no chip. */
-  const [extensionStatuses, setExtensionStatuses] = useState<{ extension: string; text: string }[]>([]);
+  const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatus[]>([]);
   /** #466/ADR-0022: sticky compaction-failure flag — set by
    * `compaction_failed`, cleared by a successful `compaction` marker. */
   const [compactionFailed, setCompactionFailed] = useState(false);
@@ -1563,10 +1564,7 @@ function OverlayLayer({ children }: { children: React.ReactNode }) {
 /** Visible assembly failure (ADR-0005): what the user sees instead of a silent demo swap. */
 /** Cheap identity check for the extension-status poll: keeping the previous
  * array reference when nothing changed preserves the footer's memo. */
-function sameStatuses(
-  a: readonly { extension: string; text: string }[],
-  b: readonly { extension: string; text: string }[],
-): boolean {
+function sameStatuses(a: readonly ExtensionStatus[], b: readonly ExtensionStatus[]): boolean {
   return a.length === b.length && a.every((s, i) => s.extension === b[i]!.extension && s.text === b[i]!.text);
 }
 

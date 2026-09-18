@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-preview";
 import { Box, Static, Text, useInput, useStdout } from "ink";
-import type { AgentEvent, AgentSession, ThinkingLevel } from "@moh/core";
+import type { AgentEvent, AgentSession, ExtensionStatus, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
@@ -36,7 +36,7 @@ const RESIZE_REBUILD_DELAY_MS = 150;
 const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
 /** Stable identity for "no extension statuses": a fresh `[]` per render
  * would defeat the footer's memo comparison on every keystroke. */
-const EMPTY_EXTENSION_STATUSES: { extension: string; text: string }[] = [];
+const EMPTY_EXTENSION_STATUSES: ExtensionStatus[] = [];
 
 export interface ChatProps {
   session: AgentSession;
@@ -71,7 +71,7 @@ export interface ChatProps {
   /** #619: live MPM status chip (null renders nothing). */
   mpmStatus?: "ready" | "updating" | "unavailable" | null;
   /** ADR-0032 (#784): statuses extensions publish right now (empty = no chip). */
-  extensionStatuses?: { extension: string; text: string }[];
+  extensionStatuses?: ExtensionStatus[];
   /** #466/ADR-0022: sticky compaction-failure indicator. */
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
