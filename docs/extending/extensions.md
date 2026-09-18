@@ -22,7 +22,7 @@ import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
 export default defineExtension({
   name: "no-rm-rf",
   version: "0.1.0",
-  apiVersion: MOH_EXTENSION_API_VERSION, // "1.2" — major must match the host
+  apiVersion: MOH_EXTENSION_API_VERSION, // "1.3" — major must match the host
   setup(ctx) {
     ctx.state.seen ??= 0; // durable state; carried across hot-reloads
 
@@ -147,6 +147,39 @@ ctx.beforeTurn(({ text, turnIndex, model }) => {
 - Subagent children get the hook too (a child's switch lands in the child's
   own log), and never for their in-turn follow-up calls.
 
+## Receiving commands from the client
+
+An extension can keep session state (a streak, a cache, an override flag).
+apiVersion 1.3 adds the other half: a client can **command** a running
+extension, by name, through the session API.
+
+```ts
+// client side (the TUI's /routing does exactly this)
+session.setExtensionState("my-extension", { cmd: "off" });
+
+// extension side
+ctx.onEvent(({ event }) => {
+  if (event.type !== "extension_control") return;   // always yours when it arrives
+  if (event.payload.cmd === "off") paused = true;
+});
+```
+
+- **Targeted delivery.** The event reaches the addressed extension's
+  `onEvent` hooks and nobody else's — two extensions listening on `onEvent`
+  never see each other's commands.
+- **Opaque payload.** The core carries a JSON-serializable record and never
+  interprets it: `{ cmd: "off" }` and `{ cmd: "auto" }` mean whatever you
+  decide. The resulting `extension_control` log entry keeps the request, so
+  a replayed session still explains the state your extension ended up in.
+- **Chrome, not context.** It is never fed to the model and never a turn
+  error, and it cannot grant anything — a command can only make you *more*
+  restrictive. The core renderer shows one dim line (`<extension> · <cmd>`).
+- **You may never be commanded.** An older runtime does not know the event,
+  and a client may not offer the command at all: design the extension so it
+  works with the default state and treats a command as an override of it.
+- Naming an extension that is not registered is not an error: the event is
+  logged and delivered to nobody.
+
 ## Asking instead of vetoing
 
 A hook has a third position between saying nothing and killing the call: it
@@ -227,8 +260,9 @@ replay.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.2** (1.1 added `ask` and the two observation
-  seams; 1.2 added `beforeTurn`).
+  current version is **1.3** (1.1 added `ask` and the two observation
+  seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
+  command channel).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

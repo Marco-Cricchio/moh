@@ -152,11 +152,32 @@ shown by the ordinary `model switched` line, plus a
 the turn that made the decision. Fallback chains are untouched: the router
 names one model, and the route machinery does the rest.
 
+**Controlling it: `/routing`.** The persistent switch is the Settings entry
+above; the session commands are the quick ones and never write your
+configuration:
+
+```
+/routing          state + the resolved tier assignment
+/routing off      pause routing for this session (the model stays as it is)
+/routing on       resume it (also hands back a manual override)
+/routing auto     release a manual override
+```
+
 **Your choice always wins.** Switch model yourself (`/model`) and the
-router suspends itself for the rest of the session, with one visible line
-saying so. Releasing it needs the in-session commands (`/routing`, `/model
-auto`) that are not part of this version yet — turn routing off and on
-again in Settings, or start a new session.
+router steps aside, with one visible line saying so; `/routing auto` (or
+`/model auto`) hands it back — releasing does **not** re-route the model
+you are on, the next judged turns do. If the serving model is not the one
+the router picked (you edited the configuration, or chose an id outside
+the tier map), the router says so once and waits instead of overruling you
+on the next message.
+
+The pause lasts for the session it was typed in: reopening a session (or
+`/reload`) starts from the configuration again — one place decides whether
+the feature exists. A paused or suspended router makes no call at all, so
+it costs nothing.
+
+Every command leaves one line in the transcript (`jev-guard · off`), so a
+session you resume still shows why its model stopped moving.
 
 Subagents are routed too: their first message is exactly the kind of task a
 router should judge, and a child's switch lands in the child's own session

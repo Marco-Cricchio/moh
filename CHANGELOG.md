@@ -26,7 +26,11 @@ matching section here at tag time.
   the same tier, a manual `/model` suspends the router, and models are
   labeled explicitly in `typesafe.tiers` or ranked by catalog price.
   Extension authors get the `beforeTurn` hook (apiVersion 1.2) — the
-  turn-start seam that names the model of the current turn.
+  turn-start seam that names the model of the current turn. The router has
+  its own session commands, `/routing on|off|auto` and `/model auto`
+  (neither writes your configuration), and an extension can now be
+  commanded by name through the `extension_control` channel
+  (apiVersion 1.3).
 
 ## [0.39.3] - 2026-09-18
 ### Fixed
