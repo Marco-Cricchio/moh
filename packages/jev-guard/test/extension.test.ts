@@ -158,6 +158,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
+      enabled: true,
     }).setup(ctx);
     expect(ctx.beforeTurnHooks).toHaveLength(1);
     const hook = ctx.beforeTurnHooks[0]!;
@@ -176,6 +177,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
+      enabled: true,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
     const emit = (event: { type: string } & Record<string, unknown>) => ctx.eventHooks.forEach((h) => h({ event }));
@@ -200,6 +202,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => ({ models: [{ ref: "a/only", price: 1 }] }) },
+      enabled: true,
     }).setup(ctx);
 
     ctx.sessionStartHooks.forEach((h) => h());
@@ -220,6 +223,7 @@ describe("jev-guard routing (#787)", () => {
         pool: async () => ({ models: [{ ref: "a/mystery" }, { ref: "a/cheap", price: 1 }, { ref: "a/big", price: 90 }] }),
         labels: { "b/nope": "potente" },
       },
+      enabled: true,
     }).setup(ctx);
 
     ctx.sessionStartHooks.forEach((h) => h());
@@ -236,6 +240,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
+      enabled: true,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
     const emit = (event: { type: string } & Record<string, unknown>) => ctx.eventHooks.forEach((h) => h({ event }));
@@ -262,6 +267,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
+      enabled: true,
     }).setup(ctx);
     const read = ctx.state.routingState as () => Record<string, unknown>;
 
@@ -284,6 +290,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
+      enabled: true,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
 
@@ -311,6 +318,7 @@ describe("jev-guard routing (#787)", () => {
       apiKey: "sk-test",
       fetchImpl: (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch,
       routing: { pool: async () => pool },
+      enabled: true,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
 

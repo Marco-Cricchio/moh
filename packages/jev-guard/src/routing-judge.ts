@@ -82,7 +82,12 @@ export interface RoutingJudgeState {
   streak: number;
   streakTier: RoutingTier | null;
   override: boolean;
-  /** `/routing off`: routing is paused for this session. */
+  /**
+   * `/routing off`: routing is paused for this session. Starts *off* when
+   * the configuration did not opt in (`typesafe.routing`) — the session
+   * command `/routing on` flips it either way, which is the ratified
+   * behaviour.
+   */
   paused: boolean;
   /** The model of the tier the router last decided to serve. */
   decidedModel: string | null;
@@ -153,11 +158,21 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       const tiers = await this.assignment();
       if (!tiers) return null;
       // The serving model is not the one the router last picked (the config
-      // changed, or `/model` named an id outside the tier map). Judging
+      // changed, or the user moved to an id outside the tier map). Judging
       // would only overrule the caller silently: wait, visibly, without
       // spending a call. `null` = the notice was already published.
-      const mismatch = state.decidedModel !== null && currentModel !== state.decidedModel;
-      if (mismatch) {
+      //
+      // The condition is the *tier*, not the exact ref the router named: a
+      // hand-picked model that belongs to that same tier is coherent with
+      // the decision, so routing resumes on it (ratified: resuming follows
+      // the tier, never the model id).
+      const expectedTier = state.decidedModel === null ? undefined : tierOfModel(tiers, state.decidedModel);
+      const servingTier = tierOfModel(tiers, currentModel);
+      const coherent =
+        state.decidedModel === null ||
+        currentModel === state.decidedModel ||
+        (expectedTier !== undefined && servingTier === expectedTier);
+      if (!coherent) {
         if (state.mismatchAnnounced) return null;
         state.mismatchAnnounced = true;
         host.onMismatch?.(currentModel, state.decidedModel!);
@@ -288,6 +303,7 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
         state.override = false;
         state.streak = 0;
         state.streakTier = null;
+        state.decidedModel = null;
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
       }
@@ -295,6 +311,11 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
         state.override = false;
         state.streak = 0;
         state.streakTier = null;
+        // Releasing hands routing back whole: the router forgets what it
+        // last picked, so the very next turn judges again (it does not
+        // re-route the model the user chose — the ratification).
+        state.decidedModel = null;
+        state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
       }
       return null;

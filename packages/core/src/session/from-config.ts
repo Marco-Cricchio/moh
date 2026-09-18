@@ -225,20 +225,21 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     // Bundled first-party code: no consent prompt, no dependency
     // authorization (the host shipped the bytes — see `bundledTrust`).
     extensions = new ExtensionRuntime({ mohHome, bundledTrust: true });
-    // #787: routing is opt-in (off by default) and the pool is lazy — it is
-    // resolved only when the router asks, so an off (or inert) router costs
-    // nothing. The core resolves *which models this session can reach*; the
-    // extension owns the tiers and the judgment.
-    const routing = typesafe.routing
-      ? { pool: createModelPool(config.endpoints ?? []), labels: typesafe.tiers }
-      : undefined;
+    // #787: the core resolves *which models this session can reach* (lazy —
+    // only the router asks); the extension owns the tiers and the judgment.
+    // `enabled` is the config opt-in and the router's starting state, not a
+    // gate: `/routing on` can enable it for a session that never opted in.
+    // An off router costs nothing (no call, and it does not even resolve
+    // the pool).
+    const routing = { pool: createModelPool(config.endpoints ?? []), labels: typesafe.tiers };
     // Fire-and-forget: `AgentSession` awaits `ready()` before its first
     // turn, so no hook is ever missing from a tool call.
     void extensions.register(
       createJevGuardExtension({
         apiKey: typesafe.apiKey!,
         ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
-        ...(routing ? { routing } : {}),
+        routing,
+        enabled: typesafe.routing,
       }),
     );
   } else {

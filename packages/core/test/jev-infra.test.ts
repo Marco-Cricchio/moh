@@ -515,6 +515,29 @@ describe("activation in session assembly (#784)", () => {
     await on.session.dispose();
   });
 
+  test("routing off still registers the router, paused: /routing on enables the session", async () => {
+    const cwd = tmpDir("moh-jev-cwd-");
+    const home = tmpDir("moh-jev-assembly-");
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
+    const assembled = sessionFromConfig({ cwd, home, config: { provider: "mock" } });
+    if ("error" in assembled) throw new Error(assembled.error.message);
+    const { session } = assembled;
+    await session.send("hello");
+
+    // The config did not opt in: the router exists (the session command can
+    // enable it) but starts paused, and it costs nothing either way.
+    const read = () => (session.extensionState("jev-guard", "routingState") as () => Record<string, unknown>)();
+    expect(read()).toMatchObject({ paused: true });
+
+    session.setExtensionState("jev-guard", { cmd: "on" });
+    await Bun.sleep(5);
+    expect(read()).toMatchObject({ paused: false });
+    expect(
+      session.history().some((e) => e.type === "extension_event" && e.name === "jev_routing"),
+    ).toBe(true);
+    await session.dispose();
+  });
+
   test("a malformed typesafe section fails the assembly loudly", () => {
     const cwd = tmpDir("moh-jev-cwd-");
     const home = tmpDir("moh-jev-assembly-");

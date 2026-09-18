@@ -159,7 +159,7 @@ configuration:
 ```
 /routing          state + the resolved tier assignment
 /routing off      pause routing for this session (the model stays as it is)
-/routing on       resume it (also hands back a manual override)
+/routing on       enable it for this session (also hands back an override)
 /routing auto     release a manual override
 ```
 
@@ -171,10 +171,11 @@ the router picked (you edited the configuration, or chose an id outside
 the tier map), the router says so once and waits instead of overruling you
 on the next message.
 
-The pause lasts for the session it was typed in: reopening a session (or
-`/reload`) starts from the configuration again — one place decides whether
-the feature exists. A paused or suspended router makes no call at all, so
-it costs nothing.
+`/routing on` works even when the Settings toggle is off — it enables
+routing for that session only, which is the quick way to try it. The state
+lasts for the session it was typed in: reopening a session (or `/reload`)
+starts from the configuration again. A paused or suspended router makes no
+call at all, so it costs nothing.
 
 Every command leaves one line in the transcript (`jev-guard · off`), so a
 session you resume still shows why its model stopped moving.

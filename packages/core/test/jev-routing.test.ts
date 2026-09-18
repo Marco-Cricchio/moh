@@ -51,7 +51,12 @@ async function routingSession(
 ) {
   const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
   await rt.register(
-    createJevGuardExtension({ apiKey: "sk-test", fetchImpl, routing: { pool: async () => ({ models }) } }),
+    createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl,
+      routing: { pool: async () => ({ models }) },
+      enabled: true,
+    }),
   );
   const registry = new ProviderRegistry()
     .registerProvider("pa", () => recording(served, "pa/m"))
@@ -138,6 +143,34 @@ describe("Jev routing in a session (#787)", () => {
     await session.send("hard task three");
     await session.send("hard task four");
     expect(session.activeModel).toBe("pb/m");
+    await session.dispose();
+  });
+
+  test("a router that starts paused (config off) spends no call until it is turned on", async () => {
+    const served: string[] = [];
+    const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    await rt.register(
+      createJevGuardExtension({
+        apiKey: "sk-test",
+        fetchImpl,
+        enabled: false,
+        routing: { pool: async () => ({ models }) },
+      }),
+    );
+    const registry = new ProviderRegistry()
+      .registerProvider("pa", () => recording(served, "pa/m"))
+      .registerProvider("pb", () => recording(served, "pb/m"));
+    const session = createSession({ provider: "pa", registry, extensions: rt });
+
+    await session.send("hard task");
+
+    expect(calls).toBe(0);
+    expect(session.activeModel).toBe("pa/m");
     await session.dispose();
   });
 

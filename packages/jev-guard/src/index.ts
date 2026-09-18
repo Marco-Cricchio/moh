@@ -47,9 +47,13 @@ export interface JevGuardOptions {
   fetchImpl?: typeof fetch;
   /**
    * #787: model routing. Present = the router is registered; absent = the
-   * extension is active but routes nothing (the zero-cost case).
+   * whole use case is unavailable (a caller that never wants it).
+   * `enabled` is the *config* opt-in: false means the router starts paused,
+   * and `/routing on` can still enable it for the session (ratified).
    */
   routing?: JevRoutingOptions;
+  /** The config opt-in (`typesafe.routing`). Default false. */
+  enabled?: boolean;
 }
 
 /**
@@ -129,6 +133,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // nothing to choose (fewer than two reachable tiers).
       if (options.routing) {
         const routing = options.routing;
+        const enabled = options.enabled === true;
         const judge = createRoutingJudge(
           { client, state: ctx.state ?? {} },
           {
@@ -198,10 +203,15 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             payload: { kind: "control", cmd, paused: applied.paused, override: applied.override },
           });
         });
-        // Resolve the assignment (and its diagnostics) at session start:
-        // the pool listing overlaps the first turn instead of delaying it.
+        // The config opt-in is the *starting* state, not a gate: the router
+        // exists either way, so `/routing on` can enable it for a session
+        // that never opted in (ratified) — and while it is off it still
+        // costs nothing, because `decide` returns before any call.
+        if (!enabled) judge.control("off");
+        // Resolve the assignment at session start only when it can matter:
+        // an off router must not fetch a listing either.
         ctx.onSessionStart(() => {
-          void judge.resolution();
+          if (ctx.state.routingState && !(ctx.state.routing as { paused?: boolean } | undefined)?.paused) void judge.resolution();
         });
         // The client asks for the resolved state on demand (`/routing`).
         // `state` is the one channel that answers *synchronously*: the

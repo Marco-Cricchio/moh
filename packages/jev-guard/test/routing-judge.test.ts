@@ -233,6 +233,25 @@ describe("routing judge (#787)", () => {
     expect(verdict).toMatchObject({ decision: "stay", reason: "streak" });
   });
 
+  test("routing resumes on the tier, not on the exact ref the router named", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    // Two models in the powerful tier: a hand-picked one of that tier is
+    // still coherent with the router's decision.
+    const judge = createRoutingJudge({ client: fake, state: {} }, {
+      pool: async () => ({ models: [...pool, { ref: "a/other-big", price: 120 }] }),
+    });
+    await judge.decide("design", "a/cheap");
+    const switched = await judge.decide("design more", "a/cheap");
+    judge.noteSwitch(switched!.ref!); // a/big
+    const spent = fake.inputs.length;
+
+    // A different model of the same tier is coherent with the decision:
+    // routing resumes on it instead of staying suspended forever.
+    const resumed = await judge.decide("again", "a/other-big");
+    expect(resumed).not.toBeNull();
+    expect(fake.inputs.length).toBe(spent + 1);
+  });
+
   test("a serving model the router did not pick pauses the judging, visibly, once", async () => {
     const fake = fakeClient({ choice: "potente", confidence: 0.9 });
     const mismatches: [string, string][] = [];
@@ -278,11 +297,10 @@ describe("routing judge (#787)", () => {
     judge.noteModelSwitched("a/handpicked");
     expect(judge.snapshot()).toMatchObject({ override: true });
     expect(judge.control("auto")).toEqual({ paused: false, override: false });
-    expect(judge.snapshot()).toMatchObject({ override: false, streak: 0, streakTier: null });
-    const after = await judge.decide("design again", "a/handpicked");
-    // The serving model is not the router's pick: it says so instead of
-    // silently overruling it — releasing never re-routes by itself.
-    expect(after).toBeNull();
+    // Releasing hands routing back whole: the next turn is judged again
+    // (and the current model is left alone — the ratification).
+    expect(judge.snapshot()).toMatchObject({ override: false, streak: 0, streakTier: null, decidedModel: null });
+    expect(await judge.decide("design again", "a/handpicked")).toMatchObject({ decision: "stay", reason: "streak" });
 
     expect(judge.control("banana")).toBeNull();
   });
