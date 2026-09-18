@@ -5,6 +5,32 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.39.0] - 2026-09-18
+### Added
+
+- **Browser tool** (#774–#778): a native headless Chromium driver with
+  read-only navigation and snapshots, URL-scoped permissions and SSRF
+  protection, guarded interaction (`click`, `fill`, `select`, `scroll`,
+  `press_key`, and `wait_for`), upload containment, staged downloads,
+  screenshots, `eval_js`, and optional headful mode.
+
+- **Session analysis report** (#767, PR #785): `moh sessions analyze <file|id>`
+  (with `--json`) and the TUI `/session` modal provide a snapshot of the active
+  branch's turns, tokens, model usage, costs where priced, tool activity, and
+  wall/model time.
+
+- **OpenCode Zen and Go provider** (#795): first-class OpenCode endpoints
+  using the OpenAI Responses wire, with browser API-key handoff and official
+  live model-catalog discovery with conservative local fallback.
+
+### Fixed
+
+- **Clipboard backend selection** (#764): local platform clipboard binaries
+  are preferred over OSC 52 when both are available.
+
+- **Theme studio CI race** (#778): tests wait for the mounted studio instead
+  of relying on timing guesses.
+
 ## [0.38.2] - 2026-09-17
 ### Added
 
@@ -212,7 +238,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.38.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...develop
+[0.39.0]: https://github.com/Marco-Cricchio/moh/compare/v0.38.2...v0.39.0
 [0.38.2]: https://github.com/Marco-Cricchio/moh/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/Marco-Cricchio/moh/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/Marco-Cricchio/moh/compare/v0.37.0...v0.38.0
