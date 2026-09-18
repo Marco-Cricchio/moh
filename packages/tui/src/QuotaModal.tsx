@@ -36,6 +36,13 @@ type ReportState = Record<string, QuotaReport | null | "loading">;
 /** Cache TTL for probe results (issue decision: 60s, on-open only). */
 const CACHE_TTL_MS = 60_000;
 
+/** OpenCode exposes account usage in the Console, not a probeable quota API. */
+export const OPENCODE_CONSOLE_URL = "https://opencode.ai/console";
+
+function isOpenCodeEndpoint(endpoint: EndpointProfile): boolean {
+  return endpoint.type === "opencode";
+}
+
 const moduleCache = new Map<string, { at: number; report: QuotaReport | null }>();
 
 /** Cache key: name + identity, so a re-pointed endpoint never serves
@@ -60,6 +67,7 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
     let live = true;
     (async () => {
       for (const e of endpoints) {
+        if (isOpenCodeEndpoint(e)) continue;
         const key = cacheKey(e);
         const cached = moduleCache.get(key);
         if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -97,7 +105,9 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
     }
   });
 
-  const probed = endpoints.filter((e) => reports[e.name] !== undefined);
+  const remoteEndpoints = endpoints.filter((e) => !isOpenCodeEndpoint(e));
+  const openCodeEndpoints = endpoints.filter(isOpenCodeEndpoint);
+  const probed = remoteEndpoints.filter((e) => reports[e.name] !== undefined);
   const anyUnavailable = probed.some((e) => reports[e.name] === null);
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
@@ -108,6 +118,9 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
         <QuotaEndpointTable key={e.name} name={e.name} state={reports[e.name]} spinner={spinner} />
       ))}
       {anyUnavailable && <Dim> provider quota unavailable — local measurement only</Dim>}
+      {openCodeEndpoints.length > 0 && (
+        <Dim>{` OpenCode usage: ${OPENCODE_CONSOLE_URL} · local measurement below`}</Dim>
+      )}
       <LocalTable
         title="local measured (this session)"
         note={`estimated USD · pricing snapshot ${PRICING_SNAPSHOT.version}`}

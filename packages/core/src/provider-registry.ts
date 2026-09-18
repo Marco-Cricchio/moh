@@ -109,6 +109,7 @@ const BUILTIN_KINDS = new Set([
   "xai",
   "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
   "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten",
+  "opencode",
 ]);
 
 function resolveProfile(
@@ -156,7 +157,9 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
   const kind = profile.type === "openai-compat" ? "openai" : profile.type;
   // New builtin kinds default their backend base URL when the profile
   // has none (subscription grants override it via the auth context).
-  const baseUrl = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind];
+  const baseUrl = profile.baseUrl ?? (profile.type === "opencode"
+    ? profile.name === "opencode-go" ? "https://opencode.ai/zen/go/v1" : "https://opencode.ai/zen/v1"
+    : providerProfile(profile.type)?.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind]);
   // #256: a config-declared thinking format rides the target — per-model
   // declaration wins, inheriting the endpoint-level format when omitted.
   const thinkingFormat =
@@ -214,6 +217,9 @@ function fallbackStopsFor(
       e.name !== active.name &&
       e.fallbackEligible !== false &&
       e.defaultModel !== undefined &&
+      // Zen and Go are separate products: an entitlement failure on one
+      // must remain visible, never silently cross-product fall back.
+      !(active.type === "opencode" && e.type === "opencode") &&
       isRouteCapable(e),
   );
   const ranked = candidates

@@ -40,6 +40,8 @@ import xiaomiMimoJson from "./model-catalogs/xiaomi-mimo.json";
 import vercelAiGatewayJson from "./model-catalogs/vercel-ai-gateway.json";
 import cloudflareAiGatewayJson from "./model-catalogs/cloudflare-ai-gateway.json";
 import basetenJson from "./model-catalogs/baseten.json";
+import opencodeZenJson from "./model-catalogs/opencode-zen.json";
+import opencodeGoJson from "./model-catalogs/opencode-go.json";
 import type { WireApi } from "./wire";
 import type { ThinkingFormat, ThinkingLevel } from "./types";
 
@@ -179,6 +181,9 @@ const CATALOGS = {
   together: collect(togetherJson), fireworks: collect(fireworksJson), huggingface: collect(huggingfaceJson), mistral: collect(mistralJson),
   moonshot: collect(moonshotJson), minimax: collect(minimaxJson), qwen: collect(qwenJson), "xiaomi-mimo": collect(xiaomiMimoJson),
   "vercel-ai-gateway": collect(vercelAiGatewayJson), "cloudflare-ai-gateway": collect(cloudflareAiGatewayJson), baseten: collect(basetenJson),
+  "opencode-zen": collect(opencodeZenJson),
+  "opencode-go": collect(opencodeGoJson),
+  opencode: collect(opencodeZenJson),
 } as const satisfies Record<string, CatalogModel[]>;
 
 /** Providers that have a vendored subscription catalog. */
@@ -256,6 +261,7 @@ export function knownCompatEndpointMetadata(baseUrl?: string): KnownCompatEndpoi
  * type; recognized openai-compat hosts opt into vendored metadata without
  * becoming provider implementations. */
 export function endpointModelCatalog(type: string, baseUrl?: string): CatalogModel[] {
+  if (type === "opencode") return subscriptionModelCatalog(baseUrl?.replace(/\/$/, "") === "https://opencode.ai/zen/go/v1" ? "opencode-go" : "opencode-zen");
   if (type !== "openai-compat") return subscriptionModelCatalog(type);
   const metadata = knownCompatEndpointMetadata(baseUrl);
   return metadata ? subscriptionModelCatalog(metadata.catalog) : [];
@@ -274,10 +280,23 @@ export function catalogEntryFor(type: string, modelId: string): CatalogModel | u
  * logs retain an endpoint name rather than its profile type, so a collision
  * with different prices is deliberately unavailable instead of guessed. */
 export function pricingForModel(model: string): ModelPricing | undefined {
+  // OpenCode's Zen and Go products can expose identifiers also sold by
+  // other providers. Their event-log endpoint prefix is therefore material:
+  // Go has no USD token pricing, and Zen may use only an official price in
+  // its own overlay — never a coincidentally matching third-party rate.
+  const slash = model.indexOf("/");
+  const endpoint = slash === -1 ? undefined : model.slice(0, slash);
+  const modelId = slash === -1 ? model : model.slice(slash + 1);
+  if (endpoint === "opencode-go") return undefined;
+  if (endpoint === "opencode-zen" || endpoint === "opencode") {
+    const pricing = subscriptionModelCatalog("opencode-zen").find((entry) => entry.id === modelId)?.pricing;
+    return pricing && (pricing.input > 0 || pricing.output > 0) ? pricing : undefined;
+  }
+
   // Event logs record `endpoint/model-id`; OpenRouter model ids themselves
   // contain `/`. Prefer an exact catalog id after removing one endpoint
   // segment, then fall back to a bare id only when catalog rates agree.
-  const afterEndpoint = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  const afterEndpoint = modelId;
   const all = Object.values(CATALOGS).flat();
   const exact = all.filter((entry) => entry.id === afterEndpoint);
   const candidates = exact.length > 0 ? exact : all.filter((entry) => entry.id === model || entry.id === afterEndpoint);

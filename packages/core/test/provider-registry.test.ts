@@ -208,3 +208,18 @@ function openAiSseServer(content: string): { port: number; stop: () => void } {
   });
   return { port: server.port as number, stop: () => server.stop(true) };
 }
+
+describe("OpenCode built-in routes (#794)", () => {
+  test("Zen and Go are route-capable endpoints without cross-product fallback", () => {
+    const endpoints: EndpointProfile[] = [
+      { name: "opencode-zen", type: "opencode", defaultModel: "gpt-5.6-terra" },
+      { name: "opencode-go", type: "opencode", defaultModel: "minimax-m3" },
+    ];
+    const zen = resolveProviderRef("opencode-zen", defaultRegistry.freeze(), endpoints) as import("../src/route").Route;
+    const go = resolveProviderRef("opencode-go", defaultRegistry.freeze(), endpoints) as import("../src/route").Route;
+    expect(zen.name).toBe("opencode-zen/gpt-5.6-terra");
+    expect(go.name).toBe("opencode-go/minimax-m3");
+    expect(zen.chain).toEqual(["opencode-zen/gpt-5.6-terra"]);
+    expect(go.chain).toEqual(["opencode-go/minimax-m3"]);
+  });
+});

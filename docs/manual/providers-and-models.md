@@ -2,7 +2,7 @@
 
 A **provider** is a backend that talks to LLMs; a **model** is what you
 pick within it. moh ships built-ins for anthropic, openai, google,
-github-copilot, openrouter, kimi-coding, xai, and OpenAI-compatible endpoint
+github-copilot, openrouter, kimi-coding, xai, OpenCode, and OpenAI-compatible endpoint
 profiles for DeepSeek, Groq, Cerebras, NVIDIA NIM, Together AI, Fireworks AI,
 Hugging Face, Mistral AI, Moonshot AI, MiniMax, Z.ai, Qwen, Xiaomi MiMo,
 Vercel AI Gateway, Cloudflare AI Gateway, and Baseten. It also has a
@@ -59,3 +59,13 @@ catalog (or an explicit `capabilities.thinking` declaration for
 openai-compat endpoints); unsupported levels are shown as unavailable
 rather than silently remapped. The effective level sent is recorded in
 the session log.
+
+## OpenCode usage
+
+OpenCode has separate **Zen** and **Go** endpoints. Its usage quota is shown
+in the official OpenCode Console at <https://opencode.ai/console>; moh does
+not make a remote quota request for OpenCode. Press `ctrl+q` to see the
+session's local token measurement per model and follow the Console link for
+account usage. Zen USD estimates appear only when moh ships an official
+OpenCode Zen price; Go calls are always token-only because moh does not infer
+USD prices from a matching model sold by another provider.
