@@ -25,6 +25,7 @@ import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
+  ExtensionControlPayload,
   ExtensionStatus,
   ReasoningStreamEvent,
   AskUserAnswer,

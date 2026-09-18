@@ -25,9 +25,11 @@ address a running extension; it never learns what any payload means.
 
 ```ts
 // @moh/core
-export type ExtensionControlPayload = Record<string, unknown>;
+export type ExtensionControlPayload = Record<string, unknown>;   // exported from @moh/core
 // AgentSession
 setExtensionState(extension: string, payload: ExtensionControlPayload): void;
+/** Reads one key of a registered extension's own `state` (command reply). */
+extensionState(extension: string, key: string): unknown;
 ```
 
 The session appends:
@@ -89,7 +91,10 @@ Key decisions, each with its rationale:
 - `packages/core/src/extensions.ts`: `dispatchEvent` filters by target and delivers a
   control event only to the addressed instance (a new targeted dispatch entry).
 - `packages/core/src/session/session.ts`: `setExtensionState(extension, payload)`
-  appends through the normal append path (sink, listeners, single-writer guard intact).
+  appends through the normal append path (sink, listeners, single-writer guard intact);
+  `extensionState(extension, key)` reads an extension's own `state` store — the reply
+  channel a command needs (a status reaches the footer, an `appendEvent` is a transcript
+  line, neither is a return value).
 - Clients: `packages/tui/src/commands.ts` gains `/routing on|off|auto`, `/model auto`
   (reserved word) and the state report. Headless clients have no session commands, but
   the embedded-library case keeps working through the same API.

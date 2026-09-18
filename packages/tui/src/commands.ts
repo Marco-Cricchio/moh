@@ -24,6 +24,7 @@ import {
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { UserConfig } from "./user-config";
+import { ROUTING_TIERS } from "@moh/jev-guard";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
@@ -343,7 +344,7 @@ const routingCommand: SlashCommand = {
     if (!state.assignment) {
       lines.push("assignment: not resolved yet (or fewer than two tiers to choose from)");
     } else {
-      for (const tier of ["economico", "bilanciato", "potente"]) {
+      for (const tier of ROUTING_TIERS) {
         const target = state.assignment.targets[tier];
         if (target) lines.push(`  ${tier}: ${target}`);
       }

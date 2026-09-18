@@ -118,6 +118,13 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
   /** The resolved value, once it landed (see `peekResolution`). */
   let resolved: RoutingResolution | null = null;
 
+  /** One place owns "a fresh start": five call sites need it, and a missed
+   * one is a hysteresis bug that only shows up turns later. */
+  const restartStreak = (): void => {
+    state.streak = 0;
+    state.streakTier = null;
+  };
+
   const resolveAssignment = async (): Promise<RoutingResolution> => {
     const pool = await host.pool();
     const resolved = assignTiers(pool.models, host.labels ?? {});
@@ -260,8 +267,7 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     noteSwitch(ref: string): void {
       state.expected = ref;
       state.decidedModel = ref;
-      state.streak = 0;
-      state.streakTier = null;
+      restartStreak();
       state.mismatchAnnounced = false;
     },
 
@@ -274,8 +280,7 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     noteModelSwitched(to: string): boolean {
       state.expected = null;
       if (state.decidedModel === to) return false; // the router's own pick
-      state.streak = 0;
-      state.streakTier = null;
+      restartStreak();
       state.override = true;
       return true;
     },
@@ -293,27 +298,24 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     control(cmd: string): { paused: boolean; override: boolean } | null {
       if (cmd === "off") {
         state.paused = true;
-        state.streak = 0;
-        state.streakTier = null;
+        restartStreak();
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
       }
       if (cmd === "on") {
         state.paused = false;
         state.override = false;
-        state.streak = 0;
-        state.streakTier = null;
+        restartStreak();
         state.decidedModel = null;
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
       }
       if (cmd === "auto") {
-        state.override = false;
-        state.streak = 0;
-        state.streakTier = null;
         // Releasing hands routing back whole: the router forgets what it
         // last picked, so the very next turn judges again (it does not
         // re-route the model the user chose — the ratification).
+        state.override = false;
+        restartStreak();
         state.decidedModel = null;
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };

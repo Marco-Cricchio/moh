@@ -16,6 +16,12 @@ export const SCHEMA_VERSION = 2;
  * else the last event). New events never carry `line:N` ids — the bridge
  * is read-only and only ever appears as a referenced value.
  */
+/**
+ * ADR-0038: the opaque, JSON-serializable command payload a client sends to
+ * one extension. The core never interprets it.
+ */
+export type ExtensionControlPayload = Record<string, unknown>;
+
 export interface EventIdentity {
   id?: string;
   parentId?: string;
@@ -335,7 +341,7 @@ type AgentEventBase =
    * extension's `onEvent` hooks alone. Recording it keeps the intent
    * replayable: a resumed log still explains why an extension was paused.
    */
-  | { type: "extension_control"; extension: string; payload: Record<string, unknown> }
+  | { type: "extension_control"; extension: string; payload: ExtensionControlPayload }
   /**
    * One informational startup line (e.g. a bundled integration that stayed
    * inactive because its configuration is absent). Chrome only: never a
