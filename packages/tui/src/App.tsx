@@ -722,10 +722,18 @@ export function App({
   // Idempotent — the published marker makes an already-sent artifact a
   // no-op — so it runs on every Home mount without spamming gh.
   useEffect(() => {
-    const retry = retryPendingHandoffPublish(cwd, home, (message) =>
-      push(sanitizeForDisplay(message), "warn"),
-    );
+    // ADR-0024: the retry resolves the project identity, which runs a
+    // synchronous `git` spawn — reachable from this mount effect it can
+    // re-enter the reconciler mid-commit and kill the first frame under
+    // load. Deferring past the commit window (the same shape the push-time
+    // publish already uses) keeps the spawn out of it.
+    let retry: Promise<unknown> | null = null;
+    const timer = setTimeout(() => {
+      retry = retryPendingHandoffPublish(cwd, home, (message) => push(sanitizeForDisplay(message), "warn"));
+    }, 0);
+    timer.unref?.();
     return () => {
+      clearTimeout(timer);
       retry?.catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
