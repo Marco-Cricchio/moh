@@ -46,6 +46,10 @@ one is shown in the status bar.
   regen-from-pi-ai path remains their update story. The Settings
   panel's endpoint → model picker shows the same live overlay. The
   switch takes effect from the next turn.
+- With Jev model routing on (off by default), the model of a turn can
+  also be picked per turn by the router, from the same configured
+  models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself
+  suspends it for the session.
 - `moh run --provider <endpoint/model-id>` picks the model per run.
 - The Settings panel's endpoint → model picker saves the default into
   moh.json (user-level endpoints are display-only there).
