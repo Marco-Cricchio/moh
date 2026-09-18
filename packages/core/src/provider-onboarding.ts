@@ -16,7 +16,7 @@ import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
-import { knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
+import { catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
 import { tosWizardLine } from "./tos-cards";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
@@ -473,10 +473,21 @@ export async function minimalConnectionTest(
     // Bearer header.
     if (profile.type === "opencode") {
       const base = profile.baseUrl ?? (profile.name === "opencode-go" ? OPENCODE_ENDPOINTS.go.baseUrl : OPENCODE_ENDPOINTS.zen.baseUrl);
-      const res = await fetchImpl(`${base}/responses`, {
-        method: "POST", signal, headers: { "content-type": "application/json", ...auth },
-        body: JSON.stringify({ model: modelId, input: "ping", max_output_tokens: 1 }),
-      });
+      const wire = catalogEntryFor("opencode", modelId, base)?.wire;
+      const url =
+        wire === "anthropic-messages" ? `${base}/messages`
+        : wire === "google" ? `${base}/models/gemini`
+        : wire === "openai-chat" ? `${base}/chat/completions`
+        : `${base}/responses`;
+      const body =
+        wire === "anthropic-messages"
+          ? { model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }
+          : wire === "google"
+            ? { model: modelId, contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 1 } }
+            : wire === "openai-chat"
+              ? { model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }
+              : { model: modelId, input: "ping", max_output_tokens: 1 };
+      const res = await fetchImpl(url, { method: "POST", signal, headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(body) });
       return verdict(res, modelId);
     }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
