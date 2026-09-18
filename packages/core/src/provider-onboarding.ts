@@ -495,7 +495,17 @@ export async function minimalConnectionTest(
         wire === "anthropic-messages"
           ? { "x-api-key": apiKey ?? "", "anthropic-version": "2023-06-01" }
           : auth;
-      const res = await fetchImpl(url, { method: "POST", signal, headers: { "content-type": "application/json", ...wireHeaders }, body: JSON.stringify(body) });
+      const res = await fetchImpl(url, {
+        method: "POST", signal,
+        headers: {
+          "content-type": "application/json",
+          ...wireHeaders,
+          // docs/go: Go rejects routing without a stable session id
+          // (MissingSessionID) — send one per process, as in streaming.
+          "x-opencode-session": crypto.randomUUID(),
+        },
+        body: JSON.stringify(body),
+      });
       return verdict(res, modelId);
     }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {

@@ -79,14 +79,33 @@ export function anthropicSubscriptionHeaders(authKind: AuthMethodKind): Record<s
   return authKind === "subscription" ? { ...ANTHROPIC_OAUTH_BETA } : undefined;
 }
 
-function languageModelFor(
+/** OpenCode Go asks coding-agent clients to identify each conversation
+ * with a stable session id (`x-opencode-session`) so it can route and
+ * cache efficiently (docs/go: validated clients send it; requests
+ * without it are rejected with MissingSessionID). One stable id per
+ * moh process is the documented granularity ("each conversation" is a
+ * client session, not a chat). */
+const OPENCODE_SESSION_HEADER = "x-opencode-session";
+let opencodeSessionId: string | undefined;
+function openCodeSessionHeader(): Record<string, string> {
+  opencodeSessionId ??= crypto.randomUUID();
+  return { [OPENCODE_SESSION_HEADER]: opencodeSessionId };
+}
+
+/** Extra per-request headers for a target's backend (opencode session id). */
+function backendHeaders(target: RouteTarget, transport: AiSdkTransport | undefined): Record<string, string> | undefined {
+  if (target.endpoint.kind !== "opencode") return transport?.headers;
+  return { ...(transport?.headers ?? {}), ...openCodeSessionHeader() };
+}
+
+export function languageModelFor(
   target: RouteTarget,
   apiKey: string | undefined,
   transport: AiSdkTransport | undefined,
 ): LanguageModel {
   const { kind, name } = target.endpoint;
   const baseUrl = transport?.baseUrl;
-  const headers = transport?.headers;
+  const headers = backendHeaders(target, transport);
   // ADR-0010 (#159): dispatch on the wire, not the provider kind — kimi
   // and copilot speak anthropic-messages against their own backends, and
   // copilot switches wire per model (catalog metadata on the target).
@@ -99,7 +118,7 @@ function languageModelFor(
     const anthropic = createAnthropic({
       apiKey,
       ...(baseUrl ? { baseURL: baseUrl } : {}),
-      ...(anthropicHeaders ? { headers: anthropicHeaders } : {}),
+      ...((anthropicHeaders || headers) ? { headers: { ...(anthropicHeaders ?? {}), ...(headers ?? {}) } } : {}),
     });
     return anthropic(target.modelId);
   }
