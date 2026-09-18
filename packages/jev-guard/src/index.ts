@@ -134,6 +134,14 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           {
             pool: routing.pool,
             labels: routing.labels ?? {},
+            // The serving model is not the one the router picked: say so
+            // once per episode and stay out of the way (no call, no switch).
+            onMismatch: (currentModel, expected) => {
+              ctx.appendEvent({
+                name: "jev_routing",
+                payload: { kind: "mismatch", current: currentModel, expected },
+              });
+            },
             // One visible line per resolved problem, once per session —
             // never a turn error, never silence about a misconfiguration.
             onResolved: (resolution) => {
@@ -166,18 +174,59 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           return { model: verdict.ref };
         });
         ctx.onEvent(({ event }) => {
-          if (event.type !== "model_switched" || typeof event.to !== "string") return;
-          if (!judge.noteModelSwitched(event.to)) return;
-          // The user switched by hand: routing is suspended for the rest of
-          // the session. Releasing it needs the client→extension control
-          // seam that `/routing` and `/model auto` will bring (their issue).
-          ctx.appendEvent({ name: "jev_routing", payload: { kind: "override", model: event.to } });
+          if (event.type === "model_switched" && typeof event.to === "string") {
+            if (!judge.noteModelSwitched(event.to)) return;
+            // The user picked a model by hand: the router steps aside and
+            // says so. `/routing auto` (or `/model auto`) hands it back.
+            ctx.appendEvent({ name: "jev_routing", payload: { kind: "override", model: event.to } });
+            return;
+          }
+          // ADR-0038: the client talks to the router through commands. The
+          // extension answers with the resolved state, so the client never
+          // has to guess what the router thinks (a status only reaches the
+          // TUI footer, and outputs are not a channel).
+          if (event.type !== "extension_control") return;
+          const payload = (event.payload ?? {}) as Record<string, unknown>;
+          const cmd = typeof payload.cmd === "string" ? payload.cmd : "";
+          const applied = judge.control(cmd);
+          if (!applied) {
+            ctx.appendEvent({ name: "jev_routing", payload: { kind: "unknown-command", cmd } });
+            return;
+          }
+          ctx.appendEvent({
+            name: "jev_routing",
+            payload: { kind: "control", cmd, paused: applied.paused, override: applied.override },
+          });
         });
         // Resolve the assignment (and its diagnostics) at session start:
         // the pool listing overlaps the first turn instead of delaying it.
         ctx.onSessionStart(() => {
           void judge.resolution();
         });
+        // The client asks for the resolved state on demand (`/routing`).
+        // `state` is the one channel that answers *synchronously*: the
+        // status is ephemeral and `appendEvent` is a transcript line, not a
+        // return value — and the request may well arrive before the pool
+        // resolved, in which case the answer says so instead of waiting.
+        ctx.state.routingState = (): Record<string, unknown> | null => {
+          const resolution = judge.peekResolution();
+          const snapshot = judge.snapshot();
+          if (!resolution) return { ...snapshot, assignment: null };
+          const assignment = resolution.assignment;
+          const tierTargets = assignment ? assignment.targets : undefined;
+          return {
+            ...snapshot,
+            assignment: assignment
+              ? {
+                  targets: { ...tierTargets },
+                  members: assignment.members,
+                  ignoredLabels: [...assignment.ignoredLabels],
+                  unpriced: [...assignment.unpriced],
+                }
+              : null,
+            warnings: [...resolution.warnings],
+          };
+        };
       }
     },
   });

@@ -150,10 +150,22 @@ export interface RoutingSignals {
   readonly paused: boolean;
   /** The user switched the model by hand: their choice wins. */
   readonly override: boolean;
+  /**
+   * The serving model is not the model of the tier the router decided (the
+   * config changed, or `/model` named an id outside the tier map). The
+   * router does not spend a call to overrule it: it waits, visibly.
+   */
+  readonly mismatch?: boolean;
 }
 
 /** Why the router stayed: the vocabulary the judgment event carries. */
-export type RoutingStayReason = "paused" | "override" | "low-confidence" | "same-tier" | "streak";
+export type RoutingStayReason =
+  | "paused"
+  | "override"
+  | "mismatch"
+  | "low-confidence"
+  | "same-tier"
+  | "streak";
 
 export type RoutingDecision =
   | { readonly switch: true; readonly reason: "hysteresis" }
@@ -161,13 +173,15 @@ export type RoutingDecision =
 
 /**
  * The decision table. Checked in this order: no judgment is acted on while
- * routing is paused or the user has taken over; an unconfident answer
- * stays; being on the target tier already stays; and a move needs the
- * hysteresis (two consecutive turns naming the same tier).
+ * routing is paused, the user has taken over, or the serving model is not
+ * the one the router picked; an unconfident answer stays; being on the
+ * target tier already stays; and a move needs the hysteresis (two
+ * consecutive turns naming the same tier).
  */
 export function decideRouting(signals: RoutingSignals): RoutingDecision {
   if (signals.paused) return { switch: false, reason: "paused" };
   if (signals.override) return { switch: false, reason: "override" };
+  if (signals.mismatch) return { switch: false, reason: "mismatch" };
   if (signals.confidence < ROUTING_CONFIDENCE_MIN) return { switch: false, reason: "low-confidence" };
   if (signals.currentTier !== undefined && signals.currentTier === signals.tier) {
     return { switch: false, reason: "same-tier" };

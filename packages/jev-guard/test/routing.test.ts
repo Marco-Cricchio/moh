@@ -109,6 +109,19 @@ describe("the decision table (#787)", () => {
     });
   });
 
+  test("a serving model the router did not pick is a mismatch, not a judgment", () => {
+    expect(decideRouting({ ...base, confidence: 1, mismatch: true })).toEqual({ switch: false, reason: "mismatch" });
+    // The override and the pause still outrank it (they are the user talking).
+    expect(decideRouting({ ...base, confidence: 1, mismatch: true, override: true })).toEqual({
+      switch: false,
+      reason: "override",
+    });
+    expect(decideRouting({ ...base, confidence: 1, mismatch: true, paused: true })).toEqual({
+      switch: false,
+      reason: "paused",
+    });
+  });
+
   test("a manual override wins over everything, and a pause stays", () => {
     expect(decideRouting({ ...base, confidence: 1, override: true })).toEqual({ switch: false, reason: "override" });
     expect(decideRouting({ ...base, confidence: 1, paused: true })).toEqual({ switch: false, reason: "paused" });

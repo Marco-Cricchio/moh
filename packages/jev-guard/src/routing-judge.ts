@@ -51,6 +51,12 @@ export interface RoutingJudgeHost {
   labels?: TierLabels;
   /** Called once, when the assignment is first resolved (fail-open). */
   onResolved?: (resolution: RoutingResolution) => void;
+  /**
+   * Called once per mismatch episode: the serving model is not the one the
+   * router picked. Routing stays out of the way until the caller stops
+   * overruling it — visibly, and without paying for a judgment.
+   */
+  onMismatch?: (currentModel: string, expected: string) => void;
 }
 
 /** What one judged turn produced. */
@@ -76,10 +82,24 @@ export interface RoutingJudgeState {
   streak: number;
   streakTier: RoutingTier | null;
   override: boolean;
+  /** `/routing off`: routing is paused for this session. */
+  paused: boolean;
+  /** The model of the tier the router last decided to serve. */
+  decidedModel: string | null;
+  /** A `mismatch` notice was already published for this episode. */
+  mismatchAnnounced: boolean;
   expected: string | null;
 }
 
-const INITIAL: RoutingJudgeState = { streak: 0, streakTier: null, override: false, expected: null };
+const INITIAL: RoutingJudgeState = {
+  streak: 0,
+  streakTier: null,
+  override: false,
+  paused: false,
+  decidedModel: null,
+  mismatchAnnounced: false,
+  expected: null,
+};
 
 /**
  * Builds the per-session routing judge. State lives in the extension's
@@ -90,6 +110,8 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
   deps.state.routing = state;
   /** In-session memo of the resolution: one pool look-up, one listing. */
   let resolution: Promise<RoutingResolution> | undefined;
+  /** The resolved value, once it landed (see `peekResolution`). */
+  let resolved: RoutingResolution | null = null;
 
   const resolveAssignment = async (): Promise<RoutingResolution> => {
     const pool = await host.pool();
@@ -100,14 +122,20 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
   };
 
   const resolveOnce = (): Promise<RoutingResolution> =>
-    (resolution ??= resolveAssignment().then((resolved) => {
-      host.onResolved?.(resolved);
-      return resolved;
+    (resolution ??= resolveAssignment().then((value) => {
+      resolved = value;
+      host.onResolved?.(value);
+      return value;
     }));
 
   return {
     /** The resolution (assignment null when fewer than two tiers exist). */
     resolution: resolveOnce,
+
+    /** The resolution *if it is already available* — never starts one. */
+    peekResolution(): RoutingResolution | null {
+      return resolved;
+    },
 
     /** The tier assignment (null when nothing can be routed). */
     async assignment(): Promise<TierAssignment | null> {
@@ -121,9 +149,21 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * override is not judged either: the user's pick wins, silently.
      */
     async decide(text: string, currentModel: string): Promise<RoutingVerdict | null> {
-      if (state.override) return null;
+      if (state.override || state.paused) return null;
       const tiers = await this.assignment();
       if (!tiers) return null;
+      // The serving model is not the one the router last picked (the config
+      // changed, or `/model` named an id outside the tier map). Judging
+      // would only overrule the caller silently: wait, visibly, without
+      // spending a call. `null` = the notice was already published.
+      const mismatch = state.decidedModel !== null && currentModel !== state.decidedModel;
+      if (mismatch) {
+        if (state.mismatchAnnounced) return null;
+        state.mismatchAnnounced = true;
+        host.onMismatch?.(currentModel, state.decidedModel!);
+        return null;
+      }
+      state.mismatchAnnounced = false;
       const currentTier = tierOfModel(tiers, currentModel);
       const message = truncateToBytes(text);
       // The decision is taken inside `record` so the recorded payload and
@@ -189,38 +229,75 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       // one) leaves the streak untouched: it is not a judgment.
       if (counts && verdict.tier) state.streakTier = verdict.tier;
       state.streak = verdict.streak;
+      if (verdict.decision === "switch" && verdict.ref !== undefined) {
+        state.decidedModel = verdict.ref;
+        state.mismatchAnnounced = false;
+      }
       return { ...verdict, message };
     },
 
     /**
      * Arms the switch the router is about to make: the `model_switched`
      * event it causes must not count as the user taking over. A switch
-     * also resets the streak (ratified).
+     * also resets the streak (ratified) and becomes what the next turn
+     * expects to see serving.
      */
     noteSwitch(ref: string): void {
       state.expected = ref;
+      state.decidedModel = ref;
       state.streak = 0;
       state.streakTier = null;
+      state.mismatchAnnounced = false;
     },
 
     /**
      * Observes a `model_switched`. Returns true when it was *not* the
      * router's own switch — i.e. the user picked a model by hand, which
-     * suspends the router for the rest of the session and resets the
-     * streak. Releasing it needs a client→extension control seam, which
-     * the `/routing` and `/model auto` commands will bring (their own
-     * issue); today an override lasts the session.
+     * suspends the router and resets the streak. `/routing auto` (or
+     * `/model auto`) releases it (ADR-0038).
      */
     noteModelSwitched(to: string): boolean {
-      if (state.expected === to) {
-        state.expected = null;
-        return false;
-      }
       state.expected = null;
+      if (state.decidedModel === to) return false; // the router's own pick
       state.streak = 0;
       state.streakTier = null;
       state.override = true;
       return true;
+    },
+
+    /**
+     * Applies one client command (`/routing on|off|auto`, `/model auto`,
+     * ADR-0038). Returns what changed, or null for an unknown command —
+     * the caller decides how visible that is.
+     *
+     * `off` pauses for the session and drops the streak; `on` resumes and
+     * clears the override too (the user asked for routing, explicitly);
+     * `auto` releases a manual override only, and restarts the hysteresis
+     * from zero (ratified: releasing does not re-route the current model).
+     */
+    control(cmd: string): { paused: boolean; override: boolean } | null {
+      if (cmd === "off") {
+        state.paused = true;
+        state.streak = 0;
+        state.streakTier = null;
+        state.mismatchAnnounced = false;
+        return { paused: state.paused, override: state.override };
+      }
+      if (cmd === "on") {
+        state.paused = false;
+        state.override = false;
+        state.streak = 0;
+        state.streakTier = null;
+        state.mismatchAnnounced = false;
+        return { paused: state.paused, override: state.override };
+      }
+      if (cmd === "auto") {
+        state.override = false;
+        state.streak = 0;
+        state.streakTier = null;
+        return { paused: state.paused, override: state.override };
+      }
+      return null;
     },
 
     /** The session state (diagnostics and tests). */

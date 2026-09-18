@@ -230,6 +230,81 @@ describe("jev-guard routing (#787)", () => {
     expect(payloads).toContainEqual({ kind: "unpriced", count: 1, models: ["a/mystery"] });
   });
 
+  test("a command controls the router and the extension reports the new state", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      routing: { pool: async () => pool },
+    }).setup(ctx);
+    const hook = ctx.beforeTurnHooks[0]!;
+    const emit = (event: { type: string } & Record<string, unknown>) => ctx.eventHooks.forEach((h) => h({ event }));
+
+    emit({ type: "extension_control", extension: JEV_GUARD_NAME, payload: { cmd: "off" } });
+    expect(ctx.events.at(-1)!.payload).toEqual({ kind: "control", cmd: "off", paused: true, override: false });
+    // Paused: no judgment, no call, nothing spent.
+    expect(await hook(turn("design", 1))).toBeUndefined();
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(0);
+
+    emit({ type: "extension_control", extension: JEV_GUARD_NAME, payload: { cmd: "on" } });
+    expect(ctx.events.at(-1)!.payload).toMatchObject({ kind: "control", cmd: "on", paused: false });
+    await hook(turn("design", 2));
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(1);
+
+    // An unknown command is reported, never guessed at.
+    emit({ type: "extension_control", extension: JEV_GUARD_NAME, payload: { cmd: "banana" } });
+    expect(ctx.events.at(-1)!.payload).toEqual({ kind: "unknown-command", cmd: "banana" });
+  });
+
+  test("/routing reads the live state, and late calls still answer shape-correctly", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      routing: { pool: async () => pool },
+    }).setup(ctx);
+    const read = ctx.state.routingState as () => Record<string, unknown>;
+
+    // Before the pool resolved there is no assignment — the answer says so
+    // rather than waiting for a network round trip inside a keypress.
+    expect(read()).toMatchObject({ paused: false, override: false, assignment: null });
+
+    ctx.sessionStartHooks.forEach((h) => h());
+    await Bun.sleep(1);
+    const state = read();
+    expect(state.assignment).toMatchObject({
+      targets: { economico: "a/cheap", bilanciato: "a/mid", potente: "a/big" },
+    });
+    expect(state.streak).toBe(0);
+  });
+
+  test("a serving model the router did not pick gets one visible notice, and costs nothing", async () => {
+    const ctx = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      routing: { pool: async () => pool },
+    }).setup(ctx);
+    const hook = ctx.beforeTurnHooks[0]!;
+
+    // Two turns put the router on a/big.
+    await hook(turn("design", 1));
+    await hook(turn("design more", 2));
+
+    // The user overrides by config (not through a `model_switched` event).
+    expect(await hook(turn("design again", 3, "a/handpicked"))).toBeUndefined();
+    expect(await hook(turn("design again", 4, "a/handpicked"))).toBeUndefined();
+    const notices = ctx.events.filter((e) => (e.payload as { kind?: string } | undefined)?.kind === "mismatch");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.payload).toMatchObject({ current: "a/handpicked", expected: "a/big" });
+    // No judgment was spent on the mismatched turns.
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(2);
+
+    // Back on the router's pick: judging resumes normally.
+    await hook(turn("design again", 5, "a/big"));
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(3);
+  });
+
   test("a failed Jev call routes nothing and records nothing", async () => {
     const ctx = fakeCtx();
     await createJevGuardExtension({

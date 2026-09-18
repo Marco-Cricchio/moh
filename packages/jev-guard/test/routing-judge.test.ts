@@ -233,6 +233,60 @@ describe("routing judge (#787)", () => {
     expect(verdict).toMatchObject({ decision: "stay", reason: "streak" });
   });
 
+  test("a serving model the router did not pick pauses the judging, visibly, once", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    const mismatches: [string, string][] = [];
+    const judge = createRoutingJudge(
+      { client: fake, state: {} },
+      { pool: async () => ({ models: pool }), onMismatch: (current, expected) => mismatches.push([current, expected]) },
+    );
+
+    // Turns 1-2 pick a/big.
+    await judge.decide("design", "a/cheap");
+    const switched = await judge.decide("design more", "a/cheap");
+    judge.noteSwitch(switched!.ref!);
+    const callsAfterSwitch = fake.inputs.length;
+
+    // Turns 3-5: the serving model is not a/big — no judgment, one notice.
+    expect(await judge.decide("again", "a/handpicked")).toBeNull();
+    expect(await judge.decide("again", "a/handpicked")).toBeNull();
+    expect(await judge.decide("again", "a/config-change")).toBeNull();
+    expect(fake.inputs).toHaveLength(callsAfterSwitch);
+    expect(mismatches).toEqual([["a/handpicked", "a/big"]]);
+
+    // Back on the router's pick: judging resumes.
+    const resumed = await judge.decide("again", "a/big");
+    expect(resumed).not.toBeNull();
+    expect(fake.inputs).toHaveLength(callsAfterSwitch + 1);
+  });
+
+  test("a command pauses, resumes and releases — and the streak follows", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    const { judge } = judgeFor(fake);
+
+    expect(judge.control("off")).toEqual({ paused: true, override: false });
+    expect(await judge.decide("design", "a/cheap")).toBeNull();
+    expect(fake.inputs).toHaveLength(0);
+
+    expect(judge.control("on")).toEqual({ paused: false, override: false });
+    await judge.decide("design", "a/cheap");
+    expect(judge.snapshot()).toMatchObject({ streak: 1, streakTier: "potente" });
+    expect(await judge.decide("design more", "a/cheap")).toMatchObject({ decision: "switch" });
+
+    // A manual override, then the release: routing works again, hysteresis
+    // from zero, and the current model is left alone (ratified).
+    judge.noteModelSwitched("a/handpicked");
+    expect(judge.snapshot()).toMatchObject({ override: true });
+    expect(judge.control("auto")).toEqual({ paused: false, override: false });
+    expect(judge.snapshot()).toMatchObject({ override: false, streak: 0, streakTier: null });
+    const after = await judge.decide("design again", "a/handpicked");
+    // The serving model is not the router's pick: it says so instead of
+    // silently overruling it — releasing never re-routes by itself.
+    expect(after).toBeNull();
+
+    expect(judge.control("banana")).toBeNull();
+  });
+
   test("the assignment is resolved once and reported once", async () => {
     const fake = fakeClient({ choice: "bilanciato" });
     const reported: unknown[] = [];
