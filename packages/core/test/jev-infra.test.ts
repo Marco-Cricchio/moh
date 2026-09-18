@@ -589,7 +589,10 @@ describe("client→extension control (ADR-0038)", () => {
           name,
           version: "1.0.0",
           apiVersion: "1.3",
-          setup: (ctx) => ctx.onEvent(({ event }) => received.push({ owner: name, event })),
+          setup: (ctx) =>
+            ctx.onEvent(({ event }) => {
+              received.push({ owner: name, event });
+            }),
         }),
       );
     }

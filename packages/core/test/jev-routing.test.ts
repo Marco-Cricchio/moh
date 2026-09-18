@@ -102,6 +102,45 @@ describe("Jev routing in a session (#787)", () => {
     expect(route.chain[0]).toBe("pb/m");
   });
 
+  test("a client command pauses the router, releases it, and is answered with its state", async () => {
+    const served: string[] = [];
+    const session = await routingSession(choice("potente", 0.9), models, served);
+
+    // One judged turn (streak 1) — and the command channel reports it.
+    await session.send("hard task one");
+    const reported = session.extensionState("jev-guard", "routingState");
+    expect(typeof reported).toBe("function");
+    const state = (reported as () => Record<string, unknown>)();
+    expect(state).toMatchObject({ paused: false, override: false, streak: 1, streakTier: "potente" });
+    expect((state.assignment as { targets: Record<string, string> }).targets).toMatchObject({
+      economico: "pa",
+      potente: "pb",
+    });
+
+    // `/routing off`: paused for the session — the next turn is judged by
+    // nobody, and the model does not move.
+    session.setExtensionState("jev-guard", { cmd: "off" });
+    await Bun.sleep(5);
+    const judgedBefore = session.history().filter((e) => e.type === "extension_event" && e.name === "jev_judgment").length;
+    await session.send("hard task two");
+    expect(served).toEqual(["pa/m", "pa/m"]);
+    expect(session.history().filter((e) => e.type === "extension_event" && e.name === "jev_judgment")).toHaveLength(judgedBefore);
+    expect(session.history().some((e) => e.type === "model_switched")).toBe(false);
+
+    // The command left its trace, so a replayed session explains the pause.
+    const control = session.history().filter((e) => e.type === "extension_control");
+    expect(control).toHaveLength(1);
+    expect(control[0]).toMatchObject({ extension: "jev-guard", payload: { cmd: "off" } });
+
+    // `/routing on`: judging resumes, and the hysteresis restarts from zero.
+    session.setExtensionState("jev-guard", { cmd: "on" });
+    await Bun.sleep(5);
+    await session.send("hard task three");
+    await session.send("hard task four");
+    expect(session.activeModel).toBe("pb/m");
+    await session.dispose();
+  });
+
   test("low confidence keeps the current model and still records the turn", async () => {
     const served: string[] = [];
     const session = await routingSession(choice("potente", 0.4), models, served);

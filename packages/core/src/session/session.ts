@@ -786,6 +786,18 @@ export class AgentSession {
     return this.#extensions?.instances.map((i) => i.def.name) ?? [];
   }
 
+  /**
+   * ADR-0038: reads one value from a registered extension's own `state`
+   * store — how a client command reports what an extension is thinking
+   * (the status seam reaches the footer, and an `appendEvent` is a
+   * transcript line, not a return value). Undefined when the extension is
+   * not registered or never stored that key; the value is opaque to the
+   * core.
+   */
+  extensionState(extension: string, name: string): unknown {
+    return this.#extensions?.instances.find((i) => i.def.name === extension)?.state[name];
+  }
+
   /** Appends a session display-name event through the configured sink, so
    * the live store retains its single-writer accounting. */
   rename(name: string): void {

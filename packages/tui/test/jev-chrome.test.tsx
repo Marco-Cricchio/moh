@@ -77,6 +77,17 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "who-knows" })).toBe("jev · routing");
   });
 
+  test("a client command renders as one line naming the extension (#787, ADR-0038)", () => {
+    const events = [
+      { type: "extension_control", extension: "jev-guard", payload: { cmd: "off" } },
+      { type: "extension_control", extension: "jev-guard", payload: {} },
+    ] as unknown as AgentEvent[];
+    const blocks = projectTranscript(events, {});
+    const rendered = blocks.map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered).toEqual(["jev-guard · off", "jev-guard · control"]);
+    expect(blocks.every((b) => b.kind === "chrome")).toBe(true);
+  });
+
   test("both variants land as chrome blocks, never as errors", () => {
     const events = [
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
