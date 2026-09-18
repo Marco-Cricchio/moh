@@ -17,6 +17,11 @@
  * 1.2 (ADR-0033): the `beforeTurn` hook — one turn-start decision point,
  * fired once per user send before the turn exists. An older runtime never
  * calls it, which is a no-op (fail-open) — never an error.
+ *
+ * 1.3 (ADR-0038): the client→extension control channel — a client command
+ * addressed to one extension arrives as an `extension_control` event on
+ * `onEvent`. An older runtime never emits one, which is a no-op: an
+ * extension that waits for a command must tolerate never receiving it.
  */
 
 /**
@@ -24,7 +29,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.2";
+export const MOH_EXTENSION_API_VERSION = "1.3";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -125,6 +130,19 @@ export interface ExtensionEventInput {
 
 export interface EventContext {
   readonly event: ExtensionEvent;
+}
+
+/**
+ * A client command addressed to one extension (ADR-0038, apiVersion 1.3).
+ * The core carries it opaquely; the runtime delivers it to the named
+ * extension's `onEvent` hooks alone, and only to that extension.
+ */
+export interface ExtensionControlEvent {
+  readonly type: "extension_control";
+  /** The addressed extension's own name. */
+  readonly extension: string;
+  /** JSON-serializable command payload; its meaning is yours. */
+  readonly payload: Record<string, unknown>;
 }
 
 export interface AfterTurnContext {

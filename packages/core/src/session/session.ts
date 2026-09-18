@@ -768,6 +768,24 @@ export class AgentSession {
     return this.#sessionFile;
   }
 
+  /**
+   * ADR-0038: sends one control command to a running extension (by its own
+   * `name`, as published in `extension_loaded`). The payload is opaque to
+   * the core and must be JSON-serializable; the event is appended through
+   * the normal path (sink, listeners, single-writer guard) and delivered to
+   * that extension's `onEvent` hooks alone. Naming an extension that is not
+   * registered is not an error: the log records what was asked, and nobody
+   * receives it.
+   */
+  setExtensionState(extension: string, payload: Record<string, unknown>): void {
+    this.#append({ type: "extension_control", extension, payload });
+  }
+
+  /** The names of the extensions currently registered on this session. */
+  extensionNames(): string[] {
+    return this.#extensions?.instances.map((i) => i.def.name) ?? [];
+  }
+
   /** Appends a session display-name event through the configured sink, so
    * the live store retains its single-writer accounting. */
   rename(name: string): void {

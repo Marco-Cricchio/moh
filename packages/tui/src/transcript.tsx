@@ -237,6 +237,12 @@ export function extensionEventLine(name: string, payload: unknown): string {
   return parts.join(" · ");
 }
 
+/** ADR-0038: the short form of a control payload (`{ cmd: "off" }` → `off`). */
+function controlCommandLine(payload: Record<string, unknown> | undefined): string {
+  const cmd = payload?.cmd;
+  return typeof cmd === "string" && cmd !== "" ? cmd : "control";
+}
+
 /** #787: the router's notices — one line each, never a warning, never a
  * turn error. An unknown kind degrades to the bare product name. */
 function routingNoticeLine(record: Record<string, unknown>): string {
@@ -628,6 +634,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "extension_loaded":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "extension loaded", detail: `${event.name} ${event.version}`, lines: [] });
+        break;
+      case "extension_control":
+        // ADR-0038: a client command addressed to one extension — the
+        // extension's own record (an `extension_event`) explains what it
+        // did with it, so this one line only names the command.
+        blocks.push({
+          key,
+          kind: "chrome",
+          glyph: "◈",
+          type: `${event.extension} · ${controlCommandLine(event.payload)}`,
+          lines: [],
+        });
         break;
       case "extension_event":
         // ADR-0032 (#784): an extension's own chrome record — one dim line.

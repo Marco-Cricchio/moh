@@ -646,6 +646,16 @@ export class ExtensionRuntime {
   }
 
   async dispatchEvent(event: AgentEvent): Promise<AgentEvent[]> {
+    // ADR-0038: a client command reaches the extension it names, and only
+    // that one — one extension's control payload must never be another's
+    // (the guardrail also listens on `onEvent`).
+    if (event.type === "extension_control") {
+      const target = this.#instances.find((i) => i.def.name === event.extension);
+      if (target) {
+        await this.#each("onEvent", (h) => h({ event: event as unknown as ExtensionEvent }), [target]);
+      }
+      return this.#drainErrors();
+    }
     await this.#each("onEvent", (h) => h({ event: event as unknown as ExtensionEvent }));
     return this.#drainErrors();
   }
@@ -692,8 +702,12 @@ export class ExtensionRuntime {
     return { veto: false, ask: false, errors: this.#drainErrors() };
   }
 
-  async #each<K extends keyof HookSet>(key: K, invoke: (hook: HookSet[K][number]) => Promise<void> | void): Promise<void> {
-    for (const instance of this.#instances) {
+  async #each<K extends keyof HookSet>(
+    key: K,
+    invoke: (hook: HookSet[K][number]) => Promise<void> | void,
+    only?: readonly RuntimeExtension[],
+  ): Promise<void> {
+    for (const instance of only ?? this.#instances) {
       for (const hook of instance.hooks[key]) {
         try {
           await (invoke(hook) as Promise<void> | void);

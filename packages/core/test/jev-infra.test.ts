@@ -577,3 +577,53 @@ describe("subagent children share the parent's hook checker (#784 spec §5)", ()
     expect(events.some((e) => e.type === "permission_denied")).toBe(false);
   });
 });
+
+describe("client→extension control (ADR-0038)", () => {
+  test("a command reaches the named extension only, and lands in the log", async () => {
+    const home = tmpDir("moh-control-");
+    const received: { owner: string; event: Record<string, unknown> }[] = [];
+    const rt = new ExtensionRuntime({ mohHome: home, consent: () => true });
+    for (const name of ["first", "second"]) {
+      await rt.register(
+        defineExtension({
+          name,
+          version: "1.0.0",
+          apiVersion: "1.3",
+          setup: (ctx) => ctx.onEvent(({ event }) => received.push({ owner: name, event })),
+        }),
+      );
+    }
+    const session = createSession({ provider: "mock", extensions: rt });
+    await session.send("hello");
+
+    session.setExtensionState("second", { cmd: "off" });
+    await Bun.sleep(10); // the dispatch queue is asynchronous by design
+
+    // Only the addressed extension saw it (the others still got the turn's
+    // own events — that is what makes this assertion meaningful).
+    const control = received.filter((r) => r.event.type === "extension_control");
+    expect(control).toHaveLength(1);
+    expect(control[0]!.owner).toBe("second");
+    expect(control[0]!.event).toMatchObject({ extension: "second", payload: { cmd: "off" } });
+
+    // The log keeps the intent, so a resumed session can explain the state.
+    const logged = session.history().filter((e) => e.type === "extension_control");
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ extension: "second", payload: { cmd: "off" } });
+    expect(session.extensionNames()).toEqual(["first", "second"]);
+    await session.dispose();
+  });
+
+  test("addressing an extension that is not registered is silent, never an error", async () => {
+    const rt = new ExtensionRuntime({ mohHome: tmpDir("moh-control-"), consent: () => true });
+    const session = createSession({ provider: "mock", extensions: rt });
+    await session.send("hello");
+
+    expect(() => session.setExtensionState("ghost", { cmd: "off" })).not.toThrow();
+    await Bun.sleep(5);
+
+    expect(session.history().some((e) => e.type === "extension_control")).toBe(true);
+    expect(session.extensionNames()).toEqual([]);
+    await session.dispose();
+  });
+});

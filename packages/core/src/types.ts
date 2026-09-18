@@ -328,6 +328,15 @@ type AgentEventBase =
    */
   | { type: "extension_event"; extension: string; name: string; payload?: unknown }
   /**
+   * ADR-0038 (apiVersion 1.3): a client command addressed to one running
+   * extension (`AgentSession.setExtensionState`). The payload is opaque to
+   * the core and JSON-serializable; the event is chrome — never fed to the
+   * model, never a turn error — and it is delivered to the named
+   * extension's `onEvent` hooks alone. Recording it keeps the intent
+   * replayable: a resumed log still explains why an extension was paused.
+   */
+  | { type: "extension_control"; extension: string; payload: Record<string, unknown> }
+  /**
    * One informational startup line (e.g. a bundled integration that stayed
    * inactive because its configuration is absent). Chrome only: never a
    * warning, never a turn error, never model context — the client renders
