@@ -47,6 +47,7 @@ page is the same content in manual form, plus the manual's own entries
 | /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |
 | /rename `<name>` | rename the current session |
+| /session | session analysis report (usage, tools, shape — snapshot at open) |
 | /settings | settings panel |
 | /theme | theme picker (built-ins + personal) |
 | /thinking | reasoning display + thinking level |
