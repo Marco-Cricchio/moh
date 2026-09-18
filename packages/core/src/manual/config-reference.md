@@ -39,6 +39,7 @@ moh reads two files:
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
+  "browser": { "enabled": true, "headless": true, "allowedHosts": ["192.168.1.1"] },
   "maxIterations": 50
 }
 ```
@@ -79,6 +80,31 @@ All keys are optional. Notes:
   **disabled** — MPM is opt-in), `quota` tightens the
   storage bounds (`maxFiles`, `maxTotalBytes`), `exclude` adds
   gitignore-style workspace exclusion patterns.
+- `browser` — the native browser tool (#774, ADR-0029), **off by
+  default**: `enabled: true` registers the `browser` tool
+  (`navigate`, `snapshot`, `read_text`, `close`, `screenshot`, plus the
+  act tier: `click`, `fill`, `select`, `scroll`, `press_key`,
+  `wait_for`, `upload`, `eval_js`) driving a headless
+  Chromium via playwright-core. Requires the optional toolchain
+  (`npm i -g playwright-core && npx playwright-core install chromium`);
+  when missing, the tool is not registered and a visible
+  `browser_unavailable` diagnostic is recorded at session start.
+  `headless` (default `true`) runs a real Chrome window when `false`
+  (same permission rules; the window is reaped when the session
+  closes).
+  Loopback URLs (`localhost` dev servers) are always allowed; other
+  private/link-local addresses are blocked by default (prompt-injection
+  SSRF guard) — including public hostnames that resolve to private
+  addresses (DNS verification, checked per redirect hop) — and
+  `allowedHosts` is the exact-host escape hatch (no wildcard subdomain
+  matching; `MOH_FETCH_ALLOW_PRIVATE` does not apply here). Element
+  addressing is exclusively by `[ref=eN]` from the latest snapshot.
+  Act-tier actions ask by default (#777); acting on a stale ref
+  returns a visible error with the fresh snapshot. `upload` sources
+  must be inside the project root (out-of-root paths ask per
+  occurrence and never persist as a rule); a required download asks
+  with name + size and stages to `~/.moh/browser-downloads/<slug>/`
+  (blocked entirely when refused or unattended — no silent writes).
 - `maxIterations` — per-turn tool-call iteration cap (default 50). `0`
   is the unlimited sentinel (#498): no cap — the anti-runaway wrap-up
   never fires. Any integer 1–500 is accepted (the 50/100/200/500

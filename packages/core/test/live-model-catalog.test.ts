@@ -364,3 +364,46 @@ describe("listProviderModels", () => {
     expect(seen["x-goog-api-key"]).toBe("k");
   });
 });
+describe("OpenCode live catalogs (#794)", () => {
+  test("Zen and Go use their endpoint-shaped bases and Bearer API-key headers", async () => {
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    for (const [endpoint, expected] of [
+      ["opencode-zen", "https://opencode.ai/zen/v1/models"],
+      ["opencode-go", "https://opencode.ai/zen/go/v1/models"],
+    ]) {
+      const models = await listProviderModels("opencode", endpoint, {
+        apiKey: "opencode-key",
+        fetchImpl: async (url, headers) => {
+          calls.push({ url, headers });
+          return { status: 200, json: { data: [{ id: `${endpoint}-model` }] } };
+        },
+      });
+      expect(models).toEqual([{ id: `${endpoint}-model` }]);
+      expect(calls.at(-1)).toEqual({ url: expected, headers: { Accept: "application/json", Authorization: "Bearer opencode-key" } });
+    }
+  });
+});
+
+describe("OpenCode live-catalog cache and fallback (#794)", () => {
+  const home = () => mkdtempSync(join(tmpdir(), "moh-opencode-live-"));
+  const zen = { name: "opencode-zen", type: "opencode", baseUrl: "https://opencode.ai/zen/v1" };
+
+  test("uses a fresh endpoint-scoped cache, force refreshes, and keeps stale listings offline", async () => {
+    const dir = home();
+    try {
+      let calls = 0;
+      const fetchImpl = async () => {
+        calls += 1;
+        return { status: 200, json: { data: [{ id: `live-${calls}` }] } };
+      };
+      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl })).toEqual({ "opencode-zen": [{ id: "live-1" }] });
+      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl })).toEqual({ "opencode-zen": [{ id: "live-1" }] });
+      expect(calls).toBe(1);
+      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl, force: true })).toEqual({ "opencode-zen": [{ id: "live-2" }] });
+      await saveLiveModelCache({ "opencode-zen": { fetchedAt: Date.now() - 48 * 3_600_000, models: [{ id: "stale-open-code" }] } }, join(dir, ".moh", "live-models.json"));
+      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl: async () => { throw new Error("offline"); } })).toEqual({ "opencode-zen": [{ id: "stale-open-code" }] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -106,19 +106,24 @@ export class PermissionGate {
       return { allowed: false, denial: `permission denied: ${tool} requires user consent` };
     }
     this.#append({ type: "permission_granted", callId, tool, reason: "user" });
-    if (answer === "always" && this.#permissions.persistable(tool, args)) {
-      this.#persistAlways(tool, args);
+    // #775 (ADR-0029): on a browser call both "always" and "always for
+    // this site" build the same session-scoped `browser:<action>
+    // <url-glob>` runtime rule — never a tool-wide rule, never persisted.
+    const runtimeOnly = tool === "browser";
+    if ((answer === "always" || answer === "always_for_site") && this.#permissions.persistable(tool, args)) {
+      this.#persistAlways(tool, args, { runtimeOnly });
     }
     return { allowed: true };
   }
 
   /** "always" persistence (#90): runtime rule + moh.json write for mcp__* tools. */
-  #persistAlways(tool: string, args: unknown): void {
+  #persistAlways(tool: string, args: unknown, opts: { runtimeOnly?: boolean } = {}): void {
     const rule = this.#permissions.runtimeRuleFor(tool, args);
     if (rule) {
       this.#permissions.addRuntimeRule(rule);
       this.#append({ type: "permission_rule_added", rule: { ...rule, tier: "runtime" } });
     }
+    if (opts.runtimeOnly) return; // #775: browser rules are session-scoped by design
     // MCP tools: "always" also persists to moh.json for future sessions (#15).
     if (tool.startsWith("mcp__")) {
       try {

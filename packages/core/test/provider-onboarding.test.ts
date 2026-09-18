@@ -579,3 +579,46 @@ describe("minimalConnectionTest (subscription)", () => {
     }
   });
 });
+
+describe("OpenCode onboarding (#794)", () => {
+  test("both products open the manual URL, store one pasted key outside moh.json, and create selected profiles", async () => {
+    const authFile = join(mkdtempSync(join(tmpdir(), "moh-opencode-auth-")), "config");
+    const io = ioWith(["opencode", "both", "key-794"]);
+    const opened: string[] = [];
+    io.openUrl = async (url) => (opened.push(url), false);
+    const tested: EndpointProfile[] = [];
+    const file = join(mkdtempSync(join(tmpdir(), "moh-opencode-config-")), "moh.json");
+    const { config } = await addProviderToFile(io, file, { authFile, tester: async (profile) => (tested.push(profile), { ok: true, modelId: profile.defaultModel! }) });
+    expect(opened).toEqual(["https://opencode.ai/auth"]);
+    expect(io.said).toContain("OpenCode account and API keys: https://opencode.ai/auth");
+    expect(tested.map((profile) => profile.name)).toEqual(["opencode-zen", "opencode-go"]);
+    expect(config.endpoints).toEqual([
+      { name: "opencode-zen", type: "opencode", baseUrl: "https://opencode.ai/zen/v1", defaultModel: "gpt-5.6-terra" },
+      { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
+    ]);
+    expect(JSON.stringify(config)).not.toContain("key-794");
+    expect(JSON.parse(readFileSync(authFile, "utf8")).auth.apiKeys).toEqual({ "opencode-zen": "key-794", "opencode-go": "key-794" });
+  });
+
+  test("uses the Responses endpoint for an OpenCode minimal test", async () => {
+    let url = "";
+    let body = "";
+    const result = await minimalConnectionTest(
+      { name: "opencode-zen", type: "opencode", baseUrl: "https://opencode.ai/zen/v1", defaultModel: "gpt-5.6-terra" },
+      (async (input: string | URL | Request, init?: RequestInit) => { url = String(input); body = String(init?.body); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_ZEN_API_KEY: "key" },
+    );
+    expect(result).toEqual({ ok: true, modelId: "gpt-5.6-terra" });
+    expect(url).toBe("https://opencode.ai/zen/v1/responses");
+    expect(JSON.parse(body)).toEqual({ model: "gpt-5.6-terra", input: "ping", max_output_tokens: 1 });
+  });
+});
+
+describe("OpenCode onboarding cancellation (#794)", () => {
+  test("keeps the manual URL available when browser opening fails and aborts on an empty key", async () => {
+    const io = ioWith(["opencode", "zen", ""]);
+    io.openUrl = async () => { throw new Error("headless"); };
+    await expect(runProviderAdd(io, okTest())).rejects.toThrow("OpenCode API key");
+    expect(io.said).toContain("OpenCode account and API keys: https://opencode.ai/auth");
+  });
+});

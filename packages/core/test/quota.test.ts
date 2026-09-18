@@ -43,10 +43,10 @@ describe("getQuota — dispatch", () => {
     expect(f.calls).toHaveLength(0);
   });
 
-  test("unsupported api-key kinds (anthropic, xai, kimi) return null without probing", async () => {
+  test("unsupported api-key kinds (anthropic, xai, kimi, opencode) return null without probing", async () => {
     const f = scriptedFetch([]);
     const env = {};
-    for (const type of ["anthropic", "xai", "kimi-coding"] as const) {
+    for (const type of ["anthropic", "xai", "kimi-coding", "opencode"] as const) {
       expect(await getQuota(profile({ type, apiKey: "sk-test" }), { fetchImpl: f, env })).toBeNull();
     }
     expect(f.calls).toHaveLength(0);
@@ -288,6 +288,14 @@ describe("estimated model pricing (#719)", () => {
   test("returns no estimate for an unknown or zero-only catalog record", () => {
     expect(estimateModelCost("custom/unknown", { inputTokens: 100, outputTokens: 100 })).toBeUndefined();
     expect(estimateModelCost("gateway/any-model", { inputTokens: 100, outputTokens: 100 })).toBeUndefined();
+  });
+
+  test("never borrows third-party prices for OpenCode Go or unpriced Zen models", () => {
+    // Both ids have prices elsewhere in the shipped catalogs. OpenCode's
+    // endpoint contract wins: Go is never USD-estimated; Zen needs its own
+    // official overlay rate (the current conservative overlay has none).
+    expect(estimateModelCost("opencode-go/gpt-5.6-luna", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeUndefined();
+    expect(estimateModelCost("opencode-zen/claude-haiku-4-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeUndefined();
   });
 
   test("local rollups omit cost rather than inventing one", () => {

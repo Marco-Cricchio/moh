@@ -373,3 +373,42 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     i.unmount();
   });
 });
+
+describe("OpenCode onboarding (#794)", () => {
+  test("selects both products, opens the manual URL, and saves key-free profiles", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const done: (string | null)[] = [];
+    const opened: string[] = [];
+    const tested: string[] = [];
+    const i = render(<Onboarding
+      cwd={cwd}
+      home={home}
+      env={{}}
+      tester={async (profile) => { tested.push(profile.name); return { ok: true as const, modelId: profile.defaultModel! }; }}
+      openUrl={async (url) => { opened.push(url); return false; }}
+      onDone={(ref) => done.push(ref)}
+    />);
+    await sleep(30);
+    for (let n = 0; n < 8; n++) { i.stdin.write("\x1b[B"); await sleep(10); }
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("OpenCode product");
+    i.stdin.write("\x1b[B\x1b[B\r");
+    await sleep(30);
+    typeInto(i, "key-794");
+    i.stdin.write("\r");
+    await sleep(100);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Where should");
+    i.stdin.write("\x1b[B\r");
+    await sleep(100);
+    expect(opened).toEqual(["https://opencode.ai/auth"]);
+    expect(tested).toEqual(["opencode-zen", "opencode-go"]);
+    expect(done).toEqual(["opencode-zen/gpt-5.6-terra"]);
+    const config = loadMohConfig(join(cwd, "moh.json"));
+    expect(config.endpoints?.map((profile) => profile.name)).toEqual(["opencode-zen", "opencode-go"]);
+    expect(JSON.stringify(config)).not.toContain("key-794");
+    expect(readFileSync(join(home, ".moh", "config"), "utf8")).toContain("key-794");
+    i.unmount();
+  });
+});

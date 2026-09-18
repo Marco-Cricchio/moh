@@ -82,11 +82,12 @@ export interface AssemblyError {
 
 /** The client interaction seams. Without them (headless), unpermitted calls and project MCP servers fail fast. */
 export interface SessionConsent {
-  /** Tool "ask" decisions (TUI: the permission modal). */
+  /** Tool "ask" decisions (TUI: the permission modal). `always_for_site`
+   * (#775) is the browser act-tier answer — session-scoped, never persisted. */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
-  ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** ask_user channel (TUI: the inline question block, ADR-0019). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Project MCP server consent (TUI: reuses the permission modal). */
@@ -152,6 +153,8 @@ function mergePermissionFlags(
     bashDeny: [...(flags.bashDeny ?? []), ...(base?.bashDeny ?? [])],
     pathAllow: [...(flags.pathAllow ?? []), ...(base?.pathAllow ?? [])],
     pathDeny: [...(flags.pathDeny ?? []), ...(base?.pathDeny ?? [])],
+    browserAllow: [...(flags.browserAllow ?? []), ...(base?.browserAllow ?? [])],
+    browserDeny: [...(flags.browserDeny ?? []), ...(base?.browserDeny ?? [])],
   };
 }
 
@@ -268,13 +271,47 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       }
     : (event: AgentEvent) => store.append(event);
 
+  // #774 / ADR-0029: the browser tool rides the builtin assembly when
+  // enabled; a missing toolchain surfaces as a `browser_unavailable`
+  // chrome event (visible diagnostic, never a session error), and the
+  // live browser is reaped at session dispose via `onDispose`.
+  let browserDispose: (() => Promise<void>) | undefined;
+  const browserDiagnostics: string[] = [];
+  const builtinOpts: import("../builtin-tools").BuiltinToolsOptions = {
+    ledgerRoot: join(mohHome, "bash-ledgers"),
+    ...(config.browser ? { browser: config.browser } : {}),
+    // #777: upload containment anchors on the session root; the
+    // per-occurrence asks (out-of-root upload, required download) ride
+    // the session's permission consent — headless (no seam) refuses
+    // out-of-root uploads and keeps downloads blocked.
+    browserRoot: options.cwd,
+    ...(options.consent?.onPermissionRequest
+      ? {
+          browserAsk: async (question) => {
+            const detail =
+              question.kind === "download"
+                ? `download "${question.filename}" (${question.size} bytes)`
+                : `upload of the out-of-root path "${question.path}"`;
+            const answer = await options.consent!.onPermissionRequest!("browser", {
+              browserAsk: question.kind,
+              detail,
+            });
+            return answer !== "no";
+          },
+        }
+      : {}),
+    diagnostics: browserDiagnostics,
+  };
+  const builtins = builtinTools(builtinOpts);
+  browserDispose = builtinOpts.browserSession ? () => builtinOpts.browserSession!.dispose() : undefined;
+
   try {
     const session = new AgentSession({
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
       ...(mpm ? { mpm } : {}),
-      tools: o.tools ?? builtinTools({ ledgerRoot: join(mohHome, "bash-ledgers") }),
+      tools: o.tools ?? builtins,
       mohHome,
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
@@ -312,6 +349,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         ? { maxIterations: o.maxIterations ?? config.maxIterations }
         : {}),
       ...(resumeEvents?.length ? { resume: { events: resumeEvents, consume: o.resumeConsume !== false } } : {}),
+      // #774: reap the browser at session dispose; emit the visible
+      // missing-toolchain diagnostic at session start.
+      ...(browserDispose ? { onDispose: browserDispose } : {}),
+      ...(browserDiagnostics.length ? { diagnostics: browserDiagnostics } : {}),
     });
     return { session, store };
   } catch (e) {

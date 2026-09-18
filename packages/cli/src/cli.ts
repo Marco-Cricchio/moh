@@ -34,7 +34,7 @@ commands:
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
   mpm      project map diagnostics (see: moh mpm --help)
-  sessions session management (rename, delete, tree; see: moh sessions --help)
+  sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
   handoff  publish a session handoff (see: moh handoff --help)

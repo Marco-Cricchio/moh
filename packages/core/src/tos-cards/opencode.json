@@ -1,0 +1,15 @@
+{
+  "provider": "opencode",
+  "verified": "2026-09",
+  "allowed": [
+    "Use OpenCode Zen and Go through their documented APIs with an API key."
+  ],
+  "forbidden": [
+    "Do not use moh to bypass OpenCode account, subscription, balance, or API-key controls."
+  ],
+  "retention": "See OpenCode's current terms and privacy documentation for retention details.",
+  "training": "See OpenCode's current terms and privacy documentation for training details.",
+  "links": [
+    { "label": "OpenCode documentation", "url": "https://opencode.ai/docs/" }
+  ]
+}

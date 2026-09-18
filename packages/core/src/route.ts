@@ -20,6 +20,7 @@ export type ProviderKind =
   | "xai"
   | "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" | "fireworks" | "huggingface" | "mistral"
   | "moonshot" | "minimax" | "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" | "cloudflare-ai-gateway" | "baseten"
+  | "opencode"
   | "mock"
   | "custom";
 
@@ -77,6 +78,7 @@ export function envApiKey(endpointName: string, env: Record<string, string | und
 
 /** Documented provider credential fallback. Endpoint-specific MOH_ENDPOINT_* wins. */
 export function providerApiKey(kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  if (kind === "opencode") return env.OPENCODE_API_KEY;
   const key = providerProfile(kind)?.apiKeyEnv;
   return key ? env[key] : undefined;
 }

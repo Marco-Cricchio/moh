@@ -56,11 +56,13 @@ export interface SessionConfig {
   cwd?: string;
   /** 3-tier permission gate for tool executions. */
   permissions?: PermissionsConfig;
-  /** Consent callback for "ask" decisions. Without it (headless) unpermitted calls fail fast. */
+  /** Consent callback for "ask" decisions. Without it (headless) unpermitted calls fail fast.
+   * `always_for_site` (#775) is the browser act-tier answer: it writes a session-scoped
+   * URL-scoped runtime rule only — never persisted. */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
-  ) => Promise<"yes" | "always" | "no"> | "yes" | "always" | "no";
+  ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** Interactive question channel for the ask_user tool. Without it (headless) the tool fails fast. */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
@@ -176,4 +178,12 @@ export interface SessionConfig {
    * custom providers the catalog cannot describe).
    */
   images?: { imageCapable?: boolean | (() => boolean) };
+  /**
+   * #774: awaited at session dispose — reaps the per-session browser.
+   * Owned by the assembly (from-config); never a tool concern.
+   */
+  onDispose?: () => Promise<void>;
+  /** #774: visible startup diagnostics (e.g. missing browser toolchain).
+   * Each entry becomes a `browser_unavailable` chrome event at open. */
+  diagnostics?: readonly string[];
 }

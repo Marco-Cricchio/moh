@@ -58,6 +58,8 @@ export class AgentSession {
   readonly #turn = (): number => this.#turnSeq;
   readonly #permissions: PermissionResolver;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
+  /** #774: browser reap seam, awaited at dispose. */
+  #onDispose: (() => Promise<void>) | undefined;
   /** The permission gate (#90): 3-tier check + "always" persistence. */
   readonly #gate: PermissionGate;
   /** Same-turn tool execution (#91): parallel run + gated execution. */
@@ -212,6 +214,19 @@ export class AgentSession {
         if (!ok) return;
         if (tool === "grep" || tool === "glob") this.#mpmExploratoryCalls += 1;
       },
+      // #778: browser screenshots become typed image parts only when the
+      // serving model declares image input — the exact #488 probe.
+      imageCapable: () => {
+        const pin = config.images?.imageCapable;
+        if (typeof pin === "boolean") return pin;
+        if (typeof pin === "function") return pin();
+        const ref = this.#provider.name;
+        const slash = ref.indexOf("/");
+        const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
+        const profile = this.#endpoints.find((e) => e.name === endpointName);
+        if (profile?.capabilities?.multimodal === false) return false;
+        return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
+      },
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.
@@ -247,8 +262,14 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
+    this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
+    // #774: visible startup diagnostics — a missing browser toolchain is
+    // chrome (every surface can warn), never a turn error and never silence.
+    for (const message of config.diagnostics ?? []) {
+      this.#append({ type: "browser_unavailable", reason: message });
+    }
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
     // #616: MPM orientation — opt-in via SessionConfig.mpm (a root the
     // projection maps). The service is supplied or constructed+loaded here;
@@ -1029,6 +1050,10 @@ export class AgentSession {
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
+    // #774: reap the per-session browser (no orphan Chromium at exit).
+    try {
+      await this.#onDispose?.();
+    } catch { /* reaping is best-effort at shutdown */ }
     if (!this.#extensions) return;
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
     // The end-of-session events were just queued: let the dispatch drain
