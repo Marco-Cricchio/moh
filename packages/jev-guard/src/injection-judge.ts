@@ -14,7 +14,7 @@
  * `onResolved`), because "was this sent?" is part of what happened.
  */
 import type { TurnConfirmOutcome } from "@moh/extension";
-import type { JevAnswer, JevClient, JevJudgmentMeta } from "./client";
+import { noulProbability, type JevAnswer, type JevClient, type JevJudgmentMeta } from "./client";
 import {
   INJECTION_INPUT_MAX_BYTES,
   INJECTION_QUESTIONS,
@@ -64,9 +64,12 @@ export interface InjectionToolVerdict {
   readonly signals: InjectionSignals;
 }
 
-function probability(answers: Record<string, JevAnswer>, id: string): number {
-  const answer = answers[id];
-  return answer?.type === "noul" && typeof answer.noul === "number" ? answer.noul : 0;
+/** The two signals, read off one answers map (both halves ask both). */
+function signalsOf(answers: Record<string, JevAnswer>): InjectionSignals {
+  return {
+    injection: noulProbability(answers, "injection"),
+    sensitive: noulProbability(answers, "sensitive"),
+  };
 }
 
 /** The outcome vocabulary the record carries, per band. */
@@ -75,34 +78,38 @@ function decisionOf(band: InjectionBand, source: InjectionSource): InjectionDeci
   return band === "confirm" ? "withheld" : band === "warn" ? "warn" : "pass";
 }
 
+/** One check's outcome, as the record needs it. */
+interface Judgment {
+  readonly source: InjectionSource;
+  readonly signals: InjectionSignals;
+  readonly band: InjectionBand;
+  readonly decision: InjectionDecision;
+  readonly answers: Record<string, JevAnswer>;
+  readonly meta: JevJudgmentMeta;
+}
+
 /**
- * The `jev_judgment` payload for one check. The judged text rides the
- * record only for the input half (it *is* the user's message, already in
- * the log); an inspected tool result is never copied here (ADR-0034 §2:
- * the inspected content is not retained).
+ * The `jev_judgment` payload for one check. The judged text is **never**
+ * copied here — neither the message (it is the `user_message` when the
+ * turn runs, and a cancelled turn must leave no trace of it) nor the tool
+ * result (ADR-0034 §2: the inspected content is not retained). What the
+ * record keeps is the judgment: the two probabilities, the band and what
+ * was done about it.
  */
-function record(
-  source: InjectionSource,
-  signals: InjectionSignals,
-  band: InjectionBand,
-  decision: InjectionDecision,
-  answers: Record<string, JevAnswer>,
-  meta: JevJudgmentMeta,
-  message?: string,
-): Record<string, unknown> {
+function judgmentRecord(judgment: Judgment): Record<string, unknown> {
+  const { signals } = judgment;
   return {
     useCase: "injection",
-    source,
-    band,
-    decision,
+    source: judgment.source,
+    band: judgment.band,
+    decision: judgment.decision,
     injection: signals.injection,
     sensitive: signals.sensitive,
     questions: { injection: signals.injection, sensitive: signals.sensitive },
-    ...(message !== undefined ? { message } : {}),
-    answers,
-    model: meta.model,
-    latencyMs: meta.latencyMs,
-    usage: meta.usage,
+    answers: judgment.answers,
+    model: judgment.meta.model,
+    latencyMs: judgment.meta.latencyMs,
+    usage: judgment.meta.usage,
   };
 }
 
@@ -120,23 +127,25 @@ export function createInjectionJudge(deps: InjectionJudgeDeps) {
      */
     async judgeInput(text: string): Promise<InjectionInputVerdict | null> {
       const message = sliceForJudgment(text, INJECTION_INPUT_MAX_BYTES);
-      // The band is decided inside `record` so the recorded payload and the
-      // hook's behaviour come from one computation (the client calls it
-      // exactly once per completed judgment, never for a failure). This
-      // judge owns its records (`deps.append`), which is why `record`
-      // returns null: a `confirm` judgment must be recorded once, with the
-      // answer it produced.
+      // The band is decided inside `record` so the payload and the hook's
+      // behaviour come from one computation. This judge owns its records,
+      // hence the `null` returns (see `JevJudgeInput.record`): a `confirm`
+      // judgment is recorded once, with the answer it produced.
       let verdict: InjectionInputVerdict | undefined;
       const outcome = await deps.client.judge({
         state: message,
         questions: INJECTION_QUESTIONS,
         record: (answers, meta) => {
-          const signals: InjectionSignals = {
-            injection: probability(answers, "injection"),
-            sensitive: probability(answers, "sensitive"),
-          };
+          const signals = signalsOf(answers);
           const band = injectionBand(signals);
-          const payload = record("input", signals, band, decisionOf(band, "input"), answers, meta, message);
+          const payload = judgmentRecord({
+            source: "input",
+            signals,
+            band,
+            decision: decisionOf(band, "input"),
+            answers,
+            meta,
+          });
           if (band !== "confirm") {
             deps.append(payload);
             verdict = { band, signals };
@@ -146,9 +155,8 @@ export function createInjectionJudge(deps: InjectionJudgeDeps) {
             band,
             signals,
             reason: injectionConfirmReason(signals),
-            // Recorded once, when the user's answer is known: the answer is
-            // part of what happened, and a cancelled turn leaves this as
-            // its only trace.
+            // Deferred, not skipped: the answer is part of what happened,
+            // and for a cancelled turn this record is the only trace left.
             resolve: (resolution: TurnConfirmOutcome) => {
               deps.append({
                 ...payload,
@@ -177,12 +185,16 @@ export function createInjectionJudge(deps: InjectionJudgeDeps) {
         state: text,
         questions: INJECTION_QUESTIONS,
         record: (answers, meta) => {
-          const signals: InjectionSignals = {
-            injection: probability(answers, "injection"),
-            sensitive: probability(answers, "sensitive"),
-          };
+          const signals = signalsOf(answers);
           const band = injectionBand(signals);
-          const payload = record(source, signals, band, decisionOf(band, source), answers, meta);
+          const payload = judgmentRecord({
+            source,
+            signals,
+            band,
+            decision: decisionOf(band, source),
+            answers,
+            meta,
+          });
           deps.append(payload);
           verdict = {
             band,

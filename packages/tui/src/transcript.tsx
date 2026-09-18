@@ -308,6 +308,20 @@ function routingJudgmentLine(record: Record<string, unknown>): string {
   return `jev · routing · stay (${reason})`;
 }
 
+/**
+ * #791: the anti-injection judgments the transcript leaves out. The record
+ * is in the log (every judgment is), the line is not: below the warn
+ * threshold there is nothing for the user to read, and a per-turn check
+ * that announced itself on every turn would be the noise the band exists
+ * to avoid.
+ */
+function isSilentInjection(name: string, payload: unknown): boolean {
+  if (name !== "jev_judgment") return false;
+  const record = asRecord(payload);
+  if (record?.useCase !== "injection") return false;
+  return record.decision === "silent" || record.decision === "pass";
+}
+
 /** A JSON object as an inspectable record; anything else (arrays, null,
  * primitives, a getter that throws) is not something to read fields from. */
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -684,7 +698,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "extension_event":
         // ADR-0032 (#784): an extension's own chrome record — one dim line.
         // The renderer stays generic: only the records this client can
-        // phrase get a summary, every other name renders as itself.
+        // phrase get a summary, every other name renders as itself. The
+        // one record that renders nothing is the anti-injection check's
+        // `silent`/`pass` band (#791): the log keeps every judgment, but
+        // the low band is *silent* — the whole point of the threshold is
+        // that an unremarkable turn gains no line.
+        if (isSilentInjection(event.name, event.payload)) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: extensionEventLine(event.name, event.payload), lines: [] });
         break;
       case "session_note":

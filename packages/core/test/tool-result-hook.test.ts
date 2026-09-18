@@ -109,6 +109,8 @@ describe("onToolResult (ADR-0034)", () => {
   });
 
   test("a tool outside the declared scope is never offered to the hook", async () => {
+    // The user's own material: the scope is the tool names declared at
+    // registration, never "everything but read".
     let offered: string[] = [];
     const rt = await runtime((ctx) => {
       ctx.onToolResult(["fetch"], (call) => {

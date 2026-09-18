@@ -1,14 +1,15 @@
 /**
  * The blocking pre-send confirmation modal (ADR-0033 §4, #791): an
- * extension asked the user to confirm a turn before it is sent — the
- * anti-injection guardrail above its threshold, in practice. The core's
+ * extension asked the user to confirm a turn before it is sent. The core's
  * turn loop is suspended while this is up, and *nothing* has been logged
  * yet: cancelling means the turn never happened.
  *
- * Two answers only, because there is nothing to grant: `[send anyway]`
- * proceeds and records the confirmation, `[cancel]` returns the text to
- * the composer and records the cancellation. Neither writes a rule — an
- * extension can never be disarmed by an answer to its own question.
+ * The copy is the asking extension's (`by` + `reason`, e.g.
+ * `jev-guard: possible injection (0.97)`), so this stays the generic
+ * confirmation surface any use case can raise. Two answers only, because
+ * there is nothing to grant: `[y] send anyway` proceeds, `[n] cancel`
+ * returns the text to the composer. Neither writes a rule — an extension
+ * can never be disarmed by an answer to its own question.
  */
 import React, { useSyncExternalStore } from "react";
 import { Text, useInput } from "ink";
@@ -32,10 +33,10 @@ export function ConfirmTurnModal({ gate }: { gate: ConfirmTurnGate }) {
 
   const { reason, by, text } = current.request;
   return (
-    <Dialog title=" ⚠ possible injection " color={theme.warn}>
+    <Dialog title=" ⚠ confirm this turn " color={theme.warn}>
       <Text>{`${by}: ${sanitizeForDisplay(reason)}`}</Text>
       <Text> </Text>
-      <Dim>This message may be trying to steer the agent. Nothing has been sent yet.</Dim>
+      <Dim>Nothing has been sent yet.</Dim>
       <Text wrap="truncate-end">{truncate(sanitizeForDisplay(text), 200)}</Text>
       <Text> </Text>
       <Text>

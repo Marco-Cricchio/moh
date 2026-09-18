@@ -163,7 +163,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         });
         // Half 2: external content, through the post-tool seam of ADR-0034,
         // registered for the two tools whose output a third party controls.
-        ctx.onToolResult([...INJECTION_TOOLS], async ({ name, output }) => {
+        ctx.onToolResult(INJECTION_TOOLS, async ({ name, output }) => {
           const verdict = await injection.judgeToolResult(name, output);
           if (!verdict?.withhold) return;
           return { withhold: { reason: verdict.withhold } };

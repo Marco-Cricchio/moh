@@ -87,6 +87,17 @@ export interface JevScoreAnswer {
 }
 export type JevAnswer = JevNoulAnswer | JevChoiceAnswer | JevScoreAnswer;
 
+/**
+ * One yes/no answer as a probability. The one reader of the `noul` shape:
+ * every use case that asks a yes/no question (the guardrail's destructive
+ * question, the injection and sensitive checks) reads it the same way, and
+ * a malformed or absent answer is 0 — never a guess, never a throw.
+ */
+export function noulProbability(answers: Record<string, JevAnswer>, id: string): number {
+  const answer = answers[id];
+  return answer?.type === "noul" && typeof answer.noul === "number" ? answer.noul : 0;
+}
+
 /** Why a call did not produce a judgment. */
 export type JevFailureKind = "timeout" | "auth" | "rate_limited" | "network" | "invalid" | "unknown";
 

@@ -235,8 +235,10 @@ those two tools are inspected — reading a file or running a command is
 your own material, and a judgment on every read would be ruinous.
 
 Nothing here is a wall: the check is one probability, and you keep the
-last word. Turn it off in the Settings entry and the next session makes no
-call at all.
+last word. **What it costs:** one Jev call per turn you send, plus one per
+`fetch`/`browser` result — about 0.8 s and a fraction of a cent each, on
+top of whatever the guardrail and the router call. Turn it off in the
+Settings entry and the next session makes no call at all.
 
 ### Still planned
 

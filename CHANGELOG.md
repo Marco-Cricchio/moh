@@ -32,6 +32,21 @@ matching section here at tag time.
   commanded by name through the `extension_control` channel
   (apiVersion 1.3).
 
+- **Jev anti-injection** (#791): an opt-in check (Settings entry
+  `Jev (TypeSafe)`, item "Anti-injection", off by default — it is the one
+  use case that reads what you typed) against prompt injection. Your
+  message (4 KiB) and every `fetch`/`browser` result (8 KiB) are judged
+  with two questions; below 0.50 nothing is shown, from 0.50 either signal
+  warns on one transcript line (a fired `sensitive` signal adds *do not
+  commit or share this content*), and above 0.95 injection the send is
+  held by a confirmation modal — `y` sends anyway, `n` returns the text to
+  the composer and sends nothing, and headless (`moh run`) refuses the turn
+  with one stderr line and an unchanged exit code. Above threshold a web
+  result is replaced by a refusal the model can explain, and the session
+  log holds that refusal so resume and fork match what the model saw.
+  Extension authors get the scoped `onToolResult` inspection seam and the
+  `confirm.onResolved` callback (apiVersion 1.4).
+
 ## [0.39.3] - 2026-09-18
 ### Fixed
 

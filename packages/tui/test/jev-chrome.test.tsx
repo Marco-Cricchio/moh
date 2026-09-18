@@ -77,6 +77,19 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "who-knows" })).toBe("jev · routing");
   });
 
+  test("the silent band renders nothing; every other injection line reads as what happened (#791)", () => {
+    const events = [
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "silent", injection: 0.02, sensitive: 0.01 } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "pass", injection: 0.03, sensitive: 0.01, source: "tool:fetch" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
+    ] as unknown as AgentEvent[];
+    const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    // The low band is silence: the log keeps the record, the transcript
+    // does not gain a line for it (the whole point of the threshold).
+    expect(rendered).toEqual(["jev · injection · warn (injection 0.63)", "jev · guardrail · pass"]);
+  });
+
   test("an anti-injection judgment reads as what happened to the turn (#791)", () => {
     const line = (payload: Record<string, unknown>) => extensionEventLine("jev_judgment", payload);
     // The mid band is the visible warning: it exists to be read.
