@@ -487,7 +487,15 @@ export async function minimalConnectionTest(
             : wire === "openai-chat"
               ? { model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }
               : { model: modelId, input: "ping", max_output_tokens: 1 };
-      const res = await fetchImpl(url, { method: "POST", signal, headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(body) });
+      // The anthropic-wire endpoint ignores Bearer entirely (verified
+      // against the live backend: "Missing API key" with Bearer,
+      // "Invalid API key" with x-api-key) — the key rides x-api-key with
+      // the anthropic-version header, like api.anthropic.com.
+      const wireHeaders =
+        wire === "anthropic-messages"
+          ? { "x-api-key": apiKey ?? "", "anthropic-version": "2023-06-01" }
+          : auth;
+      const res = await fetchImpl(url, { method: "POST", signal, headers: { "content-type": "application/json", ...wireHeaders }, body: JSON.stringify(body) });
       return verdict(res, modelId);
     }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
