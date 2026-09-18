@@ -25,6 +25,7 @@ commands:
   sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
+  jev      TypeSafe/Jev status (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -276,4 +277,21 @@ models without a price record remain tokens-only.
   --days      only sessions modified within the last N days
   --json      machine-readable JSON
   --cwd       project root (default: process.cwd())
+```
+
+## moh jev
+
+```
+usage: moh jev status [--json]
+
+The TypeSafe/Jev configuration state: a stored API key (which is what
+activates the bundled Jev extension — there is no separate toggle) and
+the model-routing opt-in.
+
+  --json        one-line machine-readable JSON: active, keyHint (absent
+                when inactive), timeoutMs, routing
+
+Config read only: no call is ever made to TypeSafe. The key is validated
+when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is
+never printed here — only its masked tail. Exit code is always 0.
 ```

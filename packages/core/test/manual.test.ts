@@ -19,6 +19,7 @@ describe("manual assets (#457)", () => {
       "sessions",
       "providers-and-models",
       "permissions",
+      "jev",
       "mcp",
       "skills-and-workflow",
       "memory-and-compaction",
@@ -30,7 +31,8 @@ describe("manual assets (#457)", () => {
 
   test("every page starts with its H1 title and carries a summary", () => {
     for (const page of allManualPages()) {
-      expect(page.body).toMatch(new RegExp(`^# ${page.title}$`, "m"));
+      const escaped = page.title.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`);
+      expect(page.body).toMatch(new RegExp(`^# ${escaped}$`, "m"));
       expect(page.summary.length).toBeGreaterThan(10);
     }
   });
@@ -127,6 +129,7 @@ describe("generated pages match their code sources (#457)", () => {
       ["provider.ts", "PROVIDER_USAGE"],
       ["update.ts", "UPDATE_USAGE"],
       ["handoff.ts", "HANDOFF_USAGE"],
+      ["jev.ts", "JEV_USAGE"],
     ] as const) {
       const raw = readFileSync(join(ROOT, "packages", "cli", "src", file), "utf8");
       const m = new RegExp(`export const ${name} = \`([\\s\\S]*?)\`;`).exec(raw);

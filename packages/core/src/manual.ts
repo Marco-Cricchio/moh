@@ -15,6 +15,7 @@ import whatMohOffers from "./manual/what-moh-offers.md" with { type: "text" };
 import sessions from "./manual/sessions.md" with { type: "text" };
 import providersAndModels from "./manual/providers-and-models.md" with { type: "text" };
 import permissions from "./manual/permissions.md" with { type: "text" };
+import jev from "./manual/jev.md" with { type: "text" };
 import mcp from "./manual/mcp.md" with { type: "text" };
 import skillsAndWorkflow from "./manual/skills-and-workflow.md" with { type: "text" };
 import memoryAndCompaction from "./manual/memory-and-compaction.md" with { type: "text" };
@@ -39,6 +40,7 @@ const PAGES: ReadonlyArray<ManualPage> = [
   { id: "sessions", title: "Sessions", summary: "new, resume, fork, the /tree panel, handoff between machines, the event log", body: sessions },
   { id: "providers-and-models", title: "Providers & models", summary: "adding endpoints, subscription auth, switching models, thinking levels", body: providersAndModels },
   { id: "permissions", title: "Permissions & rules", summary: "the rule grammar, the permission prompt, tiers and vetoes", body: permissions },
+  { id: "jev", title: "Jev (TypeSafe)", summary: "the optional TypeSafe integration: activation, privacy, fail-open behavior", body: jev },
   { id: "mcp", title: "MCP", summary: "declaring MCP servers, stdio/HTTP transports, consent and trust", body: mcp },
   { id: "skills-and-workflow", title: "Skills & workflow mode", summary: "first-party skills, /workflow on|off, slash commands, /ask-moh", body: skillsAndWorkflow },
   { id: "memory-and-compaction", title: "Memory & compaction", summary: "facts across sessions vs rebuilt context within one", body: memoryAndCompaction },

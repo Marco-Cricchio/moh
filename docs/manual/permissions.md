@@ -4,6 +4,8 @@ Every tool call passes a gate with one merge order, most-specific-wins:
 
 1. **Extension veto** — an extension's `onToolCall` refusal; it
    overrides everything (extensions can only restrict, never grant).
+   An extension may instead `ask` — escalate the call to the prompt
+   below; that case is covered under "Extension asks".
 2. **Your rules** — moh.json overrides, plus in-session runtime rules.
 3. **Built-in defaults** — safe per-tool behavior (MCP tools ask on
    first use; writes stay in the project root).
@@ -29,6 +31,28 @@ When a tool call is neither allowed nor denied you are asked:
 call, `n` deny. In vibe mode moh auto-accepts within the safe defaults;
 `--yolo` (or `--auto-accept` on the CLI) removes prompts — use it for
 throwaway work.
+
+## Extension asks
+
+An extension's tool-call hook can do two things: `veto`, which refuses the
+call (it outranks your rules and every mode, yolo included), or `ask`,
+which hands the call to the consent prompt above. An ask is never a grant:
+it cannot allow something your rules refuse, it never records a rule, and
+its prompt offers **yes/no only** — no "always", because a filter that
+raised the question must not be disarmed by the answer. The prompt is
+labelled with the extension's own one-line reason.
+
+Where an ask lands:
+
+- An explicit `deny` rule beats the ask: the call is refused without
+  prompting, since your written intent outranks a judgment.
+- An explicit `allow` rule does **not** suppress it — judging what your
+  rules already let through is the whole point.
+- In auto-accept the ask still reaches you (that mode has no other filter);
+  `yolo` ignores it and the call proceeds as if the hook had said nothing,
+  so anything that must stop under yolo uses `veto`.
+- Headless (`moh run`) degrades the ask to a denial, exactly as any other
+  ask without a prompt to raise.
 
 ## Out-of-root writes
 
