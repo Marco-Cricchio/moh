@@ -16,7 +16,9 @@ describe("wire separation (#159)", () => {
     expect(wireForKind("github-copilot")).toBe("openai-chat"); // per-model override comes from the catalog
     expect(wireForKind("openrouter")).toBe("openai-chat");
     expect(wireForKind("xai")).toBe("openai-chat");
-    expect(wireForKind("opencode")).toBe("openai-responses");
+    // OpenCode has NO kind-level wire: every model carries its own
+    // (responses/anthropic-messages/chat/google per product overlay).
+    expect(() => wireForKind("opencode")).toThrow("no wire mapping");
   });
 
   test("new builtin base URLs point at the vendor backends", () => {

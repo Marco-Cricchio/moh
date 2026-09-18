@@ -600,7 +600,7 @@ describe("OpenCode onboarding (#794)", () => {
     expect(JSON.parse(readFileSync(authFile, "utf8")).auth.apiKeys).toEqual({ "opencode-zen": "key-794", "opencode-go": "key-794" });
   });
 
-  test("uses the Responses endpoint for an OpenCode minimal test", async () => {
+  test("uses the wire-specific endpoint and body for an OpenCode minimal test", async () => {
     let url = "";
     let body = "";
     const result = await minimalConnectionTest(
@@ -611,6 +611,22 @@ describe("OpenCode onboarding (#794)", () => {
     expect(result).toEqual({ ok: true, modelId: "gpt-5.6-terra" });
     expect(url).toBe("https://opencode.ai/zen/v1/responses");
     expect(JSON.parse(body)).toEqual({ model: "gpt-5.6-terra", input: "ping", max_output_tokens: 1 });
+    // #794 regression: minimax-m3 is NOT a responses model — Go default
+    // pings /messages (anthropic wire), Zen pings /chat/completions.
+    let goUrl = "";
+    await minimalConnectionTest(
+      { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
+      (async (input: string | URL | Request, init?: RequestInit) => { goUrl = String(input); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_GO_API_KEY: "key" },
+    );
+    expect(goUrl).toBe("https://opencode.ai/zen/go/v1/messages");
+    let zenUrl = "";
+    await minimalConnectionTest(
+      { name: "opencode-zen", type: "opencode", baseUrl: "https://opencode.ai/zen/v1", defaultModel: "minimax-m3" },
+      (async (input: string | URL | Request) => { zenUrl = String(input); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_ZEN_API_KEY: "key" },
+    );
+    expect(zenUrl).toBe("https://opencode.ai/zen/v1/chat/completions");
   });
 });
 

@@ -99,12 +99,32 @@ describe("vendored-data drift checks (#164)", () => {
 });
 
 describe("OpenCode packaged overlays (#794)", () => {
-  test("Zen and Go overlays are versioned, Responses-wired, and conservative", () => {
+  test("per-model, per-product wires from the official endpoint tables; conservative metadata", () => {
     const zen = subscriptionModelCatalog("opencode-zen");
     const go = subscriptionModelCatalog("opencode-go");
     expect(zen.length).toBeGreaterThan(0);
     expect(go.length).toBeGreaterThan(0);
-    expect(zen.every((model) => model.wire === "openai-responses" && !model.reasoning && model.pricing === undefined)).toBe(true);
-    expect(go.every((model) => model.wire === "openai-responses" && !model.reasoning && model.pricing === undefined)).toBe(true);
+    // Same id, different wire per product (official docs): minimax-m3 is
+    // chat-completions on Zen, anthropic-messages on Go.
+    const wireOf = (list: ReturnType<typeof subscriptionModelCatalog>, id: string) => list.find((m) => m.id === id)?.wire;
+    expect(wireOf(zen, "gpt-5.6-terra")).toBe("openai-responses");
+    expect(wireOf(zen, "claude-opus-5")).toBe("anthropic-messages");
+    expect(wireOf(zen, "minimax-m3")).toBe("openai-chat");
+    expect(wireOf(zen, "gemini-3.5-flash")).toBe("google");
+    expect(wireOf(go, "grok-4.6")).toBe("openai-responses");
+    expect(wireOf(go, "minimax-m3")).toBe("anthropic-messages");
+    expect(wireOf(go, "glm-5.3")).toBe("openai-chat");
+    // No invented metadata in either overlay.
+    for (const list of [zen, go]) {
+      expect(list.every((model) => !model.reasoning && model.pricing === undefined)).toBe(true);
+    }
+  });
+
+  test("catalogEntryFor resolves OpenCode wires through the endpoint product (baseUrl)", () => {
+    const goBase = "https://opencode.ai/zen/go/v1";
+    expect(catalogEntryFor("opencode", "minimax-m3")?.wire).toBe("openai-chat");
+    expect(catalogEntryFor("opencode", "minimax-m3", goBase)?.wire).toBe("anthropic-messages");
+    expect(catalogEntryFor("opencode", "claude-opus-5")?.wire).toBe("anthropic-messages");
+    expect(catalogEntryFor("opencode", "unknown-model-x")).toBeUndefined();
   });
 });

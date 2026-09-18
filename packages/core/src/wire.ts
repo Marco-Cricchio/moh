@@ -34,7 +34,6 @@ const WIRE_FOR_KIND: Record<string, WireApi> = {
   openrouter: "openai-chat",
   "kimi-coding": "anthropic-messages",
   xai: "openai-chat",
-  opencode: "openai-responses",
   deepseek: "openai-chat", groq: "openai-chat", cerebras: "openai-chat", "nvidia-nim": "openai-chat", together: "openai-chat", fireworks: "openai-chat", huggingface: "openai-chat", mistral: "openai-chat",
   moonshot: "openai-chat", minimax: "openai-chat", zai: "openai-chat", qwen: "openai-chat", "xiaomi-mimo": "openai-chat", "vercel-ai-gateway": "openai-chat", "cloudflare-ai-gateway": "openai-chat", baseten: "openai-chat",
 };
