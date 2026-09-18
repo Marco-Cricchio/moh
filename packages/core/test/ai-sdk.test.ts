@@ -220,17 +220,22 @@ describe("OpenCode session header (#798, docs/go MissingSessionID)", () => {
       modelId: "m",
       wire,
     });
+    const headerOf = (model: unknown): Record<string, string> => {
+      const config = (model as { config: Record<string, unknown> }).config;
+      const h = config.headers;
+      if (typeof h === "function") return (model as { config: { headers(): Record<string, string> } }).config.headers();
+      return (h ?? {}) as Record<string, string>;
+    };
+    const ids = new Set<string>();
     for (const wire of ["anthropic-messages", "openai-chat", "openai-responses"] as const) {
-      const model = mod.languageModelFor(target(wire), "k", undefined) as unknown as { config: Record<string, unknown> };
-      const headers = (model.config?.headers ?? {}) as Record<string, string>;
+      const headers = headerOf(mod.languageModelFor(target(wire), "k", undefined));
       expect(headers["x-opencode-session"]).toMatch(/^[0-9a-f-]{36}$/);
+      ids.add(headers["x-opencode-session"]!);
     }
-    // One stable id per process (routing/prompt caching benefit).
-    const a = mod.languageModelFor(target("openai-chat"), "k", undefined) as unknown as { config: Record<string, unknown> };
-    const b = mod.languageModelFor(target("openai-chat"), "k", undefined) as unknown as { config: Record<string, unknown> };
-    expect((a.config!.headers as Record<string, string>)["x-opencode-session"]).toBe((b.config!.headers as Record<string, string>)["x-opencode-session"]);
+    // One stable id per process (routing/prompt-caching benefit).
+    expect(ids.size).toBe(1);
     // Non-opencode endpoints are untouched (byte-identical invariant).
-    const plain = mod.languageModelFor({ endpoint: new Endpoint({ name: "e", kind: "openai", apiKey: "k" }), modelId: "m" }, "k", undefined) as unknown as { config: Record<string, unknown> };
-    expect((plain.config?.headers as Record<string, string> | undefined)?.["x-opencode-session"]).toBeUndefined();
+    const plain = headerOf(mod.languageModelFor({ endpoint: new Endpoint({ name: "e", kind: "openai", apiKey: "k" }), modelId: "m" }, "k", undefined));
+    expect(plain["x-opencode-session"]).toBeUndefined();
   });
 });
