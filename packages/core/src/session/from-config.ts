@@ -31,6 +31,7 @@ import { SessionStore } from "../session-store";
 import type { PermissionOverrides } from "../permissions";
 import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool } from "../types";
 import { AgentSession } from "./session";
+import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
 import { userConfigFile } from "../user-config";
 import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
@@ -97,6 +98,12 @@ export interface SessionConsent {
   ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** ask_user channel (TUI: the inline question block, ADR-0019). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
+  /**
+   * ADR-0033 §4: the pre-send confirmation channel (TUI: the confirmation
+   * modal; headless clients answer "refuse"). Absent = the core refuses
+   * any confirmed turn it cannot ask about.
+   */
+  onConfirmTurn?: SessionConfig["onConfirmTurn"];
   /** Project MCP server consent (TUI: reuses the permission modal). */
   onMcpTrust?: (server: string) => Promise<McpConsentAnswer> | McpConsentAnswer;
 }
@@ -377,6 +384,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       ...(Object.keys(permissions).length ? { permissions } : {}),
       ...(options.consent?.onPermissionRequest ? { onPermissionRequest: options.consent.onPermissionRequest } : {}),
       ...(options.consent?.onAskUser ? { onAskUser: options.consent.onAskUser } : {}),
+      ...(options.consent?.onConfirmTurn ? { onConfirmTurn: options.consent.onConfirmTurn } : {}),
       sink,
       // Subagents (#13): presets from moh.json `agents` merge over the built-ins.
       ...(config.agents ? { subagents: { presets: config.agents } } : {}),

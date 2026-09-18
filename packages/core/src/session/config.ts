@@ -5,6 +5,7 @@
  * surface of `createSession`; they live here — next to the session they
  * configure — and are re-exported from the package index.
  */
+import type { TurnConfirmOutcome } from "@moh/extension";
 import type { ExtensionRuntime } from "../extensions";
 import type { MemoryOptions } from "../memory";
 import type { CompactionOptions } from "../compaction";
@@ -43,6 +44,16 @@ export interface PermissionAskContext {
   reason?: string;
 }
 
+/** ADR-0033 §4: one pre-send confirmation an extension asked for. */
+export interface ConfirmTurnRequest {
+  /** The extension's own reason, as it wrote it (client copy). */
+  readonly reason: string;
+  /** The extension that asked (chrome only). */
+  readonly by: string;
+  /** The user's message as typed — what a cancel hands back. */
+  readonly text: string;
+}
+
 export interface SessionConfig {
   /**
    * A Provider instance (e.g. `MockProvider.scripted([...])`), or a
@@ -57,7 +68,7 @@ export interface SessionConfig {
    * against — the same merged profile list the initial provider came
    * from (passed by sessionFromConfig). */
   endpoints?: EndpointProfile[];
-  /** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
+/** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
    * cap — the anti-runaway safety net is off). */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */
@@ -79,6 +90,15 @@ export interface SessionConfig {
   ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** Interactive question channel for the ask_user tool. Without it (headless) the tool fails fast. */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
+  /**
+   * ADR-0033 §4: the pre-send confirmation channel. An extension's
+   * `beforeTurn` hook may ask the user to confirm a turn before it is
+   * sent; the client answers "send" (the turn proceeds), "cancel" (nothing
+   * is logged, the text returns to the composer) or "refuse" (the client
+   * cannot ask — headless — and the turn is refused). Without this seam
+   * the answer is "refuse": silence-by-default, never a silent send.
+   */
+  onConfirmTurn?: (request: ConfirmTurnRequest) => Promise<TurnConfirmOutcome> | TurnConfirmOutcome;
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
   /** Path of the JSONL file the sink appends to (from `sessionFromConfig`).
@@ -134,7 +154,9 @@ export interface SessionConfig {
    * `appendEvent` still lands in the runtime's single event channel.
    */
   toolHooks?: import("./permission-gate").ToolHookChecker &
-    Partial<Pick<import("../extensions").ExtensionRuntime, "dispatchBeforeTurn">>;
+    Partial<
+      Pick<import("../extensions").ExtensionRuntime, "dispatchBeforeTurn" | "checkToolResultHooks">
+    >;
   /**
    * MCP tool sources (#15): merged project + user server declarations.
    * Servers start lazily on the first turn and shut down at dispose;

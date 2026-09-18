@@ -22,6 +22,12 @@
  * addressed to one extension arrives as an `extension_control` event on
  * `onEvent`. An older runtime never emits one, which is a no-op: an
  * extension that waits for a command must tolerate never receiving it.
+ *
+ * 1.4 (ADR-0034, ADR-0033 amendment): `onToolResult` — a scoped
+ * post-tool inspection seam — and the optional `onResolved` callback on
+ * `beforeTurn`'s `confirm` request. An older runtime never calls either,
+ * which is a no-op for the extension (the result proceeds untouched, and
+ * a confirmation the extension cannot observe is still asked).
  */
 
 /**
@@ -29,7 +35,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.3";
+export const MOH_EXTENSION_API_VERSION = "1.4";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -91,13 +97,66 @@ export interface BeforeTurnResult {
   /** Model ref to serve this turn (resolved like `/model`). */
   readonly model?: string;
   /** Ask the user to confirm before this turn is sent. */
-  readonly confirm?: { readonly reason: string };
+  readonly confirm?: {
+    readonly reason: string;
+    /**
+     * Called once with how the confirmation ended (ADR-0033 amendment,
+     * apiVersion 1.4): `send` when the user let the turn through,
+     * `cancel` when they cancelled it (nothing is logged, the text
+     * returns to the composer), `refuse` when no client could ask — the
+     * headless case — and the turn was refused.
+     *
+     * It exists so the extension that raised the confirmation can record
+     * the outcome in its own log entry: a cancelled turn leaves no
+     * `user_message`, so that record is the only trace of what happened.
+     * Never called before the hook has returned; a throw is swallowed.
+     */
+    readonly onResolved?: (outcome: TurnConfirmOutcome) => void;
+  };
 }
+
+/** How a pre-send confirmation ended (ADR-0033 §4). */
+export type TurnConfirmOutcome = "send" | "cancel" | "refuse";
 
 export interface ToolCallContext {
   readonly callId: string;
   readonly name: string;
   readonly args: unknown;
+}
+
+/**
+ * The post-tool inspection context (ADR-0034, apiVersion 1.4): what an
+ * `onToolResult` hook sees — the tool's textual output as the model would
+ * receive it, before anything is logged. Text results only: a result
+ * carrying an image (#778) is never offered (an image is not judgeable
+ * text, and withholding a screenshot the model asked for would break the
+ * calling turn for no security gain).
+ */
+export interface ToolResultContext {
+  readonly callId: string;
+  readonly name: string;
+  readonly args: unknown;
+  /** The tool's textual output, as the model would receive it. */
+  readonly output: string;
+}
+
+/**
+ * What an `onToolResult` hook may return. One outcome only, and it is a
+ * restriction: `withhold` replaces the result the model sees with a
+ * refusal text naming the extension and the reason. An extension cannot
+ * rewrite, truncate or redact a result in place (a half-edited result is a
+ * corrupted one), cannot turn a failure into a success, and cannot touch
+ * permissions.
+ *
+ * Every registered hook runs; the first `withhold` wins and short-circuits
+ * the rest, deterministically by registration order — unlike `onToolCall`
+ * and `beforeTurn`, where the *decision* is exclusive. A hook error or
+ * timeout is fail-open: one visible `extension_failed` and the original
+ * result proceeds to the model.
+ */
+export interface ToolResultHookResult {
+  /** Replace the result the model sees with a refusal-shaped text. */
+  readonly withhold: { readonly reason: string };
 }
 
 /**
@@ -154,6 +213,7 @@ export type SessionEndHook = (ctx: SessionEndContext) => void | Promise<void>;
 export type BeforeTurnHook = (ctx: BeforeTurnContext) => BeforeTurnResult | void | Promise<BeforeTurnResult | void>;
 export type BeforeModelCallHook = (ctx: BeforeModelCallContext) => void | Promise<void>;
 export type ToolCallHook = (ctx: ToolCallContext) => ToolCallHookResult | void | Promise<ToolCallHookResult | void>;
+export type ToolResultHook = (ctx: ToolResultContext) => ToolResultHookResult | void | Promise<ToolResultHookResult | void>;
 export type EventHook = (ctx: EventContext) => void | Promise<void>;
 export type AfterTurnHook = (ctx: AfterTurnContext) => void | Promise<void>;
 
@@ -196,6 +256,15 @@ export interface ExtensionSetupContext {
   beforeTurn(hook: BeforeTurnHook): void;
   beforeModelCall(hook: BeforeModelCallHook): void;
   onToolCall(hook: ToolCallHook): void;
+  /**
+   * Inspect a tool result before it reaches the model (ADR-0034, apiVersion
+   * 1.4), scoped to the tool names you declare — `ctx.onToolResult(["fetch",
+   * "browser"], hook)`. The hook runs after the call settled and before the
+   * `tool_result` event is appended, so the withheld text is what the log
+   * holds and what the model saw. An empty list registers nothing: the
+   * scope is explicit, never "every tool".
+   */
+  onToolResult(tools: readonly string[], hook: ToolResultHook): void;
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
 }

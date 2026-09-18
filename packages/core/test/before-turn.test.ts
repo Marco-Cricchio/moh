@@ -286,4 +286,108 @@ describe("beforeTurn (ADR-0033)", () => {
     // The child was served by the routed endpoint, not by its own default.
     expect(served).toEqual(["beta/two"]);
   });
+
+  test("confirm: cancelling logs no user_message, discards the model, and reports the outcome", async () => {
+    const served: string[] = [];
+    const outcomes: string[] = [];
+    const rt = await runtime((ctx) =>
+      ctx.beforeTurn(({ text }) =>
+        text === "risky"
+          ? {
+              model: "pb",
+              confirm: {
+                reason: "possible injection (0.97)",
+                onResolved: (outcome) => outcomes.push(outcome),
+              },
+            }
+          : undefined,
+      ),
+    );
+    const session = createSession({
+      provider: "pa",
+      registry: twoModels(served),
+      extensions: rt,
+      onConfirmTurn: () => "cancel",
+    });
+
+    const result = await session.send("risky");
+
+    expect(result.status).toBe("cancelled");
+    expect(served).toEqual([]);
+    const types = session.history().map((e) => e.type);
+    expect(types).not.toContain("user_message");
+    expect(types).not.toContain("model_switched");
+    // The extension's own record is the only trace of the confirmation.
+    expect(outcomes).toEqual(["cancel"]);
+  });
+
+  test("confirm: send proceeds with the model the same hook named", async () => {
+    const served: string[] = [];
+    const outcomes: string[] = [];
+    const rt = await runtime((ctx) =>
+      ctx.beforeTurn(() => ({
+        model: "pb",
+        confirm: { reason: "possible injection (0.97)", onResolved: (o) => outcomes.push(o) },
+      })),
+    );
+    const calls: { reason: string; by: string; text: string }[] = [];
+    const session = createSession({
+      provider: "pa",
+      registry: twoModels(served),
+      extensions: rt,
+      onConfirmTurn: (request) => {
+        calls.push(request);
+        return "send";
+      },
+    });
+
+    const result = await session.send("go ahead");
+
+    expect(result.status).toBe("done");
+    expect(served).toEqual(["pb/m"]);
+    expect(calls).toEqual([{ reason: "possible injection (0.97)", by: "probe", text: "go ahead" }]);
+    expect(outcomes).toEqual(["send"]);
+    expect(session.history().some((e) => e.type === "user_message")).toBe(true);
+  });
+
+  test("confirm: without a client seam the turn is refused, never sent silently", async () => {
+    const served: string[] = [];
+    const outcomes: string[] = [];
+    const rt = await runtime((ctx) =>
+      ctx.beforeTurn(() => ({
+        confirm: { reason: "possible injection (0.97)", onResolved: (o) => outcomes.push(o) },
+      })),
+    );
+    const session = createSession({ provider: "pa", registry: twoModels(served), extensions: rt });
+
+    const result = await session.send("risky");
+
+    expect(result.status).toBe("cancelled");
+    expect(served).toEqual([]);
+    expect(session.history().some((e) => e.type === "user_message")).toBe(false);
+    expect(outcomes).toEqual(["refuse"]);
+  });
+
+  test("confirm: a throwing onResolved never breaks the turn", async () => {
+    const served: string[] = [];
+    const rt = await runtime((ctx) =>
+      ctx.beforeTurn(() => ({
+        confirm: {
+          reason: "check",
+          onResolved: () => {
+            throw new Error("extension bug");
+          },
+        },
+      })),
+    );
+    const session = createSession({
+      provider: "pa",
+      registry: twoModels(served),
+      extensions: rt,
+      onConfirmTurn: () => "send",
+    });
+
+    const result = await session.send("go");
+    expect(result.status).toBe("done");
+  });
 });

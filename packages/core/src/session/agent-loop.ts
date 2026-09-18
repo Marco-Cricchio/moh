@@ -16,7 +16,8 @@ import type {
   TurnResult,
 } from "../types";
 import type { AssembledPrompt } from "../prompt-composer";
-import type { BeforeTurnDispatch, ExtensionRuntime } from "../extensions";
+import type { TurnConfirmOutcome } from "@moh/extension";
+import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
@@ -33,7 +34,14 @@ export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall" | 
 export interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
   applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string };
+  /**
+   * ADR-0033 §4: the pre-send confirmation. Asks the client whether the
+   * turn may be sent, given the extension's reason. Absent = no client can
+   * ask (headless): the turn is refused, never silently sent.
+   */
+  confirm?: (request: { reason: string; by: string; text: string }) => Promise<TurnConfirmOutcome>;
 }
+
 
 /** Default per-turn iteration cap (#190), used when `maxIterations` is absent. */
 export const DEFAULT_MAX_ITERATIONS = 50;
@@ -232,8 +240,10 @@ export class AgentLoop {
     // ADR-0033: the turn-start decision point — once per user send, before
     // the provider is read and before anything is logged. A model named
     // here serves *this* turn; the hook is the only seam that can do so
-    // (#166 reads the provider once per turn, below).
-    await this.#dispatchBeforeTurn(text);
+    // (#166 reads the provider once per turn, below). A confirmation the
+    // user cancelled stops the turn right here: no `user_message`, no
+    // turn — the composer gets its text back (the client's job).
+    if (!(await this.#dispatchBeforeTurn(text))) return { status: "cancelled" };
     // #166: the provider is read once per turn — a mid-session switch
     // (AgentSession.switchModel) takes effect from the next turn, never
     // mid-stream.
@@ -464,23 +474,38 @@ export class AgentLoop {
    * ADR-0033: runs the extensions' `beforeTurn` hooks and applies the
    * model ref they name. Never a turn error: hook failures and invalid
    * refs are visible chrome, and the turn proceeds on the active model.
-   * `confirm` is collected by the dispatch but its client behaviour is
-   * wired by the use case that needs it (apiVersion 1.2 shape only).
+   *
+   * Returns false when a `confirm` was answered with anything but "send":
+   * the caller then returns before logging the `user_message`, so a turn
+   * the user cancelled (or a headless refusal) leaves no trace of a turn
+   * that never happened — the extension that asked records the outcome
+   * through its own `onResolved` callback.
    */
-  async #dispatchBeforeTurn(text: string): Promise<void> {
+  async #dispatchBeforeTurn(text: string): Promise<boolean> {
     const seam = this.#beforeTurn;
-    if (!seam) return;
+    if (!seam) return true;
     const outcome = await seam.dispatch(text, this.#turnIndex?.() ?? 1, this.#provider().name);
     for (const event of outcome.errors) this.#append(event);
-    if (outcome.model === undefined) return;
+    if (outcome.confirm) {
+      // The model, if any, is applied only once the turn is allowed: a
+      // cancelled confirmation discards the switch with it (nothing
+      // switched for a turn that never ran).
+      const decision = seam.confirm
+        ? await seam.confirm({ reason: outcome.confirm.reason, by: outcome.confirm.by, text })
+        : "refuse";
+      resolveTurnConfirm(outcome.confirm, decision);
+      if (decision !== "send") return false;
+    }
+    if (outcome.model === undefined) return true;
     const applied = seam.applyModel(outcome.model);
-    if (applied.ok) return; // same ref = silent no-op; new ref = the session's chrome
+    if (applied.ok) return true; // same ref = silent no-op; new ref = the session's chrome
     this.#append({
       type: "extension_failed",
       name: outcome.modelBy ?? "extension",
       reason: "invalid_model",
       message: `${outcome.model}: ${applied.error}`,
     });
+    return true;
   }
 
   /** Drops an interrupted call without checkpointing resumable context: its

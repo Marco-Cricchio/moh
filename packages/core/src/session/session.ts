@@ -15,7 +15,7 @@ import { discoverSkills } from "../skills";
 import { ExtensionRuntime } from "../extensions";
 import { EventLog } from "./event-log";
 import { PermissionGate } from "./permission-gate";
-import { ToolRunner } from "./tool-runner";
+import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
 import { SubagentHost } from "../subagents";
@@ -58,6 +58,7 @@ export class AgentSession {
   readonly #turn = (): number => this.#turnSeq;
   readonly #permissions: PermissionResolver;
   readonly #onAskUser: SessionConfig["onAskUser"] | undefined;
+  readonly #onConfirmTurn: SessionConfig["onConfirmTurn"] | undefined;
   /** #774: browser reap seam, awaited at dispose. */
   #onDispose: (() => Promise<void>) | undefined;
   /** The permission gate (#90): 3-tier check + "always" persistence. */
@@ -192,6 +193,7 @@ export class AgentSession {
       cwd: this.#cwd,
     });
     this.#onAskUser = config.onAskUser;
+    this.#onConfirmTurn = config.onConfirmTurn;
     this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
     // Resume (#31): the persisted history seeds the log here, before anything
     // else can append. Registration of a bundled extension resolves on a
@@ -212,7 +214,17 @@ export class AgentSession {
       cwd: this.#cwd,
       append: (event) => this.#append(event),
     });
+    // ADR-0034: the post-tool inspection seam, resolved like the gate's
+    // hook checker — a subagent child owns no runtime but shares the
+    // parent's, so a fetched page is judged in the child exactly as in the
+    // parent. Absent runtime = no seam: every result proceeds untouched.
+    const toolResultRuntime = config.extensions ?? config.toolHooks;
+    const toolResultHooks: ToolResultHookChecker | undefined =
+      typeof toolResultRuntime?.checkToolResultHooks === "function"
+        ? (toolResultRuntime as ToolResultHookChecker)
+        : undefined;
     this.#toolRunner = new ToolRunner({
+      ...(toolResultHooks ? { toolResultHooks } : {}),
       tools: () => this.#allTools(),
       gate: this.#gate,
       parallel: () => this.#provider.capabilities?.parallelToolCalls !== false,
@@ -431,6 +443,15 @@ export class AgentSession {
             beforeTurn: {
               dispatch: (text, turnIndex, model) => dispatchBeforeTurn({ text, turnIndex, model }),
               applyModel: (ref) => this.switchModel(ref),
+              // ADR-0033 §4: the client answers a confirmation. No seam =
+              // headless: the loop refuses the turn itself ("silence by
+              // default"), it never sends what it could not ask about.
+              ...(this.#onConfirmTurn
+                ? {
+                    confirm: async (request: Parameters<NonNullable<SessionConfig["onConfirmTurn"]>>[0]) =>
+                      this.#onConfirmTurn!(request),
+                  }
+                : {}),
             },
           }
         : {}),

@@ -29,6 +29,9 @@ import {
   type SessionStartHook,
   type ToolCallHook,
   type ToolCallHookResult,
+  type ToolResultHook,
+  type ToolResultHookResult,
+  type TurnConfirmOutcome,
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
@@ -37,12 +40,32 @@ import type { AgentEvent, ExtensionStatus } from "./types";
  * ADR-0033: what one `beforeTurn` dispatch produced. `model`/`confirm` are
  * the first hook answers in registration order; `errors` are the
  * fail-open `extension_failed` records the caller appends to the log.
+ * `onResolved` (ADR-0033 amendment) is the closure the asking extension
+ * handed over: the caller invokes it once with the confirmation's outcome,
+ * so the extension can record what happened to a turn that may leave no
+ * `user_message` behind.
  */
 export interface BeforeTurnDispatch {
   readonly model?: string;
   /** The extension that named the model (for the invalid-ref diagnostic). */
   readonly modelBy?: string;
-  readonly confirm?: { readonly reason: string; readonly by: string };
+  readonly confirm?: {
+    readonly reason: string;
+    readonly by: string;
+    readonly onResolved?: (outcome: TurnConfirmOutcome) => void;
+  };
+  readonly errors: AgentEvent[];
+}
+
+/**
+ * ADR-0034: what one `onToolResult` dispatch produced. `withheld` is the
+ * refusal-shaped text that replaces the result the model sees (always
+ * absent, or present with `by` naming the extension that withheld);
+ * `errors` are the fail-open `extension_failed` records to append.
+ */
+export interface ToolResultDispatch {
+  readonly withheld?: string;
+  readonly by?: string;
   readonly errors: AgentEvent[];
 }
 
@@ -80,6 +103,8 @@ interface HookSet {
   beforeTurn: BeforeTurnHook[];
   beforeModelCall: BeforeModelCallHook[];
   onToolCall: ToolCallHook[];
+  /** ADR-0034: post-tool inspection, scoped to the declared tool names. */
+  onToolResult: { tools: readonly string[]; hook: ToolResultHook }[];
   onEvent: EventHook[];
   afterTurn: AfterTurnHook[];
 }
@@ -115,6 +140,7 @@ const EMPTY_HOOKS = (): HookSet => ({
   beforeTurn: [],
   beforeModelCall: [],
   onToolCall: [],
+  onToolResult: [],
   onEvent: [],
   afterTurn: [],
 });
@@ -127,6 +153,36 @@ function sameDeps(a: string[], b: string[]): boolean {
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * ADR-0034 §5: the refusal-shaped text that replaces a withheld result.
+ * The extension's own reason is rendered into it, so the model learns
+ * *that* content was withheld, *by whom* and *why in one phrase* — and can
+ * tell the user instead of retrying the same fetch. An indistinguishable
+ * generic tool error would invite exactly the retry the guardrail exists
+ * to prevent.
+ */
+export function withheldResultText(by: string, reason: string): string {
+  return `external content withheld by ${by}: ${reason}`;
+}
+
+/**
+ * ADR-0033 amendment: hands a confirmation's outcome back to the
+ * extension that asked for it — the only channel through which it can
+ * record what became of a turn that logs no `user_message`. A throwing
+ * callback is swallowed: the extension's own record must never break the
+ * turn it describes.
+ */
+export function resolveTurnConfirm(
+  confirm: BeforeTurnDispatch["confirm"],
+  outcome: TurnConfirmOutcome,
+): void {
+  try {
+    confirm?.onResolved?.(outcome);
+  } catch {
+    /* observability only */
+  }
 }
 
 /**
@@ -464,6 +520,13 @@ export class ExtensionRuntime {
       beforeTurn: (h) => instance.hooks.beforeTurn.push(h),
       beforeModelCall: (h) => instance.hooks.beforeModelCall.push(h),
       onToolCall: (h) => instance.hooks.onToolCall.push(h),
+      onToolResult: (tools, h) => {
+        // An empty scope registers nothing: "inspect every result" is
+        // never what an extension meant, and the core cannot know which
+        // results are external (ADR-0034 §3).
+        if (!Array.isArray(tools) || tools.length === 0) return;
+        instance.hooks.onToolResult.push({ tools: [...tools], hook: h });
+      },
       onEvent: (h) => instance.hooks.onEvent.push(h),
       afterTurn: (h) => instance.hooks.afterTurn.push(h),
     };
@@ -607,7 +670,7 @@ export class ExtensionRuntime {
   async dispatchBeforeTurn(ctx: Parameters<BeforeTurnHook>[0]): Promise<BeforeTurnDispatch> {
     let model: string | undefined;
     let modelBy: string | undefined;
-    let confirm: { reason: string; by: string } | undefined;
+    let confirm: BeforeTurnDispatch["confirm"];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.beforeTurn) {
         let out: BeforeTurnResult | void;
@@ -628,7 +691,11 @@ export class ExtensionRuntime {
           modelBy = instance.def.name;
         }
         if (confirm === undefined && out.confirm && typeof out.confirm.reason === "string") {
-          confirm = { reason: out.confirm.reason, by: instance.def.name };
+          confirm = {
+            reason: out.confirm.reason,
+            by: instance.def.name,
+            ...(typeof out.confirm.onResolved === "function" ? { onResolved: out.confirm.onResolved } : {}),
+          };
         }
       }
     }
@@ -638,6 +705,59 @@ export class ExtensionRuntime {
       ...(confirm !== undefined ? { confirm } : {}),
       errors: this.#drainErrors(),
     };
+  }
+
+  /**
+   * ADR-0034: the post-tool inspection point. Every registered hook whose
+   * declared scope names this tool runs, in registration order; the first
+   * `withhold` wins and short-circuits the rest. A throwing hook (or a
+   * malformed outcome) is fail-open: one `extension_failed` and the
+   * original result proceeds to the model — a guardrail that can silently
+   * block the agent's work when it misbehaves is worse than one that
+   * occasionally misses.
+   */
+  async checkToolResultHooks(call: {
+    callId: string;
+    name: string;
+    args: unknown;
+    output: string;
+  }): Promise<ToolResultDispatch> {
+    for (const instance of this.#instances) {
+      for (const entry of instance.hooks.onToolResult) {
+        if (!entry.tools.includes(call.name)) continue;
+        let out: ToolResultHookResult | void;
+        try {
+          out = await entry.hook(call);
+        } catch (err) {
+          this.#hookErrors.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(err),
+          });
+          continue;
+        }
+        if (!out) continue;
+        const reason = out.withhold?.reason;
+        if (typeof reason !== "string" || reason.trim() === "") {
+          // A withhold with no reason would replace the result with an
+          // unexplained refusal the model cannot act on: refused, visibly.
+          this.#hookErrors.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "invalid_withhold",
+            message: "withhold requires a non-empty reason; the result was not withheld",
+          });
+          continue;
+        }
+        return {
+          withheld: withheldResultText(instance.def.name, reason.trim()),
+          by: instance.def.name,
+          errors: this.#drainErrors(),
+        };
+      }
+    }
+    return { errors: this.#drainErrors() };
   }
 
   async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
