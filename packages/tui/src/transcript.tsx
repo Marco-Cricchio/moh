@@ -8,9 +8,6 @@ import { sanitizeForDisplay } from "./render-sanitize";
 import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
-// #791: the anti-injection copy and thresholds live in the extension that
-// owns them (one source of truth for what a user reads).
-import { INJECTION_THRESHOLDS, SENSITIVE_ADVICE } from "@moh/jev-guard";
 import type { ToolTimings } from "./tool-timing";
 import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
@@ -270,9 +267,9 @@ function routingNoticeLine(record: Record<string, unknown>): string {
 /**
  * #791: one anti-injection judgment. The mid band is the whole point of
  * the line — it is the visible warning the user gets instead of a silent
- * pass — and a fired `sensitive` signal carries the one action it implies
- * (a key pasted into the turn must not be committed or shared). The
- * confirm band's outcome reads as what happened to the turn: sent anyway,
+ * pass — and a `sensitive`-driven warning carries the advice the record
+ * brought with it (its copy lives in the extension, not here). The confirm
+ * band's outcome reads as what happened to the turn: sent anyway,
  * cancelled (nothing was sent), or refused in headless.
  */
 function injectionJudgmentLine(record: Record<string, unknown>): string {
@@ -287,11 +284,8 @@ function injectionJudgmentLine(record: Record<string, unknown>): string {
   if (decision === "confirmed") return `jev · injection · sent anyway (injection ${injection.toFixed(2)})`;
   if (decision === "withheld") return `jev · injection · withheld${where} (injection ${injection.toFixed(2)})`;
   if (decision === "warn") {
-    // The sensitive signal is the only one with an action attached, and it
-    // only wins the line when the injection probability did not drive it.
-    if (sensitive >= INJECTION_THRESHOLDS.warnMin && injection < INJECTION_THRESHOLDS.warnMin) {
-      return `jev · injection · warn (sensitive ${sensitive.toFixed(2)} — ${SENSITIVE_ADVICE})`;
-    }
+    const advice = typeof record.advice === "string" ? record.advice : undefined;
+    if (advice !== undefined) return `jev · injection · warn (sensitive ${sensitive.toFixed(2)} — ${advice})`;
     return `jev · injection · warn (injection ${injection.toFixed(2)})`;
   }
   return `jev · injection · ${decision} (injection ${injection.toFixed(2)})`;

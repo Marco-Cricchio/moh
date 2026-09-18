@@ -390,4 +390,54 @@ describe("beforeTurn (ADR-0033)", () => {
     const result = await session.send("go");
     expect(result.status).toBe("done");
   });
+
+  test("a child's confirmation reaches the same client seam, and cancelling stops the child", async () => {
+    const home = tmpDir("moh-bt-sub-c-");
+    const served: string[] = [];
+    const asked: { by: string; text: string }[] = [];
+    const rt = await runtime(
+      (ctx) =>
+        ctx.beforeTurn((c) =>
+          c.text === "child task" ? { confirm: { reason: "possible injection (0.98)" } } : undefined,
+        ),
+      home,
+    );
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: [""],
+          finish: "tool_calls",
+          toolCalls: [{ name: "spawn", args: { preset: "probe", task: "child task" } }],
+        },
+        { deltas: ["parent done"], finish: "stop" },
+      ]),
+      registry: twoModels(served),
+      extensions: rt,
+      tools: { echo: echoTool },
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      onConfirmTurn: (request) => {
+        asked.push({ by: request.by, text: request.text });
+        return "cancel";
+      },
+      subagents: {
+        home,
+        presets: { probe: { name: "probe", description: "probe", allowedTools: ["echo"] } },
+        provider: "pa",
+      },
+    });
+
+    const result = await parent.send("go");
+    expect(result.status).toBe("done");
+    // The child asked, the user answered, and the child's turn never ran.
+    expect(asked).toEqual([{ by: "probe", text: "child task" }]);
+    const spawn = parent.history().find((e) => e.type === "subagent_spawn") as Extract<
+      AgentEvent,
+      { type: "subagent_spawn" }
+    >;
+    const childTypes = readFileSync(spawn.log, "utf8")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => (JSON.parse(line) as AgentEvent).type);
+    expect(childTypes).not.toContain("user_message");
+  });
 });

@@ -18,7 +18,9 @@ import { noulProbability, type JevAnswer, type JevClient, type JevJudgmentMeta }
 import {
   INJECTION_INPUT_MAX_BYTES,
   INJECTION_QUESTIONS,
+  INJECTION_THRESHOLDS,
   INJECTION_TOOL_MAX_BYTES,
+  SENSITIVE_ADVICE,
   injectionBand,
   injectionConfirmReason,
   injectionWithholdReason,
@@ -97,14 +99,22 @@ interface Judgment {
  * was done about it.
  */
 function judgmentRecord(judgment: Judgment): Record<string, unknown> {
-  const { signals } = judgment;
+  const { signals, band } = judgment;
+  // A warning raised by the sensitive signal carries the one action it
+  // implies; the client renders whatever the record says instead of
+  // re-deriving it (one home for the copy, and the log says why it warned).
+  const sensitiveDrove =
+    band === "warn" &&
+    signals.sensitive >= INJECTION_THRESHOLDS.warnMin &&
+    signals.injection < INJECTION_THRESHOLDS.warnMin;
   return {
     useCase: "injection",
     source: judgment.source,
-    band: judgment.band,
+    band,
     decision: judgment.decision,
     injection: signals.injection,
     sensitive: signals.sensitive,
+    ...(sensitiveDrove ? { advice: SENSITIVE_ADVICE } : {}),
     questions: { injection: signals.injection, sensitive: signals.sensitive },
     answers: judgment.answers,
     model: judgment.meta.model,

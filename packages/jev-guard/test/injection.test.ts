@@ -138,6 +138,9 @@ describe("the input half (#791)", () => {
         sensitive: entry.sensitive,
         model: "jev-latest",
       });
+      // The advice rides only the warning the sensitive signal raised.
+      const sensitiveDrove = entry.band === "warn" && entry.sensitive >= 0.5 && entry.injection < 0.5;
+      expect(records[0]!.advice !== undefined).toBe(sensitiveDrove);
     });
   }
 

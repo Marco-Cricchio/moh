@@ -96,9 +96,19 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(line({ useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 })).toBe(
       "jev · injection · warn (injection 0.63)",
     );
-    // A fired sensitive signal carries the one action it implies.
-    expect(line({ useCase: "injection", decision: "warn", injection: 0.03, sensitive: 0.71 })).toBe(
-      "jev · injection · warn (sensitive 0.71 — do not commit or share this content)",
+    // A fired sensitive signal carries the advice the record brought.
+    expect(
+      line({
+        useCase: "injection",
+        decision: "warn",
+        injection: 0.03,
+        sensitive: 0.71,
+        advice: "do not commit or share this content",
+      }),
+    ).toBe("jev · injection · warn (sensitive 0.71 — do not commit or share this content)");
+    // No advice in the record: the injection probability explains the warn.
+    expect(line({ useCase: "injection", decision: "warn", injection: 0.55, sensitive: 0.71 })).toBe(
+      "jev · injection · warn (injection 0.55)",
     );
     expect(line({ useCase: "injection", decision: "cancelled", injection: 0.97, sensitive: 0.1 })).toBe(
       "jev · injection · cancelled — nothing was sent",

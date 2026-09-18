@@ -276,6 +276,8 @@ export class AgentSession {
         permissions: config.permissions,
         runtimeRules: () => this.#permissions.rules,
         onPermissionRequest: config.onPermissionRequest,
+        // ADR-0033 §4: a child's confirmed turn asks the same client.
+        ...(config.onConfirmTurn ? { onConfirmTurn: config.onConfirmTurn } : {}),
         // ADR-0031/ADR-0032: children are in-process sessions created by the
         // host, never re-assembled from config — they share the parent's
         // extension runtime, so the guardrail judges child tool calls through

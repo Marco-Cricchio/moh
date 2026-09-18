@@ -117,6 +117,14 @@ export interface SubagentHostOptions {
   runtimeRules: () => import("./permissions").PermissionRule[];
   /** Consent seam surfaced through the parent TUI. */
   onPermissionRequest?: SessionConfig["onPermissionRequest"];
+  /**
+   * ADR-0033 §4: the parent's pre-send confirmation seam, inherited for the
+   * same reason the permission seam is — a child's turn is the user's agent
+   * working, so a hook that asks (the anti-injection check, judging the
+   * task text the parent composed) asks the same human. A child that
+   * cannot ask refuses the turn, exactly like a headless parent.
+   */
+  onConfirmTurn?: SessionConfig["onConfirmTurn"];
   /** The parent's extension runtime (#784 spec §5): children get it as
    * their tool-call hook checker, so the guardrail judges child tool calls
    * through the same gate. Lifecycle hooks and statuses stay the parent's. */
@@ -305,6 +313,7 @@ export class SubagentHost {
         maxIterations: spec.maxIterations,
         permissions: { ...perms, runtimeRules: this.#options.runtimeRules() },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
+        ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
         ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
         sink: (event) => store.append(event),
         promptComposer: new PromptComposer({
