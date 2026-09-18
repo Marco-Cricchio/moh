@@ -237,3 +237,17 @@ any later user message). Consumed by the TUI `/copy` command so the copy
 source is exactly what the event log recorded — the core stays headless
 and the clipboard transport stays client-side. No other store internals
 leave the package.
+
+## Amendment — 2026-09-18, #767 single-session analysis seam
+
+**Re-opened doors**: `analyzeSession(file)` and its `SessionAnalysisReport`
+plus row/stats types (`core/src/session-analyze.ts`). The CLI
+`moh sessions analyze` report and the TUI `/session` modal need one shared,
+read-only metadata projection over a single session event log — the
+per-session sibling of the #714 cross-session aggregator — instead of each
+client forking the aggregation math. The seam opens the log through the
+shared store reader (disposed immediately; the open registry never records
+a view), projects the active branch via `activePath`, reuses the #499/#719
+usage and pricing conventions, and returns an explicit `{ error }` on an
+unreadable or empty log. Metadata only: never message content, tool
+outputs, or reasoning; never a write to the log.

@@ -121,6 +121,12 @@ describe("analyzeSession", () => {
       // Tool duration: call at t=2001+? — call ULID 2001, result 2002 → 1ms per pairing.
       expect(report.toolDurationMs).toBe(1);
       expect(report.file).toBe(file);
+
+      // Unpriced convention: tokens always, cost only when priced.
+      const priced = report.models.filter((m) => m.estimatedCostUsd !== undefined);
+      const unpriced = report.models.filter((m) => m.estimatedCostUsd === undefined);
+      for (const m of unpriced) expect(m.inputTokens + m.outputTokens).toBeGreaterThan(0);
+      expect(priced.length + unpriced.length).toBe(report.models.length);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -130,13 +136,21 @@ describe("analyzeSession", () => {
     const t1 = turn({ start: 2000, model: "prov/alpha", input: 100, output: 50 });
     const t2 = turn({ start: 9000, model: "prov/beta", input: 20, output: 4 });
     const t3 = turn({ start: 16000, model: "prov/gamma", input: 7, output: 2 });
-    // Fork: two children branch off t1's tail; the head points at t3.
-    const { home, file } = fixtureSession([
+    // Real fork shape (#575): t2 branches off t1's tail (parentId = t1's
+    // tail, an off-path sibling of t3); the head points at t3. Written
+    // raw — no sequential chaining, parentIds are explicit here.
+    const home = mkdtempSync(join(tmpdir(), "moh-analyze-"));
+    const dir = projectSessionsDir(home, home);
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "01JTESTAAAAAAAAAAAAAAAAAAAAA.jsonl");
+    const events: AgentEvent[] = [
       { id: id(1000), type: "session_start", schemaVersion: 2, promptVersion: "p" },
-      ...t1,
-      { id: id(8000), type: "branch_switched", to: t3[0]!.id! },
-      ...t3,
-    ]);
+      ...t1.map((e, i) => (i === 0 ? { ...e, parentId: id(1000) } : { ...e, parentId: t1[i - 1]!.id })),
+      ...t2.map((e, i) => (i === 0 ? { ...e, parentId: t1[t1.length - 1]!.id } : { ...e, parentId: t2[i - 1]!.id })),
+      { id: id(8000), type: "branch_switched", to: t3[0]!.id!, parentId: t1[t1.length - 1]!.id },
+      ...t3.map((e, i) => (i === 0 ? { ...e, parentId: id(8000) } : { ...e, parentId: t3[i - 1]!.id })),
+    ];
+    writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     try {
       const report = analyzeSession(file);
       if ("error" in report) throw new Error(`unexpected error: ${report.error}`);

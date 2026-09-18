@@ -14,7 +14,7 @@ import type { LocalUsageRow } from "./quota/local";
 import { aggregateLocalUsage } from "./quota/local";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
-import { SessionStore, sessionTree, type TreeView } from "./session-store";
+import { SessionStore, sessionTree } from "./session-store";
 
 /** Per-model usage for this session's active branch (failed calls
  * excluded, same convention as the cross-session aggregator). */
@@ -109,7 +109,6 @@ export function analyzeSession(file: string): SessionAnalysisReport | { error: s
   if (events.length === 0) return { error: `empty session log ${file}` };
 
   const path = activePath(events);
-  const onPath = new Set(path);
 
   // Usage: the shared local rollup, restricted to the active path.
   const models = aggregateLocalUsage(path);
@@ -181,16 +180,16 @@ export function analyzeSession(file: string): SessionAnalysisReport | { error: s
   }
 
   // Tree stats over the full topology (the active-branch projection is
-  // certified by `activePath`; the branch count needs every node).
+  // certified by `activePath`; the branch count needs every event).
   let branchCount = 0;
   let activePathTurns = 0;
   let bookmarks = 0;
   const tree = sessionTree(file);
   if (!("error" in tree)) {
-    branchCount = countBranches(tree);
     activePathTurns = tree.nodes.filter((n) => n.onActivePath && n.kind === "turn").length;
     bookmarks = tree.nodes.filter((n) => n.bookmark !== undefined).length;
   }
+  branchCount = countBranches(events);
 
   return {
     models,
@@ -204,17 +203,20 @@ export function analyzeSession(file: string): SessionAnalysisReport | { error: s
   };
 }
 
-/** Distinct root→tip turn paths through the tree: a turn node with no
- * turn-kind child ends a branch (chrome nodes decorate, never branch). */
-function countBranches(view: TreeView): number {
-  const turnParent = new Map<string, number>();
-  for (const node of view.nodes) {
-    if (node.kind !== "turn") continue;
-    if (node.parentId !== null) turnParent.set(node.parentId, (turnParent.get(node.parentId) ?? 0) + 1);
+/** Distinct root→tip turn paths: a turn tail is a branch tip when no
+ * later turn opens from it (no `user_message` references it as parent).
+ * Forks always open from the tail they diverge from, so untipped tails
+ * count exactly the leaves of the turn tree (≥1). */
+function countBranches(events: readonly AgentEvent[]): number {
+  const parents = new Set<string>();
+  for (const e of events) {
+    if (e.type === "user_message" && e.parentId !== undefined) parents.add(e.parentId);
   }
   let tips = 0;
-  for (const node of view.nodes) {
-    if (node.kind === "turn" && (turnParent.get(node.id) ?? 0) === 0) tips += 1;
+  for (const e of events) {
+    if ((e.type === "done" || e.type === "error" || e.type === "cancelled") && e.id !== undefined && !parents.has(e.id)) {
+      tips += 1;
+    }
   }
   return Math.max(1, tips);
 }

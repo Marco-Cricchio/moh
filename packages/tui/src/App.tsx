@@ -31,6 +31,7 @@ import { THEMES, THEME_ORDER, ThemeProvider, type Theme } from "./themes";
 import { listUserThemes, resolveThemeRef, themeLabelFor } from "./user-themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
+import { Text } from "ink";
 import { visibleChips, type ChipAction } from "./BottomBar";
 import { useSubagentCount } from "./subagent-panel";
 import { Chat, type Mode } from "./Chat";
@@ -240,6 +241,21 @@ export function App({
       }
     });
   }, [overlay, cwd, home]);
+  // #767: the /session modal's report — computed once at open (snapshot,
+  // no live refresh); a failed read degrades to a notice, never a crash.
+  const [sessionReport, setSessionReport] = useState<SessionAnalysisReport | { error: string } | null>(null);
+  useEffect(() => {
+    if (overlay !== "session") return;
+    setSessionReport(() => {
+      try {
+        if (!session?.sessionFile) return { error: "session file unknown" };
+        return analyzeSession(session.sessionFile);
+      } catch {
+        return { error: "session analysis failed" };
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay]);
   const [handoffFromSettings, setHandoffFromSettings] = useState(false);
   const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
@@ -1362,9 +1378,12 @@ export function App({
         {overlay === "mpm" && session && (
           <MpmModal diagnostics={session.mpmDiagnostics()} onClose={() => setOverlay(null)} />
         )}
-        {overlay === "session" && session && session.sessionFile && (
-          <SessionModal report={analyzeSession(session.sessionFile) as SessionAnalysisReport} onClose={() => setOverlay(null)} />
-        )}
+        {overlay === "session" && session && session.sessionFile &&
+          (sessionReport && !("error" in sessionReport) ? (
+            <SessionModal report={sessionReport} onClose={() => setOverlay(null)} />
+          ) : (
+            <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
+          ))}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
