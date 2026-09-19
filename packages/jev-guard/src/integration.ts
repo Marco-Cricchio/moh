@@ -83,8 +83,12 @@ export const jevBundledSource = {
       injection: typesafe.injection,
       classification: typesafe.classification,
       rerank: typesafe.rerank,
-      ...(typesafe.skills ? { skills: { roster: context.skillRoster } } : {}),
-      ...(typesafe.lint ? { lint: { root: context.cwd } } : {}),
+      // #832: lint and skills are *supplied* whenever the session can supply
+      // them, with the config deciding only the starting state — so a warm
+      // `on` (#832/#833) can start a use case the config left off, instead
+      // of hitting a use case that was never built.
+      lint: { root: context.cwd, enabled: typesafe.lint },
+      skills: { roster: context.skillRoster, enabled: typesafe.skills },
     });
   },
 

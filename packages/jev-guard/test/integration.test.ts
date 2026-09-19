@@ -207,7 +207,26 @@ describe("activation through the generic door (#826)", () => {
     session.setExtensionState("jev-guard", { cmd: "on" });
     await Bun.sleep(5);
     expect(read()).toMatchObject({ paused: false });
-    expect(session.history().some((e) => e.type === "extension_event" && e.name === "jev_routing")).toBe(true);
+    // #832: every accepted control change leaves the uniform line, and the
+    // uniform snapshot answers beside routing's richer reader.
+    const lines = session
+      .history()
+      .filter((e) => e.type === "extension_event" && e.name === "jev_usecase") as Array<{ payload: Record<string, unknown> }>;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.payload).toEqual({ usecase: "routing", action: "on", status: "on", config: false, sessionOnly: true });
+    const snapshot = (session.extensionState("jev-guard", "jevState") as () => Record<string, { status: string; config: boolean }>)();
+    expect(Object.keys(snapshot)).toEqual([
+      "guardrail",
+      "routing",
+      "classification",
+      "injection",
+      "lint",
+      "rerank",
+      "skills",
+    ]);
+    expect(snapshot.routing).toMatchObject({ status: "on", config: false, sessionOnly: true });
+    expect(snapshot.guardrail).toMatchObject({ status: "on", config: true });
+    expect(snapshot.skills).toMatchObject({ status: "off", config: false });
     await session.dispose();
   });
 

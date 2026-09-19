@@ -38,10 +38,16 @@ import { createClassificationJudge, classificationQuestions } from "./classifica
 import { createRerankJudge } from "./rerank-judge";
 import { createSkillSuggestJudge } from "./skill-judge";
 import type { SkillCandidate } from "./skills";
+import {
+  createUseCaseControl,
+  type JevUseCaseOutcome,
+  type JevUseCaseState,
+  type UseCaseControl,
+} from "./use-cases";
+import type { RoutingJudge } from "./routing-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
-
 /** The definition's version, reported by the `extension_loaded` event. */
 export const JEV_GUARD_VERSION = "0.1.0";
 
@@ -82,8 +88,12 @@ export interface JevGuardOptions {
    * changed code's diff to TypeSafe, the strongest privacy step in the
    * pack). Needs the project root for rubric discovery and the git diff;
    * absent = the use case is unavailable (a caller that never wants it).
+   *
+   * #832: `enabled` is the *config* opt-in — the state the session starts
+   * in. The option's presence is availability: with the root supplied, a
+   * warm `on` can start judging even though the config says off.
    */
-  lint?: { root: string };
+  lint?: { root: string; enabled?: boolean };
   /**
    * #788: prompt classification. On by default (`typesafe.classification`,
    * an explicit `false` in the config turns it off): Jev classifies the
@@ -109,7 +119,11 @@ export interface JevGuardOptions {
   /**
    * #793: per-turn skill suggestion. Off by default (`typesafe.skills`):
    * needs the session's skill roster (bundled first-party + user skills),
-   * which only the assembly has; absent = the use case is unavailable.
+   * which only the assembly has; absent = the use case is unavailable
+   * (a caller that never wants it). `enabled` (#832) is the config opt-in:
+   * the presence of the roster makes the use case *available* to a warm
+   * command, the flag only decides where the session starts.
+   *
    * Two Jev calls per judged turn — rank the whole roster plus a
    * "does this turn need a skill at all?" gate, then re-read the top-3
    * finalists — yield at most ONE suggested skill, contributed as the
@@ -117,7 +131,7 @@ export interface JevGuardOptions {
    * roster itself never enters the prompt). Every record is a
    * `jev_skill_suggest` event, one per call.
    */
-  skills?: { roster: () => Promise<readonly SkillCandidate[]> };
+  skills?: { roster: () => Promise<readonly SkillCandidate[]>; enabled?: boolean };
 }
 
 /**
@@ -144,6 +158,85 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         onJudgment: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }),
         onStatus: (text) => ctx.setStatus(text),
       });
+
+      // ---- #832: the uniform control surface ---------------------------
+      // One vocabulary for the seven use cases: which are *available* in
+      // this session (they have everything they need), which the config
+      // opted in (the state a session starts in) and which a warm command
+      // moved (session-only). Every hook below asks `control.isOn(...)` and
+      // nothing else, so a command takes effect from the next turn without
+      // re-registering anything.
+      const lintOptions = options.lint;
+      const skillsOptions = options.skills;
+      /** Session mode, tracked from the log's `session_mode` chrome. */
+      let mode: "normal" | "auto-accept" | "yolo" = "normal";
+      /**
+       * The routing judge (created below): the one use case whose live state
+       * has more than on/off, because switching model by hand suspends it.
+       */
+      let router: RoutingJudge | undefined;
+      const control: UseCaseControl = createUseCaseControl({
+        mode: () => mode,
+        available: {
+          guardrail: true,
+          routing: options.routing !== undefined,
+          classification: true,
+          injection: true,
+          lint: lintOptions !== undefined,
+          rerank: true,
+          skills: skillsOptions !== undefined,
+        },
+        config: {
+          // #784: the guardrail has no config opt-in — a stored key *is* the
+          // switch. It is therefore on in every session this extension runs
+          // in, and a warm `off` is session-only by construction.
+          guardrail: true,
+          routing: options.enabled === true,
+          classification: options.classification !== false,
+          injection: options.injection === true,
+          // "The config says" is a claim about the *user's* file: an option
+          // the caller never supplied is ours to read as off, not as on
+          // (the use case is unavailable anyway, and the refusal says that).
+          lint: lintOptions !== undefined && lintOptions.enabled !== false,
+          rerank: options.rerank === true,
+          skills: skillsOptions !== undefined && skillsOptions.enabled !== false,
+        },
+        routing: {
+          control: (action) => router?.control(action),
+          state: () => router?.snapshot() ?? { paused: false, override: false },
+          // Nothing to choose = inert — but only once the assignment
+          // resolved: a router that has not looked yet is not yet anything.
+          inert: () => {
+            const resolution = router?.peekResolution();
+            return resolution ? resolution.assignment === null : false;
+          },
+        },
+      });
+      /**
+       * #832: the one visible line a control change leaves in the log. A
+       * resumed session must be able to read why a use case went quiet
+       * while the config says otherwise, so the asymmetry travels with the
+       * line — never a bare "off".
+       */
+      const appendOutcome = (outcome: JevUseCaseOutcome): void => {
+        const state = outcome.state;
+        ctx.appendEvent({
+          name: "jev_usecase",
+          payload: {
+            usecase: outcome.usecase,
+            action: outcome.action,
+            ...(outcome.refused ? { refused: outcome.refused } : {}),
+            status: state.status,
+            config: state.config,
+            ...(state.sessionOnly ? { sessionOnly: true } : {}),
+            // The guardrail has no persistent switch to contrast with;
+            // "the config still says on" would invent one.
+            ...(outcome.usecase === "guardrail" && outcome.refused === undefined
+              ? { note: "the guardrail has no persistent switch" }
+              : {}),
+          },
+        });
+      };
 
       // ---- #792 compaction cut guide: one noul per section ------------
       // ADR-0035: at compaction time (auto and forced paths alike), Jev
@@ -181,8 +274,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // Jev judges EVERY bash call (before rules, ADR-0031 gate order):
       // deny → veto, ask → the human consent flow (never auto-accepted,
       // never "always"), pass → nothing. Yolo gets lethal checks only.
-      /** Session mode, tracked from the log's `session_mode` chrome. */
-      let mode: "normal" | "auto-accept" | "yolo" = "normal";
+      // #832: gated on the live state — the guardrail is always available,
+      // and a warm `off` (refused in yolo, see `use-cases.ts`) suppresses
+      // the judgment from the next call.
       const judge = createGuardrailJudge(
         { client, state: ctx.state ?? {} },
         {
@@ -207,6 +301,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       });
       ctx.onSessionEnd(() => judge.reset());
       ctx.onToolCall(async (call) => {
+        if (!control.isOn("guardrail")) return;
         if (call.name !== GUARDRAIL_TOOL) return;
         const result = await judge.judge(call.callId, call.args);
         const v = result.verdict.verdict;
@@ -228,28 +323,37 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // questions; `sensitive` never blocks, only `injection` above 0.95
       // does — a confirmation before a turn, a withheld result after a
       // fetch.
-      if (options.injection === true) {
-        const injection = createInjectionJudge({
-          client,
-          append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
-        });
-        // Half 1: the user's turn input, through the pre-send confirmation
-        // of ADR-0033. The band's `confirm` is the only one that reports
-        // back: the record waits for the answer, so a cancelled turn leaves
-        // exactly one entry in the log and no `user_message`.
-        ctx.beforeTurn(async ({ text }) => {
-          const verdict = await injection.judgeInput(text);
-          if (!verdict || verdict.band !== "confirm" || verdict.reason === undefined) return;
-          return {
-            confirm: {
-              reason: verdict.reason,
-              ...(verdict.resolve ? { onResolved: verdict.resolve } : {}),
-            },
-          };
-        });
-        // Half 2: external content, through the post-tool seam of ADR-0034,
-        // registered for the two tools whose output a third party controls.
+      // #832: the judge is built whatever the config says (building one
+      // costs nothing — it is one closure until it judges), so
+      // `typesafe.injection: false` becomes a *starting* state a warm `on`
+      // can leave from the next turn. Both seams ask the live state first.
+      const injection = createInjectionJudge({
+        client,
+        append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+      });
+      // Half 1: the user's turn input, through the pre-send confirmation
+      // of ADR-0033. The band's `confirm` is the only one that reports
+      // back: the record waits for the answer, so a cancelled turn leaves
+      // exactly one entry in the log and no `user_message`.
+      ctx.beforeTurn(async ({ text }) => {
+        if (!control.isOn("injection")) return;
+        const verdict = await injection.judgeInput(text);
+        if (!verdict || verdict.band !== "confirm" || verdict.reason === undefined) return;
+        return {
+          confirm: {
+            reason: verdict.reason,
+            ...(verdict.resolve ? { onResolved: verdict.resolve } : {}),
+          },
+        };
+      });
+      // Half 2: external content, through the post-tool seam of ADR-0034,
+      // registered for the two tools whose output a third party controls.
+      // A host older than apiVersion 1.4 has no `onToolResult`: the half
+      // does not exist there (the versioning policy: fail-open, never an
+      // error) — hence the guard, like `requestTurn` below.
+      if (typeof ctx.onToolResult === "function") {
         ctx.onToolResult(INJECTION_TOOLS, async ({ name, output }) => {
+          if (!control.isOn("injection")) return;
           const verdict = await injection.judgeToolResult(name, output);
           if (!verdict?.withhold) return;
           return { withhold: { reason: verdict.withhold } };
@@ -265,13 +369,16 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // judged with three fixed questions; a finding asks the core for a
       // synthetic correction turn (ADR-0037), re-judges, and hard-stops
       // after two cycles.
-      if (options.lint) {
+      // #832: available whenever the assembly could supply the project root
+      // — the config only decides where the session starts, so a warm `on`
+      // starts judging from the next turn that ends.
+      if (lintOptions) {
         const gate = createLintGate({
           judge: createLintJudge({
             client,
             append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
           }),
-          root: options.lint.root,
+          root: lintOptions.root,
           // ADR-0037: the core-mediated synthetic turn. Absent on a 1.5-
           // or-older runtime — the gate degrades to judgment-only (the
           // record still lands, no correction turn is requested).
@@ -286,7 +393,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         });
         ctx.onToolCall(async (call) => {
           // Observation only: record the paths the task writes/edits for
-          // the diff; never a decision, so nothing is returned.
+          // the diff; never a decision, so nothing is returned. Gated with
+          // the gate itself: an off use case pays nothing.
+          if (!control.isOn("lint")) return;
           gate.observeToolCall(call.name, call.args);
         });
         ctx.afterTurn(async ({ result, synthetic }) => {
@@ -295,6 +404,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           // interruption, not by omission), and a synthetic turn the gate
           // itself requested is never re-gated — that is the no-recursion
           // rule, enforced by skipping here.
+          if (!control.isOn("lint")) return;
           if (synthetic === true || result.status !== "done") return;
           // `requestTurn` resolves when the correction turn settles (the
           // queue runs it like any turn), so cycle 2 re-diffs the
@@ -311,20 +421,18 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // instructions, replaced — never accumulated) and the MPM gate
       // opinion is published through `state.mpmGate` for the assembly to
       // wire into `SessionConfig.mpm.turnGate`.
-      const classificationJudge =
-        options.classification !== false
-          ? createClassificationJudge({
-              client,
-              append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
-            })
-          : undefined;
-      if (classificationJudge) {
-        // The assembly reads this (the `routingState` pattern): the
-        // current turn's MPM gate opinion — `null` = no opinion. The
-        // note itself needs no cleanup hook: the core clears every turn
-        // note at the next turn's start (ADR-0036 §2).
-        ctx.state.mpmGate = null;
-      }
+      // #832: the judge always exists (classification needs nothing the
+      // session might lack) and the hook asks the live state, so a warm
+      // `off`/`on` applies from the next turn.
+      const classificationJudge = createClassificationJudge({
+        client,
+        append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+      });
+      // The assembly reads this (the `routingState` pattern): the current
+      // turn's MPM gate opinion — `null` = no opinion. The note itself needs
+      // no cleanup hook: the core clears every turn note at the next turn's
+      // start (ADR-0036 §2).
+      ctx.state.mpmGate = null;
 
       // ---- #790 MPM seed rerank: over-threshold rescue ----------------
       // Opt-in and off by default (`typesafe.rerank`). The orientation
@@ -334,26 +442,29 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // over-threshold seed set, one noul per candidate — never an
       // aggregated Score (a calibration lesson paid for in note 35).
       // Absent = the rerank use case is unavailable (today's behavior).
-      if (options.rerank === true) {
-        const rerankJudge = createRerankJudge({
-          client,
-          append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
-        });
-        // The core reads this hook from `state` (the `mpmGate` pattern):
-        // a function the orientation module calls when an over-threshold
-        // seed set needs ranking. Null while the request is in flight is
-        // impossible — the orientation module awaits this single promise.
-        ctx.state.rerank = async (request: Parameters<typeof rerankJudge.rerank>[0]) => {
-          const verdict = await rerankJudge.rerank(request);
-          if (!verdict) return null;
-          // The core only needs the kept paths (it owns the candidate
-          // list and the freshness re-hashing); a `Set<string>` is the
-          // narrowest contract that preserves insertion order. Empty
-          // when fewer than two candidates cleared the floor (orientation
-          // degrades to no plan).
-          return new Set(verdict.kept.map((c) => c.path));
-        };
-      }
+      // #832: rerank needs nothing the session might lack, so the hook is
+      // always published and the config only decides the starting state — a
+      // warm `on` rescues the next over-threshold plan.
+      const rerankJudge = createRerankJudge({
+        client,
+        append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+      });
+      // The core reads this hook from `state` (the `mpmGate` pattern): a
+      // function the orientation module calls when an over-threshold seed set
+      // needs ranking. Null while the request is in flight is impossible —
+      // the orientation module awaits this single promise. An off use case
+      // answers `null` without spending a call, which is exactly what the
+      // orientation module does with an absent hook.
+      ctx.state.rerank = async (request: Parameters<typeof rerankJudge.rerank>[0]) => {
+        if (!control.isOn("rerank")) return null;
+        const verdict = await rerankJudge.rerank(request);
+        if (!verdict) return null;
+        // The core only needs the kept paths (it owns the candidate list and
+        // the freshness re-hashing); a `Set<string>` is the narrowest
+        // contract that preserves insertion order. Empty when fewer than two
+        // candidates cleared the floor (orientation degrades to no plan).
+        return new Set(verdict.kept.map((c) => c.path));
+      };
 
       // ---- #787 routing: one tier per turn -----------------------------
       // Opt-in and off by default (`typesafe.routing`). Jev judges the last
@@ -371,24 +482,24 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             labels: routing.labels ?? {},
             // #788: when the router makes its per-turn call, the
             // classification rides it — one state, one round trip, both
-            // consumers reading their own answers.
-            ...(classificationJudge
-              ? {
-                  rider: {
-                    questions: classificationQuestions,
-                    onSharedCall: () => {
-                      // The routing call covers this turn (success or
-                      // failure): never a second request for it.
-                      ctx.state.classificationShared = true;
-                    },
-                    onAnswers: (answers, meta, text) => {
-                      ctx.state.classificationShared = true;
-                      const verdict = classificationJudge.judgeShared(answers, meta, text);
-                      if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);
-                    },
-                  },
-                }
-              : {}),
+            // consumers reading their own answers. #832: the rider stays
+            // wired whatever the classification's live state is; its own
+            // judge decides whether to read the answers (an off
+            // classification rides nothing and reads nothing).
+            rider: {
+              questions: classificationQuestions,
+              onSharedCall: () => {
+                // The routing call covers this turn (success or
+                // failure): never a second request for it.
+                ctx.state.classificationShared = true;
+              },
+              onAnswers: (answers, meta, text) => {
+                ctx.state.classificationShared = true;
+                if (!control.isOn("classification")) return;
+                const verdict = classificationJudge.judgeShared(answers, meta, text);
+                if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);
+              },
+            },
             // The serving model is not the one the router picked: say so
             // once per episode and stay out of the way (no call, no switch).
             onMismatch: (currentModel, expected) => {
@@ -420,7 +531,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             },
           },
         );
+        router = judge;
         ctx.beforeTurn(async (call) => {
+          if (!control.isOn("routing")) return;
           const verdict = await judge.decide(call.text, call.model);
           if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
           // Arm the switch before returning: the `model_switched` it causes
@@ -428,30 +541,16 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           judge.noteSwitch(verdict.ref);
           return { model: verdict.ref };
         });
+        // #832: routing's own notices (a mismatch, a manual override, a
+        // misconfigured label). The *commands* are handled once, for all
+        // seven use cases, by the uniform channel registered at the end of
+        // this setup.
         ctx.onEvent(({ event }) => {
-          if (event.type === "model_switched" && typeof event.to === "string") {
-            if (!judge.noteModelSwitched(event.to)) return;
-            // The user picked a model by hand: the router steps aside and
-            // says so. `/routing auto` (or `/model auto`) hands it back.
-            ctx.appendEvent({ name: "jev_routing", payload: { kind: "override", model: event.to } });
-            return;
-          }
-          // ADR-0038: the client talks to the router through commands. The
-          // extension answers with the resolved state, so the client never
-          // has to guess what the router thinks (a status only reaches the
-          // TUI footer, and outputs are not a channel).
-          if (event.type !== "extension_control") return;
-          const payload = (event.payload ?? {}) as Record<string, unknown>;
-          const cmd = typeof payload.cmd === "string" ? payload.cmd : "";
-          const applied = judge.control(cmd);
-          if (!applied) {
-            ctx.appendEvent({ name: "jev_routing", payload: { kind: "unknown-command", cmd } });
-            return;
-          }
-          ctx.appendEvent({
-            name: "jev_routing",
-            payload: { kind: "control", cmd, paused: applied.paused, override: applied.override },
-          });
+          if (event.type !== "model_switched" || typeof event.to !== "string") return;
+          if (!judge.noteModelSwitched(event.to)) return;
+          // The user picked a model by hand: the router steps aside and
+          // says so. `/routing auto` (or `/model auto`) hands it back.
+          ctx.appendEvent({ name: "jev_routing", payload: { kind: "override", model: event.to } });
         });
         // The config opt-in is the *starting* state, not a gate: the router
         // exists either way, so `/routing on` can enable it for a session
@@ -496,19 +595,25 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // only when routing did nothing does the classification spend its
       // own request. Either way the hint lands in this turn's
       // `turn_notes` and the gate opinion is published.
-      if (classificationJudge) {
-        ctx.beforeTurn(async ({ text }) => {
-          if (ctx.state.classificationShared === true) {
-            // The routing call judged this turn already; consume the flag.
-            ctx.state.classificationShared = false;
-          } else {
-            const verdict = await classificationJudge.judge(text);
-            if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);
-          }
-          const gate = classificationJudge.mpmAllowed();
-          ctx.state.mpmGate = gate === undefined ? null : gate;
-        });
-      }
+      ctx.beforeTurn(async ({ text }) => {
+        // #832: an off classification rides nothing and judges nothing —
+        // and the gate opinion must go back to "no opinion", never linger
+        // from the previous turn (`mpmGate` is read once per turn).
+        if (!control.isOn("classification")) {
+          ctx.state.classificationShared = false;
+          ctx.state.mpmGate = null;
+          return;
+        }
+        if (ctx.state.classificationShared === true) {
+          // The routing call judged this turn already; consume the flag.
+          ctx.state.classificationShared = false;
+        } else {
+          const verdict = await classificationJudge.judge(text);
+          if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);
+        }
+        const gate = classificationJudge.mpmAllowed();
+        ctx.state.mpmGate = gate === undefined ? null : gate;
+      });
       // ---- #793 skill suggestion: the two-call cookbook ----------------
       // Opt-in and off by default (`typesafe.skills`): it needs the
       // session's skill roster, resolved lazily by the assembly (fresh
@@ -519,13 +624,17 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // the skill suggestion — the more specific line.
       // Fail-open end to end: no roster, an outage, a gate or floor miss
       // all leave the turn exactly as today.
-      if (options.skills) {
-        const roster = options.skills.roster;
+      // #832: available whenever the assembly could supply the roster; the
+      // config only chooses the starting state, so a warm `on` starts
+      // suggesting from the next turn.
+      if (skillsOptions) {
+        const roster = skillsOptions.roster;
         const judge = createSkillSuggestJudge({
           client,
           append: (payload) => ctx.appendEvent({ name: "jev_skill_suggest", payload }),
         });
         ctx.beforeTurn(async ({ text }) => {
+          if (!control.isOn("skills")) return;
           const index = await roster();
           if (!index || index.length === 0) return;
           const verdict = await judge.suggest(text, index);
@@ -533,8 +642,57 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         });
       }
 
+      // ---- #832 the uniform command channel (ADR-0038) -----------------
+      // Registering this once, for all seven use cases, is the point of the
+      // generalization: the client sends one grammar, the extension answers
+      // through the live state, and every accepted change leaves exactly one
+      // visible line in the log. The routing-only form ADR-0038 shipped
+      // (`{ cmd: "on" | "off" | "auto" }`) stays accepted — a client that
+      // predates #832 keeps working, and it is the same code path.
+      ctx.onEvent(({ event }) => {
+        if (event.type !== "extension_control") return;
+        const payload = asRecord(event.payload);
+        if (payload === undefined) return;
+        if (payload.cmd === "usecase") {
+          const usecase = typeof payload.usecase === "string" ? payload.usecase : "";
+          const action = typeof payload.action === "string" ? payload.action : "";
+          const outcome = control.command(usecase, action);
+          if (outcome) {
+            appendOutcome(outcome);
+          } else {
+            // A name this extension does not know: the client may be newer
+            // than the extension. Say so instead of doing nothing.
+            ctx.appendEvent({
+              name: "jev_usecase",
+              payload: { usecase, action, refused: "unknown-usecase" },
+            });
+          }
+          return;
+        }
+        if (typeof payload.cmd === "string") {
+          // `command("routing", …)` answers `null` only for a name it does
+          // not know — "routing" is one of the seven, so an outcome is
+          // always there (an unknown command comes back as a refusal).
+          const outcome = control.command("routing", payload.cmd);
+          if (outcome) appendOutcome(outcome);
+        }
+      });
+
+      // ---- #832: the live snapshot the client reads ---------------------
+      // The uniform reader a client asks for all seven states at once
+      // (`state` is the one channel that answers synchronously). `routing`
+      // keeps its richer `routingState` reader beside it: this one says
+      // whether the router is on, paused or inert, that one says what it
+      // resolved to.
+      ctx.state.jevState = (): Record<string, JevUseCaseState> => control.snapshot();
     },
   });
+}
+
+/** A JSON object as an inspectable record; anything else is not a payload. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
 }
 
 export default createJevGuardExtension;
@@ -746,6 +904,24 @@ export { createSkillSuggestJudge, type SkillSuggestJudge, type SkillSuggestJudge
 // (moved out of `@moh/core`). A client mounts `jevBundledSource` into
 // `sessionFromConfig({ bundledExtensions })`; nothing in the core names Jev.
 export { jevBundledSource } from "./integration";
+// #832: the uniform per-use-case control surface — the vocabulary a client
+// speaks to the extension with (the snapshot it reads, the ids and actions
+// it sends) and the pure state machine behind it.
+export {
+  JEV_USE_CASE_ACTIONS,
+  JEV_USE_CASES,
+  createUseCaseControl,
+  type JevRoutingHost,
+  type JevUseCase,
+  type JevUseCaseAction,
+  type JevUseCaseOutcome,
+  type JevUseCaseRefusal,
+  type JevUseCaseSnapshot,
+  type JevUseCaseState,
+  type JevUseCaseStatus,
+  type UseCaseControl,
+  type UseCaseControlDeps,
+} from "./use-cases";
 export {
   TYPESAFE_SETTINGS_HINT,
   TYPESAFE_TIMEOUT_MS_DEFAULT,

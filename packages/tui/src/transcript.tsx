@@ -223,6 +223,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   const record = asRecord(payload);
   if (record === undefined) return name;
   if (name === "jev_routing") return routingNoticeLine(record);
+  if (name === "jev_usecase") return useCaseLine(record);
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
   if (record.useCase === "injection") return injectionJudgmentLine(record);
@@ -238,10 +239,41 @@ export function extensionEventLine(name: string, payload: unknown): string {
   return parts.join(" · ");
 }
 
-/** ADR-0038: the short form of a control payload (`{ cmd: "off" }` → `off`). */
+/** ADR-0038: the short form of a control payload (`{ cmd: "off" }` → `off`).
+ * #832: the uniform grammar names the use case first (`injection off`). */
 function controlCommandLine(payload: Record<string, unknown> | undefined): string {
+  if (payload?.cmd === "usecase") {
+    const usecase = typeof payload.usecase === "string" && payload.usecase !== "" ? payload.usecase : "?";
+    const action = typeof payload.action === "string" && payload.action !== "" ? payload.action : "?";
+    return `${usecase} ${action}`;
+  }
   const cmd = payload?.cmd;
   return typeof cmd === "string" && cmd !== "" ? cmd : "control";
+}
+
+/**
+ * #832: one line per per-use-case control change. The asymmetry is the whole
+ * point of the line — a warm `on` for a use case the config left off must
+ * say so, and so must a warm `off` for one the config leaves on, because the
+ * very next session starts from the config again. A refusal is a refusal:
+ * nothing pretends the command landed. Anything unrecognized degrades to the
+ * use case and action, never to a guess.
+ */
+function useCaseLine(record: Record<string, unknown>): string {
+  const usecase = typeof record.usecase === "string" ? record.usecase : "?";
+  const action = typeof record.action === "string" ? record.action : "?";
+  const refused = typeof record.refused === "string" ? record.refused : undefined;
+  if (refused === "unknown-usecase") return `jev · ${usecase} · not a Jev use case`;
+  if (refused === "unknown-action") return `jev · ${usecase} · "${action}" is not a command (on, off${usecase === "routing" ? ", auto" : ""})`;
+  if (refused === "unavailable") return `jev · ${usecase} · ${action} refused — not available in this session`;
+  if (refused === "unsupported") return `jev · ${usecase} · "${action}" belongs to model routing`;
+  if (refused === "yolo") return "jev · guardrail · off refused — yolo keeps the lethal checks on";
+  const note = typeof record.note === "string" ? record.note : undefined;
+  if (note !== undefined) return `jev · ${usecase} · ${action} for this session — ${note}`;
+  if (record.sessionOnly === true) {
+    return `jev · ${usecase} · ${action} for this session — the config still says ${record.config === true ? "on" : "off"}`;
+  }
+  return `jev · ${usecase} · ${action} for this session`;
 }
 
 /** #787: the router's notices — one line each, never a warning, never a

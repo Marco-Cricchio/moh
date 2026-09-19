@@ -105,3 +105,74 @@ Key decisions, each with its rationale:
   extension (unlogged, unreplayable, and it would make the core's dispatch surface
   extension-shaped); broadcasting control events to every extension (one extension's
   command becomes another's, silently).
+
+## Appendix (#832): the uniform per-use-case grammar
+
+Status: accepted · Date: 2026-09-19 · Issue: #832
+
+**Why an appendix and not a new ADR.** #832 generalizes this channel's *one
+user* (the Jev router) into a uniform control surface for all seven Jev use
+cases. Nothing in the decision above moves: the same single log variant, the
+same two session APIs, the same targeted delivery, the same
+restrict-only limit, the same chrome rendering. What changes is the payload
+grammar one extension interprets — and the core must not learn it (key
+decision 1), so this is a note about a consumer, not a re-decision about the
+seam.
+
+### The grammar
+
+```ts
+session.setExtensionState("jev-guard", {
+  cmd: "usecase",
+  // guardrail | routing | classification | injection | lint | rerank | skills
+  usecase: "injection",
+  // on | off — plus `auto`, which belongs to routing (release the override)
+  action: "on",
+});
+```
+
+The extension answers with one `extension_event` line (`jev_usecase`) that
+states what changed and the asymmetry against the config: *"on for this
+session — the config still says off"*. A command the session cannot honour
+(an unavailable use case, an action that belongs to another use case, an
+unknown name) appends a refusal line instead — never a turn error, never
+silence, and never a state change that was not reported.
+
+The routing-only form this ADR shipped (`{ cmd: "on" | "off" | "auto" }`)
+stays accepted: it is the same code path, addressed to `routing`, and it
+keeps a client built before #832 working.
+
+### Availability and config are two different bits
+
+The generalization only works because a use case's *presence* and its
+*opt-in* stopped being the same flag. A use case whose dependency the
+session has (the model pool, the skill roster, the project root) is
+available and registers its hooks whatever the config says; the config only
+chooses the state the session starts in, and a warm command moves it for
+the session. A use case whose dependency is missing is `inert`: its commands
+are refused, visibly.
+
+The guardrail is the exception by design: it has no config opt-in (a stored
+key *is* the switch, #784), so its warm state is session-only and its line
+says that instead of inventing a config contrast. In `yolo` a warm
+`guardrail off` is **refused** (visible line, state unchanged): ADR-0031's
+posture — a filter that can be disarmed in the mode that needs it most is
+not a filter — read strictly, since yolo is fixed for the session and an
+`off` taken before it would otherwise outlive the warning.
+
+### What is deliberately not here
+
+- **No persistence.** A command is state, never config (key decision 1);
+  writing `~/.moh/config` from a session command stays the Settings panel's
+  and the CLI's job.
+- **No use-case vocabulary in the core.** `usecase`, the seven ids and the
+  statuses live in the extension package; a client reads them from there.
+- **No change to the rest of the channel**: delivery, targeting, chrome,
+  apiVersion (`1.3`, still) and the restrict-only limit are untouched.
+
+Rejected: one grammar per use case (seven payloads, seven clients, and the
+core's chrome rendering left guessing); letting the core route commands by
+use case (it would have to know what a use case is); answering a command
+with silence when the client is newer than the extension (a refusal is
+information); making `auto` a general action (it means "release the router's
+manual override" — anywhere else it is a client bug).
