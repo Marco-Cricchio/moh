@@ -208,10 +208,12 @@ describe("/routing and /model auto (#787, ADR-0038)", () => {
     runSlashCommand("/routing off", ctx);
     runSlashCommand("/routing on", ctx);
     runSlashCommand("/routing auto", ctx);
+    // #832: the uniform per-use-case grammar (the routing-only form ADR-0038
+    // shipped stays accepted by the extension for older clients).
     expect(commands).toEqual([
-      { extension: "jev-guard", payload: { cmd: "off" } },
-      { extension: "jev-guard", payload: { cmd: "on" } },
-      { extension: "jev-guard", payload: { cmd: "auto" } },
+      { extension: "jev-guard", payload: { cmd: "usecase", usecase: "routing", action: "off" } },
+      { extension: "jev-guard", payload: { cmd: "usecase", usecase: "routing", action: "on" } },
+      { extension: "jev-guard", payload: { cmd: "usecase", usecase: "routing", action: "auto" } },
     ]);
     // No config file was ever touched.
     expect(existsSync(ctx.cfgFile)).toBe(false);
@@ -274,7 +276,7 @@ describe("/routing and /model auto (#787, ADR-0038)", () => {
       onModelSwitched: (model) => switched.push(`notified:${model}`),
     });
     runSlashCommand("/model auto", ctx);
-    expect(commands).toEqual([{ extension: "jev-guard", payload: { cmd: "auto" } }]);
+    expect(commands).toEqual([{ extension: "jev-guard", payload: { cmd: "usecase", usecase: "routing", action: "auto" } }]);
     expect(switched).toEqual([]);
     expect(ctx.notices().at(-1)).toContain("routing released");
 

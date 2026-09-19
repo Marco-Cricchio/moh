@@ -162,7 +162,7 @@ apiVersion 1.3 adds the other half: a client can **command** a running
 extension, by name, through the session API.
 
 ```ts
-// client side (the TUI's /routing does exactly this)
+// client side (the TUI's /routing posts its payload the same way)
 session.setExtensionState("my-extension", { cmd: "off" });
 
 // extension side
@@ -185,6 +185,9 @@ ctx.onEvent(({ event }) => {
 - **You may never be commanded.** An older runtime does not know the event,
   and a client may not offer the command at all: design the extension so it
   works with the default state and treats a command as an override of it.
+- **Unknown name, no throw.** In the generalized grammar (#832 appendix) a
+  use-case name the extension does not know is answered with a visible
+  refusal line — the client may be newer than the extension.
 - Naming an extension that is not registered is not an error: the event is
   logged and delivered to nobody.
 

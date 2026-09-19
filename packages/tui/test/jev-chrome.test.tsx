@@ -153,6 +153,82 @@ describe("extension_event / session_note in the transcript (#784)", () => {
   });
 });
 
+describe("the uniform control line (#832)", () => {
+  test("a warm change says what changed and that the config still disagrees", () => {
+    expect(
+      extensionEventLine("jev_usecase", {
+        usecase: "injection",
+        action: "on",
+        status: "on",
+        config: false,
+        sessionOnly: true,
+      }),
+    ).toBe("jev · injection · on for this session — the config still says off");
+    expect(
+      extensionEventLine("jev_usecase", {
+        usecase: "classification",
+        action: "off",
+        status: "off",
+        config: true,
+        sessionOnly: true,
+      }),
+    ).toBe("jev · classification · off for this session — the config still says on");
+  });
+
+  test("a change that matches the config does not invent an asymmetry", () => {
+    expect(
+      extensionEventLine("jev_usecase", { usecase: "lint", action: "on", status: "on", config: true }),
+    ).toBe("jev · lint · on for this session");
+  });
+
+  test("the guardrail's own note replaces the config contrast it does not have", () => {
+    expect(
+      extensionEventLine("jev_usecase", {
+        usecase: "guardrail",
+        action: "off",
+        status: "off",
+        config: true,
+        sessionOnly: true,
+        note: "the guardrail has no persistent switch",
+      }),
+    ).toBe("jev · guardrail · off for this session — the guardrail has no persistent switch");
+  });
+
+  test("every refusal reads as a refusal, never as a change", () => {
+    expect(
+      extensionEventLine("jev_usecase", { usecase: "guardrail", action: "off", status: "on", config: true, refused: "yolo" }),
+    ).toBe("jev · guardrail · off refused — yolo keeps the lethal checks on");
+    expect(extensionEventLine("jev_usecase", { usecase: "skills", action: "on", refused: "unavailable" })).toBe(
+      "jev · skills · on refused — not available in this session",
+    );
+    expect(extensionEventLine("jev_usecase", { usecase: "teleport", action: "on", refused: "unknown-usecase" })).toBe(
+      "jev · teleport · not a Jev use case",
+    );
+    expect(extensionEventLine("jev_usecase", { usecase: "injection", action: "maybe", refused: "unknown-action" })).toBe(
+      'jev · injection · "maybe" is not a command (on, off)',
+    );
+    expect(extensionEventLine("jev_usecase", { usecase: "routing", action: "auto", refused: "unsupported" })).toBe(
+      'jev · routing · "auto" belongs to model routing',
+    );
+  });
+
+  test("the client's own command line names the use case, not just the grammar", () => {
+    // ADR-0038 renders every `extension_control` chrome line; #832 makes it
+    // readable for the uniform grammar (`injection off`, not `usecase`).
+    const events = [
+      {
+        type: "extension_control",
+        extension: "jev-guard",
+        payload: { cmd: "usecase", usecase: "injection", action: "off" },
+      },
+      { type: "extension_control", extension: "jev-guard", payload: { cmd: "off" } },
+    ] as unknown as AgentEvent[];
+    const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered).toContain("jev-guard · injection off");
+    expect(rendered).toContain("jev-guard · off");
+  });
+});
+
 describe("footer status chip (ADR-0032)", () => {
   const mount = (statuses?: { extension: string; text: string }[]) =>
     render(

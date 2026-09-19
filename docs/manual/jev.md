@@ -88,6 +88,48 @@ validated when you saved it. It exits 0 whether Jev is active or not
 back to the Settings panel. Only a malformed `typesafe` section is an error
 (exit 2), like every other broken config section.
 
+## Controlling the use cases
+
+There are two switches per use case, and they are not the same kind of
+thing.
+
+- **The configuration** — the Settings entry (`Jev (TypeSafe)`), the
+  `typesafe` block of `~/.moh/config`, and `moh jev <use case> on|off` from
+  the shell. It is what a **new session starts in**. Nothing else changes it.
+- **The session** — a change made while a session is open, from the chat.
+  It applies to that session only, from the next turn on, and it is gone
+  when the session is closed, reloaded or resumed: the config decides again.
+
+The seven use cases are `guardrail`, `routing`, `classification`,
+`injection`, `lint`, `rerank` and `skills`. Turning one **off** in the
+session stops it spending calls immediately; turning one **on** starts it
+from the next turn *even when the configuration says off* — which is how you
+try an opt-in use case on a single session without writing anything down.
+Every change leaves one line in the transcript saying exactly that:
+
+```
+jev · injection · on for this session — the config still says off
+jev · routing · off for this session — the config still says on
+```
+
+so a session you resume still shows why a use case is quiet while the
+configuration says otherwise. Routing is the one use case whose session
+state has more than on/off (a manual model switch suspends it, and `auto`
+hands it back); its commands are the `/routing` ones above, and it is shown
+in its own words when paused.
+
+Two rules are worth stating plainly:
+
+- **The guardrail cannot be switched off in yolo.** In that mode the
+  guardrail is narrowed to the lethal checks and it stays that way: the
+  command is refused with a visible line rather than obeyed. Outside yolo
+  the session switch works like every other one.
+- **A use case the session cannot run is not a use case you can switch on.**
+  If a session has nothing to give it — no model pool to route between, no
+  skill roster to suggest from, no project root to diff — it is *inert*, and
+  a command for it is refused with a line saying so. Nothing is silently
+  ignored, and no judgment is ever faked.
+
 ## Use cases
 
 Five use cases ship today: the bash guardrail, the model router, the
@@ -176,6 +218,10 @@ configuration:
 /routing on       enable it for this session (also hands back an override)
 /routing auto     release a manual override
 ```
+
+Every use case is governed this way, not only routing — the whole set has one
+command surface, described under [Controlling the use cases](#controlling-the-use-cases)
+below, and `/routing` is the shortcut for the router's own row.
 
 **Your choice always wins.** Switch model yourself (`/model`) and the
 router steps aside, with one visible line saying so; `/routing auto` (or

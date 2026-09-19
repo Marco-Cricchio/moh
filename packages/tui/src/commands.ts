@@ -25,6 +25,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { UserConfig } from "./user-config";
 import { ROUTING_TIERS } from "@moh/jev-guard";
+import { readRoutingState, setJevUseCase, type ExtensionStateReader } from "./jev-control";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
@@ -253,7 +254,7 @@ const modelCommand: SlashCommand = {
       if (ctx.session.extensionNames().length === 0) {
         return ctx.notify(`no extension is registered — "auto" is a model reference; try /model <endpoint>/auto`);
       }
-      ctx.session.setExtensionState(JEV_EXTENSION_NAME, { cmd: "auto" });
+      setJevUseCase(ctx.session, "routing", "auto");
       return ctx.notify("✓ routing released — the router judges again from the next message");
     }
     if (!ref) {
@@ -280,34 +281,12 @@ const modelCommand: SlashCommand = {
   },
 };
 
-/** #784: the bundled extension the routing commands talk to (ADR-0038). */
-const JEV_EXTENSION_NAME = "jev-guard";
-
-/** The router's own view of its state, read from the extension's `state`. */
-interface RoutingState {
-  paused: boolean;
-  override: boolean;
-  streak: number;
-  streakTier: string | null;
-  decidedModel: string | null;
-  assignment: { targets: Record<string, string | undefined>; ignoredLabels: string[]; unpriced: string[] } | null;
-}
-
-function readRoutingState(ctx: SlashContext): RoutingState | null {
-  // Read through the live session (the client may also expose the seam on
-  // the command context — accept both, prefer the session).
-  const read = ctx.extensionState ?? ctx.session?.extensionState?.bind(ctx.session);
-  const stored = read?.(JEV_EXTENSION_NAME, "routingState");
-  // The extension stores a *reader* (its state can move between the moment
-  // it is registered and the moment a command runs), but a plain snapshot
-  // is just as valid — accept both and never throw at a keypress.
-  let state: unknown = stored;
-  try {
-    if (typeof stored === "function") state = (stored as () => unknown)();
-  } catch {
-    return null;
-  }
-  return state && typeof state === "object" ? (state as RoutingState) : null;
+/**
+ * The reader a Jev surface uses: the session's own `state` seam, or the one
+ * injected on the command context (`SlashContext.extensionState`).
+ */
+function jevReader(ctx: SlashContext): ExtensionStateReader | undefined {
+  return ctx.extensionState ?? ctx.session?.extensionState?.bind(ctx.session);
 }
 
 /**
@@ -328,7 +307,9 @@ const routingCommand: SlashCommand = {
       return ctx.notify("routing needs the Jev extension — set the key from the Settings entry (Jev / TypeSafe)");
     }
     if (arg === "on" || arg === "off" || arg === "auto") {
-      ctx.session.setExtensionState(JEV_EXTENSION_NAME, { cmd: arg });
+      // #832: the uniform per-use-case grammar (the extension answers with
+      // its live state and one transcript line).
+      setJevUseCase(ctx.session, "routing", arg);
       // The extension answers with its resolved state (a chrome event)
       // and, when it was paused, resumes judging from the next message.
       if (arg === "off") return ctx.notify("routing paused for this session — the model stays as it is");
@@ -337,7 +318,7 @@ const routingCommand: SlashCommand = {
     }
     if (arg) return ctx.notify(`unknown argument "${arg}" · usage: /routing [on|off|auto]`);
 
-    const state = readRoutingState(ctx);
+    const state = readRoutingState(jevReader(ctx));
     if (!state) return ctx.notify("routing: state unavailable (the extension is still starting) — try again in a moment");
     const where = state.paused ? "paused (this session)" : state.override ? "suspended — you picked the model by hand (/routing auto hands it back)" : "on";
     const lines = [`routing: ${where}`];
