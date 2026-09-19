@@ -54,9 +54,10 @@ export function createSkillSuggestJudge(deps: SkillSuggestJudgeDeps) {
     async suggest(task: string, roster: readonly SkillCandidate[]): Promise<SkillSuggestVerdict | null> {
       const candidates = candidatesForRank(roster);
       if (candidates.length === 0) return null;
+      const droppedByCap = roster.length - candidates.length;
 
       // ---- Call 1: rank the whole roster + the needs-skill gate --------
-      let needsSkill: number | undefined;
+      let needsSkill = 0;
       let ranked: { name: string; probability: number }[] = [];
       let rankAnswers: Record<string, JevAnswer> | undefined;
       let rankMeta: JevJudgmentMeta | undefined;
@@ -74,8 +75,8 @@ export function createSkillSuggestJudge(deps: SkillSuggestJudgeDeps) {
           return null;
         },
       });
-      if (!rankOutcome.ok || needsSkill === undefined) {
-        deps.append({ useCase: "skill_suggest", call: "rank", ok: false, kind: rankOutcome.ok ? "no-answer" : rankOutcome.kind, skills: candidates.length });
+      if (!rankOutcome.ok) {
+        deps.append({ useCase: "skill_suggest", call: "rank", ok: false, kind: rankOutcome.kind, skills: candidates.length, droppedByCap });
         return null;
       }
       deps.append({
@@ -85,6 +86,7 @@ export function createSkillSuggestJudge(deps: SkillSuggestJudgeDeps) {
         needsSkill,
         gated: needsSkill < NEEDS_SKILL_MIN,
         skills: candidates.length,
+        droppedByCap,
         top: ranked.slice(0, SKILL_SUGGEST_KEEP).map((r) => ({ name: r.name, probability: r.probability })),
         answers: rankAnswers,
         model: rankMeta?.model,
@@ -114,13 +116,26 @@ export function createSkillSuggestJudge(deps: SkillSuggestJudgeDeps) {
           return null;
         },
       });
-      if (!relOutcome.ok || relevance === undefined) {
+      if (!relOutcome.ok) {
         deps.append({
           useCase: "skill_suggest",
           call: "relevance",
           ok: false,
-          kind: relOutcome.ok ? "no-winner" : relOutcome.kind,
+          kind: relOutcome.kind,
           finalists: finalists.map((f) => f.name),
+        });
+        return null;
+      }
+      if (relevance === undefined) {
+        // A successful call with no winner (no finalist cleared the floor):
+        // a measurement, not a failure — recorded as such, honestly.
+        deps.append({
+          useCase: "skill_suggest",
+          call: "relevance",
+          ok: true,
+          suggested: null,
+          finalists: finalists.map((f) => f.name),
+          answers: relevanceAnswers,
         });
         return null;
       }

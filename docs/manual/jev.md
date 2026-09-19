@@ -87,8 +87,8 @@ back to the Settings panel. Only a malformed `typesafe` section is an error
 ## Use cases
 
 Five use cases ship today: the bash guardrail, the model router, the
-anti-injection check, the compaction cut guide and the prompt
-classification.
+anti-injection check, the compaction cut guide, the prompt classification,
+the quality gate, the seed rerank and the skill suggestion.
 
 ### Bash guardrail
 
@@ -352,9 +352,32 @@ Off by default (`typesafe.rerank`, or the **Seed rerank** entry in Settings
 appears: the task text and the candidate metadata above — never file
 contents. A failure degrades to no plan, never a broken turn.
 
-### Still planned
+### Skill suggestion
 
-- **Skill suggestion** — the last ★★ use case. Planned: one opt-in.
+Every turn you send, Jev suggests **at most one skill** — following the
+TypeSafe cookbook's two-call pattern. It is **off by default** (the
+**Skill suggestion** entry in Settings → Jev, `typesafe.skills`), because
+it sends your message plus the whole skill roster to TypeSafe, twice per
+judged turn.
+
+**Call one** ranks your entire roster — every skill moh discovered from
+`~/.moh/skills` and the project's `.moh/skills` (project wins on clash),
+exactly the list the skills prompt index is built from — with one yes/no
+question per skill, plus one gate question: *does this turn need a skill
+at all?* A gate below 0.60 ends the check there: one call, no suggestion.
+
+**Call two** re-reads the top three ranked skills with their full
+descriptions and asks, per skill, *is this genuinely the right one to
+load?* The strongest answer at or above 0.60 wins; a washout below the
+floor suggests nothing. **At most one** skill is ever suggested, and it
+reaches the model as a single line in the prompt's *Turn notes* section —
+the same subordinate place the task-type hint lives, never the roster
+itself. The model may ignore it; you may also just say which skill to use.
+
+No skills installed means no call at all. Fail-open as everywhere: an
+unreachable Jev yields no suggestion and an unchanged turn. Each of the
+two calls is recorded as one `jev_skill_suggest` event carrying the
+probabilities, the finalists and — on a hit — the winner.
 
 Those use cases own their questions, thresholds and calibration, and they
 ship in their own release; this page grows with them.

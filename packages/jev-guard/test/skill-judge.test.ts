@@ -89,7 +89,7 @@ describe("skill suggestion judge (#793)", () => {
     const verdict = await judge.suggest("write tests", ROSTER);
     expect(verdict).toBeNull();
     expect(client.calls).toHaveLength(2);
-    expect(records[1]).toMatchObject({ call: "relevance", ok: false, kind: "no-winner" });
+    expect(records[1]).toMatchObject({ call: "relevance", ok: true, suggested: null });
   });
 
   test("rank call failure → one record, no suggestion", async () => {

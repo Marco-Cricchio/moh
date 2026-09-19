@@ -50,7 +50,7 @@ describe("#793 skill suggestion — calls and verdict", () => {
     for (const q of Object.values(qs)) expect(q.type).toBe("noul");
   });
 
-  test("call 1: does_not_need keeps only confident skills, ranked strongest-first", () => {
+  test("ratified floors: the gate and the keep are the constants the judge reads", () => {
     expect(SKILL_RELEVANCE_MIN).toBe(0.6);
     expect(SKILL_SUGGEST_KEEP).toBe(3);
     expect(rankQuestionsFor(ROSTER)).toBeTruthy();
@@ -78,7 +78,7 @@ describe("#793 skill suggestion — calls and verdict", () => {
     expect(two).toContain("`tdd`");
   });
 
-  test("buildRelevance accepts a score-shaped answer too (call-2 confidence)", () => {
+  test("buildRelevance takes an explicit gate probability alongside the ranked answers", () => {
     const line = buildRelevance([{ name: "tdd", probability: 0.7 }], 0.9);
     expect(line).toContain("`tdd`");
   });

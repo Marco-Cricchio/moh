@@ -355,30 +355,6 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         };
       }
 
-      // ---- #793 skill suggestion: the two-call cookbook ----------------
-      // Opt-in and off by default (`typesafe.skills`): it needs the
-      // session's skill roster, resolved lazily by the assembly (fresh
-      // discovery semantics — a mid-session workflow toggle is picked
-      // up). Registered AFTER the classification hook: hooks run in
-      // registration order and each `setPromptNote` replaces the previous
-      // one, so a turn that produced both a task-type hint and a skill
-      // suggestion keeps the skill suggestion — the more specific line.
-      // Fail-open end to end: no roster, an outage, a gate or floor miss
-      // all leave the turn exactly as today.
-      if (options.skills) {
-        const roster = options.skills.roster;
-        const judge = createSkillSuggestJudge({
-          client,
-          append: (payload) => ctx.appendEvent({ name: "jev_skill_suggest", payload }),
-        });
-        ctx.beforeTurn(async ({ text }) => {
-          const index = await roster();
-          if (!index || index.length === 0) return;
-          const verdict = await judge.suggest(text, index);
-          if (verdict) ctx.setPromptNote(verdict.line);
-        });
-      }
-
       // ---- #787 routing: one tier per turn -----------------------------
       // Opt-in and off by default (`typesafe.routing`). Jev judges the last
       // user message only, answers with a tier, and the session switches to
@@ -533,6 +509,30 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           ctx.state.mpmGate = gate === undefined ? null : gate;
         });
       }
+      // ---- #793 skill suggestion: the two-call cookbook ----------------
+      // Opt-in and off by default (`typesafe.skills`): it needs the
+      // session's skill roster, resolved lazily by the assembly (fresh
+      // discovery semantics — a mid-session workflow toggle is picked
+      // up). Registered LAST on purpose: hooks run in registration order
+      // and `setPromptNote` is one replacing slot per instance, so a turn
+      // that produced both a task-type hint and a skill suggestion keeps
+      // the skill suggestion — the more specific line.
+      // Fail-open end to end: no roster, an outage, a gate or floor miss
+      // all leave the turn exactly as today.
+      if (options.skills) {
+        const roster = options.skills.roster;
+        const judge = createSkillSuggestJudge({
+          client,
+          append: (payload) => ctx.appendEvent({ name: "jev_skill_suggest", payload }),
+        });
+        ctx.beforeTurn(async ({ text }) => {
+          const index = await roster();
+          if (!index || index.length === 0) return;
+          const verdict = await judge.suggest(text, index);
+          if (verdict) ctx.setPromptNote(verdict.line);
+        });
+      }
+
     },
   });
 }

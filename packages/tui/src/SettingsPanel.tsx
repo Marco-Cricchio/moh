@@ -864,7 +864,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                             : "nothing to remove";
                 return (
                   <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
-                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(15)}${value}${selected ? " " : ""}`, innerWidth)}
+                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(17)}${value}${selected ? " " : ""}`, innerWidth)}
                   </Text>
                 );
               })}
