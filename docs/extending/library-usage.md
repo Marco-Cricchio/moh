@@ -272,6 +272,16 @@ unasked. Answer `"send"` to let it through, `"cancel"` when the user said
 no (the text is yours to put back in a composer; nothing is logged about
 the turn), or `"refuse"` when your client cannot ask at all.
 
+`bundledExtensions` (#826/ADR-0039) is how a client mounts a first-party
+extension: pass an array of sources and `sessionFromConfig` asks each one
+whether it is active (an effect-free predicate over the user config), then
+hosts the ones that are — registered as bundled code, so no consent prompt
+is involved (the host shipped the bytes). The core carries the contract and
+no extension, which is why `@moh/core` does not depend on any vendor
+package: an embedder that mounts nothing assembles a session with no
+first-party extension at all, and one that wants Jev mounts
+`jevBundledSource` from `@moh/jev-guard`.
+
 `onExtensionConsent` (#834) is the seam a *client* needs to let a loaded
 extension run: `sessionFromConfig` resolves the declared source
 (`~/.moh/extensions/` plus the project's `moh.json` proposals, in that

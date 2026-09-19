@@ -518,6 +518,18 @@ and the host's warning line).
   disk. Trust is a property of the registration, not of the runtime, so a
   host can mix bundled and path-loaded definitions in one runtime — never
   set it for a file.
+- **Bundled extensions ride `sessionFromConfig`, not `register` directly**
+  (#826/ADR-0039): a client passes
+  `bundledExtensions: [source]`, where a source is
+  `{ name, isActive(readConfig, configFile), activate(context), wire?(read, wiring) }`.
+  The core asks `isActive` (an effect-free predicate over the user config,
+  read through the injected reader), registers `activate(context)` with
+  `{ bundled: true }`, and offers the named capability slots through
+  `wire`. This is how a first-party extension activates from configuration
+  without the core importing it: `@moh/core` knows the contract and no
+  extension. `wire` receives a *reader* of the live instances, not a
+  snapshot — registration is fire-and-forget and `ready()` is awaited
+  before the first turn, so a snapshot taken at wiring time would be empty.
 - Hot-reload: `startWatch()` watches the registered files; on change the
   module is re-imported and `setup()` re-runs with the previous `ctx.state`
   seeded in. A failed reload keeps the previous instance running and is

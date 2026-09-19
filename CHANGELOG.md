@@ -6,6 +6,19 @@ SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
 ## [Unreleased]
+### Changed
+
+- **The core no longer depends on the Jev extension** (#826): `@moh/core`
+  used to import the bundled vendor package and read two of its private
+  state keys inside session assembly. It now hosts bundled extensions
+  generically (`bundledExtensions` on `sessionFromConfig`) and the clients
+  mount the first-party sources, so embedding `@moh/core` gives you a core
+  with no vendor code and no vendor configuration in its public surface. For
+  the user nothing changes: entering the API key in the Settings entry
+  `Jev (TypeSafe)` still activates Jev, with one keystroke and no
+  declaration to write. A malformed `typesafe` block no longer breaks
+  session start — `moh jev status` reports it loudly instead.
+
 ### Added
 
 - **Loadable extensions** (#834): moh finally loads extensions it did not
