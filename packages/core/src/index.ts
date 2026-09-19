@@ -21,7 +21,7 @@ import {
 } from "./session/from-config";
 import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
-import { ExtensionRuntime, type ExtensionConsentRequest } from "./extensions";
+import { ExtensionRuntime, type ExtensionConsentRequest, type RuntimeExtension } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -351,28 +351,19 @@ import {
   type TrackerIssue,
   type TrackerBackend,
 } from "./tracker";
-import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
-// #784: the `typesafe` (Jev) user-config block — the guardrail (#786) and
-// routing (#787) read it through these seams; clients (TUI Settings entry,
-// `moh jev status`) read and write the key through the same owner.
+import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
+// #826: the bundled-extension seam. The core knows how to host first-party
+// code that ships inside the binary; it does not know which extension that
+// is — the client mounts the sources (the first-party one lives in its own
+// workspace package, which the core does not depend on).
 import {
-  TYPESAFE_SETTINGS_HINT,
-  TYPESAFE_TIMEOUT_MS_DEFAULT,
-  TYPESAFE_TIERS,
-  maskApiKey,
-  readTypesafeConfig,
-  removeTypesafeApiKey,
-  resolveTypesafeConfig,
-  saveTypesafeApiKey,
-  saveTypesafeInjection,
-  saveTypesafeLint,
-  saveTypesafeRerank,
-  saveTypesafeRouting,
-  saveTypesafeSkills,
-  type ResolvedTypesafeConfig,
-  type TypesafeConfig,
-  type TypesafeTier,
-} from "./typesafe";
+  resolveBundledExtensions,
+  type BundledActivationContext,
+  type BundledExtensionSource,
+  type BundledInstanceReader,
+  type BundledResolution,
+  type BundledWiring,
+} from "./bundled-extensions";
 import {
   publishHandoffAtExit,
   readRawHandoff,
@@ -660,6 +651,7 @@ export {
   MockProvider,
   builtinTools,
   ExtensionRuntime,
+  type RuntimeExtension,
   PromptComposer,
   type SendOptions,
   type SkillPrompt,
@@ -727,23 +719,15 @@ export {
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,
-  // #784: TypeSafe / Jev configuration and key management.
-  TYPESAFE_SETTINGS_HINT,
-  TYPESAFE_TIMEOUT_MS_DEFAULT,
-  TYPESAFE_TIERS,
-  maskApiKey,
-  readTypesafeConfig,
-  removeTypesafeApiKey,
-  resolveTypesafeConfig,
-  saveTypesafeApiKey,
-  saveTypesafeInjection,
-  saveTypesafeLint,
-  saveTypesafeRerank,
-  saveTypesafeRouting,
-  saveTypesafeSkills,
-  type ResolvedTypesafeConfig,
-  type TypesafeConfig,
-  type TypesafeTier,
+  type UserConfigIo,
+  // #826: hosting a bundled first-party extension (a client mounts it from
+  // its own package). The vendor config surface moved with its owner.
+  resolveBundledExtensions,
+  type BundledActivationContext,
+  type BundledExtensionSource,
+  type BundledInstanceReader,
+  type BundledResolution,
+  type BundledWiring,
   loadMergedConfig,
   readUserProviderConfig,
   upsertUserEndpoint,

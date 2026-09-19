@@ -345,7 +345,7 @@ export class MpmOrientation {
     const hook = this.#rerank;
     if (!pending || !hook) return null;
     this.#pendingOverThreshold = null;
-    // Cap to 30 — the fan-out request's bound (TypeSafe guidance); the
+    // Cap to 30 — the fan-out request's bound (vendor guidance); the
     // extension may drop further, the core never sends more.
     const sliced = pending.candidates.slice(0, RERANK_CANDIDATES_MAX);
     const rerankCandidates: RerankCandidate[] = sliced.map((c) => ({

@@ -2,6 +2,12 @@
  * TypeSafe / Jev configuration (#784): the `typesafe` block of the user
  * config (`~/.moh/config`, owned by the guardian, ADR-0006).
  *
+ * #826: this module lives in the extension package, not in `@moh/core`. The
+ * block is the vendor's config surface, so the vendor owns its shape and the
+ * core never sees a `typesafe` key, a schema or a resolved runtime object —
+ * the assembly asks this package's descriptor whether the extension is
+ * active, and nothing else (see `integration.ts`).
+ *
  * One owner for the whole block: the Jev use cases (#786 guardrail, #787
  * routing, #788–#793) only read its shape, so two specs never edit the
  * same object with different shapes.
@@ -13,7 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "./user-config";
+import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "@moh/core";
 
 /** Where the key is entered (the TUI Settings entry) — shown by the CLI hint. */
 export const TYPESAFE_SETTINGS_HINT = "set the key from the TUI Settings panel (Jev / TypeSafe)";

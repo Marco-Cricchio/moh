@@ -7,14 +7,17 @@
  * offline and side-effect free. A stored key *is* the activation switch
  * (no separate toggle), hence "inactive" only ever means "no key here".
  */
+import { userConfigFile } from "@moh/core";
+// #826: the `typesafe` config block belongs to the extension that owns it,
+// so the client reads and writes it through the vendor package, not through
+// the core's public surface.
 import {
   TYPESAFE_SETTINGS_HINT,
   maskApiKey,
   readTypesafeConfig,
   resolveTypesafeConfig,
-  userConfigFile,
   type ResolvedTypesafeConfig,
-} from "@moh/core";
+} from "@moh/jev-guard";
 import { ArgError, parseArgs } from "./args";
 
 export const JEV_USAGE = `usage: moh jev status [--json]

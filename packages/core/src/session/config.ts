@@ -210,7 +210,7 @@ export interface SessionConfig {
      */
     turnGate?: () => boolean | undefined;
     /**
-     * #790: the seed rerank hook an active jev-guard extension contributes.
+     * #790/#826: the seed rerank hook an active bundled extension contributes.
      * Consulted once per send, only when the seed pipeline would discard an
      * over-threshold seed set (> 5 files): the hook ranks the candidates
      * and returns the kept paths (a `Set`, ≤ 5, or `null` for no plan) the

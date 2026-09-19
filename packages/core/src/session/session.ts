@@ -139,7 +139,7 @@ export class AgentSession {
   #mpmOrientation: MpmOrientation | null = null;
   /** #788: the per-turn eligibility gate an active classifier contributes. */
   #mpmTurnGate: (() => boolean | undefined) | undefined;
-  /** #790: the rerank hook an active jev-guard extension contributes. */
+  /** #790/#826: the rerank hook an active bundled extension contributes. */
   #mpmRerank: MpmOrientationOptions["rerank"] | undefined;
   #mpmLifecycle: MpmLifecycle | null = null;
   #mpmPlan: string | null = null;
@@ -358,7 +358,7 @@ export class AgentSession {
           service,
           root: config.mpm.root ?? this.#cwd,
           // #790: the rerank hook, when the assembly wired one (an active
-          // jev-guard extension with the opt-in on). Absent = today's
+          // bundled extension with the opt-in on). Absent = today's
           // discard branch, unchanged.
           ...(config.mpm.rerank ? { rerank: config.mpm.rerank } : {}),
         });

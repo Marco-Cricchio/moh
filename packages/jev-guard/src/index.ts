@@ -741,3 +741,27 @@ export {
   type SkillCandidate,
 } from "./skills";
 export { createSkillSuggestJudge, type SkillSuggestJudge, type SkillSuggestJudgeDeps, type SkillSuggestVerdict } from "./skill-judge";
+
+// #826: the integration descriptor and the config surface this package owns
+// (moved out of `@moh/core`). A client mounts `jevBundledSource` into
+// `sessionFromConfig({ bundledExtensions })`; nothing in the core names Jev.
+export { jevBundledSource } from "./integration";
+export {
+  TYPESAFE_SETTINGS_HINT,
+  TYPESAFE_TIMEOUT_MS_DEFAULT,
+  TYPESAFE_TIERS,
+  maskApiKey,
+  readTypesafeConfig,
+  removeTypesafeApiKey,
+  resolveTypesafeConfig,
+  saveTypesafeApiKey,
+  saveTypesafeInjection,
+  saveTypesafeLint,
+  saveTypesafeRerank,
+  saveTypesafeRouting,
+  saveTypesafeSkills,
+  typesafeConfigSchema,
+  type ResolvedTypesafeConfig,
+  type TypesafeConfig,
+  type TypesafeTier,
+} from "./typesafe";
