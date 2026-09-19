@@ -521,11 +521,13 @@ and the host's warning line).
 - **Bundled extensions ride `sessionFromConfig`, not `register` directly**
   (#826/ADR-0039): a client passes
   `bundledExtensions: [source]`, where a source is
-  `{ name, isActive(readConfig, configFile), activate(context), wire?(read, wiring) }`.
+  `{ name, isActive(readConfig, configFile), activate(context), inactiveNote?(), wire?(read, wiring) }`.
   The core asks `isActive` (an effect-free predicate over the user config,
   read through the injected reader), registers `activate(context)` with
   `{ bundled: true }`, and offers the named capability slots through
-  `wire`. This is how a first-party extension activates from configuration
+  `wire`. An inactive source may supply its own one-line explanation
+  (`inactiveNote()`) for the session log — the core logs what the extension
+  said and never invents another extension's precondition. This is how a first-party extension activates from configuration
   without the core importing it: `@moh/core` knows the contract and no
   extension. `wire` receives a *reader* of the live instances, not a
   snapshot — registration is fire-and-forget and `ready()` is awaited

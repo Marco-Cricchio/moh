@@ -138,6 +138,11 @@ describe("activation through the generic door (#826)", () => {
     expect("error" in inactive).toBe(false);
     if ("error" in inactive) return;
     expect(inactive.session.extensionStatuses()).toEqual([]);
+    // The line the manual documents, produced by the extension itself (the
+    // core has no words for it): pinned here so a refactor cannot drop it.
+    expect(
+      inactive.session.history().some((e) => e.type === "session_note" && e.text === "jev: inactive (no api key)"),
+    ).toBe(true);
     await inactive.session.dispose();
 
     writeUserConfig(home, { typesafe: { apiKey: "sk-test", timeoutMs: 800 } });
@@ -148,6 +153,8 @@ describe("activation through the generic door (#826)", () => {
     await active.session.send("hello");
     const loaded = active.session.history().find((e) => e.type === "extension_loaded") as { name?: string } | undefined;
     expect(loaded?.name).toBe("jev-guard");
+    // Active: no "inactive" note.
+    expect(active.session.history().some((e) => e.type === "session_note")).toBe(false);
     await active.session.dispose();
   });
 

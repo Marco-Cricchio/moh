@@ -64,6 +64,15 @@ export const jevBundledSource = {
     }
   },
 
+  /**
+   * What the user reads in the session log when the key is absent. The
+   * manual documents this exact line, and the core cannot produce it: only
+   * this package knows that a missing API key is what "inactive" means.
+   */
+  inactiveNote(): string {
+    return "jev: inactive (no api key)";
+  },
+
   activate(context: BundledActivationContext): unknown {
     const typesafe = resolveTypesafeConfig(readTypesafeConfig(context.configFile, readFile));
     return createJevGuardExtension({

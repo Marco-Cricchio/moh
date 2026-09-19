@@ -61,6 +61,13 @@ export interface BundledExtensionSource {
   /** Builds the definition to register. Called only when `isActive` said yes. */
   activate(context: BundledActivationContext): unknown;
   /**
+   * One line for the session log when this source is *not* active — the
+   * extension's own words, because the core has none: only the extension
+   * knows what the user would have to do about it. Absent = silence (a
+   * source with nothing useful to say on that path).
+   */
+  inactiveNote?(): string;
+  /**
    * Optional wiring step for capabilities an extension contributes to the
    * core (ADR-0031 §4 spirit: an extension may offer to do part of the
    * work, the core decides what a capability is). The core does the
@@ -98,6 +105,12 @@ export interface BundledResolution {
   anyActive: boolean;
   /** The wiring the active descriptors contributed, if any. */
   wiring: BundledWiring;
+  /**
+   * One line per *inactive* source, in source order: the extension's own
+   * words for why it is not running. The core cannot write them — it does
+   * not know what the extension is, let alone what the user would do.
+   */
+  notes: string[];
 }
 
 /**
@@ -118,6 +131,7 @@ export function resolveBundledExtensions(options: {
   context: Omit<BundledActivationContext, "configFile">;
 }): BundledResolution {
   const wiring: BundledWiring = {};
+  const notes: string[] = [];
   let anyActive = false;
   const context: BundledActivationContext = { ...options.context, configFile: options.configFile };
   for (const descriptor of options.descriptors) {
@@ -129,7 +143,11 @@ export function resolveBundledExtensions(options: {
       // extension simply does not activate, and nothing else is affected.
       active = false;
     }
-    if (!active) continue;
+    if (!active) {
+      const note = descriptor.inactiveNote?.();
+      if (note) notes.push(note);
+      continue;
+    }
     anyActive = true;
     void options.runtime.register(descriptor.activate(context), { bundled: true });
     // The reader is lazy on purpose: the instance may not exist yet at this
@@ -137,5 +155,5 @@ export function resolveBundledExtensions(options: {
     // the runtime, not a snapshot of `instances`.
     descriptor.wire?.(() => options.runtime.instances, wiring);
   }
-  return { anyActive, wiring };
+  return { anyActive, wiring, notes };
 }

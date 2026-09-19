@@ -303,12 +303,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       },
     });
     bundledWiring = resolution.wiring;
-    if (!resolution.anyActive) {
-      // Nothing mounted wanted to run. The note names the family, not a
-      // vendor: the core does not know which extension was configured
-      // (or was not).
-      notes.push("extensions: bundled source inactive (no configuration)");
-    }
+    // An inactive source describes itself ("no API key" and the like): the
+    // core has no words for an extension's precondition, so it does not
+    // invent any — it logs what the extension said, or nothing.
+    notes.push(...resolution.notes);
   }
 
   // The declared source (#834): its files load through the same runtime, in

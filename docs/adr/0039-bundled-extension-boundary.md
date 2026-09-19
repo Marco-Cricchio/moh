@@ -74,7 +74,15 @@ Key decisions, each with its rationale:
    reports "not active" and the session proceeds. The loud error moves to the surface
    that reports it (`moh jev status` exits 2).
 
-5. **The manual page stays in the core — a deliberate deviation from #826, which
+5. **An inactive extension describes itself.** The pre-inversion assembly pushed the
+   literal line `jev: inactive (no api key)` from the core. The generic core cannot write
+   it — it does not know that a missing API key is what "inactive" means — so the source
+   contract carries `inactiveNote?()`: the extension supplies its own words for the log,
+   or nothing. This follows the same rule as the offline chip's text (ADR-0032): the core
+   owns the slot, the extension owns the sentence, and the manual's documented line stays
+   true.
+
+6. **The manual page stays in the core — a deliberate deviation from #826, which
    listed it.** The issue listed `core/src/manual/jev.md` among the couplings to remove,
    and `manual.ts`'s static import plus the `gen-manual-docs.ts` entry with it. The page
    was evaluated against the same criterion as the code and did not meet it: it is
