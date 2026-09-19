@@ -57,7 +57,7 @@ export interface LintGate {
    * (no changes, no rubrics, no repo, correction turn); returns the
    * number of gate evaluations that actually ran.
    */
-  onTaskEnd(toolCalls: readonly { name: string }[]): Promise<number>;
+  onTaskEnd(): Promise<number>;
   /** Clears the per-task state (session end, or a fresh user turn). */
   reset(): void;
 }

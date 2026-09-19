@@ -117,7 +117,7 @@ export class TurnQueue {
     if (item.attachment !== undefined) this.#onTurnStart?.(item.attachment);
     const controller = new AbortController();
     this.#controller = controller;
-    const turn = (item.synthetic ? this.#executeSynthetic : this.#execute)(item.text, controller);
+    const turn = ((item.synthetic ? this.#executeSynthetic : this.#execute) ?? this.#execute)(item.text, controller);
     // Defensive: an unexpected rejection must still settle the caller's
     // promise instead of becoming an unhandled rejection.
     const guarded = turn.then(

@@ -158,7 +158,7 @@ describe("lint gate runner (#789)", () => {
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });
-      const evaluations = await gate.onTaskEnd([{ name: "write" }]);
+      const evaluations = await gate.onTaskEnd();
       // Cycle 1 corrects; the fake requestTurn does not change the diff,
       // so cycle 2 finds again and corrects once more; then the cap holds.
       expect(evaluations).toBe(2);
@@ -191,7 +191,7 @@ describe("lint gate runner (#789)", () => {
         createLintTaskState(),
       );
       gate.observeToolCall("edit", { path: "src/b.ts" });
-      const evaluations = await gate.onTaskEnd([{ name: "edit" }]);
+      const evaluations = await gate.onTaskEnd();
       expect(evaluations).toBe(1);
       expect(requests).toEqual([]);
     } finally {
@@ -207,12 +207,13 @@ describe("lint gate runner (#789)", () => {
         calls += 1;
         return PASS_ANSWERS;
       });
+      const stops: { reason: string }[] = [];
       const gate = createLintGate(
         { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });
-      expect(await gate.onTaskEnd([{ name: "write" }])).toBe(0);
+      expect(await gate.onTaskEnd()).toBe(0);
       expect(calls).toBe(0);
       expect(discoverRubrics(root)).toEqual([]);
     } finally {
@@ -228,11 +229,12 @@ describe("lint gate runner (#789)", () => {
         calls += 1;
         return PASS_ANSWERS;
       });
+      const stops: { reason: string }[] = [];
       const gate = createLintGate(
         { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
-      expect(await gate.onTaskEnd([{ name: "bash" }, { name: "read" }])).toBe(0);
+      expect(await gate.onTaskEnd()).toBe(0);
       expect(calls).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -267,13 +269,13 @@ describe("lint gate runner (#789)", () => {
       mkdirSync(join(root, "src"), { recursive: true });
       writeFileSync(join(root, "src", "a.ts"), "export function broken(): number { return (null as any).x; }\n");
       gate.observeToolCall("write", { path: "src/a.ts" });
-      const evaluations = await gate.onTaskEnd([{ name: "write" }]);
+      const evaluations = await gate.onTaskEnd();
       // Two evaluate→correct cycles ran; the cap held.
       expect(evaluations).toBe(LINT_MAX_CYCLES);
       expect(requests).toHaveLength(LINT_MAX_CYCLES);
       // The correction turn the gate requested is marked: its own settle
       // is skipped even though it "changed files" again.
-      expect(await gate.onTaskEnd([{ name: "write" }])).toBe(0);
+      expect(await gate.onTaskEnd()).toBe(0);
       expect(requests).toHaveLength(LINT_MAX_CYCLES);
       // The cycle-cap stop is recorded on the final record (spec §2).
       expect(stops).toEqual([{ reason: "cycle-cap", findings: ["conventions_respected", "error_handling", "completeness"] }]);
@@ -293,12 +295,13 @@ describe("lint gate runner (#789)", () => {
         calls += 1;
         return PASS_ANSWERS;
       });
+      const stops: { reason: string }[] = [];
       const gate = createLintGate(
         { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });
-      expect(await gate.onTaskEnd([{ name: "write" }])).toBe(0);
+      expect(await gate.onTaskEnd()).toBe(0);
       expect(calls).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });

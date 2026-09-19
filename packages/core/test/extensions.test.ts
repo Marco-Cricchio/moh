@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
 import type { AgentEvent, Tool } from "../src/index";
-import type { ExtensionDefinition } from "@moh/extension";
+import type { ExtensionDefinition, ExtensionSetupContext } from "@moh/extension";
 
 const echoTool: Tool = {
   name: "echo",
@@ -533,7 +533,7 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
       name: "corrector",
       version: "1.0.0",
       apiVersion: MOH_EXTENSION_API_VERSION,
-      setup: (ctx) => {
+      setup: (ctx: ExtensionSetupContext) => {
         ctx.beforeTurn(() => {
           beforeTurnSeen.push("before_turn");
         });
@@ -576,7 +576,7 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
       name: "eager",
       version: "1.0.0",
       apiVersion: MOH_EXTENSION_API_VERSION,
-      setup: (ctx) => {
+      setup: (ctx: ExtensionSetupContext) => {
         ctx.afterTurn(async ({ synthetic }) => {
           // Gate-shaped: never re-enter on our own synthetic turn.
           if (synthetic === true) return;
@@ -619,7 +619,7 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
       name: "probe",
       version: "1.0.0",
       apiVersion: MOH_EXTENSION_API_VERSION,
-      setup: (ctx) => {
+      setup: (ctx: ExtensionSetupContext) => {
         // The hook exercises the runtime path through the session entry.
         ctx.afterTurn(async () => {
           failures.push({ where: "blank", ok: await ctx.requestTurn("   ") });
@@ -654,8 +654,8 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
       name: "hopeful",
       version: "1.0.0",
       apiVersion: MOH_EXTENSION_API_VERSION,
-      setup: (ctx) => {
-        void ctx.requestTurn("do it").then((ok) => {
+      setup: (ctx: ExtensionSetupContext) => {
+        void ctx.requestTurn("do it").then((ok: boolean) => {
           answer = ok;
         });
       },

@@ -543,7 +543,7 @@ export class AgentSession {
         ? {
             dispatchAfterTurn: (result: TurnResult, synthetic: boolean) =>
               this.#extensions!.dispatchAfterTurn(result, synthetic),
-            append: (event: unknown) => this.#append(event as Parameters<typeof this.#append>[0]),
+            append: (event: unknown) => this.#append(event as AgentEvent),
           }
         : {}),
       onTurnSettled: () => {
