@@ -143,8 +143,6 @@ export interface RuntimeExtension {
   eventsThisTurn: number;
   /** ADR-0032: the per-turn cap warning was already emitted (one per turn). */
   capWarned: boolean;
-  /** ADR-0037: consecutive synthetic turns this extension has been granted. */
-  syntheticStreak: number;
 }
 
 interface ExtensionStore {
@@ -284,6 +282,13 @@ export class ExtensionRuntime {
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
   readonly #watchers = new Map<string, FSWatcher>();
   readonly #reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * ADR-0037: the consecutive-synthetic-turn counters, keyed by extension
+   * name (not instance) — a hot-reload replaces the instance but must not
+   * refill the correction budget: the depth limit is a core property, not
+   * a promise (same principle as the compaction floor).
+   */
+  readonly #syntheticStreaks = new Map<string, number>();
   /** In-flight registrations (the setup of a bundled definition is async). */
   readonly #registering: Promise<unknown>[] = [];
 
@@ -366,7 +371,7 @@ export class ExtensionRuntime {
    * correction budget refills only on genuine user activity.
    */
   noteRealTurn(): void {
-    for (const instance of this.#instances) instance.syntheticStreak = 0;
+    this.#syntheticStreaks.clear();
   }
 
   /**
@@ -378,14 +383,16 @@ export class ExtensionRuntime {
    * cannot run turns) refuses the same way.
    */
   async #requestTurnFor(instance: RuntimeExtension, text: string): Promise<boolean> {
+    const name = instance.def.name;
     if (typeof text !== "string" || text.trim() === "") {
-      this.#emit({ type: "extension_failed", name: instance.def.name, reason: "request_turn", message: "requestTurn requires non-empty text" });
+      this.#emit({ type: "extension_failed", name, reason: "request_turn", message: "requestTurn requires non-empty text" });
       return false;
     }
-    if (instance.syntheticStreak >= MAX_CONSECUTIVE_SYNTHETIC_TURNS) {
+    const streak = this.#syntheticStreaks.get(name) ?? 0;
+    if (streak >= MAX_CONSECUTIVE_SYNTHETIC_TURNS) {
       this.#emit({
         type: "extension_failed",
-        name: instance.def.name,
+        name,
         reason: "request_turn",
         message: `synthetic-turn cap reached (${MAX_CONSECUTIVE_SYNTHETIC_TURNS} consecutive); request refused`,
       });
@@ -393,11 +400,14 @@ export class ExtensionRuntime {
     }
     const entry = this.#options.requestTurn;
     if (!entry) {
-      this.#emit({ type: "extension_failed", name: instance.def.name, reason: "request_turn", message: "no turn entry on this session" });
+      this.#emit({ type: "extension_failed", name, reason: "request_turn", message: "no turn entry on this session" });
       return false;
     }
+    // The counter moves at acceptance, not settlement: a hook that (against
+    // the contract) requests again from its own synthetic turn finds the
+    // budget already spent, and the chain is cut here in the core.
+    this.#syntheticStreaks.set(name, streak + 1);
     const ok = await entry(text);
-    if (ok) instance.syntheticStreak += 1;
     return ok;
   }
 
@@ -596,7 +606,6 @@ export class ExtensionRuntime {
       status: null,
       eventsThisTurn: 0,
       capWarned: false,
-      syntheticStreak: 0,
     };
     const ctx: ExtensionSetupContext = {
       state: instance.state,
@@ -949,8 +958,8 @@ export class ExtensionRuntime {
     return this.#drainErrors();
   }
 
-  async dispatchAfterTurn(result: { status: string; reason?: string; message?: string }): Promise<AgentEvent[]> {
-    await this.#each("afterTurn", (h) => h({ result }));
+  async dispatchAfterTurn(result: { status: string; reason?: string; message?: string }, synthetic = false): Promise<AgentEvent[]> {
+    await this.#each("afterTurn", (h) => h({ result, ...(synthetic ? { synthetic: true as const } : {}) }));
     return this.#drainErrors();
   }
 

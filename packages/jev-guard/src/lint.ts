@@ -74,6 +74,9 @@ export const LINT_DIMENSION_LABELS: Record<LintQuestionId, string> = {
  * for a fix; the model runs a normal turn with tools available.
  */
 export function correctionText(findings: LintQuestionId[], cycle: number): string {
+  // A decision of "correct" always carries findings; the guard keeps the
+  // copy well-formed even on a boundary violation.
+  if (findings.length === 0) findings = ["completeness"];
   const labels = findings.map((f) => LINT_DIMENSION_LABELS[f]);
   const list =
     labels.length === 1

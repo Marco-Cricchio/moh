@@ -84,9 +84,9 @@ export function createLintJudge(deps: LintJudgeDeps) {
         record: (a, m) => {
           answers = a;
           meta = m;
-          // The full record is built below once the decision is known;
-          // the client appends only what this returns (nothing here).
-          return {};
+          // The judge appends the full record itself below (it needs the
+          // decision); `null` tells the client not to append anything.
+          return null;
         },
       });
       if (!outcome.ok || !answers || !meta) return null;

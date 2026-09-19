@@ -7,6 +7,12 @@ export interface TurnQueueOptions {
    */
   execute: (text: string, controller: AbortController) => Promise<TurnResult>;
   /**
+   * ADR-0037: runs one synthetic turn (same loop, no `beforeTurn`,
+   * synthetic-marked `user_message`). Distinct from `execute` so the
+   * session routes each queue item through the right entry.
+   */
+  executeSynthetic?: (text: string, controller: AbortController) => Promise<TurnResult>;
+  /**
    * Called when a turn settles (done/error/cancelled — including a turn
    * steered away), after the executor resolves. ADR-0011: the session
    * drops its turn-scoped skill prompt here.
@@ -22,11 +28,12 @@ export interface TurnQueueOptions {
   /**
    * ADR-0037: the extension `afterTurn` dispatch, run by the queue after
    * the slot is freed and before the caller's promise resolves — so an
-   * `afterTurn` hook may `await ctx.requestTurn(...)` (which waits for
-   * queue idle) without deadlocking the turn it observed. Returned
-   * `extension_failed` events ride `append`.
+   * `afterTurn` hook may `await ctx.requestTurn(...)` (which queues
+   * behind the pump) without deadlocking the turn it observed. The
+   * second argument tells the dispatch the turn was synthetic.
+   * Returned `extension_failed` events ride `append`.
    */
-  dispatchAfterTurn?: (result: TurnResult) => Promise<unknown[]>;
+  dispatchAfterTurn?: (result: TurnResult, synthetic: boolean) => Promise<unknown[]>;
   /** Receives the dispatch's extension-failure events (the session log). */
   append?: (event: unknown) => void;
 }
@@ -41,6 +48,7 @@ export interface TurnQueueOptions {
  */
 export class TurnQueue {
   readonly #execute: TurnQueueOptions["execute"];
+  readonly #executeSynthetic: TurnQueueOptions["executeSynthetic"];
   readonly #onTurnSettled: TurnQueueOptions["onTurnSettled"];
   readonly #onTurnStart: TurnQueueOptions["onTurnStart"];
   readonly #dispatchAfterTurn: TurnQueueOptions["dispatchAfterTurn"];
@@ -48,12 +56,11 @@ export class TurnQueue {
   #turn: Promise<TurnResult> | null = null;
   #controller: AbortController | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
-  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: unknown }[] = [];
-  /** ADR-0037: resolved when the queue becomes idle. */
-  readonly #idleWaiters: (() => void)[] = [];
+  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: unknown; synthetic?: boolean }[] = [];
 
   constructor(options: TurnQueueOptions) {
     this.#execute = options.execute;
+    this.#executeSynthetic = options.executeSynthetic ?? options.execute;
     this.#onTurnSettled = options.onTurnSettled;
     this.#onTurnStart = options.onTurnStart;
     this.#dispatchAfterTurn = options.dispatchAfterTurn;
@@ -81,6 +88,21 @@ export class TurnQueue {
   }
 
   /**
+   * ADR-0037: enqueues a synthetic turn. Same queue, same preemption and
+   * settlement accounting as a user send — the only difference is the
+   * executor (no `beforeTurn`, synthetic-marked `user_message`) and that
+   * a synthetic turn never preempts the active one (it waits its turn
+   * like any queued send; queued *user* sends still preempt). Resolves
+   * with the synthetic turn's own result.
+   */
+  sendSynthetic(text: string): Promise<TurnResult> {
+    return new Promise<TurnResult>((resolve) => {
+      this.#queue.push({ text, resolve, synthetic: true });
+      this.#pump();
+    });
+  }
+
+  /**
    * Starts the front-of-queue send when idle, or preempts the active
    * turn when sends are waiting. The finishing turn re-pumps, so a
    * steered session chains: cancelled -> steering user_message -> new turn.
@@ -95,7 +117,7 @@ export class TurnQueue {
     if (item.attachment !== undefined) this.#onTurnStart?.(item.attachment);
     const controller = new AbortController();
     this.#controller = controller;
-    const turn = this.#execute(item.text, controller);
+    const turn = (item.synthetic ? this.#executeSynthetic : this.#execute)(item.text, controller);
     // Defensive: an unexpected rejection must still settle the caller's
     // promise instead of becoming an unhandled rejection.
     const guarded = turn.then(
@@ -119,28 +141,16 @@ export class TurnQueue {
       // (queued user sends first) and never deadlocks the turn it
       // observed. Their extension-failure events still land in the log
       // before the caller's promise resolves.
-      const finish = (): void => {
-        for (const w of this.#idleWaiters.splice(0, this.#idleWaiters.length)) w();
-        item.resolve(result);
-      };
       if (this.#dispatchAfterTurn) {
         void (async () => {
           try {
-            for (const e of await this.#dispatchAfterTurn!(result)) this.#append?.(e);
+            for (const e of await this.#dispatchAfterTurn!(result, item.synthetic === true)) this.#append?.(e);
           } catch { /* the dispatch never throws; defensive only */ }
-          finish();
+          item.resolve(result);
         })();
       } else {
-        finish();
+        item.resolve(result);
       }
     });
-  }
-
-  /** ADR-0037: waiters resolved once the queue is idle (or immediately
-   * when it already is). Used by the synthetic-turn entry, which is
-   * normally called from the settling turn's own `afterTurn` dispatch. */
-  onIdle(wait: () => void): void {
-    if (this.#turn === null) wait();
-    else this.#idleWaiters.push(wait);
   }
 }

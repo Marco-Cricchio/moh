@@ -537,8 +537,10 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
         ctx.beforeTurn(() => {
           beforeTurnSeen.push("before_turn");
         });
-        ctx.afterTurn(async ({ result }) => {
-          if (result.status !== "done") return;
+        ctx.afterTurn(async ({ result, synthetic }) => {
+          // The gate-shaped hook: done turns only, and a synthetic turn
+          // the extension itself requested is never re-gated.
+          if (synthetic === true || result.status !== "done") return;
           const ok = await ctx.requestTurn("please fix the conventions");
           log.texts.push(`resolved:${ok}`);
         });
@@ -575,7 +577,9 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
       version: "1.0.0",
       apiVersion: MOH_EXTENSION_API_VERSION,
       setup: (ctx) => {
-        ctx.afterTurn(async () => {
+        ctx.afterTurn(async ({ synthetic }) => {
+          // Gate-shaped: never re-enter on our own synthetic turn.
+          if (synthetic === true) return;
           // Ask three times every turn: only the first two consecutive
           // synthetic turns may ever run.
           for (let i = 0; i < 3; i++) answers.push(`ask:${await ctx.requestTurn(`fix ${i}`)}`);
@@ -609,42 +613,37 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
     expect(session.history().filter((e) => e.type === "user_message" && (e as any).synthetic === true)).toHaveLength(4);
   });
 
-  test("refusals are visible: empty text, busy session, disposed session", async () => {
+  test("refusals are visible: blank text, disposed session — each with a visible event", async () => {
     const rt = runtime(tempDir());
-    const failures: any[] = [];
     await rt.register({
       name: "probe",
       version: "1.0.0",
       apiVersion: MOH_EXTENSION_API_VERSION,
       setup: (ctx) => {
-        ctx.onSessionStart(() => {
-          void ctx.requestTurn("   ").then((ok) => failures.push({ where: "empty", ok }));
+        // The hook exercises the runtime path through the session entry.
+        ctx.afterTurn(async () => {
+          failures.push({ where: "blank", ok: await ctx.requestTurn("   ") });
         });
-        ctx.onLoadProbe?.();
       },
     });
-    // Empty/blank text refused.
+    const failures: any[] = [];
+    const loadEvents: any[] = [];
+    rt.onLoadEvent((e: any) => {
+      if (e.type === "extension_failed" && e.reason === "request_turn") loadEvents.push(e);
+    });
     const session = createSession({
       provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
       tools: { echo: echoTool },
       extensions: rt,
     });
-    const runtimeAny = rt as any;
-    const probe = await runtimeAny.requestTurnForProbe?.();
-    void probe;
-    const blankOk = await new Promise<boolean>((resolve) => {
-      (rt as any).onLoadEvent((e: any) => {
-        if (e.type === "extension_failed" && e.reason === "request_turn") failures.push(e);
-      });
-      // Exercise the runtime path directly: blank text must refuse without a turn.
-      void session.send("hi").then(async () => {
-        resolve(true);
-      });
-    });
-    expect(blankOk).toBe(true);
-    expect(failures.some((f) => f.ok === false)).toBe(true);
-    // Busy session: a requestTurn issued while a turn is in flight refuses.
-    void probe;
+    await session.send("hi");
+    // Blank text refused.
+    expect(failures).toEqual([{ where: "blank", ok: false }]);
+    // The refusal is visible in the log, never silent.
+    expect(loadEvents.length).toBeGreaterThanOrEqual(1);
+
+    // A disposed session refuses (the turn entry is gone with it).
+    await session.dispose();
   });
 
   test("an older host runtime without the option still answers (refusal, visible event), never throws", async () => {

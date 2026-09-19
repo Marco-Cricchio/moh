@@ -4,6 +4,7 @@
  * asserting the caps, the precedence and the inert behavior.
  */
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { discoverRubrics, RUBRIC_MAX_BYTES, RUBRIC_MAX_FILES, RUBRIC_TRUNCATION_MARKER } from "../src/rubrics";
 
 const fakeFs = (files: Record<string, string>) => ({
@@ -68,5 +69,17 @@ describe("rubric discovery (#789)", () => {
     expect(docs[0]!.text.endsWith(RUBRIC_TRUNCATION_MARKER)).toBe(true);
     // Multi-byte safety: no replacement characters at the cut.
     expect(docs[0]!.text).not.toContain("\uFFFD");
+  });
+});
+
+describe("rubric discovery: .cursor/rules (#789)", () => {
+  test("any .mdc/.md file under .cursor/rules/ is collected, after the fixed names", () => {
+    const docs = discoverRubrics("/proj", {
+      exists: (p) => p === "/proj/AGENTS.md" || p === "/proj/.cursor/rules/typing.mdc",
+      read: (p) => (p.endsWith("AGENTS.md") ? "root rules" : "cursor rule"),
+      listCursorRules: () => ["typing.mdc", "layout.md"],
+    });
+    // layout.md was reported by the listing but not present on disk: skipped.
+    expect(docs.map((d) => d.path)).toEqual(["AGENTS.md", join(".cursor", "rules", "typing.mdc")]);
   });
 });

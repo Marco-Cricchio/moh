@@ -14,7 +14,7 @@
  * Fail-open: every degraded precondition produces silence, never a false
  * correction.
  */
-import { captureHead, inGitRepo, taskDiff, turnMutatedFiles } from "./diff";
+import { captureHead, inGitRepo, taskDiff } from "./diff";
 import { correctionText, LINT_DIFF_MAX_BYTES, LINT_DIFF_TRUNCATION_MARKER } from "./lint";
 import type { LintJudge, LintState } from "./lint-judge";
 import { truncateToBytes } from "./routing";
@@ -29,6 +29,12 @@ export interface LintGateDeps {
   root: string;
   /** The core-mediated correction-turn door (ADR-0037). */
   requestTurn: (text: string) => Promise<boolean>;
+  /**
+   * Records a cycle-cap stop (spec §2: "a cycle-cap stop is recorded as
+   * such on the final record") — the last judgment said `correct` but the
+   * gate cannot ask for another turn.
+   */
+  reportStop: (reason: "cycle-cap" | "request-refused", lastFindings: readonly string[]) => void;
 }
 
 /** The mutable per-task state the extension feeds in. */
@@ -37,12 +43,10 @@ export interface LintTaskState {
   writtenPaths: string[];
   /** Set while a correction turn the gate itself requested is running. */
   inCorrectionTurn: boolean;
-  /** Findings already recorded for the current task (correction text). */
-  pendingFindings: string[] | null;
 }
 
 export function createLintTaskState(): LintTaskState {
-  return { writtenPaths: [], inCorrectionTurn: false, pendingFindings: null };
+  return { writtenPaths: [], inCorrectionTurn: false };
 }
 
 export interface LintGate {
@@ -69,18 +73,17 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
     reset(): void {
       state.writtenPaths = [];
       state.inCorrectionTurn = false;
-      state.pendingFindings = null;
     },
 
-    async onTaskEnd(toolCalls): Promise<number> {
+    async onTaskEnd(): Promise<number> {
       // A correction turn's own settle is never re-gated (no recursion).
       if (state.inCorrectionTurn) {
         state.inCorrectionTurn = false;
+        state.writtenPaths = [];
         return 0;
       }
       const paths = [...new Set(state.writtenPaths)];
       // Nothing modified → nothing to judge (ratified).
-      if (paths.length === 0 && !turnMutatedFiles(toolCalls)) return 0;
       if (paths.length === 0) return 0;
       // Rubric discovery: no convention documents → inert, no call, no event.
       const rubrics = discoverRubrics(deps.root);
@@ -89,22 +92,23 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
       if (!inGitRepo(deps.root)) return 0;
       const head = captureHead(deps.root);
       if (head === null) return 0;
-      const diff = taskDiff(deps.root, head, paths);
-      if (diff === null || diff.trim() === "") return 0;
-      const diffBytes = Buffer.byteLength(diff, "utf8");
-      const judgedDiff = truncateToBytes(diff, LINT_DIFF_MAX_BYTES);
-      const changes =
-        diffBytes > LINT_DIFF_MAX_BYTES ? `${judgedDiff}\n${LINT_DIFF_TRUNCATION_MARKER}` : judgedDiff;
-      const judgedState: LintState = {
-        rules: rubrics.map((r) => `# ${r.path}\n${r.text}`).join("\n\n"),
-        rulesFiles: rubrics.map((r) => r.path),
-        changes,
-        diffBytes,
-      };
+      const rules = rubrics.map((r) => `# ${r.path}\n${r.text}`).join("\n\n");
+      const rulesFiles = rubrics.map((r) => r.path);
 
       let evaluations = 0;
-      // Up to two evaluate→correct cycles (ratified hard stop).
+      // Up to two evaluate→correct cycles (ratified hard stop). The diff
+      // is recomputed each cycle, so cycle 2 judges the *corrected* tree.
       for (let cycle = 0; cycle < LINT_MAX_CYCLES; cycle++) {
+        const diff = taskDiff(deps.root, head, paths);
+        if (diff === null || diff.trim() === "") break;
+        const diffBytes = Buffer.byteLength(diff, "utf8");
+        const judgedDiff = truncateToBytes(diff, LINT_DIFF_MAX_BYTES);
+        const judgedState: LintState = {
+          rules,
+          rulesFiles,
+          changes: diffBytes > LINT_DIFF_MAX_BYTES ? `${judgedDiff}\n${LINT_DIFF_TRUNCATION_MARKER}` : judgedDiff,
+          diffBytes,
+        };
         const verdict = await deps.judge.evaluate(judgedState, cycle);
         if (verdict === null) break; // fail-open: no judgment, no correction
         evaluations += 1;
@@ -114,14 +118,18 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
         const ok = await deps.requestTurn(text);
         if (!ok) {
           // The core refused (depth cap, busy): the gate stops; the
-          // refusal is already a visible core-side event.
+          // refusal is already a visible core-side event, and the stop is
+          // recorded on top of it.
           state.inCorrectionTurn = false;
+          deps.reportStop("request-refused", verdict.findings);
           break;
         }
+        // The cap was reached and the verdict was still `correct`: record
+        // the stop (spec §2), then the loop ends naturally.
+        if (cycle === LINT_MAX_CYCLES - 1) deps.reportStop("cycle-cap", verdict.findings);
       }
       // The gate owns the per-task state lifecycle: the task is over.
       state.writtenPaths = [];
-      state.pendingFindings = null;
       return evaluations;
     },
   };

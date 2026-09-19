@@ -86,10 +86,6 @@ export class AgentSession {
   readonly #loop: AgentLoop;
   #lastPrompt: AssembledPrompt | null = null;
   #disposed = false;
-  /** ADR-0037: resolves when the session is disposed — bounds the
-   * synthetic-turn idle wait. */
-  #closed: Promise<void>;
-  #closedResolve: (() => void) | undefined;
   readonly #promptComposer: PromptComposer;
   #skills: SkillIndexEntry[];
   #skillDirs: string[];
@@ -160,10 +156,6 @@ export class AgentSession {
   #mpmExclude: string[] | undefined;
 
   constructor(config: SessionConfig) {
-    // ADR-0037: the dispose signal bounds the synthetic-turn idle wait.
-    this.#closed = new Promise<void>((resolve) => {
-      this.#closedResolve = resolve;
-    });
     this.#registry = config.registry?.freeze();
     this.#endpoints = config.endpoints ?? [];
     this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
@@ -538,12 +530,19 @@ export class AgentSession {
         this.#turnSeq += 1;
         return this.#loop.run(text, controller);
       },
+      // ADR-0037: synthetic turns run through the same queue; the loop
+      // entry skips beforeTurn and marks the user_message.
+      executeSynthetic: (text, controller) => {
+        this.#turnSeq += 1;
+        return this.#loop.runSynthetic(text, controller);
+      },
       // ADR-0037: the extension `afterTurn` dispatch runs from the queue's
       // settle path, after the slot is freed — an `afterTurn` hook may
       // `await ctx.requestTurn` without deadlocking the turn it observed.
       ...(this.#extensions
         ? {
-            dispatchAfterTurn: (result: TurnResult) => this.#extensions!.dispatchAfterTurn(result),
+            dispatchAfterTurn: (result: TurnResult, synthetic: boolean) =>
+              this.#extensions!.dispatchAfterTurn(result, synthetic),
             append: (event: unknown) => this.#append(event as Parameters<typeof this.#append>[0]),
           }
         : {}),
@@ -924,27 +923,29 @@ export class AgentSession {
    * renders every refusal as a visible `extension_failed`); the depth
    * limit itself is enforced by the runtime, not here.
    */
-  async runSyntheticTurn(text: string): Promise<{ ok: boolean; result?: TurnResult }> {
-    if (this.#disposed) return { ok: false };
-    // ADR-0037 §5: the request settles with the turn it asked for. Called
-    // from the settling turn's own `afterTurn`, the slot is still held —
-    // wait for idle first (queued user sends go ahead of the synthetic
-    // turn; a user's words outrank a machine's). Waiting is bounded by
-    // the dispose: a session torn down mid-wait refuses.
-    if (this.#queue.pending()) {
-      const idle = new Promise<void>((resolve) => this.#queue.onIdle(resolve));
-      await Promise.race([idle, this.#closed]);
-    }
-    if (this.#disposed || this.#queue.pending()) return { ok: false };
-    const synthetic = (): Promise<TurnResult> => this.#loop.runSynthetic(text, new AbortController());
+  /**
+   * ADR-0037: the session-mediated entry behind an extension's
+   * `ctx.requestTurn` — one turn with a synthetic user-side message,
+   * through the same queue as a user send (abortion, usage accounting,
+   * `#turnSeq` and settlement stay the session's). The queued item runs
+   * when the slot is free, so a request made from a settling turn's own
+   * `afterTurn` hook waits without deadlocking it; queued user sends go
+   * first, and an active turn is never preempted by a synthetic one.
+   * Resolves `{ ok: false }` only when the session is disposed.
+   */
+  runSyntheticTurn(text: string): Promise<{ ok: boolean; result?: TurnResult }> {
+    if (this.#disposed) return Promise.resolve({ ok: false });
+    const synthetic = (): Promise<TurnResult> => this.#queue.sendSynthetic(text);
     const run =
       this.#extensions?.hasPendingRegistrations() === true
         ? this.#extensions.ready().then(synthetic)
         : synthetic();
-    const result = await run.finally(() => {
-      this.#turnHead = undefined;
-    });
-    return { ok: true, result };
+    return run
+      .then((result) => ({ ok: true, result }))
+      .catch(() => ({ ok: false }))
+      .finally(() => {
+        this.#turnHead = undefined;
+      });
   }
 
   /**
@@ -1276,8 +1277,6 @@ export class AgentSession {
   async dispose(options: { timeoutMs?: number } = {}): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
-    // ADR-0037: a synthetic turn waiting on idle must not outlive the session.
-    this.#closedResolve?.();
     if (this.#compaction?.pending) await this.#compaction.pending.catch(() => {});
     if (this.#memory?.pending) {
       const flush = this.#memory.pending.catch(() => {});

@@ -272,6 +272,13 @@ export interface ExtensionControlEvent {
 
 export interface AfterTurnContext {
   readonly result: { readonly status: string; readonly reason?: string; readonly message?: string };
+  /**
+   * ADR-0037, apiVersion 1.6: true when this settle is a synthetic turn
+   * the extension itself requested through `requestTurn`. Skip your own
+   * end-of-turn logic for it — re-entering on your own correction turn
+   * is how correction chains are born.
+   */
+  readonly synthetic?: boolean;
 }
 
 export type SessionStartHook = (ctx: SessionStartContext) => void | Promise<void>;

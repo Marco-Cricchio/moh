@@ -7,8 +7,9 @@
  * `RUBRIC_NAMES`. No match means the quality gate is **inert**: a repo
  * without convention docs gets silence, never synthesized criteria.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { truncateToBytes } from "./routing";
 
 /**
  * The convention-document name list, in specificity order (root first,
@@ -48,17 +49,35 @@ export interface RubricDoc {
 /**
  * Collects every convention document present in `root`. Deterministic:
  * the name-list order decides both precedence and what gets dropped when
- * the caps bind. `exists`/`read` are test seams.
+ * the caps bind. The `.cursor/rules/` directory (any `*.mdc`/`*.md` file
+ * under it) is appended after the fixed names, in sorted order.
+ * `exists`/`read`/`listCursorRules` are test seams.
  */
 export function discoverRubrics(
   root: string,
-  seams: { exists?: (path: string) => boolean; read?: (path: string) => string } = {},
+  seams: {
+    exists?: (path: string) => boolean;
+    read?: (path: string) => string;
+    listCursorRules?: (dir: string) => string[];
+  } = {},
 ): RubricDoc[] {
   const exists = seams.exists ?? ((p: string) => existsSync(p));
   const read = seams.read ?? ((p: string) => readFileSync(p, "utf8"));
+  const listCursorRules =
+    seams.listCursorRules ??
+    ((dir: string) => {
+      try {
+        return readdirSync(dir).filter((f) => f.endsWith(".mdc") || f.endsWith(".md")).sort();
+      } catch {
+        return [];
+      }
+    });
+  const candidates: string[] = [...RUBRIC_NAMES];
+  const cursorDir = join(root, ".cursor", "rules");
+  for (const f of listCursorRules(cursorDir)) candidates.push(join(".cursor", "rules", f));
   const docs: RubricDoc[] = [];
   let bytes = 0;
-  for (const name of RUBRIC_NAMES) {
+  for (const name of candidates) {
     if (docs.length >= RUBRIC_MAX_FILES) break;
     const absolute = join(root, name);
     if (!exists(absolute)) continue;
@@ -74,15 +93,11 @@ export function discoverRubrics(
     const trimmed = text.trim();
     if (trimmed === "") continue;
     const encoded = Buffer.byteLength(trimmed, "utf8");
-    if (encoded > budget) {
-      // Walk back over UTF-8 continuation bytes like the shared truncator.
-      const bytes2 = Buffer.from(trimmed, "utf8");
-      let end = budget - Buffer.byteLength(RUBRIC_TRUNCATION_MARKER, "utf8");
-      while (end > 0 && (bytes2[end]! & 0xc0) === 0x80) end -= 1;
-      text = bytes2.subarray(0, end).toString("utf8") + RUBRIC_TRUNCATION_MARKER;
-    } else {
-      text = trimmed;
-    }
+    text =
+      encoded > budget
+        ? truncateToBytes(trimmed, budget - Buffer.byteLength(RUBRIC_TRUNCATION_MARKER, "utf8")) +
+          RUBRIC_TRUNCATION_MARKER
+        : trimmed;
     bytes += Buffer.byteLength(text, "utf8");
     docs.push({ path: name, text });
   }

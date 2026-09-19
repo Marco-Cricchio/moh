@@ -579,3 +579,20 @@ describe("subagent block (#320)", () => {
     expect(sub?.state).toBe("ok");
   });
 });
+
+describe("synthetic user_message (ADR-0037)", () => {
+  test("renders with its own glyph, type and a visible machine-triggered label", () => {
+    const blocks = projectTranscript([
+      { type: "user_message", text: "please fix error handling", synthetic: true } as AgentEvent,
+      { type: "user_message", text: "typed by me" } as AgentEvent,
+    ], { mode: "dev" });
+    const synthetic = blocks.find((b) => b.type === "synthetic")!;
+    expect(synthetic).toBeDefined();
+    expect(synthetic.glyph).toBe("»");
+    expect(synthetic.lines[0]).toContain("[automatic correction]");
+    expect(synthetic.lines[0]).toContain("please fix error handling");
+    const human = blocks.find((b) => b.type === "you")!;
+    expect(human.glyph).toBe("›");
+    expect(human.lines[0]).not.toContain("[automatic correction]");
+  });
+});

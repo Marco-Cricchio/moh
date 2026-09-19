@@ -234,10 +234,11 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // Opt-in and off by default (`typesafe.lint`): the one use case that
       // sends the changed code's diff to TypeSafe — the strongest privacy
       // step in the pack, disclosed in the Settings entry. On a "done"
-      // turn that changed files, the discovered convention documents plus
-      // the task's unified diff are judged with three fixed questions; a
-      // finding asks the core for a synthetic correction turn (ADR-0037),
-      // re-judges, and hard-stops after two cycles.
+      // turn that changed files (never a cancelled or errored one), the
+      // discovered convention documents plus the task's unified diff are
+      // judged with three fixed questions; a finding asks the core for a
+      // synthetic correction turn (ADR-0037), re-judges, and hard-stops
+      // after two cycles.
       if (options.lint) {
         const gate = createLintGate({
           judge: createLintJudge({
@@ -252,17 +253,27 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             typeof ctx.requestTurn === "function"
               ? (text) => ctx.requestTurn(text)
               : async () => false,
+          // The stop is one event, not a judgment: the probabilities were
+          // never re-measured, so a fake `jev_judgment` would lie.
+          reportStop: (reason, findings) =>
+            ctx.appendEvent({ name: "jev_lint_stopped", payload: { reason, findings: [...findings] } }),
         });
         ctx.onToolCall(async (call) => {
           // Observation only: record the paths the task writes/edits for
           // the diff; never a decision, so nothing is returned.
           gate.observeToolCall(call.name, call.args);
         });
-        ctx.afterTurn(async () => {
-          // `requestTurn` blocks this dispatch until the correction turn
-          // settles (the queue runs the hooks after freeing the slot), so
-          // cycle 2 sees the corrected tree — no polling (ADR-0037 §5).
-          await gate.onTaskEnd([{ name: "write" }, { name: "edit" }]);
+        ctx.afterTurn(async ({ result, synthetic }) => {
+          // Ratified trigger: the end of a *done* turn only. A cancelled
+          // or errored turn is never judged (its work may be partial by
+          // interruption, not by omission), and a synthetic turn the gate
+          // itself requested is never re-gated — that is the no-recursion
+          // rule, enforced by skipping here.
+          if (synthetic === true || result.status !== "done") return;
+          // `requestTurn` resolves when the correction turn settles (the
+          // queue runs it like any turn), so cycle 2 re-diffs the
+          // corrected tree — no polling (ADR-0037 §5).
+          await gate.onTaskEnd();
         });
         ctx.onSessionEnd(() => gate.reset());
       }
@@ -608,4 +619,4 @@ export {
   RUBRIC_TRUNCATION_MARKER,
   type RubricDoc,
 } from "./rubrics";
-export { captureHead, inGitRepo, MUTATING_TOOLS, taskDiff, turnMutatedFiles } from "./diff";
+export { captureHead, inGitRepo, taskDiff } from "./diff";

@@ -3,9 +3,9 @@
  * files a task actually changed, via git — no new dependency, the same
  * spawnSync pattern as the guardrail's snapshot.
  *
- * The task's starting head is captured when the turn begins (`capture`);
- * the diff at evaluation time is taken against it, restricted to the
- * paths the task wrote or edited. Outside a repo, or with an unreadable
+ * The diff is taken against the head captured at evaluation time (the
+ * best available anchor without a turn-start capture seam), restricted
+ * to the paths the task wrote or edited. Outside a repo, or with an unreadable
  * diff, the gate is inert for the turn (ratified).
  */
 import { spawnSync } from "node:child_process";
@@ -34,14 +34,6 @@ export function captureHead(cwd: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-/** The built-in tools that change the working tree. */
-export const MUTATING_TOOLS = ["write", "edit"] as const;
-
-/** Whether a turn touched the tree at all (cheap pre-check). */
-export function turnMutatedFiles(toolCalls: readonly { name: string }[]): boolean {
-  return toolCalls.some((c) => (MUTATING_TOOLS as readonly string[]).includes(c.name));
-}
-
 /**
  * The unified diff of `paths` (repo-relative, or best-effort as given)
  * against `head`. `null` = unreadable diff → gate inert.
@@ -65,11 +57,9 @@ export function taskDiff(cwd: string, head: string, paths: readonly string[]): s
       tracked.push(p);
       continue;
     }
-    // Untracked: diff the empty device against the file for a canonical
-    // "new file" hunk (git supports this form on all platforms via
-    // `--no-index` with NUL? — use the portable two-file form).
+    // Untracked: diff the empty device against the file — the portable
+    // two-file form of a canonical "new file" hunk.
     const newDiff = git(["diff", "--no-color", "--no-index", "--", "/dev/null", p], cwd);
-    // Exit code 1 means "differences found" — that is the success case.
     if (newDiff !== null && newDiff.trim() !== "") chunks.push(newDiff);
   }
   if (tracked.length > 0) {

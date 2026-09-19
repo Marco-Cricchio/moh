@@ -144,6 +144,7 @@ describe("lint gate runner (#789)", () => {
         error_handling: noul(0.2), // a diff that ignores error handling
       }));
       const requests: string[] = [];
+      const stops: { reason: string; findings?: string[] }[] = [];
       const gate = createLintGate(
         {
           judge: createLintJudge({ client, append: () => {} }),
@@ -152,6 +153,7 @@ describe("lint gate runner (#789)", () => {
             requests.push(text);
             return true;
           },
+          reportStop: (reason, findings) => stops.push({ reason, findings: [...findings] }),
         },
         createLintTaskState(),
       );
@@ -175,6 +177,7 @@ describe("lint gate runner (#789)", () => {
       writeFileSync(join(root, "src", "b.ts"), "export const ok = 1;\n");
       const { client } = fakeClient(() => PASS_ANSWERS);
       const requests: string[] = [];
+      const stops: { reason: string; findings?: string[] }[] = [];
       const gate = createLintGate(
         {
           judge: createLintJudge({ client, append: () => {} }),
@@ -183,6 +186,7 @@ describe("lint gate runner (#789)", () => {
             requests.push(text);
             return true;
           },
+          reportStop: (reason, findings) => stops.push({ reason, findings: [...findings] }),
         },
         createLintTaskState(),
       );
@@ -204,7 +208,7 @@ describe("lint gate runner (#789)", () => {
         return PASS_ANSWERS;
       });
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true },
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });
@@ -225,7 +229,7 @@ describe("lint gate runner (#789)", () => {
         return PASS_ANSWERS;
       });
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true },
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       expect(await gate.onTaskEnd([{ name: "bash" }, { name: "read" }])).toBe(0);
@@ -244,6 +248,7 @@ describe("lint gate runner (#789)", () => {
         completeness: noul(0.01),
       }));
       const requests: string[] = [];
+      const stops: { reason: string; findings?: string[] }[] = [];
       const taskState = createLintTaskState();
       const gate = createLintGate(
         {
@@ -253,6 +258,7 @@ describe("lint gate runner (#789)", () => {
             requests.push(text);
             return true;
           },
+          reportStop: (reason, findings) => stops.push({ reason, findings: [...findings] }),
         },
         taskState,
       );
@@ -269,6 +275,8 @@ describe("lint gate runner (#789)", () => {
       // is skipped even though it "changed files" again.
       expect(await gate.onTaskEnd([{ name: "write" }])).toBe(0);
       expect(requests).toHaveLength(LINT_MAX_CYCLES);
+      // The cycle-cap stop is recorded on the final record (spec §2).
+      expect(stops).toEqual([{ reason: "cycle-cap", findings: ["conventions_respected", "error_handling", "completeness"] }]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -286,7 +294,7 @@ describe("lint gate runner (#789)", () => {
         return PASS_ANSWERS;
       });
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true },
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });
