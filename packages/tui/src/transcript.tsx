@@ -225,6 +225,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (name === "jev_routing") return routingNoticeLine(record);
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
+  if (record.useCase === "injection") return injectionJudgmentLine(record);
   const parts = [name.slice(0, -"_judgment".length)];
   if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
   if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
@@ -263,6 +264,33 @@ function routingNoticeLine(record: Record<string, unknown>): string {
   return "jev · routing";
 }
 
+/**
+ * #791: one anti-injection judgment. The mid band is the whole point of
+ * the line — it is the visible warning the user gets instead of a silent
+ * pass — and a `sensitive`-driven warning carries the advice the record
+ * brought with it (its copy lives in the extension, not here). The confirm
+ * band's outcome reads as what happened to the turn: sent anyway,
+ * cancelled (nothing was sent), or refused in headless.
+ */
+function injectionJudgmentLine(record: Record<string, unknown>): string {
+  const decision = typeof record.decision === "string" ? record.decision : "judgment";
+  const injection = typeof record.injection === "number" ? record.injection : 0;
+  const sensitive = typeof record.sensitive === "number" ? record.sensitive : 0;
+  const where = typeof record.source === "string" && record.source.startsWith("tool:")
+    ? ` (${record.source.slice("tool:".length)} result withheld)`
+    : "";
+  if (decision === "cancelled") return "jev · injection · cancelled — nothing was sent";
+  if (decision === "refused-headless") return "jev · injection · refused — possible injection, nothing was sent";
+  if (decision === "confirmed") return `jev · injection · sent anyway (injection ${injection.toFixed(2)})`;
+  if (decision === "withheld") return `jev · injection · withheld${where} (injection ${injection.toFixed(2)})`;
+  if (decision === "warn") {
+    const advice = typeof record.advice === "string" ? record.advice : undefined;
+    if (advice !== undefined) return `jev · injection · warn (sensitive ${sensitive.toFixed(2)} — ${advice})`;
+    return `jev · injection · warn (injection ${injection.toFixed(2)})`;
+  }
+  return `jev · injection · ${decision} (injection ${injection.toFixed(2)})`;
+}
+
 /** #787: one routing judgment — what the router decided, and why. */
 function routingJudgmentLine(record: Record<string, unknown>): string {
   const tier = typeof record.tier === "string" ? record.tier : undefined;
@@ -272,6 +300,20 @@ function routingJudgmentLine(record: Record<string, unknown>): string {
   }
   const reason = typeof record.reason === "string" ? record.reason : "stay";
   return `jev · routing · stay (${reason})`;
+}
+
+/**
+ * #791: the anti-injection judgments the transcript leaves out. The record
+ * is in the log (every judgment is), the line is not: below the warn
+ * threshold there is nothing for the user to read, and a per-turn check
+ * that announced itself on every turn would be the noise the band exists
+ * to avoid.
+ */
+function isSilentInjection(name: string, payload: unknown): boolean {
+  if (name !== "jev_judgment") return false;
+  const record = asRecord(payload);
+  if (record?.useCase !== "injection") return false;
+  return record.decision === "silent" || record.decision === "pass";
 }
 
 /** A JSON object as an inspectable record; anything else (arrays, null,
@@ -650,7 +692,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "extension_event":
         // ADR-0032 (#784): an extension's own chrome record — one dim line.
         // The renderer stays generic: only the records this client can
-        // phrase get a summary, every other name renders as itself.
+        // phrase get a summary, every other name renders as itself. The
+        // one record that renders nothing is the anti-injection check's
+        // `silent`/`pass` band (#791): the log keeps every judgment, but
+        // the low band is *silent* — the whole point of the threshold is
+        // that an unremarkable turn gains no line.
+        if (isSilentInjection(event.name, event.payload)) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: extensionEventLine(event.name, event.payload), lines: [] });
         break;
       case "session_note":

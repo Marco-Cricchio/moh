@@ -20,11 +20,11 @@ import { ArgError, parseArgs } from "./args";
 export const JEV_USAGE = `usage: moh jev status [--json]
 
 The TypeSafe/Jev configuration state: a stored API key (which is what
-activates the bundled Jev extension — there is no separate toggle) and
-the model-routing opt-in.
+activates the bundled Jev extension — there is no separate toggle) and the
+per-use-case opt-ins (model routing, anti-injection).
 
   --json        one-line machine-readable JSON: active, keyHint (absent
-                when inactive), timeoutMs, routing
+                when inactive), timeoutMs, routing, injection
 
 Config read only: no call is ever made to TypeSafe. The key is validated
 when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is
@@ -33,21 +33,22 @@ inactive Jev exits 0; a malformed "typesafe" section exits 2.`;
 
 /** The one column layout both status lines share (labels padded to the
  * widest, like the sibling reports). */
-const COL = 7;
+const COL = 9;
 
 function row(label: string, value: string): string {
   return `  ${label.padEnd(COL)}  ${value}\n`;
 }
 
 /** The `--json` object, key order pinned: `active`, `keyHint`, `timeoutMs`,
- * `routing`. `keyHint` is omitted when inactive rather than nulled — the
- * key does not exist in that state. */
+ * `routing`, `injection`. `keyHint` is omitted when inactive rather than
+ * nulled — the key does not exist in that state. */
 function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
   return {
     active: cfg.active,
     ...(cfg.apiKey !== undefined ? { keyHint: maskApiKey(cfg.apiKey) } : {}),
     timeoutMs: cfg.timeoutMs,
     routing: cfg.routing,
+    injection: cfg.injection,
   };
 }
 
@@ -60,6 +61,7 @@ function renderStatus(cfg: ResolvedTypesafeConfig): string {
         : "inactive",
     ),
     row("routing", cfg.routing ? "on" : "off"),
+    row("injection", cfg.injection ? "on" : "off"),
   ];
   // The way back in, printed only when it is missing: with a key stored
   // there is nothing to activate.

@@ -36,6 +36,8 @@ export const typesafeConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
   /** Model routing opt-in (#787). Default false. */
   routing: z.boolean().optional(),
+  /** Anti-injection opt-in (#791). Default false — it sends your message. */
+  injection: z.boolean().optional(),
   /** Tier labels for routing (#787): "<endpoint>/<model-id>" → tier. */
   tiers: z.record(z.string().min(1), z.enum(TYPESAFE_TIERS)).optional(),
 });
@@ -52,6 +54,12 @@ export interface ResolvedTypesafeConfig {
   timeoutMs: number;
   /** Routing opt-in (#787). Off by default — routing turns is a choice. */
   routing: boolean;
+  /**
+   * Anti-injection opt-in (#791). Off by default: the check sends the
+   * user's message text (≤ 4 KiB) to TypeSafe on every turn, and the text
+   * of every `fetch`/`browser` result, which is a privacy choice.
+   */
+  injection: boolean;
   /** Explicit tier labels (#787): `<endpoint>/<model-id>` → tier. `{}` when
    * none — the routing code falls back to its price heuristic. */
   tiers: Record<string, TypesafeTier>;
@@ -85,6 +93,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     ...(apiKey ? { apiKey } : {}),
     timeoutMs: block?.timeoutMs ?? TYPESAFE_TIMEOUT_MS_DEFAULT,
     routing: block?.routing === true,
+    injection: block?.injection === true,
     tiers: block?.tiers ?? {},
   };
 }
@@ -121,6 +130,22 @@ export function saveTypesafeRouting(file: string, enabled: boolean, io: UserConf
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, routing: enabled };
+    },
+    io,
+  );
+}
+
+/**
+ * Persists the anti-injection opt-in (#791) — the Settings toggle's
+ * writer, same lifecycle as the routing flag: read at session assembly, so
+ * a running session keeps what it started with.
+ */
+export function saveTypesafeInjection(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, injection: enabled };
     },
     io,
   );

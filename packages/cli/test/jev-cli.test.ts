@@ -53,7 +53,7 @@ describe("moh jev status (#784)", () => {
     const { code, stdout, stderr } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toBe("  jev      active (key …9f2a, timeout 2500ms)\n  routing  off\n");
+    expect(stdout).toBe("  jev        active (key …9f2a, timeout 2500ms)\n  routing    off\n  injection  off\n");
     // The key only ever reaches the screen masked.
     expect(stdout).not.toContain(KEY);
   });
@@ -62,14 +62,14 @@ describe("moh jev status (#784)", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
-    expect(stdout).toBe(`  jev      inactive\n  routing  off\n  hint     ${TYPESAFE_SETTINGS_HINT}\n`);
+    expect(stdout).toBe(`  jev        inactive\n  routing    off\n  injection  off\n  hint       ${TYPESAFE_SETTINGS_HINT}\n`);
   });
 
   test("inactive: a key-less typesafe block reads the same as an absent one", () => {
     const { spawn } = harness(JSON.stringify({ typesafe: {} }));
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
-    expect(stdout).toContain("  jev      inactive");
+    expect(stdout).toContain("  jev        inactive");
     expect(stdout).toContain(TYPESAFE_SETTINGS_HINT);
   });
 
@@ -77,21 +77,21 @@ describe("moh jev status (#784)", () => {
     const { spawn } = harness(JSON.stringify({ typesafe: { apiKey: KEY, timeoutMs: 5000, routing: true } }));
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
-    expect(stdout).toBe("  jev      active (key …9f2a, timeout 5000ms)\n  routing  on\n");
+    expect(stdout).toBe("  jev        active (key …9f2a, timeout 5000ms)\n  routing    on\n  injection  off\n");
   });
 
   test("--json active: exactly the pinned object, one line", () => {
     const { spawn } = harness(ACTIVE_CONFIG);
     const { code, stdout } = spawn(["jev", "status", "--json"]);
     expect(code).toBe(0);
-    expect(stdout).toBe('{"active":true,"keyHint":"…9f2a","timeoutMs":2500,"routing":false}\n');
+    expect(stdout).toBe('{"active":true,"keyHint":"…9f2a","timeoutMs":2500,"routing":false,"injection":false}\n');
   });
 
   test("--json inactive: keyHint absent (never nulled), other keys present", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["jev", "status", "--json"]);
     expect(code).toBe(0);
-    expect(stdout).toBe('{"active":false,"timeoutMs":2500,"routing":false}\n');
+    expect(stdout).toBe('{"active":false,"timeoutMs":2500,"routing":false,"injection":false}\n');
     const parsed = JSON.parse(stdout) as Record<string, unknown>;
     expect("keyHint" in parsed).toBe(false);
   });
@@ -116,7 +116,7 @@ describe("moh jev status (#784)", () => {
       expect(stdout).toBe("");
       expect(stderr).toContain("usage: moh jev status");
       // A usage error never reports state: no half answer before the error.
-      expect(stderr).not.toContain("  jev      inactive");
+      expect(stderr).not.toContain("  jev        inactive");
     }
   });
 
@@ -133,7 +133,7 @@ describe("moh jev status (#784)", () => {
     const { spawn } = harness("{ not json");
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
-    expect(stdout).toContain("  jev      inactive");
+    expect(stdout).toContain("  jev        inactive");
   });
 });
 

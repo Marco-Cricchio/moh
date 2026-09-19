@@ -19,7 +19,7 @@ import {
   type SessionFromConfigResult,
   type SessionOverrides,
 } from "./session/from-config";
-import { type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
+import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
 import { ExtensionRuntime } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
@@ -189,6 +189,10 @@ import { skillRecommendations, formatSkillCommand, type SkillRecommendation, typ
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.
 export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
+// ADR-0033 §4: the outcome vocabulary a client's confirmation seam answers
+// with ("send" | "cancel" | "refuse") — the extension contract's type,
+// re-exported so a client needs one import for the whole seam.
+export type { TurnConfirmOutcome } from "@moh/extension";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
@@ -357,6 +361,7 @@ import {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeInjection,
   saveTypesafeRouting,
   type ResolvedTypesafeConfig,
   type TypesafeConfig,
@@ -725,6 +730,7 @@ export {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeInjection,
   saveTypesafeRouting,
   type ResolvedTypesafeConfig,
   type TypesafeConfig,
@@ -796,6 +802,11 @@ export {
   // #784/ADR-0031: the extension-ask context a client's consent seam
   // receives (the TUI renders yes/no only, labelled with the reason).
   type PermissionAskContext,
+  // ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
+  // answers — one request per confirmed turn, and the outcome vocabulary
+  // it answers with (the extension contract's own type, re-exported so a
+  // client needs one import).
+  type ConfirmTurnRequest,
   type AssemblyError,
   type AssemblyErrorKind,
   type SessionConsent,

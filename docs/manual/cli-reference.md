@@ -72,6 +72,8 @@ notes:
   - resuming with --session does not carry --allow/--deny rules forward:
     re-pass them on every run (runtime "always" rules from the log are
     restored automatically).
+  - a turn an extension asks to confirm is refused here (one stderr line,
+    exit 0): headless cannot ask, so it never sends what it cannot show.
 ```
 
 ## moh serve
@@ -285,11 +287,11 @@ models without a price record remain tokens-only.
 usage: moh jev status [--json]
 
 The TypeSafe/Jev configuration state: a stored API key (which is what
-activates the bundled Jev extension — there is no separate toggle) and
-the model-routing opt-in.
+activates the bundled Jev extension — there is no separate toggle) and the
+per-use-case opt-ins (model routing, anti-injection).
 
   --json        one-line machine-readable JSON: active, keyHint (absent
-                when inactive), timeoutMs, routing
+                when inactive), timeoutMs, routing, injection
 
 Config read only: no call is ever made to TypeSafe. The key is validated
 when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is

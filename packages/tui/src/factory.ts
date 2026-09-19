@@ -28,6 +28,8 @@ import {
   type AgentEvent,
   type AgentSession,
   type AskUserQuestionSet,
+  type ConfirmTurnRequest,
+  type TurnConfirmOutcome,
   type AskUserSetResult,
   type AssemblyError,
   type Provider,
@@ -55,6 +57,8 @@ export interface OpenSessionOptions {
     | ((tool: string, args: unknown) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no");
   /** Interactive question channel for the ask_user tool (#70). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
+  /** ADR-0033 §4 (#791): the pre-send confirmation modal's seam. */
+  onConfirmTurn?: (request: ConfirmTurnRequest) => Promise<TurnConfirmOutcome> | TurnConfirmOutcome;
   /** Default permission mode for new sessions (user config; yolo stays launch-only). */
   permissionMode?: "normal" | "auto-accept";
   /** #377: yolo session (launch-only `--yolo`): no permission prompts and
@@ -98,6 +102,7 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
           }
         : {}),
       ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
+      ...(options.onConfirmTurn ? { onConfirmTurn: options.onConfirmTurn } : {}),
     },
     overrides: {
       tools,

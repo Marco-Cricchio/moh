@@ -23,6 +23,8 @@ import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, t
 import { createJevClient, type JevClientOptions } from "./client";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
 import { createRoutingJudge, type RoutingPool } from "./routing-judge";
+import { createInjectionJudge } from "./injection-judge";
+import { INJECTION_TOOLS } from "./injection";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -54,6 +56,14 @@ export interface JevGuardOptions {
   routing?: JevRoutingOptions;
   /** The config opt-in (`typesafe.routing`). Default false. */
   enabled?: boolean;
+  /**
+   * #791: the anti-injection opt-in (`typesafe.injection`). Off by
+   * default, and it is the only anti-injection switch: the check sends the
+   * user's message text (≤ 4 KiB) to TypeSafe on every turn and the text
+   * of every `fetch`/`browser` result (≤ 8 KiB), which is a bigger privacy
+   * step than the guardrail's command + cwd + git state.
+   */
+  injection?: boolean;
 }
 
 /**
@@ -125,6 +135,41 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         }
         return;
       });
+      // ---- #791 anti-injection: two halves, two seams -------------------
+      // Opt-in and off by default (`typesafe.injection`): the check sends
+      // the user's own message text to TypeSafe, which is a choice, not a
+      // side effect of having a key. Both halves ask the same two
+      // questions; `sensitive` never blocks, only `injection` above 0.95
+      // does — a confirmation before a turn, a withheld result after a
+      // fetch.
+      if (options.injection === true) {
+        const injection = createInjectionJudge({
+          client,
+          append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+        });
+        // Half 1: the user's turn input, through the pre-send confirmation
+        // of ADR-0033. The band's `confirm` is the only one that reports
+        // back: the record waits for the answer, so a cancelled turn leaves
+        // exactly one entry in the log and no `user_message`.
+        ctx.beforeTurn(async ({ text }) => {
+          const verdict = await injection.judgeInput(text);
+          if (!verdict || verdict.band !== "confirm" || verdict.reason === undefined) return;
+          return {
+            confirm: {
+              reason: verdict.reason,
+              ...(verdict.resolve ? { onResolved: verdict.resolve } : {}),
+            },
+          };
+        });
+        // Half 2: external content, through the post-tool seam of ADR-0034,
+        // registered for the two tools whose output a third party controls.
+        ctx.onToolResult(INJECTION_TOOLS, async ({ name, output }) => {
+          const verdict = await injection.judgeToolResult(name, output);
+          if (!verdict?.withhold) return;
+          return { withhold: { reason: verdict.withhold } };
+        });
+      }
+
       // ---- #787 routing: one tier per turn -----------------------------
       // Opt-in and off by default (`typesafe.routing`). Jev judges the last
       // user message only, answers with a tier, and the session switches to
@@ -272,6 +317,28 @@ export type {
   JevScoreQuestion,
 } from "./client";
 export { questions } from "./questions-core";
+export {
+  INJECTION_INPUT_MAX_BYTES,
+  INJECTION_QUESTIONS,
+  INJECTION_THRESHOLDS,
+  INJECTION_TOOL_MAX_BYTES,
+  INJECTION_TOOLS,
+  SENSITIVE_ADVICE,
+  injectionBand,
+  injectionConfirmReason,
+  injectionWithholdReason,
+  sliceForJudgment,
+  type InjectionBand,
+  type InjectionDecision,
+  type InjectionSignals,
+  type InjectionSource,
+} from "./injection";
+export {
+  createInjectionJudge,
+  type InjectionInputVerdict,
+  type InjectionJudge,
+  type InjectionToolVerdict,
+} from "./injection-judge";
 export {
   decideGuardrail,
   GUARDRAIL_QUESTIONS,

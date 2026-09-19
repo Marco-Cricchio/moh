@@ -77,6 +77,58 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "who-knows" })).toBe("jev · routing");
   });
 
+  test("the silent band renders nothing; every other injection line reads as what happened (#791)", () => {
+    const events = [
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "silent", injection: 0.02, sensitive: 0.01 } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "pass", injection: 0.03, sensitive: 0.01, source: "tool:fetch" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
+    ] as unknown as AgentEvent[];
+    const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    // The low band is silence: the log keeps the record, the transcript
+    // does not gain a line for it (the whole point of the threshold).
+    expect(rendered).toEqual(["jev · injection · warn (injection 0.63)", "jev · guardrail · pass"]);
+  });
+
+  test("an anti-injection judgment reads as what happened to the turn (#791)", () => {
+    const line = (payload: Record<string, unknown>) => extensionEventLine("jev_judgment", payload);
+    // The mid band is the visible warning: it exists to be read.
+    expect(line({ useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 })).toBe(
+      "jev · injection · warn (injection 0.63)",
+    );
+    // A fired sensitive signal carries the advice the record brought.
+    expect(
+      line({
+        useCase: "injection",
+        decision: "warn",
+        injection: 0.03,
+        sensitive: 0.71,
+        advice: "do not commit or share this content",
+      }),
+    ).toBe("jev · injection · warn (sensitive 0.71 — do not commit or share this content)");
+    // No advice in the record: the injection probability explains the warn.
+    expect(line({ useCase: "injection", decision: "warn", injection: 0.55, sensitive: 0.71 })).toBe(
+      "jev · injection · warn (injection 0.55)",
+    );
+    expect(line({ useCase: "injection", decision: "cancelled", injection: 0.97, sensitive: 0.1 })).toBe(
+      "jev · injection · cancelled — nothing was sent",
+    );
+    expect(line({ useCase: "injection", decision: "refused-headless", injection: 0.99, sensitive: 0.1 })).toBe(
+      "jev · injection · refused — possible injection, nothing was sent",
+    );
+    expect(line({ useCase: "injection", decision: "confirmed", injection: 0.96, sensitive: 0.1 })).toBe(
+      "jev · injection · sent anyway (injection 0.96)",
+    );
+    expect(
+      line({ useCase: "injection", decision: "withheld", injection: 0.98, sensitive: 0.1, source: "tool:fetch" }),
+    ).toBe("jev · injection · withheld (fetch result withheld) (injection 0.98)");
+    expect(line({ useCase: "injection", decision: "pass", injection: 0.02, sensitive: 0.01, source: "tool:fetch" })).toBe(
+      "jev · injection · pass (injection 0.02)",
+    );
+    // A payload this renderer does not recognize never throws.
+    expect(line({ useCase: "injection" })).toBe("jev · injection · judgment (injection 0.00)");
+  });
+
   test("a client command renders as one line naming the extension (#787, ADR-0038)", () => {
     const events = [
       { type: "extension_control", extension: "jev-guard", payload: { cmd: "off" } },

@@ -8,7 +8,7 @@
  * the core (Jev → rule deny → ask flow → allow, ADR-0031 wiring from
  * #784). Fail-open: any client failure means "no judgment", pass.
  */
-import type { JevAnswer, JevClient } from "./client";
+import { noulProbability, type JevAnswer, type JevClient } from "./client";
 import {
   GUARDRAIL_QUESTIONS,
   decideGuardrail,
@@ -49,11 +49,6 @@ export interface GuardrailJudgeDeps {
 function bashState(command: string, cwd: string): GuardrailState {
   const git = gitSnapshot(cwd);
   return { command: command.slice(0, COMMAND_STATE_MAX), cwd, git };
-}
-
-function noul(answers: Record<string, JevAnswer>, id: string): number {
-  const a = answers[id];
-  return a?.type === "noul" && typeof a.noul === "number" ? a.noul : 0;
 }
 
 function scoreOf(answers: Record<string, JevAnswer>, id: string): number {
@@ -146,9 +141,9 @@ export function createGuardrailJudge(
       }
       const answers = outcome.answers;
       const signals: GuardrailSignals = {
-        destructive: noul(answers, "destructive"),
-        inScope: noul(answers, "in_scope"),
-        exfiltration: noul(answers, "exfiltration"),
+        destructive: noulProbability(answers, "destructive"),
+        inScope: noulProbability(answers, "in_scope"),
+        exfiltration: noulProbability(answers, "exfiltration"),
         riskLevel: scoreOf(answers, "risk_level"),
       };
       const decision = decideGuardrail(signals, lethalOnly);

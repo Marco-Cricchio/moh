@@ -120,3 +120,23 @@ Key decisions, each with its rationale:
   the model saw); a generic error for the model (unexplainable refusals invite retries);
   fail-closed on timeout (an extension could hold the agent hostage); composing multiple
   withholds into a combined text (no reader benefit, more surface).
+
+## Amendment — 2026-09-18, #791 (implemented)
+
+Details the decision left open, fixed by the implementation:
+
+1. **apiVersion `1.4`**, not the `1.3` this record assigned: `1.3` is ADR-0038's control
+   channel, and this seam ships in the same PR as ADR-0033's `confirm.onResolved`.
+2. **The refusal text is rendered by the core** as
+   `external content withheld by <extension>: <reason>` — the extension supplies the phrase
+   (its own copy, e.g. `possible injection (0.98) — the page content was not shown to the
+   model`), the core supplies the identity and the fixed framing, so a model can always
+   name who withheld and why (§5).
+3. **The withheld result is a failure**: `ok: false` with `errorKind: "permission"` — the
+   documented kind for a denial, and the one that keeps `moh usage tools` honest about why
+   the call produced no usable output. The turn does not error.
+4. **An empty tool-name list registers nothing**, and a `withhold` whose `reason` is absent
+   or blank is fail-open with a visible `extension_failed { reason: "invalid_withhold" }`:
+   an unexplained refusal the model cannot act on is worse than no refusal.
+5. The inspected output is never copied into the extension's own records (§2): the Jev
+   anti-injection record carries the probabilities, the band and the decision, not the page.
