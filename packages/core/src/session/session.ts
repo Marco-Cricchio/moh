@@ -67,6 +67,10 @@ export class AgentSession {
   /** Same-turn tool execution (#91): parallel run + gated execution. */
   readonly #toolRunner: ToolRunner;
   readonly #extensions: ExtensionRuntime | undefined;
+  /** #834: are load events still held until the session's start chrome is in? */
+  #extensionsHeld = false;
+  /** #834: the load events held, in delivery order (= the load order). */
+  readonly #heldExtensionEvents: AgentEvent[] = [];
   /** ADR-0032: a client with a consent seam renders statuses itself; a
    * headless one gets the single stderr line instead. */
   readonly #hasConsentSeam: boolean;
@@ -311,8 +315,20 @@ export class AgentSession {
     // `ctx.requestTurn` lands here, through the queue.
     if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
     this.#onDispose = config.onDispose;
-    // Extension load results (including hot-reload outcomes) land in the log.
-    this.#extensions?.onLoadEvent((event) => this.#append(event));
+    // Extension load results (including hot-reload outcomes) land in the log
+    // — held until the session's own start chrome is in (#834). A load can
+    // settle before this constructor runs (the client resolved its source
+    // earlier) and further loads can settle *during* it: appending both
+    // streams as they arrive would either break the log-format invariant
+    // (`session_start` first) or scramble the two against each other. Held
+    // in delivery order, the log keeps the extensions' load order — which is
+    // the order their hooks decide in.
+    this.#extensionsHeld = this.#extensions !== undefined;
+    this.#heldExtensionEvents.push(...(this.#extensions?.consumeLoadEvents() ?? []));
+    this.#extensions?.onLoadEvent((event) => {
+      if (this.#extensionsHeld) this.#heldExtensionEvents.push(event);
+      else this.#append(event);
+    });
     // ADR-0032: an extension status is client chrome — it never enters the
     // log. A headless client (no consent seam: there is no one to prompt,
     // hence no TUI) gets one stderr line per new status text instead.
@@ -734,9 +750,13 @@ export class AgentSession {
     }
   }
 
-  /** Drains buffered extension load events (failed loads = warnings) into the log. */
+  /** Drains the held extension load events (failed loads = warnings) into the
+   * log, in delivery order. Called once the startup chrome is in. */
   #flushExtensionEvents(): void {
-    for (const event of this.#extensions?.consumeLoadEvents() ?? []) this.#append(event);
+    if (!this.#extensionsHeld) return;
+    this.#extensionsHeld = false;
+    this.#heldExtensionEvents.push(...(this.#extensions?.consumeLoadEvents() ?? []));
+    for (const event of this.#heldExtensionEvents.splice(0)) this.#append(event);
   }
 
   /** Replays the append-only log, then streams new events. */

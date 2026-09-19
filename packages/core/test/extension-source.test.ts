@@ -11,7 +11,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { MockProvider } from "../src/index";
+import { createSession, ExtensionRuntime, MockProvider } from "../src/index";
 import { extensionSourceFiles } from "../src/extension-source";
 import { sessionFromConfig } from "../src/session/from-config";
 import type { AgentEvent, ExtensionConsentRequest } from "../src/index";
@@ -137,6 +137,54 @@ async function withSession<T>(
 }
 
 describe("sessionFromConfig loads the declared source (#834)", () => {
+  test("files load in the resolved order: dotdir sorted, then the project's proposals", async () => {
+    const { cwd, home, mohHome } = tempProject();
+    writeModule(join(mohHome, "extensions", "b-second.mjs"), vetoExtension("second"));
+    writeModule(join(mohHome, "extensions", "a-first.mjs"), vetoExtension("first"));
+    writeModule(join(cwd, "extensions", "c-declared.mjs"), vetoExtension("declared"));
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ extensions: ["./extensions/c-declared.mjs"] }));
+    await withSession(
+      assemble({ cwd, home, provider: turnOnEcho(), consent: { onExtensionConsent: () => true } }),
+      async (session) => {
+        await session.send("go");
+        // Hook precedence is registration order, so the order is the contract.
+        const loaded = session
+          .history()
+          .filter((e) => e.type === "extension_loaded")
+          .map((e) => (e as { name: string }).name);
+        expect(loaded).toEqual(["first", "second", "declared"]);
+        // The first veto wins on the tool call they all refuse.
+        expect(session.history().find((e) => e.type === "permission_denied")).toMatchObject({ tool: "echo" });
+      },
+    );
+  });
+
+  test("a load that settled before the session existed still lands after session_start, in load order", async () => {
+    const { mohHome } = tempProject();
+    const first = writeModule(join(mohHome, "extensions", "a-first.mjs"), vetoExtension("first"));
+    const second = writeModule(join(mohHome, "extensions", "b-second.mjs"), vetoExtension("second"));
+    const declared = writeModule(join(mohHome, "extensions", "c-third.mjs"), vetoExtension("declared"));
+    const runtime = new ExtensionRuntime({ mohHome, consent: () => true });
+    // #834: the first file settles while no session exists yet — its load
+    // event is buffered in the runtime, and the session picks it up at
+    // construction. The log must still open with `session_start` and keep
+    // the load order (the order the hooks decide in).
+    void runtime.registerFile(first);
+    await Bun.sleep(50);
+    void runtime.registerFiles([second, declared]);
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      extensions: runtime,
+    });
+    await session.send("go");
+    const history = session.history();
+    expect(history[0]!.type).toBe("session_start");
+    expect(
+      history.filter((e) => e.type === "extension_loaded").map((e) => (e as { name: string }).name),
+    ).toEqual(["first", "second", "declared"]);
+    await session.dispose();
+  });
+
   test("a consented file extension loads and its hooks run (end to end)", async () => {
     const { cwd, home, mohHome } = tempProject();
     const file = writeModule(join(mohHome, "extensions", "guard.mjs"), vetoExtension("guard"));
