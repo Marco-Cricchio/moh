@@ -305,6 +305,9 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
+    // ADR-0037: the session is the runtime's turn entry — an extension's
+    // `ctx.requestTurn` lands here, through the queue.
+    if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
@@ -527,6 +530,22 @@ export class AgentSession {
         this.#turnSeq += 1;
         return this.#loop.run(text, controller);
       },
+      // ADR-0037: synthetic turns run through the same queue; the loop
+      // entry skips beforeTurn and marks the user_message.
+      executeSynthetic: (text, controller) => {
+        this.#turnSeq += 1;
+        return this.#loop.runSynthetic(text, controller);
+      },
+      // ADR-0037: the extension `afterTurn` dispatch runs from the queue's
+      // settle path, after the slot is freed — an `afterTurn` hook may
+      // `await ctx.requestTurn` without deadlocking the turn it observed.
+      ...(this.#extensions
+        ? {
+            dispatchAfterTurn: (result: TurnResult, synthetic: boolean) =>
+              this.#extensions!.dispatchAfterTurn(result, synthetic),
+            append: (event: unknown) => this.#append(event as AgentEvent),
+          }
+        : {}),
       onTurnSettled: () => {
         if (this.#gitPushPending) {
           this.#gitPushPending = false;
@@ -896,6 +915,40 @@ export class AgentSession {
   }
 
   /**
+   * ADR-0037: the session-mediated entry behind an extension's
+   * `ctx.requestTurn` — one turn with a synthetic user-side message,
+   * through the normal queue so preemption, usage accounting and
+   * settlement stay the session's. Resolves `{ ok: false }` when the
+   * session is disposed or a turn is already in flight (the runtime
+   * renders every refusal as a visible `extension_failed`); the depth
+   * limit itself is enforced by the runtime, not here.
+   */
+  /**
+   * ADR-0037: the session-mediated entry behind an extension's
+   * `ctx.requestTurn` — one turn with a synthetic user-side message,
+   * through the same queue as a user send (abortion, usage accounting,
+   * `#turnSeq` and settlement stay the session's). The queued item runs
+   * when the slot is free, so a request made from a settling turn's own
+   * `afterTurn` hook waits without deadlocking it; queued user sends go
+   * first, and an active turn is never preempted by a synthetic one.
+   * Resolves `{ ok: false }` only when the session is disposed.
+   */
+  runSyntheticTurn(text: string): Promise<{ ok: boolean; result?: TurnResult }> {
+    if (this.#disposed) return Promise.resolve({ ok: false });
+    const synthetic = (): Promise<TurnResult> => this.#queue.sendSynthetic(text);
+    const run =
+      this.#extensions?.hasPendingRegistrations() === true
+        ? this.#extensions.ready().then(synthetic)
+        : synthetic();
+    return run
+      .then((result) => ({ ok: true, result }))
+      .catch(() => ({ ok: false }))
+      .finally(() => {
+        this.#turnHead = undefined;
+      });
+  }
+
+  /**
    * Forced compaction (#466): `/compact` and `moh compact` land here.
    * Ignores threshold and stale-measurement guard, same tail/summarizer
    * as the auto path, same producer. On success the live messages are
@@ -1100,7 +1153,12 @@ export class AgentSession {
     // ADR-0032: a turn begins with its user_message — the per-extension
     // `extension_event` cap counts per turn, so the counter resets here
     // (steering sends are turns too).
-    if (event.type === "user_message") this.#extensions?.beginTurn();
+    if (event.type === "user_message") {
+      this.#extensions?.beginTurn();
+      // ADR-0037: a real (non-synthetic) user turn refills every
+      // extension's synthetic-turn budget.
+      if (event.synthetic !== true) this.#extensions?.noteRealTurn();
+    }
     // #759: the reasoning text of the last persisted call is the low-tier
     // orientation seed source. Content stays in the log; only the plan
     // (paths + reasons) ever reaches the prompt.

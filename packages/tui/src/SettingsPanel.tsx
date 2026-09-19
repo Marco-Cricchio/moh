@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeInjection, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -85,6 +85,8 @@ interface JevState {
   routing: boolean;
   /** #791: the anti-injection opt-in (off by default). */
   injection: boolean;
+  /** #789: the quality-gate opt-in (off by default). */
+  lint: boolean;
   /** The `typesafe` section is malformed: loud on the next save, still
    * rendered as inactive rather than crashing the whole panel. */
   broken?: boolean;
@@ -98,11 +100,15 @@ const JEV_DISCLOSURE =
  * #787/#791: the Jev entry's sub-menu — the key, the two per-use-case
  * opt-ins (both off by default), status, remove.
  */
-const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Status", "Remove"] as const;
+const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Quality gate", "Status", "Remove"] as const;
 
 /** #791: what the anti-injection opt-in sends, stated where it is toggled. */
 const JEV_INJECTION_DISCLOSURE =
   "anti-injection sends your message text (up to 4 KiB) and the text of every web result (up to 8 KiB) to TypeSafe.";
+
+/** #789: what the quality-gate opt-in sends, stated where it is toggled. */
+const JEV_LINT_DISCLOSURE =
+  "the quality gate sends the diff of the changed code (up to 32 KiB) plus the project's convention docs to TypeSafe.";
 
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
   const theme = useTheme();
@@ -163,9 +169,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         timeoutMs: resolved.timeoutMs,
         routing: resolved.routing,
         injection: resolved.injection,
+        lint: resolved.lint,
       };
     } catch {
-      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, broken: true };
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, lint: false, broken: true };
     }
   };
   const [jev, setJev] = useState<JevState>(readJev);
@@ -475,6 +482,23 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     setSub({ kind: "jev", cursor: 0 });
   };
 
+  /**
+   * #789: the quality-gate opt-in. Off by default because it sends the
+   * changed code's diff; like the other flags it is read at session
+   * assembly.
+   */
+  const toggleJevLint = () => {
+    const next = !jev.lint;
+    try {
+      saveTypesafeLint(jevFile, next);
+    } catch (e) {
+      return onToast(`quality gate: could not save (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ ...j, lint: next }));
+    onToast(next ? "quality gate on · from your next session" : "quality gate off · from your next session");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
   /** #181: model committed for one endpoint — rewrites `defaultModel` in
    * the project moh.json (user endpoints display-only) and switches the
    * default `provider` ref. moh.json only; user config untouched. */
@@ -599,6 +623,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (option === "API key") return setSub({ kind: "jev-key", value: "", busy: false });
           if (option === "Model routing") return toggleJevRouting();
           if (option === "Anti-injection") return toggleJevInjection();
+          if (option === "Quality gate") return toggleJevLint();
           if (option === "Remove") return removeJevKey();
           return;
         }
@@ -769,7 +794,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                         ? jev.injection
                           ? "on"
                           : "off"
-                        : option === "Status"
+                        : option === "Quality gate"
+                          ? jev.lint
+                            ? "on"
+                            : "off"
+                          : option === "Status"
                           ? jevLabel
                           : jev.active
                             ? "clear the key"
@@ -784,6 +813,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               <Text color={theme.dim} wrap="wrap">
                 {JEV_DISCLOSURE}
                 {jev.injection ? ` ${JEV_INJECTION_DISCLOSURE}` : ""}
+                {jev.lint ? ` ${JEV_LINT_DISCLOSURE}` : ""}
               </Text>
             </>
           ) : sub.kind === "jev-key" ? (

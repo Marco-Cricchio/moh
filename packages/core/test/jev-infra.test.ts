@@ -429,6 +429,7 @@ describe("the typesafe config block (#784)", () => {
       routing: false,
       injection: false,
       classification: true,
+      lint: false,
       tiers: {},
     });
     expect(resolveTypesafeConfig({ apiKey: "   " })).toMatchObject({ active: false, timeoutMs: 2500 });

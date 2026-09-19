@@ -302,9 +302,40 @@ configuration; every judgment is recorded as one `jev_judgment` event
 (`useCase: "classification"`) showing the type, the confidence, whether a
 hint was applied and whether the map was gated.
 
+### Quality gate
+
+At the **end of a task**, Jev reviews the work against your project's own
+rules. When a task ends (the model stopped, the turn is done — never on a
+cancel) and the task actually changed files, moh collects:
+
+- **The conventions the project itself ships** — `AGENTS.md`, `CLAUDE.md`,
+  `CONTRIBUTING.md`, `STYLE.md`, `CONVENTIONS.md`, `.cursorrules` and the
+  same names under `.github/` and `docs/` (plus everything under
+  `.cursor/rules/`). Up to 6 files, 16 KiB total. **A project with none of
+  these documents gets no quality gate at all** — moh never invents rules
+  your repo does not state.
+- **The diff of the files the task changed** (against where the task
+  started), capped at 32 KiB.
+
+Three yes/no judgments are made over that state: does the change follow
+the stated conventions; does it handle failure paths rather than assuming
+success; is it complete, with nothing left stubbed. Any answer below 0.40
+is a **finding**, and on a finding moh automatically hands the model a
+correction request — in plain words, naming the flagged areas — and lets
+it run a normal turn with tools to fix the work. The corrected state is
+then judged once more. **The gate stops after two correction cycles,
+whatever the verdict**; a correction turn is marked in the transcript so
+you can always tell it was machine-triggered, and it can never loop
+forever.
+
+Fail-open as everywhere: if Jev is unreachable, the gate stays silent and
+the task simply ends as it would without Jev. Every evaluation is
+recorded as one `jev_judgment` event (`useCase: "lint"`) with the three
+probabilities, the findings and the cycle number.
+
 ### Still planned
 
-- **The ★★ pack** — quality gate, MPM rerank, skill suggestion.
+- **The remaining ★★ use cases** — MPM seed rerank, skill suggestion.
   Planned: one opt-in each.
 
 Those use cases own their questions, thresholds and calibration, and they

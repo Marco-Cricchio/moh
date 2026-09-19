@@ -21,10 +21,10 @@ export const JEV_USAGE = `usage: moh jev status [--json]
 
 The TypeSafe/Jev configuration state: a stored API key (which is what
 activates the bundled Jev extension — there is no separate toggle) and the
-per-use-case opt-ins (model routing, anti-injection).
+per-use-case opt-ins (model routing, anti-injection, quality gate).
 
   --json        one-line machine-readable JSON: active, keyHint (absent
-                when inactive), timeoutMs, routing, injection
+                when inactive), timeoutMs, routing, injection, lint
 
 Config read only: no call is ever made to TypeSafe. The key is validated
 when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is
@@ -49,6 +49,7 @@ function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
     timeoutMs: cfg.timeoutMs,
     routing: cfg.routing,
     injection: cfg.injection,
+    lint: cfg.lint,
   };
 }
 
@@ -62,6 +63,7 @@ function renderStatus(cfg: ResolvedTypesafeConfig): string {
     ),
     row("routing", cfg.routing ? "on" : "off"),
     row("injection", cfg.injection ? "on" : "off"),
+    row("quality gate", cfg.lint ? "on" : "off"),
   ];
   // The way back in, printed only when it is missing: with a key stored
   // there is nothing to activate.

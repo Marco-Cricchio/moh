@@ -32,6 +32,8 @@ import { createCompactionJudge } from "./compaction-judge";
 import { createRoutingJudge, type RoutingPool } from "./routing-judge";
 import { createInjectionJudge } from "./injection-judge";
 import { INJECTION_TOOLS } from "./injection";
+import { createLintGate } from "./lint-gate";
+import { createLintJudge } from "./lint-judge";
 import { createClassificationJudge, classificationQuestions } from "./classification-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
@@ -72,6 +74,13 @@ export interface JevGuardOptions {
    * step than the guardrail's command + cwd + git state.
    */
   injection?: boolean;
+  /**
+   * #789: the end-of-task quality gate (off by default — it sends the
+   * changed code's diff to TypeSafe, the strongest privacy step in the
+   * pack). Needs the project root for rubric discovery and the git diff;
+   * absent = the use case is unavailable (a caller that never wants it).
+   */
+  lint?: { root: string };
   /**
    * #788: prompt classification. On by default (`typesafe.classification`,
    * an explicit `false` in the config turns it off): Jev classifies the
@@ -219,6 +228,54 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           if (!verdict?.withhold) return;
           return { withhold: { reason: verdict.withhold } };
         });
+      }
+
+      // ---- #789 quality gate: the end-of-task semantic lint -----------
+      // Opt-in and off by default (`typesafe.lint`): the one use case that
+      // sends the changed code's diff to TypeSafe — the strongest privacy
+      // step in the pack, disclosed in the Settings entry. On a "done"
+      // turn that changed files (never a cancelled or errored one), the
+      // discovered convention documents plus the task's unified diff are
+      // judged with three fixed questions; a finding asks the core for a
+      // synthetic correction turn (ADR-0037), re-judges, and hard-stops
+      // after two cycles.
+      if (options.lint) {
+        const gate = createLintGate({
+          judge: createLintJudge({
+            client,
+            append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+          }),
+          root: options.lint.root,
+          // ADR-0037: the core-mediated synthetic turn. Absent on a 1.5-
+          // or-older runtime — the gate degrades to judgment-only (the
+          // record still lands, no correction turn is requested).
+          requestTurn:
+            typeof ctx.requestTurn === "function"
+              ? (text) => ctx.requestTurn(text)
+              : async () => false,
+          // The stop is one event, not a judgment: the probabilities were
+          // never re-measured, so a fake `jev_judgment` would lie.
+          reportStop: (reason, findings) =>
+            ctx.appendEvent({ name: "jev_lint_stopped", payload: { reason, findings: [...findings] } }),
+        });
+        ctx.onToolCall(async (call) => {
+          // Observation only: record the paths the task writes/edits for
+          // the diff; never a decision, so nothing is returned.
+          gate.observeToolCall(call.name, call.args);
+        });
+        ctx.afterTurn(async ({ result, synthetic }) => {
+          // Ratified trigger: the end of a *done* turn only. A cancelled
+          // or errored turn is never judged (its work may be partial by
+          // interruption, not by omission), and a synthetic turn the gate
+          // itself requested is never re-gated — that is the no-recursion
+          // rule, enforced by skipping here.
+          if (synthetic === true || result.status !== "done") return;
+          // `requestTurn` resolves when the correction turn settles (the
+          // queue runs it like any turn), so cycle 2 re-diffs the
+          // corrected tree — no polling (ADR-0037 §5).
+          await gate.onTaskEnd();
+        });
+        ctx.onSessionEnd(() => gate.reset());
       }
 
       // ---- #788 prompt classification: task type + MPM gate -----------
@@ -534,3 +591,32 @@ export {
   type GuardrailState,
   type GuardrailVerdict,
 } from "./session-state";
+export {
+  LINT_COMPLETENESS_QUESTION,
+  LINT_CONVENTIONS_QUESTION,
+  LINT_DIMENSION_LABELS,
+  LINT_DIFF_MAX_BYTES,
+  LINT_DIFF_TRUNCATION_MARKER,
+  LINT_ERROR_HANDLING_QUESTION,
+  LINT_QUESTIONS,
+  LINT_THRESHOLDS,
+  correctionText,
+  type LintQuestionId,
+} from "./lint";
+export {
+  LINT_MAX_CYCLES,
+  createLintGate,
+  createLintTaskState,
+  type LintGate,
+  type LintTaskState,
+} from "./lint-gate";
+export { createLintJudge, lintFindings, type LintJudge, type LintState, type LintVerdict } from "./lint-judge";
+export {
+  discoverRubrics,
+  RUBRIC_MAX_BYTES,
+  RUBRIC_MAX_FILES,
+  RUBRIC_NAMES,
+  RUBRIC_TRUNCATION_MARKER,
+  type RubricDoc,
+} from "./rubrics";
+export { captureHead, inGitRepo, taskDiff } from "./diff";

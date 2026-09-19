@@ -252,6 +252,12 @@ type AgentEventBase =
    */
   | { type: "tree_bookmarked"; to: string; name?: string }
   | { type: "user_message"; text: string; /**
+   * ADR-0037: true when this message was requested by an extension
+   * through `requestTurn` — machine-composed, run as a normal turn. The
+   * marker rides the event, so replay, the transcript and analysis can
+   * tell a human-typed turn from a machine-triggered one. Absent on real
+   * user sends. */
+      synthetic?: boolean; /**
    * #488 (vision note 3): structured snapshots of the `@path` mentions in
    * `text` — file content snapshots and directory listings assembled by
    * the core at send time, gated by read-permission rules. The log records

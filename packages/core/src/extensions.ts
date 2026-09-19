@@ -98,6 +98,14 @@ export interface ExtensionRuntimeOptions {
    * loaded from a path.
    */
   bundledTrust?: boolean;
+  /**
+   * ADR-0037: the session-mediated synthetic-turn entry the
+   * `requestTurn` setup method delegates to. Present only when the host
+   * session can run turns; its `false` answers are the contract's
+   * refusals (depth cap, busy, disposed), which the runtime renders as a
+   * visible `extension_failed` event.
+   */
+  requestTurn?: (text: string) => Promise<boolean>;
 }
 
 interface HookSet {
@@ -113,6 +121,9 @@ interface HookSet {
   onEvent: EventHook[];
   afterTurn: AfterTurnHook[];
 }
+
+/** ADR-0037: the maximum consecutive synthetic turns one extension gets. */
+export const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
 
 /** One live extension instance inside the runtime. */
 export interface RuntimeExtension {
@@ -271,6 +282,13 @@ export class ExtensionRuntime {
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
   readonly #watchers = new Map<string, FSWatcher>();
   readonly #reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * ADR-0037: the consecutive-synthetic-turn counters, keyed by extension
+   * name (not instance) — a hot-reload replaces the instance but must not
+   * refill the correction budget: the depth limit is a core property, not
+   * a promise (same principle as the compaction floor).
+   */
+  readonly #syntheticStreaks = new Map<string, number>();
   /** In-flight registrations (the setup of a bundled definition is async). */
   readonly #registering: Promise<unknown>[] = [];
 
@@ -347,9 +365,65 @@ export class ExtensionRuntime {
     }
   }
 
+  /**
+   * ADR-0037: the session reports that a real user turn has begun — the
+   * consecutive-synthetic-turn counters reset here, so an extension's
+   * correction budget refills only on genuine user activity.
+   */
+  noteRealTurn(): void {
+    this.#syntheticStreaks.clear();
+  }
+
+  /**
+   * ADR-0037: one extension's `ctx.requestTurn`. The depth limit belongs
+   * to the core, not the extension (the same principle as the compaction
+   * floor): at most `MAX_CONSECUTIVE_SYNTHETIC_TURNS` consecutive
+   * synthetic turns, a refusal is never silent — the log carries an
+   * `extension_failed` — and a host without a turn entry (a runtime that
+   * cannot run turns) refuses the same way.
+   */
+  async #requestTurnFor(instance: RuntimeExtension, text: string): Promise<boolean> {
+    const name = instance.def.name;
+    if (typeof text !== "string" || text.trim() === "") {
+      this.#emit({ type: "extension_failed", name, reason: "request_turn", message: "requestTurn requires non-empty text" });
+      return false;
+    }
+    const streak = this.#syntheticStreaks.get(name) ?? 0;
+    if (streak >= MAX_CONSECUTIVE_SYNTHETIC_TURNS) {
+      this.#emit({
+        type: "extension_failed",
+        name,
+        reason: "request_turn",
+        message: `synthetic-turn cap reached (${MAX_CONSECUTIVE_SYNTHETIC_TURNS} consecutive); request refused`,
+      });
+      return false;
+    }
+    const entry = this.#options.requestTurn;
+    if (!entry) {
+      this.#emit({ type: "extension_failed", name, reason: "request_turn", message: "no turn entry on this session" });
+      return false;
+    }
+    // The counter moves at acceptance, not settlement: a hook that (against
+    // the contract) requests again from its own synthetic turn finds the
+    // budget already spent, and the chain is cut here in the core.
+    this.#syntheticStreaks.set(name, streak + 1);
+    const ok = await entry(text);
+    return ok;
+  }
+
   /** True while a registration started earlier has not settled yet. */
   hasPendingRegistrations(): boolean {
     return this.#registering.length > 0;
+  }
+
+  /**
+   * ADR-0037: binds the session's synthetic-turn entry (called by the
+   * owning session once, after construction — the runtime is created
+   * before the session in the assembly path). Idempotent; the last
+   * binding wins.
+   */
+  bindRequestTurn(entry: (text: string) => Promise<boolean>): void {
+    (this.#options as { requestTurn?: (text: string) => Promise<boolean> }).requestTurn = entry;
   }
 
   /**
@@ -557,6 +631,7 @@ export class ExtensionRuntime {
       onCompaction: (h) => instance.hooks.onCompaction.push(h),
       onEvent: (h) => instance.hooks.onEvent.push(h),
       afterTurn: (h) => instance.hooks.afterTurn.push(h),
+      requestTurn: (text) => this.#requestTurnFor(instance, text),
     };
     try {
       await instance.def.setup(ctx);
@@ -883,8 +958,8 @@ export class ExtensionRuntime {
     return this.#drainErrors();
   }
 
-  async dispatchAfterTurn(result: { status: string; reason?: string; message?: string }): Promise<AgentEvent[]> {
-    await this.#each("afterTurn", (h) => h({ result }));
+  async dispatchAfterTurn(result: { status: string; reason?: string; message?: string }, synthetic = false): Promise<AgentEvent[]> {
+    await this.#each("afterTurn", (h) => h({ result, ...(synthetic ? { synthetic: true as const } : {}) }));
     return this.#drainErrors();
   }
 

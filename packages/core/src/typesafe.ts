@@ -45,6 +45,9 @@ export const typesafeConfigSchema = z.object({
    * meaningful. Set false to turn it (and the gate) off.
    */
   classification: z.boolean().optional(),
+  /** End-of-task quality gate opt-in (#789). Default false — it sends the
+   * changed code's diff to TypeSafe. */
+  lint: z.boolean().optional(),
   /** Tier labels for routing (#787): "<endpoint>/<model-id>" → tier. */
   tiers: z.record(z.string().min(1), z.enum(TYPESAFE_TIERS)).optional(),
 });
@@ -77,6 +80,8 @@ export interface ResolvedTypesafeConfig {
    * per-turn gate meaningful, so it drives both consumers.
    */
   classification: boolean;
+  /** End-of-task quality gate opt-in (#789). Off by default. */
+  lint: boolean;
 }
 
 /**
@@ -109,6 +114,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     routing: block?.routing === true,
     injection: block?.injection === true,
     classification: block?.classification !== false,
+    lint: block?.lint === true,
     tiers: block?.tiers ?? {},
   };
 }
@@ -161,6 +167,22 @@ export function saveTypesafeInjection(file: string, enabled: boolean, io: UserCo
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, injection: enabled };
+    },
+    io,
+  );
+}
+
+/**
+ * Persists the quality-gate opt-in (#789) — the Settings toggle's writer,
+ * same lifecycle as the routing and injection flags: read at session
+ * assembly, so a running session keeps what it started with.
+ */
+export function saveTypesafeLint(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, lint: enabled };
     },
     io,
   );
