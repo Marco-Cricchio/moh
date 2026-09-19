@@ -270,10 +270,41 @@ recorded as a `jev_judgment` event, plus one aggregate record per
 compaction carrying the offered sections, the dropped ids, whether the
 floor was applied, and the byte sizes before and after.
 
+### Prompt classification
+
+Every turn you send, Jev classifies it on two questions: what **kind of
+task** it is (`question`, `bugfix`, `feature`, `refactoring` or
+`analysis`) and whether answering it well **requires this project's code**
+(`codebase_oriented`). Jev sees the same slice the router sees — the last
+message you typed, up to 2 KiB. The classification is **on by default**
+and drives two small things:
+
+- **A task-type hint.** A fixed one-liner per type (a bugfix turn is
+  reminded to reproduce the failure before changing code; an analysis turn
+  to answer without modifying files) is placed in the prompt's
+  *Turn notes* section — after your project's own instruction documents,
+  so it can never outrank them. The hint is applied only when the
+  classification's confidence is at least 0.60, and it lives for exactly
+  one turn.
+- **The project-map gate.** When the classification says the turn almost
+  certainly does not need your code (`codebase_oriented` below 0.50), moh
+  skips the per-turn project-map orientation for that turn. Only the
+  per-turn plan is gated: the projection itself, the `mpm_query` tool and
+  the manual map commands work exactly as before, and the model can still
+  query the map itself. A turn the classifier has no confident opinion on
+  behaves exactly as without Jev.
+
+If **model routing** is also on, the classification rides the router's
+request — one call per turn serves both. On its own it costs one call per
+turn. Turn it off with `typesafe.classification: false` in the user
+configuration; every judgment is recorded as one `jev_judgment` event
+(`useCase: "classification"`) showing the type, the confidence, whether a
+hint was applied and whether the map was gated.
+
 ### Still planned
 
-- **The ★★ pack** — prompt classification, quality gate, MPM rerank,
-  skill suggestion. Planned: one opt-in each.
+- **The ★★ pack** — quality gate, MPM rerank, skill suggestion.
+  Planned: one opt-in each.
 
 Those use cases own their questions, thresholds and calibration, and they
 ship in their own release; this page grows with them.
