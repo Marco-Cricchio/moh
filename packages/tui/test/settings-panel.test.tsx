@@ -618,6 +618,10 @@ describe("user themes in settings (#749)", () => {
     await down(i, 2);
     i.stdin.write("\r");
     await waitForFrame(frame, "theme studio");
+    // The studio's useInput mounts a frame after its first paint (#749 CI
+    // flake, same class as the tree-panel name prompt): typing into it
+    // before that loses the first keystroke and the name prompt never opens.
+    await sleep(100);
     i.stdin.write("n"); await sleep(60);
     i.stdin.write("Temp");
     await waitForCondition(() => frame().includes("Temp"), () => `for name; frame: ${frame()}`);
