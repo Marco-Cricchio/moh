@@ -52,6 +52,9 @@ export const typesafeConfigSchema = z.object({
    * plan's seed set goes over-threshold (> 5 files), Jev ranks the
    * candidates and the top few become the plan instead of no plan. */
   rerank: z.boolean().optional(),
+  /** Skill suggestion opt-in (#793). Default false: two calls per turn
+   * rank the skill roster and yield at most one suggested skill. */
+  skills: z.boolean().optional(),
   /** Tier labels for routing (#787): "<endpoint>/<model-id>" → tier. */
   tiers: z.record(z.string().min(1), z.enum(TYPESAFE_TIERS)).optional(),
 });
@@ -88,6 +91,8 @@ export interface ResolvedTypesafeConfig {
   lint: boolean;
   /** MPM seed rerank opt-in (#790). Off by default. */
   rerank: boolean;
+  /** Skill suggestion opt-in (#793). Off by default. */
+  skills: boolean;
 }
 
 /**
@@ -122,6 +127,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     classification: block?.classification !== false,
     lint: block?.lint === true,
     rerank: block?.rerank === true,
+    skills: block?.skills === true,
     tiers: block?.tiers ?? {},
   };
 }
@@ -206,6 +212,21 @@ export function saveTypesafeRerank(file: string, enabled: boolean, io: UserConfi
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, rerank: enabled };
+    },
+    io,
+  );
+}
+
+/**
+ * Persists the skill-suggestion opt-in (#793) — the Settings toggle's
+ * writer, same lifecycle as the other flags: read at session assembly.
+ */
+export function saveTypesafeSkills(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, skills: enabled };
     },
     io,
   );

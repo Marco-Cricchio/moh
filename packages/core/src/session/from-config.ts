@@ -33,6 +33,7 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
+import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
 import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
 import { createModelPool } from "../model-pool";
@@ -253,6 +254,22 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         classification: typesafe.classification,
         // #790: the MPM seed rerank, off unless the user asked.
         rerank: typesafe.rerank,
+        // #793: per-turn skill suggestion, off unless the user asked.
+        // The roster is resolved lazily, at each judged turn, through the
+        // same discovery the prompt's skills index uses (bundled
+        // first-party + user skills, project wins on clash).
+        ...(typesafe.skills
+          ? {
+              skills: {
+                roster: () =>
+                  Promise.resolve(
+                    discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map(
+                      (s) => ({ name: s.name, description: s.description }),
+                    ),
+                  ),
+              },
+            }
+          : {}),
         // #789: the end-of-task quality gate, off unless the user asked
         // (it sends the changed code's diff to TypeSafe).
         ...(typesafe.lint ? { lint: { root: options.cwd } } : {}),

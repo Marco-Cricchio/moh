@@ -173,8 +173,8 @@ describe("settings Jev entry (#784)", () => {
     expect(storedKey(home)).toBe("sk-remove-me");
     // Back to the entry menu (the valid path returns there), then "Remove"
     // (API key · Model routing · Anti-injection · Quality gate · Seed
-    // rerank · Status · Remove, #790).
-    await down(i, 6);
+    // rerank · Skill suggestion · Status · Remove, #793).
+    await down(i, 7);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedKey(home)).toBeUndefined();
@@ -340,6 +340,51 @@ describe("settings Jev entry: quality gate (#789)", () => {
     i.stdin.write("\r");
     await sleep(60);
     expect(storedLint(home)).toBe(false);
+    i.unmount();
+  });
+});
+
+describe("settings Jev entry: skill suggestion (#793)", () => {
+  const storedSkills = (home: string): boolean | undefined => {
+    const file = userConfigFile(home);
+    if (!existsSync(file)) return undefined;
+    return readTypesafeConfig(file).skills;
+  };
+
+  test("off by default; the toggle writes the opt-in and states what it sends", async () => {
+    const { cwd, home } = setup();
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    expect(storedSkills(home)).toBeUndefined(); // off by default
+    await down(i, JEV_ROW);
+    i.stdin.write("\r"); // open the Jev entry
+    await sleep(30);
+    await down(i, 5); // "Skill suggestion"
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedSkills(home)).toBe(true);
+    expect(toasts.some((t) => t.includes("skill suggestion on"))).toBe(true);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame.replace(/[\s│]+/g, " ")).toContain("skill suggestion sends your message");
+    i.unmount();
+  });
+
+  test("toggling twice turns it back off", async () => {
+    const { cwd, home } = setup();
+    const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await down(i, JEV_ROW);
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, 5); // "Skill suggestion"
+    i.stdin.write("\r");
+    await sleep(60);
+    expect(storedSkills(home)).toBe(true);
+    await down(i, 5);
+    i.stdin.write("\r");
+    await sleep(60);
+    expect(storedSkills(home)).toBe(false);
     i.unmount();
   });
 });

@@ -431,6 +431,7 @@ describe("the typesafe config block (#784)", () => {
       classification: true,
       lint: false,
       rerank: false,
+      skills: false,
       tiers: {},
     });
     expect(resolveTypesafeConfig({ apiKey: "   " })).toMatchObject({ active: false, timeoutMs: 2500 });
@@ -445,6 +446,7 @@ describe("the typesafe config block (#784)", () => {
     });
     expect(maskApiKey("sk-abcdef")).toBe("…cdef");
     expect(maskApiKey("ab")).toBe("…");
+    expect(resolveTypesafeConfig({ skills: true })).toMatchObject({ skills: true });
   });
 
   test("save and remove go through the guardian and preserve other sections", () => {

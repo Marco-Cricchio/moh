@@ -288,10 +288,12 @@ usage: moh jev status [--json]
 
 The TypeSafe/Jev configuration state: a stored API key (which is what
 activates the bundled Jev extension — there is no separate toggle) and the
-per-use-case opt-ins (model routing, anti-injection, quality gate).
+per-use-case opt-ins (model routing, anti-injection, quality gate,
+prompt classification, seed rerank, skill suggestion).
 
   --json        one-line machine-readable JSON: active, keyHint (absent
-                when inactive), timeoutMs, routing, injection, lint
+                when inactive), timeoutMs, routing, injection, lint,
+                classification, rerank, skills
 
 Config read only: no call is ever made to TypeSafe. The key is validated
 when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is

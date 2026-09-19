@@ -36,6 +36,8 @@ import { createLintGate } from "./lint-gate";
 import { createLintJudge } from "./lint-judge";
 import { createClassificationJudge, classificationQuestions } from "./classification-judge";
 import { createRerankJudge } from "./rerank-judge";
+import { createSkillSuggestJudge } from "./skill-judge";
+import type { SkillCandidate } from "./skills";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -104,6 +106,18 @@ export interface JevGuardOptions {
    * core's orientation module can call it.
    */
   rerank?: boolean;
+  /**
+   * #793: per-turn skill suggestion. Off by default (`typesafe.skills`):
+   * needs the session's skill roster (bundled first-party + user skills),
+   * which only the assembly has; absent = the use case is unavailable.
+   * Two Jev calls per judged turn — rank the whole roster plus a
+   * "does this turn need a skill at all?" gate, then re-read the top-3
+   * finalists — yield at most ONE suggested skill, contributed as the
+   * turn's `setPromptNote` line (the ADR-0036 `turn_notes` section, so the
+   * roster itself never enters the prompt). Every record is a
+   * `jev_skill_suggest` event, one per call.
+   */
+  skills?: { roster: () => Promise<readonly SkillCandidate[]> };
 }
 
 /**
@@ -495,6 +509,30 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           ctx.state.mpmGate = gate === undefined ? null : gate;
         });
       }
+      // ---- #793 skill suggestion: the two-call cookbook ----------------
+      // Opt-in and off by default (`typesafe.skills`): it needs the
+      // session's skill roster, resolved lazily by the assembly (fresh
+      // discovery semantics — a mid-session workflow toggle is picked
+      // up). Registered LAST on purpose: hooks run in registration order
+      // and `setPromptNote` is one replacing slot per instance, so a turn
+      // that produced both a task-type hint and a skill suggestion keeps
+      // the skill suggestion — the more specific line.
+      // Fail-open end to end: no roster, an outage, a gate or floor miss
+      // all leave the turn exactly as today.
+      if (options.skills) {
+        const roster = options.skills.roster;
+        const judge = createSkillSuggestJudge({
+          client,
+          append: (payload) => ctx.appendEvent({ name: "jev_skill_suggest", payload }),
+        });
+        ctx.beforeTurn(async ({ text }) => {
+          const index = await roster();
+          if (!index || index.length === 0) return;
+          const verdict = await judge.suggest(text, index);
+          if (verdict) ctx.setPromptNote(verdict.line);
+        });
+      }
+
     },
   });
 }
@@ -680,3 +718,26 @@ export {
   type RerankRequest,
 } from "./rerank";
 export { createRerankJudge, type RerankJudge, type RerankJudgeDeps, type RerankVerdict } from "./rerank-judge";
+// #793: per-turn skill suggestion — the two-call cookbook. Call 1 ranks the
+// whole roster (bundled first-party + user skills, the session's own index)
+// plus the "does this turn need a skill at all?" gate; call 2 re-reads the
+// top-3 finalists with full descriptions. At most ONE suggested skill per
+// turn, riding the ADR-0036 turn_notes section — the roster itself never
+// enters the prompt.
+export {
+  NEEDS_SKILL_MIN,
+  SKILLS_RANK_MAX,
+  SKILL_RELEVANCE_MIN,
+  SKILL_SUGGEST_KEEP,
+  SKILL_THRESHOLDS,
+  buildRelevance,
+  candidatesForRank,
+  rankQuestionsFor,
+  rankStateFor,
+  relevanceQuestionsFor,
+  relevanceStateFor,
+  rosterFromIndex,
+  type RankedSkill,
+  type SkillCandidate,
+} from "./skills";
+export { createSkillSuggestJudge, type SkillSuggestJudge, type SkillSuggestJudgeDeps, type SkillSuggestVerdict } from "./skill-judge";
