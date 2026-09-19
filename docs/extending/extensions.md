@@ -521,9 +521,10 @@ and the host's warning line).
 - Hot-reload: `startWatch()` watches the registered files; on change the
   module is re-imported and `setup()` re-runs with the previous `ctx.state`
   seeded in. A failed reload keeps the previous instance running and is
-  reported on both channels (the `extension_failed` log event and the
-  `onWarning` line). A client's session starts the watch itself and stops it
-  at dispose.
+  reported as an `extension_failed` log event, plus the host's own warning
+  line when it has one (`onWarning` — a headless client's stderr; a TUI
+  renders the log line itself). A client's session starts the watch itself
+  and stops it at dispose.
 - `ready()` resolves when every registration started so far has settled;
   file loads register their promise synchronously, so a caller that awaits
   `ready()` before its first turn never runs with half its extensions
