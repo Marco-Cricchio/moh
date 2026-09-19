@@ -86,6 +86,10 @@ export class AgentSession {
   readonly #loop: AgentLoop;
   #lastPrompt: AssembledPrompt | null = null;
   #disposed = false;
+  /** ADR-0037: resolves when the session is disposed — bounds the
+   * synthetic-turn idle wait. */
+  #closed: Promise<void>;
+  #closedResolve: (() => void) | undefined;
   readonly #promptComposer: PromptComposer;
   #skills: SkillIndexEntry[];
   #skillDirs: string[];
@@ -156,6 +160,10 @@ export class AgentSession {
   #mpmExclude: string[] | undefined;
 
   constructor(config: SessionConfig) {
+    // ADR-0037: the dispose signal bounds the synthetic-turn idle wait.
+    this.#closed = new Promise<void>((resolve) => {
+      this.#closedResolve = resolve;
+    });
     this.#registry = config.registry?.freeze();
     this.#endpoints = config.endpoints ?? [];
     this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
@@ -305,6 +313,9 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
+    // ADR-0037: the session is the runtime's turn entry — an extension's
+    // `ctx.requestTurn` lands here, through the queue.
+    if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log.
     this.#extensions?.onLoadEvent((event) => this.#append(event));
@@ -527,6 +538,15 @@ export class AgentSession {
         this.#turnSeq += 1;
         return this.#loop.run(text, controller);
       },
+      // ADR-0037: the extension `afterTurn` dispatch runs from the queue's
+      // settle path, after the slot is freed — an `afterTurn` hook may
+      // `await ctx.requestTurn` without deadlocking the turn it observed.
+      ...(this.#extensions
+        ? {
+            dispatchAfterTurn: (result: TurnResult) => this.#extensions!.dispatchAfterTurn(result),
+            append: (event: unknown) => this.#append(event as Parameters<typeof this.#append>[0]),
+          }
+        : {}),
       onTurnSettled: () => {
         if (this.#gitPushPending) {
           this.#gitPushPending = false;
@@ -896,6 +916,38 @@ export class AgentSession {
   }
 
   /**
+   * ADR-0037: the session-mediated entry behind an extension's
+   * `ctx.requestTurn` — one turn with a synthetic user-side message,
+   * through the normal queue so preemption, usage accounting and
+   * settlement stay the session's. Resolves `{ ok: false }` when the
+   * session is disposed or a turn is already in flight (the runtime
+   * renders every refusal as a visible `extension_failed`); the depth
+   * limit itself is enforced by the runtime, not here.
+   */
+  async runSyntheticTurn(text: string): Promise<{ ok: boolean; result?: TurnResult }> {
+    if (this.#disposed) return { ok: false };
+    // ADR-0037 §5: the request settles with the turn it asked for. Called
+    // from the settling turn's own `afterTurn`, the slot is still held —
+    // wait for idle first (queued user sends go ahead of the synthetic
+    // turn; a user's words outrank a machine's). Waiting is bounded by
+    // the dispose: a session torn down mid-wait refuses.
+    if (this.#queue.pending()) {
+      const idle = new Promise<void>((resolve) => this.#queue.onIdle(resolve));
+      await Promise.race([idle, this.#closed]);
+    }
+    if (this.#disposed || this.#queue.pending()) return { ok: false };
+    const synthetic = (): Promise<TurnResult> => this.#loop.runSynthetic(text, new AbortController());
+    const run =
+      this.#extensions?.hasPendingRegistrations() === true
+        ? this.#extensions.ready().then(synthetic)
+        : synthetic();
+    const result = await run.finally(() => {
+      this.#turnHead = undefined;
+    });
+    return { ok: true, result };
+  }
+
+  /**
    * Forced compaction (#466): `/compact` and `moh compact` land here.
    * Ignores threshold and stale-measurement guard, same tail/summarizer
    * as the auto path, same producer. On success the live messages are
@@ -1100,7 +1152,12 @@ export class AgentSession {
     // ADR-0032: a turn begins with its user_message — the per-extension
     // `extension_event` cap counts per turn, so the counter resets here
     // (steering sends are turns too).
-    if (event.type === "user_message") this.#extensions?.beginTurn();
+    if (event.type === "user_message") {
+      this.#extensions?.beginTurn();
+      // ADR-0037: a real (non-synthetic) user turn refills every
+      // extension's synthetic-turn budget.
+      if (event.synthetic !== true) this.#extensions?.noteRealTurn();
+    }
     // #759: the reasoning text of the last persisted call is the low-tier
     // orientation seed source. Content stays in the log; only the plan
     // (paths + reasons) ever reaches the prompt.
@@ -1219,6 +1276,8 @@ export class AgentSession {
   async dispose(options: { timeoutMs?: number } = {}): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    // ADR-0037: a synthetic turn waiting on idle must not outlive the session.
+    this.#closedResolve?.();
     if (this.#compaction?.pending) await this.#compaction.pending.catch(() => {});
     if (this.#memory?.pending) {
       const flush = this.#memory.pending.catch(() => {});

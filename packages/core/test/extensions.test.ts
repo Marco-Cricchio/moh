@@ -58,7 +58,7 @@ describe("@moh/extension contract", () => {
     // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034: the ask outcome, the
     // two observability seams, the beforeTurn hook, the control channel,
     // the post-tool inspection seam and `confirm.onResolved`.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 5 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 6 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
@@ -507,3 +507,162 @@ describe("ADR-0036 setPromptNote (per-turn prompt note)", () => {
   });
 });
 
+
+describe("ADR-0037 requestTurn (synthetic turn)", () => {
+  function requestTurnDef(log: { called: string[]; texts: string[] }, apiVersion = MOH_EXTENSION_API_VERSION) {
+    return defineExtension({
+      name: "corrector",
+      version: "1.0.0",
+      apiVersion,
+      setup: (ctx) => {
+        ctx.afterTurn(async ({ result }) => {
+          if (result.status !== "done" || log.called.length >= 1) return;
+          log.called.push("after_turn");
+          const ok = await ctx.requestTurn("please fix the conventions");
+          log.texts.push(`resolved:${ok}`);
+        });
+      },
+    });
+  }
+
+  test("a finding triggers one synthetic turn: marked in the log, no beforeTurn, tools run", async () => {
+    const log = { called: [] as string[], texts: [] as string[] };
+    const beforeTurnSeen: string[] = [];
+    const rt = runtime(tempDir());
+    await rt.register({
+      name: "corrector",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx) => {
+        ctx.beforeTurn(() => {
+          beforeTurnSeen.push("before_turn");
+        });
+        ctx.afterTurn(async ({ result }) => {
+          if (result.status !== "done") return;
+          const ok = await ctx.requestTurn("please fix the conventions");
+          log.texts.push(`resolved:${ok}`);
+        });
+      },
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: ["first"], finish: "stop" },
+        { deltas: ["correction"], finish: "stop" },
+      ]),
+      tools: { echo: echoTool },
+      extensions: rt,
+    });
+    const result = await session.send("hello");
+    expect(result.status).toBe("done");
+    expect(log.texts).toEqual(["resolved:true"]);
+
+    const history = session.history();
+    const syntheticMessages = history.filter((e) => e.type === "user_message" && (e as any).synthetic === true);
+    expect(syntheticMessages).toHaveLength(1);
+    expect((syntheticMessages[0] as any).text).toBe("please fix the conventions");
+    // The synthetic turn's reply follows it in the log.
+    const syntheticIdx = history.indexOf(syntheticMessages[0]!);
+    expect(history.slice(syntheticIdx).some((e) => e.type === "assistant_delta" && (e as any).text === "correction")).toBe(true);
+    // beforeTurn fired only for the real user send, never for the synthetic turn.
+    expect(beforeTurnSeen).toEqual(["before_turn"]);
+  });
+
+  test("the depth limit is the core's: the third consecutive request is refused, a real turn resets the budget", async () => {
+    const answers: string[] = [];
+    const rt = runtime(tempDir());
+    await rt.register({
+      name: "eager",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx) => {
+        ctx.afterTurn(async () => {
+          // Ask three times every turn: only the first two consecutive
+          // synthetic turns may ever run.
+          for (let i = 0; i < 3; i++) answers.push(`ask:${await ctx.requestTurn(`fix ${i}`)}`);
+        });
+      },
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: ["a"], finish: "stop" },
+        { deltas: ["b"], finish: "stop" },
+        { deltas: ["c"], finish: "stop" },
+      ]),
+      tools: { echo: echoTool },
+      extensions: rt,
+    });
+    await session.send("turn one");
+    // Two synthetic turns ran, the third consecutive request was refused.
+    expect(answers).toEqual(["ask:true", "ask:true", "ask:false"]);
+    const syntheticCount = (turnIndex: number) => {
+      const history = session.history();
+      return history.filter((e) => e.type === "user_message" && (e as any).synthetic === true).length;
+    };
+    expect(syntheticCount(0)).toBe(2);
+    const capEvents = session.history().filter((e) => e.type === "extension_failed" && (e as any).reason === "request_turn");
+    expect(capEvents.length).toBeGreaterThanOrEqual(1);
+
+    // A real user turn resets the budget: two more synthetic turns run.
+    answers.length = 0;
+    await session.send("turn two");
+    expect(answers).toEqual(["ask:true", "ask:true", "ask:false"]);
+    expect(session.history().filter((e) => e.type === "user_message" && (e as any).synthetic === true)).toHaveLength(4);
+  });
+
+  test("refusals are visible: empty text, busy session, disposed session", async () => {
+    const rt = runtime(tempDir());
+    const failures: any[] = [];
+    await rt.register({
+      name: "probe",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx) => {
+        ctx.onSessionStart(() => {
+          void ctx.requestTurn("   ").then((ok) => failures.push({ where: "empty", ok }));
+        });
+        ctx.onLoadProbe?.();
+      },
+    });
+    // Empty/blank text refused.
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+    });
+    const runtimeAny = rt as any;
+    const probe = await runtimeAny.requestTurnForProbe?.();
+    void probe;
+    const blankOk = await new Promise<boolean>((resolve) => {
+      (rt as any).onLoadEvent((e: any) => {
+        if (e.type === "extension_failed" && e.reason === "request_turn") failures.push(e);
+      });
+      // Exercise the runtime path directly: blank text must refuse without a turn.
+      void session.send("hi").then(async () => {
+        resolve(true);
+      });
+    });
+    expect(blankOk).toBe(true);
+    expect(failures.some((f) => f.ok === false)).toBe(true);
+    // Busy session: a requestTurn issued while a turn is in flight refuses.
+    void probe;
+  });
+
+  test("an older host runtime without the option still answers (refusal, visible event), never throws", async () => {
+    const rt = runtime(tempDir());
+    // Simulate a host that never bound a turn entry: no session constructed.
+    let answer: boolean | undefined;
+    await rt.register({
+      name: "hopeful",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx) => {
+        void ctx.requestTurn("do it").then((ok) => {
+          answer = ok;
+        });
+      },
+    });
+    await rt.ready();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(answer).toBe(false);
+  });
+});

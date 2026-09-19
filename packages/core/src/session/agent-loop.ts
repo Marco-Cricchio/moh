@@ -21,8 +21,7 @@ import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } fr
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
-export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall" | "dispatchAfterTurn">;
-
+export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
 /**
  * ADR-0033: the turn-start seam. `dispatch` runs the extensions'
  * `beforeTurn` hooks (once per user send, before the provider is read);
@@ -227,23 +226,38 @@ export class AgentLoop {
 
   /** Runs one user message to completion. */
   async run(text: string, controller: AbortController): Promise<TurnResult> {
-    const result = await this.#runInner(text, controller);
-    if (this.#extensions) {
-      for (const e of await this.#extensions.dispatchAfterTurn(result)) this.#append(e);
-    }
+    return this.#run(text, controller, false);
+  }
+
+  /**
+   * ADR-0037: one synthetic turn — same loop, same tools, same usage
+   * rollup, but no `beforeTurn` dispatch (machine-composed text is never
+   * re-routed or re-checked) and the `user_message` carries the
+   * `synthetic` marker so replay and the transcript can tell it from a
+   * human-typed turn.
+   */
+  async runSynthetic(text: string, controller: AbortController): Promise<TurnResult> {
+    return this.#run(text, controller, true);
+  }
+
+  async #run(text: string, controller: AbortController, synthetic: boolean): Promise<TurnResult> {
+    const result = await this.#runInner(text, controller, synthetic);
     // Memory (#38): fire-and-forget after the reply — never blocks the turn.
     this.#onTurnSettled?.(result);
     return result;
   }
 
-  async #runInner(text: string, controller: AbortController): Promise<TurnResult> {
+  async #runInner(text: string, controller: AbortController, synthetic: boolean): Promise<TurnResult> {
     // ADR-0033: the turn-start decision point — once per user send, before
     // the provider is read and before anything is logged. A model named
     // here serves *this* turn; the hook is the only seam that can do so
     // (#166 reads the provider once per turn, below). A confirmation the
     // user cancelled stops the turn right here: no `user_message`, no
     // turn — the composer gets its text back (the client's job).
-    if (!(await this.#dispatchBeforeTurn(text))) return { status: "cancelled" };
+    // ADR-0037: a synthetic turn skips the dispatch entirely — re-routing
+    // and re-checking machine-composed text adds cost and chain risk for
+    // no benefit.
+    if (!synthetic && !(await this.#dispatchBeforeTurn(text))) return { status: "cancelled" };
     // #166: the provider is read once per turn — a mid-session switch
     // (AgentSession.switchModel) takes effect from the next turn, never
     // mid-stream.
@@ -264,7 +278,12 @@ export class AgentLoop {
         this.#append({ type: "mention_warnings", warnings: assembled.warnings });
       }
     }
-    this.#append({ type: "user_message", text, ...(attachments ? { attachments } : {}) });
+    this.#append({
+      type: "user_message",
+      text,
+      ...(synthetic ? { synthetic: true as const } : {}),
+      ...(attachments ? { attachments } : {}),
+    });
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
     this.#turnModels = [];

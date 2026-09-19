@@ -19,6 +19,16 @@ export interface TurnQueueOptions {
    * settling turn's cleanup cannot clear it first.
    */
   onTurnStart?: (attachment?: unknown) => void;
+  /**
+   * ADR-0037: the extension `afterTurn` dispatch, run by the queue after
+   * the slot is freed and before the caller's promise resolves — so an
+   * `afterTurn` hook may `await ctx.requestTurn(...)` (which waits for
+   * queue idle) without deadlocking the turn it observed. Returned
+   * `extension_failed` events ride `append`.
+   */
+  dispatchAfterTurn?: (result: TurnResult) => Promise<unknown[]>;
+  /** Receives the dispatch's extension-failure events (the session log). */
+  append?: (event: unknown) => void;
 }
 
 /**
@@ -33,15 +43,21 @@ export class TurnQueue {
   readonly #execute: TurnQueueOptions["execute"];
   readonly #onTurnSettled: TurnQueueOptions["onTurnSettled"];
   readonly #onTurnStart: TurnQueueOptions["onTurnStart"];
+  readonly #dispatchAfterTurn: TurnQueueOptions["dispatchAfterTurn"];
+  readonly #append: TurnQueueOptions["append"];
   #turn: Promise<TurnResult> | null = null;
   #controller: AbortController | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
   readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: unknown }[] = [];
+  /** ADR-0037: resolved when the queue becomes idle. */
+  readonly #idleWaiters: (() => void)[] = [];
 
   constructor(options: TurnQueueOptions) {
     this.#execute = options.execute;
     this.#onTurnSettled = options.onTurnSettled;
     this.#onTurnStart = options.onTurnStart;
+    this.#dispatchAfterTurn = options.dispatchAfterTurn;
+    this.#append = options.append;
   }
 
   /** True while a turn is in flight (including one being steered away). */
@@ -97,8 +113,34 @@ export class TurnQueue {
       this.#onTurnSettled?.(result);
       this.#turn = null;
       this.#controller = null;
-      item.resolve(result);
       this.#pump();
+      // ADR-0037: the afterTurn hooks run after the slot is freed, so an
+      // `await ctx.requestTurn` inside one waits only for the pump above
+      // (queued user sends first) and never deadlocks the turn it
+      // observed. Their extension-failure events still land in the log
+      // before the caller's promise resolves.
+      const finish = (): void => {
+        for (const w of this.#idleWaiters.splice(0, this.#idleWaiters.length)) w();
+        item.resolve(result);
+      };
+      if (this.#dispatchAfterTurn) {
+        void (async () => {
+          try {
+            for (const e of await this.#dispatchAfterTurn!(result)) this.#append?.(e);
+          } catch { /* the dispatch never throws; defensive only */ }
+          finish();
+        })();
+      } else {
+        finish();
+      }
     });
+  }
+
+  /** ADR-0037: waiters resolved once the queue is idle (or immediately
+   * when it already is). Used by the synthetic-turn entry, which is
+   * normally called from the settling turn's own `afterTurn` dispatch. */
+  onIdle(wait: () => void): void {
+    if (this.#turn === null) wait();
+    else this.#idleWaiters.push(wait);
   }
 }

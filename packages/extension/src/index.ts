@@ -41,6 +41,13 @@
  * `turn_notes` section after the durable extension notes. An older
  * runtime never surfaces it (the note is silently absent), which is a
  * no-op for the extension.
+ *
+ * 1.6 (ADR-0037): `requestTurn` — a core-mediated synthetic turn. The
+ * extension supplies text only; the core runs the turn through the normal
+ * path, marks it `synthetic` in the log, skips the `beforeTurn` hooks and
+ * enforces a hard cap of 2 consecutive synthetic turns. An older runtime
+ * leaves the method absent: a caller that checks resolves `false` (the
+ * same answer as a refusal), never an error.
  */
 
 /**
@@ -48,7 +55,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.5";
+export const MOH_EXTENSION_API_VERSION = "1.6";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -348,6 +355,25 @@ export interface ExtensionSetupContext {
   onCompaction(hook: CompactionHook): void;
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
+  /**
+   * Ask the core to run one turn with a synthetic user-side message
+   * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,
+   * never model-generated; the core runs everything else through the
+   * normal turn path (queue, provider call, streaming, tools, usage) and
+   * marks the `user_message` `synthetic` so replay and the transcript can
+   * tell it from a human-typed turn. The synthetic turn does not fire
+   * `beforeTurn` (machine-composed text is never re-routed or re-checked)
+   * and its tool calls are gated exactly like any other.
+   *
+   * The promise resolves when the requested turn settles — `true` when it
+   * ran, `false` when the core refused it (the consecutive-synthetic-turn
+   * cap of 2 is reached, a turn is already in flight, or the session is
+   * disposed/closed). Refusals are also recorded as a visible
+   * `extension_failed`-style event, never silently dropped. On a runtime
+   * older than 1.6 the method is absent and calling it throws: check with
+   * `typeof ctx.requestTurn === "function"` if you support older hosts.
+   */
+  requestTurn(text: string): Promise<boolean>;
 }
 
 export interface ExtensionDefinition {
