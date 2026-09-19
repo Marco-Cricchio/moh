@@ -133,6 +133,8 @@ export class AgentSession {
   /** #616: turn-scoped MPM orientation plan — computed per send, cleared
    * when that turn settles. Null when MPM is off or the task is ineligible. */
   #mpmOrientation: MpmOrientation | null = null;
+  /** #788: the per-turn eligibility gate an active classifier contributes. */
+  #mpmTurnGate: (() => boolean | undefined) | undefined;
   #mpmLifecycle: MpmLifecycle | null = null;
   #mpmPlan: string | null = null;
   /** #759: the task text of the active turn — the plan recomputes at every
@@ -332,6 +334,8 @@ export class AgentSession {
         this.#mpmQuota = config.mpm.quota;
         this.#mpmExclude = config.mpm.exclude;
         this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
+        // #788: the classifier's per-turn opinion, when one is wired.
+        this.#mpmTurnGate = config.mpm.turnGate;
         // #663 (ADR-0028): the read-only `mpm_query` tool rides the same
         // opt-in — the model can nominate seeds itself when the task text
         // names no mapped path. Executed by this session's tool runner;
@@ -950,6 +954,14 @@ export class AgentSession {
   #orientationPlan(): string | null {
     const orientation = this.#mpmOrientation;
     if (!orientation || this.#mpmTaskText === null) return null;
+    // #788: the per-turn eligibility gate (an active classifier's
+    // codebase-oriented opinion). `false` suppresses this turn's plan —
+    // the projection, `mpm_query` and the manual commands are untouched;
+    // `undefined`/`true` change nothing.
+    if (this.#mpmTurnGate?.() === false) {
+      orientation.noteGated();
+      return null;
+    }
     return orientation.planFor(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
   }
 

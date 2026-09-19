@@ -199,6 +199,16 @@ export interface SessionConfig {
     /** #618: resolved user/project exclusion patterns for discovery. */
     exclude?: string[];
     lifecycle?: Partial<MpmLifecycleOptions>;
+    /**
+     * #788: the per-turn eligibility gate an active classifier contributes.
+     * Consulted at each send, before the seed pipeline runs: `false`
+     * suppresses the per-turn orientation plan (the projection, the
+     * `mpm_query` tool and the manual commands are untouched); `true` or
+     * `undefined` (no opinion — feature off, outage, malformed answer)
+     * leaves eligibility to the seed pipeline exactly as before. Never a
+     * tool restriction: the model can still call `mpm_query`.
+     */
+    turnGate?: () => boolean | undefined;
   };
   /**
    * Compaction (#466): the post-turn marker producer. Auto-triggered

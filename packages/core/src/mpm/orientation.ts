@@ -221,6 +221,15 @@ export class MpmOrientation {
     return this.#lastFallback;
   }
 
+  /**
+   * #788: records that this turn's plan was suppressed by the classifier's
+   * codebase-oriented gate (metadata only — the gate's own caller applies
+   * the suppression; this only makes the diagnostics honest).
+   */
+  noteGated(): void {
+    this.#lastFallback = "classifier-gated";
+  }
+
   /** #759: cumulative per-session seed statistics (metadata only). */
   get seedStats(): MpmSeedStats {
     return { ...this.#stats };
