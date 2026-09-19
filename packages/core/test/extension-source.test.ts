@@ -375,6 +375,31 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
     );
   });
 
+  test("hasPendingRegistrations stays true for a whole file list, and ready() never loses one", async () => {
+    const { mohHome } = tempProject();
+    const files = [
+      writeModule(join(mohHome, "extensions", "a.mjs"), vetoExtension("a")),
+      writeModule(join(mohHome, "extensions", "b.mjs"), vetoExtension("b")),
+      writeModule(join(mohHome, "extensions", "c.mjs"), vetoExtension("c")),
+    ];
+    const runtime = new ExtensionRuntime({ mohHome, consent: () => true });
+    const loading = runtime.registerFiles(files);
+    // #834 CI regression (Linux only, invisible on a fast local filesystem):
+    // `ready()` used to *drain* its queue, so a caller that had already
+    // started it — the session's constructor does exactly this — reported
+    // "nothing pending" while the imports were still in flight, and the
+    // first turn then ran without the extensions.
+    const readying = runtime.ready();
+    expect(runtime.hasPendingRegistrations()).toBe(true);
+    await readying;
+    expect(runtime.hasPendingRegistrations()).toBe(false);
+    expect(await loading).toEqual([true, true, true]);
+    expect(runtime.instances.map((i) => i.def.name)).toEqual(["a", "b", "c"]);
+    // A later caller still sees the truth, and a settled runtime is ready.
+    await runtime.ready();
+    expect(runtime.hasPendingRegistrations()).toBe(false);
+  });
+
   test("a declared dependency is refused loudly: no host installs them (v1)", async () => {
     const { cwd, home, mohHome } = tempProject();
     writeModule(

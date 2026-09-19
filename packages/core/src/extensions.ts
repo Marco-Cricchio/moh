@@ -318,8 +318,15 @@ export class ExtensionRuntime {
    * a promise (same principle as the compaction floor).
    */
   readonly #syntheticStreaks = new Map<string, number>();
-  /** In-flight registrations (the setup of a bundled definition is async). */
-  readonly #registering: Promise<unknown>[] = [];
+  /**
+   * In-flight registrations, as one chain: `ready()` awaits it and
+   * `hasPendingRegistrations()` reads its count. A *counted* chain, not a
+   * drained array — a drained queue would report "nothing pending" while an
+   * import is still in flight, and a caller that gates on that answer (the
+   * first turn) would run before the extension exists.
+   */
+  #pendingLoads: Promise<void> = Promise.resolve();
+  #pendingLoadCount = 0;
 
   constructor(options: ExtensionRuntimeOptions = {}) {
     this.#options = options;
@@ -442,7 +449,7 @@ export class ExtensionRuntime {
 
   /** True while a registration started earlier has not settled yet. */
   hasPendingRegistrations(): boolean {
-    return this.#registering.length > 0;
+    return this.#pendingLoadCount > 0;
   }
 
   /**
@@ -457,11 +464,28 @@ export class ExtensionRuntime {
 
   /**
    * Resolves when every registration started so far has settled (the
-   * bundled-definition path registers fire-and-forget from the assembly;
-   * the first turn waits on this so a hook is never missing).
+   * bundled-definition path and the client's file source register
+   * fire-and-forget from the assembly; the first turn waits on this so a
+   * hook is never missing). Safe to call repeatedly and concurrently.
    */
   async ready(): Promise<void> {
-    while (this.#registering.length > 0) await Promise.all(this.#registering.splice(0));
+    while (this.#pendingLoadCount > 0) await this.#pendingLoads;
+  }
+
+  /** Tracks a registration so `ready()` and `hasPendingRegistrations()` see it. */
+  #track<T>(load: Promise<T>): Promise<T> {
+    this.#pendingLoadCount += 1;
+    // The chain swallows rejections: a load never rejects by contract (every
+    // failure is a visible `extension_failed`), and one throwing must not
+    // reject `ready()` for the callers that gate on it.
+    const settled = load.then(
+      () => {},
+      () => {},
+    );
+    this.#pendingLoads = Promise.all([this.#pendingLoads, settled]).then(() => {
+      this.#pendingLoadCount -= 1;
+    });
+    return load;
   }
 
   /**
@@ -472,9 +496,7 @@ export class ExtensionRuntime {
    * definition loaded from a path.
    */
   async register(def: unknown, options: RegisterOptions = {}): Promise<boolean> {
-    const load = this.#load(def, undefined, options);
-    this.#registering.push(load);
-    return load;
+    return this.#track(this.#load(def, undefined, options));
   }
 
   /**
@@ -484,13 +506,13 @@ export class ExtensionRuntime {
    * half the extensions loaded.
    */
   registerFiles(files: readonly string[]): Promise<boolean[]> {
-    const load = (async (): Promise<boolean[]> => {
-      const results: boolean[] = [];
-      for (const file of files) results.push(await this.#registerFileNow(file));
-      return results;
-    })();
-    this.#registering.push(load);
-    return load;
+    return this.#track(
+      (async (): Promise<boolean[]> => {
+        const results: boolean[] = [];
+        for (const file of files) results.push(await this.#registerFileNow(file));
+        return results;
+      })(),
+    );
   }
 
   /**
