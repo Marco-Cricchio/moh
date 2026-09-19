@@ -8,6 +8,17 @@ matching section here at tag time.
 ## [Unreleased]
 ### Added
 
+- **Loadable extensions** (#834): moh finally loads extensions it did not
+  ship. Drop a `.ts`/`.mjs` file in `~/.moh/extensions/`, or declare one in
+  `moh.json` `"extensions"`, and the first load asks once — naming the
+  extension, its version and its source path — before enabling it; the
+  answer is remembered against the file's exact bytes, so editing it asks
+  again. A `moh.json` declaration only *proposes*: a clone you never
+  answered for loads nothing. Headless clients (`moh run`, `moh serve`,
+  `moh compact`) never prompt — an un-enabled extension is skipped with a
+  visible reason and the exit code is untouched. No sandbox: an extension
+  runs with moh's own privileges, and the manual page says so.
+
 - **Bundled Jev (TypeSafe) integration** (#784): moh can consult the
   TypeSafe service for typed judgments. Activate it by entering an API key
   in the TUI Settings panel entry `Jev (TypeSafe)` (validated once, on save;

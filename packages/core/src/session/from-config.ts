@@ -34,7 +34,7 @@ import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
 import type { ExtensionConsentRequest } from "../extensions";
-import { extensionSourceFiles, loadExtensionSource } from "../extension-source";
+import { extensionSourceFiles } from "../extension-source";
 import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
 import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
@@ -323,7 +323,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // the resolved order. Fire-and-forget like the bundled registration —
   // the session awaits `ready()` before its first turn, so an extension's
   // consent prompt is answered before any hook could run.
-  if (extensions && extensionSources.length > 0) void loadExtensionSource(extensions, extensionSources);
+  if (extensions && extensionSources.length > 0) void extensions.registerFiles(extensionSources);
 
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
   // Computed before the store exists so a throwing read leaves no orphan

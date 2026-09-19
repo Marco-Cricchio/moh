@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import type { Mode } from "./Chat";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
-import type { PermissionGate } from "./permission-gate";
+import { EXTENSION_CONSENT_TOOL, type PermissionGate } from "./permission-gate";
 
 /**
  * The blocking permission modal (issue #33 / style guide §1 Q5): full
@@ -50,7 +50,7 @@ export function PermissionModal({
   // #834: enabling a loaded extension is a question about *code*, not about
   // a tool call — the copy says so, and the answer is yes/no (the extension
   // ask slot already drops "always" and "edit").
-  const consent = view.tool === "extension" && view.extensionAsk !== undefined;
+  const consent = view.tool === EXTENSION_CONSENT_TOOL && view.extensionAsk !== undefined;
 
   return (
     <Dialog title=" permission " color={theme.warn}>

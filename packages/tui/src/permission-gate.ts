@@ -13,6 +13,11 @@ import { sanitizeForDisplay } from "./render-sanitize";
 
 export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
 
+/** #834: the tool id of an extension's enable consent. It is never a tool
+ * call: the id exists so the ask renders as a question about code (and can
+ * never write a rule). */
+export const EXTENSION_CONSENT_TOOL = "extension";
+
 export interface PermissionRequestView {
   tool: string;
   args: unknown;
@@ -112,7 +117,7 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
   // It is not a tool call, so it renders as the extension's own question
   // (name, version, source path, and the fact that there is no sandbox) and
   // it can never write a rule: an extension is enabled once, or not at all.
-  if (tool === "extension" && typeof a.name === "string") {
+  if (tool === EXTENSION_CONSENT_TOOL && typeof a.name === "string") {
     const detail = [`name: ${sanitizeForDisplay(a.name)}`];
     if (typeof a.version === "string") detail.push(`version: ${sanitizeForDisplay(a.version)}`);
     if (typeof a.file === "string") detail.push(`source: ${sanitizeForDisplay(a.file)}`);

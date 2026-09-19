@@ -499,7 +499,7 @@ editing a file re-imports it, re-runs `setup()` with the previous
 reload keeps the previous instance and is visible on both channels (the log
 and the host's warning line).
 
-## Loading, lifecycle, failure (library users)
+## Loading, lifecycle, failure
 
 - Loading goes through `ExtensionRuntime.registerFile(file)` (dynamic,
   cache-busted import), `registerFiles(files)` (several files in order, as

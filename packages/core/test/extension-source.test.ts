@@ -8,7 +8,7 @@
  * asked (headless fail-closed).
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider } from "../src/index";
@@ -31,6 +31,10 @@ function tempProject(): { cwd: string; home: string; mohHome: string } {
   mkdirSync(mohHome, { recursive: true });
   return { cwd, home, mohHome };
 }
+
+/** The consent prompt names the *canonical* file (macOS temp dirs are
+ * symlinked: `/var` is `/private/var`), so tests compare through realpath. */
+const canonical = (file: string) => realpathSync(file);
 
 /** Writes a module; returns its path. */
 function writeModule(path: string, body: string): string {
@@ -79,8 +83,8 @@ describe("extensionSourceFiles (#834)", () => {
     writeModule(join(mohHome, "extensions", "nested", "c-nested.mjs"), "export default {};");
 
     expect(extensionSourceFiles({ mohHome, cwd })).toEqual([
-      { file: join(mohHome, "extensions", "a-first.ts"), origin: "user" },
-      { file: join(mohHome, "extensions", "b-second.mjs"), origin: "user" },
+      canonical(join(mohHome, "extensions", "a-first.ts")),
+      canonical(join(mohHome, "extensions", "b-second.mjs")),
     ]);
   });
 
@@ -94,15 +98,25 @@ describe("extensionSourceFiles (#834)", () => {
       // The dotdir file named again by the project loads once, and `/abs/path` stays as-is.
       declared: ["./extensions/declared.mjs", user, join(cwd, "extensions", "declared.mjs")],
     });
-    expect(sources).toEqual([
-      { file: user, origin: "user" },
-      { file: declared, origin: "project" },
-    ]);
+    expect(sources).toEqual([canonical(user), canonical(declared)]);
   });
 
   test("no dotdir and no declaration is an empty list, never an error", () => {
     const { cwd, home } = tempProject();
     expect(extensionSourceFiles({ mohHome: join(home, "nope"), cwd })).toEqual([]);
+  });
+
+  test("a symlinked file is one entry: the canonical path is the identity", () => {
+    const { cwd, mohHome } = tempProject();
+    const real = writeModule(join(mohHome, "extensions", "real.mjs"), "export default {};");
+    try {
+      symlinkSync(real, join(mohHome, "extensions", "alias.mjs"));
+    } catch {
+      return; // a filesystem without symlinks: nothing to pin
+    }
+    // The alias is not a second module, and neither is the project naming
+    // the same file again.
+    expect(extensionSourceFiles({ mohHome, cwd, declared: [real] })).toEqual([canonical(real)]);
   });
 });
 
@@ -204,7 +218,7 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
       async (session) => {
         const turn = await session.send("go");
         // The prompt named the extension, its version and its source path.
-        expect(asked).toEqual([{ name: "guard", version: "1.0.0", file }]);
+        expect(asked).toEqual([{ name: "guard", version: "1.0.0", file: canonical(file) }]);
         const history = session.history();
         expect(history.find((e) => e.type === "extension_loaded")).toMatchObject({ name: "guard", version: "1.0.0" });
         // The veto really came from the file — the tool call never ran.
@@ -320,8 +334,43 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
       }),
       async (session) => {
         await session.send("go");
-        expect(asked).toEqual([{ name: "declared", version: "1.0.0", file: declared }]);
+        expect(asked).toEqual([{ name: "declared", version: "1.0.0", file: canonical(declared) }]);
         expect(session.history().find((e) => e.type === "permission_denied")).toMatchObject({ tool: "echo" });
+      },
+    );
+  });
+
+  test("one file reached by two spellings is one consent: a symlink never re-asks", async () => {
+    const { cwd, home, mohHome } = tempProject();
+    const real = writeModule(join(mohHome, "extensions", "real.mjs"), vetoExtension("real"));
+    // A second path to the same bytes (a symlink in the dotdir), plus the
+    // original named again by the project.
+    const link = join(mohHome, "extensions", "alias.mjs");
+    try {
+      symlinkSync(real, link);
+    } catch {
+      return; // a filesystem without symlinks: nothing to pin
+    }
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ extensions: [real, link] }));
+    const asked: ExtensionConsentRequest[] = [];
+    await withSession(
+      assemble({
+        cwd,
+        home,
+        provider: turnOnEcho(),
+        consent: {
+          onExtensionConsent: (request) => {
+            asked.push(request);
+            return true;
+          },
+        },
+      }),
+      async (session) => {
+        await session.send("go");
+        // Two routes, one file: the user answers once.
+        expect(asked).toHaveLength(1);
+        const loaded = session.history().filter((e) => e.type === "extension_loaded");
+        expect(loaded).toHaveLength(1);
       },
     );
   });

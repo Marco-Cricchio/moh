@@ -9,7 +9,7 @@
  * session continues without the extension.
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
@@ -267,12 +267,28 @@ function redactPayload(value: unknown, depth = 0): unknown {
   return value;
 }
 
+/**
+ * The canonical path of a module: two spellings of one file (a symlink, a
+ * symlinked parent directory) are one consent, one content identity and one
+ * watcher — a user who approved a file must not be asked again because a
+ * different route reached it. Falls back to the path as given when it does
+ * not resolve (the load then fails with `load_failed`, as before).
+ */
+export function canonicalModulePath(file: string): string {
+  const abs = isAbsolute(file) ? file : resolve(process.cwd(), file);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
 /** File modules are consented by location and exact bytes, never self-claimed metadata. */
 function contentIdentity(file: string | undefined): string | null {
   if (!file) return null;
   try {
     const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
-    return `${resolve(file)}:${hash}`;
+    return `${canonicalModulePath(file)}:${hash}`;
   } catch {
     return null;
   }
@@ -486,7 +502,9 @@ export class ExtensionRuntime {
   }
 
   async #registerFileNow(file: string): Promise<boolean> {
-    const abs = isAbsolute(file) ? file : resolve(process.cwd(), file);
+    // Canonical from here on: the identity, the consent question, the import
+    // and the watcher all speak about one path.
+    const abs = canonicalModulePath(file);
     let def: unknown;
     try {
       def = await importDefinition(abs);

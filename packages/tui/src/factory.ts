@@ -38,12 +38,9 @@ import {
   type Tool,
   type TrackerBackend,
 } from "@moh/core";
+import { EXTENSION_CONSENT_TOOL } from "./permission-gate";
 import { homedir } from "node:os";
 import { join } from "node:path";
-
-/** #834: the modal tool id for an extension's enable consent. It is never a
- * tool call: it exists so the ask renders as a question about code. */
-export const EXTENSION_CONSENT_TOOL = "extension";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -118,7 +115,10 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
                   { name: request.name, version: request.version, ...(request.file ? { file: request.file } : {}) },
                   { source: "extension", extension: request.name },
                 ),
-              ).then((answer) => answer !== "no"),
+              // Fail-closed: only an explicit "yes" enables code. The modal
+              // offers nothing else for this ask, and a client that one day
+              // offers an "always" must not have it read as consent.
+              ).then((answer) => answer === "yes"),
           }
         : {}),
       ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
