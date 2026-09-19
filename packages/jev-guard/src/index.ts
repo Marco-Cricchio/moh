@@ -100,18 +100,34 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
 
       // ---- #792 compaction cut guide: one noul per section ------------
       // ADR-0035: at compaction time (auto and forced paths alike), Jev
-      // answers "does this section hold unrecoverable content?" per turn
-      // body; the lows are handed back as drops. The core applies its own
-      // 60% survival floor afterwards — the judge cannot talk itself past
-      // it. No opt-in beyond the key: the judged state is section previews
-      // only (shape, never bodies), and compaction itself is automatic.
+      // answers "can this section be safely dropped?" per turn body; the
+      // highs are handed back as drops. The core applies its own 60%
+      // survival floor afterwards — the judge cannot talk itself past it —
+      // and reports the floor application back so the aggregate
+      // `compact-cut` record carries it. No opt-in beyond the key: the
+      // judged state is section previews only (shape, never bodies), and
+      // compaction itself is automatic.
       const compactionJudge = createCompactionJudge({
         client,
         append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
       });
       ctx.onCompaction(async (ctxHook) => {
         const verdict = await compactionJudge.judge(ctxHook.sections);
-        return { drop: verdict.drop };
+        return {
+          drop: verdict.drop,
+          onApplied: (applied) => {
+            // One aggregate record per compaction (spec §5 §9): sections,
+            // drops, floor and the byte sizes the core actually applied.
+            ctx.appendEvent({
+              name: "jev_judgment",
+              payload: {
+                ...verdict.summary,
+                keptByFloor: applied.keptByFloor,
+                bytesAfter: applied.bytesAfter,
+              },
+            });
+          },
+        };
       });
 
       // ---- #786 guardrail: the first use case --------------------------

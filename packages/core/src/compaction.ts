@@ -185,42 +185,6 @@ export function compactionTranscript(
   to: number,
   omit?: (turnIndex: number) => boolean,
 ): string {
-  // Without drops, render exactly as before (the hot path; the legacy
-  // signature and output are preserved byte-for-byte).
-  if (!omit) {
-    const parts: string[] = [];
-    let assistant = "";
-    const flush = () => {
-      if (assistant.trim()) parts.push(`assistant: ${assistant.trim()}`);
-      assistant = "";
-    };
-    const lo = Math.max(0, from);
-    const hi = Math.min(to, events.length);
-    for (let i = lo; i < hi; i++) {
-      const event = events[i]!;
-      if (event.type === "user_message") {
-        flush();
-        parts.push(`user: ${event.text.trim()}`);
-      } else if (event.type === "assistant_delta") {
-        assistant += event.text;
-      } else if (event.type === "tool_result") {
-        flush();
-        parts.push(`tool ${event.callId}: ${event.ok ? "ok" : "error"}`);
-      } else if (event.type === "tool_call") {
-        flush();
-        parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
-      } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
-        flush();
-      }
-    }
-    flush();
-    let text = parts.join("\n");
-    if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
-    return text;
-  }
-  // With drops: the covered span renders per turn; a dropped turn's body
-  // is replaced by a one-line marker so the summarizer knows work
-  // happened there and was cut — never a silent gap.
   const parts: string[] = [];
   let assistant = "";
   let turnIndex = -1;
@@ -229,13 +193,16 @@ export function compactionTranscript(
     if (assistant.trim()) parts.push(`assistant: ${assistant.trim()}`);
     assistant = "";
   };
+  const maybeCut = () => {
+    if (omit && inTurn && turnIndex >= 0 && omit(turnIndex)) parts.push(`[section dropped: turn ${turnIndex}]`);
+  };
   const lo = Math.max(0, from);
   const hi = Math.min(to, events.length);
   for (let i = lo; i < hi; i++) {
     const event = events[i]!;
     if (event.type === "user_message") {
       flush();
-      if (inTurn && turnIndex >= 0 && omit(turnIndex)) parts.push(`[section dropped: turn ${turnIndex}]`);
+      maybeCut();
       turnIndex += 1;
       inTurn = true;
       parts.push(`user: ${event.text.trim()}`);
@@ -243,16 +210,16 @@ export function compactionTranscript(
       assistant += event.text;
     } else if (event.type === "tool_result") {
       flush();
-      if (!omit(turnIndex)) parts.push(`tool ${event.callId}: ${event.ok ? "ok" : "error"}`);
+      if (!omit || !omit(turnIndex)) parts.push(`tool ${event.callId}: ${event.ok ? "ok" : "error"}`);
     } else if (event.type === "tool_call") {
       flush();
-      if (!omit(turnIndex)) parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
+      if (!omit || !omit(turnIndex)) parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
     } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
       flush();
     }
   }
   flush();
-  if (inTurn && turnIndex >= 0 && omit(turnIndex)) parts.push(`[section dropped: turn ${turnIndex}]`);
+  maybeCut();
   let text = parts.join("\n");
   if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
   return text;
@@ -270,6 +237,21 @@ export const COMPACTION_PROMPT = [
   "- Be dense: short factual paragraphs or bullets, no preamble, no pleasantries.",
   "- Respond with ONLY the summary text.",
 ].join("\n");
+
+/** Effective context window for the active model label (0 = unknown). */
+export function contextWindowFor(model: string, endpointType: string | undefined): number {
+  const slash = model.indexOf("/");
+  if (slash < 0 || !endpointType) return 0;
+  return catalogEntryFor(endpointType, model.slice(slash + 1))?.contextWindow ?? 0;
+}
+
+/** True when the covered span holds at least one conversation turn. */
+function markerSpanNonEmpty(events: ReadonlyArray<AgentEvent>, from: number, to: number): boolean {
+  for (let i = Math.max(0, from); i < to && i < events.length; i++) {
+    if (events[i]!.type === "user_message") return true;
+  }
+  return false;
+}
 
 /** Input handed to a compaction summarizer. */
 export interface CompactionSummarizerInput {
@@ -304,7 +286,12 @@ export interface CompactionOptions {
    * dispatch returns the collected drops plus the `extension_failed`
    * events to append; the runner applies the survival floor.
    */
-  sectionFilter?: (ctx: CompactionHookContext) => Promise<{ drop: string[]; errors: AgentEvent[] } | void>;
+  sectionFilter?: (ctx: CompactionHookContext) => Promise<{
+    drop: string[];
+    /** ADR-0035: callbacks the runner invokes once with the applied cut. */
+    onApplied?: ((applied: { keptByFloor: boolean; bytesAfter: number }) => void)[];
+    errors: AgentEvent[];
+  } | void>;
 }
 
 export interface CompactionRunnerOptions {
@@ -327,21 +314,6 @@ export interface CompactionRunnerOptions {
   tailTurns?: number;
   threshold?: number;
   fallbackWindowTokens?: number;
-}
-
-/** Effective context window for the active model label (0 = unknown). */
-export function contextWindowFor(model: string, endpointType: string | undefined): number {
-  const slash = model.indexOf("/");
-  if (slash < 0 || !endpointType) return 0;
-  return catalogEntryFor(endpointType, model.slice(slash + 1))?.contextWindow ?? 0;
-}
-
-/** True when the covered span holds at least one conversation turn. */
-function markerSpanNonEmpty(events: ReadonlyArray<AgentEvent>, from: number, to: number): boolean {
-  for (let i = Math.max(0, from); i < to && i < events.length; i++) {
-    if (events[i]!.type === "user_message") return true;
-  }
-  return false;
 }
 
 /**
@@ -369,6 +341,9 @@ export class CompactionRunner {
   /** Consecutive failed auto runs above threshold (#466): drives the
    * doubling backoff; reset on a success or a below-threshold turn. */
   #consecutiveFailures = 0;
+  /** ADR-0035 §4: the dispatch of the run in flight reduced the cut to the
+   * survival floor (stamped onto the marker it produces). */
+  #floorApplied = false;
   /** Timer of a scheduled auto retry (cleared on cancel/dispose). */
   #retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -563,6 +538,7 @@ export class CompactionRunner {
     // dispatch, never log positions. Fail-open: any error here leaves the
     // transcript untouched and appends the recorded `extension_failed`s.
     let omit: ((turnIndex: number) => boolean) | undefined;
+    this.#floorApplied = false;
     const filter = this.#sectionFilter;
     if (filter) {
       try {
@@ -577,8 +553,15 @@ export class CompactionRunner {
         });
         if (result) {
           for (const error of result.errors) this.#append(error);
+          let applied = { keptByFloor: false, bytesAfter: 0 };
           if (result.drop.length > 0 && turnCount > 0) {
             const { droppedIds, keptByFloor } = applySectionDrops(sections, result.drop);
+            const bytesAfter = sections.reduce(
+              (sum, s) => sum + (droppedIds.has(s.id) ? 0 : s.bytes),
+              0,
+            );
+            applied = { keptByFloor, bytesAfter };
+            this.#floorApplied = keptByFloor;
             if (keptByFloor) {
               // One visible line: the cut was reduced, never silently.
               this.#append({
@@ -588,10 +571,19 @@ export class CompactionRunner {
                 message: "the requested drops exceeded the survival floor and were reduced",
               });
             }
-            const droppedTurns = [...droppedIds].map((id) => Number(id.slice(1)));
-            if (droppedTurns.length > 0) {
-              const droppedSet = new Set(droppedTurns);
-              omit = (turnIndex) => droppedSet.has(turnIndex);
+            const droppedSet = droppedIds;
+            omit = (turnIndex) => droppedSet.has(`s${turnIndex}`);
+          } else {
+            applied = { keptByFloor: false, bytesAfter: sections.reduce((sum, s) => sum + s.bytes, 0) };
+          }
+          // The hook learns what was actually applied (post-floor), exactly
+          // once, before the transcript renders. A throw is swallowed: the
+          // extension's record must never break the compaction.
+          for (const callback of result.onApplied ?? []) {
+            try {
+              callback(applied);
+            } catch {
+              /* observability only */
             }
           }
         }
@@ -625,6 +617,9 @@ export class CompactionRunner {
             summary: text,
             upToId,
             ...(pathTip?.id !== undefined ? { parentId: pathTip.id } : {}),
+            // ADR-0035 §4: the marker itself records that the extension's
+            // cut was reduced to the survival floor (chrome, audit only).
+            ...(this.#floorApplied ? { keptByFloor: true as const } : {}),
           });
           this.#onCompacted();
           this.#consecutiveFailures = 0;

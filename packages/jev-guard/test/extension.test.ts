@@ -137,7 +137,7 @@ describe("jev-guard compaction cut (#792)", () => {
   test("the setup registers an onCompaction hook that answers with drops", async () => {
     const ctx = fakeCtx();
     const answers = {
-      unrecoverable: { type: "noul", noul: 0.01 },
+      droppable: { type: "noul", noul: 0.95 },
     };
     const def = createJevGuardExtension({
       apiKey: "sk-test",
@@ -149,12 +149,26 @@ describe("jev-guard compaction cut (#792)", () => {
       { id: "s0", kind: "tool_result" as const, bytes: 4000, preview: "bun test output…" },
       { id: "s1", kind: "assistant" as const, bytes: 200, preview: "assistant: settled" },
     ];
-    const out = (await ctx.compactionHooks[0]!({ sections })) as { drop: string[] };
+    const out = (await ctx.compactionHooks[0]!({ sections })) as {
+      drop: string[];
+      onApplied: (applied: { keptByFloor: boolean; bytesAfter: number }) => void;
+    };
     expect(out.drop).toEqual(["s0", "s1"]);
-    // One judgment per section, recorded through appendEvent.
+    // The applied-cut callback produces the one aggregate record.
+    out.onApplied({ keptByFloor: true, bytesAfter: 0 });
     const judgments = ctx.events.filter((e) => e.name === "jev_judgment");
-    expect(judgments.length).toBe(2);
-    expect((judgments[0]!.payload as { useCase: string }).useCase).toBe("compaction-cut");
+    expect(judgments.length).toBe(3); // two per-section + one aggregate
+    const aggregate = judgments
+      .map((e) => e.payload as Record<string, unknown>)
+      .find((p) => p.kind === "compaction");
+    expect(aggregate).toBeDefined();
+    expect((aggregate as { keptByFloor: boolean }).keptByFloor).toBe(true);
+    expect((aggregate as { dropped: string[] }).dropped).toEqual(["s0", "s1"]);
+    const perSection = judgments
+      .map((e) => e.payload as Record<string, unknown>)
+      .filter((p) => p.kind === undefined);
+    expect(perSection.length).toBe(2);
+    expect((perSection[0] as { useCase: string }).useCase).toBe("compact-cut");
   });
 });
 

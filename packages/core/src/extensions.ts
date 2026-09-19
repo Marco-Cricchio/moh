@@ -779,14 +779,28 @@ export class ExtensionRuntime {
    */
   async dispatchCompaction(
     ctx: CompactionHookContext,
-  ): Promise<{ drop: string[]; errors: AgentEvent[] }> {
+    hookTimeoutMs = 5_000,
+  ): Promise<{
+    drop: string[];
+    errors: AgentEvent[];
+    /** ADR-0035: the one callback the runner invokes with the applied cut. */
+    onApplied: ((applied: { keptByFloor: boolean; bytesAfter: number }) => void)[];
+  }> {
     const offered = new Set(ctx.sections.map((s) => s.id));
     const drop: string[] = [];
+    const onApplied: ((applied: { keptByFloor: boolean; bytesAfter: number }) => void)[] = [];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.onCompaction) {
+        let timedOut = false;
         let out: CompactionHookResult | void;
         try {
-          out = await hook(ctx);
+          // The one ADR-0035 fail-open leg the throw does not cover: a hook
+          // that never answers must not stall a background compaction.
+          // (The whole dispatch — every section — shares one window.)
+          out = await Promise.race([
+            hook(ctx),
+            new Promise<undefined>((resolve) => setTimeout(() => { timedOut = true; resolve(undefined); }, hookTimeoutMs)),
+          ]);
         } catch (err) {
           this.#hookErrors.push({
             type: "extension_failed",
@@ -796,11 +810,15 @@ export class ExtensionRuntime {
           });
           continue;
         }
-        if (!out || !Array.isArray(out.drop)) continue;
-        for (const id of out.drop) {
-          if (typeof id !== "string" || !offered.has(id) || drop.includes(id)) continue;
-          drop.push(id);
+        if (timedOut) {
+          this.#hookErrors.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: `the compaction hook did not answer within ${hookTimeoutMs}ms; no drops were applied`,
+          });
         }
+        if (!out || !Array.isArray(out.drop)) continue;
         for (const id of out.drop) {
           if (typeof id === "string" && !offered.has(id)) {
             this.#hookErrors.push({
@@ -811,12 +829,18 @@ export class ExtensionRuntime {
             });
           }
         }
+        for (const id of out.drop) {
+          if (typeof id !== "string" || !offered.has(id) || drop.includes(id)) continue;
+          drop.push(id);
+        }
+        if (typeof out.onApplied === "function") onApplied.push(out.onApplied);
       }
     }
-    return { drop, errors: this.#drainErrors() };
+    return { drop, onApplied, errors: this.#drainErrors() };
   }
 
-  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {    await this.#each("beforeModelCall", (h) => h(ctx));
+  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
+    await this.#each("beforeModelCall", (h) => h(ctx));
     return this.#drainErrors();
   }
 

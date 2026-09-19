@@ -217,9 +217,15 @@ export interface CompactionHookContext {
  * not offer are ignored with a visible `extension_failed
  * { reason: "unknown_section" }`; the core enforces a survival floor of
  * at least 60% of the droppable text regardless of what is returned.
+ * `onApplied`, when present, is called back exactly once with the cut as
+ * actually applied — after the floor, before the transcript renders — so
+ * the extension can record what really happened, not just what it asked
+ * for. A throwing `onApplied` is swallowed: observability never breaks
+ * the compaction it describes.
  */
 export interface CompactionHookResult {
   readonly drop: readonly string[];
+  readonly onApplied?: (applied: { keptByFloor: boolean; bytesAfter: number }) => void;
 }
 
 export type CompactionHook = (

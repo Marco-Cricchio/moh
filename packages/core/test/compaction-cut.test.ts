@@ -20,6 +20,8 @@ import {
   type CompactionSectionView,
   type CompactionSummarizer,
 } from "../src/compaction";
+// ADR-0004: the section vocabulary is internal — tests import the
+// modules directly, never through the package index.
 import type { AgentEvent } from "../src/types";
 
 function tempDir(): string {
@@ -150,6 +152,29 @@ describe("dispatch through a runtime", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("a hook that never answers times out: no drops, one visible hook failure", async () => {
+    const dir = tempDir();
+    const rt = new ExtensionRuntime({ mohHome: dir, bundledTrust: true });
+    await rt.register(
+      defineExtension({
+        name: "sleepy",
+        version: "0.0.1",
+        apiVersion: "1.4",
+        setup(ctx) {
+          ctx.onCompaction(() => new Promise(() => {})); // never settles
+        },
+      }),
+    );
+    const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
+    const { drop, errors } = await rt.dispatchCompaction({ sections }, 30);
+    expect(drop).toEqual([]);
+    const failed = errors.filter((e) => e.type === "extension_failed" && e.reason === "hook");
+    expect(failed.length).toBe(1);
+    expect((failed[0] as { message: string }).message).toContain("did not answer within");
+    rt.stopWatch();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("a throwing hook is fail-open: no drops, one hook error", async () => {
     const dir = tempDir();
     const rt = new ExtensionRuntime({ mohHome: dir, bundledTrust: true });
@@ -166,7 +191,7 @@ describe("dispatch through a runtime", () => {
       }),
     );
     const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
-    const { drop, errors } = await rt.dispatchCompaction({ sections });
+    const { drop, errors } = await rt.dispatchCompaction({ sections }, 50);
     expect(drop).toEqual([]);
     expect(errors.filter((e) => e.type === "extension_failed" && e.reason === "hook").length).toBe(1);
     rt.stopWatch();
@@ -205,9 +230,11 @@ describe("dispatch through a runtime", () => {
     // The runner logged one visible floor notice.
     expect(appended.some((e) => e.type === "extension_failed" && (e as { reason?: string }).reason === "section_floor")).toBe(true);
     // And the transcript the summarizer saw still holds most content.
-    const marker = appended.find((e) => e.type === "compaction") as { summary: string } | undefined;
+    const marker = appended.find((e) => e.type === "compaction") as { summary: string; keptByFloor?: true } | undefined;
     expect(marker!.summary).toContain("user: turn 0");
     expect(marker!.summary).toContain("user: turn 1");
+    // The marker itself records the floor application (ADR-0035 §4).
+    expect(marker!.keptByFloor).toBe(true);
     rt.stopWatch();
     rmSync(dir, { recursive: true, force: true });
   });

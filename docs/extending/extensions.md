@@ -320,11 +320,18 @@ ctx.onCompaction(({ sections, approxTokens }) => {
 - **The core keeps a floor.** At least 60% of the offered text survives no
   matter what you return: if your drops exceed the budget, the largest cuts
   keep their claim and the rest are restored, with one visible
-  `extension_failed { reason: "section_floor" }`. A catastrophic judgment is
-  a bounded event, not an emptied conversation.
-- **Fail-open, always.** A hook that throws (or that the runtime cannot
-  answer in time) contributes no drops: compaction proceeds exactly as it
-  would without you, with one `extension_failed`. The cut is an optimization;
+  `extension_failed { reason: "section_floor" }` and `keptByFloor: true`
+  stamped on the compaction marker. A catastrophic judgment is a bounded
+  event, not an emptied conversation.
+- **You learn what was actually applied.** Return an `onApplied` callback
+  and the core calls it exactly once with the post-floor cut
+  (`{ keptByFloor, bytesAfter }`) before the transcript renders — the
+  place to record your judgment's outcome. A throwing `onApplied` is
+  swallowed: observability never breaks the compaction it describes.
+- **Fail-open, always.** A hook that throws, or that does not answer
+  within the hook timeout (5 s for the whole dispatch), contributes no
+  drops: compaction proceeds exactly as it would without you, with one
+  `extension_failed`. The cut is an optimization;
   its absence changes a summary's size and nothing else.
 - **The verbatim tail is out of reach.** `tailTurns` (default 10) is outside
   the covered span by construction: recent turns are never summarized, so
