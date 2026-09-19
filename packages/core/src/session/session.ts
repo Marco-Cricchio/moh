@@ -627,23 +627,21 @@ export class AgentSession {
       this.#flushExtensionEvents();
       // Extensions missing on resume: a previously enabled extension that
       // the current runtime did not load produces a warning, nothing more.
+      // #834: loads from the client's source are asynchronous (import +
+      // consent), so the reconciliation waits for them — reporting an
+      // extension missing before its load settled would be a lie.
       if (this.#extensions) {
         const enabled = new Set(
           config.resume.events
             .filter((e) => e.type === "extension_loaded")
             .map((e) => (e as { name: string }).name),
         );
-        const present = new Set(this.#extensions.instances.map((i) => i.def.name));
-        for (const name of enabled) {
-          if (!present.has(name)) {
-            this.#append({
-              type: "extension_failed",
-              name,
-              reason: "missing_on_resume",
-              message: "extension enabled in the resumed session was not loaded; continuing without it",
-            });
-          }
-        }
+        void this.#extensions.ready().then(() => {
+          this.#reportMissingExtensions(enabled);
+          // #834: loaded files are watched for hot-reload (state preserved);
+          // a failed reload keeps the previous instance and is visible.
+          this.#extensions?.startWatch();
+        });
       }
       this.#assemblePrompt();
       // A mode change across resume is auditable like any startup flag.
@@ -660,9 +658,33 @@ export class AgentSession {
     // Fire-and-forget: construction is sync, the session is not yet running.
     // The bundled-definition registration settles first (ADR-0032/ADR-0005):
     // `session_start` must never reach an extension whose setup is pending.
-    void this.#extensions?.ready().then(() => this.#extensions?.dispatchSessionStart()).then((errors) => {
+    void this.#extensions?.ready().then(() => {
+      // #834: loaded files are watched for hot-reload (state preserved); a
+      // failed reload keeps the previous instance and is visible.
+      this.#extensions?.startWatch();
+      return this.#extensions?.dispatchSessionStart();
+    }).then((errors) => {
       for (const e of errors ?? []) this.#append(e);
     });
+  }
+
+  /**
+   * #834: a resumed file may list extensions enabled in an earlier
+   * environment; one the current runtime did not load is a warning, never
+   * an error (the session continues without it).
+   */
+  #reportMissingExtensions(enabled: ReadonlySet<string>): void {
+    if (!this.#extensions || enabled.size === 0) return;
+    const present = new Set(this.#extensions.instances.map((i) => i.def.name));
+    for (const name of enabled) {
+      if (present.has(name)) continue;
+      this.#append({
+        type: "extension_failed",
+        name,
+        reason: "missing_on_resume",
+        message: "extension enabled in the resumed session was not loaded; continuing without it",
+      });
+    }
   }
 
   /**
@@ -1362,6 +1384,8 @@ export class AgentSession {
     if (!this.#extensions) return;
     // ADR-0032: statuses are ephemeral — nothing survives the session.
     this.#extensions.clearStatuses();
+    // #834: hot-reload watchers live and die with the session that started them.
+    this.#extensions.stopWatch();
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
     // The end-of-session events were just queued: let the dispatch drain
     // settle before the session is considered disposed.

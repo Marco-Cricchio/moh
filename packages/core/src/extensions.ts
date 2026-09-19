@@ -72,6 +72,15 @@ export interface ToolResultDispatch {
   readonly errors: AgentEvent[];
 }
 
+/** #834: what a first load asks the user about — enough to name the code
+ * that wants to run, its identity being its source bytes, not its claims. */
+export interface ExtensionConsentRequest {
+  name: string;
+  version: string;
+  /** Absolute path of the module asking to run; absent for an in-memory definition. */
+  file?: string;
+}
+
 export interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
   mohHome?: string;
@@ -80,7 +89,7 @@ export interface ExtensionRuntimeOptions {
    * loaded module content identity. A `true` answer is persisted; `false`
    * refuses the load. When absent and nothing is stored, the load is refused.
    */
-  consent?: (name: string, version: string) => Promise<boolean> | boolean;
+  consent?: (name: string, version: string, file: string | undefined) => Promise<boolean> | boolean;
   /**
    * Per-change npm dependency authorization. Called whenever the
    * extension's dependency list differs from the remembered approved list.
@@ -88,16 +97,12 @@ export interface ExtensionRuntimeOptions {
    * and the list is non-empty and not approved, the load is refused.
    */
   authorizeDependencies?: (name: string, deps: ExtensionDependencies) => Promise<boolean> | boolean;
-  /** Non-event-log diagnostics (e.g. hot-reload outcomes mid-session). */
-  onWarning?: (message: string) => void;
   /**
-   * Trust the registered definitions because the host shipped them
-   * (bundled first-party code, ADR-0005/ADR-0031): the one-time enable
-   * consent and the dependency authorization are skipped — the shipped
-   * bytes never came from the user's disk. Never set this for definitions
-   * loaded from a path.
+   * Non-event-log diagnostics: a load the user has to learn about on a
+   * channel other than the log (a headless client's stderr, a hot-reload
+   * outcome mid-session).
    */
-  bundledTrust?: boolean;
+  onWarning?: (message: string) => void;
   /**
    * ADR-0037: the session-mediated synthetic-turn entry the
    * `requestTurn` setup method delegates to. Present only when the host
@@ -106,6 +111,14 @@ export interface ExtensionRuntimeOptions {
    * visible `extension_failed` event.
    */
   requestTurn?: (text: string) => Promise<boolean>;
+}
+
+/** `register` options: trust is a property of the code being registered,
+ * not of the runtime that hosts it. */
+export interface RegisterOptions {
+  /** The host shipped these bytes (bundled first-party code): consent and
+   * dependency authorization are skipped. Never for a path-loaded module. */
+  bundled?: boolean;
 }
 
 interface HookSet {
@@ -435,9 +448,31 @@ export class ExtensionRuntime {
     while (this.#registering.length > 0) await Promise.all(this.#registering.splice(0));
   }
 
-  /** Registers an in-memory extension definition. */
-  async register(def: unknown): Promise<boolean> {
-    const load = this.#load(def, undefined);
+  /**
+   * Registers an in-memory definition. `bundled` marks code the host
+   * shipped (first-party bundled code, ADR-0005): consent and dependency
+   * authorization are skipped, because those bytes never came from the
+   * user's disk and nobody consented to them by name. Never set it for a
+   * definition loaded from a path.
+   */
+  async register(def: unknown, options: RegisterOptions = {}): Promise<boolean> {
+    const load = this.#load(def, undefined, options);
+    this.#registering.push(load);
+    return load;
+  }
+
+  /**
+   * Loads several files in order (deterministic hook precedence — first
+   * decision wins in registration order) as **one** pending registration:
+   * `ready()` waits for the whole list, so the first turn never runs with
+   * half the extensions loaded.
+   */
+  registerFiles(files: readonly string[]): Promise<boolean[]> {
+    const load = (async (): Promise<boolean[]> => {
+      const results: boolean[] = [];
+      for (const file of files) results.push(await this.#registerFileNow(file));
+      return results;
+    })();
     this.#registering.push(load);
     return load;
   }
@@ -446,7 +481,11 @@ export class ExtensionRuntime {
    * Loads an extension from a file (dynamic import, cache-busted). The
    * module's default export must be a `defineExtension(...)` result.
    */
-  async registerFile(file: string): Promise<boolean> {
+  registerFile(file: string): Promise<boolean> {
+    return this.registerFiles([file]).then((results) => results[0] === true);
+  }
+
+  async #registerFileNow(file: string): Promise<boolean> {
     const abs = isAbsolute(file) ? file : resolve(process.cwd(), file);
     let def: unknown;
     try {
@@ -495,7 +534,11 @@ export class ExtensionRuntime {
     try {
       def = await importDefinition(file);
     } catch (err) {
+      // Visible on both channels: the log (replay, the TUI transcript) and
+      // the host's own warning line. A reload that silently kept the old
+      // instance would let an edited file look applied.
       this.#options.onWarning?.(`extension ${previous.def.name}: reload failed (${errMessage(err)}); previous instance kept`);
+      this.#emitFailed(previous.def.name, "reload_failed", `${errMessage(err)}; previous instance kept`);
       return;
     }
     // Seed the fresh instance with the previous state so setup() sees it.
@@ -504,6 +547,7 @@ export class ExtensionRuntime {
       this.#options.onWarning?.(
         `extension ${previous.def.name}: reload refused (${fresh.reason}); previous instance kept`,
       );
+      this.#emitFailed(previous.def.name, "reload_failed", `${fresh.reason}: ${fresh.message}; previous instance kept`);
       return;
     }
     // State was preserved by seeding; hooks are re-registered by setup().
@@ -516,8 +560,8 @@ export class ExtensionRuntime {
     this.#emit({ type: "extension_loaded", name: fresh.instance.def.name, version: fresh.instance.def.version });
   }
 
-  async #load(def: unknown, file: string | undefined): Promise<boolean> {
-    const result = await this.#instantiate(def, file);
+  async #load(def: unknown, file: string | undefined, options: RegisterOptions = {}): Promise<boolean> {
+    const result = await this.#instantiate(def, file, undefined, options);
     if (!result.ok) {
       this.#emitFailed(result.name ?? basename(file ?? "(unknown)"), result.reason, result.message);
       return false;
@@ -532,6 +576,7 @@ export class ExtensionRuntime {
     def: unknown,
     file: string | undefined,
     seedState?: Record<string, unknown>,
+    options: RegisterOptions = {},
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -558,16 +603,22 @@ export class ExtensionRuntime {
     const store = this.#readStore();
     // In-memory definitions have no source bytes: retain their historical
     // name identity. Loaded modules bind consent to resolved path + bytes.
-    // Bundled first-party definitions skip both consent and dependency
-    // authorization: the host shipped the bytes, the user never chose them.
+    // Bundled first-party definitions (`register(def, { bundled: true })`)
+    // skip both consent and dependency authorization: the host shipped the
+    // bytes, the user never chose them.
+    const bundled = options.bundled === true;
     const identity = contentIdentity(file) ?? `memory:${name}`;
-    if (!this.#options.bundledTrust && !store.consents[identity]) {
+    if (!bundled && !store.consents[identity]) {
       if (!this.#options.consent) {
-        return { ok: false, name, reason: "consent", message: "extension not previously enabled and no consent flow is available" };
+        const message = "extension not previously enabled and no consent flow is available";
+        // The host's own channel (a headless client's stderr): the log
+        // carries the same fact, but nobody reads a log they never saw.
+        this.#options.onWarning?.(`extension ${name}: not loaded — ${message}`);
+        return { ok: false, name, reason: "consent", message };
       }
       let granted: boolean;
       try {
-        granted = await this.#options.consent(name, d.version);
+        granted = await this.#options.consent(name, d.version, file);
       } catch (err) {
         return { ok: false, name, reason: "consent", message: errMessage(err) };
       }
@@ -578,9 +629,11 @@ export class ExtensionRuntime {
     // Per-change dependency authorization, bound to the same content identity.
     const deps = d.dependencies ?? [];
     const approved = store.dependencies[identity] ?? [];
-    if (!this.#options.bundledTrust && !sameDeps(deps, approved)) {
+    if (!bundled && !sameDeps(deps, approved)) {
       if (deps.length > 0 && !this.#options.authorizeDependencies) {
-        return { ok: false, name, reason: "deps_unauthorized", message: `dependency list changed (${deps.join(", ")}) and no authorization flow is available` };
+        // Honest refusal (v1, #834): no host installs dependencies yet, so
+        // an extension that needs them cannot run — never a half-promise.
+        return { ok: false, name, reason: "deps_unauthorized", message: `extension declares dependencies (${deps.join(", ")}) and this host cannot install them` };
       }
       if (deps.length > 0) {
         let granted: boolean;

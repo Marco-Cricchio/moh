@@ -132,7 +132,7 @@ describe("transcript with drops", () => {
 describe("dispatch through a runtime", () => {
   test("unknown ids are recorded and ignored; drops flow through", async () => {
     const dir = tempDir();
-    const rt = new ExtensionRuntime({ mohHome: dir, bundledTrust: true });
+    const rt = new ExtensionRuntime({ mohHome: dir });
     await rt.register(
       defineExtension({
         name: "cut-everything",
@@ -142,6 +142,7 @@ describe("dispatch through a runtime", () => {
           ctx.onCompaction(() => ({ drop: ["s0", "ghost", "s1"] }));
         },
       }),
+      { bundled: true },
     );
     const events = log();
     const { sections } = compactionSections(events, 0, events.length, (i) => `s${i}`);
@@ -154,7 +155,7 @@ describe("dispatch through a runtime", () => {
 
   test("a hook that never answers times out: no drops, one visible hook failure", async () => {
     const dir = tempDir();
-    const rt = new ExtensionRuntime({ mohHome: dir, bundledTrust: true });
+    const rt = new ExtensionRuntime({ mohHome: dir });
     await rt.register(
       defineExtension({
         name: "sleepy",
@@ -164,6 +165,7 @@ describe("dispatch through a runtime", () => {
           ctx.onCompaction(() => new Promise(() => {})); // never settles
         },
       }),
+      { bundled: true },
     );
     const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
     const { drop, errors } = await rt.dispatchCompaction({ sections }, 30);
@@ -177,7 +179,7 @@ describe("dispatch through a runtime", () => {
 
   test("a throwing hook is fail-open: no drops, one hook error", async () => {
     const dir = tempDir();
-    const rt = new ExtensionRuntime({ mohHome: dir, bundledTrust: true });
+    const rt = new ExtensionRuntime({ mohHome: dir });
     await rt.register(
       defineExtension({
         name: "explosive",
@@ -189,6 +191,7 @@ describe("dispatch through a runtime", () => {
           });
         },
       }),
+      { bundled: true },
     );
     const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
     const { drop, errors } = await rt.dispatchCompaction({ sections }, 50);
@@ -200,7 +203,7 @@ describe("dispatch through a runtime", () => {
 
   test("the runner applies the floor and renders the cut transcript", async () => {
     const dir = tempDir();
-    const rt = new ExtensionRuntime({ mohHome: dir, bundledTrust: true });
+    const rt = new ExtensionRuntime({ mohHome: dir });
     // Drop every offered section: the floor must reduce it.
     await rt.register(
       defineExtension({
@@ -211,6 +214,7 @@ describe("dispatch through a runtime", () => {
           ctx.onCompaction(({ sections: offered }) => ({ drop: offered.map((s) => s.id) }));
         },
       }),
+      { bundled: true },
     );
     const events = log();
     const appended: AgentEvent[] = [];
