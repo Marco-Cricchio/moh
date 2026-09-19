@@ -555,3 +555,88 @@ describe("jev-guard MPM seed rerank (#790)", () => {
     expect((judgments[0]!.payload as any).floor).toBe(0.5);
   });
 });
+
+describe("jev-guard skill suggestion (#793)", () => {
+  function skillsExtension(overrides: Record<string, unknown> = {}) {
+    const ctx = fakeCtx();
+    const notes: (string | null)[] = [];
+    (ctx as unknown as { setPromptNote: (t: string | null) => void }).setPromptNote = (t) => notes.push(t);
+    const ROSTER = [
+      { name: "tdd", description: "Test-driven development." },
+      { name: "releaser", description: "Cut a release." },
+    ];
+    let calls = 0;
+    const fetchImpl = (async (_url: unknown, init?: { body: string }) => {
+      calls += 1;
+      const body = JSON.parse(init?.body ?? "{}");
+      const state = String(body.state ?? "");
+      const answers: Record<string, unknown> = {};
+      for (const id of Object.keys(body.questions ?? {})) {
+        // Call 2 (relevance) answers high for tdd; call 1 gates on and ranks tdd.
+        answers[id] = { type: "noul", noul: id === "relevance:tdd" || id === "skill:tdd" || id === "needs_skill" ? 0.9 : 0.1 };
+      }
+      void state;
+      return okResponse(answers);
+    }) as unknown as typeof fetch;
+    const def: ExtensionDefinition = createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl,
+      classification: false,
+      skills: { roster: async () => ROSTER },
+      ...overrides,
+    });
+    return { ctx, def, notes, count: () => calls };
+  }
+
+  test("opt-in off (default): no beforeTurn hook from the use case, no calls", async () => {
+    const { ctx, def } = skillsExtension({ skills: undefined });
+    await def.setup(ctx);
+    expect(ctx.beforeTurnHooks).toHaveLength(0);
+  });
+
+  test("a suggestion rides setPromptNote and both calls are recorded", async () => {
+    const { ctx, def, notes, count } = skillsExtension();
+    await def.setup(ctx);
+    expect(ctx.beforeTurnHooks).toHaveLength(1);
+    for (const h of ctx.beforeTurnHooks) await h({ text: "write tests for the parser", turnIndex: 1, model: "a/big" });
+    expect(count()).toBe(2);
+    expect(notes.at(-1)).toContain("`tdd`");
+    const suggests = ctx.events.filter((e) => e.name === "jev_skill_suggest");
+    expect(suggests).toHaveLength(2);
+    expect((suggests[0]!.payload as any).call).toBe("rank");
+    expect((suggests[1]!.payload as any).suggested).toBe("tdd");
+  });
+
+  test("an empty roster: no call, no note", async () => {
+    const { ctx, def, notes, count } = skillsExtension({ skills: { roster: async () => [] } });
+    await def.setup(ctx);
+    for (const h of ctx.beforeTurnHooks) await h({ text: "hello", turnIndex: 1, model: "a/big" });
+    expect(count()).toBe(0);
+    expect(notes).toHaveLength(0);
+  });
+
+  test("a below-floor gate: one call, no note", async () => {
+    const ctx = fakeCtx();
+    const notes: (string | null)[] = [];
+    (ctx as unknown as { setPromptNote: (t: string | null) => void }).setPromptNote = (t) => notes.push(t);
+    let calls = 0;
+    const fetchImpl = (async (_url: unknown, init?: { body: string }) => {
+      calls += 1;
+      const body = JSON.parse(init?.body ?? "{}");
+      const answers: Record<string, unknown> = {};
+      for (const id of Object.keys(body.questions ?? {})) {
+        answers[id] = { type: "noul", noul: id === "needs_skill" ? 0.2 : 0.9 };
+      }
+      return okResponse(answers);
+    }) as unknown as typeof fetch;
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl,
+      classification: false,
+      skills: { roster: async () => [{ name: "tdd", description: "d" }] },
+    }).setup(ctx);
+    for (const h of ctx.beforeTurnHooks) await h({ text: "hello", turnIndex: 1, model: "a/big" });
+    expect(calls).toBe(1);
+    expect(notes).toHaveLength(0);
+  });
+});
