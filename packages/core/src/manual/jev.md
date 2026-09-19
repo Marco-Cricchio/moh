@@ -70,12 +70,16 @@ Nothing else about moh changes:
 
 ```
 $ moh jev status
-  jev        active (key …abcd, timeout 2500ms)
-  routing    off
-  injection  off
+  jev             active (key …abcd, timeout 2500ms)
+  routing         off
+  injection       off
+  quality gate    off
+  classification  on
+  rerank          off
+  skills          off
 
 $ moh jev status --json
-{"active":true,"keyHint":"…abcd","timeoutMs":2500,"routing":false,"injection":false}
+{"active":true,"keyHint":"…abcd","timeoutMs":2500,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}
 ```
 
 The command reads your configuration and never calls TypeSafe — the key was

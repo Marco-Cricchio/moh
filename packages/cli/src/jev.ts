@@ -21,10 +21,12 @@ export const JEV_USAGE = `usage: moh jev status [--json]
 
 The TypeSafe/Jev configuration state: a stored API key (which is what
 activates the bundled Jev extension — there is no separate toggle) and the
-per-use-case opt-ins (model routing, anti-injection, quality gate).
+per-use-case opt-ins (model routing, anti-injection, quality gate,
+prompt classification, seed rerank, skill suggestion).
 
   --json        one-line machine-readable JSON: active, keyHint (absent
-                when inactive), timeoutMs, routing, injection, lint
+                when inactive), timeoutMs, routing, injection, lint,
+                classification, rerank, skills
 
 Config read only: no call is ever made to TypeSafe. The key is validated
 when it is saved, from the TUI Settings panel (Jev / TypeSafe), and is
@@ -33,14 +35,15 @@ inactive Jev exits 0; a malformed "typesafe" section exits 2.`;
 
 /** The one column layout both status lines share (labels padded to the
  * widest, like the sibling reports). */
-const COL = 9;
+const COL = 14;
 
 function row(label: string, value: string): string {
   return `  ${label.padEnd(COL)}  ${value}\n`;
 }
 
 /** The `--json` object, key order pinned: `active`, `keyHint`, `timeoutMs`,
- * `routing`, `injection`. `keyHint` is omitted when inactive rather than
+ * `routing`, `injection`, `lint`, `classification`, `rerank`, `skills`.
+ * `keyHint` is omitted when inactive rather than
  * nulled — the key does not exist in that state. */
 function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
   return {
@@ -50,6 +53,9 @@ function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
     routing: cfg.routing,
     injection: cfg.injection,
     lint: cfg.lint,
+    classification: cfg.classification,
+    rerank: cfg.rerank,
+    skills: cfg.skills,
   };
 }
 
@@ -64,6 +70,9 @@ function renderStatus(cfg: ResolvedTypesafeConfig): string {
     row("routing", cfg.routing ? "on" : "off"),
     row("injection", cfg.injection ? "on" : "off"),
     row("quality gate", cfg.lint ? "on" : "off"),
+    row("classification", cfg.classification ? "on" : "off"),
+    row("rerank", cfg.rerank ? "on" : "off"),
+    row("skills", cfg.skills ? "on" : "off"),
   ];
   // The way back in, printed only when it is missing: with a key stored
   // there is nothing to activate.
