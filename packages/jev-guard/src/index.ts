@@ -20,8 +20,15 @@
  * than one ready-made definition.
  */
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
+import type {
+  CompactionHook,
+  CompactionHookContext,
+  CompactionHookResult,
+  CompactionSection,
+} from "@moh/extension";
 import { createJevClient, type JevClientOptions } from "./client";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
+import { createCompactionJudge } from "./compaction-judge";
 import { createRoutingJudge, type RoutingPool } from "./routing-judge";
 import { createInjectionJudge } from "./injection-judge";
 import { INJECTION_TOOLS } from "./injection";
@@ -89,6 +96,22 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         ...clientOptions,
         onJudgment: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }),
         onStatus: (text) => ctx.setStatus(text),
+      });
+
+      // ---- #792 compaction cut guide: one noul per section ------------
+      // ADR-0035: at compaction time (auto and forced paths alike), Jev
+      // answers "does this section hold unrecoverable content?" per turn
+      // body; the lows are handed back as drops. The core applies its own
+      // 60% survival floor afterwards — the judge cannot talk itself past
+      // it. No opt-in beyond the key: the judged state is section previews
+      // only (shape, never bodies), and compaction itself is automatic.
+      const compactionJudge = createCompactionJudge({
+        client,
+        append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+      });
+      ctx.onCompaction(async (ctxHook) => {
+        const verdict = await compactionJudge.judge(ctxHook.sections);
+        return { drop: verdict.drop };
       });
 
       // ---- #786 guardrail: the first use case --------------------------
@@ -317,6 +340,18 @@ export type {
   JevScoreQuestion,
 } from "./client";
 export { questions } from "./questions-core";
+export {
+  COMPACTION_CUT_QUESTION,
+  COMPACTION_CUT_QUESTIONS,
+  COMPACTION_CUT_THRESHOLDS,
+  type CompactionCutSectionVerdict,
+} from "./compaction";
+export {
+  createCompactionJudge,
+  type CompactionCutVerdict,
+  type CompactionJudge,
+  type JudgedSection,
+} from "./compaction-judge";
 export {
   INJECTION_INPUT_MAX_BYTES,
   INJECTION_QUESTIONS,

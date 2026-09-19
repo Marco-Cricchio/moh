@@ -145,20 +145,29 @@ export function applySectionDrops(
   sections: readonly CompactionSectionView[],
   drop: readonly string[],
 ): { droppedIds: Set<string>; keptByFloor: boolean } {
+  // The floor is measured over ALL offered sections: "at least 60% of the
+  // droppable text survives" is a property of the summary input, not of
+  // the extension's enthusiasm.
   const droppable = sections.filter((s) => drop.includes(s.id));
-  const total = droppable.reduce((sum, s) => sum + s.bytes, 0);
+  const total = sections.reduce((sum, s) => sum + s.bytes, 0);
   const dropped = new Set(drop);
   let keptByFloor = false;
   if (total > 0) {
-    const droppedBytes = () => droppable.filter((s) => dropped.has(s.id)).reduce((sum, s) => sum + s.bytes, 0);
-    while (droppedBytes() > total * (1 - COMPACTION_SECTION_FLOOR)) {
-      // Restore the smallest dropped section: the large cuts survive.
-      const candidates = droppable.filter((s) => dropped.has(s.id)).sort((a, b) => a.bytes - b.bytes);
-      const smallest = candidates[0];
-      if (!smallest) break;
-      dropped.delete(smallest.id);
-      keptByFloor = true;
+    const budget = total * (1 - COMPACTION_SECTION_FLOOR);
+    // Largest cuts have the highest claim: admit them in descending byte
+    // order while the floor's budget holds; a cut that does not fit is
+    // restored (the smallest claims yield first).
+    let admitted = 0;
+    for (const section of [...droppable].sort((a, b) => b.bytes - a.bytes)) {
+      if (admitted + section.bytes <= budget) {
+        admitted += section.bytes;
+      } else {
+        dropped.delete(section.id);
+        keptByFloor = true;
+      }
     }
+    // Nothing was actually reduced: the whole request fit the budget.
+    if (!keptByFloor) return { droppedIds: dropped, keptByFloor: false };
   }
   return { droppedIds: dropped, keptByFloor };
 }
@@ -242,6 +251,7 @@ export function compactionTranscript(
       flush();
     }
   }
+  flush();
   if (inTurn && turnIndex >= 0 && omit(turnIndex)) parts.push(`[section dropped: turn ${turnIndex}]`);
   let text = parts.join("\n");
   if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
