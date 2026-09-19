@@ -47,12 +47,21 @@ export function PermissionModal({
 
   if (!view) return null;
 
+  // #834: enabling a loaded extension is a question about *code*, not about
+  // a tool call — the copy says so, and the answer is yes/no (the extension
+  // ask slot already drops "always" and "edit").
+  const consent = view.tool === "extension" && view.extensionAsk !== undefined;
+
   return (
     <Dialog title=" permission " color={theme.warn}>
-      <Text>{mode === "vibe" ? "Quick check — may I do this?" : "A tool call needs your approval:"}</Text>
+      <Text>
+        {consent
+          ? "An extension wants to run in this session:"
+          : mode === "vibe" ? "Quick check — may I do this?" : "A tool call needs your approval:"}
+      </Text>
       {view.extensionAsk ? (
         <Text color={theme.warn}>
-          {`extension ask${view.extensionAsk.extension ? ` (${view.extensionAsk.extension})` : ""}${view.extensionAsk.reason ? `: ${view.extensionAsk.reason}` : ""}`}
+          {`${consent ? "extension enable" : "extension ask"}${view.extensionAsk.extension ? ` (${view.extensionAsk.extension})` : ""}${view.extensionAsk.reason ? `: ${view.extensionAsk.reason}` : ""}`}
         </Text>
       ) : null}
       <Text> </Text>

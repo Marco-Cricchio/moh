@@ -108,6 +108,17 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
     }
     return { tool, args, detail: detail.map(sanitizeForDisplay), rulePreview: null };
   }
+  // #834: the consent question for enabling a *client-loaded extension*.
+  // It is not a tool call, so it renders as the extension's own question
+  // (name, version, source path, and the fact that there is no sandbox) and
+  // it can never write a rule: an extension is enabled once, or not at all.
+  if (tool === "extension" && typeof a.name === "string") {
+    const detail = [`name: ${sanitizeForDisplay(a.name)}`];
+    if (typeof a.version === "string") detail.push(`version: ${sanitizeForDisplay(a.version)}`);
+    if (typeof a.file === "string") detail.push(`source: ${sanitizeForDisplay(a.file)}`);
+    detail.push("no sandbox: it runs with moh's own privileges");
+    return { tool, args, detail, rulePreview: null };
+  }
   let rendered: string;
   try {
     rendered = JSON.stringify(args) ?? String(args);

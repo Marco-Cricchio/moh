@@ -449,20 +449,85 @@ extension's note.
   proceeds, an unknown context method is simply absent. Fail-open, never an
   error.
 
-## Loading, lifecycle, failure
+## Where a client loads extensions from
+
+Everything above is what an extension *can* do; this is what decides
+whether it runs at all. A client (`moh itself, in all its forms`) resolves
+two sources at session start and loads them through the same runtime:
+
+| Source | Meaning |
+| --- | --- |
+| `~/.moh/extensions/` | your own dotdir: every `.ts`, `.mts`, `.js`, `.mjs` file in it, sorted by name |
+| `moh.json` `"extensions": ["./extensions/x.ts"]` | the project **proposes**; it never activates anything by itself |
+
+The order is the load order — the dotdir first (sorted), then the project's
+declarations in file order — and since "first decision wins" is the rule for
+every hook, that order is part of the contract.
+
+**Consent is content-bound.** An extension is arbitrary code running
+in-process, so the first load asks: a modal in the TUI naming the
+extension, its version and its source path, and stating that there is no
+sandbox. A `true` answer is remembered in `~/.moh/extensions.json` against
+the **resolved path plus a SHA-256 of the file's bytes** — so the same file
+loads silently afterwards, and editing it asks again (the hash changed).
+There is nothing to remember a *name*: two files claiming the same
+extension name are two different pieces of code.
+
+**A cloned repository cannot activate code on your machine.** A
+`moh.json` declaration that you never allowed is not loaded, in any client.
+This is the same precedent as `typesafe` (user config only) and `mcpTrust`
+(the repo's own `trusted` field is ignored).
+
+**Headless fails closed.** `moh run`, `moh serve` and `moh compact` have
+nobody to ask: an extension that was never enabled is skipped with a visible
+`extension_failed { reason: "consent" }` in the log and one line on stderr.
+The session continues and the exit code is untouched.
+
+**There is no sandbox.** An extension runs with the same privileges as moh:
+it can read `~/.moh/config`, your credentials and the network. Consent is
+the only boundary, and it is a one-time yes for a specific set of bytes —
+read the file before you answer.
+
+**Dependencies are not installed yet.** An extension that declares
+`dependencies` is refused loudly (`extension_failed { reason:
+"deps_unauthorized" }`): no host installs them in v1, and a half-promise
+would be worse than an honest refusal.
+
+**Hot-reload is on for loaded files.** A session watches what it loaded;
+editing a file re-imports it, re-runs `setup()` with the previous
+`ctx.state` seeded in, and re-asks consent when the bytes changed. A failed
+reload keeps the previous instance and is visible on both channels (the log
+and the host's warning line).
+
+## Loading, lifecycle, failure (library users)
 
 - Loading goes through `ExtensionRuntime.registerFile(file)` (dynamic,
-  cache-busted import) or `register(def)` (in-memory). For file modules,
-  the runtime binds enable consent to the resolved absolute path and a SHA-256
-  hash of its contents, persisted in `<mohHome>/extensions.json`. Editing a
-  file or loading another file that claims the same name requires consent
-  again; an unchanged file loads silently. The approved npm dependency list
-  is bound to that same content identity and is authorized again after a
-  changed module requests dependencies. Both are host-supplied seams; with
-  no consent seam and nothing stored, the load is refused.
-- Hot-reload: registered files are watched; on change the module is
-  re-imported and `setup()` re-runs with the previous `ctx.state` seeded
-  in. A failed reload keeps the previous instance running (warning only).
+  cache-busted import), `registerFiles(files)` (several files in order, as
+  one pending registration) or `register(def)` (in-memory). For file
+  modules, the runtime binds enable consent to the resolved absolute path
+  and a SHA-256 hash of its contents, persisted in
+  `<mohHome>/extensions.json`. Editing a file or loading another file that
+  claims the same name requires consent again; an unchanged file loads
+  silently. The approved npm dependency list is bound to that same content
+  identity and is authorized again after a changed module requests
+  dependencies. Both are host-supplied seams; with no consent seam and
+  nothing stored, the load is refused.
+- `register(def, { bundled: true })` marks code the *host shipped*
+  (first-party bundled code, the Jev extension): consent and dependency
+  authorization are skipped, because those bytes never came from the user's
+  disk. Trust is a property of the registration, not of the runtime, so a
+  host can mix bundled and path-loaded definitions in one runtime — never
+  set it for a file.
+- Hot-reload: `startWatch()` watches the registered files; on change the
+  module is re-imported and `setup()` re-runs with the previous `ctx.state`
+  seeded in. A failed reload keeps the previous instance running and is
+  reported on both channels (the `extension_failed` log event and the
+  `onWarning` line). A client's session starts the watch itself and stops it
+  at dispose.
+- `ready()` resolves when every registration started so far has settled;
+  file loads register their promise synchronously, so a caller that awaits
+  `ready()` before its first turn never runs with half its extensions
+  loaded.
 - Failure model: a failed load is a warning, never a session abort. The
   runtime records `extension_loaded` / `extension_failed` events and the
   session continues without the extension. An extension whose dispatch

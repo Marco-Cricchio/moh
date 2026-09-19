@@ -32,12 +32,18 @@ import {
   type TurnConfirmOutcome,
   type AskUserSetResult,
   type AssemblyError,
+  type ExtensionConsentRequest,
+  type PermissionAskContext,
   type Provider,
   type Tool,
   type TrackerBackend,
 } from "@moh/core";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+/** #834: the modal tool id for an extension's enable consent. It is never a
+ * tool call: it exists so the ask renders as a question about code. */
+export const EXTENSION_CONSENT_TOOL = "extension";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -52,9 +58,11 @@ export interface OpenSessionOptions {
   /** Best-effort warning from automatic push-time publication (#437). */
   onHandoffWarning?: (message: string) => void;
   home?: string;
-  /** Consent seam for the TUI permission modal (#33). */
+  /** Consent seam for the TUI permission modal (#33). The optional
+   * `context` marks a request that is not a tool call: an AskUser-level
+   * question only (ADR-0031 extension asks, #834 extension enable consent). */
   onPermissionRequest?:
-    | ((tool: string, args: unknown) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no");
+    | ((tool: string, args: unknown, context?: PermissionAskContext) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no");
   /** Interactive question channel for the ask_user tool (#70). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
   /** ADR-0033 §4 (#791): the pre-send confirmation modal's seam. */
@@ -99,6 +107,18 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
               // MCP trust has no "always_for_site" — map it to plain always.
               return Promise.resolve(answer).then((a) => (a === "always_for_site" ? "always" : a));
             },
+            // #834: enabling a loaded extension rides the same modal — it is
+            // the question the user must answer before arbitrary in-process
+            // code runs, so it names the extension, its version and its
+            // source path, and it resolves to a plain yes/no (never a rule).
+            onExtensionConsent: (request: ExtensionConsentRequest) =>
+              Promise.resolve(
+                options.onPermissionRequest!(
+                  EXTENSION_CONSENT_TOOL,
+                  { name: request.name, version: request.version, ...(request.file ? { file: request.file } : {}) },
+                  { source: "extension", extension: request.name },
+                ),
+              ).then((answer) => answer !== "no"),
           }
         : {}),
       ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
