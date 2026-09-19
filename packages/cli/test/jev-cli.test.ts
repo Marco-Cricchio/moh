@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TYPESAFE_SETTINGS_HINT } from "@moh/core";
+import { TYPESAFE_SETTINGS_HINT } from "@moh/jev-guard";
 
 const TMP_ROOT = join(tmpdir(), "moh-jev-cli");
 const KEY = "ts_live_0000secret9f2a";

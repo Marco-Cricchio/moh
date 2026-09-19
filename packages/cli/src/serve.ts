@@ -23,6 +23,7 @@ import {
   type AgentSession,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
+import { BUNDLED_EXTENSION_SOURCES } from "@moh/tui/bundled-extensions";
 
 export const SERVE_USAGE = `usage: moh serve [options]
 
@@ -286,6 +287,8 @@ export async function serveCommand(options: ServeOptions): Promise<number> {
     try {
       assembled = sessionFromConfig({
         cwd,
+        // #826: the bundled first-party extensions this client ships.
+        bundledExtensions: BUNDLED_EXTENSION_SOURCES,
         ...(options.home ? { home: options.home } : {}),
         ...(cassetteProvider ? { provider: cassetteProvider } : {}),
         ...(providerRef ? { providerRef } : {}),

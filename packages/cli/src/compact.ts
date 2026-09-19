@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { sessionFromConfig, SessionStore, listSessionSummaries } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
+import { BUNDLED_EXTENSION_SOURCES } from "@moh/tui/bundled-extensions";
 
 export const COMPACT_USAGE = `usage: moh compact [--session <file>] [--cwd <dir>]
 
@@ -71,6 +72,8 @@ export async function compactCommand({
   // compaction itself makes no tool calls).
   const assembled = sessionFromConfig({
     cwd,
+    // #826: the bundled first-party extensions this client ships.
+    bundledExtensions: BUNDLED_EXTENSION_SOURCES,
     ...(home ? { home } : {}),
     overrides: { store, resumeConsume: false },
   });

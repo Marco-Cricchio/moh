@@ -35,11 +35,10 @@ import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
 import type { ExtensionConsentRequest } from "../extensions";
 import { extensionSourceFiles } from "../extension-source";
+import { resolveBundledExtensions, type BundledExtensionSource, type BundledWiring } from "../bundled-extensions";
 import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
-import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
 import { createModelPool } from "../model-pool";
-import { createJevGuardExtension, JEV_GUARD_NAME } from "@moh/jev-guard";
 import type { PermissionAskContext, PermissionsConfig } from "./config";
 
 /**
@@ -162,6 +161,15 @@ export interface SessionFromConfigOptions {
   /** Explicit provider reference override (CLI `--provider`): "mock", a custom id, or endpoint/model-id. */
   providerRef?: string;
   consent?: SessionConsent;
+  /**
+   * #826: the bundled first-party extensions this client mounts. A source
+   * declares how to detect activation and how to build the definition; the
+   * core resolves and hosts it. Absent (the default) = no bundled extension
+   * is registered at all, which is what a library user embedding the core
+   * gets unless they mount one. The desktop/client entry point supplies the
+   * first-party sources (each one lives in its own workspace package).
+   */
+  bundledExtensions?: readonly BundledExtensionSource[];
   overrides?: SessionOverrides;
 }
 
@@ -224,21 +232,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   const o = options.overrides ?? {};
   const mohHome = join(home, ".moh");
   // The user config (guardian-owned) is read once and used by every
-  // section that lives there: `typesafe` here, MCP trust below.
+  // section that lives there: the bundled extensions' activation predicate
+  // and MCP trust below.
   const userFile = userConfigFile(home);
 
-  // #784: the bundled Jev extension is activated by the *user* config's
-  // `typesafe.apiKey` — read here, in the one assembly path every client
-  // uses (TUI, `moh run`, `moh serve`, `moh compact`). No key = nothing is
-  // registered and one informational line is recorded; no wizard, no
-  // prompt, no warning. A broken `typesafe` section fails loudly above,
-  // like a broken `provider` section.
-  let typesafe;
-  try {
-    typesafe = resolveTypesafeConfig(readTypesafeConfig(userFile));
-  } catch (e) {
-    return assemblyError("config", e);
-  }
   const notes: string[] = [];
   let extensions: ExtensionRuntime | undefined;
   // #834: the declared source of client-loadable extensions — the user's
@@ -254,7 +251,13 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // one (headless), a not-yet-enabled extension is refused and the only
   // channel left — stderr — carries the line the log would have shown.
   const onExtensionConsent = options.consent?.onExtensionConsent;
-  if (typesafe.active || extensionSources.length > 0) {
+  // #826: the bundled sources the client mounted. The core asks each one
+  // whether it is active (an injected reader over the user config) and hosts
+  // the ones that are; it never learns what any of them is. No mounted
+  // source (a bare library user, or a client that ships none) means the core
+  // assembles with no first-party extension at all — the default.
+  const bundledSources = options.bundledExtensions ?? [];
+  if (bundledSources.length > 0 || extensionSources.length > 0) {
     // One runtime for both doors: bundled first-party code registers with
     // `{ bundled: true }` (no consent — the host shipped the bytes),
     // path-loaded files go through the content-bound consent.
@@ -268,55 +271,42 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         : { onWarning: (message: string) => process.stderr.write(`moh: ${message}\n`) }),
     });
   }
-  if (extensions && typesafe.active) {
+
+  // Capabilities a bundled extension contributes to the core (the MPM
+  // per-turn gate and the seed-rerank rescue): the core owns the slots, the
+  // extension owns the keys and the semantics behind them.
+  let bundledWiring: BundledWiring | undefined;
+  if (extensions && bundledSources.length > 0) {
     // #787: the core resolves *which models this session can reach* (lazy —
     // only the router asks); the extension owns the tiers and the judgment.
-    // `enabled` is the config opt-in and the router's starting state, not a
-    // gate: `/routing on` can enable it for a session that never opted in.
-    // An off router costs nothing (no call, and it does not even resolve
-    // the pool).
-    const routing = { pool: createModelPool(config.endpoints ?? []), labels: typesafe.tiers };
-    // Fire-and-forget: `AgentSession` awaits `ready()` before its first
-    // turn, so no hook is ever missing from a tool call.
-    void extensions.register(
-      createJevGuardExtension({
-        apiKey: typesafe.apiKey!,
-        ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
-        routing,
-        enabled: typesafe.routing,
-        // #791: the anti-injection opt-in, off unless the user asked.
-        injection: typesafe.injection,
-        // #788: prompt classification — on unless explicitly turned off.
-        classification: typesafe.classification,
-        // #790: the MPM seed rerank, off unless the user asked.
-        rerank: typesafe.rerank,
-        // #793: per-turn skill suggestion, off unless the user asked.
-        // The roster is resolved lazily, at each judged turn, through the
-        // same discovery the prompt's skills index uses (bundled
-        // first-party + user skills, project wins on clash).
-        ...(typesafe.skills
-          ? {
-              skills: {
-                roster: () =>
-                  Promise.resolve(
-                    discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map(
-                      (s) => ({ name: s.name, description: s.description }),
-                    ),
-                  ),
-              },
-            }
-          : {}),
-        // #789: the end-of-task quality gate, off unless the user asked
-        // (it sends the changed code's diff to TypeSafe).
-        ...(typesafe.lint ? { lint: { root: options.cwd } } : {}),
-      }),
-      // Bundled first-party code: the host shipped these bytes, so the
-      // content-bound consent (a question about the user's disk) does not
-      // apply to them.
-      { bundled: true },
-    );
-  } else {
-    notes.push("jev: inactive (no api key)");
+    // #793: the roster is resolved lazily, at each judged turn, through the
+    // same discovery the prompt's skills index uses (bundled first-party +
+    // user skills, project wins on clash). Both are capabilities any
+    // bundled extension may ask for — never one vendor's shapes.
+    const resolution = resolveBundledExtensions({
+      descriptors: bundledSources,
+      runtime: extensions,
+      configFile: userFile,
+      readConfig: (file) => readFileSync(file, "utf8"),
+      context: {
+        mohHome,
+        cwd: options.cwd,
+        endpoints: config.endpoints ?? [],
+        modelPool: createModelPool(config.endpoints ?? []),
+        skillRoster: () =>
+          Promise.resolve(
+            discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map((s) => ({
+              name: s.name,
+              description: s.description,
+            })),
+          ),
+      },
+    });
+    bundledWiring = resolution.wiring;
+    // An inactive source describes itself ("no API key" and the like): the
+    // core has no words for an extension's precondition, so it does not
+    // invent any — it logs what the extension said, or nothing.
+    notes.push(...resolution.notes);
   }
 
   // The declared source (#834): its files load through the same runtime, in
@@ -441,34 +431,13 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         ? {
             mpm: {
               ...mpm,
-              // #788: when the Jev classification is active it publishes
-              // its codebase-oriented opinion per turn; wire it as the
-              // per-turn eligibility gate (a lazy read — the extension
-              // writes the flag on each `beforeTurn`).
-              ...(typesafe.active && typesafe.classification
-                ? {
-                    turnGate: () => {
-                      const read = extensions?.instances.find((i) => i.def.name === JEV_GUARD_NAME)?.state[
-                        "mpmGate"
-                      ];
-                      return read === true ? true : read === false ? false : undefined;
-                    },
-                  }
-                : {}),
-              // #790: when the rerank opt-in is on, the extension publishes
-              // its judge as `state.rerank`; wire it as the orientation's
-              // over-threshold rescue hook (a lazy read — the hook exists
-              // only after the extension's setup ran, and the session
-              // awaits `ready()` before its first turn).
-              ...(typesafe.active && typesafe.rerank
-                ? {
-                    rerank: (req: import("../mpm/orientation").RerankRequest) => {
-                      const hook = extensions?.instances.find((i) => i.def.name === JEV_GUARD_NAME)?.state["rerank"];
-                      if (typeof hook !== "function") return Promise.resolve(null);
-                      return (hook as (r: import("../mpm/orientation").RerankRequest) => Promise<import("../mpm/orientation").RerankResponse>)(req);
-                    },
-                  }
-                : {}),
+              // #826: the capabilities an active bundled extension
+              // contributed (a per-turn eligibility gate, an
+              // over-threshold rerank rescue). The core owns the slots and
+              // the plumbing; the extension owned the keys and the meaning,
+              // and told the core which slot it fills.
+              ...(bundledWiring?.turnGate ? { turnGate: bundledWiring.turnGate } : {}),
+              ...(bundledWiring?.rerank ? { rerank: bundledWiring.rerank } : {}),
             },
           }
         : {}),

@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": ["bun-types"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "../core/src/assets.d.ts"]
 }

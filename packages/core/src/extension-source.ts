@@ -10,7 +10,7 @@
  * - **`moh.json "extensions"`** — the project **proposes**, the user
  *   disposes: a declared path is offered through the runtime's one-time
  *   consent (resolved path + content hash) like any other file. The
- *   precedent is this repo's own (`typesafe` lives in the user config for
+ *   precedent is this repo's own (an API key lives in the user config for
  *   the same reason, `mcpTrust` ignores the repo's own `trusted` field).
  *
  * Everything loaded here is arbitrary in-process code: a client with no
