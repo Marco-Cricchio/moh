@@ -86,6 +86,9 @@ await session.dispose();
 - `appendToPrompt(note)` — append to the trailing `extension_notes`
   system-prompt section (append-only; you can never rewrite other
   sections).
+- `setPromptNote(text | null)` — set (or clear) your extension's per-turn
+  note, rendered in the `turn_notes` section; see "The two prompt doors"
+  below.
 - Hook registration: `onSessionStart`, `onSessionEnd`, `beforeTurn`,
   `beforeModelCall`, `onToolCall`, `onToolResult`, `onCompaction`,
   `onEvent`, `afterTurn`.
@@ -377,13 +380,41 @@ Reach for `setStatus` for a statement about *now* ("the upstream service is
 down, I recovered") and `appendEvent` for anything durable you want in
 replay.
 
+## The two prompt doors (durable note vs per-turn hint)
+
+Two context methods put your extension's words in the system prompt, and
+choosing between them is the whole decision:
+
+- **`ctx.appendToPrompt(note)`** appends to the trailing `extension_notes`
+  section. The note is **durable**: it is part of your extension's
+  identity, written at `setup` time, read at every prompt assembly, and
+  there is no clear or replace — it stays for the session. This is the
+  door for identity-level text ("this session is driven by the Foo
+  service").
+- **`ctx.setPromptNote(text | null)` (ADR-0036)** sets your extension's
+  note for the **current turn**. One note per extension, replacing: a
+  second call overwrites, `null` removes. The note is **ephemeral** — the
+  core clears every turn note at the start of the next turn (before the
+  `beforeTurn` hooks run), so an extension that wants a note writes it
+  every turn, and an extension that stops writing simply stops being
+  represented. It renders in the dedicated `turn_notes` section, after the
+  project's instruction documents and before the conversation context —
+  subordinate to the project's own rules, by construction. An oversized
+  note is truncated with a marker; a note set mid-turn is never
+  retroactively injected into calls already sent.
+
+`setPromptNote` is observation and suggestion only: the note reaches the
+model, and the model may ignore it. It is never a permission, and it
+cannot touch the system prompt, the project instructions, or another
+extension's note.
+
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.4** (1.1 added `ask` and the two observation
+  current version is **1.5** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
-  `onCompaction`).
+  `onCompaction`; 1.5 added `setPromptNote`).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

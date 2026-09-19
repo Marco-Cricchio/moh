@@ -195,3 +195,28 @@ describe("MPM orientation reasoning seeds in the session (#759)", () => {
     expect(session.mpmSnapshot()?.fallbackReason).toBe("no-eligible-seed");
   });
 });
+
+describe("#788 MPM per-turn classifier gate in the session", () => {
+  test("a gate returning false suppresses the plan; the mpm_query tool stays; undefined never suppresses", async () => {
+    const { root, service } = await setup();
+    let opinion: boolean | undefined = false;
+    const { provider, seen } = capture();
+    const session = createSession({
+      provider,
+      cwd: root,
+      mpm: { service, turnGate: () => opinion },
+    });
+    await session.send("please work on src/date.ts");
+    expect(seen()).not.toContain("Project map orientation");
+    // The gate touches only the per-turn plan: the tool is still offered.
+    expect(seen()).toContain("mpm_query");
+    expect(session.tools.mpm_query).toBeDefined();
+    // Snapshot diagnostics say why.
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("classifier-gated");
+
+    // No opinion: the plan flows exactly as without the gate.
+    opinion = undefined;
+    await session.send("please work on src/date.ts");
+    expect(seen()).toContain("Project map orientation");
+  });
+});

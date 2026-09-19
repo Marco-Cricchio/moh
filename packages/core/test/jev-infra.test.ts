@@ -428,6 +428,7 @@ describe("the typesafe config block (#784)", () => {
       timeoutMs: 2500,
       routing: false,
       injection: false,
+      classification: true,
       tiers: {},
     });
     expect(resolveTypesafeConfig({ apiKey: "   " })).toMatchObject({ active: false, timeoutMs: 2500 });

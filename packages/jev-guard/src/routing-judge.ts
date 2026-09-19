@@ -7,7 +7,7 @@
  * inert-because-there-is-nothing-to-choose (fewer than two tiers) — and a
  * failed call produces no judgment, no switch and no event.
  */
-import type { JevAnswer, JevClient } from "./client";
+import type { JevAnswer, JevClient, JevJudgmentMeta, JevQuestion } from "./client";
 import {
   assignTiers,
   decideRouting,
@@ -57,6 +57,24 @@ export interface RoutingJudgeHost {
    * overruling it — visibly, and without paying for a judgment.
    */
   onMismatch?: (currentModel: string, expected: string) => void;
+  /**
+   * #788: a co-riding use case. When the router makes its per-turn call it
+   * composes the rider's questions into the same request (one state, one
+   * round trip) and hands the full answers map to the rider. A rider never
+   * changes the routing decision: its answers are read by its own judge.
+   */
+  rider?: {
+    /** The extra questions, composed under these ids. */
+    questions: () => Record<string, JevQuestion>;
+    /** Called with the full answers map on every completed routing call. */
+    onAnswers: (answers: Record<string, JevAnswer>, meta: JevJudgmentMeta, text: string) => void;
+    /**
+     * Called when the router is about to spend its (shared) request for
+     * the turn — success or failure alike. The rider marks the turn as
+     * covered so its own-call path never double-judges.
+     */
+    onSharedCall?: () => void;
+  };
 }
 
 /** What one judged turn produced. */
@@ -188,6 +206,11 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       state.mismatchAnnounced = false;
       const currentTier = tierOfModel(tiers, currentModel);
       const message = truncateToBytes(text);
+      const riderQuestions = host.rider?.questions() ?? {};
+      // #788: a rider on this turn means the shared request is *this*
+      // call, whatever its outcome — the rider must not spend a second
+      // request on a turn that already cost one round trip.
+      host.rider?.onSharedCall?.();
       // The decision is taken inside `record` so the recorded payload and
       // the action come from one computation — the client calls it exactly
       // once per completed judgment, and never for a failure. `counts`
@@ -195,8 +218,12 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       let decided: (Omit<RoutingVerdict, "message"> & { counts: boolean }) | undefined;
       const outcome = await deps.client.judge({
         state: message,
-        questions: routingQuestions(tiers),
+        questions: { ...routingQuestions(tiers), ...riderQuestions },
         record: (answers: Record<string, JevAnswer>, meta) => {
+          // #788: the co-riding consumer reads its own answers from the
+          // same call before this record is built — one round trip, two
+          // judgments. A rider cannot alter the routing decision.
+          host.rider?.onAnswers(answers, meta, text);
           const answer = answers.difficulty;
           const answered = answer?.type === "choice" ? tierFromAnswer(answer.choice) : undefined;
           const confidence = answer?.type === "choice" ? answer.confidence : 0;

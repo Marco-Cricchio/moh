@@ -287,3 +287,17 @@ describe("MpmOrientation ambiguity and stats (#759)", () => {
     }
   });
 });
+
+describe("#788 classifier gate", () => {
+  test("noteGated records the classifier-gated fallback reason", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      expect(o.lastFallbackReason).toBeNull();
+      o.noteGated();
+      expect(o.lastFallbackReason).toBe("classifier-gated");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

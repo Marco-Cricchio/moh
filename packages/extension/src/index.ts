@@ -35,6 +35,12 @@
  * rewrite or reorder; user messages and chrome are structurally absent
  * from what it sees, and the core enforces a survival floor. An older
  * runtime never calls it — compaction proceeds exactly as before.
+ *
+ * 1.5 (ADR-0036): `setPromptNote` — one per-turn prompt note per
+ * extension, replacing, auto-cleared at each turn start; rendered in the
+ * `turn_notes` section after the durable extension notes. An older
+ * runtime never surfaces it (the note is silently absent), which is a
+ * no-op for the extension.
  */
 
 /**
@@ -42,7 +48,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.4";
+export const MOH_EXTENSION_API_VERSION = "1.5";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -292,6 +298,19 @@ export interface ExtensionSetupContext {
    * never model context.
    */
   appendEvent(event: ExtensionEventInput): void;
+  /**
+   * Set this extension's prompt note for the current turn (ADR-0036,
+   * apiVersion 1.5); `null` removes it. One note per extension, replacing:
+   * a second call overwrites the first. The note is ephemeral — the core
+   * clears every turn note at the start of the next turn, so an extension
+   * that wants a note writes it every turn. It renders in the dedicated
+   * `turn_notes` section, after the project's instruction documents and
+   * before the conversation context; oversized notes are truncated by the
+   * core with a marker. Observation and suggestion only — never a
+   * permission, never a way to touch the system prompt, the project
+   * instructions, or another extension's note.
+   */
+  setPromptNote(text: string | null): void;
   /**
    * Publish this extension's footer status (ADR-0032); `null` clears it.
    * One status per extension, replaced on each call, ephemeral (never

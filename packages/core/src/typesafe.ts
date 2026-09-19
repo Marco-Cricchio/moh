@@ -38,6 +38,13 @@ export const typesafeConfigSchema = z.object({
   routing: z.boolean().optional(),
   /** Anti-injection opt-in (#791). Default false — it sends your message. */
   injection: z.boolean().optional(),
+  /**
+   * Prompt classification (#788). Default true: the judged state is the
+   * last user message (≤ 2 KiB) only, the output is a hint subordinate to
+   * the project's instructions, and it is what makes the MPM per-turn gate
+   * meaningful. Set false to turn it (and the gate) off.
+   */
+  classification: z.boolean().optional(),
   /** Tier labels for routing (#787): "<endpoint>/<model-id>" → tier. */
   tiers: z.record(z.string().min(1), z.enum(TYPESAFE_TIERS)).optional(),
 });
@@ -63,6 +70,13 @@ export interface ResolvedTypesafeConfig {
   /** Explicit tier labels (#787): `<endpoint>/<model-id>` → tier. `{}` when
    * none — the routing code falls back to its price heuristic. */
   tiers: Record<string, TypesafeTier>;
+  /**
+   * Prompt classification (#788). On by default: the judged state is the
+   * last user message (≤ 2 KiB) only, and the hint it yields is subordinate
+   * to the project's own instructions. It is also what makes the MPM
+   * per-turn gate meaningful, so it drives both consumers.
+   */
+  classification: boolean;
 }
 
 /**
@@ -94,6 +108,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     timeoutMs: block?.timeoutMs ?? TYPESAFE_TIMEOUT_MS_DEFAULT,
     routing: block?.routing === true,
     injection: block?.injection === true,
+    classification: block?.classification !== false,
     tiers: block?.tiers ?? {},
   };
 }

@@ -28,6 +28,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
   const hooks: Record<string, unknown> = {
     state: {},
     appendToPrompt: () => {},
+    setPromptNote: () => {},
     appendEvent: (event: { name: string; payload?: unknown }) => (hooks as unknown as FakeCtx).events.push(event),
     setStatus: (text: string | null) => (hooks as unknown as FakeCtx).statuses.push(text),
     onSessionStart: (h: () => void) => (hooks as unknown as FakeCtx).sessionStartHooks.push(h),
@@ -190,7 +191,11 @@ describe("jev-guard routing (#787)", () => {
 
   test("no routing option means no beforeTurn hook: zero cost", async () => {
     const ctx = fakeCtx();
-    await createJevGuardExtension({ apiKey: "sk-test", fetchImpl: fetchOk(answers("potente", 0.9)) }).setup(ctx);
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: fetchOk(answers("potente", 0.9)),
+      classification: false,
+    }).setup(ctx);
     expect(ctx.beforeTurnHooks).toHaveLength(0);
   });
 
@@ -201,6 +206,7 @@ describe("jev-guard routing (#787)", () => {
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
       enabled: true,
+      classification: false,
     }).setup(ctx);
     expect(ctx.beforeTurnHooks).toHaveLength(1);
     const hook = ctx.beforeTurnHooks[0]!;
@@ -220,6 +226,7 @@ describe("jev-guard routing (#787)", () => {
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
       enabled: true,
+      classification: false,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
     const emit = (event: { type: string } & Record<string, unknown>) => ctx.eventHooks.forEach((h) => h({ event }));
@@ -283,6 +290,7 @@ describe("jev-guard routing (#787)", () => {
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
       enabled: true,
+      classification: false,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
     const emit = (event: { type: string } & Record<string, unknown>) => ctx.eventHooks.forEach((h) => h({ event }));
@@ -333,6 +341,7 @@ describe("jev-guard routing (#787)", () => {
       fetchImpl: fetchOk(answers("potente", 0.9)),
       routing: { pool: async () => pool },
       enabled: true,
+      classification: false,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
 
@@ -347,11 +356,11 @@ describe("jev-guard routing (#787)", () => {
     expect(notices).toHaveLength(1);
     expect(notices[0]!.payload).toMatchObject({ current: "a/handpicked", expected: "a/big" });
     // No judgment was spent on the mismatched turns.
-    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(2);
+    expect(routingJudgments(ctx)).toHaveLength(2);
 
     // Back on the router's pick: judging resumes normally.
     await hook(turn("design again", 5, "a/big"));
-    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(3);
+    expect(routingJudgments(ctx)).toHaveLength(3);
   });
 
   test("a failed Jev call routes nothing and records nothing", async () => {
@@ -361,11 +370,117 @@ describe("jev-guard routing (#787)", () => {
       fetchImpl: (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch,
       routing: { pool: async () => pool },
       enabled: true,
+      classification: false,
     }).setup(ctx);
     const hook = ctx.beforeTurnHooks[0]!;
 
     expect(await hook(turn("design", 1))).toBeUndefined();
     expect(await hook(turn("design more", 2))).toBeUndefined();
     expect(ctx.events.filter((e) => e.name === "jev_judgment")).toEqual([]);
+  });
+});
+
+const CLS = {
+  task_type: { type: "choice", choice: "bugfix", probabilities: { bugfix: 0.9 }, confidence: 0.9 },
+  codebase_oriented: { type: "noul", noul: 0.9 },
+};
+const CLS_CONVERSATIONAL = {
+  task_type: { type: "choice", choice: "question", probabilities: { question: 0.9 }, confidence: 0.9 },
+  codebase_oriented: { type: "noul", noul: 0.1 },
+};
+const ROUTE = {
+  difficulty: { type: "choice", choice: "bilanciato", probabilities: { bilanciato: 0.9 }, confidence: 0.9 },
+  needs_context: { type: "noul", noul: 0.1 },
+};
+
+/** Counts only the routing use case's judgment events. */
+function routingJudgments(ctx: FakeCtx) {
+  return ctx.events.filter((e) => e.name === "jev_judgment" && (e.payload as any)?.useCase === "routing");
+}
+
+function classificationExtension(overrides: Record<string, unknown> = {}) {
+  const ctx = fakeCtx();
+  let calls = 0;
+  const conversational = overrides.conversational === true;
+  delete (overrides as Record<string, unknown>).conversational;
+  const fetchImpl = (async (_url: unknown, init?: { body: string }) => {
+    calls += 1;
+    const body = JSON.parse(init?.body ?? "{}");
+    const shared = Object.keys(body.questions ?? {}).includes("difficulty");
+    const cls = conversational ? CLS_CONVERSATIONAL : CLS;
+    return okResponse({ ...(shared ? { ...ROUTE, ...cls } : cls) });
+  }) as unknown as typeof fetch;
+  const def: ExtensionDefinition = createJevGuardExtension({
+    apiKey: "sk-test",
+    fetchImpl,
+    routing: { pool: async () => ({ models: [{ ref: "a/m1", price: 1 }, { ref: "a/m2", price: 5 }] }) },
+    enabled: true,
+    ...overrides,
+  });
+  return { ctx, def, count: () => calls };
+}
+
+/** Captures the note the extension sets via setPromptNote. */
+function withNoteCapture(ctx: ReturnType<typeof fakeCtx>) {
+  (ctx as unknown as { notes: (string | null)[] }).notes = [];
+  const original = ctx.setPromptNote.bind(ctx);
+  (ctx as unknown as { setPromptNote: (t: string | null) => void }).setPromptNote = (t: string | null) => {
+    (ctx as unknown as { notes: (string | null)[] }).notes.push(t);
+    original(t);
+  };
+  return (ctx as unknown as { notes: (string | null)[] }).notes;
+}
+
+describe("jev-guard prompt classification (#788)", () => {
+  test("on by default: one own-call judgment per turn, hint set, gate published", async () => {
+    const { ctx, def } = classificationExtension();
+    const def2 = { ...def, setup: (c: ExtensionSetupContext) => def.setup!(c) };
+    await def2.setup(ctx);
+    const notes = withNoteCapture(ctx);
+    const beforeTurn = ctx.beforeTurnHooks.at(-1)!;
+    await beforeTurn({ text: "login crashes when the token expires", turnIndex: 1, model: "a/m1" });
+    expect(notes.at(-1)).toContain("reproduce the failure");
+    expect((ctx.state as Record<string, unknown>).mpmGate).toBe(true);
+    const judgment = ctx.events.find((e) => e.name === "jev_judgment" && (e.payload as any)?.useCase === "classification");
+    expect(judgment).toBeDefined();
+    expect((judgment!.payload as any).sharedRequest).toBe(false);
+  });
+
+  test("with routing on, exactly one call serves both consumers", async () => {
+    const { ctx, def, count } = classificationExtension();
+    await def.setup!(ctx);
+    const notes = withNoteCapture(ctx);
+    const routingTurn = ctx.beforeTurnHooks.find((h) => h.constructor.name !== "AsyncFunction") ?? ctx.beforeTurnHooks[0];
+    // Run ALL registered beforeTurn hooks in order, like the core does.
+    for (const hook of ctx.beforeTurnHooks) {
+      await hook({ text: "fix the login crash", turnIndex: 1, model: "a/m1" });
+    }
+    expect(count()).toBe(1);
+    const judgment = ctx.events.find((e) => e.name === "jev_judgment" && (e.payload as any)?.useCase === "classification");
+    expect((judgment!.payload as any).sharedRequest).toBe(true);
+    expect(notes.at(-1)).toContain("reproduce the failure");
+    expect((ctx.state as Record<string, unknown>).mpmGate).toBe(true);
+    void routingTurn;
+  });
+
+  test("a conversational turn publishes the gate=false opinion and the hint still applies", async () => {
+    const { ctx, def } = classificationExtension({ conversational: true });
+    await def.setup!(ctx);
+    const beforeTurn = ctx.beforeTurnHooks.at(-1)!;
+    await beforeTurn({ text: "what is your name?", turnIndex: 1, model: "a/m1" });
+    expect((ctx.state as Record<string, unknown>).mpmGate).toBe(false);
+    const judgment = ctx.events.find((e) => e.name === "jev_judgment" && (e.payload as any)?.useCase === "classification");
+    expect((judgment!.payload as any).mpmGated).toBe(true);
+    expect((judgment!.payload as any).hintApplied).toBe(true);
+  });
+
+  test("config false: no classification hook, no calls", async () => {
+    const { ctx, def, count } = classificationExtension({ classification: false });
+    await def.setup!(ctx);
+    expect(ctx.beforeTurnHooks.at(-1)).toBeDefined(); // routing's hook only
+    await ctx.beforeTurnHooks.at(-1)!({ text: "anything", turnIndex: 1, model: "a/m1" });
+    expect((ctx.state as Record<string, unknown>).mpmGate).toBeUndefined();
+    expect(ctx.events.filter((e) => (e.payload as any)?.useCase === "classification")).toHaveLength(0);
+    void count;
   });
 });

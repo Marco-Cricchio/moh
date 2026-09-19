@@ -32,6 +32,7 @@ import { createCompactionJudge } from "./compaction-judge";
 import { createRoutingJudge, type RoutingPool } from "./routing-judge";
 import { createInjectionJudge } from "./injection-judge";
 import { INJECTION_TOOLS } from "./injection";
+import { createClassificationJudge, classificationQuestions } from "./classification-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -71,6 +72,17 @@ export interface JevGuardOptions {
    * step than the guardrail's command + cwd + git state.
    */
   injection?: boolean;
+  /**
+   * #788: prompt classification. On by default (`typesafe.classification`,
+   * an explicit `false` in the config turns it off): Jev classifies the
+   * last user message (≤ 2 KiB) each turn into a task type plus a
+   * codebase-oriented probability. Outputs: a per-turn task-type hint in
+   * the subordinate `turn_notes` section (ADR-0036), and the MPM gate
+   * opinion this extension exposes through `state.mpmGate` — the session
+   * assembly wires it into `SessionConfig.mpm.turnGate`. The projection,
+   * the `mpm_query` tool and the manual commands are never gated.
+   */
+  classification?: boolean;
 }
 
 /**
@@ -209,6 +221,28 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         });
       }
 
+      // ---- #788 prompt classification: task type + MPM gate -----------
+      // On unless the config opted out (`typesafe.classification: false`).
+      // Jev classifies the last user message each turn; the hint rides the
+      // ADR-0036 `turn_notes` section (subordinate to the project's own
+      // instructions, replaced — never accumulated) and the MPM gate
+      // opinion is published through `state.mpmGate` for the assembly to
+      // wire into `SessionConfig.mpm.turnGate`.
+      const classificationJudge =
+        options.classification !== false
+          ? createClassificationJudge({
+              client,
+              append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+            })
+          : undefined;
+      if (classificationJudge) {
+        // The assembly reads this (the `routingState` pattern): the
+        // current turn's MPM gate opinion — `null` = no opinion. The
+        // note itself needs no cleanup hook: the core clears every turn
+        // note at the next turn's start (ADR-0036 §2).
+        ctx.state.mpmGate = null;
+      }
+
       // ---- #787 routing: one tier per turn -----------------------------
       // Opt-in and off by default (`typesafe.routing`). Jev judges the last
       // user message only, answers with a tier, and the session switches to
@@ -223,6 +257,26 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           {
             pool: routing.pool,
             labels: routing.labels ?? {},
+            // #788: when the router makes its per-turn call, the
+            // classification rides it — one state, one round trip, both
+            // consumers reading their own answers.
+            ...(classificationJudge
+              ? {
+                  rider: {
+                    questions: classificationQuestions,
+                    onSharedCall: () => {
+                      // The routing call covers this turn (success or
+                      // failure): never a second request for it.
+                      ctx.state.classificationShared = true;
+                    },
+                    onAnswers: (answers, meta, text) => {
+                      ctx.state.classificationShared = true;
+                      const verdict = classificationJudge.judgeShared(answers, meta, text);
+                      if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);
+                    },
+                  },
+                }
+              : {}),
             // The serving model is not the one the router picked: say so
             // once per episode and stay out of the way (no call, no switch).
             onMismatch: (currentModel, expected) => {
@@ -322,6 +376,27 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           };
         };
       }
+
+      // ---- #788 classification: the own-call turn-start hook ----------
+      // Registered after the routing hook on purpose: hooks run in
+      // registration order, so the routing hook decides first whether it
+      // will make the shared call (and the rider has consumed the turn);
+      // only when routing did nothing does the classification spend its
+      // own request. Either way the hint lands in this turn's
+      // `turn_notes` and the gate opinion is published.
+      if (classificationJudge) {
+        ctx.beforeTurn(async ({ text }) => {
+          if (ctx.state.classificationShared === true) {
+            // The routing call judged this turn already; consume the flag.
+            ctx.state.classificationShared = false;
+          } else {
+            const verdict = await classificationJudge.judge(text);
+            if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);
+          }
+          const gate = classificationJudge.mpmAllowed();
+          ctx.state.mpmGate = gate === undefined ? null : gate;
+        });
+      }
     },
   });
 }
@@ -390,6 +465,25 @@ export {
   type InjectionJudge,
   type InjectionToolVerdict,
 } from "./injection-judge";
+export {
+  CLASSIFICATION_MESSAGE_MAX_BYTES,
+  CLASSIFICATION_QUESTIONS,
+  CLASSIFICATION_THRESHOLDS,
+  TASK_TYPES,
+  TASK_TYPE_HINTS,
+  classificationSignals,
+  hintFor,
+  mpmGate,
+  taskTypeFromAnswer,
+  type ClassificationSignals,
+  type TaskType,
+} from "./classification";
+export {
+  classificationQuestions,
+  createClassificationJudge,
+  type ClassificationJudge,
+  type ClassificationVerdict,
+} from "./classification-judge";
 export {
   decideGuardrail,
   GUARDRAIL_QUESTIONS,

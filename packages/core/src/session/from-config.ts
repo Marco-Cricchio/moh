@@ -36,7 +36,7 @@ import { ExtensionRuntime } from "../extensions";
 import { userConfigFile } from "../user-config";
 import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
 import { createModelPool } from "../model-pool";
-import { createJevGuardExtension } from "@moh/jev-guard";
+import { createJevGuardExtension, JEV_GUARD_NAME } from "@moh/jev-guard";
 import type { PermissionAskContext, PermissionsConfig } from "./config";
 
 /**
@@ -249,6 +249,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         enabled: typesafe.routing,
         // #791: the anti-injection opt-in, off unless the user asked.
         injection: typesafe.injection,
+        // #788: prompt classification — on unless explicitly turned off.
+        classification: typesafe.classification,
       }),
     );
   } else {
@@ -367,7 +369,27 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
-      ...(mpm ? { mpm } : {}),
+      ...(mpm
+        ? {
+            mpm: {
+              ...mpm,
+              // #788: when the Jev classification is active it publishes
+              // its codebase-oriented opinion per turn; wire it as the
+              // per-turn eligibility gate (a lazy read — the extension
+              // writes the flag on each `beforeTurn`).
+              ...(typesafe.active && typesafe.classification
+                ? {
+                    turnGate: () => {
+                      const read = extensions?.instances.find((i) => i.def.name === JEV_GUARD_NAME)?.state[
+                        "mpmGate"
+                      ];
+                      return read === true ? true : read === false ? false : undefined;
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
       tools: o.tools ?? builtins,
       mohHome,
       sessionFile: store.file,

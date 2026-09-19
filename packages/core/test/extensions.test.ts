@@ -58,7 +58,7 @@ describe("@moh/extension contract", () => {
     // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034: the ask outcome, the
     // two observability seams, the beforeTurn hook, the control channel,
     // the post-tool inspection seam and `confirm.onResolved`.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 4 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 5 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
@@ -448,3 +448,62 @@ describe("hot-reload", () => {
     expect(events).toBeLessThan(20);
   });
 });
+
+describe("ADR-0036 setPromptNote (per-turn prompt note)", () => {
+  test("replaces per extension, null removes; renders in the turn_notes section", async () => {
+    const { rt } = await setup({
+      name: "annotator",
+      version: "1.0.0",
+      apiVersion: "1.5",
+      setup: (ctx) => {
+        ctx.setPromptNote("first");
+        ctx.setPromptNote("second");
+        ctx.setPromptNote(null);
+        ctx.setPromptNote("hint for this turn");
+      },
+    });
+    const composer = new PromptComposer({ projectDir: tempDir(), mohHome: tempDir() });
+    const assembled = composer.compose({
+      cwd: tempDir(),
+      platform: "test",
+      now: new Date(),
+      tools: [],
+      skills: [],
+      extensionNotes: rt.notes(),
+      turnNotes: rt.turnNotes(),
+    });
+    expect(assembled.sections["turn_notes"]).toBe("## Turn notes\n\nhint for this turn");
+    expect(assembled.system).not.toContain("first");
+  });
+
+  test("auto-clears at turn start; a note set during beforeTurn describes that turn; one slot each", async () => {
+    const { rt } = await setup([
+      {
+        name: "a",
+        version: "1.0.0",
+        apiVersion: "1.5",
+        setup: (ctx) => {
+          ctx.setPromptNote("stale from setup");
+          ctx.beforeTurn(() => ctx.setPromptNote("from-a"));
+        },
+      },
+      {
+        name: "b",
+        version: "1.0.0",
+        apiVersion: "1.5",
+        setup: (ctx) => {
+          ctx.beforeTurn(() => ctx.setPromptNote("from-b"));
+        },
+      },
+    ]);
+    // Before any turn: the setup-time note is there (one slot, no leak).
+    expect(rt.turnNotes()).toEqual(["stale from setup"]);
+    // A turn's dispatch clears first, then the hooks write: the stale
+    // note cannot leak into the turn the hooks describe.
+    await rt.dispatchBeforeTurn({ text: "second turn", turnIndex: 2, model: "mock" });
+    expect(rt.turnNotes()).toEqual(["from-a", "from-b"]);
+    await rt.dispatchBeforeTurn({ text: "third turn", turnIndex: 3, model: "mock" });
+    expect(rt.turnNotes()).toEqual(["from-a", "from-b"]);
+  });
+});
+

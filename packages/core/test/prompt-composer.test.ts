@@ -49,6 +49,7 @@ describe("PromptComposer", () => {
       "session_state",
       "mpm",
       "extension_notes",
+      "turn_notes",
     ]);
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
     for (const name of SECTION_ORDER) {
@@ -199,5 +200,40 @@ describe("PromptComposer", () => {
     expect(pathA).toBeTruthy();
     expect(pathB).toBeTruthy();
     expect(pathA).not.toBe(pathB);
+  });
+});
+
+describe("turn_notes section (ADR-0036)", () => {
+  test("renders one note per extension, in order, after the durable notes", () => {
+    const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
+    const assembled = composer.compose(baseCtx({ extensionNotes: ["durable"], turnNotes: ["hint-a", "hint-b"] }));
+    const idx = assembled.system.indexOf.bind(assembled.system);
+    expect(assembled.sections["turn_notes"]).toContain("hint-a");
+    expect(idx("hint-a")).toBeGreaterThan(idx("durable"));
+    expect(idx("hint-b")).toBeGreaterThan(idx("hint-a"));
+  });
+
+  test("a turn note never outranks the project's own instruction documents", () => {
+    // ADR-0036 §3: the turn_notes section sits AFTER the project
+    // instructions the composer reads from disk, so a hint is
+    // subordinate by construction. The ordering assertion is on the
+    // rendered system prompt.
+    const dir = tmp();
+    mkdirSync(join(dir, ".moh"), { recursive: true });
+    writeFileSync(join(dir, "AGENTS.md"), "# Project rule\nAlways run the full suite before committing.");
+    const composer = new PromptComposer({ projectDir: dir, mohHome: tmp() });
+    const assembled = composer.compose(baseCtx({ turnNotes: ["This looks like a bug fix: reproduce first."] }));
+    const idx = assembled.system.indexOf.bind(assembled.system);
+    expect(assembled.system).toContain("Always run the full suite");
+    expect(idx("reproduce first")).toBeGreaterThan(idx("Always run the full suite"));
+  });
+
+  test("omitted when no notes; oversized notes are truncated with a marker", () => {
+    const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
+    expect(composer.compose(baseCtx()).sections["turn_notes"]).toBeUndefined();
+    const big = "x".repeat(500);
+    const assembled = composer.compose(baseCtx({ turnNotes: [big] }));
+    expect(assembled.sections["turn_notes"]).toContain("[truncated]");
+    expect(assembled.sections["turn_notes"]!.length).toBeLessThan(400);
   });
 });
