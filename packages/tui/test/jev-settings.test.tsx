@@ -172,9 +172,9 @@ describe("settings Jev entry (#784)", () => {
     await sleep(80);
     expect(storedKey(home)).toBe("sk-remove-me");
     // Back to the entry menu (the valid path returns there), then "Remove"
-    // (API key · Model routing · Anti-injection · Quality gate · Status ·
-    // Remove, #789).
-    await down(i, 5);
+    // (API key · Model routing · Anti-injection · Quality gate · Seed
+    // rerank · Status · Remove, #790).
+    await down(i, 6);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedKey(home)).toBeUndefined();

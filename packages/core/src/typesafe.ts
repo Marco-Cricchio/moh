@@ -48,6 +48,10 @@ export const typesafeConfigSchema = z.object({
   /** End-of-task quality gate opt-in (#789). Default false — it sends the
    * changed code's diff to TypeSafe. */
   lint: z.boolean().optional(),
+  /** MPM seed rerank opt-in (#790). Default false: when the orientation
+   * plan's seed set goes over-threshold (> 5 files), Jev ranks the
+   * candidates and the top few become the plan instead of no plan. */
+  rerank: z.boolean().optional(),
   /** Tier labels for routing (#787): "<endpoint>/<model-id>" → tier. */
   tiers: z.record(z.string().min(1), z.enum(TYPESAFE_TIERS)).optional(),
 });
@@ -82,6 +86,8 @@ export interface ResolvedTypesafeConfig {
   classification: boolean;
   /** End-of-task quality gate opt-in (#789). Off by default. */
   lint: boolean;
+  /** MPM seed rerank opt-in (#790). Off by default. */
+  rerank: boolean;
 }
 
 /**
@@ -115,6 +121,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     injection: block?.injection === true,
     classification: block?.classification !== false,
     lint: block?.lint === true,
+    rerank: block?.rerank === true,
     tiers: block?.tiers ?? {},
   };
 }
@@ -183,6 +190,22 @@ export function saveTypesafeLint(file: string, enabled: boolean, io: UserConfigI
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, lint: enabled };
+    },
+    io,
+  );
+}
+
+/**
+ * Persists the MPM seed-rerank opt-in (#790) — the Settings toggle's
+ * writer, same lifecycle as the other flags: read at session assembly,
+ * so a running session keeps what it started with.
+ */
+export function saveTypesafeRerank(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, rerank: enabled };
     },
     io,
   );

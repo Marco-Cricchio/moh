@@ -209,6 +209,18 @@ export interface SessionConfig {
      * tool restriction: the model can still call `mpm_query`.
      */
     turnGate?: () => boolean | undefined;
+    /**
+     * #790: the seed rerank hook an active jev-guard extension contributes.
+     * Consulted once per send, only when the seed pipeline would discard an
+     * over-threshold seed set (> 5 files): the hook ranks the candidates
+     * and returns the kept paths (a `Set`, ≤ 5, or `null` for no plan) the
+     * orientation module uses to assemble a rescued plan. `null`, an empty
+     * set or fewer than two kept paths = today's "no plan" — never a
+     * guessed one. A plan that already exists (within-threshold seeds)
+     * costs nothing extra: the hook is never consulted. Absent = the use
+     * case is off and the discard branch runs unchanged.
+     */
+    rerank?: (req: import("../mpm/orientation").RerankRequest) => Promise<import("../mpm/orientation").RerankResponse>;
   };
   /**
    * Compaction (#466): the post-turn marker producer. Auto-triggered

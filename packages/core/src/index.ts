@@ -265,6 +265,9 @@ export {
   type MpmRelation,
   type MpmFallbackReason,
 } from "./mpm/types";
+// #790: the rerank seam types — the config surface (`SessionConfig.mpm.rerank`)
+// references them, so they are public by the ADR-0004 criterion.
+export { type RerankCandidate, type RerankRequest, type RerankResponse } from "./mpm/orientation";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {
   clearThinkingPreference,
@@ -363,6 +366,7 @@ import {
   saveTypesafeApiKey,
   saveTypesafeInjection,
   saveTypesafeLint,
+  saveTypesafeRerank,
   saveTypesafeRouting,
   type ResolvedTypesafeConfig,
   type TypesafeConfig,
@@ -733,6 +737,7 @@ export {
   saveTypesafeApiKey,
   saveTypesafeInjection,
   saveTypesafeLint,
+  saveTypesafeRerank,
   saveTypesafeRouting,
   type ResolvedTypesafeConfig,
   type TypesafeConfig,

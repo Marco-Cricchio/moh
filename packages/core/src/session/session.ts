@@ -30,7 +30,7 @@ import { resolveMaxIterations } from "./agent-loop";
 import { MpmService, projectMapDir, type MpmStatus } from "../mpm/service";
 import type { MpmSeedStats } from "../mpm/types";
 import { MpmLifecycle } from "../mpm/lifecycle";
-import { MpmOrientation } from "../mpm/orientation";
+import { MpmOrientation, type MpmOrientationOptions } from "../mpm/orientation";
 import { mpmQueryTool } from "../mpm/query-tool";
 import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
@@ -135,6 +135,8 @@ export class AgentSession {
   #mpmOrientation: MpmOrientation | null = null;
   /** #788: the per-turn eligibility gate an active classifier contributes. */
   #mpmTurnGate: (() => boolean | undefined) | undefined;
+  /** #790: the rerank hook an active jev-guard extension contributes. */
+  #mpmRerank: MpmOrientationOptions["rerank"] | undefined;
   #mpmLifecycle: MpmLifecycle | null = null;
   #mpmPlan: string | null = null;
   /** #759: the task text of the active turn — the plan recomputes at every
@@ -336,9 +338,19 @@ export class AgentSession {
         this.#mpmRoot = config.mpm.root ?? this.#cwd;
         this.#mpmQuota = config.mpm.quota;
         this.#mpmExclude = config.mpm.exclude;
-        this.#mpmOrientation = new MpmOrientation({ service, root: config.mpm.root ?? this.#cwd });
+        this.#mpmOrientation = new MpmOrientation({
+          service,
+          root: config.mpm.root ?? this.#cwd,
+          // #790: the rerank hook, when the assembly wired one (an active
+          // jev-guard extension with the opt-in on). Absent = today's
+          // discard branch, unchanged.
+          ...(config.mpm.rerank ? { rerank: config.mpm.rerank } : {}),
+        });
         // #788: the classifier's per-turn opinion, when one is wired.
         this.#mpmTurnGate = config.mpm.turnGate;
+        // #790: the rerank hook, when one is wired (the send-time async
+        // path reads this flag).
+        this.#mpmRerank = config.mpm.rerank;
         // #663 (ADR-0028): the read-only `mpm_query` tool rides the same
         // opt-in — the model can nominate seeds itself when the task text
         // names no mapped path. Executed by this session's tool runner;
@@ -898,8 +910,15 @@ export class AgentSession {
     this.#mpmTaskText = text;
     this.#mpmExploratoryCalls = 0;
     // #759: #mpmReasoningText is intentionally kept — the last persisted
-    // reasoning (previous turn's final call included) is the seed source.
+    // reasoning (previous call included) is the seed source.
     this.#mpmOrientation?.beginTurn();
+    // #790: at send the plan may be rescued by the rerank hook (an async
+    // extension call — one per send, when an over-threshold seed set
+    // would otherwise be discarded). The sync plan is computed now; the
+    // rescued variant (when wired) re-runs the pipeline inside the
+    // turn-start chain and replaces the plan before the first model call
+    // assembles the prompt. Mid-turn reassemblies read whichever plan
+    // landed through the sync `#orientationPlan` — no second rerank call.
     this.#mpmPlan = this.#orientationPlan();
     // ADR-0032/bundled activation: the runtime registers fire-and-forget
     // from the assembly, so a turn started while that is still in flight
@@ -907,8 +926,22 @@ export class AgentSession {
     // first tool call. No pending registration (the common case): `send`
     // starts the turn synchronously, exactly as before.
     const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
-    const run =
-      this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready().then(start) : start();
+    // #790: the rerank rescue runs inside the turn-start chain (it must
+    // land before the first prompt assembly), but the no-rerank path
+    // keeps today's synchronous start — `send` begins the turn in the
+    // same tick, exactly as before.
+    if (!(this.#mpmOrientation && this.#orientationHasRerank)) {
+      const run = this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready().then(start) : start();
+      return run.finally(() => {
+        this.#turnHead = undefined;
+      });
+    }
+    const run = Promise.all([
+      this.#orientationPlanWithRerank().then((plan) => {
+        if (plan !== null) this.#mpmPlan = plan;
+      }),
+      this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready() : Promise.resolve(),
+    ]).then(start);
     return run.finally(() => {
       this.#turnHead = undefined;
     });
@@ -1003,6 +1036,9 @@ export class AgentSession {
    * #759: the current orientation plan — task text plus, when the previous
    * model call of this turn persisted reasoning and produced no successful
    * `mpm_query`, that reasoning text as the low-tier seed source.
+   *
+   * #790: synchronous; when the rerank hook rescued this send's plan the
+   * orientation's internal cache returns it without a second call.
    */
   #orientationPlan(): string | null {
     const orientation = this.#mpmOrientation;
@@ -1016,6 +1052,29 @@ export class AgentSession {
       return null;
     }
     return orientation.planFor(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+  }
+
+  /**
+   * #790: the send-time variant — the only caller that can await the
+   * rerank hook. Same gate, same seeds; when the seed pipeline would
+   * discard an over-threshold set, the hook ranks the candidates and the
+   * rescued plan is cached in the orientation for the turn's sync
+   * reassemblies. A failed or inconclusive rerank degrades to today's
+   * no-plan, never a broken send.
+   */
+  async #orientationPlanWithRerank(): Promise<string | null> {
+    const orientation = this.#mpmOrientation;
+    if (!orientation || this.#mpmTaskText === null) return null;
+    if (this.#mpmTurnGate?.() === false) {
+      orientation.noteGated();
+      return null;
+    }
+    return orientation.planForWithRerank(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+  }
+
+  /** #790: whether the rerank hook is wired (config + extension state). */
+  get #orientationHasRerank(): boolean {
+    return this.#mpmRerank !== undefined;
   }
 
   /** Reassembles the system prompt for the next model call (#27). */
