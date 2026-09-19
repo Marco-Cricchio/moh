@@ -86,8 +86,8 @@ back to the Settings panel. Only a malformed `typesafe` section is an error
 
 ## Use cases
 
-Three use cases ship today: the bash guardrail, the model router and the
-anti-injection check.
+Four use cases ship today: the bash guardrail, the model router, the
+anti-injection check and the compaction cut guide.
 
 ### Bash guardrail
 
@@ -240,10 +240,40 @@ last word. **What it costs:** one Jev call per turn you send, plus one per
 top of whatever the guardrail and the router call. Turn it off in the
 Settings entry and the next session makes no call at all.
 
+### Compaction cut guide
+
+When moh compacts a long session (automatically, or when you run
+`/compact`), Jev helps decide **what the summary needs to cover**. The
+covered part of the session is split into one section per turn's work —
+your own messages and moh's decisions are never sections and are never
+shown to Jev — and each section's short preview (a couple of hundred
+characters, never the full text) is judged with one question: *can this
+be safely dropped from the summary without losing information the
+conversation will still need?*
+
+A section judged settled (probability above 0.70) is left out of the
+summary's input, which makes summaries smaller and sharper. Three
+guarantees ride with it:
+
+- **Your words survive.** User messages, decisions and chrome are
+  structurally outside the cut — not protected by a rule, absent by
+  design.
+- **A floor holds.** At least 60% of the judged text survives no matter
+  what: even a catastrophic judgment can only shrink the summary input so
+  far, and a reduced cut is announced in the transcript.
+- **Fail-open.** If Jev is unreachable, compaction runs exactly as it
+  would without Jev. The cut is an optimization, never a gate.
+
+Nothing is deleted from the session: the log stays integral, and the tail
+of recent turns is verbatim as always. One judgment per section is
+recorded as a `jev_judgment` event, plus one aggregate record per
+compaction carrying the offered sections, the dropped ids, whether the
+floor was applied, and the byte sizes before and after.
+
 ### Still planned
 
 - **The ★★ pack** — prompt classification, quality gate, MPM rerank,
-  compaction cut, skill suggestion. Planned: one opt-in each.
+  skill suggestion. Planned: one opt-in each.
 
 Those use cases own their questions, thresholds and calibration, and they
 ship in their own release; this page grows with them.

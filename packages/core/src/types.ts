@@ -323,7 +323,10 @@ type AgentEventBase =
    * again. Legacy numeric `upTo` markers (pre-tree logs) read as
    * `line:N` and resolve positionally.
    */
-  | { type: "compaction"; summary: string; upTo?: number; upToId?: string }
+  | { type: "compaction"; summary: string; upTo?: number; upToId?: string;
+      /** ADR-0035: an extension's section cut was reduced to the survival
+       * floor before rendering (chrome — audit only, replay ignores it). */
+      keptByFloor?: true }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**

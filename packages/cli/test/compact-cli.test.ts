@@ -107,6 +107,9 @@ describe("moh compact (#466)", () => {
     const { cwd, file } = project("ok");
     seed(file);
     const before = readFileSync(file, "utf8");
+    // Jev, when the user config carries a key (this machine does), appends
+    // its own judgment events during compaction — the marker count must not
+    // count those, only the marker itself.
     const { code, out, err } = await run(["compact", "--session", file, "--cwd", cwd]);
     expect(err).toBe("");
     expect(code).toBe(0);
@@ -114,7 +117,7 @@ describe("moh compact (#466)", () => {
     // Append-only: the log only grew, and exactly one marker was added.
     const after = readFileSync(file, "utf8");
     expect(after.startsWith(before)).toBe(true);
-    const markers = after.split("\n").filter((l) => l.includes('"compaction"'));
+    const markers = after.split("\n").filter((l) => l.includes('"type":"compaction"'));
     expect(markers).toHaveLength(1);
     const marker = JSON.parse(markers[0]!) as { type: string; summary: string; upToId?: string };
     expect(marker.summary.length).toBeGreaterThan(0);

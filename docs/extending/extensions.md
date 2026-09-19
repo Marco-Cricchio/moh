@@ -87,7 +87,8 @@ await session.dispose();
   system-prompt section (append-only; you can never rewrite other
   sections).
 - Hook registration: `onSessionStart`, `onSessionEnd`, `beforeTurn`,
-  `beforeModelCall`, `onToolCall`, `onToolResult`, `onEvent`, `afterTurn`.
+  `beforeModelCall`, `onToolCall`, `onToolResult`, `onCompaction`,
+  `onEvent`, `afterTurn`.
 
 ## Hooks and their ordering
 
@@ -293,6 +294,49 @@ ctx.onToolResult(["fetch", "browser"], ({ name, output }) => {
   reason-less `withhold`, is fail-open: one `extension_failed` and the
   original result proceeds.
 
+## Shaping what compaction summarizes
+
+`onCompaction` (apiVersion 1.4, ADR-0035) is the compaction-time seam: when
+the compaction runner covers a span (auto trigger or forced `/compact`), it
+splits the covered turns into **sections** — one per user turn's *body* —
+and hands you the list before the summary transcript is rendered:
+
+```ts
+ctx.onCompaction(({ sections, approxTokens }) => {
+  // sections: [{ id, kind: "assistant" | "tool_result" | "tool_call",
+  //              bytes, preview (~200 chars) }]
+  return { drop: sections.filter(isSettledWork).map((s) => s.id) };
+});
+```
+
+- **You may only remove.** The return value names ids to exclude from the
+  summarizer's input; you cannot add, rewrite, reorder, or touch the
+  summarizer's output, the live conversation, memory, or the event log —
+  nothing is deleted from the log, ever.
+- **What you never see cannot be cut.** User messages and chrome events are
+  structurally absent from `sections`: they are the conversation's spine,
+  and no judgment of yours can drop them. A `drop` id the core did not offer
+  is ignored with a visible `extension_failed { reason: "unknown_section" }`.
+- **The core keeps a floor.** At least 60% of the offered text survives no
+  matter what you return: if your drops exceed the budget, the largest cuts
+  keep their claim and the rest are restored, with one visible
+  `extension_failed { reason: "section_floor" }` and `keptByFloor: true`
+  stamped on the compaction marker. A catastrophic judgment is a bounded
+  event, not an emptied conversation.
+- **You learn what was actually applied.** Return an `onApplied` callback
+  and the core calls it exactly once with the post-floor cut
+  (`{ keptByFloor, bytesAfter }`) before the transcript renders — the
+  place to record your judgment's outcome. A throwing `onApplied` is
+  swallowed: observability never breaks the compaction it describes.
+- **Fail-open, always.** A hook that throws, or that does not answer
+  within the hook timeout (5 s for the whole dispatch), contributes no
+  drops: compaction proceeds exactly as it would without you, with one
+  `extension_failed`. The cut is an optimization;
+  its absence changes a summary's size and nothing else.
+- **The verbatim tail is out of reach.** `tailTurns` (default 10) is outside
+  the covered span by construction: recent turns are never summarized, so
+  never cut.
+
 ## Recording events and publishing a status
 
 Two observation-only seams in `setup(ctx)` let an extension leave a trace
@@ -338,7 +382,8 @@ replay.
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
   current version is **1.4** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
-  command channel; 1.4 added `onToolResult` and `confirm.onResolved`).
+  command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
+  `onCompaction`).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

@@ -36,6 +36,15 @@ You can also force it:
   session file, compacts it, and closes it again. Compacting never
   consumes the session: it is still suggested and resumable as usual.
 
+With Jev active (see the [Jev page](jev.md)), compaction also consults
+the **cut guide**: sections of settled work — long tool output,
+intermediate attempts — judged safely droppable are left out of the
+summary's input, so summaries come out smaller. The guardrails: your
+messages and decisions are never offered for the cut, at least 60% of
+the judged text always survives, and if Jev is unreachable compaction is
+exactly as it is described above. Nothing is deleted from the session
+log.
+
 ## Why two mechanisms
 
 Compaction answers "what happened earlier *in this conversation*";

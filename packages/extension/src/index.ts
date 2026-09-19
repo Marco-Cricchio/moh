@@ -28,6 +28,13 @@
  * `beforeTurn`'s `confirm` request. An older runtime never calls either,
  * which is a no-op for the extension (the result proceeds untouched, and
  * a confirmation the extension cannot observe is still asked).
+ *
+ * Also under 1.4 (ADR-0035): `onCompaction` — a compaction-time section
+ * filter the runner consults before rendering the summarized transcript.
+ * It can only *remove* material from a summary's input, never add,
+ * rewrite or reorder; user messages and chrome are structurally absent
+ * from what it sees, and the core enforces a survival floor. An older
+ * runtime never calls it — compaction proceeds exactly as before.
  */
 
 /**
@@ -179,6 +186,52 @@ export interface ToolCallHookResult {
   readonly reason?: string;
 }
 
+/**
+ * ADR-0035: one droppable section of the covered compaction span — one
+ * user turn's **body** (the assistant work and tool traffic that followed
+ * the message). The user's own message is never a section, and neither is
+ * any chrome event: the extension cannot name what it is never offered.
+ */
+export interface CompactionSection {
+  /** Opaque id, core-assigned; the only handle a drop may name. */
+  readonly id: string;
+  /** Dominant content of this turn's body. */
+  readonly kind: "assistant" | "tool_result" | "tool_call";
+  /** Serialized size of the section. */
+  readonly bytes: number;
+  /** Short preview, capped by the core (~200 chars). */
+  readonly preview: string;
+}
+
+/** ADR-0035: what the `onCompaction` hook sees. */
+export interface CompactionHookContext {
+  /** The droppable sections, in transcript order. */
+  readonly sections: readonly CompactionSection[];
+  /** Token estimate of the covered span, when known. */
+  readonly approxTokens?: number;
+}
+
+/**
+ * ADR-0035: what an `onCompaction` hook may return. `drop` names ids of
+ * sections to exclude from the summarized transcript. Ids the core did
+ * not offer are ignored with a visible `extension_failed
+ * { reason: "unknown_section" }`; the core enforces a survival floor of
+ * at least 60% of the droppable text regardless of what is returned.
+ * `onApplied`, when present, is called back exactly once with the cut as
+ * actually applied — after the floor, before the transcript renders — so
+ * the extension can record what really happened, not just what it asked
+ * for. A throwing `onApplied` is swallowed: observability never breaks
+ * the compaction it describes.
+ */
+export interface CompactionHookResult {
+  readonly drop: readonly string[];
+  readonly onApplied?: (applied: { keptByFloor: boolean; bytesAfter: number }) => void;
+}
+
+export type CompactionHook = (
+  ctx: CompactionHookContext,
+) => CompactionHookResult | void | Promise<CompactionHookResult | void>;
+
 /** One structured record an extension may append to the session log. */
 export interface ExtensionEventInput {
   /** Short machine-readable name (e.g. `jev_judgment`). */
@@ -265,6 +318,15 @@ export interface ExtensionSetupContext {
    * scope is explicit, never "every tool".
    */
   onToolResult(tools: readonly string[], hook: ToolResultHook): void;
+  /**
+   * Compaction-time section filter (ADR-0035, apiVersion 1.4): consulted
+   * by the compaction runner before the summarized transcript is rendered.
+   * The hook may only name sections to drop; a failure or a timeout
+   * contributes no drops (compaction proceeds exactly as today) and the
+   * core enforces the survival floor. Scope: compaction only — the hook
+   * never sees or touches the live conversation.
+   */
+  onCompaction(hook: CompactionHook): void;
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
 }
