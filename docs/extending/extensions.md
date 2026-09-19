@@ -408,13 +408,35 @@ model, and the model may ignore it. It is never a permission, and it
 cannot touch the system prompt, the project instructions, or another
 extension's note.
 
+## The correction-turn door
+
+- **`ctx.requestTurn(text)` (ADR-0037)** asks the core to run one turn
+  with a synthetic user-side message. You supply only the text —
+  deterministic, never model-generated; the core runs everything else
+  through the normal turn path and marks the `user_message` `synthetic`
+  in the log, so replay and the transcript can always tell it from a
+  human-typed turn. The synthetic turn does not fire `beforeTurn`
+  (machine-composed text is never re-routed or re-checked) and its tool
+  calls are gated exactly like any other.
+- The promise resolves when the requested turn settles — `true` when it
+  ran, `false` when the core refused it. Refusals are visible
+  `extension_failed` events, never silent.
+- **The depth limit is the core's, not yours**: at most **2 consecutive
+  synthetic turns**, with the counter reset when a real user turn begins.
+  A buggy or over-eager extension can therefore cost at most two extra
+  turns before the core stops it. Do not try to manage this yourself, and
+  do not treat a refusal as an error — it is the contract working.
+- On a runtime older than 1.6 the method is absent: guard with
+  `typeof ctx.requestTurn === "function"` and degrade to
+  judgment-without-correction.
+
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.5** (1.1 added `ask` and the two observation
+  current version is **1.6** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
-  `onCompaction`; 1.5 added `setPromptNote`).
+  `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

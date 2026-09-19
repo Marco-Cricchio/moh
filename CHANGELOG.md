@@ -47,6 +47,21 @@ matching section here at tag time.
   Extension authors get the scoped `onToolResult` inspection seam and the
   `confirm.onResolved` callback (apiVersion 1.4).
 
+- **Jev quality gate** (#789): an opt-in end-of-task review (Settings
+  entry `Jev (TypeSafe)`, item "Quality gate", off by default — it is the
+  one use case that sends the changed code's diff, up to 32 KiB). When a
+  task ends, moh collects the project's own convention documents
+  (`AGENTS.md`, `CONTRIBUTING.md` and friends; a repo with none gets no
+  gate — rules are never invented) plus the diff of the files the task
+  changed, and Jev answers three questions: conventions respected, error
+  handling, completeness. Any answer below 0.40 is a finding, and moh
+  automatically asks the model to fix the flagged areas — at most two
+  correction cycles, marked in the transcript, fail-open when Jev is
+  down. Extension authors get the `requestTurn` synthetic-turn door
+  (apiVersion 1.6, ADR-0037): one core-mediated correction turn with a
+  visible synthetic marker and a core-enforced cap of 2 consecutive
+  synthetic turns.
+
 ## [0.39.3] - 2026-09-18
 ### Fixed
 

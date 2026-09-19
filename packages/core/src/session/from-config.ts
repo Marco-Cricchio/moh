@@ -251,6 +251,9 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         injection: typesafe.injection,
         // #788: prompt classification — on unless explicitly turned off.
         classification: typesafe.classification,
+        // #789: the end-of-task quality gate, off unless the user asked
+        // (it sends the changed code's diff to TypeSafe).
+        ...(typesafe.lint ? { lint: { root: options.cwd } } : {}),
       }),
     );
   } else {

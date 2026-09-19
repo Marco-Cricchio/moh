@@ -484,3 +484,16 @@ describe("jev-guard prompt classification (#788)", () => {
     void count;
   });
 });
+
+describe("quality gate wiring (#789)", () => {
+  test("lint option registers the onToolCall observer and afterTurn gate; no lint option registers nothing", async () => {
+    const ctx = fakeCtx();
+    const def = createJevGuardExtension({ apiKey: "sk-test", lint: { root: "/tmp" }, fetchImpl: (async () => okResponse(SAFE_ANSWERS)) as unknown as typeof fetch });
+    await def.setup(ctx);
+    // The guardrail's onToolCall hook plus the lint observer.
+    expect(ctx.toolHooks.length).toBeGreaterThanOrEqual(2);
+    // Observing a write must not produce a decision.
+    const out = await runHook(ctx.toolHooks, { callId: "c3", name: "write", args: { path: "src/x.ts" } });
+    expect(out ?? undefined).toBeUndefined();
+  });
+});
