@@ -497,3 +497,61 @@ describe("quality gate wiring (#789)", () => {
     expect(out ?? undefined).toBeUndefined();
   });
 });
+
+describe("jev-guard MPM seed rerank (#790)", () => {
+  function rerankExtension(overrides: Record<string, unknown> = {}) {
+    const ctx = fakeCtx();
+    let calls = 0;
+    const fetchImpl = (async (_url: unknown, init?: { body: string }) => {
+      calls += 1;
+      const body = JSON.parse(init?.body ?? "{}");
+      // One noul answer per `cand:` question, all high (kept).
+      const answers: Record<string, unknown> = {};
+      for (const id of Object.keys(body.questions ?? {})) {
+        answers[id] = { type: "noul", noul: 0.9 };
+      }
+      return okResponse(answers);
+    }) as unknown as typeof fetch;
+    const def: ExtensionDefinition = createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl,
+      classification: false,
+      ...overrides,
+    });
+    return { ctx, def, count: () => calls };
+  }
+
+  test("opt-in on: the extension publishes the rerank hook on state", async () => {
+    const { ctx, def } = rerankExtension({ rerank: true });
+    await def.setup(ctx);
+    expect(typeof ctx.state.rerank).toBe("function");
+  });
+
+  test("opt-in off (default): no hook, no calls", async () => {
+    const { ctx, def } = rerankExtension();
+    await def.setup(ctx);
+    expect(ctx.state.rerank).toBeUndefined();
+  });
+
+  test("the hook asks one noul per candidate and returns the kept paths", async () => {
+    const { ctx, def, count } = rerankExtension({ rerank: true });
+    await def.setup(ctx);
+    const hook = ctx.state.rerank as (req: unknown) => Promise<Set<string> | null>;
+    const kept = await hook({
+      task: "update sharedHelper usage",
+      candidates: [
+        { id: "src/a.ts", path: "src/a.ts", symbols: ["sharedHelper"], provenance: "matches symbol `sharedHelper`" },
+        { id: "src/b.ts", path: "src/b.ts", symbols: ["sharedHelper"], provenance: "matches symbol `sharedHelper`" },
+        { id: "src/c.ts", path: "src/c.ts", symbols: [], provenance: "" },
+      ],
+    });
+    // All three cleared the floor (the fake answers 0.9).
+    expect(kept).toEqual(new Set(["src/a.ts", "src/b.ts", "src/c.ts"]));
+    expect(count()).toBe(1);
+    // One judgment event, useCase rerank.
+    const judgments = ctx.events.filter((e) => e.name === "jev_judgment" && (e.payload as any)?.useCase === "rerank");
+    expect(judgments).toHaveLength(1);
+    expect((judgments[0]!.payload as any).kept).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"]);
+    expect((judgments[0]!.payload as any).floor).toBe(0.5);
+  });
+});

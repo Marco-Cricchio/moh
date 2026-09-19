@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, maskApiKey, MAX_ITERATIONS_UNLIMITED, readTypesafeConfig, readUserProviderConfig, removeTypesafeApiKey, removeUserEndpoint, renderTosCard, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveUserProviderRef, TYPESAFE_TIMEOUT_MS_DEFAULT, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -87,6 +87,8 @@ interface JevState {
   injection: boolean;
   /** #789: the quality-gate opt-in (off by default). */
   lint: boolean;
+  /** #790: the MPM seed-rerank opt-in (off by default). */
+  rerank: boolean;
   /** The `typesafe` section is malformed: loud on the next save, still
    * rendered as inactive rather than crashing the whole panel. */
   broken?: boolean;
@@ -100,7 +102,7 @@ const JEV_DISCLOSURE =
  * #787/#791: the Jev entry's sub-menu — the key, the two per-use-case
  * opt-ins (both off by default), status, remove.
  */
-const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Quality gate", "Status", "Remove"] as const;
+const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Quality gate", "Seed rerank", "Status", "Remove"] as const;
 
 /** #791: what the anti-injection opt-in sends, stated where it is toggled. */
 const JEV_INJECTION_DISCLOSURE =
@@ -109,6 +111,10 @@ const JEV_INJECTION_DISCLOSURE =
 /** #789: what the quality-gate opt-in sends, stated where it is toggled. */
 const JEV_LINT_DISCLOSURE =
   "the quality gate sends the diff of the changed code (up to 32 KiB) plus the project's convention docs to TypeSafe.";
+
+/** #790: what the seed-rerank opt-in sends, stated where it is toggled. */
+const JEV_RERANK_DISCLOSURE =
+  "seed rerank sends the task text plus the over-threshold candidate paths, their top symbols and provenance to TypeSafe (only when the orientation plan would otherwise be discarded).";
 
 export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
   const theme = useTheme();
@@ -170,9 +176,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         routing: resolved.routing,
         injection: resolved.injection,
         lint: resolved.lint,
+        rerank: resolved.rerank,
       };
     } catch {
-      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, lint: false, broken: true };
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, lint: false, rerank: false, broken: true };
     }
   };
   const [jev, setJev] = useState<JevState>(readJev);
@@ -499,6 +506,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     setSub({ kind: "jev", cursor: 0 });
   };
 
+  /**
+   * #790: the MPM seed-rerank opt-in. Off by default: it sends the task
+   * text plus candidate metadata to TypeSafe whenever an orientation plan
+   * would otherwise be discarded as over-threshold; like the other flags
+   * it is read at session assembly.
+   */
+  const toggleJevRerank = () => {
+    const next = !jev.rerank;
+    try {
+      saveTypesafeRerank(jevFile, next);
+    } catch (e) {
+      return onToast(`seed rerank: could not save (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ ...j, rerank: next }));
+    onToast(next ? "seed rerank on · from your next session" : "seed rerank off · from your next session");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
   /** #181: model committed for one endpoint — rewrites `defaultModel` in
    * the project moh.json (user endpoints display-only) and switches the
    * default `provider` ref. moh.json only; user config untouched. */
@@ -624,6 +649,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (option === "Model routing") return toggleJevRouting();
           if (option === "Anti-injection") return toggleJevInjection();
           if (option === "Quality gate") return toggleJevLint();
+          if (option === "Seed rerank") return toggleJevRerank();
           if (option === "Remove") return removeJevKey();
           return;
         }
@@ -798,7 +824,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                           ? jev.lint
                             ? "on"
                             : "off"
-                          : option === "Status"
+                          : option === "Seed rerank"
+                            ? jev.rerank
+                              ? "on"
+                              : "off"
+                            : option === "Status"
                           ? jevLabel
                           : jev.active
                             ? "clear the key"
@@ -814,6 +844,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 {JEV_DISCLOSURE}
                 {jev.injection ? ` ${JEV_INJECTION_DISCLOSURE}` : ""}
                 {jev.lint ? ` ${JEV_LINT_DISCLOSURE}` : ""}
+                {jev.rerank ? ` ${JEV_RERANK_DISCLOSURE}` : ""}
               </Text>
             </>
           ) : sub.kind === "jev-key" ? (

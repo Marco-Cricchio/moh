@@ -35,6 +35,7 @@ import { INJECTION_TOOLS } from "./injection";
 import { createLintGate } from "./lint-gate";
 import { createLintJudge } from "./lint-judge";
 import { createClassificationJudge, classificationQuestions } from "./classification-judge";
+import { createRerankJudge } from "./rerank-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -92,6 +93,17 @@ export interface JevGuardOptions {
    * the `mpm_query` tool and the manual commands are never gated.
    */
   classification?: boolean;
+  /**
+   * #790: MPM seed rerank. Off by default (`typesafe.rerank`): when the
+   * orientation plan's seed set resolves to more than five mapped paths,
+   * the extension asks Jev to rank the candidates and keeps the best few
+   * instead of dropping the plan entirely. One fan-out request per
+   * over-threshold seed set, one noul per candidate (never an aggregated
+   * Score — a calibration lesson paid for in note 35). When the use case
+   * is on, the extension publishes a `rerank` hook on `state` so the
+   * core's orientation module can call it.
+   */
+  rerank?: boolean;
 }
 
 /**
@@ -298,6 +310,35 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         // note itself needs no cleanup hook: the core clears every turn
         // note at the next turn's start (ADR-0036 §2).
         ctx.state.mpmGate = null;
+      }
+
+      // ---- #790 MPM seed rerank: over-threshold rescue ----------------
+      // Opt-in and off by default (`typesafe.rerank`). The orientation
+      // module in `@moh/core` owns the over-threshold branch and the
+      // candidate list; it asks Jev to rank the candidates and uses the
+      // kept paths to assemble a rescued plan. One fan-out request per
+      // over-threshold seed set, one noul per candidate — never an
+      // aggregated Score (a calibration lesson paid for in note 35).
+      // Absent = the rerank use case is unavailable (today's behavior).
+      if (options.rerank === true) {
+        const rerankJudge = createRerankJudge({
+          client,
+          append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
+        });
+        // The core reads this hook from `state` (the `mpmGate` pattern):
+        // a function the orientation module calls when an over-threshold
+        // seed set needs ranking. Null while the request is in flight is
+        // impossible — the orientation module awaits this single promise.
+        ctx.state.rerank = async (request: Parameters<typeof rerankJudge.rerank>[0]) => {
+          const verdict = await rerankJudge.rerank(request);
+          if (!verdict) return null;
+          // The core only needs the kept paths (it owns the candidate
+          // list and the freshness re-hashing); a `Set<string>` is the
+          // narrowest contract that preserves insertion order. Empty
+          // when fewer than two candidates cleared the floor (orientation
+          // degrades to no plan).
+          return new Set(verdict.kept.map((c) => c.path));
+        };
       }
 
       // ---- #787 routing: one tier per turn -----------------------------
@@ -620,3 +661,22 @@ export {
   type RubricDoc,
 } from "./rubrics";
 export { captureHead, inGitRepo, taskDiff } from "./diff";
+// #790: MPM seed rerank — per-candidate noul fan-out over the over-threshold
+// seed set. One question per candidate, never an aggregated Score; the kept
+// candidates are returned to the orientation module to assemble a rescued
+// plan from them.
+export {
+  RERANK_CANDIDATES_MAX,
+  RERANK_KEEP,
+  RERANK_MIN,
+  RERANK_THRESHOLDS,
+  candidatesDroppedByCap,
+  candidatesForRerank,
+  keepFromAnswers,
+  rerankQuestionsFor,
+  rerankSignals,
+  rerankStateFor,
+  type RerankCandidate,
+  type RerankRequest,
+} from "./rerank";
+export { createRerankJudge, type RerankJudge, type RerankJudgeDeps, type RerankVerdict } from "./rerank-judge";

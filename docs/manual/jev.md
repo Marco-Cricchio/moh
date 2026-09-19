@@ -333,10 +333,28 @@ the task simply ends as it would without Jev. Every evaluation is
 recorded as one `jev_judgment` event (`useCase: "lint"`) with the three
 probabilities, the findings and the cycle number.
 
+### Seed rerank
+
+When the [project map](project-map.md) builds its per-turn **orientation
+plan**, a seed that resolves to more than five files is normally discarded —
+the plan honestly says nothing rather than guessing. With the seed rerank
+opt-in, that discard becomes a ranking: moh sends TypeSafe **one fan-out
+request** — the task text plus one yes/no question per candidate file (its
+path, its top symbols and why it was in the set), capped at 30 candidates —
+and keeps the top five answers above 0.50. Those become the plan, each
+entry marked `(reranked)` in the transcript so you can see why an
+over-threshold task produced one. If fewer than two candidates clear the
+bar, there is **no plan** — the same honest answer as without Jev. A plan
+that already fits under the threshold never consults Jev.
+
+Off by default (`typesafe.rerank`, or the **Seed rerank** entry in Settings
+→ Jev). What leaves your machine, only when an over-threshold seed set
+appears: the task text and the candidate metadata above — never file
+contents. A failure degrades to no plan, never a broken turn.
+
 ### Still planned
 
-- **The remaining ★★ use cases** — MPM seed rerank, skill suggestion.
-  Planned: one opt-in each.
+- **Skill suggestion** — the last ★★ use case. Planned: one opt-in.
 
 Those use cases own their questions, thresholds and calibration, and they
 ship in their own release; this page grows with them.

@@ -251,6 +251,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         injection: typesafe.injection,
         // #788: prompt classification — on unless explicitly turned off.
         classification: typesafe.classification,
+        // #790: the MPM seed rerank, off unless the user asked.
+        rerank: typesafe.rerank,
         // #789: the end-of-task quality gate, off unless the user asked
         // (it sends the changed code's diff to TypeSafe).
         ...(typesafe.lint ? { lint: { root: options.cwd } } : {}),
@@ -387,6 +389,20 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
                         "mpmGate"
                       ];
                       return read === true ? true : read === false ? false : undefined;
+                    },
+                  }
+                : {}),
+              // #790: when the rerank opt-in is on, the extension publishes
+              // its judge as `state.rerank`; wire it as the orientation's
+              // over-threshold rescue hook (a lazy read — the hook exists
+              // only after the extension's setup ran, and the session
+              // awaits `ready()` before its first turn).
+              ...(typesafe.active && typesafe.rerank
+                ? {
+                    rerank: (req: import("../mpm/orientation").RerankRequest) => {
+                      const hook = extensions?.instances.find((i) => i.def.name === JEV_GUARD_NAME)?.state["rerank"];
+                      if (typeof hook !== "function") return Promise.resolve(null);
+                      return (hook as (r: import("../mpm/orientation").RerankRequest) => Promise<import("../mpm/orientation").RerankResponse>)(req);
                     },
                   }
                 : {}),
