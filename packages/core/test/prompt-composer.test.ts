@@ -213,6 +213,21 @@ describe("turn_notes section (ADR-0036)", () => {
     expect(idx("hint-b")).toBeGreaterThan(idx("hint-a"));
   });
 
+  test("a turn note never outranks the project's own instruction documents", () => {
+    // ADR-0036 §3: the turn_notes section sits AFTER the project
+    // instructions the composer reads from disk, so a hint is
+    // subordinate by construction. The ordering assertion is on the
+    // rendered system prompt.
+    const dir = tmp();
+    mkdirSync(join(dir, ".moh"), { recursive: true });
+    writeFileSync(join(dir, "AGENTS.md"), "# Project rule\nAlways run the full suite before committing.");
+    const composer = new PromptComposer({ projectDir: dir, mohHome: tmp() });
+    const assembled = composer.compose(baseCtx({ turnNotes: ["This looks like a bug fix: reproduce first."] }));
+    const idx = assembled.system.indexOf.bind(assembled.system);
+    expect(assembled.system).toContain("Always run the full suite");
+    expect(idx("reproduce first")).toBeGreaterThan(idx("Always run the full suite"));
+  });
+
   test("omitted when no notes; oversized notes are truncated with a marker", () => {
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
     expect(composer.compose(baseCtx()).sections["turn_notes"]).toBeUndefined();

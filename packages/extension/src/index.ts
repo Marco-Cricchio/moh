@@ -35,6 +35,12 @@
  * rewrite or reorder; user messages and chrome are structurally absent
  * from what it sees, and the core enforces a survival floor. An older
  * runtime never calls it — compaction proceeds exactly as before.
+ *
+ * 1.5 (ADR-0036): `setPromptNote` — one per-turn prompt note per
+ * extension, replacing, auto-cleared at each turn start; rendered in the
+ * `turn_notes` section after the durable extension notes. An older
+ * runtime never surfaces it (the note is silently absent), which is a
+ * no-op for the extension.
  */
 
 /**

@@ -237,12 +237,10 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           : undefined;
       if (classificationJudge) {
         // The assembly reads this (the `routingState` pattern): the
-        // current turn's MPM gate opinion — `null` = no opinion.
+        // current turn's MPM gate opinion — `null` = no opinion. The
+        // note itself needs no cleanup hook: the core clears every turn
+        // note at the next turn's start (ADR-0036 §2).
         ctx.state.mpmGate = null;
-        ctx.afterTurn(() => {
-          ctx.setPromptNote(null);
-          ctx.state.mpmGate = null;
-        });
       }
 
       // ---- #787 routing: one tier per turn -----------------------------
@@ -266,10 +264,12 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
               ? {
                   rider: {
                     questions: classificationQuestions,
+                    onSharedCall: () => {
+                      // The routing call covers this turn (success or
+                      // failure): never a second request for it.
+                      ctx.state.classificationShared = true;
+                    },
                     onAnswers: (answers, meta, text) => {
-                      // The routing call covered this turn: mark it so the
-                      // own-call path skips (no double judgment) and write
-                      // the hint from the shared answers.
                       ctx.state.classificationShared = true;
                       const verdict = classificationJudge.judgeShared(answers, meta, text);
                       if (verdict?.hint !== undefined) ctx.setPromptNote(verdict.hint);

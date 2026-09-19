@@ -86,8 +86,9 @@ back to the Settings panel. Only a malformed `typesafe` section is an error
 
 ## Use cases
 
-Four use cases ship today: the bash guardrail, the model router, the
-anti-injection check and the compaction cut guide.
+Five use cases ship today: the bash guardrail, the model router, the
+anti-injection check, the compaction cut guide and the prompt
+classification.
 
 ### Bash guardrail
 

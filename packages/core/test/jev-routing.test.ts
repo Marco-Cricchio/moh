@@ -56,6 +56,7 @@ async function routingSession(
       fetchImpl,
       routing: { pool: async () => ({ models }) },
       enabled: true,
+      classification: false,
     }),
   );
   const registry = new ProviderRegistry()
@@ -159,6 +160,7 @@ describe("Jev routing in a session (#787)", () => {
         apiKey: "sk-test",
         fetchImpl,
         enabled: false,
+        classification: false,
         routing: { pool: async () => ({ models }) },
       }),
     );

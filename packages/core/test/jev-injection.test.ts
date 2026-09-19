@@ -82,7 +82,7 @@ async function runtimeFor(probabilities: { input: Probabilities; tool?: Probabil
   const fetch = jevFetch(probabilities);
   const rt = new ExtensionRuntime({ mohHome: tmpDir(), bundledTrust: true });
   await rt.register(
-    createJevGuardExtension({ apiKey: "sk-test", fetchImpl: fetch.impl, injection }),
+    createJevGuardExtension({ apiKey: "sk-test", fetchImpl: fetch.impl, injection, classification: false }),
   );
   return { rt, calls: fetch.calls };
 }
@@ -277,6 +277,7 @@ describe("anti-injection, tool half (#791)", () => {
           throw new Error("network down");
         }) as unknown as typeof fetch,
         injection: true,
+        classification: false,
       }),
     );
     const session = createSession({

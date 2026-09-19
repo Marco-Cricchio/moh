@@ -102,19 +102,27 @@ export interface ClassificationSignals {
   readonly confidence: number;
   /** The `codebase_oriented` probability, 0–1. */
   readonly codebaseOriented: number;
+  /**
+   * Whether a well-formed `codebase_oriented` answer was present at all.
+   * A legitimate 0 ("not codebase-oriented at all") and an absent answer
+   * must not be conflated: only the latter is "no opinion".
+   */
+  readonly orientedAnswered: boolean;
 }
 
 /** Reads one answers map into the classification's signals. */
 export function classificationSignals(answers: Record<string, import("./client").JevAnswer>): ClassificationSignals {
   const type = answers.task_type;
   const choice = type?.type === "choice" ? type.choice : undefined;
+  const taskType = taskTypeFromAnswer(choice);
   const confidence = type?.type === "choice" && typeof type.confidence === "number" ? type.confidence : 0;
   const oriented = answers.codebase_oriented;
+  const orientedAnswered = oriented?.type === "noul" && typeof oriented.noul === "number";
   return {
-    ...(taskTypeFromAnswer(choice) !== undefined ? { taskType: taskTypeFromAnswer(choice) } : {}),
+    ...(taskType !== undefined ? { taskType } : {}),
     confidence,
-    codebaseOriented:
-      oriented?.type === "noul" && typeof oriented.noul === "number" ? oriented.noul : 0,
+    codebaseOriented: orientedAnswered ? oriented.noul : 0,
+    orientedAnswered,
   };
 }
 
@@ -126,7 +134,10 @@ export function classificationSignals(answers: Record<string, import("./client")
  * `mpm_query` tool and the manual commands are untouched.
  */
 export function mpmGate(signals: ClassificationSignals): boolean | undefined {
-  if (signals.confidence === 0 && signals.codebaseOriented === 0) return undefined;
+  // No well-formed answer = no opinion (feature off, outage, malformed).
+  // A legitimate 0 answer still suppresses: "not codebase-oriented at
+  // all" is the classifier's strongest conversational verdict.
+  if (!signals.orientedAnswered) return undefined;
   return signals.codebaseOriented >= CLASSIFICATION_THRESHOLDS.codebaseOrientedMin;
 }
 

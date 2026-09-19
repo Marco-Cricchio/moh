@@ -68,6 +68,12 @@ export interface RoutingJudgeHost {
     questions: () => Record<string, JevQuestion>;
     /** Called with the full answers map on every completed routing call. */
     onAnswers: (answers: Record<string, JevAnswer>, meta: JevJudgmentMeta, text: string) => void;
+    /**
+     * Called when the router is about to spend its (shared) request for
+     * the turn — success or failure alike. The rider marks the turn as
+     * covered so its own-call path never double-judges.
+     */
+    onSharedCall?: () => void;
   };
 }
 
@@ -201,6 +207,10 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       const currentTier = tierOfModel(tiers, currentModel);
       const message = truncateToBytes(text);
       const riderQuestions = host.rider?.questions() ?? {};
+      // #788: a rider on this turn means the shared request is *this*
+      // call, whatever its outcome — the rider must not spend a second
+      // request on a turn that already cost one round trip.
+      host.rider?.onSharedCall?.();
       // The decision is taken inside `record` so the recorded payload and
       // the action come from one computation — the client calls it exactly
       // once per completed judgment, and never for a failure. `counts`

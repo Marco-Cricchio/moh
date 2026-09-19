@@ -82,6 +82,12 @@ describe("MPM gate rule", () => {
   test("a failed call is no opinion, never a suppression", () => {
     expect(mpmGate(classificationSignals({}))).toBeUndefined();
   });
+
+  test("a legitimate 0 answer is the strongest conversational verdict, not an absence", () => {
+    const row = sig("question", 0.9, 0);
+    expect(row.codebase_oriented).toMatchObject({ noul: 0 });
+    expect(mpmGate(classificationSignals(row))).toBe(false);
+  });
 });
 
 describe("hint rule", () => {
@@ -153,3 +159,8 @@ function sig(taskType: string, confidence: number, oriented: number) {
     codebase_oriented: { type: "noul" as const, noul: oriented },
   };
 }
+
+test("signals distinguish an absent oriented answer from a legitimate 0", () => {
+  expect(classificationSignals({}).orientedAnswered).toBe(false);
+  expect(classificationSignals(sig("question", 0.9, 0)).orientedAnswered).toBe(true);
+});

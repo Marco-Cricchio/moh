@@ -127,14 +127,8 @@ export function createClassificationJudge(deps: ClassificationJudgeDeps) {
     },
 
     /**
-     * The verdict of the current turn, for consumers that read it after the
-     * judgment landed (the MPM gate consults it at plan-assembly time).
+     * The hint to contribute through `setPromptNote` this turn.
      */
-    peek(): ClassificationVerdict | null {
-      return current;
-    },
-
-    /** The hint to contribute through `setPromptNote` this turn. */
     hint(): string | undefined {
       return current?.hint;
     },
