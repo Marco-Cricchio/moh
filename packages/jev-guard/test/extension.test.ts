@@ -20,6 +20,7 @@ interface FakeCtx {
   beforeTurnHooks: BeforeTurnHook[];
   sessionStartHooks: Array<() => void>;
   eventHooks: Array<(e: { event: { type: string; [k: string]: unknown } }) => void>;
+  compactionHooks: Array<(ctx: { sections: readonly { id: string }[] }) => unknown>;
   mode: "normal" | "auto-accept" | "yolo";
 }
 
@@ -34,6 +35,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
     beforeTurn: (h: BeforeTurnHook) => (hooks as unknown as FakeCtx).beforeTurnHooks.push(h),
     beforeModelCall: () => {},
     onToolCall: (h: ToolCallHook) => (hooks as unknown as FakeCtx).toolHooks.push(h),
+    onCompaction: (h: (ctx: { sections: readonly { id: string }[] }) => unknown) => (hooks as unknown as FakeCtx).compactionHooks.push(h),
     onEvent: (h: (e: { event: { type: string; [k: string]: unknown } }) => void) => (hooks as unknown as FakeCtx).eventHooks.push(h),
     afterTurn: () => {},
   };
@@ -44,6 +46,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
   self.beforeTurnHooks = [];
   self.sessionStartHooks = [];
   self.eventHooks = [];
+  self.compactionHooks = [];
   self.mode = mode;
   return self;
 }
@@ -127,6 +130,31 @@ describe("jev-guard extension setup (#786)", () => {
     const out = await runHook(ctx.toolHooks, bash);
     expect(out ?? undefined).toBeUndefined();
     expect(ctx.statuses).toEqual(["∅ jev offline"]);
+  });
+});
+
+describe("jev-guard compaction cut (#792)", () => {
+  test("the setup registers an onCompaction hook that answers with drops", async () => {
+    const ctx = fakeCtx();
+    const answers = {
+      unrecoverable: { type: "noul", noul: 0.01 },
+    };
+    const def = createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: (async () => okResponse(answers)) as unknown as typeof fetch,
+    });
+    await def.setup(ctx);
+    expect(ctx.compactionHooks.length).toBe(1);
+    const sections = [
+      { id: "s0", kind: "tool_result" as const, bytes: 4000, preview: "bun test output…" },
+      { id: "s1", kind: "assistant" as const, bytes: 200, preview: "assistant: settled" },
+    ];
+    const out = (await ctx.compactionHooks[0]!({ sections })) as { drop: string[] };
+    expect(out.drop).toEqual(["s0", "s1"]);
+    // One judgment per section, recorded through appendEvent.
+    const judgments = ctx.events.filter((e) => e.name === "jev_judgment");
+    expect(judgments.length).toBe(2);
+    expect((judgments[0]!.payload as { useCase: string }).useCase).toBe("compaction-cut");
   });
 });
 
