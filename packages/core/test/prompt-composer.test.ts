@@ -49,6 +49,7 @@ describe("PromptComposer", () => {
       "session_state",
       "mpm",
       "extension_notes",
+      "turn_notes",
     ]);
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
     for (const name of SECTION_ORDER) {
@@ -199,5 +200,25 @@ describe("PromptComposer", () => {
     expect(pathA).toBeTruthy();
     expect(pathB).toBeTruthy();
     expect(pathA).not.toBe(pathB);
+  });
+});
+
+describe("turn_notes section (ADR-0036)", () => {
+  test("renders one note per extension, in order, after the durable notes", () => {
+    const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
+    const assembled = composer.compose(baseCtx({ extensionNotes: ["durable"], turnNotes: ["hint-a", "hint-b"] }));
+    const idx = assembled.system.indexOf.bind(assembled.system);
+    expect(assembled.sections["turn_notes"]).toContain("hint-a");
+    expect(idx("hint-a")).toBeGreaterThan(idx("durable"));
+    expect(idx("hint-b")).toBeGreaterThan(idx("hint-a"));
+  });
+
+  test("omitted when no notes; oversized notes are truncated with a marker", () => {
+    const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
+    expect(composer.compose(baseCtx()).sections["turn_notes"]).toBeUndefined();
+    const big = "x".repeat(500);
+    const assembled = composer.compose(baseCtx({ turnNotes: [big] }));
+    expect(assembled.sections["turn_notes"]).toContain("[truncated]");
+    expect(assembled.sections["turn_notes"]!.length).toBeLessThan(400);
   });
 });

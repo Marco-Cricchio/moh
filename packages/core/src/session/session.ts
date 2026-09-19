@@ -965,6 +965,9 @@ export class AgentSession {
       ...(this.#skillPrompt ? { skillPrompt: this.#skillPrompt } : {}),
       memory: this.#memory?.excerpt(),
       extensionNotes: this.#extensions?.notes(),
+      // ADR-0036: the live per-turn notes, read at each assembly (an
+      // extension may set or replace its note mid-turn).
+      turnNotes: this.#extensions?.turnNotes(),
       // #759: recomputed here — reasoning from the previous model call can
       // seed this one (mid-turn, after a tool result, included).
       ...(this.#mpmTaskText !== null ? { mpmOrientation: this.#orientationPlan() ?? undefined } : this.#mpmPlan ? { mpmOrientation: this.#mpmPlan } : {}),

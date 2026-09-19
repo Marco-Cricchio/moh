@@ -121,6 +121,8 @@ export interface RuntimeExtension {
   state: Record<string, unknown>;
   /** Prompt notes appended via `ctx.appendToPrompt`, in call order. */
   readonly notes: string[];
+  /** ADR-0036: this instance's per-turn note; null = none. Ephemeral. */
+  turnNote: string | null;
   readonly hooks: HookSet;
   /** Source file when loaded via `registerFile` (hot-reloadable). */
   readonly file?: string;
@@ -285,6 +287,20 @@ export class ExtensionRuntime {
   /** Prompt notes from all instances, in registration order. */
   notes(): string[] {
     return this.#instances.flatMap((i) => i.notes);
+  }
+
+  /** ADR-0036: the per-turn notes still set, in registration order. */
+  turnNotes(): string[] {
+    return this.#instances.map((i) => i.turnNote).filter((n): n is string => n !== null);
+  }
+
+  /**
+   * ADR-0036: clears every instance's per-turn note. Called at the start
+   * of each turn, before the `beforeTurn` hooks run — a note an extension
+   * writes during the turn-start dispatch belongs to the turn it describes.
+   */
+  clearTurnNotes(): void {
+    for (const instance of this.#instances) instance.turnNote = null;
   }
 
   /** Drain load events (extension_loaded / extension_failed) recorded so far. */
@@ -510,6 +526,7 @@ export class ExtensionRuntime {
       def: d as ExtensionDefinition,
       state: { ...seedState },
       notes: [],
+      turnNote: null,
       hooks: EMPTY_HOOKS(),
       file,
       status: null,
@@ -519,6 +536,10 @@ export class ExtensionRuntime {
     const ctx: ExtensionSetupContext = {
       state: instance.state,
       appendToPrompt: (note) => instance.notes.push(note),
+      // ADR-0036: one per-turn note per instance, replacing; `null` removes.
+      setPromptNote: (text) => {
+        instance.turnNote = typeof text === "string" && text.trim() !== "" ? text : null;
+      },
       appendEvent: (event) => this.#appendExtensionEvent(instance, event),
       setStatus: (text) => this.#setStatus(instance, text),
       onSessionStart: (h) => instance.hooks.sessionStart.push(h),
@@ -675,6 +696,9 @@ export class ExtensionRuntime {
    * one `extension_failed { reason: "hook" }` and the turn proceeds.
    */
   async dispatchBeforeTurn(ctx: Parameters<BeforeTurnHook>[0]): Promise<BeforeTurnDispatch> {
+    // ADR-0036: the previous turn's notes die here — a stale hint never
+    // survives into a context it was not about.
+    this.clearTurnNotes();
     let model: string | undefined;
     let modelBy: string | undefined;
     let confirm: BeforeTurnDispatch["confirm"];
