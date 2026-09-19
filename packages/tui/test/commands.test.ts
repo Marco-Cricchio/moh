@@ -34,7 +34,7 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
   test("BASE_COMMANDS lists the base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "commands", "compact", "copy", "fork", "help", "jev", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -297,7 +297,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "commands", "compact", "copy", "fork", "help", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
+      "ask-moh", "commands", "compact", "copy", "fork", "help", "jev", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
@@ -686,5 +686,25 @@ describe("/session (#767)", () => {
     const ctx = makeCtx({});
     expect(runSlashCommand("/session", ctx)).toBe(true);
     expect(ctx.notices()).toEqual(["/session needs an open session"]);
+  });
+});
+
+describe("/jev (#833)", () => {
+  test("opens the modal through its seam, and needs an open session", () => {
+    const opened: string[] = [];
+    const ctx = makeCtx();
+    runSlashCommand("/jev", ctx);
+    expect(ctx.notices().at(-1)).toBe("/jev needs an open session");
+
+    const withSession = makeCtx({ session: { extensionNames: () => ["jev-guard"] } as any, onOpenJev: () => opened.push("jev") });
+    expect(runSlashCommand("/jev", withSession)).toBe(true);
+    expect(opened).toEqual(["jev"]);
+  });
+
+  test("headless: points at the persistent switches instead of pretending", () => {
+    const ctx = makeCtx({ session: { extensionNames: () => ["jev-guard"] } as any });
+    runSlashCommand("/jev", ctx);
+    expect(ctx.notices().at(-1)).toContain("needs the TUI");
+    expect(ctx.notices().at(-1)).toContain("Settings (Jev / TypeSafe)");
   });
 });

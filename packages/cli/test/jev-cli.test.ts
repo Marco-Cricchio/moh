@@ -5,10 +5,11 @@
  * network is ever touched: the command is a pure config read.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TYPESAFE_SETTINGS_HINT } from "@moh/jev-guard";
+import { JEV_SESSION_ONLY_NAMES, JEV_USAGE, JEV_USE_CASE_NAMES } from "../src/jev";
 
 const TMP_ROOT = join(tmpdir(), "moh-jev-cli");
 const KEY = "ts_live_0000secret9f2a";
@@ -140,3 +141,136 @@ describe("moh jev status (#784)", () => {
 // The temp tree is per-test-mkdtemp under one root; a single sweep at the
 // end keeps the suite from littering while staying robust on failure.
 process.on("exit", () => rmSync(TMP_ROOT, { recursive: true, force: true }));
+
+/**
+ * #833: `moh jev <use-case> on|off` — the shell twin of the Settings
+ * entries. What these pin: the write lands in `~/.moh/config`, nothing else
+ * in the file is touched, the names that exist are the names it accepts, and
+ * the guardrail's absence is said out loud instead of looking like a typo.
+ */
+describe("moh jev <use-case> on|off (#833)", () => {
+  const readConfig = (home: string): Record<string, unknown> => {
+    const file = join(home, ".moh", "config");
+    return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  };
+
+  test("each persistable use case writes its flag, and only its flag", () => {
+    for (const [name, key] of [
+      ["routing", "routing"],
+      ["injection", "injection"],
+      ["classification", "classification"],
+      ["lint", "lint"],
+      ["rerank", "rerank"],
+      ["skills", "skills"],
+    ] as const) {
+      const { home, spawn } = harness(ACTIVE_CONFIG);
+      const { code, stdout, stderr } = spawn(["jev", name, "on"]);
+      expect(stderr).toBe("");
+      expect(code).toBe(0);
+      expect(stdout).toContain("from your next session");
+      const config = readConfig(home);
+      expect((config.typesafe as Record<string, unknown>)[key]).toBe(true);
+      // The key is never touched by a flag write.
+      expect((config.typesafe as Record<string, unknown>).apiKey).toBe(KEY);
+    }
+  });
+
+  test("off writes false; the status report follows on the next read", () => {
+    const { home, spawn } = harness(ACTIVE_CONFIG);
+    expect(spawn(["jev", "classification", "off"]).code).toBe(0);
+    expect((readConfig(home).typesafe as Record<string, unknown>).classification).toBe(false);
+    const status = spawn(["jev", "status"]);
+    expect(status.code).toBe(0);
+    expect(status.stdout).toContain("classification  off");
+    // ...and back on, without touching anything else.
+    expect(spawn(["jev", "classification", "on"]).code).toBe(0);
+    expect(spawn(["jev", "status"]).stdout).toContain("classification  on");
+  });
+
+  test("an unrelated section of the config survives the write", () => {
+    const { home, spawn } = harness(JSON.stringify({ typesafe: { apiKey: KEY }, telemetry: true, theme: "nord" }));
+    expect(spawn(["jev", "skills", "on"]).code).toBe(0);
+    const config = readConfig(home);
+    expect(config.telemetry).toBe(true);
+    expect(config.theme).toBe("nord");
+    expect((config.typesafe as Record<string, unknown>).skills).toBe(true);
+  });
+
+  test("with no config file at all the flag write creates just that section", () => {
+    const { home, spawn } = harness();
+    expect(spawn(["jev", "routing", "on"]).code).toBe(0);
+    expect(readConfig(home)).toEqual({ typesafe: { routing: true } });
+  });
+
+  test("the guardrail is refused as session-only, not as a typo", () => {
+    const { spawn } = harness(ACTIVE_CONFIG);
+    const { code, stdout, stderr } = spawn(["jev", "guardrail", "off"]);
+    expect(code).toBe(2);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("the guardrail has no persistent switch");
+    expect(stderr).toContain("/jev");
+    expect(stderr).not.toContain("unknown use case");
+  });
+
+  test("an unknown name lists nothing invented; a missing action is a usage error", () => {
+    const { spawn } = harness(ACTIVE_CONFIG);
+    for (const argv of [["jev", "bananas", "on"], ["jev", "routing"], ["jev", "routing", "maybe"], ["jev", "routing", "on", "extra"]]) {
+      const { code, stdout, stderr } = spawn(argv);
+      expect(code).toBe(2);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("usage: moh jev status");
+    }
+    expect(spawn(["jev", "bananas", "on"]).stderr).toContain('unknown use case "bananas"');
+    expect(spawn(["jev", "routing"]).stderr).toContain('an action is required — "on" or "off"');
+  });
+
+  test("--json belongs to status: a set form refuses it", () => {
+    const { spawn } = harness(ACTIVE_CONFIG);
+    const { code, stderr } = spawn(["jev", "routing", "on", "--json"]);
+    expect(code).toBe(2);
+    expect(stderr).toContain("--json belongs to status");
+  });
+
+  test("a malformed section fails loudly on write, exit 2, file untouched", () => {
+    const broken = JSON.stringify({ typesafe: { timeoutMs: "fast" } });
+    const { home, spawn } = harness(broken);
+    const { code, stdout, stderr } = spawn(["jev", "lint", "on"]);
+    expect(code).toBe(2);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("typesafe section");
+    // The broken bytes are exactly what the user wrote: a failed write must
+    // not rewrite the file into something "valid but different".
+    expect(readFileSync(join(home, ".moh", "config"), "utf8")).toBe(broken);
+  });
+
+  test("--help documents the set form and the six names", () => {
+    const { spawn } = harness();
+    const { code, stdout } = spawn(["jev", "--help"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("moh jev <use-case> on|off");
+    for (const name of ["routing", "injection", "classification", "lint", "rerank", "skills"]) {
+      expect(stdout).toContain(name);
+    }
+    expect(stdout).toContain("guardrail");
+  });
+});
+
+/**
+ * #833: the usage text is extracted verbatim by the manual generator, so it
+ * cannot interpolate the name table — this pins the two together instead.
+ */
+describe("the usage text and the name table agree (#833)", () => {
+  test("every persistable name is listed, and the guardrail is named as session-only", () => {
+    for (const name of JEV_USE_CASE_NAMES) expect(JEV_USAGE).toContain(name);
+    for (const name of JEV_SESSION_ONLY_NAMES) expect(JEV_USAGE).toContain(name);
+    expect(JEV_USAGE).toContain("Session-only");
+    // Nothing in the usage claims guardrail is writable.
+    expect(JEV_USAGE).not.toContain("Use cases: routing, injection, classification, lint, rerank, skills,");
+  });
+
+  test("the manual's generated page carries the same text", () => {
+    const page = readFileSync(join(import.meta.dir, "..", "..", "core", "src", "manual", "cli-reference.md"), "utf8");
+    expect(page).toContain("moh jev <use-case> on|off");
+    expect(page).toContain("Session-only (no flag to write): guardrail");
+  });
+});

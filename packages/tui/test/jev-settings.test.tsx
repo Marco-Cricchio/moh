@@ -22,6 +22,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** The entry's row index in the settings list (after "Remove provider"). */
 const JEV_ROW = 11;
 
+/**
+ * The sub-menu's rows, in order (#833 added "Classification" between
+ * "Anti-injection" and "Quality gate", which shifted the ones below it):
+ * 0 API key · 1 Model routing · 2 Anti-injection · 3 Classification ·
+ * 4 Quality gate · 5 Seed rerank · 6 Skill suggestion · 7 Status · 8 Remove
+ */
+const JEV_OPTION = { apiKey: 0, routing: 1, injection: 2, classification: 3, lint: 4, rerank: 5, skills: 6, status: 7, remove: 8 } as const;
+
 function setup() {
   const cwd = mkdtempSync(join(tmpdir(), "moh-jev-cwd-"));
   const home = mkdtempSync(join(tmpdir(), "moh-jev-home-"));
@@ -172,9 +180,8 @@ describe("settings Jev entry (#784)", () => {
     await sleep(80);
     expect(storedKey(home)).toBe("sk-remove-me");
     // Back to the entry menu (the valid path returns there), then "Remove"
-    // (API key · Model routing · Anti-injection · Quality gate · Seed
-    // rerank · Skill suggestion · Status · Remove, #793).
-    await down(i, 7);
+    // (see JEV_OPTION: it is the last row, #833 added Classification).
+    await down(i, JEV_OPTION.remove);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedKey(home)).toBeUndefined();
@@ -313,7 +320,7 @@ describe("settings Jev entry: quality gate (#789)", () => {
     await down(i, JEV_ROW);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
-    await down(i, 3); // "Quality gate"
+    await down(i, 4); // "Quality gate"
     i.stdin.write("\r");
     await sleep(60);
 
@@ -332,11 +339,11 @@ describe("settings Jev entry: quality gate (#789)", () => {
     await down(i, JEV_ROW);
     i.stdin.write("\r");
     await sleep(30);
-    await down(i, 3); // "Quality gate"
+    await down(i, 4); // "Quality gate"
     i.stdin.write("\r");
     await sleep(60);
     expect(storedLint(home)).toBe(true);
-    await down(i, 3); // "Quality gate" again (cursor reset to the entry top)
+    await down(i, 4); // "Quality gate" again (cursor reset to the entry top)
     i.stdin.write("\r");
     await sleep(60);
     expect(storedLint(home)).toBe(false);
@@ -359,7 +366,7 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     await down(i, JEV_ROW);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
-    await down(i, 5); // "Skill suggestion"
+    await down(i, 6); // "Skill suggestion"
     i.stdin.write("\r");
     await sleep(60);
 
@@ -377,14 +384,76 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     await down(i, JEV_ROW);
     i.stdin.write("\r");
     await sleep(30);
-    await down(i, 5); // "Skill suggestion"
+    await down(i, 6); // "Skill suggestion"
     i.stdin.write("\r");
     await sleep(60);
     expect(storedSkills(home)).toBe(true);
-    await down(i, 5);
+    await down(i, 6);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedSkills(home)).toBe(false);
+    i.unmount();
+  });
+});
+
+describe("settings Jev entry: prompt classification (#788/#833)", () => {
+  const storedClassification = (home: string): boolean | undefined => {
+    const file = userConfigFile(home);
+    if (!existsSync(file)) return undefined;
+    return readTypesafeConfig(file).classification;
+  };
+
+  test("on by default; the row turns it off and states what it changes", async () => {
+    const { cwd, home } = setup();
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    expect(storedClassification(home)).toBeUndefined(); // on unless opted out
+    await down(i, JEV_ROW);
+    i.stdin.write("\r"); // open the Jev entry
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("Classification");
+    expect(frame.replace(/[\s│]+/g, " ")).toContain("Classification on");
+    await down(i, JEV_OPTION.classification);
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedClassification(home)).toBe(false);
+    expect(toasts.some((t) => t.includes("classification off"))).toBe(true);
+    i.unmount();
+  });
+
+  test("toggling twice turns it back on, and another section survives", async () => {
+    const { cwd, home } = setup();
+    const file = userConfigFile(home);
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-me" }, telemetry: true }));
+    const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await down(i, JEV_ROW);
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, JEV_OPTION.classification);
+    i.stdin.write("\r");
+    await sleep(60);
+    expect(storedClassification(home)).toBe(false);
+    await down(i, JEV_OPTION.classification); // cursor reset to the entry top
+    i.stdin.write("\r");
+    await sleep(60);
+    expect(storedClassification(home)).toBe(true);
+    expect(readTypesafeConfig(file).apiKey).toBe("sk-keep-me");
+    i.unmount();
+  });
+
+  test("the entry states the persistent-vs-session split", async () => {
+    const { cwd, home } = setup();
+    const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await down(i, JEV_ROW);
+    i.stdin.write("\r");
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    expect(frame).toContain("these switches are persistent (they apply from your next session); changing one in an open session is /jev.");
     i.unmount();
   });
 });

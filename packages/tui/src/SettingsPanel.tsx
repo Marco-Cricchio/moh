@@ -3,7 +3,7 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
-import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
+import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
@@ -85,6 +85,8 @@ interface JevState {
   routing: boolean;
   /** #791: the anti-injection opt-in (off by default). */
   injection: boolean;
+  /** #788/#833: prompt classification (on unless the user opted out). */
+  classification: boolean;
   /** #789: the quality-gate opt-in (off by default). */
   lint: boolean;
   /** #790: the MPM seed-rerank opt-in (off by default). */
@@ -96,15 +98,28 @@ interface JevState {
   broken?: boolean;
 }
 
+/** #833: the persistent-vs-session split, stated where the persistent rows
+ * are — the other half of the sentence is `/jev`'s job to show. */
+const JEV_SCOPE =
+  "these switches are persistent (they apply from your next session); changing one in an open session is /jev.";
+
 /** #784: the ratified disclosure line, shown under the Jev entry. */
 const JEV_DISCLOSURE =
   "judgments send the command, working directory and git branch/state to TypeSafe (US). TypeSafe declares no training on inputs.";
 
 /**
- * #787/#791: the Jev entry's sub-menu — the key, the two per-use-case
- * opt-ins (both off by default), status, remove.
+ * #784/#833: the Jev entry's sub-menu — the key and one row per persistable
+ * use case (routing, anti-injection, classification, quality gate, seed
+ * rerank, skill suggestion), then status and remove.
+ *
+ * These rows are the **persistent** switches: they write `~/.moh/config` and
+ * what they write is read when a session is assembled, so a change applies
+ * from the next session on. Changing a use case *inside* a running session
+ * is the `/jev` modal's job (#833) — it commands the extension and never
+ * touches the configuration. The guardrail has no row because it has no
+ * flag: a stored key is its switch (#784).
  */
-const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Quality gate", "Seed rerank", "Skill suggestion", "Status", "Remove"] as const;
+const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Classification", "Quality gate", "Seed rerank", "Skill suggestion", "Status", "Remove"] as const;
 
 /** #791: what the anti-injection opt-in sends, stated where it is toggled. */
 const JEV_INJECTION_DISCLOSURE =
@@ -181,12 +196,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         timeoutMs: resolved.timeoutMs,
         routing: resolved.routing,
         injection: resolved.injection,
+        classification: resolved.classification,
         lint: resolved.lint,
         rerank: resolved.rerank,
         skills: resolved.skills,
       };
     } catch {
-      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, lint: false, rerank: false, skills: false, broken: true };
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, classification: true, lint: false, rerank: false, skills: false, broken: true };
     }
   };
   const [jev, setJev] = useState<JevState>(readJev);
@@ -497,6 +513,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   };
 
   /**
+   * #788/#833: the prompt-classification opt-in. On by default, so this row
+   * is the opt-*out*; like its siblings it is read at session assembly and
+   * turns off both the task-type hint and the project-map gate. (#833: the
+   * flag existed since #788 but had no writer and no row.)
+   */
+  const toggleJevClassification = () => {
+    const next = !jev.classification;
+    try {
+      saveTypesafeClassification(jevFile, next);
+    } catch (e) {
+      return onToast(`classification: could not save (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ ...j, classification: next }));
+    onToast(next ? "classification on · from your next session" : "classification off · from your next session");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
+  /**
    * #789: the quality-gate opt-in. Off by default because it sends the
    * changed code's diff; like the other flags it is read at session
    * assembly.
@@ -672,6 +706,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (option === "API key") return setSub({ kind: "jev-key", value: "", busy: false });
           if (option === "Model routing") return toggleJevRouting();
           if (option === "Anti-injection") return toggleJevInjection();
+          if (option === "Classification") return toggleJevClassification();
           if (option === "Quality gate") return toggleJevLint();
           if (option === "Seed rerank") return toggleJevRerank();
           if (option === "Skill suggestion") return toggleJevSkills();
@@ -849,7 +884,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                           ? jev.lint
                             ? "on"
                             : "off"
-                          : option === "Seed rerank"
+                          : option === "Classification"
+                            ? jev.classification
+                              ? "on"
+                              : "off"
+                            : option === "Seed rerank"
                             ? jev.rerank
                               ? "on"
                               : "off"
@@ -870,7 +909,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               })}
               <Text> </Text>
               <Text color={theme.dim} wrap="wrap">
-                {JEV_DISCLOSURE}
+                {JEV_SCOPE} {JEV_DISCLOSURE}
                 {jev.injection ? ` ${JEV_INJECTION_DISCLOSURE}` : ""}
                 {jev.lint ? ` ${JEV_LINT_DISCLOSURE}` : ""}
                 {jev.rerank ? ` ${JEV_RERANK_DISCLOSURE}` : ""}
