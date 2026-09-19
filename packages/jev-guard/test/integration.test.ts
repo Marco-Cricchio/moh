@@ -11,7 +11,7 @@
  * registered through the generic door.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
@@ -93,19 +93,30 @@ describe("the typesafe config block (#784, #826)", () => {
 
 describe("the bundled descriptor (#826)", () => {
   test("activation is the stored key, and nothing else", () => {
-    const home = tmpDir();
-    const file = userConfigFile(home);
-    mkdirSync(join(home, ".moh"), { recursive: true });
+    const at = (body: unknown) => JSON.stringify(body);
+    const file = "/nonexistent/config";
 
-    // Absent file, empty key, and a broken block all mean "not active".
+    // An empty config, a blank key and a broken block all mean "not active".
     expect(jevBundledSource.isActive(() => "", file)).toBe(false);
-    writeUserConfig(home, { typesafe: { apiKey: "   " } });
-    expect(jevBundledSource.isActive(() => "", file)).toBe(false);
-    writeUserConfig(home, { typesafe: { timeoutMs: -1 } });
-    expect(jevBundledSource.isActive(() => "", file)).toBe(false);
+    expect(jevBundledSource.isActive(() => at({ typesafe: { apiKey: "   " } }), file)).toBe(false);
+    expect(jevBundledSource.isActive(() => at({ typesafe: { timeoutMs: -1 } }), file)).toBe(false);
 
-    writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
-    expect(jevBundledSource.isActive(() => "", file)).toBe(true);
+    expect(jevBundledSource.isActive(() => at({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
+  });
+
+  test("activation reads through the injected reader, never the disk", () => {
+    // The reader is the caller's by contract: a path that does not exist on
+    // this machine still reports active if the injected read says so. If the
+    // descriptor reached for the filesystem itself, this would be false.
+    const file = join(tmpDir(), "config-that-does-not-exist");
+    expect(existsSync(file)).toBe(false);
+    expect(jevBundledSource.isActive(() => JSON.stringify({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
+    expect(jevBundledSource.isActive(() => JSON.stringify({ typesafe: {} }), file)).toBe(false);
+  });
+
+  test("a config file that cannot be read at all means inactive, not a crash", () => {
+    const file = "/definitely/not/readable";
+    expect(jevBundledSource.isActive(() => { throw new Error("EACCES"); }, file)).toBe(false);
   });
 
   test("the descriptor is named after the extension it registers", () => {

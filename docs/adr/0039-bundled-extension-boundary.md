@@ -74,11 +74,17 @@ Key decisions, each with its rationale:
    reports "not active" and the session proceeds. The loud error moves to the surface
    that reports it (`moh jev status` exits 2).
 
-5. **The manual page stays in the core.** #826 listed `core/src/manual/jev.md` as
-   coupling, but the page is *platform content*: it describes an optional integration for
-   the user (`ctrl+h`, `moh manual jev`) and names no core API. #834 put
-   `manual/extensions.md` in the core for the same reason. Server-side page contribution
-   does not exist in moh; inventing it to move one file would be scope nobody asked for.
+5. **The manual page stays in the core — a deliberate deviation from #826, which
+   listed it.** The issue listed `core/src/manual/jev.md` among the couplings to remove,
+   and `manual.ts`'s static import plus the `gen-manual-docs.ts` entry with it. The page
+   was evaluated against the same criterion as the code and did not meet it: it is
+   *platform content*, describing an optional integration for the user (`ctrl+h`,
+   `moh manual jev`), naming no core API, no core type and no core symbol. #834 put
+   `manual/extensions.md` in the core on exactly that basis, and moh has no mechanism for
+   an extension to contribute a manual page — building one to relocate a single file
+   would be scope the issue did not ask for. The deviation is recorded here rather than
+   silently dropped, and the option stays open: if moh ever grows contributed pages, the
+   Jev page moves then, with the import and generator entry it needs.
 
 ## Deviation that remains
 

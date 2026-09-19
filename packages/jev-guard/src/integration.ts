@@ -49,9 +49,12 @@ export const jevBundledSource = {
   name: NAME,
 
   /** Effect-free: a stored, non-empty API key is the only activation switch. */
-  isActive(_readConfig: (file: string) => string, configFile: string): boolean {
+  isActive(readConfig: (file: string) => string, configFile: string): boolean {
     try {
-      return resolveTypesafeConfig(readTypesafeConfig(configFile, readFile)).active;
+      // The reader is the caller's: the activation fact is the *caller's*
+      // question ("should this run?"), asked through whatever read the
+      // caller trusts — a file read here, an in-memory config in a test.
+      return resolveTypesafeConfig(readTypesafeConfig(configFile, readConfig)).active;
     } catch {
       // A malformed `typesafe` block is a user error the CLI reports
       // (`moh jev status` exits 2). For the assembly it means "not active":

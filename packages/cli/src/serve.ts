@@ -23,7 +23,7 @@ import {
   type AgentSession,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { BUNDLED_EXTENSION_SOURCES } from "../../tui/src/bundled-extensions";
+import { BUNDLED_EXTENSION_SOURCES } from "@moh/tui/bundled-extensions";
 
 export const SERVE_USAGE = `usage: moh serve [options]
 

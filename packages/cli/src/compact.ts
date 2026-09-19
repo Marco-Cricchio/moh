@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { sessionFromConfig, SessionStore, listSessionSummaries } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { BUNDLED_EXTENSION_SOURCES } from "../../tui/src/bundled-extensions";
+import { BUNDLED_EXTENSION_SOURCES } from "@moh/tui/bundled-extensions";
 
 export const COMPACT_USAGE = `usage: moh compact [--session <file>] [--cwd <dir>]
 

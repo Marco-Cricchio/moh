@@ -27,7 +27,7 @@ import {
   type AgentEvent,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { BUNDLED_EXTENSION_SOURCES } from "../../tui/src/bundled-extensions";
+import { BUNDLED_EXTENSION_SOURCES } from "@moh/tui/bundled-extensions";
 
 export const RUN_USAGE = `usage: moh run [options] [prompt...]
 
@@ -318,8 +318,8 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // consent seams — project MCP servers and "ask" calls fail fast.
   const assembled = sessionFromConfig({
     cwd,
-      // #826: the bundled first-party extensions this client ships.
-      bundledExtensions: BUNDLED_EXTENSION_SOURCES,
+    // #826: the bundled first-party extensions this client ships.
+    bundledExtensions: BUNDLED_EXTENSION_SOURCES,
     ...(options.home ? { home: options.home } : {}),
     ...(cassetteProvider ? { provider: cassetteProvider } : {}),
     ...(parsed.strings["provider"]
