@@ -416,11 +416,13 @@ describe("hot-reload", () => {
       extensions: rt2,
       resume: { events: first.history() },
     });
+    // #834: the reconciliation waits for pending registrations, so the
+    // warning lands once the load settled — by the next turn, at the latest.
+    expect((await resumed.send("again")).status).toBe("done");
     const warning = resumed.history().find(
       (e) => e.type === "extension_failed" && (e as any).reason === "missing_on_resume",
     );
     expect(warning).toMatchObject({ name: "gone" });
-    expect((await resumed.send("again")).status).toBe("done");
   });
 
   test("a hook that always throws does not loop and becomes a warning event", async () => {

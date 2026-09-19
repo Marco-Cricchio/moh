@@ -20,6 +20,7 @@ describe("manual assets (#457)", () => {
       "providers-and-models",
       "permissions",
       "jev",
+      "extensions",
       "mcp",
       "skills-and-workflow",
       "memory-and-compaction",

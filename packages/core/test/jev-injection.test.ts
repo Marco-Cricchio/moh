@@ -80,9 +80,10 @@ const bashTool: Tool = {
 
 async function runtimeFor(probabilities: { input: Probabilities; tool?: Probabilities }, injection: boolean) {
   const fetch = jevFetch(probabilities);
-  const rt = new ExtensionRuntime({ mohHome: tmpDir(), bundledTrust: true });
+  const rt = new ExtensionRuntime({ mohHome: tmpDir() });
   await rt.register(
     createJevGuardExtension({ apiKey: "sk-test", fetchImpl: fetch.impl, injection, classification: false }),
+    { bundled: true },
   );
   return { rt, calls: fetch.calls };
 }
@@ -269,7 +270,7 @@ describe("anti-injection, tool half (#791)", () => {
   });
 
   test("a Jev outage fails open: the page passes, nothing is withheld", async () => {
-    const rt = new ExtensionRuntime({ mohHome: tmpDir(), bundledTrust: true });
+    const rt = new ExtensionRuntime({ mohHome: tmpDir() });
     await rt.register(
       createJevGuardExtension({
         apiKey: "sk-test",
@@ -279,6 +280,7 @@ describe("anti-injection, tool half (#791)", () => {
         injection: true,
         classification: false,
       }),
+      { bundled: true },
     );
     const session = createSession({
       provider: MockProvider.scripted([

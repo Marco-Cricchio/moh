@@ -67,6 +67,10 @@ export class AgentSession {
   /** Same-turn tool execution (#91): parallel run + gated execution. */
   readonly #toolRunner: ToolRunner;
   readonly #extensions: ExtensionRuntime | undefined;
+  /** #834: are load events still held until the session's start chrome is in? */
+  #extensionsHeld = false;
+  /** #834: the load events held, in delivery order (= the load order). */
+  readonly #heldExtensionEvents: AgentEvent[] = [];
   /** ADR-0032: a client with a consent seam renders statuses itself; a
    * headless one gets the single stderr line instead. */
   readonly #hasConsentSeam: boolean;
@@ -311,8 +315,20 @@ export class AgentSession {
     // `ctx.requestTurn` lands here, through the queue.
     if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
     this.#onDispose = config.onDispose;
-    // Extension load results (including hot-reload outcomes) land in the log.
-    this.#extensions?.onLoadEvent((event) => this.#append(event));
+    // Extension load results (including hot-reload outcomes) land in the log
+    // — held until the session's own start chrome is in (#834). A load can
+    // settle before this constructor runs (the client resolved its source
+    // earlier) and further loads can settle *during* it: appending both
+    // streams as they arrive would either break the log-format invariant
+    // (`session_start` first) or scramble the two against each other. Held
+    // in delivery order, the log keeps the extensions' load order — which is
+    // the order their hooks decide in.
+    this.#extensionsHeld = this.#extensions !== undefined;
+    this.#heldExtensionEvents.push(...(this.#extensions?.consumeLoadEvents() ?? []));
+    this.#extensions?.onLoadEvent((event) => {
+      if (this.#extensionsHeld) this.#heldExtensionEvents.push(event);
+      else this.#append(event);
+    });
     // ADR-0032: an extension status is client chrome — it never enters the
     // log. A headless client (no consent seam: there is no one to prompt,
     // hence no TUI) gets one stderr line per new status text instead.
@@ -627,23 +643,21 @@ export class AgentSession {
       this.#flushExtensionEvents();
       // Extensions missing on resume: a previously enabled extension that
       // the current runtime did not load produces a warning, nothing more.
+      // #834: loads from the client's source are asynchronous (import +
+      // consent), so the reconciliation waits for them — reporting an
+      // extension missing before its load settled would be a lie.
       if (this.#extensions) {
         const enabled = new Set(
           config.resume.events
             .filter((e) => e.type === "extension_loaded")
             .map((e) => (e as { name: string }).name),
         );
-        const present = new Set(this.#extensions.instances.map((i) => i.def.name));
-        for (const name of enabled) {
-          if (!present.has(name)) {
-            this.#append({
-              type: "extension_failed",
-              name,
-              reason: "missing_on_resume",
-              message: "extension enabled in the resumed session was not loaded; continuing without it",
-            });
-          }
-        }
+        void this.#extensions.ready().then(() => {
+          this.#reportMissingExtensions(enabled);
+          // #834: loaded files are watched for hot-reload (state preserved);
+          // a failed reload keeps the previous instance and is visible.
+          this.#extensions?.startWatch();
+        });
       }
       this.#assemblePrompt();
       // A mode change across resume is auditable like any startup flag.
@@ -660,9 +674,33 @@ export class AgentSession {
     // Fire-and-forget: construction is sync, the session is not yet running.
     // The bundled-definition registration settles first (ADR-0032/ADR-0005):
     // `session_start` must never reach an extension whose setup is pending.
-    void this.#extensions?.ready().then(() => this.#extensions?.dispatchSessionStart()).then((errors) => {
+    void this.#extensions?.ready().then(() => {
+      // #834: loaded files are watched for hot-reload (state preserved); a
+      // failed reload keeps the previous instance and is visible.
+      this.#extensions?.startWatch();
+      return this.#extensions?.dispatchSessionStart();
+    }).then((errors) => {
       for (const e of errors ?? []) this.#append(e);
     });
+  }
+
+  /**
+   * #834: a resumed file may list extensions enabled in an earlier
+   * environment; one the current runtime did not load is a warning, never
+   * an error (the session continues without it).
+   */
+  #reportMissingExtensions(enabled: ReadonlySet<string>): void {
+    if (!this.#extensions || enabled.size === 0) return;
+    const present = new Set(this.#extensions.instances.map((i) => i.def.name));
+    for (const name of enabled) {
+      if (present.has(name)) continue;
+      this.#append({
+        type: "extension_failed",
+        name,
+        reason: "missing_on_resume",
+        message: "extension enabled in the resumed session was not loaded; continuing without it",
+      });
+    }
   }
 
   /**
@@ -712,9 +750,13 @@ export class AgentSession {
     }
   }
 
-  /** Drains buffered extension load events (failed loads = warnings) into the log. */
+  /** Drains the held extension load events (failed loads = warnings) into the
+   * log, in delivery order. Called once the startup chrome is in. */
   #flushExtensionEvents(): void {
-    for (const event of this.#extensions?.consumeLoadEvents() ?? []) this.#append(event);
+    if (!this.#extensionsHeld) return;
+    this.#extensionsHeld = false;
+    this.#heldExtensionEvents.push(...(this.#extensions?.consumeLoadEvents() ?? []));
+    for (const event of this.#heldExtensionEvents.splice(0)) this.#append(event);
   }
 
   /** Replays the append-only log, then streams new events. */
@@ -1362,6 +1404,8 @@ export class AgentSession {
     if (!this.#extensions) return;
     // ADR-0032: statuses are ephemeral — nothing survives the session.
     this.#extensions.clearStatuses();
+    // #834: hot-reload watchers live and die with the session that started them.
+    this.#extensions.stopWatch();
     for (const e of await this.#extensions.dispatchSessionEnd("disposed")) this.#append(e);
     // The end-of-session events were just queued: let the dispatch drain
     // settle before the session is considered disposed.

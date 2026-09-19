@@ -21,7 +21,7 @@ import {
 } from "./session/from-config";
 import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
-import { ExtensionRuntime } from "./extensions";
+import { ExtensionRuntime, type ExtensionConsentRequest } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -822,6 +822,7 @@ export {
   type SessionFromConfigOptions,
   type SessionFromConfigResult,
   type SessionOverrides,
+  type ExtensionConsentRequest,
   type PermissionsConfig,
   type SkillIndexEntry,
   type DeclaredMcpServer,

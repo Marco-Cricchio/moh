@@ -70,6 +70,11 @@ All keys are optional. Notes:
 - `permissions.overrides` — tier-2 rules (built-in defaults < these <
   in-session runtime rules); same grammar as the CLI `--allow/--deny`
   flags and the TUI prompt (see the Permissions page).
+- `extensions` — extra extension modules for this project, relative to the
+  project root (or absolute). A declaration is a **proposal**, never an
+  activation: it loads only after you allow it, and the answer is tied to
+  the file's exact contents (see the Extensions page). Editing the file
+  asks again; a clone you never answered for loads nothing.
 - `mcpServers` — project servers ask consent on first use; tools become
   `mcp__<server>__<tool>`.
 - `handoff.transport` — absent = Not Set = off; `"gist"` enables

@@ -33,6 +33,8 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
+import type { ExtensionConsentRequest } from "../extensions";
+import { extensionSourceFiles } from "../extension-source";
 import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
 import { readTypesafeConfig, resolveTypesafeConfig } from "../typesafe";
@@ -107,6 +109,16 @@ export interface SessionConsent {
   onConfirmTurn?: SessionConfig["onConfirmTurn"];
   /** Project MCP server consent (TUI: reuses the permission modal). */
   onMcpTrust?: (server: string) => Promise<McpConsentAnswer> | McpConsentAnswer;
+  /**
+   * #834: the one-time enable consent for a client-loaded extension (TUI:
+   * the permission modal, which names the extension, its source path and
+   * its version). Absent = nothing can ask (headless): an extension that
+   * was never enabled is refused with `extension_failed { reason: "consent" }`,
+   * one line on stderr, and the session continues. A `true` answer is
+   * persisted against the resolved path + content hash, so the same file
+   * loads silently afterwards and an edit asks again.
+   */
+  onExtensionConsent?: (request: ExtensionConsentRequest) => Promise<boolean> | boolean;
 }
 
 /** Client-specific overrides the builder layers over the moh.json-derived defaults. */
@@ -229,10 +241,34 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   }
   const notes: string[] = [];
   let extensions: ExtensionRuntime | undefined;
-  if (typesafe.active) {
-    // Bundled first-party code: no consent prompt, no dependency
-    // authorization (the host shipped the bytes — see `bundledTrust`).
-    extensions = new ExtensionRuntime({ mohHome, bundledTrust: true });
+  // #834: the declared source of client-loadable extensions — the user's
+  // `~/.moh/extensions/` dotdir plus the project's `moh.json` proposals.
+  // Resolved for every client (one assembly path, ADR-0005), so a headless
+  // run fails closed through the same code the TUI asks through.
+  const extensionSources = extensionSourceFiles({
+    mohHome,
+    cwd: options.cwd,
+    declared: config.extensions ?? [],
+  });
+  // The consent seam is the client's: with one, the user is asked; without
+  // one (headless), a not-yet-enabled extension is refused and the only
+  // channel left — stderr — carries the line the log would have shown.
+  const onExtensionConsent = options.consent?.onExtensionConsent;
+  if (typesafe.active || extensionSources.length > 0) {
+    // One runtime for both doors: bundled first-party code registers with
+    // `{ bundled: true }` (no consent — the host shipped the bytes),
+    // path-loaded files go through the content-bound consent.
+    extensions = new ExtensionRuntime({
+      mohHome,
+      ...(onExtensionConsent
+        ? {
+            consent: (name: string, version: string, file: string | undefined) =>
+              onExtensionConsent({ name, version, ...(file ? { file } : {}) }),
+          }
+        : { onWarning: (message: string) => process.stderr.write(`moh: ${message}\n`) }),
+    });
+  }
+  if (extensions && typesafe.active) {
     // #787: the core resolves *which models this session can reach* (lazy —
     // only the router asks); the extension owns the tiers and the judgment.
     // `enabled` is the config opt-in and the router's starting state, not a
@@ -274,10 +310,20 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         // (it sends the changed code's diff to TypeSafe).
         ...(typesafe.lint ? { lint: { root: options.cwd } } : {}),
       }),
+      // Bundled first-party code: the host shipped these bytes, so the
+      // content-bound consent (a question about the user's disk) does not
+      // apply to them.
+      { bundled: true },
     );
   } else {
     notes.push("jev: inactive (no api key)");
   }
+
+  // The declared source (#834): its files load through the same runtime, in
+  // the resolved order. Fire-and-forget like the bundled registration —
+  // the session awaits `ready()` before its first turn, so an extension's
+  // consent prompt is answered before any hook could run.
+  if (extensions && extensionSources.length > 0) void extensions.registerFiles(extensionSources);
 
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
   // Computed before the store exists so a throwing read leaves no orphan
