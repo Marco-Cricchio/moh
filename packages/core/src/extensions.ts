@@ -32,6 +32,9 @@ import {
   type ToolResultHook,
   type ToolResultHookResult,
   type TurnConfirmOutcome,
+  type CompactionHook,
+  type CompactionHookContext,
+  type CompactionHookResult,
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
@@ -105,6 +108,8 @@ interface HookSet {
   onToolCall: ToolCallHook[];
   /** ADR-0034: post-tool inspection, scoped to the declared tool names. */
   onToolResult: { tools: readonly string[]; hook: ToolResultHook }[];
+  /** ADR-0035: compaction-time section filter. */
+  onCompaction: CompactionHook[];
   onEvent: EventHook[];
   afterTurn: AfterTurnHook[];
 }
@@ -141,6 +146,7 @@ const EMPTY_HOOKS = (): HookSet => ({
   beforeModelCall: [],
   onToolCall: [],
   onToolResult: [],
+  onCompaction: [],
   onEvent: [],
   afterTurn: [],
 });
@@ -527,6 +533,7 @@ export class ExtensionRuntime {
         if (!Array.isArray(tools) || tools.length === 0) return;
         instance.hooks.onToolResult.push({ tools: [...tools], hook: h });
       },
+      onCompaction: (h) => instance.hooks.onCompaction.push(h),
       onEvent: (h) => instance.hooks.onEvent.push(h),
       afterTurn: (h) => instance.hooks.afterTurn.push(h),
     };
@@ -760,8 +767,56 @@ export class ExtensionRuntime {
     return { errors: this.#drainErrors() };
   }
 
-  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
-    await this.#each("beforeModelCall", (h) => h(ctx));
+  /**
+   * ADR-0035: the compaction section-filter dispatch. Every registered
+   * hook runs (each sees the same offered sections); the union of the
+   * returned drops is the requested cut. Fail-open: a throwing hook is
+   * one visible `extension_failed { reason: "hook" }` and no drops; an id
+   * that was not offered is ignored and recorded as
+   * `extension_failed { reason: "unknown_section" }`. The caller (the
+   * compaction runner) applies the survival floor and renders — this
+   * dispatch only collects.
+   */
+  async dispatchCompaction(
+    ctx: CompactionHookContext,
+  ): Promise<{ drop: string[]; errors: AgentEvent[] }> {
+    const offered = new Set(ctx.sections.map((s) => s.id));
+    const drop: string[] = [];
+    for (const instance of this.#instances) {
+      for (const hook of instance.hooks.onCompaction) {
+        let out: CompactionHookResult | void;
+        try {
+          out = await hook(ctx);
+        } catch (err) {
+          this.#hookErrors.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(err),
+          });
+          continue;
+        }
+        if (!out || !Array.isArray(out.drop)) continue;
+        for (const id of out.drop) {
+          if (typeof id !== "string" || !offered.has(id) || drop.includes(id)) continue;
+          drop.push(id);
+        }
+        for (const id of out.drop) {
+          if (typeof id === "string" && !offered.has(id)) {
+            this.#hookErrors.push({
+              type: "extension_failed",
+              name: instance.def.name,
+              reason: "unknown_section",
+              message: `drop named a section that was not offered: ${String(id).slice(0, 64)}`,
+            });
+          }
+        }
+      }
+    }
+    return { drop, errors: this.#drainErrors() };
+  }
+
+  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {    await this.#each("beforeModelCall", (h) => h(ctx));
     return this.#drainErrors();
   }
 

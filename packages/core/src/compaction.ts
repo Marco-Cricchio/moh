@@ -18,6 +18,7 @@
  * with one retry, never reachable through `spawn`.
  */
 import type { AgentEvent, Provider, TurnResult } from "./types";
+import type { CompactionHookContext } from "@moh/extension";
 import { catalogEntryFor } from "./model-catalog";
 import { activePath } from "./session/event-log";
 import { PromptComposer } from "./prompt-composer";
@@ -38,6 +39,214 @@ export const RETRY_BACKOFF_BASE_MS = 2_000;
 export const RETRY_BACKOFF_MAX_MS = 60_000;
 /** Hard character cap on the transcript handed to the summarizer. */
 const TRANSCRIPT_CAP_CHARS = 60_000;
+
+/** ADR-0035: the survival floor — at least this fraction of the droppable
+ * text survives, however many sections the hooks asked to drop. The floor
+ * makes a catastrophic judgment a bounded event; it is a property of the
+ * core, not a rule the extension is asked to respect. */
+export const COMPACTION_SECTION_FLOOR = 0.6;
+
+/** ADR-0035: the preview cap (chars) the hook's section list carries. */
+export const COMPACTION_SECTION_PREVIEW_CHARS = 200;
+
+/** ADR-0035: one droppable section — one user turn's body (the assistant
+ * work and tool traffic after the message). The user message itself is
+ * never a section; chrome events are not offered either (they are dense,
+ * small, and the conversation's spine). Shape mirrors `@moh/extension`'s
+ * `CompactionSection` without importing it (the runner is internal). */
+export interface CompactionSectionView {
+  readonly id: string;
+  readonly kind: "assistant" | "tool_result" | "tool_call";
+  readonly bytes: number;
+  readonly preview: string;
+}
+
+/** One turn's rendered pieces, during segmentation. */
+interface TurnBody {
+  id: string;
+  kind: CompactionSectionView["kind"];
+  parts: string[];
+}
+
+/** The kind a turn's body is dominated by: tool traffic wins over text,
+ * tool results over calls (the bulk lives in results). */
+function dominantKind(body: TurnBody): CompactionSectionView["kind"] {
+  if (body.parts.some((p) => p.startsWith("tool_result"))) return "tool_result";
+  if (body.parts.some((p) => p.startsWith("tool "))) return "tool_call";
+  return "assistant";
+}
+
+/**
+ * ADR-0035: splits the covered span into one section per user turn's
+ * body. `sectionIdsFor` assigns each section's opaque id (index-keyed, so
+ * the id is stable per compaction run without touching the log). Chrome
+ * events and user messages contribute nothing: what is absent cannot be
+ * dropped. Exported for tests.
+ */
+export function compactionSections(
+  events: ReadonlyArray<AgentEvent>,
+  from: number,
+  to: number,
+  sectionIdsFor: (turnIndex: number) => string,
+): { sections: CompactionSectionView[]; bodies: (string | null)[] } {
+  const sections: CompactionSectionView[] = [];
+  const bodies: (string | null)[] = [];
+  let current: TurnBody | null = null;
+  const close = () => {
+    if (!current) return;
+    const text = current.parts.join("\n").trim();
+    if (text) {
+      sections.push({
+        id: sectionIdsFor(sections.length),
+        kind: dominantKind(current),
+        bytes: Buffer.byteLength(text, "utf8"),
+        preview: text.length > COMPACTION_SECTION_PREVIEW_CHARS ? `${text.slice(0, COMPACTION_SECTION_PREVIEW_CHARS)}…` : text,
+      });
+      bodies.push(text);
+    } else {
+      bodies.push(null);
+    }
+    current = null;
+  };
+  const lo = Math.max(0, from);
+  const hi = Math.min(to, events.length);
+  for (let i = lo; i < hi; i++) {
+    const event = events[i]!;
+    if (event.type === "user_message") {
+      close();
+      bodies.push(null); // the user message: spine, never a section
+      current = { id: "", kind: "assistant", parts: [] };
+      continue;
+    }
+    if (!current) continue; // chrome / leading events before the first turn
+    if (event.type === "assistant_delta") {
+      current.parts.push(`assistant: ${event.text.trim()}`);
+    } else if (event.type === "tool_call") {
+      current.parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
+    } else if (event.type === "tool_result") {
+      current.parts.push(`tool_result ${event.callId}: ${event.ok ? "ok" : "error"}`);
+    } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
+      // turn rollups — no section content
+    }
+    // every other event type is chrome: skipped
+  }
+  close();
+  return { sections, bodies };
+}
+
+/**
+ * ADR-0035: applies the requested drops to the per-turn bodies, enforcing
+ * the survival floor: when more than `1 - COMPACTION_SECTION_FLOOR` of
+ * the droppable bytes are requested away, the *smallest* sections are
+ * un-dropped first until the floor holds (so the wanted large cuts are
+ * the ones preserved), and `keptByFloor` says so. Exported for tests.
+ */
+export function applySectionDrops(
+  sections: readonly CompactionSectionView[],
+  drop: readonly string[],
+): { droppedIds: Set<string>; keptByFloor: boolean } {
+  const droppable = sections.filter((s) => drop.includes(s.id));
+  const total = droppable.reduce((sum, s) => sum + s.bytes, 0);
+  const dropped = new Set(drop);
+  let keptByFloor = false;
+  if (total > 0) {
+    const droppedBytes = () => droppable.filter((s) => dropped.has(s.id)).reduce((sum, s) => sum + s.bytes, 0);
+    while (droppedBytes() > total * (1 - COMPACTION_SECTION_FLOOR)) {
+      // Restore the smallest dropped section: the large cuts survive.
+      const candidates = droppable.filter((s) => dropped.has(s.id)).sort((a, b) => a.bytes - b.bytes);
+      const smallest = candidates[0];
+      if (!smallest) break;
+      dropped.delete(smallest.id);
+      keptByFloor = true;
+    }
+  }
+  return { droppedIds: dropped, keptByFloor };
+}
+
+/**
+ * Renders the covered events (from `from` inclusive to `to` exclusive)
+ * as a compact transcript for the summarizer: user and assistant text,
+ * tool calls as one-line outcomes. Tail-capped. `omit` (ADR-0035) names
+ * per-turn bodies to leave out — the user messages and chrome around
+ * them still render, exactly as they would have.
+ */
+export function compactionTranscript(
+  events: ReadonlyArray<AgentEvent>,
+  from: number,
+  to: number,
+  omit?: (turnIndex: number) => boolean,
+): string {
+  // Without drops, render exactly as before (the hot path; the legacy
+  // signature and output are preserved byte-for-byte).
+  if (!omit) {
+    const parts: string[] = [];
+    let assistant = "";
+    const flush = () => {
+      if (assistant.trim()) parts.push(`assistant: ${assistant.trim()}`);
+      assistant = "";
+    };
+    const lo = Math.max(0, from);
+    const hi = Math.min(to, events.length);
+    for (let i = lo; i < hi; i++) {
+      const event = events[i]!;
+      if (event.type === "user_message") {
+        flush();
+        parts.push(`user: ${event.text.trim()}`);
+      } else if (event.type === "assistant_delta") {
+        assistant += event.text;
+      } else if (event.type === "tool_result") {
+        flush();
+        parts.push(`tool ${event.callId}: ${event.ok ? "ok" : "error"}`);
+      } else if (event.type === "tool_call") {
+        flush();
+        parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
+      } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
+        flush();
+      }
+    }
+    flush();
+    let text = parts.join("\n");
+    if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
+    return text;
+  }
+  // With drops: the covered span renders per turn; a dropped turn's body
+  // is replaced by a one-line marker so the summarizer knows work
+  // happened there and was cut — never a silent gap.
+  const parts: string[] = [];
+  let assistant = "";
+  let turnIndex = -1;
+  let inTurn = false;
+  const flush = () => {
+    if (assistant.trim()) parts.push(`assistant: ${assistant.trim()}`);
+    assistant = "";
+  };
+  const lo = Math.max(0, from);
+  const hi = Math.min(to, events.length);
+  for (let i = lo; i < hi; i++) {
+    const event = events[i]!;
+    if (event.type === "user_message") {
+      flush();
+      if (inTurn && turnIndex >= 0 && omit(turnIndex)) parts.push(`[section dropped: turn ${turnIndex}]`);
+      turnIndex += 1;
+      inTurn = true;
+      parts.push(`user: ${event.text.trim()}`);
+    } else if (event.type === "assistant_delta") {
+      assistant += event.text;
+    } else if (event.type === "tool_result") {
+      flush();
+      if (!omit(turnIndex)) parts.push(`tool ${event.callId}: ${event.ok ? "ok" : "error"}`);
+    } else if (event.type === "tool_call") {
+      flush();
+      if (!omit(turnIndex)) parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
+    } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
+      flush();
+    }
+  }
+  if (inTurn && turnIndex >= 0 && omit(turnIndex)) parts.push(`[section dropped: turn ${turnIndex}]`);
+  let text = parts.join("\n");
+  if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
+  return text;
+}
 
 /** The compaction child session's role prompt (also the disjunction rule). */
 export const COMPACTION_PROMPT = [
@@ -78,6 +287,14 @@ export interface CompactionOptions {
   fallbackWindowTokens?: number;
   /** Summarizer override (tests, clients). Default: the compaction subagent. */
   summarizer?: CompactionSummarizer;
+  /**
+   * ADR-0035: the extension seam, consulted before the summarized
+   * transcript is rendered (auto and forced paths alike). Absent or
+   * throwing → no drops, compaction exactly as today. The runtime's
+   * dispatch returns the collected drops plus the `extension_failed`
+   * events to append; the runner applies the survival floor.
+   */
+  sectionFilter?: (ctx: CompactionHookContext) => Promise<{ drop: string[]; errors: AgentEvent[] } | void>;
 }
 
 export interface CompactionRunnerOptions {
@@ -96,6 +313,7 @@ export interface CompactionRunnerOptions {
   /** Called after a successful append (the host rebuilds its messages). */
   onCompacted: () => void;
   summarizer: CompactionSummarizer;
+  sectionFilter?: CompactionOptions["sectionFilter"];
   tailTurns?: number;
   threshold?: number;
   fallbackWindowTokens?: number;
@@ -117,43 +335,6 @@ function markerSpanNonEmpty(events: ReadonlyArray<AgentEvent>, from: number, to:
 }
 
 /**
- * Renders the covered events (from `from` inclusive to `to` exclusive)
- * as a compact transcript for the summarizer: user and assistant text,
- * tool calls as one-line outcomes. Tail-capped.
- */
-export function compactionTranscript(events: ReadonlyArray<AgentEvent>, from: number, to: number): string {
-  const parts: string[] = [];
-  let assistant = "";
-  const flush = () => {
-    if (assistant.trim()) parts.push(`assistant: ${assistant.trim()}`);
-    assistant = "";
-  };
-  const lo = Math.max(0, from);
-  const hi = Math.min(to, events.length);
-  for (let i = lo; i < hi; i++) {
-    const event = events[i]!;
-    if (event.type === "user_message") {
-      flush();
-      parts.push(`user: ${event.text.trim()}`);
-    } else if (event.type === "assistant_delta") {
-      assistant += event.text;
-    } else if (event.type === "tool_result") {
-      flush();
-      parts.push(`tool ${event.callId}: ${event.ok ? "ok" : "error"}`);
-    } else if (event.type === "tool_call") {
-      flush();
-      parts.push(`tool ${event.name}: ${JSON.stringify(event.args).slice(0, 200)}`);
-    } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
-      flush();
-    }
-  }
-  flush();
-  let text = parts.join("\n");
-  if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
-  return text;
-}
-
-/**
  * The post-turn compaction trigger (#466). Fire-and-forget like the
  * MemoryRunner: never blocks the turn, one retry, fail-silent but not
  * lossy — a failed run leaves the marker unwritten, so the next new
@@ -166,6 +347,7 @@ export class CompactionRunner {
   readonly #pathFn: (() => ReadonlyArray<AgentEvent>) | undefined;
   readonly #onCompacted: () => void;
   readonly #summarizer: CompactionSummarizer;
+  readonly #sectionFilter: CompactionOptions["sectionFilter"];
   readonly #tailTurns: number;
   readonly #threshold: number;
   readonly #fallbackWindow: number;
@@ -187,6 +369,7 @@ export class CompactionRunner {
     this.#pathFn = opts.pathFn;
     this.#onCompacted = opts.onCompacted;
     this.#summarizer = opts.summarizer;
+    this.#sectionFilter = opts.sectionFilter;
     this.#tailTurns = opts.tailTurns ?? DEFAULT_TAIL_TURNS;
     this.#threshold = opts.threshold ?? DEFAULT_COMPACTION_THRESHOLD;
     this.#fallbackWindow = opts.fallbackWindowTokens ?? FALLBACK_CONTEXT_WINDOW;
@@ -325,6 +508,16 @@ export class CompactionRunner {
     forced: boolean,
     resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }) => void,
   ): void {
+    // The body is async (ADR-0035's filter dispatch awaits); `#pending`
+    // below still tracks the in-flight promise, as before.
+    void this.#runAsync(events, forced, resolve);
+  }
+
+  async #runAsync(
+    events: ReadonlyArray<AgentEvent>,
+    forced: boolean,
+    resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }) => void,
+  ): Promise<void> {
     const live = events as AgentEvent[];
     const window = contextWindowFor(this.#provider().name, this.#endpointType?.()) || this.#fallbackWindow;
     // #578 (core spec d3): compaction covers only the active path —
@@ -355,7 +548,50 @@ export class CompactionRunner {
     // identity-less prefix) of the last covered event on the path (d5).
     const anchor = path[newUpTo - 1]!;
     const upToId = anchor.id ?? `line:${newUpTo}`;
-    const transcript = compactionTranscript(path, from, newUpTo);
+    // ADR-0035: consult the extension seam before rendering. The section
+    // ids are per-run index keys — they name sections within this one
+    // dispatch, never log positions. Fail-open: any error here leaves the
+    // transcript untouched and appends the recorded `extension_failed`s.
+    let omit: ((turnIndex: number) => boolean) | undefined;
+    const filter = this.#sectionFilter;
+    if (filter) {
+      try {
+        const turnCount = path
+          .slice(Math.max(0, from), newUpTo)
+          .filter((e) => e.type === "user_message").length;
+        const approxTokens = CompactionRunner.turnTokens(path, from, newUpTo);
+        const { sections } = compactionSections(path, from, newUpTo, (i) => `s${i}`);
+        const result = await filter({
+          sections,
+          ...(approxTokens > 0 ? { approxTokens } : {}),
+        });
+        if (result) {
+          for (const error of result.errors) this.#append(error);
+          if (result.drop.length > 0 && turnCount > 0) {
+            const { droppedIds, keptByFloor } = applySectionDrops(sections, result.drop);
+            if (keptByFloor) {
+              // One visible line: the cut was reduced, never silently.
+              this.#append({
+                type: "extension_failed",
+                name: "compaction",
+                reason: "section_floor",
+                message: "the requested drops exceeded the survival floor and were reduced",
+              });
+            }
+            const droppedTurns = [...droppedIds].map((id) => Number(id.slice(1)));
+            if (droppedTurns.length > 0) {
+              const droppedSet = new Set(droppedTurns);
+              omit = (turnIndex) => droppedSet.has(turnIndex);
+            }
+          }
+        }
+      } catch {
+        // Fail-open, silently: the cut is an optimization. (Hook errors
+        // are already recorded by the dispatch itself; a runner-level
+        // failure loses nothing that matters — no marker depends on it.)
+      }
+    }
+    const transcript = compactionTranscript(path, from, newUpTo, omit);
     const summarizer = this.#summarizer;
     const controller = new AbortController();
     this.#controller = controller;

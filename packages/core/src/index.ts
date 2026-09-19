@@ -109,7 +109,11 @@ import {
 } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
-import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
+import { CompactionRunner, compactionSections, applySectionDrops, COMPACTION_SECTION_FLOOR, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput, type CompactionSectionView } from "./compaction";
+// ADR-0035: the section vocabulary of the compaction cut guide — exported
+// for tests and tooling; clients never need it to run compaction.
+export { compactionSections, applySectionDrops, COMPACTION_SECTION_FLOOR };
+export type { CompactionSectionView };
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
 // `@path` tokens (TUI popup plumbing, `moh run` headless sends).
 export {

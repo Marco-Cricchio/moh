@@ -22,6 +22,7 @@ import { SubagentHost } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from "../compaction";
+import type { CompactionHookContext } from "@moh/extension";
 import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
@@ -393,6 +394,14 @@ export class AgentSession {
         },
         onCompacted: () => this.#rebuildAfterCompaction(),
         summarizer: comp.summarizer ?? createCompactionSummarizer(this.#provider, this.#cwd),
+        // ADR-0035: the section-filter dispatch, when a runtime exists.
+        // `moh compact` on a closed file has no runtime here: it compacts
+        // exactly as before (the filter is an optimization, not a gate).
+        ...(this.#extensions
+          ? {
+              sectionFilter: (ctx: CompactionHookContext) => this.#extensions!.dispatchCompaction(ctx),
+            }
+          : {}),
         ...(comp.tailTurns !== undefined ? { tailTurns: comp.tailTurns } : {}),
         ...(comp.threshold !== undefined ? { threshold: comp.threshold } : {}),
         ...(comp.fallbackWindowTokens !== undefined ? { fallbackWindowTokens: comp.fallbackWindowTokens } : {}),
