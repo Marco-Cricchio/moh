@@ -40,19 +40,31 @@ const NAME_COL = 16;
 const STATUS_COL = 9;
 
 /**
- * What one flip did, in the user's words. The extension is the source of
- * truth (it answers with its state), so this reads the state it left behind:
- * a status that did not move is a refusal, and the two refusals this surface
- * can produce have exactly one cause each — the guardrail in yolo, and a use
- * case this session cannot run at all.
+ * What one flip did, in the user's words.
+ *
+ * `before` and `after` are the extension's own state on either side of the
+ * command — the extension is the only thing that decides, so the answer is
+ * read from the *move*, never from a single glance: a state that did not
+ * move is a refusal (the two this surface can produce are the guardrail in
+ * yolo and a use case this session cannot run at all), a state that moved is
+ * the change, and the asymmetry against the config rides along because the
+ * next session goes back to it.
+ *
+ * The two reads must be the state *after* the command had its chance:
+ * `setExtensionState` appends the event and dispatches it asynchronously, so
+ * a state read in the same tick as the send is still the old one — the
+ * caller's job (see `flip`), not this function's.
  */
-export function flipOutcome(usecase: JevUseCase, action: JevUseCaseAction, state: JevUseCaseState): string {
-  if (usecase === "guardrail" && action === "off" && state.status === "on") {
-    return "guardrail: off refused — yolo keeps the lethal checks on";
+export function flipOutcome(usecase: JevUseCase, action: JevUseCaseAction, before: JevUseCaseState, after: JevUseCaseState): string {
+  if (after.status === before.status) {
+    if (usecase === "guardrail" && action === "off") {
+      return "guardrail: off refused — yolo keeps the lethal checks on";
+    }
+    if (after.status === "inert") return `${usecase}: refused — not available in this session`;
+    return `${usecase}: not applied — the extension kept it ${after.status}`;
   }
-  if (state.status === "inert") return `${usecase}: refused — not available in this session`;
-  if (state.sessionOnly) {
-    const why = state.note ?? `the config still says ${state.config ? "on" : "off"}`;
+  if (after.sessionOnly) {
+    const why = after.note ?? `the config still says ${after.config ? "on" : "off"}`;
     return `${usecase}: ${action} for this session — ${why}`;
   }
   return `${usecase}: ${action} for this session`;
@@ -92,22 +104,22 @@ export function JevModal({ active, read, send, onClose }: JevModalProps) {
   }, [read]);
 
   /**
-   * Reads the state again after a short beat. The control channel is
-   * asynchronous on purpose (the event is appended, then dispatched), so an
-   * immediate re-read can still see the state the command is about to
-   * change — the answer lands one dispatch later. Two beats cover a slow
-   * host without ever holding the modal open on a timer of its own.
+   * Reads the state again after a short beat, and hands what it read to the
+   * caller. The control channel is asynchronous on purpose (the event is
+   * appended, then dispatched), so a read taken in the same tick as the send
+   * is still the state that *preceded* the command — the answer lands one
+   * dispatch later.
    */
   const reread = useCallback(
-    (delays: number[]) => {
-      for (const delay of delays) {
-        timers.current.push(
-          setTimeout(() => {
-            const next = readJevState(read);
-            if (next) setSnapshot(next);
-          }, delay),
-        );
-      }
+    (delay: number, onRead?: (snapshot: JevUseCaseSnapshot) => void) => {
+      timers.current.push(
+        setTimeout(() => {
+          const next = readJevState(read);
+          if (!next) return;
+          setSnapshot(next);
+          onRead?.(next);
+        }, delay),
+      );
     },
     [read],
   );
@@ -121,12 +133,25 @@ export function JevModal({ active, read, send, onClose }: JevModalProps) {
       // resumes it and hands an override back).
       const action: JevUseCaseAction = before.status === "on" ? "off" : "on";
       send?.(usecase, action);
-      const after = readJevState(read);
-      if (after) setSnapshot(after);
-      setMessage(flipOutcome(usecase, action, after?.[usecase] ?? before));
-      // The extension answers the command by leaving its state where the
-      // command put it: read it back once it had the chance.
-      reread([0, 40]);
+      // The answer belongs to the extension, and it arrives one dispatch
+      // later — so nothing is claimed from the state the command was sent
+      // against. The first beat reads what the command did; only if the
+      // state has still not moved does a second, later read call it a
+      // refusal. A refusal and a slow host look identical at the first beat,
+      // and the difference is one the user can see.
+      const settle = (next: JevUseCaseSnapshot): boolean => {
+        setSnapshot(next);
+        if (next[usecase].status === before.status) return false;
+        setMessage(flipOutcome(usecase, action, before, next[usecase]));
+        return true;
+      };
+      reread(0, (next) => {
+        if (settle(next)) return;
+        reread(60, (second) => {
+          if (settle(second)) return;
+          setMessage(flipOutcome(usecase, action, before, second[usecase]));
+        });
+      });
     },
     [snapshot, read, send, reread],
   );

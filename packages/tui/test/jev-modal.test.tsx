@@ -102,7 +102,8 @@ describe("the /jev modal (#833)", () => {
     // Cursor starts on guardrail; two rows down is routing.
     await down(i, 1);
     i.stdin.write("\r");
-    await sleep(30);
+    // The report is composed from the extension's answer, one dispatch later.
+    await sleep(80);
     expect(ext.commands).toEqual([{ usecase: "routing", action: "on" }]);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame.replace(/[\s│]+/g, " ")).toContain("routing: on for this session");
@@ -136,7 +137,8 @@ describe("the /jev modal (#833)", () => {
     const { i } = mount(ext);
     await sleep(30);
     i.stdin.write("\r");
-    await sleep(30);
+    // A refusal is decided only once the state had its chance to move.
+    await sleep(140);
     expect(ext.commands).toEqual([{ usecase: "guardrail", action: "off" }]);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame).toContain("guardrail: off refused — yolo keeps the lethal checks on");
@@ -149,7 +151,7 @@ describe("the /jev modal (#833)", () => {
     await sleep(30);
     await down(i, 6); // skills
     i.stdin.write("\r");
-    await sleep(30);
+    await sleep(140);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame).toContain("skills: refused — not available in this session");
     i.unmount();
@@ -199,32 +201,79 @@ describe("the /jev modal (#833)", () => {
 });
 
 describe("the flip's one-line report (#833)", () => {
+  const off: JevUseCaseState = { status: "off", config: false };
+  const on: JevUseCaseState = { status: "on", config: true };
+
   test("a session-only change names the config's own value", () => {
-    expect(flipOutcome("injection", "on", { status: "on", config: false, sessionOnly: true })).toBe(
+    expect(flipOutcome("injection", "on", off, { status: "on", config: false, sessionOnly: true })).toBe(
       "injection: on for this session — the config still says off",
     );
-    expect(flipOutcome("classification", "off", { status: "off", config: true, sessionOnly: true })).toBe(
+    expect(flipOutcome("classification", "off", on, { status: "off", config: true, sessionOnly: true })).toBe(
       "classification: off for this session — the config still says on",
     );
   });
 
   test("a change that matches the config claims no asymmetry", () => {
-    expect(flipOutcome("lint", "on", { status: "on", config: true })).toBe("lint: on for this session");
+    expect(flipOutcome("lint", "on", off, { status: "on", config: true })).toBe("lint: on for this session");
   });
 
   test("the extension's own note wins when it has one", () => {
     expect(
-      flipOutcome("routing", "on", { status: "on", config: false, sessionOnly: true, note: "off in the config" }),
+      flipOutcome("routing", "on", off, { status: "on", config: false, sessionOnly: true, note: "off in the config" }),
     ).toBe("routing: on for this session — off in the config");
   });
 
-  test("the two refusals are the two refusals", () => {
-    expect(flipOutcome("guardrail", "off", { status: "on", config: true })).toBe(
+  test("a refusal is a state that did not move — and only then", () => {
+    expect(flipOutcome("guardrail", "off", on, { status: "on", config: true })).toBe(
       "guardrail: off refused — yolo keeps the lethal checks on",
     );
-    expect(flipOutcome("skills", "on", { status: "inert", config: false })).toBe(
-      "skills: refused — not available in this session",
+    expect(
+      flipOutcome("skills", "on", { status: "inert", config: false }, { status: "inert", config: false }),
+    ).toBe("skills: refused — not available in this session");
+    // A use case that simply did not move, for a reason this surface does
+    // not know: say that, instead of inventing a cause.
+    expect(flipOutcome("rerank", "on", off, { status: "off", config: false })).toBe(
+      "rerank: not applied — the extension kept it off",
     );
+  });
+
+  test("a guardrail `off` that WAS applied reports the change, not a yolo refusal", () => {
+    // The regression this guards: composing the sentence from a read taken
+    // before the extension answered made every guardrail `off` look refused.
+    expect(flipOutcome("guardrail", "off", on, { status: "off", config: true, sessionOnly: true })).toBe(
+      "guardrail: off for this session — the config still says on",
+    );
+  });
+});
+
+describe("the flip's answer arrives with the extension's, not before it (#833)", () => {
+  test("no sentence is composed while the state the command was sent against is still the current one", async () => {
+    // The extension answers one dispatch later, so `read` keeps returning the
+    // pre-command snapshot for a moment (this is the real timing, not a
+    // stub's): nothing must be claimed until the answer is there.
+    let current = snapshot({ injection: { status: "off", config: false } });
+    let answered = false;
+    const { i } = mount({
+      read: (_e, key) => (key === "jevState" ? () => current : undefined),
+      send: () => {
+        // The answer lands after the modal's read beat, not before it.
+        setTimeout(() => {
+          current = snapshot({ injection: { status: "on", config: false, sessionOnly: true } });
+          answered = true;
+        }, 20);
+      },
+    });
+    await sleep(30);
+    await down(i, 3); // injection
+    i.stdin.write("\r");
+    await sleep(10); // the read beat (0ms) may already have run, the answer has not
+    // Nothing was invented from the pre-command state.
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("not applied");
+    await sleep(60);
+    expect(answered).toBe(true);
+    const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    expect(frame).toContain("injection: on for this session — the config still says off");
+    i.unmount();
   });
 });
 

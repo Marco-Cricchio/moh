@@ -86,6 +86,24 @@ matching section here at tag time.
   visible synthetic marker and a core-enforced cap of 2 consecutive
   synthetic turns.
 
+- **Jev use cases are governable while a session runs** (#832) and their
+  switches have all three surfaces (#833). The `extension_control` channel
+  now speaks one grammar for all seven use cases (`guardrail`, `routing`,
+  `classification`, `injection`, `lint`, `rerank`, `skills`):
+  `{ cmd: "usecase", usecase, action }`, with the routing-only
+  `on|off|auto` form still accepted. In the TUI, `/jev` opens a switchboard
+  showing the live state of every use case and flips one for the open
+  session — session-warm only, with the asymmetry stated out loud ("the
+  config still says off"), and a refusal (the guardrail in yolo, a use case
+  this session cannot run) shown as a refusal. The Settings entry gained
+  the missing **Classification** row, and the shell got the matching
+  persistent forms: `moh jev routing on`, `moh jev classification off`.
+  Availability and config are now two different things — a use case whose
+  dependency the session has can be switched on for that session even
+  though the config says off — and the guardrail keeps no config flag (a
+  stored key is its switch), so `moh jev guardrail off` is refused as
+  session-only rather than silently ignored.
+
 ## [0.39.3] - 2026-09-18
 ### Fixed
 

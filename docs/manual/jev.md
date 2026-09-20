@@ -193,9 +193,11 @@ Two rules are worth stating plainly:
 
 ## Use cases
 
-Five use cases ship today: the bash guardrail, the model router, the
-anti-injection check, the compaction cut guide, the prompt classification,
-the quality gate, the seed rerank and the skill suggestion.
+Eight things run today, seven of them switchable from `/jev`: the bash
+guardrail, the model router, the prompt classification, the anti-injection
+check, the quality gate, the seed rerank and the skill suggestion — plus the
+compaction cut guide, which has no opt-in to switch and always runs when
+compaction does.
 
 ### Bash guardrail
 
