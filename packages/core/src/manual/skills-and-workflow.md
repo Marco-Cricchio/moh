@@ -29,6 +29,21 @@ after the command are passed to the skill: `/implement #457` runs the
 implement skill against an issue. Your own skills in `.moh/skills/`
 appear in the same completion popup.
 
+## Skill arguments
+
+A skill body can use argument placeholders, filled from the slash
+invocation (`/releaser 1.2.3 draft=yes`):
+
+- `$1`, `$2`, … — positional arguments in order; `$@` is all of them.
+- `${name:-default}` — a named argument with a fallback, fed by
+  `name=value` tokens (here `draft=yes`).
+
+Arguments substitute into the skill instructions when the turn starts.
+Any `$` that is not a known placeholder stays literal. If a placeholder
+receives no argument, its default (or the placeholder itself) is
+pre-filled in the composer so you can complete it before sending — an
+invocation is never blocked.
+
 ## /ask-moh
 
 `/ask-moh <question>` is the router: it figures out which skill or flow
