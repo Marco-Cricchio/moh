@@ -178,6 +178,11 @@ export function createGuardrailJudge(
         deps.state.lastGit = git;
       }
     },
+    /** #849: drops every cached verdict unconditionally — a permission-mode
+     * rotation changes the judging band, so no verdict crosses it. */
+    invalidateCache(): void {
+      cache.clear();
+    },
     /** Cache emptying on session end (state is durable across reloads, so explicit). */
     reset(): void {
       cache.clear();

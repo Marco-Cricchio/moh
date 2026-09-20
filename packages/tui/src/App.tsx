@@ -21,6 +21,7 @@ import {
   type ExtensionStatus,
   type HandoffOffer,
   type Provider,
+  type SessionMode,
   type TrackerBackend,
   type UpdateNotice,
   type UpstreamUpdate,
@@ -1094,10 +1095,11 @@ export function App({
     // (which owns plain tab) and works regardless of chip focus; the core
     // appends the session_mode event and the banner re-renders.
     if (overlay === null && session && key.tab && key.shift && !completionOpenRef.current) {
-      const order = ["normal", "auto-accept", "yolo"] as const;
+      const order: SessionMode[] = ["normal", "auto-accept", "yolo"];
       const current = session.sessionMode;
       const next = order[(order.indexOf(current) + 1) % order.length]!;
       session.setSessionMode(next);
+      setYoloLive(next === "yolo");
       return push(`permission mode: ${next}${next === "yolo" ? " — unrestricted tools (shift+tab to leave)" : ""}`);
     }
     if (key.ctrl && input === "t") return cycleTheme();
@@ -1135,11 +1137,12 @@ export function App({
 
   const showChat = session !== null;
   // #849: the YOLO banner follows the session's live permission mode —
-  // the launch flag seeds it, an in-session shift+tab rotation moves it.
+  // the launch flag seeds it, an in-session shift+tab rotation moves it
+  // (set directly at the rotation site; a session swap re-syncs here).
   const [yoloLive, setYoloLive] = useState(yolo ?? false);
   useEffect(() => {
     if (session) setYoloLive(session.sessionMode === "yolo");
-  }, [session, toasts.length]);
+  }, [session]);
   // #426: the inline ask_user block is NOT an overlay — including `asking`
   // here drove the alternate-screen buffer flip (and the #330 deferred
   // repaint) while the block was open, freezing the screen under arrow

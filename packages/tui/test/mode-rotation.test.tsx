@@ -49,9 +49,8 @@ describe("#849 shift+tab rotates the permission mode", () => {
       () => "yolo banner never left",
     );
 
-    // The session log carries exactly one session_mode per change
-    // (start + 3 rotations), read through the core getter.
-    const s = (i as any).session;
+    // The core test owns the event-count guarantee; here the rotation
+    // driving the banner through the real key handler is the assertion.
     i.unmount();
   });
 });

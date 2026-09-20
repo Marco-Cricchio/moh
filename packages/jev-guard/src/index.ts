@@ -293,7 +293,11 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       });
       ctx.onEvent(({ event }) => {
         if (event.type === "session_mode" && (event.mode === "normal" || event.mode === "auto-accept" || event.mode === "yolo")) {
+          // #849: a mid-session rotation invalidates cached verdicts — a
+          // verdict judged in one mode's narrowing (yolo = lethal-only)
+          // must not survive into another (the cache key is command+git).
           mode = event.mode;
+          judge.invalidateCache();
         }
       });
       ctx.afterTurn(() => {

@@ -107,6 +107,9 @@ import {
   type PermissionOverrides,
   type PermissionRule,
 } from "./permissions";
+// #849: the session mode rides the setSessionMode/sessionMode doors — a
+// client rotating the mode needs the same union the core judges with.
+export type { SessionMode } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
