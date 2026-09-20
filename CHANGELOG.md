@@ -7,6 +7,34 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-09-20
+### Added
+
+- **Skill slash arguments** (#765, PR #866): workflow skill aliases accept
+  positional `$1..$9`/`$@` and named `${name:-default}` placeholders
+  (supplied as `key=value` tokens); substitution happens on the ADR-0011
+  skill-prompt path only, and unresolved placeholders flow to the composer
+  as a zero-stress pre-fill — never an error, never silent removal.
+
+- **Routing stays inside the declared tier when the target cannot serve**
+  (#868, PR #870): when the classified tier's target endpoint is exhausted
+  or cooling down, the router rotates within the same classified tier
+  across active endpoints instead of jumping classes; an explicitly
+  declared `routingPool` in moh.json widens the rotation on purpose. A
+  skipped switch is an explicit, visible outcome: the staying model is
+  named and the exhausted endpoint stays visible in vibe mode, and
+  `/routing` surfaces the declared pool.
+
+- **Guardrail publish-workflow rubric and visible yolo line** (#867, PR
+  #869): publishing to the user's own tracker/remote (gh issue/pr
+  create/comment/edit, git push, label edits) is ordinary development
+  workflow, not exfiltration; `--public` gists and other people's repos
+  stay exfiltration. An exfiltration deny contradicted by high `in_scope`
+  degrades to ask in full mode and passes in yolo with a visible one-line
+  note; destructive and risk-level denies are never softened, and the
+  destructive rubric no longer flags deleting a scratch file the session
+  itself created.
+
 ## [0.41.0] - 2026-09-20
 
 ### Added
@@ -456,7 +484,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.42.0...develop
+[0.42.0]: https://github.com/Marco-Cricchio/moh/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...v0.40.0
 [0.39.3]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...v0.39.3

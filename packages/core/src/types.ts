@@ -38,6 +38,7 @@ export const CANCELLED_TOOL_OUTPUT = "turn cancelled before the tool returned";
 
 import { z } from "zod";
 import type { FilesystemScope, PermissionRule } from "./permissions";
+import type { SkillArgs } from "./skill-args";
 import type { MentionAttachment, MentionWarning } from "./mentions";
 
 export type TextPart = { kind: "text"; text: string };
@@ -557,4 +558,8 @@ export interface SkillPrompt {
 export interface SendOptions {
   /** Turn-scoped skill prompt; dropped when the turn settles. */
   prompt?: SkillPrompt;
+  /** #765: arguments substituted into the prompt's placeholders
+   * (`$1`, `$@`, `${name:-default}`) at send time. Absent: the prompt
+   * text is used verbatim. */
+  args?: SkillArgs;
 }

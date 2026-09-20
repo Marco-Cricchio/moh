@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
+import { substituteSkillArgs } from "../skill-args";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
@@ -955,6 +956,16 @@ export class AgentSession {
     // starts (the loop reassembles the prompt before every model call,
     // so the skills section picks it up) and recorded as chrome in the
     // log — the user_message stays the clean text.
+    // #765: prompt snippets — when the caller passes arguments along
+    // with the skill prompt, placeholders in the body are substituted
+    // once, here, before anything (chrome event, prompt assembly) sees
+    // it; downstream code keeps reading a plain text.
+    if (options?.prompt && options.args) {
+      options = {
+        ...options,
+        prompt: { ...options.prompt, text: substituteSkillArgs(options.prompt.text, options.args) },
+      };
+    }
     // #576 (d6): the turn pins its head here — every event of the turn
     // will parent to it even if a mid-turn switch moves the head; the
     // pin clears when the turn settles.
