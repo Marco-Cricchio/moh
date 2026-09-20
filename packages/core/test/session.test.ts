@@ -36,6 +36,27 @@ describe("core agent loop", () => {
     expect(text).toBe("Hello world");
   });
 
+  test("an empty completion surfaces a visible classified error, never a silent done (#853)", async () => {
+    const empty = MockProvider.scripted([{ deltas: [], finish: "stop", usage: { inputTokens: 0, outputTokens: 0 } }]);
+    const session = createSession({ provider: empty });
+    const streamed: any[] = [];
+    void (async () => {
+      for await (const event of session.events) streamed.push(event);
+    })();
+    const result = await session.send("hi");
+    await Bun.sleep(10);
+    expect(result.status).toBe("error");
+    expect(result.reason).toBe("empty_completion");
+    expect(result.message).toContain("empty completion");
+    const types = streamed.map((e) => e.type);
+    expect(types).not.toContain("done");
+    expect(types).toContain("error");
+    expect(streamed.find((e) => e.type === "error").reason).toBe("empty_completion");
+    // the empty call is recorded as failed, never as a real zero-cost answer
+    const call = streamed.find((e) => e.type === "model_call");
+    expect(call.failed).toBe(true);
+  });
+
   test("abort() mid-stream stops the provider call and appends a cancelled event", async () => {
     const provider = MockProvider.scripted([
       { deltas: ["a", "b", "c"], finish: "stop", deltaDelayMs: 30 },

@@ -145,19 +145,24 @@ describe("commands (#832)", () => {
   });
 });
 
-describe("the guardrail in yolo (#832, ADR-0031)", () => {
+describe("the guardrail in yolo (#832, #850)", () => {
   // The guardrail has no config opt-in: the extension hands the controller
   // `config: { guardrail: true }` (a stored key *is* the switch).
   const guardrailOn = { ...all(false), guardrail: true };
 
-  test("off is refused while yolo is on: lethal checks stay on", () => {
+  test("off is honoured in yolo: session-warm, visible, and reversible (#850)", () => {
     const { ctl, setMode } = control({ config: guardrailOn });
     setMode("yolo");
     expect(ctl.command("guardrail", "off")).toEqual({
       usecase: "guardrail",
       action: "off",
+      state: { status: "off", config: true, sessionOnly: true, note: "off for this session" },
+    });
+    expect(ctl.isOn("guardrail")).toBe(false);
+
+    // Back on: the yolo narrowing returns, visibly.
+    expect(ctl.command("guardrail", "on")).toMatchObject({
       state: { status: "on", config: true, note: "yolo — the lethal checks only" },
-      refused: "yolo",
     });
     expect(ctl.isOn("guardrail")).toBe(true);
   });
@@ -170,9 +175,20 @@ describe("the guardrail in yolo (#832, ADR-0031)", () => {
     expect(ctl.isOn("guardrail")).toBe(false);
   });
 
-  test("in yolo the state itself reports the narrowing", () => {
+  test("in yolo the armed state itself reports the narrowing", () => {
     const { ctl, setMode } = control({ config: guardrailOn });
     setMode("yolo");
     expect(ctl.state("guardrail")).toEqual({ status: "on", config: true, note: "yolo — the lethal checks only" });
+  });
+
+  test("a mode rotation never silently re-arms a disarmed guardrail (#850)", () => {
+    const { ctl, setMode } = control({ config: guardrailOn });
+    setMode("yolo");
+    ctl.command("guardrail", "off");
+    setMode("normal");
+    expect(ctl.isOn("guardrail")).toBe(false);
+    expect(ctl.state("guardrail")).toMatchObject({ status: "off", sessionOnly: true });
+    setMode("yolo");
+    expect(ctl.isOn("guardrail")).toBe(false);
   });
 });

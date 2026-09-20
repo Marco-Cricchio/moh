@@ -173,18 +173,21 @@ it at all). A flip sends the command to the extension and nothing else: no
 file is written, and the line under the row tells you what the config still
 says, so a session you resume tomorrow starts from the configuration again.
 
-A refused flip says so in the same place — the guardrail in yolo, or a use
-case this session has no use for. With no Jev key at all there is no
+A refused flip says so in the same place — a use case this session has no
+use for. With no Jev key at all there is no
 extension to command, so the modal opens on the way back to Settings
 (`ctrl+s` → Jev (TypeSafe) → API key) instead of an error or an invented
 `off`.
 
 Two rules are worth stating plainly:
 
-- **The guardrail cannot be switched off in yolo.** In that mode the
-  guardrail is narrowed to the lethal checks and it stays that way: the
-  command is refused with a visible line rather than obeyed. Outside yolo
-  the session switch works like every other one.
+- **The guardrail can be switched off in yolo.** In that mode the armed
+  guardrail is narrowed to the lethal checks and says so on every surface;
+  but the session switch works there too, exactly as outside yolo: the flip
+  is applied, session-only, and visible in the transcript and the modal
+  (ADR-0041). `on` restores the narrowed lethal checks. A yolo session with
+  a guardrail false positive is no longer stuck — the veto is a hard block,
+  and disarming the guardrail mid-session is the escape.
 - **A use case the session cannot run is not a use case you can switch on.**
   If a session has nothing to give it — no model pool to route between, no
   skill roster to suggest from, no project root to diff — it is *inert*, and
@@ -199,6 +202,31 @@ check, the quality gate, the seed rerank and the skill suggestion — plus the
 compaction cut guide, which has no opt-in to switch and always runs when
 compaction does.
 
+### What vibe mode shows
+
+The transcript has two modes (`dev` and `vibe`), and the full Jev audit
+trail belongs to `dev`. In **vibe** mode — the plain-language projection —
+most Jev records drop from the transcript so a Jev-heavy turn does not
+read as a wall of `◈ jev · …` lines. What survives:
+
+- the **anti-injection** verdicts that changed what you saw or sent
+  (`warn`, `withheld`, `cancelled`, `refused-headless`, `sent anyway`);
+- the **guardrail** `ask` and `deny` lines (a `pass` never shows, in
+  either mode);
+- a real routing **`switch to <model>`**, and the `routing · suspended by
+  your manual model switch (…)` echo of your own manual switch — not a
+  `stay`, not the router's notices (`unpriced`, `ignored-label`, `inert`,
+  `mismatch`);
+- a quality-gate **`correct`** (a correction turn is running) — not a
+  `pass`;
+- the **skill suggestion** when a skill was actually suggested;
+- your own use-case **control lines** (`… on for this session`, and every
+  refusal) — your command echoing back.
+
+Everything filtered out stays in the session log: this is a projection
+option only, and `dev` mode renders the full audit trail exactly as
+before.
+
 ### Bash guardrail
 
 The first use case is the **bash guardrail**: every `bash` tool call is
@@ -206,15 +234,20 @@ judged by Jev with one call — four questions (`destructive`, `in_scope`,
 `exfiltration`, `risk_level`) — before your permission rules are even
 consulted. The verdicts:
 
-- **deny** (destructive or exfiltration probability > 0.75, or risk ≥ 1.5)
-  — the call is vetoed and the model receives the reason plus an
-  actionable suggestion ("scope the path to /tmp and re-run").
+- **pass** — nothing changes; your rules and modes decide as always. A
+  pass leaves no line in the transcript: nothing happened to you. The
+  judgment is still in the session log, with its verdict.
 - **ask** (either probability in 0.40–0.75, or risk in 0.75–1.5) — the
   call reaches the ordinary permission prompt even in auto-accept mode,
-  marked **Jev: caso incerto (…)** with the key probability. The prompt
+  marked **Jev: caso incerto (…)** with the key probability. The transcript
+  shows one line — `jev · guardrail · ask (destructive 0.42)` — naming the
+  probability the verdict was based on. The prompt
   offers yes/no only: a guardrail false positive must never write an
   "always" rule that disarms the filter.
-- **pass** — nothing changes; your rules and modes decide as always.
+- **deny** — the call is vetoed and the model receives the reason plus an
+  actionable suggestion ("scope the path to /tmp and re-run"); the
+  transcript shows one `jev · guardrail · deny (…)` line with the key
+  probability.
 
 In **yolo** mode only the lethal checks run (destructive, exfiltration):
 they can still deny, but Jev never prompts — yolo means zero prompts.
@@ -224,9 +257,19 @@ proceeds) and the `∅ jev offline` chip appears as described above.
 
 Identical commands are judged once per session: verdicts are cached
 against the command plus the current git branch and dirty/clean state,
-so switching branch or staging changes re-judges. Every judgment —
-including passes and cache hits — is recorded as a `jev_judgment` event
-in the session log.
+so switching branch or staging changes re-judges. The log is a complete
+audit without one line per call: an ask and a deny each get their own
+`jev_judgment` event immediately, naming the verdict (`decision`) and
+the key probability it was based on, while the turn's passing judgments
+land together in one `jev_judgment` event at the end of the turn
+(`useCase: "guardrail_passes"`, with the call count and ids) — a
+tool-heavy turn stays far below the per-turn event cap, and "judged and
+passed" stays distinguishable from "never judged". A cached verdict
+carries `cached: true` on its record and no `model`, `latencyMs`,
+`usage` or `answers` fields, because a cached verdict involves no model
+call and nothing fabricated is ever written. Only the notable outcomes
+reach the transcript: an ask and a deny get one line each, a pass gets
+none.
 
 The v1 guardrail gates `bash` only; write/edit follow in v1.1 once
 thresholds are calibrated on real data.
@@ -265,8 +308,15 @@ still receives the whole context, as always.
 
 **When it switches.** Jev answers with a tier and a confidence. moh acts on
 it only when the confidence is at least 0.60 *and* two turns in a row named
-the same tier — one surprising judgment never flips your model. A switch is
-shown by the ordinary `model switched` line, plus a
+the same tier — one surprising judgment never flips your model. A message
+that carries no task of its own — a bare continuation like `procedi`,
+`continue` or `yes` — is never judged at all: it costs nothing, never
+counts toward the hysteresis, and can never move your model on its own.
+And when a switch does happen, it names a model moh has no reason to
+distrust: a target the route machinery currently has in a failure cooldown
+(quota exhausted, rate-limited, recently failing) is refused — the router
+never moves you onto a model it already knows cannot serve you. A switch
+is shown by the ordinary `model switched` line, plus a
 `jev · routing · switch to <model>` line in the transcript, and applies to
 the turn that made the decision. Fallback chains are untouched: the router
 names one model, and the route machinery does the rest.
@@ -291,8 +341,9 @@ router steps aside, with one visible line saying so; `/routing auto` (or
 `/model auto`) hands it back — releasing does **not** re-route the model
 you are on, the next judged turns do. If the serving model is not the one
 the router picked (you edited the configuration, or chose an id outside
-the tier map), the router says so once and waits instead of overruling you
-on the next message.
+the tier map), the router says so once — `jev · routing · serving
+(model), router picked (model)` in the transcript — and waits instead of
+overruling you on the next message.
 
 `/routing on` works even when the Settings toggle is off — it enables
 routing for that session only, which is the quick way to try it. The state
@@ -428,13 +479,19 @@ cancel) and the task actually changed files, moh collects:
   these documents gets no quality gate at all** — moh never invents rules
   your repo does not state.
 - **The diff of the files the task changed** (against where the task
-  started), capped at 32 KiB.
+  started), capped at 32 KiB. Only **repository changes** are judged:
+  a write the tool refused — for example a path outside the project
+  root — contributes nothing, a file outside the work tree is never
+  diffed even if it exists on disk, and a diff that touches no
+  repository code (documentation-only changes) is not scored with the
+  code questions — the gate stays silent.
 
 Three yes/no judgments are made over that state: does the change follow
 the stated conventions; does it handle failure paths rather than assuming
 success; is it complete, with nothing left stubbed. Any answer below 0.40
 is a **finding**, and on a finding moh automatically hands the model a
-correction request — in plain words, naming the flagged areas — and lets
+correction request — in plain words, naming the flagged areas **and the
+files that were judged** — and lets
 it run a normal turn with tools to fix the work. The corrected state is
 then judged once more. **The gate stops after two correction cycles,
 whatever the verdict**; a correction turn is marked in the transcript so

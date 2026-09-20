@@ -11,6 +11,7 @@
 import { noulProbability, type JevAnswer, type JevClient } from "./client";
 import {
   GUARDRAIL_QUESTIONS,
+  GUARDRAIL_THRESHOLDS,
   decideGuardrail,
   type GuardrailSignals,
 } from "./guardrail";
@@ -43,6 +44,13 @@ export interface GuardrailJudgeDeps {
   client: Pick<JevClient, "judge">;
   /** The extension state store (cache + last git snapshot live here). */
   state: Record<string, unknown>;
+  /**
+   * #843: where the judgment record goes, when the caller wants it appended
+   * by the judge itself — the decision is computed after the client call,
+   * so the record (which must carry it) can only be built here. Absent: the
+   * client's own `record` result is used unchanged (legacy wiring).
+   */
+  append?: (record: Record<string, unknown>) => void;
 }
 
 /** Extracts and normalizes the judged state for a bash call. */
@@ -56,14 +64,65 @@ function scoreOf(answers: Record<string, JevAnswer>, id: string): number {
   return a?.type === "score" && typeof a.score === "number" ? a.score : 0;
 }
 
-/** The ratified "uncertain" badge text, quoted in the permission modal. */
-export function askBadge(signals: GuardrailSignals): { badge: string; keyProbability: number } {
+/**
+ * #843: the key dimension a verdict was based on, and its probability — the
+ * same priority the ratified badge uses (destructive first, then
+ * exfiltration, then risk). A pass decided nothing, so it has none.
+ * Thresholds come from GUARDRAIL_THRESHOLDS, never re-inlined (#843 review:
+ * askBadge used to drift from the rule here).
+ */
+function keyDimensionOf(signals: GuardrailSignals, verdict: string): { dimension: string; probability: number } | undefined {
+  if (verdict === "pass") return undefined;
+  const t = GUARDRAIL_THRESHOLDS;
+  if (signals.destructive >= t.askLow) return { dimension: "destructive", probability: signals.destructive };
+  if (signals.exfiltration >= t.askLow) return { dimension: "exfiltration", probability: signals.exfiltration };
+  return { dimension: "risk", probability: signals.riskLevel };
+}
+
+/** #843: the judgment record for a verdict (used on cache hits, where no
+ * model/latency/usage exists to fabricate). */
+function guardrailRecord(
+  answers: Record<string, JevAnswer> | undefined,
+  callId: string,
+  judged: GuardrailState,
+  verdict: GuardrailVerdict,
+): Record<string, unknown> {
+  const key =
+    verdict.verdict === "ask"
+      ? { dimension: verdict.keyDimension, probability: verdict.keyProbability }
+      : verdict.verdict === "deny" && verdict.keyProbability !== undefined
+        ? { dimension: verdict.keyDimension ?? "destructive", probability: verdict.keyProbability }
+        : undefined;
+  return {
+    useCase: "guardrail",
+    callId,
+    tool: GUARDRAIL_TOOL,
+    lethalOnly: false,
+    // #848: a cache hit is distinguishable from a live judgment, and it
+    // carries no fabricated measurements — nothing was sent to a model.
+    cached: true,
+    state: { command: judged.command, cwd: judged.cwd, git: judged.git },
+    ...(answers !== undefined ? { answers } : {}),
+    decision: verdict.verdict,
+    ...(key !== undefined ? { keyDimension: key.dimension, keyProbability: key.probability } : {}),
+  };
+}
+
+/** The ratified "uncertain" badge text, quoted in the permission modal.
+ * #843 review: the key probability rides `keyDimensionOf` — it used to
+ * always report `destructive`, even when exfiltration decided. */
+export function askBadge(signals: GuardrailSignals): { badge: string; keyDimension: string; keyProbability: number } {
   const parts: string[] = [];
-  if (signals.destructive >= 0.4) parts.push(`destructive ${signals.destructive.toFixed(2)}`);
-  if (signals.exfiltration >= 0.4) parts.push(`exfiltration ${signals.exfiltration.toFixed(2)}`);
-  if (signals.riskLevel >= 0.75) parts.push(`risk ${signals.riskLevel.toFixed(2)}`);
-  const key = parts[0] ?? `risk ${signals.riskLevel.toFixed(2)}`;
-  return { badge: `Jev: caso incerto (${key})`, keyProbability: signals.destructive };
+  const t = GUARDRAIL_THRESHOLDS;
+  if (signals.destructive >= t.askLow) parts.push(`destructive ${signals.destructive.toFixed(2)}`);
+  if (signals.exfiltration >= t.askLow) parts.push(`exfiltration ${signals.exfiltration.toFixed(2)}`);
+  if (signals.riskLevel >= t.askRisk) parts.push(`risk ${signals.riskLevel.toFixed(2)}`);
+  const key = keyDimensionOf(signals, "ask")!;
+  return {
+    badge: `Jev: caso incerto (${key.dimension} ${key.probability.toFixed(2)})`,
+    keyDimension: key.dimension,
+    keyProbability: key.probability,
+  };
 }
 
 export interface GuardrailJudgeHost {
@@ -91,7 +150,26 @@ export function createGuardrailJudge(
   const lastGit = (deps.state.lastGit as string | null | undefined) ?? null;
   deps.state.lastGit = lastGit;
 
+  // #846: the turn's passing calls, aggregated into one record. Volume is
+  // the root cause of the cap: a pass decided nothing, so it does not need
+  // one record each — but it must still be distinguishable from "never
+  // judged", hence one aggregate per turn instead of silence or sampling.
+  const passCallIds = new Set<string>();
+  const aggregatePass = (callId: string): void => {
+    passCallIds.add(callId);
+  };
+
   return {
+    /**
+     * #846: flushes this turn's passing judgments as one aggregate record
+     * (called at `afterTurn`); a turn with no passing calls records
+     * nothing. The set resets for the next turn.
+     */
+    flushPasses(): void {
+      if (passCallIds.size === 0) return;
+      deps.append?.({ useCase: "guardrail_passes", calls: passCallIds.size, callIds: [...passCallIds] });
+      passCallIds.clear();
+    },
     /** Drops the cache when the git snapshot changed since the last look. */
     invalidateOnGitChange(): void {
       const git = gitSnapshot(process.cwd());
@@ -99,6 +177,11 @@ export function createGuardrailJudge(
         cache.clear();
         deps.state.lastGit = git;
       }
+    },
+    /** #849: drops every cached verdict unconditionally — a permission-mode
+     * rotation changes the judging band, so no verdict crosses it. */
+    invalidateCache(): void {
+      cache.clear();
     },
     /** Cache emptying on session end (state is durable across reloads, so explicit). */
     reset(): void {
@@ -115,25 +198,39 @@ export function createGuardrailJudge(
       const command = typeof a.command === "string" ? a.command : "";
       if (!command) return { verdict: { verdict: "pass" }, cached: false, state: { command: "", cwd: cwdOf(args), git: null } };
       const judged = bashState(command, cwdOf(args));
-      const key = guardrailStateKey(judged);
-      const hit = cache.get(key);
-      if (hit) return { verdict: hit, cached: true, state: judged };
+      const cacheKey = guardrailStateKey(judged);
+      const hit = cache.get(cacheKey);
+      // #843: a cache hit is a real judgment record too — the verdict plus
+      // the key probability ride along, no fabricated model/latency/usage.
+      if (hit) {
+        // #846: a cached pass joins the turn's aggregate; an ask/deny is
+        // always recorded immediately (its verdict is safety-relevant).
+        if (hit.verdict === "pass") aggregatePass(callId);
+        else deps.append?.(guardrailRecord(undefined, callId, judged, hit));
+        return { verdict: hit, cached: true, state: judged };
+      }
       const lethalOnly = mode() === "yolo";
+      const recordBase: Record<string, unknown> | undefined = deps.append ? {} : undefined;
       const outcome = await deps.client.judge({
         state: { command: judged.command, cwd: judged.cwd, git: judged.git },
         questions: GUARDRAIL_QUESTIONS,
         signal: undefined,
-        record: (answers, meta) => ({
-          useCase: "guardrail",
-          callId,
-          tool: GUARDRAIL_TOOL,
-          lethalOnly,
-          state: { command: judged.command, cwd: judged.cwd, git: judged.git },
-          answers,
-          model: meta.model,
-          latencyMs: meta.latencyMs,
-          usage: meta.usage,
-        }),
+        // #843: when the judge owns the record (deps.append), the client
+        // records nothing — the verdict is only known after this call.
+        record:
+          deps.append !== undefined
+            ? () => null
+            : (answers, meta) => ({
+                useCase: "guardrail",
+                callId,
+                tool: GUARDRAIL_TOOL,
+                lethalOnly,
+                state: { command: judged.command, cwd: judged.cwd, git: judged.git },
+                answers,
+                model: meta.model,
+                latencyMs: meta.latencyMs,
+                usage: meta.usage,
+              }),
       });
       if (!outcome.ok) {
         // Fail-open, uncached: the next identical call retries the API.
@@ -147,13 +244,45 @@ export function createGuardrailJudge(
         riskLevel: scoreOf(answers, "risk_level"),
       };
       const decision = decideGuardrail(signals, lethalOnly);
+      const key = keyDimensionOf(signals, decision.verdict);
+      // #843: the record is built only now — the decision already made is
+      // part of it. Complete, or not recorded at all: a fail-open pass is a
+      // "no judgment", and inventing a verdict for it would lie.
+      if (recordBase !== undefined) {
+        recordBase.useCase = "guardrail";
+        recordBase.callId = callId;
+        recordBase.tool = GUARDRAIL_TOOL;
+        recordBase.lethalOnly = lethalOnly;
+        recordBase.state = { command: judged.command, cwd: judged.cwd, git: judged.git };
+        recordBase.answers = answers;
+        recordBase.model = outcome.model;
+        recordBase.latencyMs = outcome.latencyMs;
+        recordBase.usage = outcome.usage;
+        recordBase.decision = decision.verdict;
+        if (key !== undefined) {
+          recordBase.keyDimension = key.dimension;
+          recordBase.keyProbability = key.probability;
+        }
+        // #846: a passing live judgment joins the turn's aggregate record
+        // (one `guardrail_passes` per turn, flushed at `afterTurn`); an
+        // ask/deny is recorded immediately. The log still distinguishes
+        // "judged and passed" from "never judged" — at one record per
+        // turn, not one per bash call.
+        if (decision.verdict === "pass") aggregatePass(callId);
+        else deps.append!(recordBase);
+      }
       let verdict: GuardrailVerdict;
-      if (decision.verdict === "deny") verdict = { verdict: "deny", reason: decision.reason ?? "denied by guardrail" };
-      else if (decision.verdict === "ask") {
+      if (decision.verdict === "deny") {
+        verdict = {
+          verdict: "deny",
+          reason: decision.reason ?? "denied by guardrail",
+          ...(key !== undefined ? { keyDimension: key.dimension, keyProbability: key.probability } : {}),
+        };
+      } else if (decision.verdict === "ask") {
         const b = askBadge(signals);
-        verdict = { verdict: "ask", badge: b.badge, keyProbability: b.keyProbability };
+        verdict = { verdict: "ask", badge: b.badge, keyDimension: b.keyDimension, keyProbability: b.keyProbability };
       } else verdict = { verdict: "pass" };
-      cache.set(key, verdict);
+      cache.set(cacheKey, verdict);
       return { verdict, cached: false, state: judged, signals };
     },
   };

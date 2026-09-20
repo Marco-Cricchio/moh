@@ -273,12 +273,11 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // ---- #786 guardrail: the first use case --------------------------
       // Jev judges EVERY bash call (before rules, ADR-0031 gate order):
       // deny → veto, ask → the human consent flow (never auto-accepted,
-      // never "always"), pass → nothing. Yolo gets lethal checks only.
-      // #832: gated on the live state — the guardrail is always available,
-      // and a warm `off` (refused in yolo, see `use-cases.ts`) suppresses
-      // the judgment from the next call.
+      // never "always"), pass → nothing. Yolo narrows an armed guardrail
+      // to lethal checks only; a warm `off` disarms it entirely, in yolo
+      // too (#850, ADR-0041) — from the next call.
       const judge = createGuardrailJudge(
-        { client, state: ctx.state ?? {} },
+        { client, state: ctx.state ?? {}, append: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }) },
         {
           mode: () => mode,
           cwd: (args) => {
@@ -293,10 +292,18 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       });
       ctx.onEvent(({ event }) => {
         if (event.type === "session_mode" && (event.mode === "normal" || event.mode === "auto-accept" || event.mode === "yolo")) {
+          // #849: a mid-session rotation invalidates cached verdicts — a
+          // verdict judged in one mode's narrowing (yolo = lethal-only)
+          // must not survive into another (the cache key is command+git).
           mode = event.mode;
+          judge.invalidateCache();
         }
       });
       ctx.afterTurn(() => {
+        // #846: the turn's passing judgments land as one aggregate record —
+        // one line per turn instead of one per bash call keeps an ordinary
+        // tool-heavy turn far below the per-turn event cap.
+        judge.flushPasses();
         judge.invalidateOnGitChange();
       });
       ctx.onSessionEnd(() => judge.reset());
@@ -534,7 +541,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         router = judge;
         ctx.beforeTurn(async (call) => {
           if (!control.isOn("routing")) return;
-          const verdict = await judge.decide(call.text, call.model);
+          // #852: the route's cooled-down chain stops ride the context —
+          // the judge refuses a switch targeting a known-unhealthy model.
+          const verdict = await judge.decide(call.text, call.model, call.endpointCooldowns ?? []);
           if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
           // Arm the switch before returning: the `model_switched` it causes
           // is the router's, not the user taking the wheel.

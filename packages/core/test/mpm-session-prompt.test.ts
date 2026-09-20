@@ -67,6 +67,7 @@ function capture(): { provider: Provider; seen: () => string } {
     name: "capture",
     async *stream(messages: Message[]) {
       system = (messages[0]!.parts[0] as { text: string }).text;
+      yield { type: "text_delta" as const, text: "ok" };
       yield { type: "finish" as const, reason: "stop" as const };
     },
   };

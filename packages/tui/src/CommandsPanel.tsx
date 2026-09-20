@@ -30,6 +30,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["ctrl+g", "keep my branch (while the external-growth warning is up): move the head back to your local tip"],
       ["ctrl+k / ?", "this command list"],
       ["tab", "focus chips: subagent chips first (when running), then action chips"],
+      ["shift+tab", "rotate permission mode: normal → auto-accept → yolo → normal (leaves yolo)"],
       ["← / →", "move between chips (subagent chips clamp at the edges)"],
       ["enter on a subagent chip", "toggle its live panel (read-only tail; freezes when done)"],
       ["esc on a chip", "back to the composer (an open subagent panel stays)"],

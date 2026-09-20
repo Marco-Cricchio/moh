@@ -77,8 +77,8 @@ describe("session cache + key", () => {
 
   test("cache serves full verdicts, clear drops all", () => {
     const cache = createGuardrailCache();
-    cache.set("k", { verdict: "ask", badge: "Jev: caso incerto (destructive 0.42)", keyProbability: 0.42 });
-    expect(cache.get("k")).toEqual({ verdict: "ask", badge: "Jev: caso incerto (destructive 0.42)", keyProbability: 0.42 });
+    cache.set("k", { verdict: "ask", badge: "Jev: caso incerto (destructive 0.42)", keyDimension: "destructive", keyProbability: 0.42 });
+    expect(cache.get("k")).toEqual({ verdict: "ask", badge: "Jev: caso incerto (destructive 0.42)", keyDimension: "destructive", keyProbability: 0.42 });
     cache.clear();
     expect(cache.get("k")).toBeUndefined();
   });

@@ -55,7 +55,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.6";
+export const MOH_EXTENSION_API_VERSION = "1.7";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -94,6 +94,14 @@ export interface BeforeTurnContext {
   readonly turnIndex: number;
   /** The model ref currently serving the session. */
   readonly model: string;
+  /**
+   * #852: the route chain stops currently in a failure cooldown (quota
+   * exhausted, rate limit, empty completion, ...) — endpoint refs the
+   * serving provider already knows it cannot use. Absent when the session
+   * runs a non-route provider or an older runtime. A hook that switches
+   * models must never name one of these.
+   */
+  readonly endpointCooldowns?: readonly { ref: string; kind: string }[];
 }
 
 /**

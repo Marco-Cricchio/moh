@@ -198,10 +198,13 @@ export function disambiguate429(body: string): ProviderErrorKind {
   return "rate_limited";
 }
 
-/** Errors that justify trying the next endpoint in a fallback chain. */
+/** Errors that justify trying the next endpoint in a fallback chain.
+ * #853: `empty_completion` (the route's classification of a finished-but
+ * contentless call) is fallback-worthy — the serving endpoint demonstrably
+ * cannot serve, so the chain must fire. */
 export function isFallbackWorthy(err: unknown): boolean {
   return err instanceof ProviderError &&
-    (err.kind === "quota_exhausted" || err.kind === "rate_limited" || err.kind === "overloaded" || err.kind === "network");
+    (err.kind === "quota_exhausted" || err.kind === "rate_limited" || err.kind === "overloaded" || err.kind === "network" || err.kind === "empty_completion");
 }
 
 /** Errors worth one same-endpoint retry (with backoff) before falling back. */

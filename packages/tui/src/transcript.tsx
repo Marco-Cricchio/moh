@@ -214,7 +214,9 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * `jev_judgment` (the Jev guardrail's record, #786) is phrased as
  * `jev · guardrail · ask (destructive 0.42)`: the event name minus its
  * `_judgment` suffix names the product, then the payload's `useCase` and
- * `decision`, then the first question with its answer. A routing judgment
+ * `decision`, then the key probability the verdict was based on (#843) —
+ * not the first answer, which may be an `in_scope` the verdict ignored. A
+ * routing judgment
  * (#787) reads `jev · routing · switch to a/big` instead — its payload has
  * no numeric question to inline. `jev_routing` (the router's own notices:
  * a misconfigured label, an unpriced model, a manual override) gets one
@@ -227,6 +229,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
   if (record.useCase === "injection") return injectionJudgmentLine(record);
+  if (record.useCase === "guardrail" || record.useCase === "guardrail_passes") return guardrailJudgmentLine(record);
   const parts = [name.slice(0, -"_judgment".length)];
   if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
   if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
@@ -267,7 +270,6 @@ function useCaseLine(record: Record<string, unknown>): string {
   if (refused === "unknown-action") return `jev · ${usecase} · "${action}" is not a command (on, off${usecase === "routing" ? ", auto" : ""})`;
   if (refused === "unavailable") return `jev · ${usecase} · ${action} refused — not available in this session`;
   if (refused === "unsupported") return `jev · ${usecase} · "${action}" belongs to model routing`;
-  if (refused === "yolo") return "jev · guardrail · off refused — yolo keeps the lethal checks on";
   const note = typeof record.note === "string" ? record.note : undefined;
   if (note !== undefined) return `jev · ${usecase} · ${action} for this session — ${note}`;
   if (record.sessionOnly === true) {
@@ -292,6 +294,10 @@ function routingNoticeLine(record: Record<string, unknown>): string {
   if (kind === "inert") return "jev · routing · inert (fewer than two tiers to choose from)";
   if (kind === "override" && typeof record.model === "string") {
     return `jev · routing · suspended by your manual model switch (${record.model})`;
+  }
+  // #847: the serving model is not the one the router picked — name both sides.
+  if (kind === "mismatch" && typeof record.current === "string" && typeof record.expected === "string") {
+    return `jev · routing · serving ${record.current}, router picked ${record.expected}`;
   }
   return "jev · routing";
 }
@@ -323,6 +329,26 @@ function injectionJudgmentLine(record: Record<string, unknown>): string {
   return `jev · injection · ${decision} (injection ${injection.toFixed(2)})`;
 }
 
+/** #786, #843: one guardrail judgment — the verdict, and on an ask/deny the
+ * key dimension and probability it was based on. A `pass` never reaches
+ * this line (the projection filters it); old logs without a `decision`
+ * degrade to the use-case-only line rather than inventing a verdict. */
+function guardrailJudgmentLine(record: Record<string, unknown>): string {
+  // #846: the turn's aggregate — one line for all the passing judgments.
+  if (record.useCase === "guardrail_passes") {
+    const calls = typeof record.calls === "number" && Number.isFinite(record.calls) ? record.calls : undefined;
+    return calls === undefined ? "jev · guardrail · passed" : `jev · guardrail · ${calls} calls passed`;
+  }
+  const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : undefined;
+  if (decision === undefined) return "jev · guardrail";
+  const key = typeof record.keyProbability === "number" && Number.isFinite(record.keyProbability)
+    ? record.keyProbability
+    : undefined;
+  if (key === undefined) return `jev · guardrail · ${decision}`;
+  const dimension = typeof record.keyDimension === "string" && record.keyDimension !== "" ? record.keyDimension : "destructive";
+  return `jev · guardrail · ${decision} (${dimension} ${key.toFixed(2)})`;
+}
+
 /** #787: one routing judgment — what the router decided, and why. */
 function routingJudgmentLine(record: Record<string, unknown>): string {
   const tier = typeof record.tier === "string" ? record.tier : undefined;
@@ -335,17 +361,66 @@ function routingJudgmentLine(record: Record<string, unknown>): string {
 }
 
 /**
- * #791: the anti-injection judgments the transcript leaves out. The record
- * is in the log (every judgment is), the line is not: below the warn
- * threshold there is nothing for the user to read, and a per-turn check
- * that announced itself on every turn would be the noise the band exists
- * to avoid.
+ * #791, #843: the judgments the transcript leaves out. The record is in the
+ * log (every judgment is), the line is not: an injection pass below the
+ * warn threshold and a guardrail `pass` changed nothing the user could act
+ * on — a line each would be the noise the threshold exists to avoid. A
+ * guardrail record with no `decision` (pre-#843 log) keeps its old line:
+ * replay never rewrites history.
  */
 function isSilentInjection(name: string, payload: unknown): boolean {
   if (name !== "jev_judgment") return false;
   const record = asRecord(payload);
-  if (record?.useCase !== "injection") return false;
-  return record.decision === "silent" || record.decision === "pass";
+  if (record === undefined) return false;
+  if (record.useCase === "injection") return record.decision === "silent" || record.decision === "pass";
+  if (record.useCase === "guardrail") return record.decision === "pass";
+  return false;
+}
+
+/**
+ * #845: which Jev records survive **vibe** mode. Vibe is the plain-language
+ * projection — a Jev-heavy turn must not read as a wall of `◈ jev · …`
+ * lines — but the records that tell the user Jev is earning its keep stay:
+ * an anti-injection verdict that changed what the user saw or sent, a
+ * guardrail `ask`/`deny` (the notable outcomes), a real routing `switch`,
+ * a quality-gate `correct` (a correction turn is running), a skill that was
+ * actually suggested, and the user's own use-case control lines (including
+ * refusals). Everything else — passes, stays, classifications, rerank
+ * records, router notices — drops from the transcript only: the event log
+ * is never filtered, this is a projection option (the vibe contract).
+ * Phrased on the event `name` + `payload`, never on rendered strings — the
+ * renderer stays the single place that turns a record into a line. Dev
+ * mode never consults this: its output is byte-for-byte today's.
+ */
+function survivesVibe(name: string, payload: unknown): boolean {
+  if (name === "jev_usecase") return true;
+  // The router's notices (unpriced, ignored-label, inert, mismatch) are
+  // chatter in vibe; the one exception is the `override` — the echo of the
+  // user's own manual model switch, their command like a control line.
+  if (name === "jev_routing") return asRecord(payload)?.kind === "override";
+  if (name === "jev_skill_suggest") {
+    const record = asRecord(payload);
+    return record?.suggested !== undefined && record.suggested !== null;
+  }
+  if (name !== "jev_judgment") return true;
+  const record = asRecord(payload);
+  if (record === undefined) return true;
+  const decision = typeof record.decision === "string" ? record.decision : undefined;
+  switch (record.useCase) {
+    case "injection":
+      // Anything that changed what the user saw or sent; the silent/pass
+      // band is already dropped in both modes (isSilentInjection).
+      return decision !== undefined && decision !== "silent" && decision !== "pass";
+    case "guardrail":
+      return decision === "ask" || decision === "deny";
+    case "routing":
+      return decision === "switch";
+    case "lint":
+      return decision === "correct";
+    default:
+      // classification, rerank and any future judgment: measured, not read.
+      return false;
+  }
 }
 
 /** A JSON object as an inspectable record; anything else (arrays, null,
@@ -734,7 +809,13 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // `silent`/`pass` band (#791): the log keeps every judgment, but
         // the low band is *silent* — the whole point of the threshold is
         // that an unremarkable turn gains no line.
+        // is *silent* — the whole point of the threshold is that an
+        // unremarkable turn gains no line.
+        //
+        // #845: vibe mode keeps only the Jev lines that earn their keep —
+        // the same audit trail stays whole in dev mode and in the log.
         if (isSilentInjection(event.name, event.payload)) break;
+        if (vibe && !survivesVibe(event.name, event.payload)) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: extensionEventLine(event.name, event.payload), lines: [] });
         break;
       case "session_note":

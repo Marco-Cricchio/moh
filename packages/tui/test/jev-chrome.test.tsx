@@ -27,11 +27,52 @@ describe("extension_event / session_note in the transcript (#784)", () => {
   test("a known judgment renders useCase, decision and the first answer", () => {
     expect(
       extensionEventLine("jev_judgment", {
-        useCase: "guardrail",
+        useCase: "classification",
         decision: "ask",
         questions: { destructive: 0.42, in_scope: 0.98 },
       }),
+    ).toBe("jev · classification · ask (destructive 0.42)");
+  });
+
+  test("a guardrail judgment phrases the verdict and its key probability (#843)", () => {
+    expect(
+      extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42 }),
     ).toBe("jev · guardrail · ask (destructive 0.42)");
+    expect(
+      extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "deny", keyDimension: "exfiltration", keyProbability: 0.9 }),
+    ).toBe("jev · guardrail · deny (exfiltration 0.90)");
+    expect(
+      extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyDimension: "risk", keyProbability: 0.8 }),
+    ).toBe("jev · guardrail · ask (risk 0.80)");
+    // A record with a probability but no dimension (transitional) keeps the
+    // historical label; a pre-#843 log has no decision at all — degrade,
+    // never invent.
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyProbability: 0.42 })).toBe(
+      "jev · guardrail · ask (destructive 0.42)",
+    );
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail", lethalOnly: false, answers: {} })).toBe(
+      "jev · guardrail",
+    );
+    // #846: the turn's pass aggregate reads as one line.
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail_passes", calls: 65, callIds: [] })).toBe(
+      "jev · guardrail · 65 calls passed",
+    );
+  });
+
+  test("a guardrail pass renders nothing; an ask and a deny render one line each (#843)", () => {
+    const events = [
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass", callId: "c1" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42, callId: "c2" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9, callId: "c3" } },
+      // A pre-#843 record keeps its old line: replay never rewrites history.
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", lethalOnly: false } },
+    ] as unknown as AgentEvent[];
+    const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered).toEqual([
+      "jev · guardrail · ask (destructive 0.42)",
+      "jev · guardrail · deny (destructive 0.90)",
+      "jev · guardrail",
+    ]);
   });
 
   test("an unknown name renders as itself; a malformed payload never throws", () => {
@@ -73,6 +114,13 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "override", model: "a/handpicked" })).toBe(
       "jev · routing · suspended by your manual model switch (a/handpicked)",
     );
+    // #847: a mismatch names both sides — what is serving and what the router picked.
+    expect(extensionEventLine("jev_routing", { kind: "mismatch", current: "a/handpicked", expected: "a/big" })).toBe(
+      "jev · routing · serving a/handpicked, router picked a/big",
+    );
+    // A malformed mismatch payload degrades gracefully — never `undefined`.
+    expect(extensionEventLine("jev_routing", { kind: "mismatch" })).toBe("jev · routing");
+    expect(extensionEventLine("jev_routing", { kind: "mismatch", current: 3, expected: "a/big" })).toBe("jev · routing");
     // An unknown kind never guesses.
     expect(extensionEventLine("jev_routing", { kind: "who-knows" })).toBe("jev · routing");
   });
@@ -82,12 +130,12 @@ describe("extension_event / session_note in the transcript (#784)", () => {
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "silent", injection: 0.02, sensitive: 0.01 } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "pass", injection: 0.03, sensitive: 0.01, source: "tool:fetch" } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 } },
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
     ] as unknown as AgentEvent[];
     const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
     // The low band is silence: the log keeps the record, the transcript
     // does not gain a line for it (the whole point of the threshold).
-    expect(rendered).toEqual(["jev · injection · warn (injection 0.63)", "jev · guardrail · pass"]);
+    // #843: a guardrail pass is silence for the same reason.
+    expect(rendered).toEqual(["jev · injection · warn (injection 0.63)"]);
   });
 
   test("an anti-injection judgment reads as what happened to the turn (#791)", () => {
@@ -142,14 +190,78 @@ describe("extension_event / session_note in the transcript (#784)", () => {
 
   test("both variants land as chrome blocks, never as errors", () => {
     const events = [
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9 } },
       { type: "session_note", text: "jev: inactive (no api key)" },
     ] as unknown as AgentEvent[];
     const blocks = projectTranscript(events, {});
     const rendered = blocks.map((b) => (b.kind === "chrome" ? b.type : b.kind));
-    expect(rendered).toContain("jev · guardrail · pass");
+    expect(rendered).toContain("jev · guardrail · deny (destructive 0.90)");
     expect(rendered).toContain("jev: inactive (no api key)");
     expect(blocks.every((b) => b.kind === "chrome")).toBe(true);
+  });
+});
+
+describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () => {
+  const ev = (name: string, payload: unknown) =>
+    ({ type: "extension_event", extension: "jev-guard", name, payload }) as unknown as AgentEvent;
+
+  test("a turn whose Jev activity is all noise shows no Jev block at all", () => {
+    const events = [
+      ev("jev_judgment", { useCase: "injection", decision: "pass", injection: 0.01 }),
+      ev("jev_judgment", { useCase: "guardrail", decision: "pass", callId: "c1" }),
+      ev("jev_judgment", { useCase: "classification", decision: "in_scope", questions: { destructive: 0.1 } }),
+      ev("jev_judgment", { useCase: "rerank", decision: "ok", questions: { top: 0.9 } }),
+      ev("jev_judgment", { useCase: "routing", decision: "stay", reason: "low-confidence" }),
+      ev("jev_judgment", { useCase: "lint", decision: "pass" }),
+      ev("jev_routing", { kind: "inert" }),
+      ev("jev_routing", { kind: "unpriced", count: 2 }),
+      ev("jev_routing", { kind: "ignored-label", ref: "b/nope" }),
+      ev("jev_routing", { kind: "mismatch", current: "a/x", expected: "a/y" }),
+      ev("jev_skill_suggest", { useCase: "skill_suggest", call: "rank", ok: true, needsSkill: 0.1, skills: 3 }),
+    ];
+    const rendered = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered.filter((t) => typeof t === "string" && t.startsWith("jev"))).toEqual([]);
+    // Dev mode is byte-for-byte today's: the same records all render, minus
+    // the injection and guardrail passes the pre-#843 silent filter already
+    // dropped.
+    expect(projectTranscript(events, {}).length).toBe(events.length - 2);
+  });
+
+  test("the lines that earn their keep still show in vibe mode", () => {
+    const events = [
+      ev("jev_judgment", { useCase: "injection", decision: "warn", injection: 0.7 }),
+      ev("jev_judgment", { useCase: "injection", decision: "withheld", injection: 0.9 }),
+      ev("jev_judgment", { useCase: "injection", decision: "cancelled" }),
+      ev("jev_judgment", { useCase: "injection", decision: "refused-headless" }),
+      ev("jev_judgment", { useCase: "injection", decision: "confirmed", injection: 0.8 }),
+      ev("jev_judgment", { useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42 }),
+      ev("jev_judgment", { useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9 }),
+      ev("jev_judgment", { useCase: "routing", decision: "switch", target: "a/big", tier: "potente" }),
+      ev("jev_judgment", { useCase: "lint", decision: "correct" }),
+      ev("jev_skill_suggest", { useCase: "skill_suggest", call: "relevance", ok: true, suggested: "tdd", line: "try tdd" }),
+      ev("jev_usecase", { usecase: "injection", action: "on", sessionOnly: true, config: false }),
+      ev("jev_usecase", { usecase: "guardrail", action: "nonsense", refused: "unknown-action" }),
+      ev("jev_routing", { kind: "override", model: "m/big" }),
+    ];
+    const rendered = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    const jev = rendered.filter((t): t is string => typeof t === "string" && t.startsWith("jev"));
+    expect(jev.length).toBe(events.length);
+    expect(jev).toContain("jev · injection · warn (injection 0.70)");
+    expect(jev).toContain("jev · guardrail · ask (destructive 0.42)");
+    expect(jev).toContain("jev · routing · switch to a/big (potente)");
+    expect(jev).toContain("jev · injection · sent anyway (injection 0.80)");
+    expect(jev).toContain("jev · routing · suspended by your manual model switch (m/big)");
+    // Dev mode again: nothing extra dropped, nothing rephrased.
+    const dev = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(dev).toEqual(jev);
+  });
+
+  test("the filter is on the event name + payload, not the rendered string", () => {
+    // An unknown extension event name passes through in both modes.
+    const events = [ev("other_extension_event", { any: 1 })];
+    for (const mode of [{}, { mode: "vibe" as const }]) {
+      expect(projectTranscript(events, mode).length).toBe(1);
+    }
   });
 });
 
@@ -195,9 +307,6 @@ describe("the uniform control line (#832)", () => {
   });
 
   test("every refusal reads as a refusal, never as a change", () => {
-    expect(
-      extensionEventLine("jev_usecase", { usecase: "guardrail", action: "off", status: "on", config: true, refused: "yolo" }),
-    ).toBe("jev · guardrail · off refused — yolo keeps the lethal checks on");
     expect(extensionEventLine("jev_usecase", { usecase: "skills", action: "on", refused: "unavailable" })).toBe(
       "jev · skills · on refused — not available in this session",
     );

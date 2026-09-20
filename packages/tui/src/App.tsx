@@ -21,6 +21,7 @@ import {
   type ExtensionStatus,
   type HandoffOffer,
   type Provider,
+  type SessionMode,
   type TrackerBackend,
   type UpdateNotice,
   type UpstreamUpdate,
@@ -1027,7 +1028,7 @@ export function App({
       // While the input's completion popup owns the Tab key (a slash draft
       // with candidates), the textarea keeps focus: Tab completes the
       // command instead of cycling the chips.
-      if (key.tab && !completionOpenRef.current) {
+      if (key.tab && !key.shift && !completionOpenRef.current) {
         // #497: subagent chips sit at the head of the cycle (only when any
         // exist); tab from the composer reaches them first, then the action
         // chips. Entering the zone MUST initialise selection to its first
@@ -1088,6 +1089,19 @@ export function App({
       }
     }
     if (key.ctrl && input === "o") return cycleMode();
+    // #849: shift+tab rotates the session's permission mode — normal →
+    // auto-accept → yolo → normal. Owner decision: this is the only
+    // in-session way in and out of yolo. Lives before the chip cycle
+    // (which owns plain tab) and works regardless of chip focus; the core
+    // appends the session_mode event and the banner re-renders.
+    if (overlay === null && session && key.tab && key.shift && !completionOpenRef.current) {
+      const order: SessionMode[] = ["normal", "auto-accept", "yolo"];
+      const current = session.sessionMode;
+      const next = order[(order.indexOf(current) + 1) % order.length]!;
+      session.setSessionMode(next);
+      setYoloLive(next === "yolo");
+      return push(`permission mode: ${next}${next === "yolo" ? " — unrestricted tools (shift+tab to leave)" : ""}`);
+    }
     if (key.ctrl && input === "t") return cycleTheme();
     if (key.ctrl && input === "y" && session) return cycleThinkingLevel();
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
@@ -1122,6 +1136,13 @@ export function App({
   });
 
   const showChat = session !== null;
+  // #849: the YOLO banner follows the session's live permission mode —
+  // the launch flag seeds it, an in-session shift+tab rotation moves it
+  // (set directly at the rotation site; a session swap re-syncs here).
+  const [yoloLive, setYoloLive] = useState(yolo ?? false);
+  useEffect(() => {
+    if (session) setYoloLive(session.sessionMode === "yolo");
+  }, [session]);
   // #426: the inline ask_user block is NOT an overlay — including `asking`
   // here drove the alternate-screen buffer flip (and the #330 deferred
   // repaint) while the block was open, freezing the screen under arrow
@@ -1162,7 +1183,7 @@ export function App({
       onKeepMyBranch={keepMyBranch}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
-      yolo={yolo}
+      yolo={yoloLive}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}

@@ -25,6 +25,7 @@ interface FakeCtx {
   /** apiVersion 1.4: the post-tool seam the anti-injection's second half uses. */
   toolResultHooks: Array<(input: { name: string; output: string }) => unknown>;
   mode: "normal" | "auto-accept" | "yolo";
+  afterTurnHooks: Array<() => unknown>;
 }
 
 function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & FakeCtx {
@@ -43,7 +44,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
     onEvent: (h: (e: { event: { type: string; [k: string]: unknown } }) => void) => (hooks as unknown as FakeCtx).eventHooks.push(h),
     onToolResult: (_tools: readonly string[], h: (input: { name: string; output: string }) => unknown) =>
       (hooks as unknown as FakeCtx).toolResultHooks.push(h),
-    afterTurn: () => {},
+    afterTurn: (h: () => unknown) => (hooks as unknown as FakeCtx).afterTurnHooks.push(h),
   };
   const self = hooks as unknown as ExtensionSetupContext & FakeCtx;
   self.events = [];
@@ -55,6 +56,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
   self.compactionHooks = [];
   self.toolResultHooks = [];
   self.mode = mode;
+  self.afterTurnHooks = [];
   return self;
 }
 
@@ -113,9 +115,13 @@ describe("jev-guard extension setup (#786)", () => {
     expect(ctx.toolHooks).toHaveLength(1);
     const out = await runHook(ctx.toolHooks, bash);
     expect(out ?? undefined).toBeUndefined();
+    // #846: a pass records no per-call event — it joins the turn aggregate
+    // flushed at afterTurn.
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(0);
+    for (const h of ctx.afterTurnHooks) await h();
     const judgments = ctx.events.filter((e) => e.name === "jev_judgment");
     expect(judgments).toHaveLength(1);
-    expect((judgments[0]!.payload as Record<string, unknown>).useCase).toBe("guardrail");
+    expect(judgments[0]!.payload).toMatchObject({ useCase: "guardrail_passes", calls: 1 });
   });
 
   test("deny: hook vetoes with the actionable reason; non-bash tools are untouched", async () => {
@@ -869,7 +875,7 @@ describe("#832 the uniform use-case control", () => {
     expect(calls()).toBe(1);
   });
 
-  test("guardrail: a warm `off` stops the judging, and yolo refuses it outright", async () => {
+  test("guardrail: a warm `off` stops the judging, in yolo too (#850)", async () => {
     const ctx = fakeCtx();
     const deny = { ...SAFE_ANSWERS, destructive: { type: "noul", noul: 0.95 } };
     await createJevGuardExtension({
@@ -893,18 +899,24 @@ describe("#832 the uniform use-case control", () => {
     });
     expect(await runHook(ctx.toolHooks, bash)).toBeUndefined();
 
-    // In yolo the guardrail is the last line of defence: the command is
-    // refused, visibly, and the lethal checks keep running.
+    // #850: even in yolo the command is honoured — session-warm, visible,
+    // and back on restores the narrowed lethal checks.
     emitControl(ctx, "guardrail", "on");
     ctx.eventHooks.forEach((h) => h({ event: { type: "session_mode", mode: "yolo" } }));
     emitControl(ctx, "guardrail", "off");
     expect(lastControl(ctx)).toEqual({
       usecase: "guardrail",
       action: "off",
-      status: "on",
+      status: "off",
       config: true,
-      refused: "yolo",
+      sessionOnly: true,
+      note: "the guardrail has no persistent switch",
     });
+    expect(jevState(ctx).guardrail).toMatchObject({ status: "off", sessionOnly: true });
+    expect(await runHook(ctx.toolHooks, bash)).toBeUndefined();
+
+    // Back on in yolo: the narrowing returns, visibly.
+    emitControl(ctx, "guardrail", "on");
     expect(jevState(ctx).guardrail).toMatchObject({ status: "on", note: "yolo — the lethal checks only" });
     expect((await runHook(ctx.toolHooks, bash))?.veto).toBe(true);
   });

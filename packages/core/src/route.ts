@@ -152,6 +152,13 @@ export interface Route extends Provider {
   readonly chain: string[];
   /** Starts a user turn: allows one expired-selected recovery probe. */
   beginTurn(): void;
+  /**
+   * #852: endpoint health at decision time — for each chain stop, whether
+   * it is in a failure cooldown (the kind that put it there). The routing
+   * layer reads this before it names a switch target: a model the session
+   * already knows cannot serve it is never chosen.
+   */
+  health(): ReadonlyArray<{ ref: string; kind: string; until: number }>;
 }
 
 /**
@@ -173,9 +180,13 @@ export function createRoute(config: RouteConfig): Route {
   const selected = refFor(config.target);
   let servingIndex = 0;
   let selectedRecoveryDue = false;
-  const failures = new Map<number, { kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request"; count: number; until: number }>();
-  const cooldownMs = (kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request", count: number) => {
+  const failures = new Map<number, { kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion"; count: number; until: number }>();
+  const cooldownMs = (kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion", count: number) => {
     if (kind === "quota_exhausted") return 15 * 60_000;
+    // #853: an endpoint that returned an empty completion is cooldown-worthy
+    // like a quota failure — re-probing it next turn replays the same
+    // silent failure; 15 minutes matches quota/invalid_request.
+    if (kind === "empty_completion") return 15 * 60_000;
     // #506: a deterministic invalid_request rejection (e.g. a text-only
     // fallback target vs. multimodal history) is cooldown-worthy too:
     // re-probing it every turn replays the same failure with zero progress.
@@ -186,7 +197,7 @@ export function createRoute(config: RouteConfig): Route {
   };
   const recordFailure = (
     index: number,
-    kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request",
+    kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion",
   ) => {
     const prior = failures.get(index);
     const count = prior?.kind === kind ? prior.count + 1 : 1;
@@ -201,6 +212,14 @@ export function createRoute(config: RouteConfig): Route {
     chain: chain.map(refFor),
     beginTurn() {
       selectedRecoveryDue = servingIndex !== 0 && (failures.get(0)?.until ?? Infinity) <= now();
+    },
+    health() {
+      const t = now();
+      const out: { ref: string; kind: string; until: number }[] = [];
+      for (const [index, failure] of failures) {
+        if (failure.until > t) out.push({ ref: refFor(chain[index]!), kind: failure.kind, until: failure.until });
+      }
+      return out;
     },
     async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions): AsyncIterable<StreamEvent> {
       const recoveryProbe = selectedRecoveryDue;
@@ -231,11 +250,36 @@ export function createRoute(config: RouteConfig): Route {
         const credential = isContext ? resolved.credential : resolved;
         const authContext = isContext ? resolved : undefined;
         let attempt = 0;
+        // #853: an empty completion (finish, but no text, no tool calls,
+        // no usage) is a failed call, not an answer — the provider could
+        // not actually serve the request. Detected here, at the route
+        // layer, so every provider kind gets the same classification and
+        // the fallback chain fires. Reset per attempt: a retry gets its
+        // own accounting.
         while (true) {
+          let sawText = false;
+          let sawToolCalls = false;
+          let sawUsage = false;
           try {
             const stream = streamFactory(target, credential, authContext) ?? defaultFactory(target, credential, authContext);
             for await (const event of stream(messages, signal, tools, targetOptions)) {
+              if (event.type === "text_delta") {
+                if (event.text) sawText = true;
+              } else if (event.type === "tool_calls") {
+                if (event.calls.length > 0) sawToolCalls = true;
+              } else if (event.type === "usage") {
+                // Zero tokens is the shape of an empty completion (the
+                // adapter defaults missing usage to 0), never evidence of
+                // a real call.
+                if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true;
+              }
               yield event;
+            }
+            if (!sawText && !sawToolCalls && !sawUsage) {
+              throw new ProviderError(
+                "empty_completion",
+                `${refFor(target)} returned an empty completion (no content, no tool calls, no usage)`,
+              );
             }
             const previous = servingIndex;
             servingIndex = i;
@@ -253,7 +297,7 @@ export function createRoute(config: RouteConfig): Route {
               continue;
             }
             if (isFallbackWorthy(normalized)) {
-              recordFailure(i, normalized.kind as "quota_exhausted" | "rate_limited" | "overloaded" | "network");
+              recordFailure(i, normalized.kind as "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "empty_completion");
               // A selected-route recovery is one probe only: after it
               // fails, resume the already-serving target directly rather
               // than walking other cooled-down fallback stops.

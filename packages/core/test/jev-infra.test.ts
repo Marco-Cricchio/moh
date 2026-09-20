@@ -305,6 +305,34 @@ describe("the per-turn event cap (ADR-0032)", () => {
     expect(appends).toBe(100);
     expect(caps).toBe(2);
   });
+
+  test("#846: the cap publishes a degraded status until the next turn (then clears)", async () => {
+    const { rt, ctx } = await channel();
+    rt.beginTurn();
+    const seen: (string | null)[] = [];
+    rt.onStatusChange((_name, text) => seen.push(text));
+    ctx.appendEvent({ name: "x" });
+    for (let i = 0; i < 60; i++) ctx.appendEvent({ name: `e${i}`, payload: { i } });
+    // Visible degraded state on the footer seam…
+    expect(rt.statuses()).toEqual([
+      { extension: "probe", text: expect.stringContaining("event cap reached") },
+    ]);
+    // …and announced as a status (headless stderr line rides the same seam).
+    expect(seen.some((t) => t?.includes("event cap reached"))).toBe(true);
+    // The next turn clears it.
+    rt.beginTurn();
+    expect(rt.statuses()).toEqual([]);
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  test("#846: the extension's own setStatus replaces the cap overlay", async () => {
+    const { rt, ctx } = await channel();
+    rt.beginTurn();
+    for (let i = 0; i < 60; i++) ctx.appendEvent({ name: `e${i}`, payload: { i } });
+    expect(rt.statuses()[0]!.text).toContain("event cap reached");
+    ctx.setStatus("jev online");
+    expect(rt.statuses()).toEqual([{ extension: "probe", text: "jev online" }]);
+  });
 });
 
 describe("setStatus (ADR-0032)", () => {

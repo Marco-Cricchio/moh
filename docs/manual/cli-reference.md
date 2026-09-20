@@ -30,7 +30,7 @@ commands:
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
-             containment (launch-only; MCP consent still applies)
+             containment (launch default; shift+tab leaves it in-session; MCP consent still applies)
   --version  print version and exit
   --help     show this help
 ```
@@ -59,7 +59,7 @@ options:
                             wins over moh.json maxIterations for this run
   --cassette <file>          run the mock provider from a JSON cassette (e2e/evals)
   --auto-accept              auto-accept every permission prompt
-  --yolo                     no permission prompts, unrestricted filesystem (launch-only)
+  --yolo                     no permission prompts, unrestricted filesystem (launch default; shift+tab rotates modes in-session)
   --cwd <dir>                project root (default: process.cwd())
 
 rules: "bash", "bash:git status", "write:src/**", "edit:docs/**" — same

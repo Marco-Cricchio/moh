@@ -94,8 +94,8 @@ interface StatusProps {
   onKeepMyBranch?: () => void;
   phase?: string;
   notice?: string;
-  /** #377: yolo session (launch-only `--yolo`) — persistent unmissable
-   * warning indicator; leads row 2 and elides only after the update notice. */
+  /** #377/#849: ⚠ YOLO banner — live while the yolo permission mode is in
+   * force, launch flag or in-session rotation alike. */
   yolo?: boolean;
   /** Current git branch, when the cwd is a repository (both modes). */
   branch?: string | null;

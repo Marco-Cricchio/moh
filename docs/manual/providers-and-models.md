@@ -31,6 +31,18 @@ name, type, optional base URL, credentials, default model, optional
 fallback models. A model reference is `endpoint/model-id`; the current
 one is shown in the status bar.
 
+### When a provider returns nothing
+
+A call that ends without any content, tool calls or usage is treated as
+a failed call, not as an answer. When it happens, the fallback chain is
+walked (the configured fallbacks, or the automatic chain from your other
+endpoints) and the next viable target serves the turn — the transcript
+shows the usual fallback notice. If no target can serve it, the turn
+ends with a visible `empty completion` error naming the endpoint that
+produced nothing: a turn never ends as a silent, empty reply. The
+failed endpoint sits in a 15-minute cooldown, so later turns do not
+re-probe it until the cooldown expires.
+
 ## Switching models
 
 - `/model` in the TUI opens the picker: every configured endpoint's

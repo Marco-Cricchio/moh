@@ -43,7 +43,7 @@ commands:
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
-             containment (launch-only; MCP consent still applies)
+             containment (launch default; shift+tab leaves it in-session; MCP consent still applies)
   --version  print version and exit
   --help     show this help
 `;

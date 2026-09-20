@@ -60,7 +60,14 @@ Key decisions, each with its rationale:
    per-extension and per-turn. The 51st and later events in the same turn are dropped and
    the extension gets a single `extension_failed { reason: "event_cap" }` for that turn —
    a buggy loop (or a runaway use case) cannot bury the log or the transcript in one turn,
-   and the extension is never silently speechless.
+   and the extension is never silently speechless. *#846 deviation:* the cap also
+   overlays the extension's footer status with the degraded text for the remainder of the
+   turn (the headless stderr line rides the same seam), cleared at the next turn and by
+   the extension's own next `setStatus` — the degraded state is visible where the user
+   looks, not only in the log. The audit-integrity clause is unchanged: nothing is
+   sampled or truncated, and a producer whose volume legitimately reaches the cap
+   (Jev's per-call guardrail records, before #846's turn aggregation) must reduce its
+   volume rather than accept routine degradation.
 
 4. **Redaction heuristic on the payload.** Keys whose normalized form (lowercased, `_`
    and `-` stripped) is exactly `apikey`, `apitoken`, `accesstoken`, `refreshtoken`,

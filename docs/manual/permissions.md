@@ -32,6 +32,23 @@ call, `n` deny. In vibe mode moh auto-accepts within the safe defaults;
 `--yolo` (or `--auto-accept` on the CLI) removes prompts — use it for
 throwaway work.
 
+## The permission modes
+
+Three modes govern prompts and filesystem reach: `normal` (prompts on
+every non-allowed call, project-root containment), `auto-accept` (no
+prompts for built-in tools; extension asks and out-of-root paths still
+reach you) and `yolo` (no prompts, unrestricted filesystem for built-in
+tools).
+
+`shift+tab` in chat rotates `normal → auto-accept → yolo → normal`,
+effective from the very next tool decision — including entering and
+leaving yolo mid-session. Each change is announced in the transcript
+(the ⚠ YOLO banner appears and disappears with the mode) and recorded
+in the session log, so resume and replay show which mode was in force
+when each tool call was decided. The rotation is session-scoped and
+never persisted: a new session starts from its configuration again,
+and `--yolo` on the CLI remains the launch-time opt-in.
+
 ## Extension asks
 
 An extension's tool-call hook can do two things: `veto`, which refuses the

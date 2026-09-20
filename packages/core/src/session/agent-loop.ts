@@ -395,6 +395,14 @@ export class AgentLoop {
         for (const e of errors) this.#append(e);
       }
       const toolCalls: ToolCall[] = [];
+      // #853: a bare (non-routed) provider's empty completion must end
+      // the turn as a classified error, never a silent empty done — the
+      // route layer cannot see it, so the loop classifies here. Routed
+      // providers never reach this: the route itself throws
+      // empty_completion (fallback-worthy) before ending the stream.
+      let sawText = false;
+      let sawToolCalls = false;
+      let sawUsage = false;
       try {
         const toolSpecs: ToolSpec[] = Object.values(this.#tools()).map((t) => ({
           name: t.name,
@@ -404,9 +412,11 @@ export class AgentLoop {
         for await (const event of provider.stream(this.#messages, controller.signal, toolSpecs, this.#streamOptions())) {
           if (controller.signal.aborted) break;
           if (event.type === "text_delta") {
+            if (event.text) sawText = true;
             assistantText += event.text;
             this.#append({ type: "assistant_delta", text: event.text });
           } else if (event.type === "tool_calls") {
+            if (event.calls.length > 0) sawToolCalls = true;
             toolCalls.push(...event.calls);
           } else if (event.type === "model_call_start") {
             // A new call starts: record the previous one, then open a buffer
@@ -423,6 +433,9 @@ export class AgentLoop {
           } else if (event.type === "route_serving") {
             this.#append(event);
           } else if (event.type === "usage") {
+            // #853: zero tokens is the shape of an empty completion, never
+            // evidence of a real call.
+            if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true;
             this.#usage.inputTokens += event.inputTokens;
             this.#usage.outputTokens += event.outputTokens;
             if (this.#pendingCall) {
@@ -453,6 +466,14 @@ export class AgentLoop {
         if (controller.signal.aborted) break;
         this.#append({ type: "cancelled" });
         return { status: "cancelled" };
+      }
+      // #853: an empty completion on a bare provider is a failed call —
+      // classified error, failed model_call record, never a silent done.
+      if (!sawText && !sawToolCalls && !sawUsage) {
+        this.#flushFailedModelCall();
+        const message = `${provider.name} returned an empty completion (no content, no tool calls, no usage)`;
+        this.#append({ type: "error", reason: "empty_completion", message });
+        return { status: "error", reason: "empty_completion", message };
       }
       if (controller.signal.aborted) this.#discardPendingCall();
       else this.#flushModelCall();
