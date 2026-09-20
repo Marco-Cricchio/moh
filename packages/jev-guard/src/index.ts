@@ -57,6 +57,12 @@ export interface JevRoutingOptions {
   pool: () => Promise<RoutingPool>;
   /** Explicit tier labels (`typesafe.tiers`): `<endpoint>/<model-id>` → tier. */
   labels?: Record<string, string>;
+  /**
+   * #868 (option B): a moh.json-declared pool of `<endpoint>/<model-id>`
+   * refs the router may rotate through when the tier target cannot serve.
+   * Absent: tier-bounded rotation only (the default).
+   */
+  declaredPool?: readonly string[];
 }
 
 export interface JevGuardOptions {
@@ -493,6 +499,10 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           {
             pool: routing.pool,
             labels: routing.labels ?? {},
+            // #868 (option B): the moh.json-declared rotation pool, when
+            // one was declared — the user's explicit consent to rotation
+            // beyond the tier bound.
+            declaredPool: routing.declaredPool,
             // #788: when the router makes its per-turn call, the
             // classification rides it — one state, one round trip, both
             // consumers reading their own answers. #832: the rider stays
@@ -553,7 +563,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
           // Arm the switch before returning: the `model_switched` it causes
           // is the router's, not the user taking the wheel.
-          judge.noteSwitch(verdict.ref);
+          judge.noteSwitch(verdict.ref, call.model);
           return { model: verdict.ref };
         });
         // #832: routing's own notices (a mismatch, a manual override, a
@@ -561,7 +571,25 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         // seven use cases, by the uniform channel registered at the end of
         // this setup.
         ctx.onEvent(({ event }) => {
+          // #868: a decided switch that failed to apply (an unresolvable
+          // ref at switch time) is never silence — the skip is an explicit,
+          // visible outcome naming what was attempted.
+          if (event.type === "extension_failed") {
+            const reason = (event as { reason?: unknown }).reason;
+            if (reason !== "invalid_model" || !judge.switchPending()) return;
+            judge.dropPendingSwitch();
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: {
+                kind: "switch-skipped",
+                reason: "invalid_model",
+                target: judge.snapshot().decidedModel,
+              },
+            });
+            return;
+          }
           if (event.type !== "model_switched" || typeof event.to !== "string") return;
+          judge.clearPendingSwitch();
           if (!judge.noteModelSwitched(event.to)) return;
           // The user picked a model by hand: the router steps aside and
           // says so. `/routing auto` (or `/model auto`) hands it back.
@@ -585,7 +613,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         ctx.state.routingState = (): Record<string, unknown> | null => {
           const resolution = judge.peekResolution();
           const snapshot = judge.snapshot();
-          if (!resolution) return { ...snapshot, assignment: null };
+          if (!resolution) return { ...snapshot, assignment: null, ...(routing.declaredPool !== undefined ? { declaredPool: [...routing.declaredPool] } : {}) };
           const assignment = resolution.assignment;
           const tierTargets = assignment ? assignment.targets : undefined;
           return {
@@ -599,6 +627,8 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
                 }
               : null,
             warnings: [...resolution.warnings],
+            // #868: the declared rotation pool, as wired (option B audit).
+            ...(routing.declaredPool !== undefined ? { declaredPool: [...routing.declaredPool] } : {}),
           };
         };
       }

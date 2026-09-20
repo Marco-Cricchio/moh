@@ -100,6 +100,21 @@ describe("render-side sanitizer (SEC-08)", () => {
 });
 
 describe("semantic transcript projection (#183)", () => {
+  test("#868: a switch-skipped notice renders its line in dev and survives vibe", () => {
+    const events: AgentEvent[] = [
+      {
+        type: "extension_event",
+        extension: "jev-guard",
+        name: "jev_routing",
+        payload: { kind: "switch-skipped", reason: "invalid_model", target: "openrouter/openai/o3-mini-high", staying: "openai-compat/glm-5.3-flash" },
+      } as AgentEvent,
+    ];
+    const dev = projectTranscript(events, { mode: "dev" });
+    expect(dev[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openai-compat/glm-5.3-flash, tried openrouter/openai/o3-mini-high");
+    const vibe = projectTranscript(events, { mode: "vibe" });
+    expect(vibe[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openai-compat/glm-5.3-flash, tried openrouter/openai/o3-mini-high");
+  });
+
   test("vibe hides metric/chrome blocks and keeps failures; dev keeps the full grammar (#193)", () => {
     const vibe = projectTranscript(base, { mode: "vibe" });
     expect(vibe.some((block) => block.type === "usage" || block.usage)).toBe(false);

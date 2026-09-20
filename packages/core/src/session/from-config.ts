@@ -293,6 +293,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         configFile: userFile,
         endpoints: config.endpoints ?? [],
         modelPool: createModelPool(config.endpoints ?? []),
+        // #868: the declared routing pool, verbatim (already schema-validated).
+        ...(config.routingPool !== undefined ? { routingPool: config.routingPool } : {}),
         skillRoster: () =>
           Promise.resolve(
             discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map((s) => ({

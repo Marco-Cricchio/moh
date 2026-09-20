@@ -50,6 +50,14 @@ export interface RoutingJudgeHost {
   pool: () => Promise<RoutingPool>;
   /** The user's `<endpoint>/<model-id>` → tier labels from the config. */
   labels?: TierLabels;
+  /**
+   * #868 (option B): a moh.json-declared pool of `<endpoint>/<model-id>`
+   * refs the router may draw from. Present and non-empty, it *replaces*
+   * the tier-members candidate list on an unavailable tier target (the
+   * user's explicit consent to rotation beyond the tier bound); absent,
+   * rotation stays tier-bounded (option A, the default).
+   */
+  declaredPool?: readonly string[];
   /** Called once, when the assignment is first resolved (fail-open). */
   onResolved?: (resolution: RoutingResolution) => void;
   /**
@@ -93,6 +101,9 @@ export interface RoutingVerdict {
   readonly streak: number;
   /** The model to serve the turn with — present on `switch` only. */
   readonly ref?: string;
+  /** #868: the tier target the judgment named when it was skipped for a
+   * viable rotation candidate — the audit trail of the substitution. */
+  readonly skipped?: string;
   /** The exact judged state (already truncated), for the record. */
   readonly message: string;
 }
@@ -110,6 +121,9 @@ export interface RoutingJudgeState {
   paused: boolean;
   /** The model of the tier the router last decided to serve. */
   decidedModel: string | null;
+  /** #868: the model serving when the last switch was decided (the
+   * "staying <current>" half of a skip event). */
+  servingAtDecision: string | null;
   /** A `mismatch` notice was already published for this episode. */
   mismatchAnnounced: boolean;
   expected: string | null;
@@ -121,6 +135,7 @@ const INITIAL: RoutingJudgeState = {
   override: false,
   paused: false,
   decidedModel: null,
+  servingAtDecision: null,
   mismatchAnnounced: false,
   expected: null,
 };
@@ -136,6 +151,8 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
   let resolution: Promise<RoutingResolution> | undefined;
   /** The resolved value, once it landed (see `peekResolution`). */
   let resolved: RoutingResolution | null = null;
+  /** #868: the ref of a decided switch awaiting application, if any. */
+  let pendingApply: string | null = null;
 
   /** One place owns "a fresh start": five call sites need it, and a missed
    * one is a hysteresis bug that only shows up turns later. */
@@ -272,17 +289,44 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
           // decision time (the context the hook was handed) — a target the
           // serving route already knows is out of quota / cooling down is
           // never chosen, even on a confident hysteresis.
+          // #868: an unavailable primary target no longer ends the switch —
+          // the router rotates to the next viable candidate of the same
+          // tier (option A, default), or through the declared pool when one
+          // was given (option B, it replaces the tier bound). None viable →
+          // a visible stay that names why.
           const cooled = rawRef !== undefined && cooldowns.some((c) => c.ref === rawRef);
-          const ref = cooled ? undefined : rawRef;
+          // #868: candidates in rotation order — the tier's own members
+          // first (option A), then any declared-pool refs outside the tier
+          // (option B *widens*, it never drops the tier's own candidates).
+          const candidates = [
+            ...(answered !== undefined ? tiers.members[answered] ?? [] : []),
+            ...(host.declaredPool ?? []).filter(
+              (ref) => answered === undefined || !tiers.members[answered]?.includes(ref),
+            ),
+          ].filter((ref): ref is string => ref !== undefined);
+          const viable = cooled ? candidates.find((c) => !cooldowns.some((cd) => cd.ref === c)) : rawRef;
+          // #868: the tier target was cooled down but a same-tier (or
+          // declared-pool) candidate is viable — a switch to it, with the
+          // skip recorded. All candidates cooled → a visible stay.
+          const skipped = cooled ? rawRef : undefined;
+          const ref = viable;
           decided = {
-            decision: decision.switch && !cooled ? "switch" : "stay",
-            reason: cooled ? "cooled-down" : decision.reason,
+            decision: decision.switch && ref !== undefined ? "switch" : "stay",
+            // #868: the stay keeps #852's "cooled-down" when the tier had
+            // only the dead target to offer; with rotation candidates that
+            // all failed the health gate, it names the fuller reason.
+            reason: cooled
+              ? candidates.length > 1
+                ? "no-viable-candidate"
+                : "cooled-down"
+              : decision.reason,
             ...(routable ? { tier: answered } : {}),
             confidence: verdictConfidence,
             ...(currentTier !== undefined ? { currentTier } : {}),
             streak,
             counts: routable,
             ...(ref !== undefined ? { ref } : {}),
+            ...(skipped !== undefined ? { skipped } : {}),
           };
           return {
             useCase: "routing",
@@ -293,6 +337,7 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
             currentTier: currentTier ?? null,
             streak,
             ...(ref !== undefined ? { target: ref } : {}),
+            ...(skipped !== undefined ? { skipped } : {}),
             message,
             answers,
             model: meta.model,
@@ -320,11 +365,36 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * also resets the streak (ratified) and becomes what the next turn
      * expects to see serving.
      */
-    noteSwitch(ref: string): void {
+    noteSwitch(ref: string, current?: string): void {
       state.expected = ref;
       state.decidedModel = ref;
+      // #868: the model serving when the switch was decided — the skip
+      // event's "staying <current>" names it (the attempted target does
+      // not: that is the model that failed).
+      if (current !== undefined) state.servingAtDecision = current;
       restartStreak();
       state.mismatchAnnounced = false;
+      pendingApply = ref;
+    },
+
+    /**
+     * #868: true while a decided switch is awaiting its application — the
+     * window between `noteSwitch` and the next `model_switched` (applied)
+     * or `extension_failed { invalid_model }` (skipped).
+     */
+    switchPending(): boolean {
+      return pendingApply !== null;
+    },
+
+    /** #868: the decided switch failed to apply — drop the pending mark;
+     * the skip event carries the reason and the attempted target. */
+    dropPendingSwitch(): void {
+      pendingApply = null;
+    },
+
+    /** #868: the decided switch applied — clear the pending mark. */
+    clearPendingSwitch(): void {
+      pendingApply = null;
     },
 
     /**
