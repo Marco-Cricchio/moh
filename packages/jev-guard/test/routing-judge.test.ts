@@ -337,6 +337,27 @@ describe("routing judge (#787)", () => {
     });
   });
 
+  test("#852: a cooled-down target is never the switch target", async () => {
+    const fake = fakeClient({ choice: "economico", confidence: 0.95 });
+    const { judge } = judgeFor(fake);
+
+    // Two powerful-tier turns satisfy the hysteresis, but the cheap model
+    // the judgment names is in a quota cooldown: the switch is refused,
+    // and the record names why.
+    await judge.decide("write the briefs", "a/big");
+    const refused = await judge.decide("harden the error paths", "a/big", [
+      { ref: "a/cheap", kind: "quota_exhausted" },
+    ]);
+    expect(refused).toMatchObject({ decision: "stay", reason: "cooled-down", tier: "economico" });
+    expect(refused!.ref).toBeUndefined();
+    expect(judge.snapshot().decidedModel).toBeNull();
+    expect(fake.records[1]).toMatchObject({ decision: "stay", reason: "cooled-down" });
+
+    // The cooldown lifted: the same judgment now switches.
+    const allowed = await judge.decide("harden the error paths", "a/big");
+    expect(allowed).toMatchObject({ decision: "switch", ref: "a/cheap" });
+  });
+
   test("a command pauses, resumes and releases — and the streak follows", async () => {
     const fake = fakeClient({ choice: "potente", confidence: 0.9 });
     const { judge } = judgeFor(fake);

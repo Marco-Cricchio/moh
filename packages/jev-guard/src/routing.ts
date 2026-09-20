@@ -168,7 +168,10 @@ export type RoutingStayReason =
   | "streak"
   /** #852: the judged message carried no task signal (a bare
    * continuation). No streak accrual, no switch. */
-  | "continuation";
+  | "continuation"
+  /** #852: the switch's target is in a known failure cooldown. The
+   * switch is refused; the streak was already satisfied, so it persists. */
+  | "cooled-down";
 
 /** #852: a bare continuation carries no task signal. Matched as a whole
  * trimmed, lowercased, punctuation-stripped message — never a substring,

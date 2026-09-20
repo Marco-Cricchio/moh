@@ -178,8 +178,18 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * (fewer than two tiers, or nothing to route yet), or the Jev call
      * failed (fail-open: no judgment, no switch, no event). A manual
      * override is not judged either: the user's pick wins, silently.
+     *
+     * #852: `cooldowns` names the serving route's chain stops currently
+     * in a failure cooldown (from the `beforeTurn` context). A switch
+     * targeting a cooled-down endpoint is refused with the
+     * `cooled-down` stay reason — the router never moves the session
+     * onto a model it already knows cannot serve it.
      */
-    async decide(text: string, currentModel: string): Promise<RoutingVerdict | null> {
+    async decide(
+      text: string,
+      currentModel: string,
+      cooldowns: readonly { ref: string; kind: string }[] = [],
+    ): Promise<RoutingVerdict | null> {
       if (state.override || state.paused) return null;
       // #852: a bare continuation message is not a task to route. Before
       // any judgment is spent: no call, no streak accrual, no switch —
@@ -257,10 +267,16 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
             paused: false,
             override: false,
           });
-          const ref = decision.switch && answered !== undefined ? tiers.targets[answered] : undefined;
+          const rawRef = decision.switch && answered !== undefined ? tiers.targets[answered] : undefined;
+          // #852: the health gate. The cooldown list is captured at
+          // decision time (the context the hook was handed) — a target the
+          // serving route already knows is out of quota / cooling down is
+          // never chosen, even on a confident hysteresis.
+          const cooled = rawRef !== undefined && cooldowns.some((c) => c.ref === rawRef);
+          const ref = cooled ? undefined : rawRef;
           decided = {
-            decision: decision.switch ? "switch" : "stay",
-            reason: decision.reason,
+            decision: decision.switch && !cooled ? "switch" : "stay",
+            reason: cooled ? "cooled-down" : decision.reason,
             ...(routable ? { tier: answered } : {}),
             confidence: verdictConfidence,
             ...(currentTier !== undefined ? { currentTier } : {}),

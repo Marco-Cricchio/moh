@@ -444,3 +444,34 @@ describe("billing-error normalization (z.ai code 1113)", () => {
     expect(normalizeProviderError(new Error("Failed after 3 attempts. Last error: AI_APICallError: The usage limit has been reached")).kind).toBe("quota_exhausted");
   });
 });
+
+describe("route health (#852)", () => {
+  test("a cooled-down stop is reported with kind and expiry; a healthy route is empty", async () => {
+    let clock = 0;
+    const primary = MockProvider.scripted([
+      { deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } },
+    ]);
+    const secondary = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
+    const route = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b")],
+      retries: 0,
+      now: () => clock,
+      createStream: (target) => {
+        const provider = target.endpoint.name === "a" ? primary : secondary;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+
+    expect(route.health()).toEqual([]);
+    // The primary fails into a 15-minute quota cooldown; the fallback serves.
+    for await (const _ of route.stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) {
+      void _;
+    }
+    expect(route.health()).toEqual([{ ref: "a/model-a", kind: "quota_exhausted", until: 15 * 60_000 }]);
+
+    // Expired cooldowns drop out of the report.
+    clock = 15 * 60_000 + 1;
+    expect(route.health()).toEqual([]);
+  });
+});
