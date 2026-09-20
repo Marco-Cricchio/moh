@@ -11,6 +11,7 @@ import type { JevAnswer, JevClient, JevJudgmentMeta, JevQuestion } from "./clien
 import {
   assignTiers,
   decideRouting,
+  isContinuationMessage,
   nextStreak,
   routableTierCount,
   routingQuestions,
@@ -180,6 +181,18 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      */
     async decide(text: string, currentModel: string): Promise<RoutingVerdict | null> {
       if (state.override || state.paused) return null;
+      // #852: a bare continuation message is not a task to route. Before
+      // any judgment is spent: no call, no streak accrual, no switch —
+      // and one record explaining the silence.
+      if (isContinuationMessage(text)) {
+        return {
+          decision: "stay",
+          reason: "continuation",
+          confidence: 0,
+          streak: state.streak,
+          message: truncateToBytes(text),
+        };
+      }
       const tiers = await this.assignment();
       if (!tiers) return null;
       // The serving model is not the one the router last picked (the config

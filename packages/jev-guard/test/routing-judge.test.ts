@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import type { JevAnswer, JevJudgeInput, JevOutcome } from "../src/client";
 import { createRoutingJudge } from "../src/routing-judge";
-import type { RoutingModel } from "../src/routing";
+import { isContinuationMessage, type RoutingModel } from "../src/routing";
 
 const pool: RoutingModel[] = [
   { ref: "a/cheap", price: 1 },
@@ -247,7 +247,7 @@ describe("routing judge (#787)", () => {
 
     // A different model of the same tier is coherent with the decision:
     // routing resumes on it instead of staying suspended forever.
-    const resumed = await judge.decide("again", "a/other-big");
+    const resumed = await judge.decide("look at it once more", "a/other-big");
     expect(resumed).not.toBeNull();
     expect(fake.inputs.length).toBe(spent + 1);
   });
@@ -260,23 +260,81 @@ describe("routing judge (#787)", () => {
       { pool: async () => ({ models: pool }), onMismatch: (current, expected) => mismatches.push([current, expected]) },
     );
 
-    // Turns 1-2 pick a/big.
+    // Turns 1-2 pick a/big. ("design more" carries a task signal: #852.)
     await judge.decide("design", "a/cheap");
     const switched = await judge.decide("design more", "a/cheap");
     judge.noteSwitch(switched!.ref!);
     const callsAfterSwitch = fake.inputs.length;
 
     // Turns 3-5: the serving model is not a/big — no judgment, one notice.
-    expect(await judge.decide("again", "a/handpicked")).toBeNull();
-    expect(await judge.decide("again", "a/handpicked")).toBeNull();
-    expect(await judge.decide("again", "a/config-change")).toBeNull();
+    // (The probe messages carry a task signal: #852.)
+    expect(await judge.decide("check the layout", "a/handpicked")).toBeNull();
+    expect(await judge.decide("fix the export", "a/handpicked")).toBeNull();
+    expect(await judge.decide("try that again from the top", "a/config-change")).toBeNull();
     expect(fake.inputs).toHaveLength(callsAfterSwitch);
     expect(mismatches).toEqual([["a/handpicked", "a/big"]]);
 
     // Back on the router's pick: judging resumes.
-    const resumed = await judge.decide("again", "a/big");
+    const resumed = await judge.decide("resume the layout work", "a/big");
     expect(resumed).not.toBeNull();
     expect(fake.inputs).toHaveLength(callsAfterSwitch + 1);
+  });
+
+  test("#852: a bare continuation message is judged, but never moves the streak or the model", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.95 });
+    const { judge } = judgeFor(fake);
+
+    // Two real task turns build a streak of 1... then a bare continuation
+    // arrives. It must not complete the hysteresis on its own.
+    await judge.decide("write the agent briefs", "a/cheap");
+    const continuation = await judge.decide("procedi", "a/cheap");
+    expect(continuation).toMatchObject({ decision: "stay", reason: "continuation", streak: 1 });
+    expect(continuation!.ref).toBeUndefined();
+    // The judgment was never spent: one call, for the first turn only.
+    expect(fake.inputs).toHaveLength(1);
+
+    // ...and any number of continuations alone still cannot flip the model.
+    await judge.decide("continue", "a/cheap");
+    await judge.decide("yes", "a/cheap");
+    expect(fake.inputs).toHaveLength(1);
+    expect(judge.snapshot()).toMatchObject({ streak: 1, streakTier: "potente" });
+
+    // A substantive message still completes the hysteresis normally.
+    expect(await judge.decide("now harden the error paths", "a/cheap")).toMatchObject({
+      decision: "switch",
+      reason: "hysteresis",
+      ref: "a/big",
+    });
+  });
+
+  test("#852: continuation detection is whole-message, punctuation- and case-tolerant", () => {
+    for (const text of ["", "  ", "procedi", "Procedi.", "continue?", "GO AHEAD", "ok vai", "va bene!"]) {
+      expect(isContinuationMessage(text)).toBe(true);
+    }
+    for (const text of [
+      "procediamo con il refactor",
+      "continue with the export",
+      "yes, but make it blue",
+      "ok now run the tests",
+      "design the module",
+    ]) {
+      expect(isContinuationMessage(text)).toBe(false);
+    }
+  });
+
+  test("#852: the continuation stay is recorded like any other stay", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.95 });
+    const { judge } = judgeFor(fake);
+    await judge.decide("write the briefs", "a/cheap");
+    await judge.decide("procedi", "a/cheap");
+    // The continuation spends no call, so the only record is the real turn.
+    expect(fake.records).toHaveLength(1);
+    expect(fake.records[0]).toMatchObject({
+      useCase: "routing",
+      decision: "stay",
+      reason: "streak",
+      message: "write the briefs",
+    });
   });
 
   test("a command pauses, resumes and releases — and the streak follows", async () => {

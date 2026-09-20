@@ -165,7 +165,36 @@ export type RoutingStayReason =
   | "mismatch"
   | "low-confidence"
   | "same-tier"
-  | "streak";
+  | "streak"
+  /** #852: the judged message carried no task signal (a bare
+   * continuation). No streak accrual, no switch. */
+  | "continuation";
+
+/** #852: a bare continuation carries no task signal. Matched as a whole
+ * trimmed, lowercased, punctuation-stripped message — never a substring,
+ * so "procediamo con il refactor" still judges normally. */
+const CONTINUATIONS = new Set([
+  // English
+  "continue", "go on", "go ahead", "proceed", "keep going", "yes", "y", "ok",
+  "okay", "sure", "next", "done?", "and?", "again", "retry", "resume",
+  // Italian (the owner's language)
+  "procedi", "prosegui", "continua", "continui", "vai", "avanti", "dai",
+  "ok prosegui", "va bene", "ok vai", "ancora", "riprova", "ripeti",
+]);
+
+/** #852: true when the message carries no task signal a router can act
+ * on — empty, or a bare continuation word. A router cannot judge a task
+ * that is not stated, and must not move the serving model on one. */
+export function isContinuationMessage(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!…,:;?]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (normalized === "") return true;
+  return CONTINUATIONS.has(normalized);
+}
 
 export type RoutingDecision =
   | { readonly switch: true; readonly reason: "hysteresis" }
