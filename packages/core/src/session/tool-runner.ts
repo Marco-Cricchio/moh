@@ -73,6 +73,23 @@ export interface ToolRunnerOptions {
    * as #488 mentions). Screenshots become typed image parts only when
    * true; absent/false → chip + warning text. */
   imageCapable?: () => boolean;
+  /** ADR-0034: the post-tool inspection seam. Present when a runtime
+   * (owned or borrowed) has `onToolResult` hooks registered: the result is
+   * offered to them between the call settling and the `tool_result`
+   * append. Absent = every result proceeds untouched (the common case:
+   * nothing is paid for a seam nobody uses). */
+  toolResultHooks?: ToolResultHookChecker;
+}
+
+/** ADR-0034: the post-tool inspection surface the runner needs — satisfied
+ * by ExtensionRuntime (the runner never sees an extension instance). */
+export interface ToolResultHookChecker {
+  checkToolResultHooks(call: {
+    callId: string;
+    name: string;
+    args: unknown;
+    output: string;
+  }): Promise<{ withheld?: string; by?: string; errors: AgentEvent[] }>;
 }
 
 /**
@@ -170,6 +187,7 @@ export class ToolRunner {
   readonly #onFileMutation: ((relativePath: string) => void) | undefined;
   readonly #onToolObserved: ((tool: string, ok: boolean) => void) | undefined;
   readonly #imageCapable: (() => boolean) | undefined;
+  readonly #toolResultHooks: ToolResultHookChecker | undefined;
 
   /** Workspace-root-relative POSIX form of an (absolute or relative) path. */
   #relativeToRoot(path: string): string | null {
@@ -194,6 +212,7 @@ export class ToolRunner {
     this.#onFileMutation = options.onFileMutation;
     this.#onToolObserved = options.onToolObserved;
     this.#imageCapable = options.imageCapable;
+    this.#toolResultHooks = options.toolResultHooks;
   }
 
   /**
@@ -232,14 +251,36 @@ export class ToolRunner {
         this.#execute(call, signal),
         cancelledResult(call.callId, signal),
       ]);
-      this.#append({ type: "tool_result", ...result });
+      // ADR-0034: the post-tool inspection point — between the call
+      // settling and the `tool_result` append, so the withheld text is what
+      // the log holds *and* what the feedback part carries (replay, resume
+      // and fork rebuild from the log and must match what the model saw).
+      // A result carrying an image is never offered: it is not judgeable
+      // text, and withholding a screenshot breaks the calling turn.
+      let settled = result;
+      const hooks = this.#toolResultHooks;
+      if (hooks && result.image === undefined) {
+        const dispatch = await hooks.checkToolResultHooks({
+          callId: result.callId,
+          name: call.name,
+          args: call.args,
+          output: result.output,
+        });
+        for (const event of dispatch.errors) this.#append(event);
+        if (dispatch.withheld !== undefined) {
+          // Refusal-shaped, never a silent drop: the model sees a failed
+          // result that says the content was withheld and why.
+          settled = { callId: result.callId, ok: false, output: dispatch.withheld, errorKind: "permission" };
+        }
+      }
+      this.#append({ type: "tool_result", ...settled });
       parts.push({
         kind: "tool_result" as const,
-        callId: result.callId,
-        ok: result.ok,
-        output: result.output,
-        ...(result.errorKind ? { errorKind: result.errorKind } : {}),
-        ...(result.image ? { image: result.image } : {}),
+        callId: settled.callId,
+        ok: settled.ok,
+        output: settled.output,
+        ...(settled.errorKind ? { errorKind: settled.errorKind } : {}),
+        ...(settled.image ? { image: settled.image } : {}),
       });
       // #759: per-turn tool usage counter (orientation field validation).
       try { this.#onToolObserved?.(call.name, result.ok); } catch { /* metadata only */ }

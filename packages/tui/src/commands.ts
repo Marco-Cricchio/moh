@@ -24,6 +24,8 @@ import {
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { UserConfig } from "./user-config";
+import { ROUTING_TIERS } from "@moh/jev-guard";
+import { readRoutingState, setJevUseCase, type ExtensionStateReader } from "./jev-control";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
@@ -56,6 +58,13 @@ export interface SlashContext {
   /** Notified on a successful /model switch (App refreshes the footer
    * chip — #166 status surface). */
   onModelSwitched?: (model: string) => void;
+  /**
+   * ADR-0038: reads one extension's own state (`state` store) for a command
+   * that must report it (`/routing`). The value is whatever that extension
+   * stores there — opaque to the client. Absent: the command reads the
+   * session's own seam instead (`AgentSession.extensionState`).
+   */
+  extensionState?: (extension: string, name: string) => unknown;
   /** Notified on a workflow toggle (App re-reads the tracker, #36). */
   onWorkflowToggle?: (enabled: boolean) => void;
   /** #242: sets the session-level reasoning display override (immediate,
@@ -85,6 +94,10 @@ export interface SlashContext {
   /** #767: opens the session analysis modal (/session). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenSession?: () => void;
+  /** #833: opens the Jev use-case modal (/jev) — the session-warm control
+   * surface. Absent (headless): the command points at the persistent
+   * switches instead of pretending a session command exists. */
+  onOpenJev?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -234,10 +247,20 @@ let pendingUpdates: UpstreamUpdate[] | null = null;
 const modelCommand: SlashCommand = {
   name: "model",
   description: "open the model picker modal (or /model <ref> to switch)",
-  usage: "/model [endpoint/model-id | model-id]",
+  usage: "/model [endpoint/model-id | model-id | auto]",
   run(ctx, args) {
     const ref = args.trim();
     if (!ctx.session) return ctx.notify("/model needs an open session");
+    // #787/ADR-0038: `auto` is a reserved word — it hands routing back to
+    // the router (releasing a manual override). A model genuinely called
+    // "auto" stays reachable by naming its endpoint.
+    if (ref.toLowerCase() === "auto") {
+      if (ctx.session.extensionNames().length === 0) {
+        return ctx.notify(`no extension is registered — "auto" is a model reference; try /model <endpoint>/auto`);
+      }
+      setJevUseCase(ctx.session, "routing", "auto");
+      return ctx.notify("✓ routing released — the router judges again from the next message");
+    }
     if (!ref) {
       // #181: with a UI, bare /model opens the modal instead of dumping
       // the catalog as text; the text list stays for headless callers.
@@ -259,6 +282,83 @@ const modelCommand: SlashCommand = {
     if (!result.ok) return ctx.notify(`✗ ${result.error}`);
     ctx.onModelSwitched?.(result.model);
     ctx.notify(`✓ model switched to ${result.model} — effective from the next turn`);
+  },
+};
+
+/**
+ * The reader a Jev surface uses: the session's own `state` seam, or the one
+ * injected on the command context (`SlashContext.extensionState`).
+ */
+function jevReader(ctx: SlashContext): ExtensionStateReader | undefined {
+  return ctx.extensionState ?? ctx.session?.extensionState?.bind(ctx.session);
+}
+
+/**
+ * #787/ADR-0038: the routing session command. `off`/`on` pause and resume
+ * the router **for this session** (the persistent switch is the Settings
+ * entry `Jev (TypeSafe)` — a session command never writes the config);
+ * `auto` releases a manual `/model` override. With no argument it reports
+ * the state and the resolved tier assignment.
+ */
+const routingCommand: SlashCommand = {
+  name: "routing",
+  description: "model routing: state, pause/resume, release the override",
+  usage: "/routing [on|off|auto]",
+  run(ctx, args) {
+    const arg = args.trim().toLowerCase();
+    if (!ctx.session) return ctx.notify("/routing needs an open session");
+    if (ctx.session.extensionNames().length === 0) {
+      return ctx.notify("routing needs the Jev extension — set the key from the Settings entry (Jev / TypeSafe)");
+    }
+    if (arg === "on" || arg === "off" || arg === "auto") {
+      // #832: the uniform per-use-case grammar (the extension answers with
+      // its live state and one transcript line).
+      setJevUseCase(ctx.session, "routing", arg);
+      // The extension answers with its resolved state (a chrome event)
+      // and, when it was paused, resumes judging from the next message.
+      if (arg === "off") return ctx.notify("routing paused for this session — the model stays as it is");
+      if (arg === "on") return ctx.notify("routing on for this session");
+      return ctx.notify("✓ routing released — the router judges again from the next message");
+    }
+    if (arg) return ctx.notify(`unknown argument "${arg}" · usage: /routing [on|off|auto]`);
+
+    const state = readRoutingState(jevReader(ctx));
+    if (!state) return ctx.notify("routing: state unavailable (the extension is still starting) — try again in a moment");
+    const where = state.paused ? "paused (this session)" : state.override ? "suspended — you picked the model by hand (/routing auto hands it back)" : "on";
+    const lines = [`routing: ${where}`];
+    if (!state.assignment) {
+      lines.push("assignment: not resolved yet (or fewer than two tiers to choose from)");
+    } else {
+      for (const tier of ROUTING_TIERS) {
+        const target = state.assignment.targets[tier];
+        if (target) lines.push(`  ${tier}: ${target}`);
+      }
+      if (state.assignment.unpriced.length > 0) {
+        lines.push(`  ${state.assignment.unpriced.length} model(s) without a catalog price → bilanciato`);
+      }
+      for (const ref of state.assignment.ignoredLabels) lines.push(`  label ${ref} ignored (not in the model pool)`);
+    }
+    if (state.decidedModel) lines.push(`router's pick: ${state.decidedModel}`);
+    lines.push("the persistent switch is the Settings entry «Jev (TypeSafe)» → Model routing");
+    return ctx.notify(lines.join("\n"));
+  },
+};
+
+/**
+ * #833: the Jev use-case modal. One row per use case with the live state the
+ * extension reports, and a flip that commands the running extension for this
+ * session — never a config write (that is the Settings entry, and the CLI).
+ */
+const jevCommand: SlashCommand = {
+  name: "jev",
+  description: "Jev use cases: live status, switch one on/off for this session",
+  usage: "/jev",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/jev needs an open session");
+    if (!ctx.onOpenJev) {
+      return ctx.notify("the Jev use cases modal needs the TUI — the persistent switches are in Settings (Jev / TypeSafe)");
+    }
+    return ctx.onOpenJev();
   },
 };
 
@@ -584,11 +684,13 @@ export const BASE_COMMANDS: SlashCommand[] = [
   copyCommand,
   forkCommand,
   helpCommand,
+  jevCommand,
   modeCommand,
   modelCommand,
   mpmCommand,
   reloadCommand,
   renameCommand,
+  routingCommand,
   sessionCommand,
   settingsCommand,
   themeCommand,

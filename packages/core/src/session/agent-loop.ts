@@ -16,11 +16,31 @@ import type {
   TurnResult,
 } from "../types";
 import type { AssembledPrompt } from "../prompt-composer";
-import type { ExtensionRuntime } from "../extensions";
+import type { TurnConfirmOutcome } from "@moh/extension";
+import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
-export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall" | "dispatchAfterTurn">;
+export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
+/**
+ * ADR-0033: the turn-start seam. `dispatch` runs the extensions'
+ * `beforeTurn` hooks (once per user send, before the provider is read);
+ * `applyModel` resolves and applies a returned ref exactly like the manual
+ * `/model` switch, which the session owns (it appends the `model_switched`
+ * chrome). The loop never invents a model: an unresolvable ref is a
+ * visible `extension_failed`, and the turn proceeds on the active model.
+ */
+export interface LoopBeforeTurn {
+  dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
+  applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string };
+  /**
+   * ADR-0033 §4: the pre-send confirmation. Asks the client whether the
+   * turn may be sent, given the extension's reason. Absent = no client can
+   * ask (headless): the turn is refused, never silently sent.
+   */
+  confirm?: (request: { reason: string; by: string; text: string }) => Promise<TurnConfirmOutcome>;
+}
+
 
 /** Default per-turn iteration cap (#190), used when `maxIterations` is absent. */
 export const DEFAULT_MAX_ITERATIONS = 50;
@@ -57,6 +77,13 @@ export interface AgentLoopOptions {
   toolRunner: LoopToolRunner;
   /** Extension hooks; absent in headless sessions. */
   extensions?: LoopExtensions;
+  /**
+   * ADR-0033: the turn-start hook seam. Absent = no extension can
+   * influence which model serves a turn (the historical behavior).
+   */
+  beforeTurn?: LoopBeforeTurn;
+  /** 1-based live-run turn sequence, for the `beforeTurn` context. */
+  turnIndex?: () => number;
   /** Lazy MCP start, when configured. */
   mcp?: { ensureStarted(): Promise<void> };
   /** The conversation so far — mutated in place by each turn. */
@@ -100,6 +127,8 @@ export class AgentLoop {
   readonly #tools: () => Record<string, Tool>;
   readonly #toolRunner: LoopToolRunner;
   readonly #extensions: LoopExtensions | undefined;
+  readonly #beforeTurn: LoopBeforeTurn | undefined;
+  readonly #turnIndex: (() => number) | undefined;
   readonly #mcp: { ensureStarted(): Promise<void> } | undefined;
   readonly #messages: Message[];
   readonly #assemblePrompt: () => void;
@@ -131,6 +160,8 @@ export class AgentLoop {
     this.#tools = options.tools;
     this.#toolRunner = options.toolRunner;
     this.#extensions = options.extensions;
+    this.#beforeTurn = options.beforeTurn;
+    this.#turnIndex = options.turnIndex;
     this.#mcp = options.mcp;
     this.#messages = options.messages;
     this.#assemblePrompt = options.assemblePrompt;
@@ -195,16 +226,38 @@ export class AgentLoop {
 
   /** Runs one user message to completion. */
   async run(text: string, controller: AbortController): Promise<TurnResult> {
-    const result = await this.#runInner(text, controller);
-    if (this.#extensions) {
-      for (const e of await this.#extensions.dispatchAfterTurn(result)) this.#append(e);
-    }
+    return this.#run(text, controller, false);
+  }
+
+  /**
+   * ADR-0037: one synthetic turn — same loop, same tools, same usage
+   * rollup, but no `beforeTurn` dispatch (machine-composed text is never
+   * re-routed or re-checked) and the `user_message` carries the
+   * `synthetic` marker so replay and the transcript can tell it from a
+   * human-typed turn.
+   */
+  async runSynthetic(text: string, controller: AbortController): Promise<TurnResult> {
+    return this.#run(text, controller, true);
+  }
+
+  async #run(text: string, controller: AbortController, synthetic: boolean): Promise<TurnResult> {
+    const result = await this.#runInner(text, controller, synthetic);
     // Memory (#38): fire-and-forget after the reply — never blocks the turn.
     this.#onTurnSettled?.(result);
     return result;
   }
 
-  async #runInner(text: string, controller: AbortController): Promise<TurnResult> {
+  async #runInner(text: string, controller: AbortController, synthetic: boolean): Promise<TurnResult> {
+    // ADR-0033: the turn-start decision point — once per user send, before
+    // the provider is read and before anything is logged. A model named
+    // here serves *this* turn; the hook is the only seam that can do so
+    // (#166 reads the provider once per turn, below). A confirmation the
+    // user cancelled stops the turn right here: no `user_message`, no
+    // turn — the composer gets its text back (the client's job).
+    // ADR-0037: a synthetic turn skips the dispatch entirely — re-routing
+    // and re-checking machine-composed text adds cost and chain risk for
+    // no benefit.
+    if (!synthetic && !(await this.#dispatchBeforeTurn(text))) return { status: "cancelled" };
     // #166: the provider is read once per turn — a mid-session switch
     // (AgentSession.switchModel) takes effect from the next turn, never
     // mid-stream.
@@ -225,7 +278,12 @@ export class AgentLoop {
         this.#append({ type: "mention_warnings", warnings: assembled.warnings });
       }
     }
-    this.#append({ type: "user_message", text, ...(attachments ? { attachments } : {}) });
+    this.#append({
+      type: "user_message",
+      text,
+      ...(synthetic ? { synthetic: true as const } : {}),
+      ...(attachments ? { attachments } : {}),
+    });
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
     this.#turnModels = [];
@@ -429,6 +487,44 @@ export class AgentLoop {
       models: [...new Set(this.#turnModels)],
     });
     return { status: "done" };
+  }
+
+  /**
+   * ADR-0033: runs the extensions' `beforeTurn` hooks and applies the
+   * model ref they name. Never a turn error: hook failures and invalid
+   * refs are visible chrome, and the turn proceeds on the active model.
+   *
+   * Returns false when a `confirm` was answered with anything but "send":
+   * the caller then returns before logging the `user_message`, so a turn
+   * the user cancelled (or a headless refusal) leaves no trace of a turn
+   * that never happened — the extension that asked records the outcome
+   * through its own `onResolved` callback.
+   */
+  async #dispatchBeforeTurn(text: string): Promise<boolean> {
+    const seam = this.#beforeTurn;
+    if (!seam) return true;
+    const outcome = await seam.dispatch(text, this.#turnIndex?.() ?? 1, this.#provider().name);
+    for (const event of outcome.errors) this.#append(event);
+    if (outcome.confirm) {
+      // The model, if any, is applied only once the turn is allowed: a
+      // cancelled confirmation discards the switch with it (nothing
+      // switched for a turn that never ran).
+      const decision = seam.confirm
+        ? await seam.confirm({ reason: outcome.confirm.reason, by: outcome.confirm.by, text })
+        : "refuse";
+      resolveTurnConfirm(outcome.confirm, decision);
+      if (decision !== "send") return false;
+    }
+    if (outcome.model === undefined) return true;
+    const applied = seam.applyModel(outcome.model);
+    if (applied.ok) return true; // same ref = silent no-op; new ref = the session's chrome
+    this.#append({
+      type: "extension_failed",
+      name: outcome.modelBy ?? "extension",
+      reason: "invalid_model",
+      message: `${outcome.model}: ${applied.error}`,
+    });
+    return true;
   }
 
   /** Drops an interrupted call without checkpointing resumable context: its

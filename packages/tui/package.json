@@ -3,15 +3,17 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./bundled-extensions": "./src/bundled-extensions.ts"
   },
   "dependencies": {
     "@moh/core": "workspace:*",
+    "@moh/jev-guard": "workspace:*",
+    "cli-highlight": "^2.1.11",
     "cli-table3": "^0.6.5",
     "ink": "^6.4.0",
     "marked": "^15",
     "marked-terminal": "^7.3.0",
-    "cli-highlight": "^2.1.11",
     "react": "^19.2.0"
   },
   "devDependencies": {

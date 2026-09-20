@@ -25,6 +25,7 @@ commands:
   sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
+  jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -71,6 +72,8 @@ notes:
   - resuming with --session does not carry --allow/--deny rules forward:
     re-pass them on every run (runtime "always" rules from the log are
     restored automatically).
+  - a turn an extension asks to confirm is refused here (one stderr line,
+    exit 0): headless cannot ask, so it never sends what it cannot show.
 ```
 
 ## moh serve
@@ -276,4 +279,36 @@ models without a price record remain tokens-only.
   --days      only sessions modified within the last N days
   --json      machine-readable JSON
   --cwd       project root (default: process.cwd())
+```
+
+## moh jev
+
+```
+usage: moh jev status [--json]
+       moh jev <use-case> on|off
+
+The TypeSafe/Jev configuration: a stored API key (which is what activates
+the bundled Jev extension — there is no separate toggle) and the per-use-case
+opt-ins.
+
+  status        the current configuration (see the flags below)
+  <use-case> on|off
+                write one use-case flag to ~/.moh/config — persistent:
+                what a new session starts in
+
+  --json        one-line machine-readable JSON with status: active, keyHint
+                (absent when inactive), timeoutMs, routing, injection, lint,
+                classification, rerank, skills
+
+Use cases: routing, injection, classification, lint, rerank, skills.
+Session-only (no flag to write): guardrail — it has no configuration switch
+at all (a stored key is what turns it on), so it can only be switched off for
+one session, from the TUI's /jev modal.
+
+Switching a use case inside a running session is /jev's job too: a session
+command is session-warm and this command is persistent — that is the whole
+difference. Nothing here makes a call to TypeSafe: the key is validated when
+it is saved, from the TUI Settings panel (Jev / TypeSafe), and is never
+printed — only its masked tail. The status of an active or inactive Jev
+exits 0; a malformed "typesafe" section and any usage error exit 2.
 ```

@@ -18,6 +18,7 @@ import {
   readUserProviderConfig,
   type AgentSession,
   type AssemblyError,
+  type ExtensionStatus,
   type HandoffOffer,
   type Provider,
   type TrackerBackend,
@@ -42,6 +43,8 @@ import { listSessionSummaries, type SessionSummary } from "./sessions";
 import { loadUserConfig, saveUserConfig, userConfigFile, type ThemeRef, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
+import { ConfirmTurnGate } from "./confirm-turn-gate";
+import { ConfirmTurnModal } from "./ConfirmTurnModal";
 import { useViewport } from "./viewport";
 import { listFiles } from "./file-index";
 import { detectPreviewMode } from "./image-preview";
@@ -60,6 +63,8 @@ import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeS
 import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
+import { JevModal } from "./JevModal";
+import { JEV_EXTENSION_NAME, setJevUseCase } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { TreePanel } from "./TreePanel";
@@ -110,7 +115,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -319,6 +324,18 @@ export function App({
   useSyncExternalStore(askGate.subscribe, askGate.getSnapshot);
   const asking = askGate.current;
 
+  // ADR-0033 §4 (#791): the pre-send confirmation an extension asked for.
+  // A cancel hands the message back to the composer — nothing else knows
+  // what the user typed, and nothing was logged.
+  const confirmGateRef = useRef<ConfirmTurnGate | null>(null);
+  if (confirmGateRef.current === null) confirmGateRef.current = new ConfirmTurnGate();
+  const confirmGate = confirmGateRef.current;
+  useSyncExternalStore(confirmGate.subscribe, confirmGate.getSnapshot);
+  const confirming = confirmGate.current;
+  useEffect(() => {
+    confirmGate.onCancelled((text) => setComposerPrefill(text));
+  }, [confirmGate]);
+
   const { toasts, push } = useToasts();
   const [memoryFresh, setMemoryFresh] = useState(false);
   /** #619: live MPM projection status for the footer chip — polled every
@@ -326,6 +343,9 @@ export function App({
    * renders nothing). Polling, never transcript events: background MPM
    * work is chrome, never conversation. */
   const [mpmStatus, setMpmStatus] = useState<"ready" | "updating" | "unavailable" | null>(null);
+  /** ADR-0032 (#784): statuses extensions publish right now, for the footer
+   * chips. Ephemeral chrome, polled like the MPM status; empty = no chip. */
+  const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatus[]>([]);
   /** #466/ADR-0022: sticky compaction-failure flag — set by
    * `compaction_failed`, cleared by a successful `compaction` marker. */
   const [compactionFailed, setCompactionFailed] = useState(false);
@@ -411,7 +431,7 @@ export function App({
     if (resolved.error) push(resolved.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const blocked = pending !== null || asking !== null || overlay !== null;
+  const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
 
   // Memory (#38): discreet indicator only — a brief toast, never chat noise.
   useEffect(() => {
@@ -485,6 +505,30 @@ export function App({
     read();
     const timer = setInterval(read, 2_000);
     return () => clearInterval(timer);
+  }, [session]);
+
+  // ADR-0032 (#784): extension status chips — the same cheap, fail-silent 2s
+  // poll as the MPM chip. Statuses are ephemeral (never in the log), so a
+  // session swap clears them before the first read.
+  useEffect(() => {
+    if (!session) return;
+    setExtensionStatuses([]);
+    let alive = true;
+    const read = () => {
+      try {
+        const next = session.extensionStatuses();
+        if (!alive) return;
+        setExtensionStatuses((prev) => (sameStatuses(prev, next) ? prev : next));
+      } catch {
+        if (alive) setExtensionStatuses((prev) => (prev.length === 0 ? prev : []));
+      }
+    };
+    read();
+    const timer = setInterval(read, 2_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
   }, [session]);
 
   // #347: AI SDK warnings are routed through moh's sink (installed at
@@ -611,6 +655,7 @@ export function App({
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
+      onConfirmTurn: confirmGate.ask,
       permissionMode: config.permissionMode,
       ...(yolo ? { yolo } : {}),
       ...(handoffOffer ? { handoffOffer } : {}),
@@ -695,10 +740,18 @@ export function App({
   // Idempotent — the published marker makes an already-sent artifact a
   // no-op — so it runs on every Home mount without spamming gh.
   useEffect(() => {
-    const retry = retryPendingHandoffPublish(cwd, home, (message) =>
-      push(sanitizeForDisplay(message), "warn"),
-    );
+    // ADR-0024: the retry resolves the project identity, which runs a
+    // synchronous `git` spawn — reachable from this mount effect it can
+    // re-enter the reconciler mid-commit and kill the first frame under
+    // load. Deferring past the commit window (the same shape the push-time
+    // publish already uses) keeps the spawn out of it.
+    let retry: Promise<unknown> | null = null;
+    const timer = setTimeout(() => {
+      retry = retryPendingHandoffPublish(cwd, home, (message) => push(sanitizeForDisplay(message), "warn"));
+    }, 0);
+    timer.unref?.();
     return () => {
+      clearTimeout(timer);
       retry?.catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -756,6 +809,7 @@ export function App({
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
+      onConfirmTurn: confirmGate.ask,
       permissionMode: configRef.current.permissionMode,
       ...(yolo ? { yolo } : {}),
       store: SessionStore.open(file),
@@ -787,6 +841,7 @@ export function App({
       workflow: configRef.current.workflow.enabled,
       onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
       onAskUser: askGate.ask,
+      onConfirmTurn: confirmGate.ask,
       permissionMode: configRef.current.permissionMode,
       ...(yolo ? { yolo } : {}),
       store: forkedStore,
@@ -1101,6 +1156,7 @@ export function App({
       showReasoning={reasoningOverride ?? config.showReasoning}
       memoryFresh={memoryFresh}
       mpmStatus={mpmStatus}
+      extensionStatuses={extensionStatuses}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
       onKeepMyBranch={keepMyBranch}
@@ -1162,6 +1218,7 @@ export function App({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenJev: () => setOverlay("jev"),
       })}
     />
   ) : null;
@@ -1378,6 +1435,14 @@ export function App({
         {overlay === "mpm" && session && (
           <MpmModal diagnostics={session.mpmDiagnostics()} onClose={() => setOverlay(null)} />
         )}
+        {overlay === "jev" && session && (
+          <JevModal
+            active={session.extensionNames().includes(JEV_EXTENSION_NAME)}
+            read={session.extensionState.bind(session)}
+            send={(usecase, action) => setJevUseCase(session, usecase, action)}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "session" && session && session.sessionFile &&
           (sessionReport && !("error" in sessionReport) ? (
             <SessionModal report={sessionReport} onClose={() => setOverlay(null)} />
@@ -1500,6 +1565,7 @@ export function App({
           />
         )}
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
+        {confirming && <ConfirmTurnModal gate={confirmGate} />}
         </OverlayLayer>}
         {/* Toasts remain non-blocking bottom chrome on every screen. */}
         {!showChat && <Toasts toasts={toasts} />}
@@ -1525,6 +1591,12 @@ function OverlayLayer({ children }: { children: React.ReactNode }) {
 }
 
 /** Visible assembly failure (ADR-0005): what the user sees instead of a silent demo swap. */
+/** Cheap identity check for the extension-status poll: keeping the previous
+ * array reference when nothing changed preserves the footer's memo. */
+function sameStatuses(a: readonly ExtensionStatus[], b: readonly ExtensionStatus[]): boolean {
+  return a.length === b.length && a.every((s, i) => s.extension === b[i]!.extension && s.text === b[i]!.text);
+}
+
 function assemblyErrorToast(error: AssemblyError): string {
   const hint =
     error.kind === "provider"

@@ -118,6 +118,7 @@ TUI manual (ctrl+h / /help) and docs/manual/.`,
     { heading: "moh mpm", body: extractUsage("MPM_USAGE", "mpm.ts") },
     { heading: "moh sessions", body: extractUsage("SESSIONS_USAGE", "sessions.ts") },
     { heading: "moh usage", body: extractUsage("USAGE_USAGE", "usage.ts") },
+    { heading: "moh jev", body: extractUsage("JEV_USAGE", "jev.ts") },
   ];
   const lines: string[] = [
     "# CLI reference",
@@ -181,7 +182,7 @@ writeFileSync(join(ASSETS, "config-reference.md"), renderConfigPage());
 
 // Mirror: every asset (generated refreshed above + narrative as-is), plus
 // the README index. Narrative page bodies are copied verbatim.
-const files = ["getting-started.md", "what-moh-offers.md", "sessions.md", "providers-and-models.md", "permissions.md", "mcp.md", "skills-and-workflow.md", "memory-and-compaction.md", ...GENERATED].sort();
+const files = ["getting-started.md", "what-moh-offers.md", "sessions.md", "providers-and-models.md", "permissions.md", "jev.md", "extensions.md", "mcp.md", "skills-and-workflow.md", "memory-and-compaction.md", ...GENERATED].sort();
 const index: string[] = [
   "# moh user manual",
   "",

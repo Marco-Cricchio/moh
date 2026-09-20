@@ -28,14 +28,20 @@ import {
   type AgentEvent,
   type AgentSession,
   type AskUserQuestionSet,
+  type ConfirmTurnRequest,
+  type TurnConfirmOutcome,
   type AskUserSetResult,
   type AssemblyError,
+  type ExtensionConsentRequest,
+  type PermissionAskContext,
   type Provider,
   type Tool,
   type TrackerBackend,
 } from "@moh/core";
+import { EXTENSION_CONSENT_TOOL } from "./permission-gate";
+import { bundledExtensionSources } from "./bundled-extensions";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -50,11 +56,15 @@ export interface OpenSessionOptions {
   /** Best-effort warning from automatic push-time publication (#437). */
   onHandoffWarning?: (message: string) => void;
   home?: string;
-  /** Consent seam for the TUI permission modal (#33). */
+  /** Consent seam for the TUI permission modal (#33). The optional
+   * `context` marks a request that is not a tool call: an AskUser-level
+   * question only (ADR-0031 extension asks, #834 extension enable consent). */
   onPermissionRequest?:
-    | ((tool: string, args: unknown) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no");
+    | ((tool: string, args: unknown, context?: PermissionAskContext) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no");
   /** Interactive question channel for the ask_user tool (#70). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
+  /** ADR-0033 §4 (#791): the pre-send confirmation modal's seam. */
+  onConfirmTurn?: (request: ConfirmTurnRequest) => Promise<TurnConfirmOutcome> | TurnConfirmOutcome;
   /** Default permission mode for new sessions (user config; yolo stays launch-only). */
   permissionMode?: "normal" | "auto-accept";
   /** #377: yolo session (launch-only `--yolo`): no permission prompts and
@@ -84,6 +94,9 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
     cwd: options.cwd,
     home: options.home,
     provider: options.provider,
+    // #826: the first-party bundled extensions this client ships. The core
+    // hosts them without importing them; a bare library user gets none.
+    bundledExtensions: bundledExtensionSources(options.home),
     consent: {
       // Project MCP servers ask consent on first use; the TUI reuses the
       // same permission modal seam used for tool calls.
@@ -95,9 +108,33 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
               // MCP trust has no "always_for_site" — map it to plain always.
               return Promise.resolve(answer).then((a) => (a === "always_for_site" ? "always" : a));
             },
+            // #834: enabling a loaded extension rides the same modal — it is
+            // the question the user must answer before arbitrary in-process
+            // code runs, so it names the extension, its version and its
+            // source path, and it resolves to a plain yes/no (never a rule).
+            onExtensionConsent: (request: ExtensionConsentRequest) =>
+              Promise.resolve(
+                options.onPermissionRequest!(
+                  EXTENSION_CONSENT_TOOL,
+                  {
+                    ...(request.name ? { name: request.name } : {}),
+                    ...(request.version ? { version: request.version } : {}),
+                    ...(request.file ? { file: request.file } : {}),
+                    ...(request.hash ? { hash: request.hash } : {}),
+                  },
+                  // The label names what is known: the extension on a re-ask
+                  // (an edited file), the file itself on a first-time ask,
+                  // where nothing has run yet and so nothing is claimed.
+                  { source: "extension", extension: request.name ?? (request.file ? basename(request.file) : undefined) },
+                ),
+              // Fail-closed: only an explicit "yes" enables code. The modal
+              // offers nothing else for this ask, and a client that one day
+              // offers an "always" must not have it read as consent.
+              ).then((answer) => answer === "yes"),
           }
         : {}),
       ...(options.onAskUser ? { onAskUser: options.onAskUser } : {}),
+      ...(options.onConfirmTurn ? { onConfirmTurn: options.onConfirmTurn } : {}),
     },
     overrides: {
       tools,

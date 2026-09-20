@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./session/config";
+import type { ExtensionRuntime } from "./extensions";
 import { AgentSession } from "./session/session";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
@@ -116,6 +117,18 @@ export interface SubagentHostOptions {
   runtimeRules: () => import("./permissions").PermissionRule[];
   /** Consent seam surfaced through the parent TUI. */
   onPermissionRequest?: SessionConfig["onPermissionRequest"];
+  /**
+   * ADR-0033 §4: the parent's pre-send confirmation seam, inherited for the
+   * same reason the permission seam is — a child's turn is the user's agent
+   * working, so a hook that asks (the anti-injection check, judging the
+   * task text the parent composed) asks the same human. A child that
+   * cannot ask refuses the turn, exactly like a headless parent.
+   */
+  onConfirmTurn?: SessionConfig["onConfirmTurn"];
+  /** The parent's extension runtime (#784 spec §5): children get it as
+   * their tool-call hook checker, so the guardrail judges child tool calls
+   * through the same gate. Lifecycle hooks and statuses stay the parent's. */
+  extensions?: ExtensionRuntime;
   /** Registry used to resolve string provider refs for children. */
   registry?: ProviderRegistry;
   /** Configured endpoint profiles — used to pre-validate string refs (#339). */
@@ -292,10 +305,16 @@ export class SubagentHost {
         ...(typeof childProviderRef === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
         subagents: null, // depth 1 (#339): children never see the spawn tool
         tools: this.#childTools(spec),
+        // #787: the parent's endpoint profiles serve the child too — a
+        // `beforeTurn` model ref names `endpoint/model-id`, and a child
+        // must resolve it against the same profiles the parent routes on.
+        ...(this.#options.endpoints?.length ? { endpoints: this.#options.endpoints } : {}),
         cwd: this.#options.cwd,
         maxIterations: spec.maxIterations,
         permissions: { ...perms, runtimeRules: this.#options.runtimeRules() },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
+        ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
+        ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
         sink: (event) => store.append(event),
         promptComposer: new PromptComposer({
           projectDir: this.#options.cwd,

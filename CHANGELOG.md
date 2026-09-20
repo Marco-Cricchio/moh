@@ -5,6 +5,119 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+## [0.40.0] - 2026-09-20
+### Changed
+
+- **The core no longer depends on the Jev extension** (#826): `@moh/core`
+  used to import the bundled vendor package and read two of its private
+  state keys inside session assembly. It now hosts bundled extensions
+  generically (`bundledExtensions` on `sessionFromConfig`) and the clients
+  mount the first-party sources, so embedding `@moh/core` gives you a core
+  with no vendor code and no vendor configuration in its public surface. The
+  last thread is gone too: activation is resolved by the **client** (which
+  owns the config surface of the code it ships) and handed to the core as a
+  boolean, so the core no longer runs an extension-provided predicate over
+  your configuration file. For the user nothing changes: entering the API key
+  in the Settings entry `Jev (TypeSafe)` still activates Jev, with one
+  keystroke and no declaration to write. A malformed `typesafe` block no
+  longer breaks session start — `moh jev status` reports it loudly instead.
+
+### Added
+
+- **Loadable extensions** (#834): moh finally loads extensions it did not
+  ship. Drop a `.ts`/`.mjs` file in `~/.moh/extensions/`, or declare one in
+  `moh.json` `"extensions"`, and the first load asks once — naming the file
+  and a SHA-256 of its exact bytes — before enabling it; the answer is
+  remembered against those bytes, so editing it asks again. The question
+  comes **before the file is loaded**, because loading a module runs it: a
+  file you decline, or that nobody could ask you about, is never imported
+  and executes nothing. A `moh.json` declaration only *proposes*: a clone
+  you never answered for runs no code, in any client. Headless clients
+  (`moh run`, `moh serve`, `moh compact`) never prompt — an un-enabled
+  extension is skipped with a visible reason and the exit code is
+  untouched. No sandbox: an extension runs with moh's own privileges, and
+  the manual page says so.
+
+- **Bundled Jev (TypeSafe) integration** (#784): moh can consult the
+  TypeSafe service for typed judgments. Activate it by entering an API key
+  in the TUI Settings panel entry `Jev (TypeSafe)` (validated once, on save;
+  the presence of the key is the state — no toggle, no wizard), check it
+  offline with `moh jev status`, and forget about it when TypeSafe is
+  unreachable: judgments fail open, the agent behaves as it does today, and
+  the only trace is one `∅ jev offline` footer chip. Extension authors get
+  the matching contract additions — the `ask` outcome on the tool-call hook
+  and the `appendEvent` / `setStatus` observation seams (apiVersion 1.1).
+
+- **Jev model routing** (#787): an opt-in router (Settings entry
+  `Jev (TypeSafe)`, item "Model routing", off by default) that picks the
+  model serving each turn from three tiers — `economico`, `bilanciato`,
+  `potente`. Jev sees only the last message (2 KiB) plus the tier-to-model
+  mapping; a switch needs confidence ≥ 0.60 and two turns in a row naming
+  the same tier, a manual `/model` suspends the router, and models are
+  labeled explicitly in `typesafe.tiers` or ranked by catalog price.
+  Extension authors get the `beforeTurn` hook (apiVersion 1.2) — the
+  turn-start seam that names the model of the current turn. The router has
+  its own session commands, `/routing on|off|auto` and `/model auto`
+  (neither writes your configuration), and an extension can now be
+  commanded by name through the `extension_control` channel
+  (apiVersion 1.3).
+
+- **Jev anti-injection** (#791): an opt-in check (Settings entry
+  `Jev (TypeSafe)`, item "Anti-injection", off by default — it is the one
+  use case that reads what you typed) against prompt injection. Your
+  message (4 KiB) and every `fetch`/`browser` result (8 KiB) are judged
+  with two questions; below 0.50 nothing is shown, from 0.50 either signal
+  warns on one transcript line (a fired `sensitive` signal adds *do not
+  commit or share this content*), and above 0.95 injection the send is
+  held by a confirmation modal — `y` sends anyway, `n` returns the text to
+  the composer and sends nothing, and headless (`moh run`) refuses the turn
+  with one stderr line and an unchanged exit code. Above threshold a web
+  result is replaced by a refusal the model can explain, and the session
+  log holds that refusal so resume and fork match what the model saw.
+  Extension authors get the scoped `onToolResult` inspection seam and the
+  `confirm.onResolved` callback (apiVersion 1.4).
+
+- **Jev quality gate** (#789): an opt-in end-of-task review (Settings
+  entry `Jev (TypeSafe)`, item "Quality gate", off by default — it is the
+  one use case that sends the changed code's diff, up to 32 KiB). When a
+  task ends, moh collects the project's own convention documents
+  (`AGENTS.md`, `CONTRIBUTING.md` and friends; a repo with none gets no
+  gate — rules are never invented) plus the diff of the files the task
+  changed, and Jev answers three questions: conventions respected, error
+  handling, completeness. Any answer below 0.40 is a finding, and moh
+  automatically asks the model to fix the flagged areas — at most two
+  correction cycles, marked in the transcript, fail-open when Jev is
+  down. Extension authors get the `requestTurn` synthetic-turn door
+  (apiVersion 1.6, ADR-0037): one core-mediated correction turn with a
+  visible synthetic marker and a core-enforced cap of 2 consecutive
+  synthetic turns.
+
+- **Jev use cases are governable while a session runs** (#832) and their
+  switches have all three surfaces (#833). The `extension_control` channel
+  now speaks one grammar for all seven use cases (`guardrail`, `routing`,
+  `classification`, `injection`, `lint`, `rerank`, `skills`):
+  `{ cmd: "usecase", usecase, action }`, with the routing-only
+  `on|off|auto` form still accepted. In the TUI, `/jev` opens a switchboard
+  showing the live state of every use case and flips one for the open
+  session — session-warm only, with the asymmetry stated out loud ("the
+  config still says off"), and a refusal (the guardrail in yolo, a use case
+  this session cannot run) shown as a refusal. The Settings entry gained
+  the missing **Classification** row, and the shell got the matching
+  persistent forms: `moh jev routing on`, `moh jev classification off`.
+  Availability and config are now two different things — a use case whose
+  dependency the session has can be switched on for that session even
+  though the config says off — and the guardrail keeps no config flag (a
+  stored key is its switch), so `moh jev guardrail off` is refused as
+  session-only rather than silently ignored.
+
 ## [0.39.3] - 2026-09-18
 ### Fixed
 
@@ -267,7 +380,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...develop
+[0.40.0]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...v0.40.0
 [0.39.3]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...v0.39.3
 [0.39.2]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...v0.39.2
 [0.39.1]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...v0.39.1

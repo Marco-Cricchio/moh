@@ -31,8 +31,15 @@ import { SessionStore } from "../session-store";
 import type { PermissionOverrides } from "../permissions";
 import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool } from "../types";
 import { AgentSession } from "./session";
+import type { SessionConfig } from "./config";
+import { ExtensionRuntime } from "../extensions";
+import type { ExtensionConsentRequest } from "../extensions";
+import { extensionSourceFiles } from "../extension-source";
+import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";
+import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
-import type { PermissionsConfig } from "./config";
+import { createModelPool } from "../model-pool";
+import type { PermissionAskContext, PermissionsConfig } from "./config";
 
 /**
  * Initial projection build for a never-mapped project (MPM activation
@@ -83,15 +90,34 @@ export interface AssemblyError {
 /** The client interaction seams. Without them (headless), unpermitted calls and project MCP servers fail fast. */
 export interface SessionConsent {
   /** Tool "ask" decisions (TUI: the permission modal). `always_for_site`
-   * (#775) is the browser act-tier answer — session-scoped, never persisted. */
+   * (#775) is the browser act-tier answer — session-scoped, never persisted.
+   * ADR-0031: `context.source === "extension"` marks an ask raised by an
+   * extension hook — the prompt offers yes/no only, labelled with its reason. */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
+    context?: PermissionAskContext,
   ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** ask_user channel (TUI: the inline question block, ADR-0019). */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
+  /**
+   * ADR-0033 §4: the pre-send confirmation channel (TUI: the confirmation
+   * modal; headless clients answer "refuse"). Absent = the core refuses
+   * any confirmed turn it cannot ask about.
+   */
+  onConfirmTurn?: SessionConfig["onConfirmTurn"];
   /** Project MCP server consent (TUI: reuses the permission modal). */
   onMcpTrust?: (server: string) => Promise<McpConsentAnswer> | McpConsentAnswer;
+  /**
+   * #834: the one-time enable consent for a client-loaded extension (TUI:
+   * the permission modal, which names the extension, its source path and
+   * its version). Absent = nothing can ask (headless): an extension that
+   * was never enabled is refused with `extension_failed { reason: "consent" }`,
+   * one line on stderr, and the session continues. A `true` answer is
+   * persisted against the resolved path + content hash, so the same file
+   * loads silently afterwards and an edit asks again.
+   */
+  onExtensionConsent?: (request: ExtensionConsentRequest) => Promise<boolean> | boolean;
 }
 
 /** Client-specific overrides the builder layers over the moh.json-derived defaults. */
@@ -135,6 +161,16 @@ export interface SessionFromConfigOptions {
   /** Explicit provider reference override (CLI `--provider`): "mock", a custom id, or endpoint/model-id. */
   providerRef?: string;
   consent?: SessionConsent;
+  /**
+   * #826: the bundled first-party extensions this client mounts, each with
+   * the client's own activation answer (`MountedBundledExtension`). The core
+   * hosts the active ones; it never runs an extension's predicate over the
+   * user's config. Absent (the default) = no bundled extension is registered
+   * at all, which is what a library user embedding the core gets unless they
+   * mount one. The client entry points supply the first-party sources (each
+   * one lives in its own workspace package).
+   */
+  bundledExtensions?: readonly MountedBundledExtension[];
   overrides?: SessionOverrides;
 }
 
@@ -196,12 +232,93 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
 
   const o = options.overrides ?? {};
   const mohHome = join(home, ".moh");
+  // The user config (guardian-owned) is read once and used by every
+  // section that lives there: the bundled extensions' activation predicate
+  // and MCP trust below.
+  const userFile = userConfigFile(home);
+
+  const notes: string[] = [];
+  let extensions: ExtensionRuntime | undefined;
+  // #834: the declared source of client-loadable extensions — the user's
+  // `~/.moh/extensions/` dotdir plus the project's `moh.json` proposals.
+  // Resolved for every client (one assembly path, ADR-0005), so a headless
+  // run fails closed through the same code the TUI asks through.
+  const extensionSources = extensionSourceFiles({
+    mohHome,
+    cwd: options.cwd,
+    declared: config.extensions ?? [],
+  });
+  // The consent seam is the client's: with one, the user is asked; without
+  // one (headless), a not-yet-enabled extension is refused and the only
+  // channel left — stderr — carries the line the log would have shown.
+  const onExtensionConsent = options.consent?.onExtensionConsent;
+  // #826: the bundled sources the client mounted. The core asks each one
+  // The client resolved which of its bundled extensions run in this session
+  // (it owns their config surface); the core hosts the active ones and never
+  // learns what any of them is. No mounted source (a bare library user, or a
+  // client that ships none) means the core assembles with no first-party
+  // extension at all — the default.
+  const bundledSources = options.bundledExtensions ?? [];
+  if (bundledSources.length > 0 || extensionSources.length > 0) {
+    // One runtime for both doors: bundled first-party code registers with
+    // `{ bundled: true }` (no consent — the host shipped the bytes),
+    // path-loaded files go through the content-bound consent.
+    extensions = new ExtensionRuntime({
+      mohHome,
+      ...(onExtensionConsent
+        ? {
+            consent: (request) => onExtensionConsent(request),
+          }
+        : { onWarning: (message: string) => process.stderr.write(`moh: ${message}\n`) }),
+    });
+  }
+
+  // Capabilities a bundled extension contributes to the core (the MPM
+  // per-turn gate and the seed-rerank rescue): the core owns the slots, the
+  // extension owns the keys and the semantics behind them.
+  let bundledWiring: BundledWiring | undefined;
+  if (extensions && bundledSources.length > 0) {
+    // #787: the core resolves *which models this session can reach* (lazy —
+    // only the router asks); the extension owns the tiers and the judgment.
+    // #793: the roster is resolved lazily, at each judged turn, through the
+    // same discovery the prompt's skills index uses (bundled first-party +
+    // user skills, project wins on clash). Both are capabilities any
+    // bundled extension may ask for — never one vendor's shapes.
+    const resolution = resolveBundledExtensions({
+      descriptors: bundledSources,
+      runtime: extensions,
+      context: {
+        mohHome,
+        cwd: options.cwd,
+        configFile: userFile,
+        endpoints: config.endpoints ?? [],
+        modelPool: createModelPool(config.endpoints ?? []),
+        skillRoster: () =>
+          Promise.resolve(
+            discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map((s) => ({
+              name: s.name,
+              description: s.description,
+            })),
+          ),
+      },
+    });
+    bundledWiring = resolution.wiring;
+    // An inactive source describes itself ("no API key" and the like): the
+    // core has no words for an extension's precondition, so it does not
+    // invent any — it logs what the extension said, or nothing.
+    notes.push(...resolution.notes);
+  }
+
+  // The declared source (#834): its files load through the same runtime, in
+  // the resolved order. Fire-and-forget like the bundled registration —
+  // the session awaits `ready()` before its first turn, so an extension's
+  // consent prompt is answered before any hook could run.
+  if (extensions && extensionSources.length > 0) void extensions.registerFiles(extensionSources);
 
   // MCP (#15): project (moh.json, consent) first, then user (~/.moh/config, trusted).
   // Computed before the store exists so a throwing read leaves no orphan
   // session file behind. Project trust is resolved from the user config's
   // `mcpTrust` section (#352/SEC-01): the repo's own `trusted` field is ignored.
-  const userFile = userConfigFile(home);
   const servers = [
     ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, options.cwd, s.name) ? { ...s, trusted: true } : s)),
     ...declaredUserMcpServers(userFile),
@@ -310,12 +427,27 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
-      ...(mpm ? { mpm } : {}),
+      ...(mpm
+        ? {
+            mpm: {
+              ...mpm,
+              // #826: the capabilities an active bundled extension
+              // contributed (a per-turn eligibility gate, an
+              // over-threshold rerank rescue). The core owns the slots and
+              // the plumbing; the extension owned the keys and the meaning,
+              // and told the core which slot it fills.
+              ...(bundledWiring?.turnGate ? { turnGate: bundledWiring.turnGate } : {}),
+              ...(bundledWiring?.rerank ? { rerank: bundledWiring.rerank } : {}),
+            },
+          }
+        : {}),
       tools: o.tools ?? builtins,
       mohHome,
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),
+      ...(extensions ? { extensions } : {}),
+      ...(notes.length ? { notes } : {}),
       ...(servers.length
         ? {
             mcp: {
@@ -327,6 +459,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       ...(Object.keys(permissions).length ? { permissions } : {}),
       ...(options.consent?.onPermissionRequest ? { onPermissionRequest: options.consent.onPermissionRequest } : {}),
       ...(options.consent?.onAskUser ? { onAskUser: options.consent.onAskUser } : {}),
+      ...(options.consent?.onConfirmTurn ? { onConfirmTurn: options.consent.onConfirmTurn } : {}),
       sink,
       // Subagents (#13): presets from moh.json `agents` merge over the built-ins.
       ...(config.agents ? { subagents: { presets: config.agents } } : {}),

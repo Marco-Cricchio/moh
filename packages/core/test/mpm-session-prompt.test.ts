@@ -195,3 +195,115 @@ describe("MPM orientation reasoning seeds in the session (#759)", () => {
     expect(session.mpmSnapshot()?.fallbackReason).toBe("no-eligible-seed");
   });
 });
+
+describe("#788 MPM per-turn classifier gate in the session", () => {
+  test("a gate returning false suppresses the plan; the mpm_query tool stays; undefined never suppresses", async () => {
+    const { root, service } = await setup();
+    let opinion: boolean | undefined = false;
+    const { provider, seen } = capture();
+    const session = createSession({
+      provider,
+      cwd: root,
+      mpm: { service, turnGate: () => opinion },
+    });
+    await session.send("please work on src/date.ts");
+    expect(seen()).not.toContain("Project map orientation");
+    // The gate touches only the per-turn plan: the tool is still offered.
+    expect(seen()).toContain("mpm_query");
+    expect(session.tools.mpm_query).toBeDefined();
+    // Snapshot diagnostics say why.
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("classifier-gated");
+
+    // No opinion: the plan flows exactly as without the gate.
+    opinion = undefined;
+    await session.send("please work on src/date.ts");
+    expect(seen()).toContain("Project map orientation");
+  });
+});
+
+describe("#790 MPM seed rerank in the session", () => {
+  async function overThresholdSetup(): Promise<{ root: string; service: MpmService }> {
+    const { root, service } = await setup();
+    // Six files declaring the same symbol — over-threshold by one.
+    for (let i = 0; i < 6; i++) {
+      const p = `src/gen${i}.ts`;
+      const content = `export function helper${i}(): number { return ${i}; }`;
+      await mkdir(join(root, p, ".."), { recursive: true });
+      await writeFile(join(root, p), content);
+      service.upsert({
+        path: p,
+        hash: sha(content),
+        size: content.length,
+        language: "typescript",
+        symbols: [{ name: "sharedHelper", kind: "function", line: 1 }],
+        relations: [],
+      });
+    }
+    return { root, service };
+  }
+
+  test("a rescued over-threshold seed set reaches the prompt; the hook is consulted once per send", async () => {
+    const { root, service } = await overThresholdSetup();
+    const { provider, seen } = capture();
+    let calls = 0;
+    const session = createSession({
+      provider,
+      cwd: root,
+      mpm: {
+        service,
+        rerank: async (req) => {
+          calls += 1;
+          return new Set(["src/gen0.ts", "src/gen2.ts"]);
+        },
+      },
+    });
+    await session.send("update sharedHelper usage");
+    // The first prompt assembly (send-time) carried the rescued plan...
+    expect(seen()).toContain("Project map orientation");
+    expect(seen()).toContain("reranked");
+    expect(calls).toBe(1);
+    // ...and diagnostics say a real plan rendered, not a discard.
+    expect(session.mpmSnapshot()?.fallbackReason).toBeNull();
+  });
+
+  test("a rerank below the two-candidate floor yields no plan (unchanged discard)", async () => {
+    const { root, service } = await overThresholdSetup();
+    const { provider, seen } = capture();
+    const session = createSession({
+      provider,
+      cwd: root,
+      mpm: { service, rerank: async () => new Set(["src/gen0.ts"]) },
+    });
+    await session.send("update sharedHelper usage");
+    expect(seen()).not.toContain("Project map orientation");
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("over-threshold");
+  });
+
+  test("a failing rerank hook degrades to no plan, never a broken send", async () => {
+    const { root, service } = await overThresholdSetup();
+    const { provider, seen } = capture();
+    const session = createSession({
+      provider,
+      cwd: root,
+      mpm: {
+        service,
+        rerank: async () => {
+          throw new Error("extension bug");
+        },
+      },
+    });
+    const result = await session.send("update sharedHelper usage");
+    expect(result.status).toBe("done");
+    expect(seen()).not.toContain("Project map orientation");
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("over-threshold");
+  });
+
+  test("no rerank hook → today's discard branch, zero calls", async () => {
+    const { root, service } = await overThresholdSetup();
+    const { provider, seen } = capture();
+    const session = createSession({ provider, cwd: root, mpm: { service } });
+    await session.send("update sharedHelper usage");
+    expect(seen()).not.toContain("Project map orientation");
+    expect(session.mpmSnapshot()?.fallbackReason).toBe("over-threshold");
+  });
+});

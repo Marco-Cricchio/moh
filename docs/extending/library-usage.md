@@ -259,9 +259,40 @@ const assembled = sessionFromConfig({
     onPermissionRequest: async (tool, args) => /* "yes" | "always" | "no" */ "no",
     onAskUser: async (set) => /* an AskUserSetResult */ { answers: [{ labels: ["1"] }] },
     onMcpTrust: async (server) => /* "yes" | "always" | "no" */ "no",
+    onConfirmTurn: async (request) => /* "send" | "cancel" | "refuse" */ "send",
+    onExtensionConsent: async ({ name, version, file }) => /* boolean */ false,
   },
 });
 ```
+
+`onConfirmTurn` (ADR-0033 §4) is the one seam with no fail-open default:
+an extension's `beforeTurn` hook may ask the user to confirm a turn before
+it is sent, and **without the seam the turn is refused**, never sent
+unasked. Answer `"send"` to let it through, `"cancel"` when the user said
+no (the text is yours to put back in a composer; nothing is logged about
+the turn), or `"refuse"` when your client cannot ask at all.
+
+`bundledExtensions` (#826/ADR-0039) is how a client mounts a first-party
+extension: pass an array of sources and `sessionFromConfig` asks each one
+whether it is active (an effect-free predicate over the user config), then
+hosts the ones that are — registered as bundled code, so no consent prompt
+is involved (the host shipped the bytes). The core carries the contract and
+no extension, which is why `@moh/core` does not depend on any vendor
+package: an embedder that mounts nothing assembles a session with no
+first-party extension at all, and one that wants Jev mounts
+`jevBundledSource` from `@moh/jev-guard`.
+
+`onExtensionConsent` (#834) is the seam a *client* needs to let a loaded
+extension run: `sessionFromConfig` resolves the declared source
+(`~/.moh/extensions/` plus the project's `moh.json` proposals, in that
+order) and calls this once per file whose bytes were never approved. Name
+the extension, its version and its source path in your prompt — the user is
+being asked to run code with your process's own privileges, and there is no
+sandbox behind the answer. Return `true` to enable it for good (the answer
+is persisted against the resolved path and the file's SHA-256). Without the
+seam, a file that was never enabled is refused with `extension_failed {
+reason: "consent" }` and the session continues — a headless client is
+fail-closed by construction, never by configuration.
 
 `"always"` answers become runtime rules (tier 3 — they only narrow, never
 widen built-in defaults) and are recorded as `permission_rule_added`

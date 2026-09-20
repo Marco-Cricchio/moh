@@ -19,12 +19,14 @@ import {
   type SessionFromConfigResult,
   type SessionOverrides,
 } from "./session/from-config";
-import { type PermissionsConfig, type SessionConfig } from "./session/config";
+import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
-import { ExtensionRuntime } from "./extensions";
+import { ExtensionRuntime, type ExtensionConsentRequest, type RuntimeExtension } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
+  ExtensionControlPayload,
+  ExtensionStatus,
   ReasoningStreamEvent,
   AskUserAnswer,
   AskUserQuestion,
@@ -187,6 +189,10 @@ import { skillRecommendations, formatSkillCommand, type SkillRecommendation, typ
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.
 export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
+// ADR-0033 §4: the outcome vocabulary a client's confirmation seam answers
+// with ("send" | "cancel" | "refuse") — the extension contract's type,
+// re-exported so a client needs one import for the whole seam.
+export type { TurnConfirmOutcome } from "@moh/extension";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
@@ -259,6 +265,9 @@ export {
   type MpmRelation,
   type MpmFallbackReason,
 } from "./mpm/types";
+// #790: the rerank seam types — the config surface (`SessionConfig.mpm.rerank`)
+// references them, so they are public by the ADR-0004 criterion.
+export { type RerankCandidate, type RerankRequest, type RerankResponse } from "./mpm/orientation";
 export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
 export {
   clearThinkingPreference,
@@ -342,7 +351,20 @@ import {
   type TrackerIssue,
   type TrackerBackend,
 } from "./tracker";
-import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
+import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
+// #826: the bundled-extension seam. The core knows how to host first-party
+// code that ships inside the binary; it does not know which extension that
+// is — the client mounts the sources (the first-party one lives in its own
+// workspace package, which the core does not depend on).
+import {
+  resolveBundledExtensions,
+  type BundledActivationContext,
+  type BundledExtensionSource,
+  type BundledInstanceReader,
+  type BundledResolution,
+  type BundledWiring,
+  type MountedBundledExtension,
+} from "./bundled-extensions";
 import {
   publishHandoffAtExit,
   readRawHandoff,
@@ -630,6 +652,7 @@ export {
   MockProvider,
   builtinTools,
   ExtensionRuntime,
+  type RuntimeExtension,
   PromptComposer,
   type SendOptions,
   type SkillPrompt,
@@ -697,6 +720,16 @@ export {
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,
+  type UserConfigIo,
+  // #826: hosting a bundled first-party extension (a client mounts it from
+  // its own package). The vendor config surface moved with its owner.
+  resolveBundledExtensions,
+  type BundledActivationContext,
+  type BundledExtensionSource,
+  type BundledInstanceReader,
+  type BundledResolution,
+  type BundledWiring,
+  type MountedBundledExtension,
   loadMergedConfig,
   readUserProviderConfig,
   upsertUserEndpoint,
@@ -761,12 +794,21 @@ export {
   type ImportHandoffOptions,
   type ImportHandoffResult,
   type SessionConfig,
+  // #784/ADR-0031: the extension-ask context a client's consent seam
+  // receives (the TUI renders yes/no only, labelled with the reason).
+  type PermissionAskContext,
+  // ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
+  // answers — one request per confirmed turn, and the outcome vocabulary
+  // it answers with (the extension contract's own type, re-exported so a
+  // client needs one import).
+  type ConfirmTurnRequest,
   type AssemblyError,
   type AssemblyErrorKind,
   type SessionConsent,
   type SessionFromConfigOptions,
   type SessionFromConfigResult,
   type SessionOverrides,
+  type ExtensionConsentRequest,
   type PermissionsConfig,
   type SkillIndexEntry,
   type DeclaredMcpServer,
@@ -815,6 +857,7 @@ export {
   type TrackerBackend,
   type AgentEvent,
   type EventIdentity,
+  type ExtensionStatus,
   SCHEMA_VERSION,
   type ReasoningStreamEvent,
   type StreamOptions,

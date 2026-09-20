@@ -97,8 +97,13 @@ describe("home session list — configurable cap", () => {
 });
 
 describe("home chrome (#292)", () => {
+  // An isolated home: the chrome under test does not depend on the session
+  // list, and reading the developer's real ~/.moh made these four tests
+  // time out on a machine whose store had grown large.
+  const isolatedHome = () => mkdtempSync(join(tmpdir(), "moh-tui-home-chrome-"));
+
   test("no static hint line; the footer carries new/settings/keys", async () => {
-    const { lastFrame } = render(<Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} />);
+    const { lastFrame } = render(<Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     const frame = stripAnsi(lastFrame() ?? "");
     expect(frame).not.toContain("type to filter or start new");
@@ -107,7 +112,7 @@ describe("home chrome (#292)", () => {
   });
 
   test("active-query hint appears while filtering", async () => {
-    const i = render(<Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     i.stdin.write("x");
     await sleep(30);
@@ -118,7 +123,7 @@ describe("home chrome (#292)", () => {
 
   test("shows the version (number only) under the logo", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
+      <Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
     );
     await sleep(30);
     const frame = stripAnsi(lastFrame() ?? "");
@@ -128,7 +133,7 @@ describe("home chrome (#292)", () => {
 
   test("short terminals (test viewport 100×24) use the inline logo and move the version to the footer", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
+      <Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
     );
     await sleep(30);
     const frame = stripAnsi(lastFrame() ?? "");

@@ -7,11 +7,16 @@
  * runtime-rule tier, for client-initiated asks (Frontier claims) that
  * don't travel through a tool call.
  */
-import { formatRule, splitCommandSegments } from "@moh/core";
+import { formatRule, splitCommandSegments, type PermissionAskContext } from "@moh/core";
 import { truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
+
+/** #834: the tool id of an extension's enable consent. It is never a tool
+ * call: the id exists so the ask renders as a question about code (and can
+ * never write a rule). */
+export const EXTENSION_CONSENT_TOOL = "extension";
 
 export interface PermissionRequestView {
   tool: string;
@@ -20,10 +25,35 @@ export interface PermissionRequestView {
   detail: string[];
   /** Rule the "always" answer would write, when persistable. */
   rulePreview: string | null;
+  /**
+   * ADR-0031: set when an extension escalated this call through its hook's
+   * `ask` outcome. The prompt then offers yes/no only — no "always", so a
+   * false positive cannot disarm the filter that raised it — and the
+   * extension's own reason becomes its label.
+   */
+  extensionAsk?: { extension?: string; reason?: string };
 }
 
-/** Formats one request for display. Pure — unit-testable. */
-export function describePermissionRequest(tool: string, args: unknown): PermissionRequestView {
+/** Formats one request for display. Pure — unit-testable.
+ * `context` is present only for an extension ask (ADR-0031). */
+export function describePermissionRequest(
+  tool: string,
+  args: unknown,
+  context?: PermissionAskContext,
+): PermissionRequestView {
+  const extensionAsk =
+    context?.source === "extension"
+      ? { ...(context.extension ? { extension: context.extension } : {}), ...(context.reason ? { reason: context.reason } : {}) }
+      : undefined;
+  const view = describeOwnRequest(tool, args);
+  if (!extensionAsk) return view;
+  // An extension ask never writes a rule: the prompt must offer no
+  // "always" at all, so there is no rule preview to render either.
+  return { ...view, rulePreview: null, extensionAsk };
+}
+
+/** The tool's own ask (rules/mode): what the "always" answer would write. */
+function describeOwnRequest(tool: string, args: unknown): PermissionRequestView {
   const a = (args ?? {}) as Record<string, unknown>;
   if (tool === "bash" && typeof a.command === "string") {
     // Mirrors the core's runtimeRuleFor("always") (SEC-04): one rule for a
@@ -82,6 +112,23 @@ export function describePermissionRequest(tool: string, args: unknown): Permissi
       }
     }
     return { tool, args, detail: detail.map(sanitizeForDisplay), rulePreview: null };
+  }
+  // #834: the consent question for enabling a *client-loaded extension*.
+  // It is not a tool call, so it renders as the extension's own question
+  // (name, version, source path, and the fact that there is no sandbox) and
+  // it can never write a rule: an extension is enabled once, or not at all.
+  if (tool === EXTENSION_CONSENT_TOOL && (typeof a.name === "string" || typeof a.file === "string")) {
+    const detail: string[] = [];
+    if (typeof a.name === "string") detail.push(`name: ${sanitizeForDisplay(a.name)}`);
+    if (typeof a.version === "string") detail.push(`version: ${sanitizeForDisplay(a.version)}`);
+    if (typeof a.file === "string") detail.push(`source: ${sanitizeForDisplay(a.file)}`);
+    if (typeof a.hash === "string") detail.push(`sha256: ${sanitizeForDisplay(a.hash)}`);
+    // #834 (security): a first-time file is asked about BEFORE it is imported
+    // — the question has to come before the code runs — so it has made no
+    // claims to show. Saying so is the honest prompt, not a defect.
+    if (typeof a.name !== "string") detail.push("name/version: not stated yet (the file is asked about before it runs)");
+    detail.push("no sandbox: it runs with moh's own privileges");
+    return { tool, args, detail, rulePreview: null };
   }
   let rendered: string;
   try {
@@ -157,14 +204,15 @@ export class PermissionGate {
   }
 
   /** The callback handed to `createSession` as `onPermissionRequest`. */
-  ask = (tool: string, args: unknown): Promise<PermissionAnswer> => {
+  ask = (tool: string, args: unknown, context?: PermissionAskContext): Promise<PermissionAnswer> => {
     if (this.#pending) {
       // Overlapping asks must not happen (sequential gate); deny defensively.
       return Promise.resolve("no");
     }
     // A runtime rule from a previous "always" short-circuits the prompt —
     // scoped: the rule this ask would write must match one already written.
-    const view = describePermissionRequest(tool, args);
+    // An extension ask never has a rule to match (ADR-0031).
+    const view = describePermissionRequest(tool, args, context);
     if (view.rulePreview && this.#runtimeAllows.has(view.rulePreview)) {
       return Promise.resolve("yes");
     }
@@ -181,6 +229,8 @@ export class PermissionGate {
     this.#pending = null;
     // #775: on a browser ask, "always" and "always for this site" both
     // record the site-scoped rule — there is no tool-wide browser rule.
+    // ADR-0031: an extension ask has no rulePreview, so it can never record
+    // one even if a client answers "always".
     if ((answer === "always" || answer === "always_for_site") && pending.view.rulePreview) {
       this.#runtimeAllows.add(pending.view.rulePreview);
     }

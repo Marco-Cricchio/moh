@@ -106,12 +106,15 @@ describe("settings panel (issue #33)", () => {
       "Provider",
       "Add provider",
       "Remove provider",
-      "Provider reasoning",
+      "Jev (TypeSafe)",
     ]) {
       expect(frame).toContain(label);
     }
     expect(frame).toContain("vibe");
     expect(frame).toContain("Tokyo Night");
+    // The list scrolls: the rows below the fold are reachable, not missing.
+    await down(i.i, 16);
+    expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("Provider reasoning");
     i.i.unmount();
   });
 
@@ -150,7 +153,7 @@ describe("settings panel (issue #33)", () => {
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Session handoff");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Not Set");
-    await down(i, 11);
+    await down(i, 12); // Session handoff (the Jev entry sits at 11, #784)
     i.stdin.write("\r");
     await sleep(30);
     expect(opened).toBe(1);
@@ -160,7 +163,7 @@ describe("settings panel (issue #33)", () => {
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
     await sleep(30);
-    await down(i, 15); // Provider reasoning (Themes… row inserted after theme at 2)
+    await down(i, 16); // Provider reasoning (Themes… + Jev rows inserted, #784)
     i.stdin.write("\r");
     await sleep(10);
     expect(changes).toContainEqual({ showReasoning: true });
@@ -382,9 +385,9 @@ describe("max iterations row (#498)", () => {
     const { i, toasts } = mount(cwd);
     await sleep(30);
     // Rows: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
-    // provider7 add8 remove9 handoff10 mpm11 maxIterations12
-    await down(i, 13);
-    await sleep(30);
+    // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7
+    // provider8 add9 remove10 jev11 handoff12 mpm13 maxIterations14 (#784)
+    await down(i, 14);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
     i.stdin.write("\r"); // 50 → 100
     await sleep(30);
@@ -413,7 +416,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 13);
+    await down(i, 14);
     await sleep(30);
     // shift+tab from 50 wraps back to unlimited (warning shows).
     i.stdin.write("\x1b[Z");
@@ -430,7 +433,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 13);
+    await down(i, 14);
     await sleep(30);
     i.stdin.write("\r"); // 50 → 100
     await sleep(30);
@@ -462,7 +465,7 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 13);
+    await down(i, 14);
     await sleep(30);
     i.stdin.write("\x1b[C"); // →: 50 → 100
     await sleep(30);
@@ -477,8 +480,8 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7 provider8 add9 remove10 handoff11 mpm12
-    await down(i, 12);
+    // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7 provider8 add9 remove10 jev11 handoff12 mpm13 (#784)
+    await down(i, 13);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Moh Project Map");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
@@ -507,7 +510,7 @@ describe("max iterations row (#498) — right arrow", () => {
     }));
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 12);
+    await down(i, 13);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("off (this project)");
     i.unmount();
@@ -615,6 +618,10 @@ describe("user themes in settings (#749)", () => {
     await down(i, 2);
     i.stdin.write("\r");
     await waitForFrame(frame, "theme studio");
+    // The studio's useInput mounts a frame after its first paint (#749 CI
+    // flake, same class as the tree-panel name prompt): typing into it
+    // before that loses the first keystroke and the name prompt never opens.
+    await sleep(100);
     i.stdin.write("n"); await sleep(60);
     i.stdin.write("Temp");
     await waitForCondition(() => frame().includes("Temp"), () => `for name; frame: ${frame()}`);

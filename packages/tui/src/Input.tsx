@@ -286,6 +286,9 @@ export function MultilineInput({
     setLines([""]); setCursorLine(0); setCursorColumn(0); setScrollOffset(0);
     setUndo([]); setRedo([]);
     setSuggestionIndex(0);
+    // The composer is empty again: the next prefill applies even when it is
+    // the very text just sent (a cancelled confirmation hands it back).
+    previousPrefill.current = undefined;
     onSubmit(text);
   };
   useEffect(() => {

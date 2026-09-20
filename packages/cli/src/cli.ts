@@ -15,6 +15,7 @@ import { compactCommand, COMPACT_USAGE } from "./compact";
 import { mpmCommand, MPM_USAGE } from "./mpm";
 import { sessionsCommand, SESSIONS_USAGE } from "./sessions";
 import { usageCommand, USAGE_USAGE } from "./usage";
+import { jevCommand, JEV_USAGE } from "./jev";
 import { trashCommand, TRASH_USAGE } from "./trash";
 import { CLI_VERSION } from "./version";
 
@@ -37,6 +38,7 @@ commands:
   sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
+  jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:
@@ -201,6 +203,13 @@ export async function main(
       return 0;
     }
     return usageCommand({ argv: rest, home: process.env.HOME });
+  }
+  if (command === "jev") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(JEV_USAGE + "\n");
+      return 0;
+    }
+    return jevCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "handoff") {
     if (rest.includes("--help") || rest.includes("-h")) {

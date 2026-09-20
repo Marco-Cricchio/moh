@@ -5,6 +5,7 @@
  * surface of `createSession`; they live here — next to the session they
  * configure — and are re-exported from the package index.
  */
+import type { TurnConfirmOutcome } from "@moh/extension";
 import type { ExtensionRuntime } from "../extensions";
 import type { MemoryOptions } from "../memory";
 import type { CompactionOptions } from "../compaction";
@@ -33,6 +34,26 @@ export interface PermissionsConfig {
   runtimeRules?: PermissionRule[];
 }
 
+/** ADR-0031: why an "ask" reached the consent flow beyond the tool's own rules. */
+export interface PermissionAskContext {
+  /** Present (and "extension") only when an extension's `ask` outcome raised this prompt. */
+  source?: "extension";
+  /** Name of the extension that asked. */
+  extension?: string;
+  /** The extension's own one-line reason, rendered as the prompt's label. */
+  reason?: string;
+}
+
+/** ADR-0033 §4: one pre-send confirmation an extension asked for. */
+export interface ConfirmTurnRequest {
+  /** The extension's own reason, as it wrote it (client copy). */
+  readonly reason: string;
+  /** The extension that asked (chrome only). */
+  readonly by: string;
+  /** The user's message as typed — what a cancel hands back. */
+  readonly text: string;
+}
+
 export interface SessionConfig {
   /**
    * A Provider instance (e.g. `MockProvider.scripted([...])`), or a
@@ -47,7 +68,7 @@ export interface SessionConfig {
    * against — the same merged profile list the initial provider came
    * from (passed by sessionFromConfig). */
   endpoints?: EndpointProfile[];
-  /** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
+/** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
    * cap — the anti-runaway safety net is off). */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */
@@ -58,13 +79,26 @@ export interface SessionConfig {
   permissions?: PermissionsConfig;
   /** Consent callback for "ask" decisions. Without it (headless) unpermitted calls fail fast.
    * `always_for_site` (#775) is the browser act-tier answer: it writes a session-scoped
-   * URL-scoped runtime rule only — never persisted. */
+   * URL-scoped runtime rule only — never persisted.
+   * ADR-0031: the optional third argument is present only when an extension
+   * escalated the call via `ask` — the prompt then offers yes/no only (no
+   * "always": a false positive must not disarm the filter that raised it). */
   onPermissionRequest?: (
     tool: string,
     args: unknown,
+    context?: PermissionAskContext,
   ) => Promise<"yes" | "always" | "always_for_site" | "no"> | "yes" | "always" | "always_for_site" | "no";
   /** Interactive question channel for the ask_user tool. Without it (headless) the tool fails fast. */
   onAskUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
+  /**
+   * ADR-0033 §4: the pre-send confirmation channel. An extension's
+   * `beforeTurn` hook may ask the user to confirm a turn before it is
+   * sent; the client answers "send" (the turn proceeds), "cancel" (nothing
+   * is logged, the text returns to the composer) or "refuse" (the client
+   * cannot ask — headless — and the turn is refused). Without this seam
+   * the answer is "refuse": silence-by-default, never a silent send.
+   */
+  onConfirmTurn?: (request: ConfirmTurnRequest) => Promise<TurnConfirmOutcome> | TurnConfirmOutcome;
   /** Persistence seam: invoked for every appended event (e.g. `SessionStore.append`). */
   sink?: (event: AgentEvent) => void;
   /** Path of the JSONL file the sink appends to (from `sessionFromConfig`).
@@ -110,6 +144,20 @@ export interface SessionConfig {
    */
   extensions?: ExtensionRuntime;
   /**
+   * #784 (spec §5): hooks from a runtime this session does NOT own —
+   * subagent children share the parent's runtime. The gate-check half is
+   * mandatory; the turn-start half (#787, ADR-0033) rides along so a
+   * child's turns are routed too (the child's own `switchModel` applies
+   * the ref, so the `model_switched` chrome lands in the child's log).
+   * Session lifecycle hooks, statuses and load events stay the parent's:
+   * a child ending must never end the extension's session, and a child's
+   * `appendEvent` still lands in the runtime's single event channel.
+   */
+  toolHooks?: import("./permission-gate").ToolHookChecker &
+    Partial<
+      Pick<import("../extensions").ExtensionRuntime, "dispatchBeforeTurn" | "checkToolResultHooks">
+    >;
+  /**
    * MCP tool sources (#15): merged project + user server declarations.
    * Servers start lazily on the first turn and shut down at dispose;
    * duplicate server names throw at creation (startup validation).
@@ -151,6 +199,28 @@ export interface SessionConfig {
     /** #618: resolved user/project exclusion patterns for discovery. */
     exclude?: string[];
     lifecycle?: Partial<MpmLifecycleOptions>;
+    /**
+     * #788: the per-turn eligibility gate an active classifier contributes.
+     * Consulted at each send, before the seed pipeline runs: `false`
+     * suppresses the per-turn orientation plan (the projection, the
+     * `mpm_query` tool and the manual commands are untouched); `true` or
+     * `undefined` (no opinion — feature off, outage, malformed answer)
+     * leaves eligibility to the seed pipeline exactly as before. Never a
+     * tool restriction: the model can still call `mpm_query`.
+     */
+    turnGate?: () => boolean | undefined;
+    /**
+     * #790/#826: the seed rerank hook an active bundled extension contributes.
+     * Consulted once per send, only when the seed pipeline would discard an
+     * over-threshold seed set (> 5 files): the hook ranks the candidates
+     * and returns the kept paths (a `Set`, ≤ 5, or `null` for no plan) the
+     * orientation module uses to assemble a rescued plan. `null`, an empty
+     * set or fewer than two kept paths = today's "no plan" — never a
+     * guessed one. A plan that already exists (within-threshold seeds)
+     * costs nothing extra: the hook is never consulted. Absent = the use
+     * case is off and the discard branch runs unchanged.
+     */
+    rerank?: (req: import("../mpm/orientation").RerankRequest) => Promise<import("../mpm/orientation").RerankResponse>;
   };
   /**
    * Compaction (#466): the post-turn marker producer. Auto-triggered
@@ -186,4 +256,11 @@ export interface SessionConfig {
   /** #774: visible startup diagnostics (e.g. missing browser toolchain).
    * Each entry becomes a `browser_unavailable` chrome event at open. */
   diagnostics?: readonly string[];
+  /**
+   * Informational startup lines (e.g. a bundled integration that stayed
+   * inactive for lack of configuration). Each entry becomes a `session_note`
+   * chrome event at open: visible, dim, never a warning and never a turn
+   * error.
+   */
+  notes?: readonly string[];
 }
