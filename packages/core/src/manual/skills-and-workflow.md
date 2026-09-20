@@ -29,6 +29,46 @@ after the command are passed to the skill: `/implement #457` runs the
 implement skill against an issue. Your own skills in `.moh/skills/`
 appear in the same completion popup.
 
+## Skill arguments
+
+A skill body can use argument placeholders, filled from the slash
+invocation (`/releaser 1.2.3 draft=yes`):
+
+- `$1`, `$2`, … — positional arguments in order; `$@` is all of them.
+- `${name:-default}` — a named argument with a fallback, fed by
+  `name=value` tokens (here `draft=yes`).
+
+Arguments substitute into the skill instructions when the turn starts.
+Any `# Skills & workflow mode
+
+Skills are markdown instruction packages the agent loads on demand.
+They are discovered from `~/.moh/skills/` (user) and `.moh/skills/`
+(project; project wins) and surface as slash commands.
+
+## Workflow mode
+
+Workflow mode (per user, off by default) enables the first-party
+workflow: the bundled skills — grilling, prototype, to-spec, to-tickets,
+implement,
+tdd, code-review, triage, diagnosing-bugs, report-bug, and more — as slash
+commands,
+plus the wayfinder frontier panel.
+
+```
+/workflow on     # copies the bundled skills to ~/.moh/skills/
+/workflow off    # hides them; base behavior never changes
+```
+
+With workflow mode **off**, nothing about the agent's base behavior
+changes — the slash commands simply do not exist.
+
+## Skills as slash commands
+
+ that is not a known placeholder stays literal. If a placeholder
+receives no argument, its default (or the placeholder itself) is
+pre-filled in the composer so you can complete it before sending — an
+invocation is never blocked.
+
 ## /ask-moh
 
 `/ask-moh <question>` is the router: it figures out which skill or flow
