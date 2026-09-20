@@ -200,6 +200,7 @@ describe("session integration", () => {
       name: "capture",
       async *stream(list: any[]) {
         messages.push(list[0].parts[0].text);
+        yield { type: "text_delta" as const, text: "ok" };
         yield { type: "finish" as const, reason: "stop" as const };
       },
     };
@@ -221,6 +222,7 @@ describe("session integration", () => {
       name: "capture",
       async *stream(list: any[]) {
         messages.push(list[0].parts[0].text);
+        yield { type: "text_delta" as const, text: "ok" };
         yield { type: "finish" as const, reason: "stop" as const };
       },
     };
