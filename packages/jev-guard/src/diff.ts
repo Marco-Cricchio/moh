@@ -9,6 +9,8 @@
  * diff, the gate is inert for the turn (ratified).
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 
 const GIT_TIMEOUT_MS = 2000;
 
@@ -49,6 +51,15 @@ export function taskDiff(cwd: string, head: string, paths: readonly string[]): s
   const chunks: string[] = [];
   const tracked: string[] = [];
   for (const p of paths) {
+    // #851: repository scoping enforced here too, independently of the
+    // caller's `scopePaths` (lint-gate.ts — the same containment check
+    // in the same terms; keep the two in step) — an absolute path that
+    // resolves outside the work tree is never diffed (`--no-index`
+    // would happily compare it).
+    if (isAbsolute(p)) {
+      const rel = relative(cwd, p);
+      if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    }
     // `ls-files --error-unmatch` succeeds only for tracked paths; the
     // untracked failure exits 1 with empty output (and the shared `git`
     // helper maps exit 1 to ""), so the non-empty check is the test.
@@ -58,7 +69,9 @@ export function taskDiff(cwd: string, head: string, paths: readonly string[]): s
       continue;
     }
     // Untracked: diff the empty device against the file — the portable
-    // two-file form of a canonical "new file" hunk.
+    // two-file form of a canonical "new file" hunk. Skipped when the
+    // file does not exist (a path the task never successfully wrote).
+    if (!existsSync(isAbsolute(p) ? p : join(cwd, p))) continue;
     const newDiff = git(["diff", "--no-color", "--no-index", "--", "/dev/null", p], cwd);
     if (newDiff !== null && newDiff.trim() !== "") chunks.push(newDiff);
   }

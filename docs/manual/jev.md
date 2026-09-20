@@ -428,13 +428,19 @@ cancel) and the task actually changed files, moh collects:
   these documents gets no quality gate at all** — moh never invents rules
   your repo does not state.
 - **The diff of the files the task changed** (against where the task
-  started), capped at 32 KiB.
+  started), capped at 32 KiB. Only **repository changes** are judged:
+  a write the tool refused — for example a path outside the project
+  root — contributes nothing, a file outside the work tree is never
+  diffed even if it exists on disk, and a diff that touches no
+  repository code (documentation-only changes) is not scored with the
+  code questions — the gate stays silent.
 
 Three yes/no judgments are made over that state: does the change follow
 the stated conventions; does it handle failure paths rather than assuming
 success; is it complete, with nothing left stubbed. Any answer below 0.40
 is a **finding**, and on a finding moh automatically hands the model a
-correction request — in plain words, naming the flagged areas — and lets
+correction request — in plain words, naming the flagged areas **and the
+files that were judged** — and lets
 it run a normal turn with tools to fix the work. The corrected state is
 then judged once more. **The gate stops after two correction cycles,
 whatever the verdict**; a correction turn is marked in the transcript so

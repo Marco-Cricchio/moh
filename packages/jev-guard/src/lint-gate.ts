@@ -15,13 +15,35 @@
  * correction.
  */
 import { captureHead, inGitRepo, taskDiff } from "./diff";
-import { correctionText, LINT_DIFF_MAX_BYTES, LINT_DIFF_TRUNCATION_MARKER } from "./lint";
+import { containsCodeChanges, correctionText, LINT_DIFF_MAX_BYTES, LINT_DIFF_TRUNCATION_MARKER } from "./lint";
 import type { LintJudge, LintState } from "./lint-judge";
 import { truncateToBytes } from "./routing";
 import { discoverRubrics } from "./rubrics";
+import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync } from "node:fs";
 
 /** The correction cycles this gate may spend (ratified hard stop). */
 export const LINT_MAX_CYCLES = 2;
+
+/**
+ * #851: the judged set is the repository's changes only. Each observed
+ * path is resolved against the project root; an absolute path outside
+ * the root (a write the tool refused, or a scratch file a later command
+ * materialized elsewhere) is dropped, and a path whose file does not
+ * exist is dropped too (a refused call never created anything). The
+ * survivors are returned repo-relative, deduplicated.
+ */
+export function scopePaths(root: string, paths: readonly string[]): string[] {
+  const kept: string[] = [];
+  for (const p of paths) {
+    const abs = isAbsolute(p) ? p : resolve(root, p);
+    const rel = relative(root, abs);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    if (!existsSync(abs)) continue;
+    if (!kept.includes(rel)) kept.push(rel);
+  }
+  return kept;
+}
 
 export interface LintGateDeps {
   judge: Pick<LintJudge, "evaluate">;
@@ -82,8 +104,10 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
         state.writtenPaths = [];
         return 0;
       }
-      const paths = [...new Set(state.writtenPaths)];
-      // Nothing modified → nothing to judge (ratified).
+      const paths = scopePaths(deps.root, state.writtenPaths);
+      // Nothing modified → nothing to judge (ratified). #851: paths that
+      // were refused or never materialized in the repo do not count as
+      // modified — a task with no repository change is never judged.
       if (paths.length === 0) return 0;
       // Rubric discovery: no convention documents → inert, no call, no event.
       const rubrics = discoverRubrics(deps.root);
@@ -100,7 +124,10 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
       // is recomputed each cycle, so cycle 2 judges the *corrected* tree.
       for (let cycle = 0; cycle < LINT_MAX_CYCLES; cycle++) {
         const diff = taskDiff(deps.root, head, paths);
-        if (diff === null || diff.trim() === "") break;
+        // #851: a diff with no repository code is not judged with the
+        // code questions — the gate stays silent, never a correction
+        // round that cannot apply to prose.
+        if (diff === null || diff.trim() === "" || !containsCodeChanges(diff)) break;
         const diffBytes = Buffer.byteLength(diff, "utf8");
         const judgedDiff = truncateToBytes(diff, LINT_DIFF_MAX_BYTES);
         const judgedState: LintState = {
@@ -113,7 +140,8 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
         if (verdict === null) break; // fail-open: no judgment, no correction
         evaluations += 1;
         if (verdict.decision !== "correct") break;
-        const text = correctionText(verdict.findings, cycle);
+        // The correction names what was judged (#851): the judged paths.
+        const text = correctionText(verdict.findings, cycle, paths);
         state.inCorrectionTurn = true;
         const ok = await deps.requestTurn(text);
         if (!ok) {
