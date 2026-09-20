@@ -21,6 +21,11 @@ matching section here at tag time.
   line; a pass renders none — the log keeps every record, only the
   projection changes. Old sessions without a recorded verdict keep their
   previous line on replay.
+- **The README's demo slot is filled**: it pointed at
+  `docs/assets/demo.gif`, which did not exist, so the README rendered a
+  broken image. The GIF shows one full turn of the real TUI — its layout,
+  glyphs, block grammar and Tokyo Night palette — including a permission
+  prompt being raised and answered before a tool runs.
 
 ### Fixed
 
