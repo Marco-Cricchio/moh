@@ -4,13 +4,14 @@
  * text, the two-cycle cap that never re-gates a correction turn, and the
  * pass path) — all against a fake client, no network in CI.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JevAnswer, JevJudgeInput } from "../src/client";
-import { correctionText, LINT_THRESHOLDS } from "../src/lint";
+import { correctionText, containsCodeChanges, LINT_THRESHOLDS } from "../src/lint";
+import { scopePaths } from "../src/lint-gate";
 import { createLintJudge, type LintState } from "../src/lint-judge";
 import { createLintGate, createLintTaskState, LINT_MAX_CYCLES } from "../src/lint-gate";
 import { discoverRubrics } from "../src/rubrics";
@@ -100,14 +101,77 @@ describe("lint judge (#789)", () => {
 
 describe("correction copy (#789)", () => {
   test("deterministic, names the failing dimensions, never model-generated", () => {
-    const a = correctionText(["error_handling", "completeness"], 0);
-    const b = correctionText(["error_handling", "completeness"], 0);
+    const a = correctionText(["error_handling", "completeness"], 0, ["src/a.ts"]);
+    const b = correctionText(["error_handling", "completeness"], 0, ["src/a.ts"]);
     expect(a).toBe(b);
     expect(a).toContain("error handling");
     expect(a).toContain("completeness");
     expect(a).toContain("fix");
-    expect(correctionText(["conventions_respected"], 0)).toContain("conventions");
-    expect(correctionText(["completeness"], 1)).toContain("final");
+    expect(a).toContain("src/a.ts");
+    expect(correctionText(["conventions_respected"], 0, ["src/a.ts"])).toContain("conventions");
+    expect(correctionText(["completeness"], 1, ["src/a.ts"])).toContain("final");
+  });
+
+  test("#851: names what was judged (the paths), whatever the count", () => {
+    const one = correctionText(["completeness"], 0, ["src/one.ts"]);
+    expect(one).toContain("Judged files: src/one.ts");
+    const many = correctionText(["completeness"], 0, ["src/a.ts", "src/b.ts"]);
+    expect(many).toContain("Judged files: src/a.ts, src/b.ts");
+  });
+});
+
+describe("#851: judged-set scoping", () => {
+  // scopePaths checks existence on the real fs, so the fixture root is
+  // materialized in /tmp per test.
+  const root = mkdtempSync(join(tmpdir(), "jev-scope-root-"));
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src", "a.ts"), "x\n");
+
+  test("a relative in-root path is kept", () => {
+    expect(scopePaths(root, ["src/a.ts"])).toEqual(["src/a.ts"]);
+  });
+
+  test("an absolute path inside the root is kept, repo-relative", () => {
+    expect(scopePaths(root, [join(root, "src/a.ts")])).toEqual(["src/a.ts"]);
+  });
+
+  test("a path outside the root is dropped (refused writes contribute nothing)", () => {
+    expect(scopePaths(root, ["/tmp/moh-triage/draft.md"])).toEqual([]);
+  });
+
+  test("a path that does not exist is dropped (a refused call never created it)", () => {
+    expect(scopePaths(root, ["src/never-created.ts"])).toEqual([]);
+  });
+
+  test("an existing outside-root file is dropped even though it is on disk", () => {
+    const existing = mkdtempSync(join(tmpdir(), "jev-scope-"));
+    try {
+      const outside = join(existing, "draft.md");
+      writeFileSync(outside, "text\n");
+      expect(scopePaths(root, [outside])).toEqual([]);
+    } finally {
+      rmSync(existing, { recursive: true, force: true });
+    }
+  });
+
+  test("deduplicated, repo-relative", () => {
+    expect(scopePaths(root, ["src/a.ts", join(root, "src/a.ts")])).toEqual(["src/a.ts"]);
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("#851: code-rubric gate", () => {
+  test("a diff touching only non-code text is not judged with the code questions", () => {
+    const docs = "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old prose\n+new prose\n";
+    expect(containsCodeChanges(docs)).toBe(false);
+  });
+
+  test("a diff touching repository code is judged", () => {
+    const code = "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    expect(containsCodeChanges(code)).toBe(true);
   });
 });
 
@@ -280,6 +344,112 @@ describe("lint gate runner (#789)", () => {
       // The cycle-cap stop is recorded on the final record (spec §2).
       expect(stops).toEqual([{ reason: "cycle-cap", findings: ["conventions_respected", "error_handling", "completeness"] }]);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("#851: a write refused outside the project root contributes no path — a task with no repository change performs zero evaluations", async () => {
+    const root = fixtureRoot();
+    try {
+      let calls = 0;
+      const { client } = fakeClient(() => {
+        calls += 1;
+        return PASS_ANSWERS;
+      });
+      const requests: string[] = [];
+      const gate = createLintGate(
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
+        createLintTaskState(),
+      );
+      // The reproduction: writes at absolute outside-root paths that the
+      // tool refused (nothing was created by them).
+      gate.observeToolCall("write", { path: "/tmp/moh-triage/draft.md" });
+      gate.observeToolCall("write", { path: "/tmp/moh-triage/other.md" });
+      expect(await gate.onTaskEnd()).toBe(0);
+      expect(calls).toBe(0);
+      expect(requests).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("#851: a file outside the work tree is never diffed even when it exists and the call succeeded", async () => {
+    const root = fixtureRoot();
+    const outside = mkdtempSync(join(tmpdir(), "jev-lint-outside-"));
+    try {
+      const draft = join(outside, "brief.md");
+      writeFileSync(draft, "a triage brief, later materialized by an mv\n");
+      let calls = 0;
+      const { client } = fakeClient(() => {
+        calls += 1;
+        return PASS_ANSWERS;
+      });
+      const gate = createLintGate(
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: () => {} },
+        createLintTaskState(),
+      );
+      gate.observeToolCall("write", { path: draft });
+      expect(await gate.onTaskEnd()).toBe(0);
+      expect(calls).toBe(0);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("#851: a judged diff with no repository code produces no correction round", async () => {
+    const root = fixtureRoot();
+    try {
+      // Only a tracked markdown document changed — no code in the diff.
+      appendFileSync(join(root, "README.md"), "more prose\n");
+      let calls = 0;
+      const { client } = fakeClient(() => {
+        calls += 1;
+        return PASS_ANSWERS;
+      });
+      const requests: string[] = [];
+      const gate = createLintGate(
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
+        createLintTaskState(),
+      );
+      gate.observeToolCall("edit", { path: "README.md" });
+      expect(await gate.onTaskEnd()).toBe(0);
+      expect(calls).toBe(0);
+      expect(requests).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("#851: the recorded reproduction stays covered — refused write, materialized by a later command, judged at task end", async () => {
+    // The exact #851 shape: the task named `/tmp/.../draft.md` in refused
+    // writes, a later command created a file there, and an in-root code
+    // edit also landed. The judged set is the in-root edit only.
+    const root = fixtureRoot();
+    const stage = mkdtempSync(join(tmpdir(), "jev-lint-repro-"));
+    try {
+      const draft = join(stage, "draft.md");
+      writeFileSync(draft, "materialized outside the repo\n");
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "a.ts"), "export function risky(): number { return (null as any).x; }\n");
+      const { client } = fakeClient(() => ({ ...PASS_ANSWERS, error_handling: noul(0.2) }));
+      const requests: string[] = [];
+      const gate = createLintGate(
+        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
+        createLintTaskState(),
+      );
+      gate.observeToolCall("write", { path: draft }); // refused in the real session
+      gate.observeToolCall("write", { path: "src/a.ts" });
+      await gate.onTaskEnd();
+      // Two cycles (the fake requestTurn never changes the tree), and
+      // the corrections name the in-root file only.
+      expect(requests).toHaveLength(2);
+      expect(requests[0]).toContain("src/a.ts");
+      expect(requests[0]).not.toContain(draft);
+      expect(requests[1]).toContain("src/a.ts");
+      expect(requests[1]).not.toContain(draft);
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
       rmSync(root, { recursive: true, force: true });
     }
   });

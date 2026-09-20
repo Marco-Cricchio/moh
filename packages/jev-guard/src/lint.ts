@@ -70,10 +70,12 @@ export const LINT_DIMENSION_LABELS: Record<LintQuestionId, string> = {
 
 /**
  * The deterministic correction-turn text (ratified: never
- * model-generated). Names the failing dimensions in plain words and asks
- * for a fix; the model runs a normal turn with tools available.
+ * model-generated). Names the failing dimensions in plain words AND the
+ * files that were judged (#851 — a fix request without its scope is not
+ * actionable), and asks for a fix; the model runs a normal turn with
+ * tools available.
  */
-export function correctionText(findings: LintQuestionId[], cycle: number): string {
+export function correctionText(findings: LintQuestionId[], cycle: number, judgedPaths: readonly string[]): string {
   // A decision of "correct" always carries findings; the guard keeps the
   // copy well-formed even on a boundary violation.
   if (findings.length === 0) findings = ["completeness"];
@@ -86,6 +88,29 @@ export function correctionText(findings: LintQuestionId[], cycle: number): strin
   return [
     "[automatic quality check by jev-guard]",
     `The quality gate flagged this task's changes on: ${list}.`,
+    `Judged files: ${judgedPaths.length > 0 ? judgedPaths.join(", ") : "(unspecified)"}.`,
     `Please fix the flagged ${labels.length === 1 ? "area" : "areas"} in this ${ordinal} correction round before considering the task done.`,
   ].join("\n");
+}
+
+/**
+ * #851: whether a unified diff touches repository code. The three
+ * questions are written for code; a diff whose every file is a non-code
+ * artifact (markdown, lockfiles, configs) must not be scored with them —
+ * the gate stays silent instead of demanding an impossible fix.
+ */
+const CODE_EXTENSIONS =
+  /\.(ts|tsx|js|jsx|mjs|cjs|cts|mts|json|rs|go|py|rb|java|kt|swift|c|h|cc|cpp|hpp|cs|php|sh|bash|zsh|fish|sql|css|scss|html|vue|svelte|lua|dart|scala|clj|ex|exs|erl|hs|ml|toml|ya?ml)$/i;
+
+export function containsCodeChanges(diff: string): boolean {
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ b/") || line.startsWith("--- a/")) {
+      const file = line.slice(6).trim();
+      if (CODE_EXTENSIONS.test(file)) return true;
+    } else if (line.startsWith("+++ /dev/null") || line.startsWith("--- /dev/null")) {
+      // The no-index new-file form names /dev/null on one side; the
+      // other side carries the real path — already checked above.
+    }
+  }
+  return false;
 }
