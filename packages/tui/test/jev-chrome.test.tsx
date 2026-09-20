@@ -73,6 +73,13 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "override", model: "a/handpicked" })).toBe(
       "jev · routing · suspended by your manual model switch (a/handpicked)",
     );
+    // #847: a mismatch names both sides — what is serving and what the router picked.
+    expect(extensionEventLine("jev_routing", { kind: "mismatch", current: "a/handpicked", expected: "a/big" })).toBe(
+      "jev · routing · serving a/handpicked, router picked a/big",
+    );
+    // A malformed mismatch payload degrades gracefully — never `undefined`.
+    expect(extensionEventLine("jev_routing", { kind: "mismatch" })).toBe("jev · routing");
+    expect(extensionEventLine("jev_routing", { kind: "mismatch", current: 3, expected: "a/big" })).toBe("jev · routing");
     // An unknown kind never guesses.
     expect(extensionEventLine("jev_routing", { kind: "who-knows" })).toBe("jev · routing");
   });

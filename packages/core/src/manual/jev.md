@@ -291,8 +291,9 @@ router steps aside, with one visible line saying so; `/routing auto` (or
 `/model auto`) hands it back — releasing does **not** re-route the model
 you are on, the next judged turns do. If the serving model is not the one
 the router picked (you edited the configuration, or chose an id outside
-the tier map), the router says so once and waits instead of overruling you
-on the next message.
+the tier map), the router says so once — `jev · routing · serving
+(model), router picked (model)` in the transcript — and waits instead of
+overruling you on the next message.
 
 `/routing on` works even when the Settings toggle is off — it enables
 routing for that session only, which is the quick way to try it. The state
