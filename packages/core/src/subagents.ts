@@ -115,6 +115,10 @@ export interface SubagentHostOptions {
   permissions?: PermissionsConfig;
   /** Runtime rules active in the parent, snapshotted per spawn. */
   runtimeRules: () => import("./permissions").PermissionRule[];
+  /** #849: the parent's live permission mode at spawn time — a child
+   * spawned after an in-session rotation inherits it (launch config alone
+   * would miss a mid-session `--yolo` exit, or a yolo entered in-session). */
+  sessionMode?: () => import("./permissions").SessionMode;
   /** Consent seam surfaced through the parent TUI. */
   onPermissionRequest?: SessionConfig["onPermissionRequest"];
   /**
@@ -300,6 +304,15 @@ export class SubagentHost {
       }
       const store = SessionStore.create(this.#options.cwd, this.#options.home ?? homedir());
       const perms = this.#options.permissions ?? {};
+      // #849: the parent's live mode overrides the launch-time config so a
+      // child mirrors the session it spawned from (a rotation mid-session
+      // applies to children too — inherit, never more permissive).
+      const liveMode = this.#options.sessionMode?.();
+      const permsForChild = liveMode === undefined
+        ? perms
+        : liveMode === "yolo"
+          ? { ...perms, unrestrictedTools: true }
+          : { ...perms, unrestrictedTools: false, mode: liveMode };
       child = new AgentSession({
         provider: childProviderRef,
         ...(typeof childProviderRef === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
@@ -311,7 +324,7 @@ export class SubagentHost {
         ...(this.#options.endpoints?.length ? { endpoints: this.#options.endpoints } : {}),
         cwd: this.#options.cwd,
         maxIterations: spec.maxIterations,
-        permissions: { ...perms, runtimeRules: this.#options.runtimeRules() },
+        permissions: { ...permsForChild, runtimeRules: this.#options.runtimeRules() },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
         ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
         ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
