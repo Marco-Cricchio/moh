@@ -191,14 +191,16 @@ export class AgentSession {
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
     const perms = config.permissions ?? {};
-    const mode: SessionMode = perms.unrestrictedTools === true
-      ? "yolo"
-      : perms.mode === "auto-accept" ? "auto-accept" : "normal";
+    // #849: the mode is the session's live source of truth — construction
+    // seeds it from the config (or the launch flag), and `setSessionMode`
+    // rotates it in-session. Never persisted: only the event log records it.
     this.#permissions = new PermissionResolver({
       defaults: DEFAULT_TOOL_PERMISSIONS,
       overrides: perms.overrides,
       runtimeRules: perms.runtimeRules,
-      mode,
+      mode: perms.unrestrictedTools === true
+        ? "yolo"
+        : perms.mode === "auto-accept" ? "auto-accept" : "normal",
       cwd: this.#cwd,
     });
     this.#onAskUser = config.onAskUser;
@@ -239,7 +241,7 @@ export class AgentSession {
       parallel: () => this.#provider.capabilities?.parallelToolCalls !== false,
       cwd: this.#cwd,
       skillDirs: () => this.#skillDirs,
-      filesystemScope: (): FilesystemScope => (mode === "yolo" ? "unrestricted" : "project"),
+      filesystemScope: (): FilesystemScope => (this.#permissions.mode === "yolo" ? "unrestricted" : "project"),
       turn: this.#turn,
       ...(this.#onAskUser ? { onAskUser: this.#onAskUser } : {}),
       append: (event) => this.#append(event),
@@ -284,6 +286,9 @@ export class AgentSession {
         onEvent: (event) => this.#append(event),
         permissions: config.permissions,
         runtimeRules: () => this.#permissions.rules,
+        // #849: a child spawned after a rotation inherits the parent's live
+        // mode — never more permissive than the session it came from.
+        sessionMode: () => this.#permissions.mode,
         onPermissionRequest: config.onPermissionRequest,
         // ADR-0033 §4: a child's confirmed turn asks the same client.
         ...(config.onConfirmTurn ? { onConfirmTurn: config.onConfirmTurn } : {}),
@@ -662,13 +667,13 @@ export class AgentSession {
       this.#assemblePrompt();
       // A mode change across resume is auditable like any startup flag.
       const lastMode = [...config.resume.events].reverse().find((e) => e.type === "session_mode");
-      if (!lastMode || lastMode.mode !== mode) this.#append({ type: "session_mode", mode });
+      if (!lastMode || lastMode.mode !== this.#permissions.mode) this.#append({ type: "session_mode", mode: this.#permissions.mode });
       this.#appendStartupChrome(false);
       return;
     }
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
-    this.#append({ type: "session_mode", mode });
+    this.#append({ type: "session_mode", mode: this.#permissions.mode });
     this.#appendStartupChrome(true);
     this.#flushExtensionEvents();
     // Fire-and-forget: construction is sync, the session is not yet running.
@@ -1148,6 +1153,29 @@ export class AgentSession {
   /** Runtime permission rules active in this session (snapshot). */
   get permissionRules(): PermissionRule[] {
     return this.#permissions.rules;
+  }
+
+  /**
+   * #849: the permission mode currently in force — live, so the client's
+   * banner and status render the rotated mode without any re-assembly.
+   */
+  get sessionMode(): SessionMode {
+    return this.#permissions.mode;
+  }
+
+  /**
+   * #849: rotates the permission mode in-session (`normal` → `auto-accept`
+   * → `yolo`), effective from the very next tool decision: the gate and
+   * the filesystem scope read the resolver's live mode. Appends exactly
+   * one `session_mode` chrome event per change so replay and the
+   * consumers that track the event (the Jev guardrail) follow; never
+   * touches any configuration file — a new session starts from its config.
+   * A no-op when the mode is already in force (no event, no churn).
+   */
+  setSessionMode(mode: SessionMode): void {
+    if (this.#permissions.mode === mode) return;
+    this.#permissions.setMode(mode);
+    this.#append({ type: "session_mode", mode });
   }
 
   /**

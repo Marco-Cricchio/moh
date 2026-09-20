@@ -359,14 +359,14 @@ export interface PermissionResolverOptions {
  * rules, and longer token prefixes beat shorter ones.
  */
 export class PermissionResolver {
-  readonly mode: SessionMode;
+  #mode: SessionMode;
   readonly cwd: string;
   readonly #rules: PermissionRule[];
   /** Bare tool-level "allow" rule for bash (no token matcher) exists. */
   #hasBareAllow = false;
 
   constructor(opts: PermissionResolverOptions) {
-    this.mode = opts.mode ?? "normal";
+    this.#mode = opts.mode ?? "normal";
     this.cwd = realpathOf(opts.cwd);
     const rules: PermissionRule[] = [];
     for (const [tool, decision] of Object.entries(opts.defaults)) {
@@ -396,6 +396,20 @@ export class PermissionResolver {
     for (const rule of opts.runtimeRules ?? []) rules.push({ ...rule, tier: "runtime" });
     this.#rules = rules;
     this.#hasBareAllow = rules.some((r) => r.tool === "bash" && r.effect === "allow" && !r.tokens && !r.path);
+  }
+
+  /**
+   * The session's permission mode, live: #849 made it runtime-mutable
+   * (`setSessionMode`), so every consumer must read it at decision time
+   * rather than capture its construction-time value.
+   */
+  get mode(): SessionMode {
+    return this.#mode;
+  }
+
+  /** #849: rotates the mode in-session; the session appends the chrome event. */
+  setMode(mode: SessionMode): void {
+    this.#mode = mode;
   }
 
   /** All active rules (snapshot), e.g. for debugging or replay. */
