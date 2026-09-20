@@ -7,16 +7,7 @@ matching section here at tag time.
 
 ## [Unreleased]
 
-### Fixed
-
-- **An empty completion is a failed call, and the fallback chain fires** (#853):
-  a provider call returning no content, no tool calls and no usage was
-  accepted as a successful turn (`usage {0,0}`, `done`, no error), so the
-  ADR-0012 fallback chain never engaged. It is now classified as a new
-  `empty_completion` ProviderError: the chain walks to the next viable
-  target (15-minute cooldown on the empty one), and with the chain
-  exhausted the turn ends with a visible classified error naming the
-  endpoint that produced nothing — never a silent empty `done`.
+## [0.41.0] - 2026-09-20
 
 ### Added
 
@@ -24,6 +15,35 @@ matching section here at tag time.
   `jev_judgment` for the bash guardrail now carries `decision`
   (`pass`/`ask`/`deny`) and, on an ask or deny, the key dimension and
   probability the verdict was based on — a complete audit record.
+- **Cache hits are recorded too** (#848): a repeated identical bash call
+  leaves its own `jev_judgment`, marked `cached: true` and carrying the
+  cached verdict with no fabricated model/latency/usage fields — the
+  "every judgment is recorded, unsampled" promise holds unscoped
+  (owner decision: option A, answered in the PR).
+- **`shift+tab` rotates the permission mode** (#849): `normal →
+  auto-accept → yolo → normal`, live from the next tool decision —
+  including entering and leaving yolo mid-session, which was impossible
+  (the mode was frozen at session construction and `--yolo` was
+  launch-only). The session appends a `session_mode` event on every
+  change, so resume, replay and the Jev guardrail's lethal-only
+  narrowing follow the live mode; the `⚠ YOLO` banner appears and
+  disappears with it (ADR-0040).
+- **The quality gate's judged set is scoped to repository code** (#851):
+  paths outside the work tree, files the task never successfully
+  produced and calls that failed or were refused never enter the diff;
+  a diff with no repository code is not scored with the code rubric;
+  the correction text names the judged paths. A task that changed
+  nothing in the repo can no longer spend both correction cycles on an
+  unsolvable demand.
+- **An empty completion is a failed call, and the fallback chain
+  fires** (#853): a provider call returning no content, no tool calls
+  and no usage was accepted as a successful turn (`usage {0,0}`,
+  `done`, no error), so the ADR-0012 fallback chain never engaged. It
+  is now classified as a new `empty_completion` ProviderError: the
+  chain walks to the next viable target (15-minute cooldown on the
+  empty one), and with the chain exhausted the turn ends with a visible
+  classified error naming the endpoint that produced nothing — never a
+  silent empty `done`.
 
 ### Changed
 
@@ -32,6 +52,30 @@ matching section here at tag time.
   line; a pass renders none — the log keeps every record, only the
   projection changes. Old sessions without a recorded verdict keep their
   previous line on replay.
+- **Vibe mode keeps only the Jev lines that earn their keep** (#845):
+  guardrail passes, routing stays, classification and rerank records no
+  longer render in vibe mode; anti-injection verdicts that changed what
+  the user saw or sent, guardrail asks/denies, a routing switch or
+  override, a quality-gate correction, a real skill suggestion and the
+  use-case control lines survive. Dev mode is byte-for-byte unchanged;
+  the event log is untouched in both modes.
+- **A tool-heavy turn no longer exhausts the event cap** (#846): passing
+  guardrail judgments aggregate into one per-turn record instead of one
+  per bash call (the volume that made the 50-event cap reachable); when
+  the cap *is* hit, the degraded state is visible for the rest of the
+  turn (footer status, headless stderr), a sentinel record marks the
+  skipped judgments, and every judgment made below the cap stays in the
+  log.
+- **The guardrail can be switched off in yolo** (#850, ADR-0041): the
+  ratified refusal is reversed — a full `off` is honoured, recorded and
+  visible, stays off across mode changes in the session, and `on`
+  restores yolo's lethal-checks narrowing. No more yolo session stuck
+  on an unapprovable veto.
+- **The router never downgrades on a continuation message** (#852): a
+  bare "procedi" no longer satisfies the tier/streak condition and
+  moves the model mid-task; a switch never targets an endpoint in a
+  known failure cooldown, and the manual states what a continuation
+  message may and may not do to the serving model.
 - **The README's demo slot is filled**: it pointed at
   `docs/assets/demo.gif`, which did not exist, so the README rendered a
   broken image. The GIF shows one full turn of the real TUI — its layout,
@@ -39,6 +83,11 @@ matching section here at tag time.
   prompt being raised and answered before a tool runs.
 
 ### Fixed
+
+- **The routing mismatch notice renders a readable line** (#847):
+  `jev · routing · serving <current>, router picked <expected>` instead
+  of the bare `◈ jev · routing`; malformed payloads degrade gracefully,
+  unknown kinds keep the bare fallback.
 
 ## [0.40.0] - 2026-09-20
 ### Changed
@@ -408,6 +457,7 @@ matching section here at tag time.
   `<home>/.moh/projects`.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...develop
+[0.41.0]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...v0.40.0
 [0.39.3]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...v0.39.3
 [0.39.2]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...v0.39.2
