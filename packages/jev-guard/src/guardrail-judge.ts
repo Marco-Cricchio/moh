@@ -150,7 +150,26 @@ export function createGuardrailJudge(
   const lastGit = (deps.state.lastGit as string | null | undefined) ?? null;
   deps.state.lastGit = lastGit;
 
+  // #846: the turn's passing calls, aggregated into one record. Volume is
+  // the root cause of the cap: a pass decided nothing, so it does not need
+  // one record each — but it must still be distinguishable from "never
+  // judged", hence one aggregate per turn instead of silence or sampling.
+  const passCallIds = new Set<string>();
+  const aggregatePass = (callId: string): void => {
+    passCallIds.add(callId);
+  };
+
   return {
+    /**
+     * #846: flushes this turn's passing judgments as one aggregate record
+     * (called at `afterTurn`); a turn with no passing calls records
+     * nothing. The set resets for the next turn.
+     */
+    flushPasses(): void {
+      if (passCallIds.size === 0) return;
+      deps.append?.({ useCase: "guardrail_passes", calls: passCallIds.size, callIds: [...passCallIds] });
+      passCallIds.clear();
+    },
     /** Drops the cache when the git snapshot changed since the last look. */
     invalidateOnGitChange(): void {
       const git = gitSnapshot(process.cwd());
@@ -179,7 +198,10 @@ export function createGuardrailJudge(
       // #843: a cache hit is a real judgment record too — the verdict plus
       // the key probability ride along, no fabricated model/latency/usage.
       if (hit) {
-        deps.append?.(guardrailRecord(undefined, callId, judged, hit));
+        // #846: a cached pass joins the turn's aggregate; an ask/deny is
+        // always recorded immediately (its verdict is safety-relevant).
+        if (hit.verdict === "pass") aggregatePass(callId);
+        else deps.append?.(guardrailRecord(undefined, callId, judged, hit));
         return { verdict: hit, cached: true, state: judged };
       }
       const lethalOnly = mode() === "yolo";
@@ -236,7 +258,13 @@ export function createGuardrailJudge(
           recordBase.keyDimension = key.dimension;
           recordBase.keyProbability = key.probability;
         }
-        deps.append!(recordBase);
+        // #846: a passing live judgment joins the turn's aggregate record
+        // (one `guardrail_passes` per turn, flushed at `afterTurn`); an
+        // ask/deny is recorded immediately. The log still distinguishes
+        // "judged and passed" from "never judged" — at one record per
+        // turn, not one per bash call.
+        if (decision.verdict === "pass") aggregatePass(callId);
+        else deps.append!(recordBase);
       }
       let verdict: GuardrailVerdict;
       if (decision.verdict === "deny") {

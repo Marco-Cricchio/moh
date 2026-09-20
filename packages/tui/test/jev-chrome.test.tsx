@@ -53,6 +53,10 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_judgment", { useCase: "guardrail", lethalOnly: false, answers: {} })).toBe(
       "jev · guardrail",
     );
+    // #846: the turn's pass aggregate reads as one line.
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail_passes", calls: 65, callIds: [] })).toBe(
+      "jev · guardrail · 65 calls passed",
+    );
   });
 
   test("a guardrail pass renders nothing; an ask and a deny render one line each (#843)", () => {

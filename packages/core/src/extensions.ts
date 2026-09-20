@@ -167,6 +167,13 @@ export interface RuntimeExtension {
   eventsThisTurn: number;
   /** ADR-0032: the per-turn cap warning was already emitted (one per turn). */
   capWarned: boolean;
+  /**
+   * #846: the extension's own published status at the moment the cap
+   * tripped. On cap, the runtime overlays the cap-degraded status; on the
+   * next `setStatus` the overlay clears and the extension's own text
+   * re-emerges. Null when no overlay is active.
+   */
+  capStatusOverlay: string | null;
 }
 
 interface ExtensionStore {
@@ -397,15 +404,16 @@ export class ExtensionRuntime {
   /** ADR-0032: the currently published statuses, in registration order. */
   statuses(): ExtensionStatus[] {
     return this.#instances
-      .filter((i) => i.status !== null)
-      .map((i) => ({ extension: i.def.name, text: i.status! }));
+      .filter((i) => i.status !== null || i.capStatusOverlay !== null)
+      .map((i) => ({ extension: i.def.name, text: i.capStatusOverlay ?? i.status! }));
   }
 
   /** Clears every published status (session end, extension reload). */
   clearStatuses(): void {
     for (const instance of this.#instances) {
-      if (instance.status === null) continue;
+      if (instance.status === null && instance.capStatusOverlay === null) continue;
       instance.status = null;
+      instance.capStatusOverlay = null;
       for (const listener of this.#statusListeners) listener(instance.def.name, null);
     }
   }
@@ -418,7 +426,28 @@ export class ExtensionRuntime {
     for (const instance of this.#instances) {
       instance.eventsThisTurn = 0;
       instance.capWarned = false;
+      // #846: the degraded state is scoped to the turn that tripped it.
+      this.#clearCapOverlay(instance);
     }
+  }
+
+  /**
+   * #846: overlays this extension's footer status with the cap-degraded
+   * text (TUI footer, one stderr line headless) for the remainder of the
+   * turn. `beginTurn` clears the overlay; a `setStatus` from the extension
+   * drops it and publishes the extension's own text instead.
+   */
+  #capOverlay(instance: RuntimeExtension): void {
+    if (instance.capStatusOverlay !== null) return;
+    instance.capStatusOverlay = `event cap reached (${MAX_EVENTS_PER_TURN}/turn) — further events dropped until next turn`;
+    for (const listener of this.#statusListeners) listener(instance.def.name, instance.capStatusOverlay);
+  }
+
+  /** #846: removes the cap overlay and restores the extension's own status. */
+  #clearCapOverlay(instance: RuntimeExtension): void {
+    if (instance.capStatusOverlay === null) return;
+    instance.capStatusOverlay = null;
+    for (const listener of this.#statusListeners) listener(instance.def.name, instance.status);
   }
 
   /**
@@ -786,6 +815,7 @@ export class ExtensionRuntime {
       status: null,
       eventsThisTurn: 0,
       capWarned: false,
+      capStatusOverlay: null,
     };
     const ctx: ExtensionSetupContext = {
       state: instance.state,
@@ -879,6 +909,9 @@ export class ExtensionRuntime {
           reason: "event_cap",
           message: `more than ${MAX_EVENTS_PER_TURN} events in one turn; further events were dropped`,
         });
+        // #846: the degraded state is visible, not only logged — the
+        // footer status (headless: one stderr line) for the rest of the turn.
+        this.#capOverlay(instance);
       }
       return;
     }
@@ -892,6 +925,8 @@ export class ExtensionRuntime {
   /** ADR-0032 `setStatus`: one ephemeral status per extension, replaced. */
   #setStatus(instance: RuntimeExtension, text: string | null): void {
     const next = typeof text === "string" && text.length > 0 ? text : null;
+    // #846: the extension speaks for itself again — the cap overlay drops.
+    if (instance.capStatusOverlay !== null) this.#clearCapOverlay(instance);
     if (instance.status === next) return;
     instance.status = next;
     for (const listener of this.#statusListeners) listener(instance.def.name, next);
