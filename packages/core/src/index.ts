@@ -188,6 +188,13 @@ export {
 } from "./session-analyze";
 
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
+// #765: prompt snippets — skill argument parsing and placeholder
+// substitution. Pure and client-reusable (TUI pre-fill, CLI args).
+export {
+  parseSkillArgs,
+  substituteSkillArgs,
+  type SkillArgs,
+} from "./skill-args";
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.

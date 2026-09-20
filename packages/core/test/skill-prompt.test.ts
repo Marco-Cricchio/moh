@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createSession } from "../src/index";
+import { parseSkillArgs } from "../src/skill-args";
 import type { Message, Provider, StreamEvent } from "../src/types";
 
 /** Captures the first (system) message of every provider call. */
@@ -66,6 +67,22 @@ describe("skill prompt seam (ADR-0011)", () => {
     expect(systems[0]).toContain("one-turn body");
     expect(systems[1]).not.toContain("one-turn body");
     expect(systems[1]).not.toContain('Follow the "ask-moh" skill');
+  });
+
+  test("#765: args substitute into the prompt text; without args the body stays verbatim", async () => {
+    const { systems, provider } = captureProvider();
+    const session = createSession({ provider });
+
+    await session.send("release it", {
+      prompt: { name: "releaser", text: "Cut $1 from ${branch:-develop}, all: $@." },
+      args: parseSkillArgs(["1.2.3"]),
+    });
+    await session.send("again", {
+      prompt: { name: "releaser", text: "Cut $1." },
+    });
+
+    expect(systems[0]).toContain("Cut 1.2.3 from develop, all: 1.2.3.");
+    expect(systems[1]).toContain("Cut $1."); // no args → verbatim
   });
 
   test("a cancelled turn still drops the skill prompt (steering away from a skill turn)", async () => {
