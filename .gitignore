@@ -17,3 +17,4 @@ docs/research/
 docs/vision/
 .moh/
 __pycache__/
+.moh-test-*.log
