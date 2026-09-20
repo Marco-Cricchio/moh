@@ -297,6 +297,10 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         }
       });
       ctx.afterTurn(() => {
+        // #846: the turn's passing judgments land as one aggregate record —
+        // one line per turn instead of one per bash call keeps an ordinary
+        // tool-heavy turn far below the per-turn event cap.
+        judge.flushPasses();
         judge.invalidateOnGitChange();
       });
       ctx.onSessionEnd(() => judge.reset());

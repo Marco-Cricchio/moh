@@ -25,6 +25,7 @@ interface FakeCtx {
   /** apiVersion 1.4: the post-tool seam the anti-injection's second half uses. */
   toolResultHooks: Array<(input: { name: string; output: string }) => unknown>;
   mode: "normal" | "auto-accept" | "yolo";
+  afterTurnHooks: Array<() => unknown>;
 }
 
 function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & FakeCtx {
@@ -43,7 +44,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
     onEvent: (h: (e: { event: { type: string; [k: string]: unknown } }) => void) => (hooks as unknown as FakeCtx).eventHooks.push(h),
     onToolResult: (_tools: readonly string[], h: (input: { name: string; output: string }) => unknown) =>
       (hooks as unknown as FakeCtx).toolResultHooks.push(h),
-    afterTurn: () => {},
+    afterTurn: (h: () => unknown) => (hooks as unknown as FakeCtx).afterTurnHooks.push(h),
   };
   const self = hooks as unknown as ExtensionSetupContext & FakeCtx;
   self.events = [];
@@ -55,6 +56,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
   self.compactionHooks = [];
   self.toolResultHooks = [];
   self.mode = mode;
+  self.afterTurnHooks = [];
   return self;
 }
 
@@ -113,9 +115,13 @@ describe("jev-guard extension setup (#786)", () => {
     expect(ctx.toolHooks).toHaveLength(1);
     const out = await runHook(ctx.toolHooks, bash);
     expect(out ?? undefined).toBeUndefined();
+    // #846: a pass records no per-call event — it joins the turn aggregate
+    // flushed at afterTurn.
+    expect(ctx.events.filter((e) => e.name === "jev_judgment")).toHaveLength(0);
+    for (const h of ctx.afterTurnHooks) await h();
     const judgments = ctx.events.filter((e) => e.name === "jev_judgment");
     expect(judgments).toHaveLength(1);
-    expect((judgments[0]!.payload as Record<string, unknown>).useCase).toBe("guardrail");
+    expect(judgments[0]!.payload).toMatchObject({ useCase: "guardrail_passes", calls: 1 });
   });
 
   test("deny: hook vetoes with the actionable reason; non-bash tools are untouched", async () => {

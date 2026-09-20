@@ -229,7 +229,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
   if (record.useCase === "injection") return injectionJudgmentLine(record);
-  if (record.useCase === "guardrail") return guardrailJudgmentLine(record);
+  if (record.useCase === "guardrail" || record.useCase === "guardrail_passes") return guardrailJudgmentLine(record);
   const parts = [name.slice(0, -"_judgment".length)];
   if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
   if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
@@ -335,6 +335,11 @@ function injectionJudgmentLine(record: Record<string, unknown>): string {
  * this line (the projection filters it); old logs without a `decision`
  * degrade to the use-case-only line rather than inventing a verdict. */
 function guardrailJudgmentLine(record: Record<string, unknown>): string {
+  // #846: the turn's aggregate — one line for all the passing judgments.
+  if (record.useCase === "guardrail_passes") {
+    const calls = typeof record.calls === "number" && Number.isFinite(record.calls) ? record.calls : undefined;
+    return calls === undefined ? "jev · guardrail · passed" : `jev · guardrail · ${calls} calls passed`;
+  }
   const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : undefined;
   if (decision === undefined) return "jev · guardrail";
   const key = typeof record.keyProbability === "number" && Number.isFinite(record.keyProbability)
