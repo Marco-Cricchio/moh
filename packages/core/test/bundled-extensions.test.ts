@@ -5,7 +5,8 @@
  *
  * What these tests pin is the *generic* contract, using a synthetic
  * descriptor so the property under test is never accidentally a Jev one:
- * activation comes from the extension (through the injected reader), the
+ * activation is the *client's* answer (the core never runs a predicate over
+ * the user's config), the
  * wiring slots are filled by the extension, and a core with no mounted
  * source hosts nothing at all.
  */
@@ -20,6 +21,7 @@ import {
   sessionFromConfig,
   userConfigFile,
   type BundledExtensionSource,
+  type MountedBundledExtension,
 } from "../src/index";
 
 function tmpDir(prefix = "moh-bundled-"): string {
@@ -35,20 +37,16 @@ function writeUserConfig(home: string, body: Record<string, unknown>): void {
 /** A synthetic first-party extension: activates on a key of its own block
  * and contributes a gate, so nothing here depends on Jev's shapes. */
 const SYNTHETIC = "opus-test";
+/** A mounted source: the client resolved activation. That is the whole point
+ * of the residue removal — the core never runs a predicate over the config. */
+function mounted(source: BundledExtensionSource, active: boolean): MountedBundledExtension {
+  return { source, active };
+}
+
 function syntheticSource(options: { wire?: boolean; note?: boolean } = {}): BundledExtensionSource {
   return {
     name: SYNTHETIC,
     ...(options.note ? { inactiveNote: () => `${SYNTHETIC}: inactive (no key)` } : {}),
-    isActive(_readConfig, configFile) {
-      const raw = _readConfig(configFile);
-      if (!raw.trim()) return false;
-      try {
-        const data = JSON.parse(raw) as { opusTest?: { enabled?: boolean } };
-        return data.opusTest?.enabled === true;
-      } catch {
-        return false;
-      }
-    },
     activate(context) {
       return defineExtension({
         name: SYNTHETIC,
@@ -78,11 +76,9 @@ describe("resolveBundledExtensions (#826)", () => {
     const home = tmpDir();
     const runtime = new ExtensionRuntime({ mohHome: home });
     const result = resolveBundledExtensions({
-      descriptors: [syntheticSource({ note: true })],
+      descriptors: [mounted(syntheticSource({ note: true }), false)],
       runtime,
-      configFile: userConfigFile(home),
-      readConfig: () => "",
-      context: { mohHome: home, cwd: home, endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
     });
     // The core has no words for another extension's precondition: it logs
     // exactly what the extension said, in source order.
@@ -93,11 +89,9 @@ describe("resolveBundledExtensions (#826)", () => {
     const home = tmpDir();
     const runtime = new ExtensionRuntime({ mohHome: home });
     const result = resolveBundledExtensions({
-      descriptors: [syntheticSource()],
+      descriptors: [mounted(syntheticSource(), false)],
       runtime,
-      configFile: userConfigFile(home),
-      readConfig: () => "",
-      context: { mohHome: home, cwd: home, endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
     });
     expect(result.notes).toEqual([]);
   });
@@ -106,11 +100,9 @@ describe("resolveBundledExtensions (#826)", () => {
     const home = tmpDir();
     const runtime = new ExtensionRuntime({ mohHome: home });
     const result = resolveBundledExtensions({
-      descriptors: [syntheticSource()],
+      descriptors: [mounted(syntheticSource(), false)],
       runtime,
-      configFile: userConfigFile(home),
-      readConfig: () => "",
-      context: { mohHome: home, cwd: home, endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
     });
     expect(result.anyActive).toBe(false);
     expect(Object.keys(result.wiring)).toEqual([]);
@@ -123,11 +115,9 @@ describe("resolveBundledExtensions (#826)", () => {
     writeUserConfig(home, { opusTest: { enabled: true } });
     const runtime = new ExtensionRuntime({ mohHome: home });
     const result = resolveBundledExtensions({
-      descriptors: [syntheticSource()],
+      descriptors: [mounted(syntheticSource(), true)],
       runtime,
-      configFile: userConfigFile(home),
-      readConfig: (f) => (f === userConfigFile(home) ? JSON.stringify({ opusTest: { enabled: true } }) : ""),
-      context: { mohHome: home, cwd: home, endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
     });
     expect(result.anyActive).toBe(true);
     await runtime.ready();
@@ -139,11 +129,9 @@ describe("resolveBundledExtensions (#826)", () => {
     const home = tmpDir();
     const runtime = new ExtensionRuntime({ mohHome: home });
     const result = resolveBundledExtensions({
-      descriptors: [syntheticSource({ wire: true })],
+      descriptors: [mounted(syntheticSource({ wire: true }), true)],
       runtime,
-      configFile: userConfigFile(home),
-      readConfig: () => JSON.stringify({ opusTest: { enabled: true } }),
-      context: { mohHome: home, cwd: home, endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
     });
     // The slot is present and callable, and it is the extension's closure.
     expect(typeof result.wiring.turnGate).toBe("function");
@@ -151,15 +139,13 @@ describe("resolveBundledExtensions (#826)", () => {
     await runtime.ready();
   });
 
-  test("a throwing predicate is a descriptor bug, not a session failure", async () => {
+  test("an inactive mount registers nothing, and the core runs no predicate at all", async () => {
     const home = tmpDir();
     const runtime = new ExtensionRuntime({ mohHome: home });
     const result = resolveBundledExtensions({
-      descriptors: [{ ...syntheticSource(), isActive: () => { throw new Error("boom"); } }],
+      descriptors: [mounted(syntheticSource(), false)],
       runtime,
-      configFile: userConfigFile(home),
-      readConfig: () => "{}",
-      context: { mohHome: home, cwd: home, endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
     });
     expect(result.anyActive).toBe(false);
   });
@@ -185,7 +171,7 @@ describe("sessionFromConfig — no mounted source means no bundled extension (#8
       cwd,
       home,
       config: { provider: "mock" },
-      bundledExtensions: [syntheticSource({ note: true })],
+      bundledExtensions: [mounted(syntheticSource({ note: true }), false)],
     });
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -208,7 +194,7 @@ describe("sessionFromConfig — no mounted source means no bundled extension (#8
       cwd,
       home,
       config: { provider: "mock" },
-      bundledExtensions: [syntheticSource()],
+      bundledExtensions: [mounted(syntheticSource(), true)],
     });
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -225,7 +211,7 @@ describe("sessionFromConfig — no mounted source means no bundled extension (#8
       cwd,
       home,
       config: { provider: "mock" },
-      bundledExtensions: [syntheticSource()],
+      bundledExtensions: [mounted(syntheticSource(), true)],
     });
     expect("error" in result).toBe(false);
     if ("error" in result) return;

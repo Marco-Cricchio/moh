@@ -19,8 +19,10 @@
  *    against the generic activation context.
  *
  * Activation is unchanged from the user's point of view: the API key in the
- * Settings entry *is* the switch. `isActive` reads the config and nothing
- * else — no side effects, no writes, no network.
+ * Settings entry *is* the switch. `evaluateActive` reads the config and
+ * nothing else — no side effects, no writes, no network — and the **client**
+ * calls it (the client owns the config surface of what it ships); the core
+ * only ever sees the boolean.
  */
 import { readFileSync } from "node:fs";
 import type { BundledActivationContext, BundledInstanceReader, BundledWiring } from "@moh/core";
@@ -48,8 +50,10 @@ const readFile = (file: string): string => readFileSync(file, "utf8");
 export const jevBundledSource = {
   name: NAME,
 
-  /** Effect-free: a stored, non-empty API key is the only activation switch. */
-  isActive(readConfig: (file: string) => string, configFile: string): boolean {
+  /** Effect-free: a stored, non-empty API key is the only activation switch.
+   * The **client** evaluates this (see `packages/tui/src/bundled-extensions.ts`);
+   * the core never calls it over the user's config. */
+  evaluateActive(readConfig: (file: string) => string, configFile: string): boolean {
     try {
       // The reader is the caller's: the activation fact is the *caller's*
       // question ("should this run?"), asked through whatever read the

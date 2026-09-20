@@ -21,7 +21,9 @@ extension moh had ever loaded, through a private door, because there was no publ
 The repo's own rule applies: a change that departs from a ratified decision needs an
 explicit ADR saying why. #834 built the missing public door (a declared source, the
 content-bound consent, headless fail-closed). This ADR records the boundary that the
-inversion restored, and the one residue it did not remove.
+inversion restored. The one residue of the first cut — the core asking a vendor predicate
+over the user's config — was removed in a follow-up the same week (see "Deviation,
+eliminated" below).
 
 ## Decision
 
@@ -31,12 +33,14 @@ inversion restored, and the one residue it did not remove.
 // @moh/core — the whole contract
 export interface BundledExtensionSource {
   readonly name: string;
-  isActive(readConfig: (file: string) => string, configFile: string): boolean;
+  evaluateActive?(readConfig: (file: string) => string, configFile: string): boolean;
   activate(context: BundledActivationContext): unknown;
   wire?(read: BundledInstanceReader, wiring: BundledWiring): void;
 }
+/** A source plus the client's activation answer. */
+export interface MountedBundledExtension { source: BundledExtensionSource; active: boolean }
 // SessionFromConfigOptions
-bundledExtensions?: readonly BundledExtensionSource[];
+bundledExtensions?: readonly MountedBundledExtension[];
 ```
 
 The vendor package (`@moh/jev-guard`) exports `jevBundledSource` and owns its config
@@ -55,10 +59,10 @@ Key decisions, each with its rationale:
    problems `{ bundled: true }` exists to avoid (and a future extension gallery will
    produce *files*, which #834 already loads).
 
-2. **Activation is a predicate over an injected reader.** `isActive` receives the path
-   and a reader; the descriptor itself calls nothing. The core reads the *shape* "should
-   this run?" and never the semantics. This is what replaced the core's knowledge of
-   `typesafe.apiKey`.
+2. **Activation is the client's answer.** `evaluateActive` (the vendor's own, effect-free)
+   receives the path and a reader; the **client** calls it and mounts
+   `{ source, active }`. The core consumes the boolean and never runs a predicate over the
+   user's config. This is what replaced the core's knowledge of `typesafe.apiKey`.
 
 3. **The wiring step keeps the core's capabilities generic.** `wire` fills named slots
    (`turnGate`, `rerank`) whose signatures the core owns. The core does the plumbing —
@@ -94,19 +98,30 @@ Key decisions, each with its rationale:
    silently dropped, and the option stays open: if moh ever grows contributed pages, the
    Jev page moves then, with the import and generator entry it needs.
 
-## Deviation that remains
+## Deviation, eliminated (2026-09-20)
 
-Not eliminated, and recorded explicitly: **the core still reads a boolean from the
-extension's config.** `isActive(readConfig, configFile)` means `sessionFromConfig` calls
-a predicate that reads `~/.moh/config`. The core does not know the key, the schema, or
-the meaning — but it does know that a bundled extension may have a say in whether it
-runs.
+The inversion recorded above left one residue: **the core read a boolean from the
+extension's config.** `isActive(readConfig, configFile)` meant `sessionFromConfig` called a
+predicate — implemented by the vendor — that read `~/.moh/config`. The core knew no key and
+no schema, but it did ask the question, and its assembly depended on a function whose body
+lives in the vendor package.
 
-That residue is the price of the activation model the owner ratified: the API key in the
-Settings entry *is* the switch, and the switch must be readable at assembly time, before
-any client seam could supply an extension-provided value. A second requirement in the
-same direction was accepted rather than designed away: activation must stay **one user
-gesture** (paste the key → Jev is active), so no separate declaration key was introduced.
+It was removed rather than accepted. The insight that made it cheap: **the client already
+owns that config surface** — the TUI ships the Settings entry that writes the key — and all
+four mount points (the TUI factory, `run`, `serve`, `compact`) already go through a single
+list. So the answer moved one layer out, where the knowledge already was:
+
+```ts
+interface MountedBundledExtension { source: BundledExtensionSource; active: boolean }
+```
+
+The client reads the config it owns, asks the descriptor (`evaluateActive`, still the
+vendor's own code and still effect-free), and mounts the source with the answer. The core
+consumes a boolean: it no longer runs an extension-provided predicate, and it reads no
+config on an extension's behalf. The activation model the owner ratified is untouched — the
+API key is still the switch, still one gesture, still readable at assembly time; only *who
+evaluates* it changed. Also gone with it: `resolveBundledExtensions` no longer takes a
+`readConfig` seam at all.
 
 Confirmed clean, and untouched by this deviation: the core imports no vendor package, its
 public surface (`@moh/core`) exports no vendor configuration (the 16 `typesafe` symbols

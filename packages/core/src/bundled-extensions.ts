@@ -13,13 +13,14 @@
  *   user and never lives at a path the user could tamper with.
  *
  * The core knows **how** to register a bundled extension; it never knows
- * **what** one is. A source is a descriptor: an identity, an effect-free
- * activation predicate read through an injected reader, a factory, and an
+ * **what** one is. A source is a descriptor: an identity, a factory, and an
  * optional wiring step for generic capabilities the extension contributes.
  * The provider that spells them out is the client's (first-party code lives
  * in its own workspace package, §deps), so a library user with no provider
  * assembles a core with no first-party extension at all — and a future
- * bundled extension is a new descriptor, not a change here.
+ * bundled extension is a new descriptor, not a change here. Whether a
+ * descriptor runs is the **client's** answer (`MountedBundledExtension.active`):
+ * the client owns the config surface of what it ships.
  */
 import type { ExtensionRuntime, RuntimeExtension } from "./extensions";
 import type { EndpointProfile } from "./config";
@@ -42,24 +43,29 @@ export interface BundledActivationContext {
 }
 
 /**
- * One bundled extension, described by the package that owns it.
+ * One mounted bundled extension, described by the package that owns it.
  *
- * `isActive` reads the *shape* "should this run?", never semantics: the
- * reader is injected, so the core never sees a vendor key, a vendor schema,
- * or the vendor's config block.
+ * The **client** resolves activation — it owns the config surface of the
+ * extensions it ships, and it is the party that knows whether it can ask
+ * the user anything. The core receives the answer as a plain boolean and
+ * never runs an extension-provided predicate over the user's config file:
+ * that was the residue ADR-0039 recorded, and this shape removes it. The
+ * core still decides *when* a descriptor is consulted (`resolveBundledExtensions`)
+ * and still learns nothing about what any extension means.
  */
 export interface BundledExtensionSource {
   /** The extension's registered name — identity for state, control, lookups. */
   readonly name: string;
-  /**
-   * Effect-free activation predicate over the user config file. Receives
-   * the path (`~/.moh/config`) and the reader the caller injects (a file
-   * read). Must not write, must not throw: a malformed block is the
-   * extension's business, not a reason to fail an assembly.
-   */
-  isActive(readConfig: (file: string) => string, configFile: string): boolean;
-  /** Builds the definition to register. Called only when `isActive` said yes. */
+  /** Builds the definition to register. Called only when `active` is true. */
   activate(context: BundledActivationContext): unknown;
+  /**
+   * The vendor's own activation answer, evaluated by the **client** (never
+   * by the core): given the user config file and a reader, does this
+   * extension run in this session? Effect-free — no writes, no network —
+   * and a malformed block is the extension's business, not a failed
+   * assembly (the client treats a throw as "not active").
+   */
+  evaluateActive?(readConfig: (file: string) => string, configFile: string): boolean;
   /**
    * One line for the session log when this source is *not* active — the
    * extension's own words, because the core has none: only the extension
@@ -81,6 +87,15 @@ export interface BundledExtensionSource {
    * registration has settled.
    */
   wire?(read: BundledInstanceReader, wiring: BundledWiring): void;
+}
+
+/** A source plus the client's activation decision (#826 residue removal).
+ * The client resolves it (it owns the config surface of what it ships);
+ * the core only consumes `active`. */
+export interface MountedBundledExtension {
+  readonly source: BundledExtensionSource;
+  /** True = register and wire it for this session. */
+  readonly active: boolean;
 }
 
 /** Reads the extensions registered so far, at the moment a contributed
@@ -124,32 +139,22 @@ export interface BundledResolution {
  * time the wiring is *called* (a send) `ready()` has already run.
  */
 export function resolveBundledExtensions(options: {
-  descriptors: readonly BundledExtensionSource[];
+  descriptors: readonly MountedBundledExtension[];
   runtime: ExtensionRuntime;
-  configFile: string;
-  readConfig: (file: string) => string;
-  context: Omit<BundledActivationContext, "configFile">;
+  context: BundledActivationContext;
 }): BundledResolution {
   const wiring: BundledWiring = {};
   const notes: string[] = [];
   let anyActive = false;
-  const context: BundledActivationContext = { ...options.context, configFile: options.configFile };
-  for (const descriptor of options.descriptors) {
-    let active = false;
-    try {
-      active = descriptor.isActive(options.readConfig, options.configFile);
-    } catch {
-      // A predicate that throws is a descriptor bug, not a user error: the
-      // extension simply does not activate, and nothing else is affected.
-      active = false;
-    }
-    if (!active) {
+  for (const mounted of options.descriptors) {
+    const descriptor = mounted.source;
+    if (!mounted.active) {
       const note = descriptor.inactiveNote?.();
       if (note) notes.push(note);
       continue;
     }
     anyActive = true;
-    void options.runtime.register(descriptor.activate(context), { bundled: true });
+    void options.runtime.register(descriptor.activate(options.context), { bundled: true });
     // The reader is lazy on purpose: the instance may not exist yet at this
     // point (the registration above is in flight), so the wiring captures
     // the runtime, not a snapshot of `instances`.

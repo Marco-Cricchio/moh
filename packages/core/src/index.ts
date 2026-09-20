@@ -363,6 +363,7 @@ import {
   type BundledInstanceReader,
   type BundledResolution,
   type BundledWiring,
+  type MountedBundledExtension,
 } from "./bundled-extensions";
 import {
   publishHandoffAtExit,
@@ -728,6 +729,7 @@ export {
   type BundledInstanceReader,
   type BundledResolution,
   type BundledWiring,
+  type MountedBundledExtension,
   loadMergedConfig,
   readUserProviderConfig,
   upsertUserEndpoint,

@@ -35,7 +35,7 @@ import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
 import type { ExtensionConsentRequest } from "../extensions";
 import { extensionSourceFiles } from "../extension-source";
-import { resolveBundledExtensions, type BundledExtensionSource, type BundledWiring } from "../bundled-extensions";
+import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";
 import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
 import { createModelPool } from "../model-pool";
@@ -162,14 +162,15 @@ export interface SessionFromConfigOptions {
   providerRef?: string;
   consent?: SessionConsent;
   /**
-   * #826: the bundled first-party extensions this client mounts. A source
-   * declares how to detect activation and how to build the definition; the
-   * core resolves and hosts it. Absent (the default) = no bundled extension
-   * is registered at all, which is what a library user embedding the core
-   * gets unless they mount one. The desktop/client entry point supplies the
-   * first-party sources (each one lives in its own workspace package).
+   * #826: the bundled first-party extensions this client mounts, each with
+   * the client's own activation answer (`MountedBundledExtension`). The core
+   * hosts the active ones; it never runs an extension's predicate over the
+   * user's config. Absent (the default) = no bundled extension is registered
+   * at all, which is what a library user embedding the core gets unless they
+   * mount one. The client entry points supply the first-party sources (each
+   * one lives in its own workspace package).
    */
-  bundledExtensions?: readonly BundledExtensionSource[];
+  bundledExtensions?: readonly MountedBundledExtension[];
   overrides?: SessionOverrides;
 }
 
@@ -252,10 +253,11 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // channel left — stderr — carries the line the log would have shown.
   const onExtensionConsent = options.consent?.onExtensionConsent;
   // #826: the bundled sources the client mounted. The core asks each one
-  // whether it is active (an injected reader over the user config) and hosts
-  // the ones that are; it never learns what any of them is. No mounted
-  // source (a bare library user, or a client that ships none) means the core
-  // assembles with no first-party extension at all — the default.
+  // The client resolved which of its bundled extensions run in this session
+  // (it owns their config surface); the core hosts the active ones and never
+  // learns what any of them is. No mounted source (a bare library user, or a
+  // client that ships none) means the core assembles with no first-party
+  // extension at all — the default.
   const bundledSources = options.bundledExtensions ?? [];
   if (bundledSources.length > 0 || extensionSources.length > 0) {
     // One runtime for both doors: bundled first-party code registers with
@@ -285,11 +287,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     const resolution = resolveBundledExtensions({
       descriptors: bundledSources,
       runtime: extensions,
-      configFile: userFile,
-      readConfig: (file) => readFileSync(file, "utf8"),
       context: {
         mohHome,
         cwd: options.cwd,
+        configFile: userFile,
         endpoints: config.endpoints ?? [],
         modelPool: createModelPool(config.endpoints ?? []),
         skillRoster: () =>

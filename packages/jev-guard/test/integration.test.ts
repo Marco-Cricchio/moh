@@ -11,11 +11,26 @@
  * registered through the generic door.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
 import { jevBundledSource } from "../src/integration";
+
+/** #826 residue removal: the *client* resolves activation and mounts the
+ * source with the answer; the core only consumes the boolean. This helper
+ * mirrors the client's own mount (`packages/tui/src/bundled-extensions.ts`)
+ * — read the config, ask the descriptor, treat a broken block as inactive —
+ * so these tests exercise the real path end to end. */
+function mountJev(home: string) {
+  let active = false;
+  try {
+    active = jevBundledSource.evaluateActive((f) => readFileSync(f, "utf8"), userConfigFile(home));
+  } catch {
+    active = false;
+  }
+  return { source: jevBundledSource, active };
+}
 import { JEV_GUARD_NAME } from "../src/index";
 import {
   maskApiKey,
@@ -91,32 +106,32 @@ describe("the typesafe config block (#784, #826)", () => {
   });
 });
 
-describe("the bundled descriptor (#826)", () => {
+describe("the bundled descriptor (#826) — the activation answer the client consumes", () => {
   test("activation is the stored key, and nothing else", () => {
     const at = (body: unknown) => JSON.stringify(body);
     const file = "/nonexistent/config";
 
     // An empty config, a blank key and a broken block all mean "not active".
-    expect(jevBundledSource.isActive(() => "", file)).toBe(false);
-    expect(jevBundledSource.isActive(() => at({ typesafe: { apiKey: "   " } }), file)).toBe(false);
-    expect(jevBundledSource.isActive(() => at({ typesafe: { timeoutMs: -1 } }), file)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => "", file)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { apiKey: "   " } }), file)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { timeoutMs: -1 } }), file)).toBe(false);
 
-    expect(jevBundledSource.isActive(() => at({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
+    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
   });
 
-  test("activation reads through the injected reader, never the disk", () => {
+  test("activation reads through the reader the client injects, never the disk", () => {
     // The reader is the caller's by contract: a path that does not exist on
     // this machine still reports active if the injected read says so. If the
     // descriptor reached for the filesystem itself, this would be false.
     const file = join(tmpDir(), "config-that-does-not-exist");
     expect(existsSync(file)).toBe(false);
-    expect(jevBundledSource.isActive(() => JSON.stringify({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
-    expect(jevBundledSource.isActive(() => JSON.stringify({ typesafe: {} }), file)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => JSON.stringify({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
+    expect(jevBundledSource.evaluateActive(() => JSON.stringify({ typesafe: {} }), file)).toBe(false);
   });
 
   test("a config file that cannot be read at all means inactive, not a crash", () => {
     const file = "/definitely/not/readable";
-    expect(jevBundledSource.isActive(() => { throw new Error("EACCES"); }, file)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => { throw new Error("EACCES"); }, file)).toBe(false);
   });
 
   test("the descriptor is named after the extension it registers", () => {
@@ -131,10 +146,10 @@ describe("activation through the generic door (#826)", () => {
   test("with a key the extension loads; without one nothing is registered", async () => {
     const cwd = tmpDir("moh-jev-cwd-");
     const home = tmpDir("moh-jev-assembly-");
-    const base = { cwd, home, config: { provider: "mock" }, bundledExtensions: [jevBundledSource] };
+    const base = () => ({ cwd, home, config: { provider: "mock" }, bundledExtensions: [mountJev(home)] });
 
     // No key: the descriptor says no, so no extension is registered at all.
-    const inactive = sessionFromConfig(base);
+    const inactive = sessionFromConfig(base());
     expect("error" in inactive).toBe(false);
     if ("error" in inactive) return;
     expect(inactive.session.extensionStatuses()).toEqual([]);
@@ -146,7 +161,7 @@ describe("activation through the generic door (#826)", () => {
     await inactive.session.dispose();
 
     writeUserConfig(home, { typesafe: { apiKey: "sk-test", timeoutMs: 800 } });
-    const active = sessionFromConfig(base);
+    const active = sessionFromConfig(base());
     expect("error" in active).toBe(false);
     if ("error" in active) return;
     // Registration is async by design: the first turn waits for `ready()`.
@@ -161,12 +176,12 @@ describe("activation through the generic door (#826)", () => {
   test("routing off registers no router; routing on with nothing to route reports it once", async () => {
     const cwd = tmpDir("moh-jev-cwd-");
     const home = tmpDir("moh-jev-assembly-");
-    const base = { cwd, home, config: { provider: "mock" }, bundledExtensions: [jevBundledSource] };
+    const base = () => ({ cwd, home, config: { provider: "mock" }, bundledExtensions: [mountJev(home)] });
 
     // Default (off): the extension is active but registers no beforeTurn
     // hook — routing is a choice, never a side effect of having a key.
     writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
-    const off = sessionFromConfig(base);
+    const off = sessionFromConfig(base());
     if ("error" in off) throw new Error(off.error.message);
     await off.session.send("hello");
     expect(off.session.history().some((e) => e.type === "extension_event" && e.name === "jev_routing")).toBe(false);
@@ -175,7 +190,7 @@ describe("activation through the generic door (#826)", () => {
     // On, but this session has no model pool at all (no endpoints): the
     // router is inert and says so exactly once.
     writeUserConfig(home, { typesafe: { apiKey: "sk-test", routing: true } });
-    const on = sessionFromConfig(base);
+    const on = sessionFromConfig(base());
     if ("error" in on) throw new Error(on.error.message);
     await on.session.send("hello");
     await Bun.sleep(5); // the pool resolution is asynchronous by design
@@ -193,7 +208,7 @@ describe("activation through the generic door (#826)", () => {
       cwd,
       home,
       config: { provider: "mock" },
-      bundledExtensions: [jevBundledSource],
+      bundledExtensions: [mountJev(home)],
     });
     if ("error" in assembled) throw new Error(assembled.error.message);
     const { session } = assembled;
@@ -238,7 +253,7 @@ describe("activation through the generic door (#826)", () => {
       cwd,
       home,
       config: { provider: "mock" },
-      bundledExtensions: [jevBundledSource],
+      bundledExtensions: [mountJev(home)],
     });
     // #826: an optional extension's broken config is the extension's
     // business. It never blocks a session that is otherwise usable — the

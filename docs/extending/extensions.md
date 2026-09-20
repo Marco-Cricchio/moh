@@ -533,10 +533,12 @@ and the host's warning line).
   set it for a file.
 - **Bundled extensions ride `sessionFromConfig`, not `register` directly**
   (#826/ADR-0039): a client passes
-  `bundledExtensions: [source]`, where a source is
-  `{ name, isActive(readConfig, configFile), activate(context), inactiveNote?(), wire?(read, wiring) }`.
-  The core asks `isActive` (an effect-free predicate over the user config,
-  read through the injected reader), registers `activate(context)` with
+  `bundledExtensions: [{ source, active }]`, where a source is
+  `{ name, evaluateActive?(readConfig, configFile), activate(context), inactiveNote?(), wire?(read, wiring) }`.
+  The **client** evaluates `evaluateActive` — an effect-free predicate over
+  the user config, which the client owns — and mounts the answer; the core
+  only consumes the boolean and never reads a config on the extension's
+  behalf. It registers `activate(context)` with
   `{ bundled: true }`, and offers the named capability slots through
   `wire`. An inactive source may supply its own one-line explanation
   (`inactiveNote()`) for the session log — the core logs what the extension
