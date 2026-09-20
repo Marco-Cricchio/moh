@@ -1211,6 +1211,10 @@ export function App({
         updateConfig,
         session,
         notify: push,
+        onUnresolvedSkillArgs: (skill, placeholders) => {
+          if (placeholders.length === 0) return;
+          setComposerPrefill(`${skill} args: ${placeholders.map((p) => `${p}=`).join(" ")}`);
+        },
         renameSession: (name) => session?.rename(name),
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),

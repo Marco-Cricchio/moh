@@ -168,6 +168,65 @@ describe("workflow slash command", () => {
   });
 });
 
+describe("#765: skill alias slash args", () => {
+  /** Captures the send options each invocation produces. */
+  function capturingSession() {
+    const sends: { text: string; options: any }[] = [];
+    return {
+      sends,
+      session: {
+        send: (text: string, options?: any) => {
+          sends.push({ text, options });
+          return Promise.resolve({ status: "ok" });
+        },
+      } as any,
+    };
+  }
+
+  /** Installs a first-party skill body with placeholders and turns workflow on. */
+  function setup(ctx: any, skillName: string, body: string) {
+    runSlashCommand("/workflow on", ctx);
+    writeFileSync(join(ctx.mohHome, "skills", skillName, "SKILL.md"), `---\nname: ${skillName}\ndescription: test\n---\n${body}`);
+  }
+
+  test("a body with placeholders substitutes slash args into the prompt", () => {
+    const ctx = makeCtx() as any;
+    const { sends, session } = capturingSession();
+    ctx.session = session;
+    setup(ctx, "implement", "Implement $1 against ${branch:-develop}.");
+    runSlashCommand("/implement issue-765 branch=feat/x", ctx);
+    expect(sends).toHaveLength(1);
+    // substitution happens in AgentSession.send (core-tested); the command
+    // passes the raw body and the parsed args.
+    expect(sends[0]!.options.prompt.text).toBe("Implement $1 against ${branch:-develop}.");
+    expect(sends[0]!.options.args.positional).toEqual(["issue-765"]);
+    expect(sends[0]!.options.args.named).toEqual({ branch: "feat/x" });
+  });
+
+  test("unfilled placeholders reach the zero-stress pre-fill seam", () => {
+    const ctx = makeCtx() as any;
+    const { session } = capturingSession();
+    ctx.session = session;
+    const unresolved: string[][] = [];
+    ctx.onUnresolvedSkillArgs = (_skill: string, placeholders: string[]) => unresolved.push(placeholders);
+    setup(ctx, "implement", "Release $1 ${level:-high}.");
+    runSlashCommand("/implement", ctx);
+    expect(unresolved).toHaveLength(1);
+    expect(unresolved[0]).toEqual(["level", "1"]);
+  });
+
+  test("a body without placeholders keeps the plain-text invocation", () => {
+    const ctx = makeCtx() as any;
+    const { sends, session } = capturingSession();
+    ctx.session = session;
+    setup(ctx, "implement", "Just work on: $ARGUMENTS and $x costs.");
+    runSlashCommand("/implement fix the bug", ctx);
+    expect(sends[0]!.options?.prompt).toBeUndefined();
+    expect(sends[0]!.text).toContain("Load the \"implement\" skill");
+    expect(sends[0]!.text).toContain("fix the bug");
+  });
+});
+
 describe("/routing and /model auto (#787, ADR-0038)", () => {
   /** A session stub that records commands and answers `extensionState`. */
   function routingSession(state: Record<string, unknown> | null, names: string[] = ["jev-guard"]) {

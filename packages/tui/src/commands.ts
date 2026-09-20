@@ -26,7 +26,7 @@ import { join } from "node:path";
 import type { UserConfig } from "./user-config";
 import { ROUTING_TIERS } from "@moh/jev-guard";
 import { readRoutingState, setJevUseCase, type ExtensionStateReader } from "./jev-control";
-import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS } from "@moh/core";
+import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS, parseSkillArgs } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
 
@@ -46,6 +46,10 @@ export interface SlashContext {
   session?: AgentSession | null;
   /** Toast / inline notice channel. */
   notify: (message: string) => void;
+  /** #765: invoked when a skill invocation leaves placeholders unfilled.
+   * The client decides what zero-stress looks like (the TUI pre-fills the
+   * composer); absent (tests, headless): nothing happens. */
+  onUnresolvedSkillArgs?: (skill: string, placeholders: string[]) => void;
   /** Appends a chrome event through the live session's store sink. */
   renameSession?: (name: string) => void;
   onOpenFrontier?: () => void;
@@ -709,13 +713,45 @@ export function workflowCommands(): SlashCommand[] {
       usage: `/${name} <what to ${name}>`,
       run(ctx, args) {
         if (!ctx.session) return ctx.notify(`/${name} needs an open session`);
+        const rest = args.trim();
+        // #765: prompt snippets — when the skill body carries argument
+        // placeholders, the slash args substitute into the turn-scoped
+        // prompt; positional first, then key=value pairs. A body without
+        // placeholders keeps the plain-text invocation shape.
+        const skillFiles = readInstalled(ctx.mohHome, skill);
+        const body = skillFiles["SKILL.md"];
+        if (body && HAS_PLACEHOLDER.test(body)) {
+          const parsed = parseSkillArgs(rest ? rest.split(/\s+/) : []);
+          void ctx.session.send(`/${name} ${rest}`.trim(), {
+            prompt: { name: skill, text: stripSkillFrontmatter(body) },
+            args: parsed,
+          });
+          ctx.onUnresolvedSkillArgs?.(skill, unresolvedPlaceholders(body, parsed));
+          return;
+        }
         void ctx.session.send(
-          `Load the "${skill}" skill (read its SKILL.md) and follow it.\n\n${args.trim()}`,
+          `Load the "${skill}" skill (read its SKILL.md) and follow it.\n\n${rest}`,
         );
       },
     })),
     skillsCommand,
   ];
+}
+
+/** Any #765 placeholder form in a skill body: positional, $@, or named. */
+const HAS_PLACEHOLDER = /\$\{[A-Za-z_][A-Za-z0-9_-]*(?::-[^}]*)?\}|\$@|\$[1-9]/;
+
+/** Placeholder names still unfilled after substitution, for the zero-
+ * stress pre-fill: the composer receives them instead of an error. */
+function unresolvedPlaceholders(body: string, args: ReturnType<typeof parseSkillArgs>): string[] {
+  const names: string[] = [];
+  for (const match of body.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_-]*)(?::-[^}]*)?\}/g)) {
+    const name = match[1]!;
+    if (!(name in args.named)) names.push(name);
+  }
+  const positionalCount = body.match(/\$[1-9]|\$@/g)?.length ?? 0;
+  for (let i = positionalCount; i > args.positional.length; i -= 1) names.push(`${i}`);
+  return names;
 }
 
 /** The command list active for a context (base + workflow when on). */
