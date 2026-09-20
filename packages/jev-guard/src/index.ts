@@ -931,6 +931,7 @@ export {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeClassification,
   saveTypesafeInjection,
   saveTypesafeLint,
   saveTypesafeRerank,

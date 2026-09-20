@@ -94,6 +94,10 @@ export interface SlashContext {
   /** #767: opens the session analysis modal (/session). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenSession?: () => void;
+  /** #833: opens the Jev use-case modal (/jev) — the session-warm control
+   * surface. Absent (headless): the command points at the persistent
+   * switches instead of pretending a session command exists. */
+  onOpenJev?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -337,6 +341,24 @@ const routingCommand: SlashCommand = {
     if (state.decidedModel) lines.push(`router's pick: ${state.decidedModel}`);
     lines.push("the persistent switch is the Settings entry «Jev (TypeSafe)» → Model routing");
     return ctx.notify(lines.join("\n"));
+  },
+};
+
+/**
+ * #833: the Jev use-case modal. One row per use case with the live state the
+ * extension reports, and a flip that commands the running extension for this
+ * session — never a config write (that is the Settings entry, and the CLI).
+ */
+const jevCommand: SlashCommand = {
+  name: "jev",
+  description: "Jev use cases: live status, switch one on/off for this session",
+  usage: "/jev",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/jev needs an open session");
+    if (!ctx.onOpenJev) {
+      return ctx.notify("the Jev use cases modal needs the TUI — the persistent switches are in Settings (Jev / TypeSafe)");
+    }
+    return ctx.onOpenJev();
   },
 };
 
@@ -662,6 +684,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   copyCommand,
   forkCommand,
   helpCommand,
+  jevCommand,
   modeCommand,
   modelCommand,
   mpmCommand,

@@ -224,6 +224,23 @@ export function saveTypesafeRerank(file: string, enabled: boolean, io: UserConfi
 }
 
 /**
+ * Persists the prompt-classification opt-in (#788) — the Settings toggle's
+ * writer. On by default, so `false` is the opt-out: the flag is read at
+ * session assembly like its siblings. (#833: the row existed in the config
+ * schema from #788 on, but had no writer and no Settings row.)
+ */
+export function saveTypesafeClassification(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, classification: enabled };
+    },
+    io,
+  );
+}
+
+/**
  * Persists the skill-suggestion opt-in (#793) — the Settings toggle's
  * writer, same lifecycle as the other flags: read at session assembly.
  */

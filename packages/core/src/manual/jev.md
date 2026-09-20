@@ -21,6 +21,9 @@ You activate Jev from the TUI Settings panel, entry **Jev (TypeSafe)**:
 - **Anti-injection** — the opt-in for the prompt-injection check (off by
   default; see below). It is the one use case that sends the text you
   typed, so it is never on unless you turned it on.
+- **Classification** — the opt-*out* for prompt classification (on by
+  default; see below). Turning it off also stops the project-map gate that
+  depends on it.
 - **Status** — a read-only row: `active (key …abcd, timeout 2500ms)` or
   `inactive`.
 - **Remove** — clears the key; the bundled extension is then not registered
@@ -28,9 +31,17 @@ You activate Jev from the TUI Settings panel, entry **Jev (TypeSafe)**:
 
 There is no first-run wizard: **a stored key is the state**. Enter the key
 from the panel — that is where it is validated and masked, so hand-editing
-the configuration file is not a supported way to activate Jev. The routing
+the configuration file is not a supported way to activate Jev. The use-case
 opt-ins are changed the same way, and all of them are read when a session
 starts: a session already open keeps the settings it was assembled with.
+
+**These rows are the persistent switches.** What they write applies from the
+next session on; changing a use case inside a session you already have open
+is what `/jev` is for (see [Controlling the use cases](#controlling-the-use-cases)).
+The same flags are reachable from a shell, for a machine you are only
+setting up: `moh jev routing on`, `moh jev classification off` and so on —
+`moh jev --help` lists the names, and every one of them writes
+`~/.moh/config` exactly like the panel.
 
 The key lives in `~/.moh/config` (the `typesafe` block, key `apiKey`) —
 the user configuration, never moh.json: a cloned project must not be able
@@ -88,6 +99,25 @@ validated when you saved it. It exits 0 whether Jev is active or not
 back to the Settings panel. Only a malformed `typesafe` section is an error
 (exit 2), like every other broken config section.
 
+### Changing a flag from the shell
+
+```
+$ moh jev skills on
+skill suggestion: on · from your next session (the config in ~/.moh/config)
+$ moh jev classification off
+prompt classification: off · from your next session (the config in ~/.moh/config)
+```
+
+The usable names are `routing`, `injection`, `classification`, `lint`,
+`rerank` and `skills`. `guardrail` is not one of them, and the command says
+why instead of pretending it is a typo: the guardrail has no configuration
+flag at all — a stored key is what turns it on — so it can only be switched
+off for a single session, from the `/jev` modal. An unknown name, a missing
+action (`moh jev routing` alone) or a malformed `typesafe` section is a usage
+error: exit 2, a message on stderr, and your file left exactly as it was.
+A write never makes a call to TypeSafe, and it never touches the key or any
+other section of the config.
+
 ## Controlling the use cases
 
 There are two switches per use case, and they are not the same kind of
@@ -118,6 +148,37 @@ state has more than on/off (a manual model switch suspends it, and `auto`
 hands it back); its commands are the `/routing` ones above, and it is shown
 in its own words when paused.
 
+### The `/jev` modal
+
+`/jev` opens the session switchboard: one row per use case with the state it
+is in **right now**, and the state the configuration names beside it, because
+they are two different things.
+
+```
+  › guardrail       ● on       config on
+    routing         ❙❙ paused   config on · suspended — you picked the model by hand (auto hands it back)
+    classification  ● on       config on
+    injection       ● on       config off
+                  on for this session — the config still says off
+    lint            ○ off      config off
+    rerank          ○ off      config off
+    skills          — inert    config off · not available in this session
+```
+
+`↑`/`↓` move, `enter` (or space) flips the selected row, `r` re-reads the
+state, `esc` closes. The four states are: `on` (judging now), `off` (not
+judging), `paused` (routing only: on, but suspended by a manual model switch
+you made — flip it to hand routing back) and `inert` (this session cannot run
+it at all). A flip sends the command to the extension and nothing else: no
+file is written, and the line under the row tells you what the config still
+says, so a session you resume tomorrow starts from the configuration again.
+
+A refused flip says so in the same place — the guardrail in yolo, or a use
+case this session has no use for. With no Jev key at all there is no
+extension to command, so the modal opens on the way back to Settings
+(`ctrl+s` → Jev (TypeSafe) → API key) instead of an error or an invented
+`off`.
+
 Two rules are worth stating plainly:
 
 - **The guardrail cannot be switched off in yolo.** In that mode the
@@ -132,9 +193,11 @@ Two rules are worth stating plainly:
 
 ## Use cases
 
-Five use cases ship today: the bash guardrail, the model router, the
-anti-injection check, the compaction cut guide, the prompt classification,
-the quality gate, the seed rerank and the skill suggestion.
+Eight things run today, seven of them switchable from `/jev`: the bash
+guardrail, the model router, the prompt classification, the anti-injection
+check, the quality gate, the seed rerank and the skill suggestion — plus the
+compaction cut guide, which has no opt-in to switch and always runs when
+compaction does.
 
 ### Bash guardrail
 

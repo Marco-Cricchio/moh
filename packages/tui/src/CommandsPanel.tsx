@@ -48,6 +48,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["/commands", "this command list"],
       ["/compact", "force context compaction (same producer as the auto trigger)"],
       ["/copy", "copy the last assistant reply to the clipboard"],
+      ["/jev", "Jev use cases: live status, switch one on/off for this session"],
       ["/mode", "switch vibe / dev mode"],
       ["/model", "model picker (r refreshes live model lists)"],
       ["/reload", "hot-reload moh.json + user config"],

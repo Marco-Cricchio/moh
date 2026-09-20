@@ -38,7 +38,7 @@ commands:
   sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
-  jev      TypeSafe/Jev status (see: moh jev --help)
+  jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
 
 options:

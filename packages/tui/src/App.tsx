@@ -63,6 +63,8 @@ import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeS
 import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
+import { JevModal } from "./JevModal";
+import { JEV_EXTENSION_NAME, setJevUseCase } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { TreePanel } from "./TreePanel";
@@ -113,7 +115,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -1216,6 +1218,7 @@ export function App({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenJev: () => setOverlay("jev"),
       })}
     />
   ) : null;
@@ -1431,6 +1434,14 @@ export function App({
         )}
         {overlay === "mpm" && session && (
           <MpmModal diagnostics={session.mpmDiagnostics()} onClose={() => setOverlay(null)} />
+        )}
+        {overlay === "jev" && session && (
+          <JevModal
+            active={session.extensionNames().includes(JEV_EXTENSION_NAME)}
+            read={session.extensionState.bind(session)}
+            send={(usecase, action) => setJevUseCase(session, usecase, action)}
+            onClose={() => setOverlay(null)}
+          />
         )}
         {overlay === "session" && session && session.sessionFile &&
           (sessionReport && !("error" in sessionReport) ? (
