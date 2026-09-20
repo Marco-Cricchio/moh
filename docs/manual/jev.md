@@ -173,18 +173,21 @@ it at all). A flip sends the command to the extension and nothing else: no
 file is written, and the line under the row tells you what the config still
 says, so a session you resume tomorrow starts from the configuration again.
 
-A refused flip says so in the same place — the guardrail in yolo, or a use
-case this session has no use for. With no Jev key at all there is no
+A refused flip says so in the same place — a use case this session has no
+use for. With no Jev key at all there is no
 extension to command, so the modal opens on the way back to Settings
 (`ctrl+s` → Jev (TypeSafe) → API key) instead of an error or an invented
 `off`.
 
 Two rules are worth stating plainly:
 
-- **The guardrail cannot be switched off in yolo.** In that mode the
-  guardrail is narrowed to the lethal checks and it stays that way: the
-  command is refused with a visible line rather than obeyed. Outside yolo
-  the session switch works like every other one.
+- **The guardrail can be switched off in yolo.** In that mode the armed
+  guardrail is narrowed to the lethal checks and says so on every surface;
+  but the session switch works there too, exactly as outside yolo: the flip
+  is applied, session-only, and visible in the transcript and the modal
+  (ADR-0041). `on` restores the narrowed lethal checks. A yolo session with
+  a guardrail false positive is no longer stuck — the veto is a hard block,
+  and disarming the guardrail mid-session is the escape.
 - **A use case the session cannot run is not a use case you can switch on.**
   If a session has nothing to give it — no model pool to route between, no
   skill roster to suggest from, no project root to diff — it is *inert*, and

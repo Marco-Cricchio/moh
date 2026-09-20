@@ -15,9 +15,8 @@ import { readJevState, type ExtensionStateReader } from "./jev-control";
  * The modal owns no state of its own beyond the cursor and the last line: it
  * sends the extension's own command and re-reads the extension's own
  * snapshot, so what is on screen is what the extension thinks — including
- * its refusals (a guardrail `off` in yolo, a use case this session cannot
- * run). A refusal is shown as a refusal, never silently swallowed and never
- * as a state change.
+ * its refusals (a use case this session cannot run). A refusal is shown as
+ * a refusal, never silently swallowed and never as a state change.
  */
 export interface JevModalProps {
   /**
@@ -45,10 +44,10 @@ const STATUS_COL = 9;
  * `before` and `after` are the extension's own state on either side of the
  * command — the extension is the only thing that decides, so the answer is
  * read from the *move*, never from a single glance: a state that did not
- * move is a refusal (the two this surface can produce are the guardrail in
- * yolo and a use case this session cannot run at all), a state that moved is
- * the change, and the asymmetry against the config rides along because the
- * next session goes back to it.
+ * move is a refusal (the one this surface can still produce is a use case
+ * this session cannot run at all), a state that moved is the change, and
+ * the asymmetry against the config rides along because the next session
+ * goes back to it.
  *
  * The two reads must be the state *after* the command had its chance:
  * `setExtensionState` appends the event and dispatches it asynchronously, so
@@ -57,9 +56,6 @@ const STATUS_COL = 9;
  */
 export function flipOutcome(usecase: JevUseCase, action: JevUseCaseAction, before: JevUseCaseState, after: JevUseCaseState): string {
   if (after.status === before.status) {
-    if (usecase === "guardrail" && action === "off") {
-      return "guardrail: off refused — yolo keeps the lethal checks on";
-    }
     if (after.status === "inert") return `${usecase}: refused — not available in this session`;
     return `${usecase}: not applied — the extension kept it ${after.status}`;
   }
