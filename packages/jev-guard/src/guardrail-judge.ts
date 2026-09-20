@@ -98,6 +98,9 @@ function guardrailRecord(
     callId,
     tool: GUARDRAIL_TOOL,
     lethalOnly: false,
+    // #848: a cache hit is distinguishable from a live judgment, and it
+    // carries no fabricated measurements — nothing was sent to a model.
+    cached: true,
     state: { command: judged.command, cwd: judged.cwd, git: judged.git },
     ...(answers !== undefined ? { answers } : {}),
     decision: verdict.verdict,
