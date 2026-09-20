@@ -200,6 +200,26 @@ describe("activation through the generic door (#826)", () => {
     await on.session.dispose();
   });
 
+  test("#868: the declared routingPool reaches the router through the activation context", async () => {
+    const cwd = tmpDir("moh-jev-cwd-");
+    const home = tmpDir("moh-jev-assembly-");
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test", routing: true } });
+    const assembled = sessionFromConfig({
+      cwd,
+      home,
+      // The core passes the declared pool verbatim, schema-validated.
+      config: { provider: "mock", routingPool: ["other/monster"] },
+      bundledExtensions: [mountJev(home)],
+    });
+    if ("error" in assembled) throw new Error(assembled.error.message);
+    const { session } = assembled;
+    await session.send("hello");
+    await Bun.sleep(5);
+    const read = () => (session.extensionState("jev-guard", "routingState") as () => Record<string, unknown>)();
+    expect(read()).toMatchObject({ paused: false, declaredPool: ["other/monster"] });
+    await session.dispose();
+  });
+
   test("routing off still registers the router, paused: /routing on enables the session", async () => {
     const cwd = tmpDir("moh-jev-cwd-");
     const home = tmpDir("moh-jev-assembly-");

@@ -595,7 +595,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         ctx.state.routingState = (): Record<string, unknown> | null => {
           const resolution = judge.peekResolution();
           const snapshot = judge.snapshot();
-          if (!resolution) return { ...snapshot, assignment: null };
+          if (!resolution) return { ...snapshot, assignment: null, ...(routing.declaredPool !== undefined ? { declaredPool: [...routing.declaredPool] } : {}) };
           const assignment = resolution.assignment;
           const tierTargets = assignment ? assignment.targets : undefined;
           return {
@@ -609,6 +609,8 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
                 }
               : null,
             warnings: [...resolution.warnings],
+            // #868: the declared rotation pool, as wired (option B audit).
+            ...(routing.declaredPool !== undefined ? { declaredPool: [...routing.declaredPool] } : {}),
           };
         };
       }
