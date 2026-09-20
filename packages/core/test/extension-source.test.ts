@@ -150,6 +150,17 @@ async function withSession<T>(
   }
 }
 
+/** #834 (security): a first-time file is asked about BEFORE it is imported,
+ * so the question carries the file and its exact bytes — never the module's
+ * self-declared name/version, which do not exist yet at that point. */
+function expectFirstTimeAsk(asked: ExtensionConsentRequest[], file: string): void {
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toMatchObject({ file: canonical(file) });
+  expect(asked[0]!.hash).toMatch(/^[0-9a-f]{64}$/);
+  expect(asked[0]!.name).toBeUndefined();
+  expect(asked[0]!.version).toBeUndefined();
+}
+
 describe("sessionFromConfig loads the declared source (#834)", () => {
   test("files load in the resolved order: dotdir sorted, then the project's proposals", async () => {
     const { cwd, home, mohHome } = tempProject();
@@ -217,8 +228,10 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
       }),
       async (session) => {
         const turn = await session.send("go");
-        // The prompt named the extension, its version and its source path.
-        expect(asked).toEqual([{ name: "guard", version: "1.0.0", file: canonical(file) }]);
+        // #834 (security): the question comes BEFORE the import, so what it
+        // carries is the file and its bytes — not the module's own claims,
+        // which do not exist yet (and would not be trusted anyway).
+        expectFirstTimeAsk(asked, file);
         const history = session.history();
         expect(history.find((e) => e.type === "extension_loaded")).toMatchObject({ name: "guard", version: "1.0.0" });
         // The veto really came from the file — the tool call never ran.
@@ -296,7 +309,12 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
       await withSession(assemble({ cwd, home, provider: turnOnEcho() }), async (session) => {
         const turn = await session.send("go");
         expect(turn.status).toBe("done");
-        expect(failedEvents(session.history()).find((e) => e.name === "guard")).toMatchObject({ reason: "consent" });
+        // The refusal names the *file*: nothing was imported, so the module
+        // never got to claim a name.
+        expect(failedEvents(session.history()).find((e) => e.reason === "consent")).toMatchObject({
+          name: "guard.mjs",
+          reason: "consent",
+        });
         // The call is denied by the ordinary headless fail-fast, never by
         // the extension that was not loaded.
         expect(session.history().find((e) => e.type === "permission_denied")).toMatchObject({ reason: "headless" });
@@ -334,7 +352,7 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
       }),
       async (session) => {
         await session.send("go");
-        expect(asked).toEqual([{ name: "declared", version: "1.0.0", file: canonical(declared) }]);
+        expectFirstTimeAsk(asked, declared);
         expect(session.history().find((e) => e.type === "permission_denied")).toMatchObject({ tool: "echo" });
       },
     );

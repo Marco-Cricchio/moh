@@ -23,14 +23,17 @@ matching section here at tag time.
 
 - **Loadable extensions** (#834): moh finally loads extensions it did not
   ship. Drop a `.ts`/`.mjs` file in `~/.moh/extensions/`, or declare one in
-  `moh.json` `"extensions"`, and the first load asks once — naming the
-  extension, its version and its source path — before enabling it; the
-  answer is remembered against the file's exact bytes, so editing it asks
-  again. A `moh.json` declaration only *proposes*: a clone you never
-  answered for loads nothing. Headless clients (`moh run`, `moh serve`,
-  `moh compact`) never prompt — an un-enabled extension is skipped with a
-  visible reason and the exit code is untouched. No sandbox: an extension
-  runs with moh's own privileges, and the manual page says so.
+  `moh.json` `"extensions"`, and the first load asks once — naming the file
+  and a SHA-256 of its exact bytes — before enabling it; the answer is
+  remembered against those bytes, so editing it asks again. The question
+  comes **before the file is loaded**, because loading a module runs it: a
+  file you decline, or that nobody could ask you about, is never imported
+  and executes nothing. A `moh.json` declaration only *proposes*: a clone
+  you never answered for runs no code, in any client. Headless clients
+  (`moh run`, `moh serve`, `moh compact`) never prompt — an un-enabled
+  extension is skipped with a visible reason and the exit code is
+  untouched. No sandbox: an extension runs with moh's own privileges, and
+  the manual page says so.
 
 - **Bundled Jev (TypeSafe) integration** (#784): moh can consult the
   TypeSafe service for typed judgments. Activate it by entering an API key

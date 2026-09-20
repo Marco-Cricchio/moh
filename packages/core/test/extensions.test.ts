@@ -10,8 +10,9 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
+import { canonicalModulePath } from "../src/extensions";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
-import type { AgentEvent, Tool } from "../src/index";
+import type { AgentEvent, ExtensionConsentRequest, Tool } from "../src/index";
 import type { ExtensionDefinition, ExtensionSetupContext } from "@moh/extension";
 
 const echoTool: Tool = {
@@ -260,8 +261,8 @@ describe("consent and dependencies", () => {
   test("one-time enable consent: declined once, then approved and remembered", async () => {
     const dir = tempDir();
     const asked: string[] = [];
-    const consent = (name: string) => {
-      asked.push(name);
+    const consent = (request: ExtensionConsentRequest) => {
+      asked.push(request.name ?? request.file ?? "");
       return asked.length > 1; // decline the first ask
     };
     const def = defineExtension({ name: "c", version: "1.0.0", apiVersion: "1.0", setup: () => {} });
@@ -665,5 +666,80 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
     await rt.ready();
     await new Promise((r) => setTimeout(r, 10));
     expect(answer).toBe(false);
+  });
+});
+
+describe("consent precedes execution (#834 security)", () => {
+  /** A file extension whose payload runs at module top level, not in setup():
+   * the top level is what an import evaluates, so it is the honest probe for
+   * "did un-consented code run?" — a setup() side effect would be gated by
+   * registration and would hide the bug. */
+  function payloadFile(dir: string, marker: string): string {
+    const file = join(dir, "payload.mjs");
+    writeFileSync(
+      file,
+      `import { writeFileSync } from "node:fs";\n` +
+        `writeFileSync(${JSON.stringify(marker)}, "top-level code ran");\n` +
+        `export default { name: "payload", version: "1.0.0", apiVersion: "1.0", setup() {} };\n`,
+    );
+    return file;
+  }
+
+  test("a declined file is never imported: its top level must not run", async () => {
+    const dir = tempDir();
+    const marker = join(dir, "PWNED");
+    const file = payloadFile(dir, marker);
+    const rt = new ExtensionRuntime({ mohHome: tempDir(), consent: () => false });
+    expect(await rt.registerFile(file)).toBe(false);
+    expect(rt.consumeLoadEvents().map((e) => (e as { reason?: string }).reason)).toContain("consent");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("with no consent seam (headless) a file is never imported either", async () => {
+    const dir = tempDir();
+    const marker = join(dir, "PWNED-HEADLESS");
+    const file = payloadFile(dir, marker);
+    const rt = new ExtensionRuntime({ mohHome: tempDir() });
+    expect(await rt.registerFile(file)).toBe(false);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("the ask happens before the import, so it cannot name claims that do not exist yet", async () => {
+    const dir = tempDir();
+    const marker = join(dir, "PWNED-ORDER");
+    const file = payloadFile(dir, marker);
+    let sawMarkerWhenAsked: boolean | undefined;
+    const rt = new ExtensionRuntime({
+      mohHome: tempDir(),
+      consent: (request) => {
+        sawMarkerWhenAsked = existsSync(marker);
+        // The identity the user is asked about is the canonical file and its bytes.
+        expect(request.file).toBe(canonicalModulePath(file));
+        expect(request.hash).toMatch(/^[0-9a-f]{64}$/);
+        return true;
+      },
+    });
+    expect(await rt.registerFile(file)).toBe(true);
+    expect(sawMarkerWhenAsked).toBe(false);
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  test("an edited file is not imported before the re-ask", async () => {
+    const dir = tempDir();
+    const home = tempDir();
+    const marker = join(dir, "PWNED-EDIT");
+    const rt = new ExtensionRuntime({ mohHome: home, consent: () => true });
+    const file = join(dir, "edit.mjs");
+    const source = (body: string) =>
+      `export default { name: "edit", version: "1.0.0", apiVersion: "1.0", setup() {} };\n${body}`;
+    writeFileSync(file, source(""));
+    expect(await rt.registerFile(file)).toBe(true);
+
+    // The edited bytes carry a payload and the user declines the re-ask: the
+    // previous instance stays and the new top level never runs.
+    writeFileSync(file, source(`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "edit ran");`));
+    const strict = new ExtensionRuntime({ mohHome: home, consent: () => false });
+    expect(await strict.registerFile(file)).toBe(false);
+    expect(existsSync(marker)).toBe(false);
   });
 });

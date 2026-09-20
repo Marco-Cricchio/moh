@@ -467,22 +467,32 @@ The order is the load order — the dotdir first (sorted), then the project's
 declarations in file order — and since "first decision wins" is the rule for
 every hook, that order is part of the contract.
 
-**Consent is content-bound.** An extension is arbitrary code running
-in-process, so the first load asks: a modal in the TUI naming the
-extension, its version and its source path, and stating that there is no
-sandbox. A `true` answer is remembered in `~/.moh/extensions.json` against
-the **resolved path plus a SHA-256 of the file's bytes** — so the same file
-loads silently afterwards, and editing it asks again (the hash changed).
-There is nothing to remember a *name*: two files claiming the same
-extension name are two different pieces of code.
+**Consent is content-bound, and it comes before the code runs.** An
+extension is arbitrary code running in-process, so the first load asks: a
+modal in the TUI naming the file and a SHA-256 of its exact bytes, and
+stating that there is no sandbox. A `true` answer is remembered in
+`~/.moh/extensions.json` against the **resolved path plus that hash** — so
+the same file loads silently afterwards, and editing it asks again (the
+hash changed). There is nothing to remember a *name*: two files claiming
+the same extension name are two different pieces of code.
+
+The order matters and is the point: **the question is answered before the
+file is imported**, because importing a module evaluates it. A file you
+decline — or that no client could ask you about — is never imported, so it
+runs nothing at all, not even its top-level code. That is why the prompt
+shows no name or version of its own: those are the module's self-declared
+claims, and at the moment it is asked about the file has not run, so it has
+made none. The claims are not what you trust anyway; the bytes are.
 
 **A cloned repository cannot activate code on your machine.** A
-`moh.json` declaration that you never allowed is not loaded, in any client.
-This is the same precedent as `typesafe` (user config only) and `mcpTrust`
-(the repo's own `trusted` field is ignored).
+`moh.json` declaration that you never allowed is not loaded — and, per the
+above, not even imported — in any client. This is the same precedent as
+`typesafe` (user config only) and `mcpTrust` (the repo's own `trusted`
+field is ignored).
 
 **Headless fails closed.** `moh run`, `moh serve` and `moh compact` have
-nobody to ask: an extension that was never enabled is skipped with a visible
+nobody to ask: an extension that was never enabled is skipped — never
+imported, so never executed — with a visible
 `extension_failed { reason: "consent" }` in the log and one line on stderr.
 The session continues and the exit code is untouched.
 

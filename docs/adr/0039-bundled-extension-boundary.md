@@ -135,3 +135,36 @@ seams (ADR-0031→0038) remain moh capabilities that survive the vendor disappea
   config (a second gesture for the user, and the ratified model is one); teaching the core
   to read `typesafe` generically via a generic config schema (the core would own a vendor
   block's grammar).
+
+## Amendment (2026-09-20): the consent precedes the import
+
+Found while reviewing the release candidate, and fixed in the same change: the #834 door
+evaluated a file **before** asking about it. `#registerFileNow` imported the module (which
+runs it) and only then resolved the consent inside `#instantiate` — so a declined file, and
+above all a *never-asked* one (every headless run, and any `moh.json` declaration in a
+cloned repository), executed its top-level code while the session reported
+`extension_failed { reason: "consent" }`. Verified by probe, both paths.
+
+The invariant this ADR's #834 half claims — "a cloned repository cannot run code on your
+machine" — therefore held for *registration* but not for *execution*, which is the part
+that matters.
+
+The fix moves the question to where the identity is computable without running anything:
+the content identity (resolved path + SHA-256, a `readFileSync`) is derived first, the
+stored grant or the consent seam is consulted, and only a granted file is imported. The
+same correction applies to the hot-reload path (an edited file was imported before its
+re-ask). The identity is re-derived inside `#instantiate`, so a file swapped between the
+ask and the import is caught rather than trusted.
+
+Consequence for the contract: `ExtensionRuntimeOptions.consent` now takes an
+`ExtensionConsentRequest` instead of positional `(name, version, file)`, and
+`ExtensionConsentRequest` carries the file and its `hash`, with `name`/`version` optional —
+they are the module's self-declared claims, which do not exist at ask time on a first load
+and are not the trusted part in any case. `#834`'s trust model is unchanged in every other
+respect: content-bound consent, the persisted grant, `bundled` skipping it, headless
+failing closed.
+
+Regression coverage: `packages/core/test/extensions.test.ts` ("consent precedes
+execution") asserts that a declined file, a headless file and an edited file are never
+imported — the probe is a top-level side effect, since a `setup()` side effect would be
+gated by registration and would hide exactly this bug.

@@ -265,8 +265,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       mohHome,
       ...(onExtensionConsent
         ? {
-            consent: (name: string, version: string, file: string | undefined) =>
-              onExtensionConsent({ name, version, ...(file ? { file } : {}) }),
+            consent: (request) => onExtensionConsent(request),
           }
         : { onWarning: (message: string) => process.stderr.write(`moh: ${message}\n`) }),
     });
