@@ -94,9 +94,11 @@ describe("beforeTurn (ADR-0033)", () => {
     await session.send("first");
     await session.send("second");
 
+    // #852: the route's cooldown report rides along. The mock provider is
+    // not a route, so the list is empty — but the field is present.
     expect(seen).toEqual([
-      { text: "first", turnIndex: 1, model: "mock" },
-      { text: "second", turnIndex: 2, model: "mock" },
+      { text: "first", turnIndex: 1, model: "mock", endpointCooldowns: [] },
+      { text: "second", turnIndex: 2, model: "mock", endpointCooldowns: [] },
     ]);
   });
 
