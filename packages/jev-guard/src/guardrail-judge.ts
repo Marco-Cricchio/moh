@@ -281,7 +281,7 @@ export function createGuardrailJudge(
       } else if (decision.verdict === "ask") {
         const b = askBadge(signals);
         verdict = { verdict: "ask", badge: b.badge, keyDimension: b.keyDimension, keyProbability: b.keyProbability };
-      } else verdict = { verdict: "pass" };
+      } else verdict = { verdict: "pass", ...(decision.note !== undefined ? { note: decision.note } : {}) };
       cache.set(cacheKey, verdict);
       return { verdict, cached: false, state: judged, signals };
     },

@@ -321,6 +321,12 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           // denies it — all core behaviour, nothing to do here but ask.
           return { ask: true, reason: result.verdict.badge };
         }
+        // #867: a yolo pass softened by the in_scope contradiction shows a
+        // one-line ephemeral status — the lethal check fired and was waived;
+        // the user must see that even where asking is impossible.
+        if (v === "pass" && result.verdict.note) {
+          ctx.setStatus(result.verdict.note);
+        }
         return;
       });
       // ---- #791 anti-injection: two halves, two seams -------------------

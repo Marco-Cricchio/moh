@@ -37,7 +37,9 @@ export function gitSnapshot(cwd: string): string | null {
 export type GuardrailVerdict =
   | { verdict: "deny"; reason: string; keyDimension?: string; keyProbability?: number }
   | { verdict: "ask"; badge: string; keyDimension: string; keyProbability: number }
-  | { verdict: "pass" };
+  /** #867: a pass softened by the in_scope contradiction carries a visible
+   * note (the yolo "visible line"); ordinary passes have none. */
+  | { verdict: "pass"; note?: string };
 
 export interface GuardrailCache {
   /** Returns the cached verdict, or undefined when the key is unseen. */
