@@ -210,8 +210,10 @@ read as a wall of `◈ jev · …` lines. What survives:
   (`warn`, `withheld`, `cancelled`, `refused-headless`, `sent anyway`);
 - the **guardrail** `ask` and `deny` lines (a `pass` never shows, in
   either mode);
-- a real routing **`switch to <model>`** — not a `stay`, not the router's
-  notices (`unpriced`, `ignored-label`, `inert`, `mismatch`);
+- a real routing **`switch to <model>`**, and the `routing · suspended by
+  your manual model switch (…)` echo of your own manual switch — not a
+  `stay`, not the router's notices (`unpriced`, `ignored-label`, `inert`,
+  `mismatch`);
 - a quality-gate **`correct`** (a correction turn is running) — not a
   `pass`;
 - the **skill suggestion** when a skill was actually suggested;

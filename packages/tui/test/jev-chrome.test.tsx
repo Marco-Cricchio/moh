@@ -217,6 +217,10 @@ describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () =>
     ];
     const rendered = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
     expect(rendered.filter((t) => typeof t === "string" && t.startsWith("jev"))).toEqual([]);
+    // Dev mode is byte-for-byte today's: the same records all render, minus
+    // the injection and guardrail passes the pre-#843 silent filter already
+    // dropped.
+    expect(projectTranscript(events, {}).length).toBe(events.length - 2);
   });
 
   test("the lines that earn their keep still show in vibe mode", () => {
@@ -233,6 +237,7 @@ describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () =>
       ev("jev_skill_suggest", { useCase: "skill_suggest", call: "relevance", ok: true, suggested: "tdd", line: "try tdd" }),
       ev("jev_usecase", { usecase: "injection", action: "on", sessionOnly: true, config: false }),
       ev("jev_usecase", { usecase: "guardrail", action: "nonsense", refused: "unknown-action" }),
+      ev("jev_routing", { kind: "override", model: "m/big" }),
     ];
     const rendered = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
     const jev = rendered.filter((t): t is string => typeof t === "string" && t.startsWith("jev"));
@@ -241,6 +246,10 @@ describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () =>
     expect(jev).toContain("jev · guardrail · ask (destructive 0.42)");
     expect(jev).toContain("jev · routing · switch to a/big (potente)");
     expect(jev).toContain("jev · injection · sent anyway (injection 0.80)");
+    expect(jev).toContain("jev · routing · suspended by your manual model switch (m/big)");
+    // Dev mode again: nothing extra dropped, nothing rephrased.
+    const dev = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(dev).toEqual(jev);
   });
 
   test("the filter is on the event name + payload, not the rendered string", () => {

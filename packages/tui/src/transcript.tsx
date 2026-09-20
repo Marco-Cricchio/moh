@@ -390,7 +390,10 @@ function isSilentInjection(name: string, payload: unknown): boolean {
  */
 function survivesVibe(name: string, payload: unknown): boolean {
   if (name === "jev_usecase") return true;
-  if (name === "jev_routing") return false;
+  // The router's notices (unpriced, ignored-label, inert, mismatch) are
+  // chatter in vibe; the one exception is the `override` — the echo of the
+  // user's own manual model switch, their command like a control line.
+  if (name === "jev_routing") return asRecord(payload)?.kind === "override";
   if (name === "jev_skill_suggest") {
     const record = asRecord(payload);
     return record?.suggested !== undefined && record.suggested !== null;
