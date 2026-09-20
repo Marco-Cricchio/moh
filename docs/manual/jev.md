@@ -292,7 +292,7 @@ router steps aside, with one visible line saying so; `/routing auto` (or
 you are on, the next judged turns do. If the serving model is not the one
 the router picked (you edited the configuration, or chose an id outside
 the tier map), the router says so once — `jev · routing · serving
-<model>, router picked <model>` in the transcript — and waits instead of
+(model), router picked (model)` in the transcript — and waits instead of
 overruling you on the next message.
 
 `/routing on` works even when the Settings toggle is off — it enables
