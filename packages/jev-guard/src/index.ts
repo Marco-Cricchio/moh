@@ -278,7 +278,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // and a warm `off` (refused in yolo, see `use-cases.ts`) suppresses
       // the judgment from the next call.
       const judge = createGuardrailJudge(
-        { client, state: ctx.state ?? {} },
+        { client, state: ctx.state ?? {}, append: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }) },
         {
           mode: () => mode,
           cwd: (args) => {

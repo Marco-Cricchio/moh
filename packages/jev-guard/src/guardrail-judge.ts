@@ -43,6 +43,13 @@ export interface GuardrailJudgeDeps {
   client: Pick<JevClient, "judge">;
   /** The extension state store (cache + last git snapshot live here). */
   state: Record<string, unknown>;
+  /**
+   * #843: where the judgment record goes, when the caller wants it appended
+   * by the judge itself — the decision is computed after the client call,
+   * so the record (which must carry it) can only be built here. Absent: the
+   * client's own `record` result is used unchanged (legacy wiring).
+   */
+  append?: (record: Record<string, unknown>) => void;
 }
 
 /** Extracts and normalizes the judged state for a bash call. */
@@ -54,6 +61,40 @@ function bashState(command: string, cwd: string): GuardrailState {
 function scoreOf(answers: Record<string, JevAnswer>, id: string): number {
   const a = answers[id];
   return a?.type === "score" && typeof a.score === "number" ? a.score : 0;
+}
+
+/**
+ * #843: the key probability a verdict was based on — the same dimension the
+ * ratified badge names on an ask (destructive first, then exfiltration,
+ * then risk). A pass decided nothing, so it has none.
+ */
+function keyProbabilityOf(signals: GuardrailSignals, verdict: string): number | undefined {
+  if (verdict === "pass") return undefined;
+  if (signals.destructive >= 0.4) return signals.destructive;
+  if (signals.exfiltration >= 0.4) return signals.exfiltration;
+  return signals.riskLevel;
+}
+
+/** #843: the judgment record for a verdict (used on cache hits, where no
+ * model/latency/usage exists to fabricate). */
+function guardrailRecord(
+  answers: Record<string, JevAnswer> | undefined,
+  callId: string,
+  judged: GuardrailState,
+  verdict: GuardrailVerdict,
+): Record<string, unknown> {
+  const keyProbability =
+    verdict.verdict === "pass" ? undefined : verdict.verdict === "ask" ? verdict.keyProbability : undefined;
+  return {
+    useCase: "guardrail",
+    callId,
+    tool: GUARDRAIL_TOOL,
+    lethalOnly: false,
+    state: { command: judged.command, cwd: judged.cwd, git: judged.git },
+    ...(answers !== undefined ? { answers } : {}),
+    decision: verdict.verdict,
+    ...(keyProbability !== undefined ? { keyProbability } : {}),
+  };
 }
 
 /** The ratified "uncertain" badge text, quoted in the permission modal. */
@@ -117,23 +158,34 @@ export function createGuardrailJudge(
       const judged = bashState(command, cwdOf(args));
       const key = guardrailStateKey(judged);
       const hit = cache.get(key);
-      if (hit) return { verdict: hit, cached: true, state: judged };
+      // #843: a cache hit is a real judgment record too — the verdict plus
+      // the key probability ride along, no fabricated model/latency/usage.
+      if (hit) {
+        deps.append?.(guardrailRecord(undefined, callId, judged, hit));
+        return { verdict: hit, cached: true, state: judged };
+      }
       const lethalOnly = mode() === "yolo";
+      const recordBase: Record<string, unknown> | undefined = deps.append ? {} : undefined;
       const outcome = await deps.client.judge({
         state: { command: judged.command, cwd: judged.cwd, git: judged.git },
         questions: GUARDRAIL_QUESTIONS,
         signal: undefined,
-        record: (answers, meta) => ({
-          useCase: "guardrail",
-          callId,
-          tool: GUARDRAIL_TOOL,
-          lethalOnly,
-          state: { command: judged.command, cwd: judged.cwd, git: judged.git },
-          answers,
-          model: meta.model,
-          latencyMs: meta.latencyMs,
-          usage: meta.usage,
-        }),
+        // #843: when the judge owns the record (deps.append), the client
+        // records nothing — the verdict is only known after this call.
+        record:
+          deps.append !== undefined
+            ? () => null
+            : (answers, meta) => ({
+                useCase: "guardrail",
+                callId,
+                tool: GUARDRAIL_TOOL,
+                lethalOnly,
+                state: { command: judged.command, cwd: judged.cwd, git: judged.git },
+                answers,
+                model: meta.model,
+                latencyMs: meta.latencyMs,
+                usage: meta.usage,
+              }),
       });
       if (!outcome.ok) {
         // Fail-open, uncached: the next identical call retries the API.
@@ -147,6 +199,24 @@ export function createGuardrailJudge(
         riskLevel: scoreOf(answers, "risk_level"),
       };
       const decision = decideGuardrail(signals, lethalOnly);
+      const keyProbability = keyProbabilityOf(signals, decision.verdict);
+      // #843: the record is built only now — the decision already made is
+      // part of it. Complete, or not recorded at all: a fail-open pass is a
+      // "no judgment", and inventing a verdict for it would lie.
+      if (recordBase !== undefined && outcome.ok) {
+        recordBase.useCase = "guardrail";
+        recordBase.callId = callId;
+        recordBase.tool = GUARDRAIL_TOOL;
+        recordBase.lethalOnly = lethalOnly;
+        recordBase.state = { command: judged.command, cwd: judged.cwd, git: judged.git };
+        recordBase.answers = answers;
+        recordBase.model = outcome.model;
+        recordBase.latencyMs = outcome.latencyMs;
+        recordBase.usage = outcome.usage;
+        recordBase.decision = decision.verdict;
+        if (keyProbability !== undefined) recordBase.keyProbability = keyProbability;
+        deps.append!(recordBase);
+      }
       let verdict: GuardrailVerdict;
       if (decision.verdict === "deny") verdict = { verdict: "deny", reason: decision.reason ?? "denied by guardrail" };
       else if (decision.verdict === "ask") {
