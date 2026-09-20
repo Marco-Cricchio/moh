@@ -199,6 +199,31 @@ check, the quality gate, the seed rerank and the skill suggestion — plus the
 compaction cut guide, which has no opt-in to switch and always runs when
 compaction does.
 
+### What vibe mode shows
+
+The transcript has two modes (`dev` and `vibe`), and the full Jev audit
+trail belongs to `dev`. In **vibe** mode — the plain-language projection —
+most Jev records drop from the transcript so a Jev-heavy turn does not
+read as a wall of `◈ jev · …` lines. What survives:
+
+- the **anti-injection** verdicts that changed what you saw or sent
+  (`warn`, `withheld`, `cancelled`, `refused-headless`, `sent anyway`);
+- the **guardrail** `ask` and `deny` lines (a `pass` never shows, in
+  either mode);
+- a real routing **`switch to <model>`**, and the `routing · suspended by
+  your manual model switch (…)` echo of your own manual switch — not a
+  `stay`, not the router's notices (`unpriced`, `ignored-label`, `inert`,
+  `mismatch`);
+- a quality-gate **`correct`** (a correction turn is running) — not a
+  `pass`;
+- the **skill suggestion** when a skill was actually suggested;
+- your own use-case **control lines** (`… on for this session`, and every
+  refusal) — your command echoing back.
+
+Everything filtered out stays in the session log: this is a projection
+option only, and `dev` mode renders the full audit trail exactly as
+before.
+
 ### Bash guardrail
 
 The first use case is the **bash guardrail**: every `bash` tool call is

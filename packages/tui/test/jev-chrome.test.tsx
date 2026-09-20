@@ -197,6 +197,70 @@ describe("extension_event / session_note in the transcript (#784)", () => {
   });
 });
 
+describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () => {
+  const ev = (name: string, payload: unknown) =>
+    ({ type: "extension_event", extension: "jev-guard", name, payload }) as unknown as AgentEvent;
+
+  test("a turn whose Jev activity is all noise shows no Jev block at all", () => {
+    const events = [
+      ev("jev_judgment", { useCase: "injection", decision: "pass", injection: 0.01 }),
+      ev("jev_judgment", { useCase: "guardrail", decision: "pass", callId: "c1" }),
+      ev("jev_judgment", { useCase: "classification", decision: "in_scope", questions: { destructive: 0.1 } }),
+      ev("jev_judgment", { useCase: "rerank", decision: "ok", questions: { top: 0.9 } }),
+      ev("jev_judgment", { useCase: "routing", decision: "stay", reason: "low-confidence" }),
+      ev("jev_judgment", { useCase: "lint", decision: "pass" }),
+      ev("jev_routing", { kind: "inert" }),
+      ev("jev_routing", { kind: "unpriced", count: 2 }),
+      ev("jev_routing", { kind: "ignored-label", ref: "b/nope" }),
+      ev("jev_routing", { kind: "mismatch", current: "a/x", expected: "a/y" }),
+      ev("jev_skill_suggest", { useCase: "skill_suggest", call: "rank", ok: true, needsSkill: 0.1, skills: 3 }),
+    ];
+    const rendered = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered.filter((t) => typeof t === "string" && t.startsWith("jev"))).toEqual([]);
+    // Dev mode is byte-for-byte today's: the same records all render, minus
+    // the injection and guardrail passes the pre-#843 silent filter already
+    // dropped.
+    expect(projectTranscript(events, {}).length).toBe(events.length - 2);
+  });
+
+  test("the lines that earn their keep still show in vibe mode", () => {
+    const events = [
+      ev("jev_judgment", { useCase: "injection", decision: "warn", injection: 0.7 }),
+      ev("jev_judgment", { useCase: "injection", decision: "withheld", injection: 0.9 }),
+      ev("jev_judgment", { useCase: "injection", decision: "cancelled" }),
+      ev("jev_judgment", { useCase: "injection", decision: "refused-headless" }),
+      ev("jev_judgment", { useCase: "injection", decision: "confirmed", injection: 0.8 }),
+      ev("jev_judgment", { useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42 }),
+      ev("jev_judgment", { useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9 }),
+      ev("jev_judgment", { useCase: "routing", decision: "switch", target: "a/big", tier: "potente" }),
+      ev("jev_judgment", { useCase: "lint", decision: "correct" }),
+      ev("jev_skill_suggest", { useCase: "skill_suggest", call: "relevance", ok: true, suggested: "tdd", line: "try tdd" }),
+      ev("jev_usecase", { usecase: "injection", action: "on", sessionOnly: true, config: false }),
+      ev("jev_usecase", { usecase: "guardrail", action: "nonsense", refused: "unknown-action" }),
+      ev("jev_routing", { kind: "override", model: "m/big" }),
+    ];
+    const rendered = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    const jev = rendered.filter((t): t is string => typeof t === "string" && t.startsWith("jev"));
+    expect(jev.length).toBe(events.length);
+    expect(jev).toContain("jev · injection · warn (injection 0.70)");
+    expect(jev).toContain("jev · guardrail · ask (destructive 0.42)");
+    expect(jev).toContain("jev · routing · switch to a/big (potente)");
+    expect(jev).toContain("jev · injection · sent anyway (injection 0.80)");
+    expect(jev).toContain("jev · routing · suspended by your manual model switch (m/big)");
+    // Dev mode again: nothing extra dropped, nothing rephrased.
+    const dev = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(dev).toEqual(jev);
+  });
+
+  test("the filter is on the event name + payload, not the rendered string", () => {
+    // An unknown extension event name passes through in both modes.
+    const events = [ev("other_extension_event", { any: 1 })];
+    for (const mode of [{}, { mode: "vibe" as const }]) {
+      expect(projectTranscript(events, mode).length).toBe(1);
+    }
+  });
+});
+
 describe("the uniform control line (#832)", () => {
   test("a warm change says what changed and that the config still disagrees", () => {
     expect(
