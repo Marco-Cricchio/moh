@@ -77,7 +77,7 @@ export interface JevUseCaseState {
 export type JevUseCaseSnapshot = Readonly<Record<JevUseCase, JevUseCaseState>>;
 
 /** Why a command was not applied — always rendered, never swallowed. */
-export type JevUseCaseRefusal = "unavailable" | "unknown-action" | "unsupported" | "yolo";
+export type JevUseCaseRefusal = "unavailable" | "unknown-action" | "unsupported";
 
 /** What one command did. `null` (from `command`) = the use case is not ours. */
 export interface JevUseCaseOutcome {
@@ -105,7 +105,7 @@ export interface UseCaseControlDeps {
   config: Readonly<Record<JevUseCase, boolean>>;
   /** The use cases this session has everything for. */
   available: Readonly<Record<JevUseCase, boolean>>;
-  /** The permission mode; the guardrail cannot be disarmed in `yolo`. */
+  /** The permission mode; yolo narrows an armed guardrail to the lethal checks. */
   mode?: () => string;
   /** Routing only: its own state machine (absent when routing is unavailable). */
   routing?: JevRoutingHost;
@@ -186,7 +186,8 @@ export function createUseCaseControl(deps: UseCaseControlDeps): UseCaseControl {
     }
     if (usecase === "guardrail" && deps.mode?.() === "yolo") {
       // Yolo narrows the guardrail to the lethal checks; saying so is the
-      // difference between a filter and a decoration.
+      // difference between a filter and a decoration. A disarmed guardrail
+      // never reaches here — the `!enabled` branch above already said `off`.
       return { ...base, status: "on", note: "yolo — the lethal checks only" };
     }
     return { ...base, status: "on" };
@@ -202,12 +203,10 @@ export function createUseCaseControl(deps: UseCaseControlDeps): UseCaseControl {
     });
     if (!isAction(action)) return refused("unknown-action");
     if (!deps.available[usecase]) return refused("unavailable");
-    // ADR-0031, strictly: in yolo the guardrail is the only thing standing
-    // between a lethal command and the machine, and a filter that can be
-    // switched off in the mode that needs it most is not a filter.
-    if (usecase === "guardrail" && action === "off" && deps.mode?.() === "yolo") {
-      return refused("yolo");
-    }
+    // #850: a guardrail `off` is honoured even in yolo — session-warm and
+    // visible like every other flip. Yolo narrows an *armed* guardrail to
+    // the lethal checks; it no longer makes the switch itself untouchable
+    // (ADR-0041 reverses the ADR-0031-era refusal).
     // `auto` releases a manual override — routing's own concept. Anywhere
     // else it is a client bug, and it says so instead of doing something
     // plausible.

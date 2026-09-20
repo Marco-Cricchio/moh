@@ -131,17 +131,21 @@ describe("the /jev modal (#833)", () => {
     i.unmount();
   });
 
-  test("a refused guardrail `off` (yolo) reads as a refusal, not as a change", async () => {
-    // The extension refuses: the state simply does not move.
-    const ext = extension(snapshot({ guardrail: { status: "on", config: true } }));
+  test("an applied guardrail `off` in yolo reads as the change (#850)", async () => {
+    // #850: the extension honours the command even in yolo — the state moves
+    // from on to off, and the line is the change, not a yolo refusal.
+    const ext = extension(
+      snapshot({ guardrail: { status: "on", config: true, note: "yolo — the lethal checks only" } }),
+      (usecase, action) =>
+        snapshot({ [usecase]: { status: action === "on" ? "on" : "off", config: true, ...(action === "off" ? { sessionOnly: true, note: "off for this session" } : {}) } }),
+    );
     const { i } = mount(ext);
     await sleep(30);
     i.stdin.write("\r");
-    // A refusal is decided only once the state had its chance to move.
     await sleep(140);
     expect(ext.commands).toEqual([{ usecase: "guardrail", action: "off" }]);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
-    expect(frame).toContain("guardrail: off refused — yolo keeps the lethal checks on");
+    expect(frame).toContain("guardrail: off for this session");
     i.unmount();
   });
 
@@ -223,10 +227,7 @@ describe("the flip's one-line report (#833)", () => {
     ).toBe("routing: on for this session — off in the config");
   });
 
-  test("a refusal is a state that did not move — and only then", () => {
-    expect(flipOutcome("guardrail", "off", on, { status: "on", config: true })).toBe(
-      "guardrail: off refused — yolo keeps the lethal checks on",
-    );
+  test("a refusal is a state that did not move — and only then (#850)", () => {
     expect(
       flipOutcome("skills", "on", { status: "inert", config: false }, { status: "inert", config: false }),
     ).toBe("skills: refused — not available in this session");
@@ -234,6 +235,11 @@ describe("the flip's one-line report (#833)", () => {
     // not know: say that, instead of inventing a cause.
     expect(flipOutcome("rerank", "on", off, { status: "off", config: false })).toBe(
       "rerank: not applied — the extension kept it off",
+    );
+    // #850: a guardrail `off` that moved is the change — yolo is no longer
+    // a special refusal on this surface.
+    expect(flipOutcome("guardrail", "off", on, { status: "off", config: true, sessionOnly: true, note: "off for this session" })).toBe(
+      "guardrail: off for this session — off for this session",
     );
   });
 

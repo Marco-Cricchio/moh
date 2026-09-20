@@ -270,7 +270,6 @@ function useCaseLine(record: Record<string, unknown>): string {
   if (refused === "unknown-action") return `jev · ${usecase} · "${action}" is not a command (on, off${usecase === "routing" ? ", auto" : ""})`;
   if (refused === "unavailable") return `jev · ${usecase} · ${action} refused — not available in this session`;
   if (refused === "unsupported") return `jev · ${usecase} · "${action}" belongs to model routing`;
-  if (refused === "yolo") return "jev · guardrail · off refused — yolo keeps the lethal checks on";
   const note = typeof record.note === "string" ? record.note : undefined;
   if (note !== undefined) return `jev · ${usecase} · ${action} for this session — ${note}`;
   if (record.sessionOnly === true) {

@@ -307,9 +307,6 @@ describe("the uniform control line (#832)", () => {
   });
 
   test("every refusal reads as a refusal, never as a change", () => {
-    expect(
-      extensionEventLine("jev_usecase", { usecase: "guardrail", action: "off", status: "on", config: true, refused: "yolo" }),
-    ).toBe("jev · guardrail · off refused — yolo keeps the lethal checks on");
     expect(extensionEventLine("jev_usecase", { usecase: "skills", action: "on", refused: "unavailable" })).toBe(
       "jev · skills · on refused — not available in this session",
     );

@@ -273,10 +273,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // ---- #786 guardrail: the first use case --------------------------
       // Jev judges EVERY bash call (before rules, ADR-0031 gate order):
       // deny → veto, ask → the human consent flow (never auto-accepted,
-      // never "always"), pass → nothing. Yolo gets lethal checks only.
-      // #832: gated on the live state — the guardrail is always available,
-      // and a warm `off` (refused in yolo, see `use-cases.ts`) suppresses
-      // the judgment from the next call.
+      // never "always"), pass → nothing. Yolo narrows an armed guardrail
+      // to lethal checks only; a warm `off` disarms it entirely, in yolo
+      // too (#850, ADR-0041) — from the next call.
       const judge = createGuardrailJudge(
         { client, state: ctx.state ?? {}, append: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }) },
         {
