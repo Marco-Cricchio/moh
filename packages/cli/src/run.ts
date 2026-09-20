@@ -27,7 +27,7 @@ import {
   type AgentEvent,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { BUNDLED_EXTENSION_SOURCES } from "@moh/tui/bundled-extensions";
+import { bundledExtensionSources } from "@moh/tui/bundled-extensions";
 
 export const RUN_USAGE = `usage: moh run [options] [prompt...]
 
@@ -319,7 +319,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   const assembled = sessionFromConfig({
     cwd,
     // #826: the bundled first-party extensions this client ships.
-    bundledExtensions: BUNDLED_EXTENSION_SOURCES,
+    bundledExtensions: bundledExtensionSources(options.home),
     ...(options.home ? { home: options.home } : {}),
     ...(cassetteProvider ? { provider: cassetteProvider } : {}),
     ...(parsed.strings["provider"]

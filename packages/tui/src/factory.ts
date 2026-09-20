@@ -39,7 +39,7 @@ import {
   type TrackerBackend,
 } from "@moh/core";
 import { EXTENSION_CONSENT_TOOL } from "./permission-gate";
-import { BUNDLED_EXTENSION_SOURCES } from "./bundled-extensions";
+import { bundledExtensionSources } from "./bundled-extensions";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -96,7 +96,7 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
     provider: options.provider,
     // #826: the first-party bundled extensions this client ships. The core
     // hosts them without importing them; a bare library user gets none.
-    bundledExtensions: BUNDLED_EXTENSION_SOURCES,
+    bundledExtensions: bundledExtensionSources(options.home),
     consent: {
       // Project MCP servers ask consent on first use; the TUI reuses the
       // same permission modal seam used for tool calls.

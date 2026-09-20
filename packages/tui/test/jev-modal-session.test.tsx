@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
 import type { JevUseCase, JevUseCaseAction } from "@moh/jev-guard";
-import { BUNDLED_EXTENSION_SOURCES } from "../src/bundled-extensions";
+import { bundledExtensionSources } from "../src/bundled-extensions";
 import { JEV_EXTENSION_NAME, setJevUseCase } from "../src/jev-control";
 import { JevModal } from "../src/JevModal";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
@@ -35,7 +35,7 @@ async function assembled(config: Record<string, unknown>) {
     cwd: tmpDir("moh-jev-modal-cwd-"),
     home,
     config: { provider: "mock" },
-    bundledExtensions: BUNDLED_EXTENSION_SOURCES,
+    bundledExtensions: bundledExtensionSources(home),
   });
   if ("error" in assembled) throw new Error(assembled.error.message);
   // The extension is registered fire-and-forget; its hooks and `state` are

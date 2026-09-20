@@ -16,9 +16,30 @@
  * hosts no bundled extension unless they mount one of their own, which is
  * the boundary #826 asked for.
  */
+import { readFileSync } from "node:fs";
 import { jevBundledSource } from "@moh/jev-guard";
-import type { BundledExtensionSource } from "@moh/core";
+import { userConfigFile, type MountedBundledExtension } from "@moh/core";
 
 /** Every first-party bundled extension, in registration order (hook
- * precedence is registration order, so this list is a contract). */
-export const BUNDLED_EXTENSION_SOURCES: readonly BundledExtensionSource[] = [jevBundledSource];
+ * precedence is registration order, so this list is a contract).
+ *
+ * #826 residue removal: **here** is where activation is decided, because the
+ * client owns the config surface of the code it ships. The core receives the
+ * answer as a boolean and never runs an extension's predicate over the
+ * user's config file. `home` is the resolved user home; a missing or
+ * malformed config reads as "inactive" — a broken optional block must never
+ * fail an assembly. */
+export function bundledExtensionSources(home?: string): readonly MountedBundledExtension[] {
+  const file = userConfigFile(home);
+  const read = (f: string): string => readFileSync(f, "utf8");
+  let active = false;
+  try {
+    active = jevBundledSource.evaluateActive?.(read, file) ?? false;
+  } catch {
+    // A malformed `typesafe` block is the user's to fix (`moh jev status`
+    // reports it loudly); at assembly time it means "not active" — a broken
+    // optional block must never fail a session.
+    active = false;
+  }
+  return [{ source: jevBundledSource, active }];
+}

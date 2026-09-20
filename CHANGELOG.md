@@ -13,11 +13,14 @@ matching section here at tag time.
   state keys inside session assembly. It now hosts bundled extensions
   generically (`bundledExtensions` on `sessionFromConfig`) and the clients
   mount the first-party sources, so embedding `@moh/core` gives you a core
-  with no vendor code and no vendor configuration in its public surface. For
-  the user nothing changes: entering the API key in the Settings entry
-  `Jev (TypeSafe)` still activates Jev, with one keystroke and no
-  declaration to write. A malformed `typesafe` block no longer breaks
-  session start — `moh jev status` reports it loudly instead.
+  with no vendor code and no vendor configuration in its public surface. The
+  last thread is gone too: activation is resolved by the **client** (which
+  owns the config surface of the code it ships) and handed to the core as a
+  boolean, so the core no longer runs an extension-provided predicate over
+  your configuration file. For the user nothing changes: entering the API key
+  in the Settings entry `Jev (TypeSafe)` still activates Jev, with one
+  keystroke and no declaration to write. A malformed `typesafe` block no
+  longer breaks session start — `moh jev status` reports it loudly instead.
 
 ### Added
 
