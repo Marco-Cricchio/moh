@@ -88,6 +88,7 @@ export type ProviderErrorKind =
   | "invalid_request"
   | "context_length"
   | "content_filtered"
+  | "empty_completion"
   | "aborted";
 
 export class ProviderError extends Error {

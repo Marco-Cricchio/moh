@@ -63,6 +63,7 @@ function provider(): Provider {
   return {
     name: "capture",
     async *stream(_messages: Message[]) {
+      yield { type: "text_delta" as const, text: "ok" };
       yield { type: "finish" as const, reason: "stop" as const };
     },
   };

@@ -19,6 +19,7 @@ function captureProvider(): { systems: string[]; users: string[]; provider: Prov
       systems.push(String(messages[0]?.parts[0]?.kind === "text" ? (messages[0].parts[0] as { text: string }).text : ""));
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.parts.some((p) => p.kind === "text"));
       users.push(String((lastUser?.parts.find((p) => p.kind === "text") as { text: string } | undefined)?.text ?? ""));
+      yield { type: "text_delta", text: "ok" } as const;
       yield { type: "finish", reason: "stop" } as const;
     },
   };
@@ -76,6 +77,7 @@ describe("skill prompt seam (ADR-0011)", () => {
         call += 1;
         systems.push(String(messages[0]?.parts[0]?.kind === "text" ? (messages[0].parts[0] as { text: string }).text : ""));
         yield { type: "model_call_start", model: "stf" };
+        yield { type: "text_delta", text: "ok" };
         if (call === 1) await Bun.sleep(60); // slow first call: abortable window
         if (signal.aborted) return;
         yield { type: "finish", reason: "stop" };
@@ -113,6 +115,7 @@ describe("skill prompt seam — steering (ADR-0011 gap)", () => {
         call += 1;
         systems.push(String(messages[0]?.parts[0]?.kind === "text" ? (messages[0].parts[0] as { text: string }).text : ""));
         yield { type: "model_call_start", model: "s" };
+        yield { type: "text_delta", text: "ok" };
         if (call === 1) await Bun.sleep(80); // slow first turn: steering window
         if (signal.aborted) return;
         yield { type: "finish", reason: "stop" };

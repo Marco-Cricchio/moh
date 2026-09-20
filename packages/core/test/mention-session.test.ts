@@ -17,6 +17,7 @@ function captureProvider(): { users: Message[]; provider: Provider } {
     name: "capture",
     async *stream(messages: Message[]): AsyncIterable<StreamEvent> {
       users.push(...messages.filter((m) => m.role === "user"));
+      yield { type: "text_delta", text: "ok" } as const;
       yield { type: "finish", reason: "stop" } as const;
     },
   };
@@ -140,7 +141,7 @@ describe("image mentions (#490, vision note 4)", () => {
       expect(event.attachments[0].kind).toBe("image");
       // Replay round-trips the image bytes into the same part.
       const { replayMessages } = await import("../src/session-store");
-      const rebuilt = replayMessages(session.history()).at(-1)!;
+      const rebuilt = replayMessages(session.history()).find((m) => m.role === "user")!;
       expect(rebuilt.parts.some((p) => p.kind === "image" && p.base64 === img.base64)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
