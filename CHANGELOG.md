@@ -6,6 +6,14 @@ SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+## [0.40.0] - 2026-09-20
 ### Changed
 
 - **The core no longer depends on the Jev extension** (#826): `@moh/core`
@@ -372,7 +380,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...develop
+[0.40.0]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...v0.40.0
 [0.39.3]: https://github.com/Marco-Cricchio/moh/compare/v0.39.2...v0.39.3
 [0.39.2]: https://github.com/Marco-Cricchio/moh/compare/v0.39.1...v0.39.2
 [0.39.1]: https://github.com/Marco-Cricchio/moh/compare/v0.39.0...v0.39.1
