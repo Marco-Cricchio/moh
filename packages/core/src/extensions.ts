@@ -72,24 +72,35 @@ export interface ToolResultDispatch {
   readonly errors: AgentEvent[];
 }
 
-/** #834: what a first load asks the user about — enough to name the code
- * that wants to run, its identity being its source bytes, not its claims. */
+/** #834: what a load asks the user about — enough to name the code that
+ * wants to run. Its identity is its source bytes, not its claims, so a
+ * first-time *file* is asked about BEFORE it is imported: importing is
+ * executing, so the module's own name/version do not exist yet — and they
+ * are the untrusted part anyway. */
 export interface ExtensionConsentRequest {
-  name: string;
-  version: string;
   /** Absolute path of the module asking to run; absent for an in-memory definition. */
   file?: string;
+  /** SHA-256 of the exact bytes about to run (file loads only) — the same
+   * hash the stored grant is bound to, so the user can compare them. */
+  hash?: string;
+  /** The definition's self-declared name/version — present for an in-memory
+   * registration and for a re-ask on an edited file (the previous instance
+   * knows them); absent on a first-time file, where nothing has run yet. */
+  name?: string;
+  version?: string;
 }
 
 export interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
   mohHome?: string;
   /**
-   * One-time enable consent. Called only when no stored consent matches
-   * loaded module content identity. A `true` answer is persisted; `false`
-   * refuses the load. When absent and nothing is stored, the load is refused.
+   * One-time enable consent. Called only when no stored consent matches the
+   * module's content identity, and — for a file — BEFORE the module is
+   * imported, because importing it runs it. A `true` answer is persisted;
+   * `false` refuses the load. When absent and nothing is stored, the load is
+   * refused.
    */
-  consent?: (name: string, version: string, file: string | undefined) => Promise<boolean> | boolean;
+  consent?: (request: ExtensionConsentRequest) => Promise<boolean> | boolean;
   /**
    * Per-change npm dependency authorization. Called whenever the
    * extension's dependency list differs from the remembered approved list.
@@ -292,6 +303,15 @@ function contentIdentity(file: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/** The `sha256` half of a content identity, for display in the consent
+ * question (a `memory:<name>` identity has no hash half). */
+function identityHash(identity: string): string | undefined {
+  const at = identity.lastIndexOf(":");
+  if (at === -1) return undefined;
+  const hash = identity.slice(at + 1);
+  return /^[0-9a-f]{64}$/.test(hash) ? hash : undefined;
 }
 
 /** Cache-busted import returning the module's candidate definition. */
@@ -523,10 +543,65 @@ export class ExtensionRuntime {
     return this.registerFiles([file]).then((results) => results[0] === true);
   }
 
+  /**
+   * #834 (security): the enable consent, resolved from a content identity —
+   * which is computable from a file *without* running it. Importing a module
+   * evaluates it, so the question must be answered first: a declined or
+   * never-answered file must not execute a single line, headless included.
+   * A granted answer is persisted against the identity (path + bytes), so an
+   * unchanged file never asks again and an edited one always does.
+   */
+  async #ensureConsent(
+    identity: string,
+    info: { file?: string; hash?: string; name?: string; version?: string },
+    bundled: boolean,
+  ): Promise<{ ok: true } | { ok: false; reason: string; message: string }> {
+    if (bundled) return { ok: true };
+    const store = this.#readStore();
+    if (store.consents[identity]) return { ok: true };
+    if (!this.#options.consent) {
+      const message = "extension not previously enabled and no consent flow is available";
+      // The host's own channel (a headless client's stderr): the log
+      // carries the same fact, but nobody reads a log they never saw.
+      this.#options.onWarning?.(`extension ${info.name ?? info.file ?? identity}: not loaded — ${message}`);
+      return { ok: false, reason: "consent", message };
+    }
+    let granted: boolean;
+    try {
+      granted = await this.#options.consent({
+        ...(info.file ? { file: info.file } : {}),
+        ...(info.hash ? { hash: info.hash } : {}),
+        ...(info.name ? { name: info.name } : {}),
+        ...(info.version ? { version: info.version } : {}),
+      });
+    } catch (err) {
+      return { ok: false, reason: "consent", message: errMessage(err) };
+    }
+    if (!granted) return { ok: false, reason: "consent", message: "user declined to enable the extension" };
+    store.consents[identity] = true;
+    this.#writeStore(store);
+    return { ok: true };
+  }
+
   async #registerFileNow(file: string): Promise<boolean> {
     // Canonical from here on: the identity, the consent question, the import
     // and the watcher all speak about one path.
     const abs = canonicalModulePath(file);
+    // #834 (security): identity first, import second. `contentIdentity` only
+    // reads bytes; asking here means a file the user declined — or was never
+    // asked about, which is every headless run — is never evaluated at all.
+    // The identity is re-derived inside `#instantiate`, so a file swapped in
+    // between is caught rather than trusted.
+    const identity = contentIdentity(abs);
+    if (!identity) {
+      this.#emitFailed(basename(abs), "load_failed", "extension file could not be read");
+      return false;
+    }
+    const gate = await this.#ensureConsent(identity, { file: abs, hash: identityHash(identity) }, false);
+    if (!gate.ok) {
+      this.#emitFailed(basename(abs), gate.reason, gate.message);
+      return false;
+    }
     let def: unknown;
     try {
       def = await importDefinition(abs);
@@ -570,6 +645,24 @@ export class ExtensionRuntime {
     const index = this.#instances.findIndex((i) => i.file === file);
     if (index === -1) return;
     const previous = this.#instances[index]!;
+    // #834 (security): the edited bytes are consented BEFORE they are
+    // imported. A reload evaluates the new file, so an edit the user has not
+    // answered for must not run: the ask names the extension (the previous
+    // instance knows it) and its new hash, and a refusal keeps the previous
+    // instance in place.
+    const identity = contentIdentity(file);
+    if (identity) {
+      const gate = await this.#ensureConsent(
+        identity,
+        { file, hash: identityHash(identity), name: previous.def.name, version: previous.def.version },
+        false,
+      );
+      if (!gate.ok) {
+        this.#options.onWarning?.(`extension ${previous.def.name}: reload refused (${gate.reason}); previous instance kept`);
+        this.#emitFailed(previous.def.name, "reload_failed", `${gate.reason}: ${gate.message}; previous instance kept`);
+        return;
+      }
+    }
     let def: unknown;
     try {
       def = await importDefinition(file);
@@ -648,24 +741,18 @@ export class ExtensionRuntime {
     // bytes, the user never chose them.
     const bundled = options.bundled === true;
     const identity = contentIdentity(file) ?? `memory:${name}`;
-    if (!bundled && !store.consents[identity]) {
-      if (!this.#options.consent) {
-        const message = "extension not previously enabled and no consent flow is available";
-        // The host's own channel (a headless client's stderr): the log
-        // carries the same fact, but nobody reads a log they never saw.
-        this.#options.onWarning?.(`extension ${name}: not loaded — ${message}`);
-        return { ok: false, name, reason: "consent", message };
-      }
-      let granted: boolean;
-      try {
-        granted = await this.#options.consent(name, d.version, file);
-      } catch (err) {
-        return { ok: false, name, reason: "consent", message: errMessage(err) };
-      }
-      if (!granted) return { ok: false, name, reason: "consent", message: "user declined to enable the extension" };
-      store.consents[identity] = true;
-      this.#writeStore(store);
-    }
+    const hash = identityHash(identity);
+    // #834 (security): the two paths that import a module (`#registerFileNow`
+    // and `#hotReload`) resolve this before the import, so by the time a
+    // candidate definition exists the grant is already stored and this is a
+    // lookup — which also re-checks the bytes, catching a file swapped in
+    // between. For an in-memory registration it is the question itself.
+    const consent = await this.#ensureConsent(
+      identity,
+      { ...(file ? { file } : {}), ...(hash ? { hash } : {}), name, version: d.version },
+      bundled,
+    );
+    if (!consent.ok) return { ok: false, name, reason: consent.reason, message: consent.message };
     // Per-change dependency authorization, bound to the same content identity.
     const deps = d.dependencies ?? [];
     const approved = store.dependencies[identity] ?? [];

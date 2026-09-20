@@ -117,10 +117,16 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
   // It is not a tool call, so it renders as the extension's own question
   // (name, version, source path, and the fact that there is no sandbox) and
   // it can never write a rule: an extension is enabled once, or not at all.
-  if (tool === EXTENSION_CONSENT_TOOL && typeof a.name === "string") {
-    const detail = [`name: ${sanitizeForDisplay(a.name)}`];
+  if (tool === EXTENSION_CONSENT_TOOL && (typeof a.name === "string" || typeof a.file === "string")) {
+    const detail: string[] = [];
+    if (typeof a.name === "string") detail.push(`name: ${sanitizeForDisplay(a.name)}`);
     if (typeof a.version === "string") detail.push(`version: ${sanitizeForDisplay(a.version)}`);
     if (typeof a.file === "string") detail.push(`source: ${sanitizeForDisplay(a.file)}`);
+    if (typeof a.hash === "string") detail.push(`sha256: ${sanitizeForDisplay(a.hash)}`);
+    // #834 (security): a first-time file is asked about BEFORE it is imported
+    // — the question has to come before the code runs — so it has made no
+    // claims to show. Saying so is the honest prompt, not a defect.
+    if (typeof a.name !== "string") detail.push("name/version: not stated yet (the file is asked about before it runs)");
     detail.push("no sandbox: it runs with moh's own privileges");
     return { tool, args, detail, rulePreview: null };
   }

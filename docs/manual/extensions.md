@@ -28,8 +28,18 @@ disagree about a tool call, the first one wins.
 
 An extension is arbitrary code running inside the moh process, so moh never
 enables one silently. A file that has not been allowed yet raises a prompt
-that names the extension, its version and its source path, and says plainly
-that there is no sandbox. Answer `y` to enable it, `n` to leave it alone.
+that names the file and a SHA-256 of its exact bytes, and says plainly that
+there is no sandbox. Answer `y` to enable it, `n` to leave it alone.
+
+The question comes **before the file is loaded**, because loading a module
+runs it: a file you decline — or that nobody could ask you about — never
+executes a single line. That is also why the prompt shows no name or
+version of its own: those are the module's claims, and at the moment it is
+asked about the file has not run yet, so it has made none (they are not the
+trusted part anyway — your answer is bound to the bytes). Once an allowed
+file loads, its name and version appear in the session log
+(`extension_loaded`); on an *edited* file the re-ask can name it, because
+the previous instance already knew.
 
 Your answer is remembered in `~/.moh/extensions.json`, tied to the file's
 path **and its exact contents**:
@@ -46,10 +56,11 @@ proposal, and a clone you never answered a prompt for loads nothing.
 ## When there is nobody to ask
 
 `moh run`, `moh serve` and `moh compact` cannot prompt. An extension that
-was never enabled is skipped there too: the session records a visible
-`extension_failed` with reason `consent`, prints one line on stderr, and
-carries on. The exit code is not affected — a skipped extension is not an
-error.
+was never enabled is skipped there too — and "skipped" here means **never
+loaded**: the file is not imported, so not one line of it runs. The session
+records a visible `extension_failed` with reason `consent`, prints one line
+on stderr, and carries on. The exit code is not affected — a skipped
+extension is not an error.
 
 ## Failure modes
 

@@ -41,7 +41,7 @@ import {
 import { EXTENSION_CONSENT_TOOL } from "./permission-gate";
 import { BUNDLED_EXTENSION_SOURCES } from "./bundled-extensions";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 export interface OpenSessionOptions {
   cwd: string;
@@ -116,8 +116,16 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
               Promise.resolve(
                 options.onPermissionRequest!(
                   EXTENSION_CONSENT_TOOL,
-                  { name: request.name, version: request.version, ...(request.file ? { file: request.file } : {}) },
-                  { source: "extension", extension: request.name },
+                  {
+                    ...(request.name ? { name: request.name } : {}),
+                    ...(request.version ? { version: request.version } : {}),
+                    ...(request.file ? { file: request.file } : {}),
+                    ...(request.hash ? { hash: request.hash } : {}),
+                  },
+                  // The label names what is known: the extension on a re-ask
+                  // (an edited file), the file itself on a first-time ask,
+                  // where nothing has run yet and so nothing is claimed.
+                  { source: "extension", extension: request.name ?? (request.file ? basename(request.file) : undefined) },
                 ),
               // Fail-closed: only an explicit "yes" enables code. The modal
               // offers nothing else for this ask, and a client that one day

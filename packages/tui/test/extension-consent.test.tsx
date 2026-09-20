@@ -44,6 +44,21 @@ describe("extension enable consent (#834)", () => {
     expect(view.extensionAsk).toEqual({ extension: "guard" });
   });
 
+  test("a first-time file is asked about with its path and bytes, before it runs", () => {
+    const view = describePermissionRequest(
+      "extension",
+      { file: "/home/u/.moh/extensions/guard.mjs", hash: "a".repeat(64) },
+      { source: "extension", extension: "guard.mjs" },
+    );
+    expect(view.detail).toEqual([
+      "source: /home/u/.moh/extensions/guard.mjs",
+      `sha256: ${"a".repeat(64)}`,
+      "name/version: not stated yet (the file is asked about before it runs)",
+      "no sandbox: it runs with moh's own privileges",
+    ]);
+    expect(view.rulePreview).toBeNull();
+  });
+
   test("the modal asks about code, offers yes/no only, and 'y' loads the extension", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-ext-consent-cwd-"));
     const home = homeWithExtension(
@@ -61,12 +76,15 @@ describe("extension enable consent (#834)", () => {
     );
     const i = render(<PermissionModal gate={gate} mode="dev" />);
     try {
-      await waitForFrame(() => frameOf(i), "extension enable (guard)");
+      // #834 (security): the first-time ask comes before the import, so the
+      // label names the *file* — the module has not run and has stated
+      // nothing yet.
+      await waitForFrame(() => frameOf(i), "extension enable (guard.mjs)");
       const frame = frameOf(i);
       expect(frame).toContain("An extension wants to run in this session:");
-      expect(frame).toContain("name: guard");
-      expect(frame).toContain("version: 0.3.0");
       expect(frame).toContain("source: ");
+      expect(frame).toContain("sha256: ");
+      expect(frame).toContain("not stated yet");
       expect(frame).toContain("no sandbox");
       // No "always" (an extension is not a rule) and no rule preview line.
       expect(frame).not.toContain("always");
@@ -109,7 +127,7 @@ describe("extension enable consent (#834)", () => {
     );
     const i = render(<PermissionModal gate={gate} mode="dev" />);
     try {
-      await waitForFrame(() => frameOf(i), "extension enable (guard)");
+      await waitForFrame(() => frameOf(i), "extension enable (guard.mjs)");
       i.stdin.write("n");
       await waitForCondition(
         () => session.history().some((e) => e.type === "extension_failed"),
