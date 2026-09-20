@@ -15,6 +15,8 @@
 
 *Open source · MIT licensed · Runs on macOS and Linux · No Node, no Bun, no npm required*
 
+**🌐 [moh.sh](https://moh.sh)**
+
 </div>
 
 ---
@@ -40,6 +42,175 @@ Three things make it different:
 - **It asks before it acts.** A layered permission system gates every file
   write and every shell command; extensions can veto actions but can never
   grant more than you allowed.
+
+## Why moh?
+
+The terminal is where developers already live. moh brings a capable, careful
+AI collaborator there — one you can trust and inspect:
+
+- **You're never locked in.** Pick your favorite provider; if one goes down,
+  moh quietly falls back to the next on your list.
+  → [Providers and models](docs/manual/providers-and-models.md)
+- **Your data stays yours.** Every conversation, memory, and note lives on
+  your machine, in plain files you can read, back up, or delete. Nothing
+  is ever silently rewritten, nothing is phoned home. Move a session to
+  another computer with one command.
+  → [Sessions](docs/manual/sessions.md)
+- **It asks before it acts.** Writing a file, running a shell command,
+  clicking a button on a web page — every potentially risky action passes
+  through layered rules that *you* control. And moh shows you everything
+  it does, step by step.
+  → [Permissions](docs/manual/permissions.md)
+
+## What can it do?
+
+### The essentials
+
+- **A friendly terminal interface.** Arrow through your past sessions, pick
+  up where you left off, watch the answer stream in, and send follow-ups
+  while it works. Prefer no interface at all? Run it scriptable and
+  unattended (`moh run`) for CI and automation.
+  → [Getting started](docs/manual/getting-started.md) ·
+  [Commands and keys](docs/manual/commands-and-keys.md)
+- **It reads your project.** Point at files and folders just by typing `@`,
+  drag and drop images in, and moh builds a live mental map of your
+  codebase — so its answers are about *your* code, not generic advice.
+  → [What moh offers](docs/manual/what-moh-offers.md)
+- **It works in steps, and you see them.** Files edited, commands run, pages
+  visited, tokens spent — everything is visible, everything is logged,
+  everything can be reviewed later.
+  → [Sessions](docs/manual/sessions.md)
+
+### Around your code
+
+- **Moh Project Map.** Before touching a big codebase, moh quietly builds a
+  structural map of it — which files relate to which, where things live.
+  When you then ask for a change, it starts with a cited, source-backed plan
+  instead of wandering around. You can ask it to explain the map, too
+  ("where is the quota logic?").
+  → [What moh offers](docs/manual/what-moh-offers.md)
+- **Smart sessions.** Resume yesterday's conversation, fork one to try a
+  risky idea, compact a long one to keep it fast, or analyze any session
+  afterwards: turns, tokens, costs, tools used, where the time went.
+  Deleted sessions go to a trash you can restore from — mistakes happen.
+  → [Sessions](docs/manual/sessions.md) ·
+  [Memory and compaction](docs/manual/memory-and-compaction.md)
+
+### Around the web
+
+- **A built-in browser.** moh can open pages, take snapshots and
+  screenshots, click, fill forms, and scroll — always with site-scoped
+  permissions, upload protection, and safe-guarded downloads. Great for
+  checking your own web app, reading docs, or testing a flow end to end.
+  → [Permissions: browser rules](docs/manual/permissions.md)
+
+### Around you
+
+- **Memory that survives restarts.** moh remembers durable facts about your
+  project between sessions — your conventions, your decisions — and keeps
+  its notes in a file you own and can read.
+  → [Memory and compaction](docs/manual/memory-and-compaction.md)
+- **Usage and costs, in plain sight.** See what each model call cost you,
+  which tools are slow, which route fell back — measured locally, exportable
+  as CSV. A single keystroke (`ctrl+q`) shows your provider quota windows.
+  → [CLI reference](docs/manual/cli-reference.md)
+- **Make it look like yours.** A built-in theme studio lets you create your
+  own color themes, live-preview every palette role, and save them with
+  contrast checks — because you'll stare at this thing for hours.
+  → [What moh offers: themes](docs/manual/what-moh-offers.md)
+- **A guide built in.** Ask "how do I plan a big feature?" or "how do
+  permissions work?" and the bundled ask-moh guide routes you to the right
+  answer, grounded in the real documentation — never invented.
+  → [Skills and workflow](docs/manual/skills-and-workflow.md)
+
+### For teams and heavy users
+
+- **A workflow that ships.** Turn on workflow mode and get a proven
+  idea-to-shipped cycle bundled in: sharpen the idea with a relentless
+  interviewer, write the spec, break it into tickets, implement test-first,
+  then review the result — plus declarative GitHub repo management.
+  → [Skills and workflow](docs/manual/skills-and-workflow.md)
+- **Skills.** Small, focused capabilities moh loads only when needed. Author
+  your own, keep the bundled ones, or upgrade them only when you haven't
+  customized them.
+  → [Skills and workflow](docs/manual/skills-and-workflow.md) ·
+  [Authoring skills](docs/extending/skills.md)
+- **Handoff between machines.** Publish a session from your laptop and pick
+  it up on your desktop: moh packs a structured summary and a filtered log
+  into a private gist, and offers it at the next startup — with retries if
+  the network was down.
+  → [Sessions: handoff](docs/manual/sessions.md)
+- **Subagents and MCP.** Delegate research or bulk work to subagents, and
+  connect any Model Context Protocol server for extra tools.
+  → [MCP](docs/manual/mcp.md)
+- **Extensions, the ones you write too.** Drop a `.mjs` file in
+  `~/.moh/extensions/`, or have the project declare one in `moh.json`, and
+  moh asks once — naming the file and a hash of its exact bytes, and stating
+  that there is no sandbox — before a single line of it runs. An edited file
+  asks again; a `moh.json` declaration only proposes, so a clone nobody
+  answered for loads nothing. And an extension that breaks never takes the
+  session with it: it is skipped with the reason written in the session log,
+  and the session carries on.
+  → [Extensions](docs/manual/extensions.md) ·
+  [Writing an extension](docs/extending/extensions.md)
+- **A programmable core.** Embed the agent in your own application as a
+  library, or drive it over RPC (`moh serve`) — the same session can travel
+  between your tooling, scripts, and the terminal.
+  → [Serve protocol](docs/serve-protocol.md) ·
+  [Embedding the library](docs/extending/library-usage.md)
+
+### Jev: optional judgment calls (opt-in)
+
+moh can consult the TypeSafe service for fast, cheap, semantic judgments —
+a tiny AI call that answers questions code can't. Activate it by pasting an
+API key in Settings; that's the whole setup, and a stored key is the only
+switch the guardrail has.
+
+- **Bash guardrail.** Before a shell command runs, Jev asks "is this
+  destructive? is it exfiltrating data?" — dangerous commands get held for a
+  human yes/no, even in permissive modes, and in yolo mode the lethal checks
+  still run.
+- **Model routing** (off by default). Easy turns get a cheap model, hard
+  turns get a powerful one. It switches only when it's confident, twice in a
+  row, and a manual choice always wins.
+- **Anti-injection** (off by default). Your input and every fetched web page
+  are screened for prompt-injection attempts. Suspicious content warns you;
+  near-certain injection holds the send for confirmation — or refuses it in
+  unattended mode, with the reason written into the session log.
+- **Quality gate** (off by default). When a task ends, the change is checked
+  against your project's own convention documents — conventions are never
+  invented, and a repo that states none gets no gate.
+- **Prompt classification** (on by default). Every turn is typed — question,
+  bugfix, feature, refactoring, analysis — and asked whether it even needs
+  your code; a turn that doesn't skips the codebase scan.
+
+All are governable while you work: `/jev` opens a switchboard showing the
+live state of every use case beside what the configuration says, and a flip
+applies to the session you are in — nothing is written down. `moh jev
+status` and `moh jev routing on|off` reach the same switches from a shell,
+and what you change there is what your next session starts in.
+
+Only the use case that needs it sends anything: the command, working
+directory and git state for the guardrail; the last message you typed for
+routing and classification; your message and web results for the
+anti-injection check; the diff of the files a task changed for the quality
+gate. Nothing else about a turn ever leaves moh.
+
+And when TypeSafe is unreachable? moh **fails open**: everything behaves
+exactly as it does today, with one discreet offline badge, and no judgment
+is ever faked or replaced by a model call. Optional means optional.
+→ [Jev](docs/manual/jev.md)
+
+## Permissions, in one paragraph
+
+moh layers rules from broad to specific: safe defaults first, then your
+configuration file, then choices you make live in the session. Writes
+outside the project always ask again, every time. Web actions are scoped by
+URL. Extensions — the ones moh ships and the ones you write — can veto an
+action or stop and ask you about it, but can never grant more than you
+allowed. The result: the agent moves fast inside the lines *you* drew.
+→ [Permissions](docs/manual/permissions.md) ·
+[Configuration reference](docs/manual/config-reference.md)
 
 ## Highlights
 
@@ -76,11 +247,12 @@ own end to end. Compared with the well-known terminal agents:
 
 | | moh | Claude Code | OpenAI Codex | OpenCode |
 | --- | --- | --- | --- | --- |
-| **Providers** | Any: Anthropic, OpenAI, Google, GitHub Copilot, OpenRouter, Kimi, xAI, Ollama, LM Studio — with per-model fallback chains | Anthropic only | OpenAI only | Multiple |
+| **Providers** | Any: 8 built-in + hosted OpenAI-compatible + local models, with fallback chains | Anthropic only | OpenAI only | Multiple |
 | **License** | MIT | Commercial | Commercial | OSS |
 | **Your data** | Append-only log in `~/.moh/` — resume, fork, rename, trash, export; nothing silently rewritten | Vendor-controlled | Vendor-controlled | Local |
 | **Permissions** | Layered allow/ask/deny rules per tool & argument, out-of-root writes always re-ask, extension veto | Prompt-based approval | Prompt-based approval | Configurable |
 | **Headless** | `moh run` — fail-fast, no prompts, CI-ready | Yes | Yes | Yes |
+| **Built-in browser** | Yes — with URL-scoped permissions and SSRF protection | No | No | No |
 | **Extensibility** | Typed phase hooks, skills, custom providers, embeddable core library | Skills/hooks | Limited | Extensions |
 
 *Vendor names are trademarks of their respective owners; comparison is
