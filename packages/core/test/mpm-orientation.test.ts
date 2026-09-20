@@ -68,8 +68,24 @@ async function setup(): Promise<{ root: string; svc: MpmService }> {
   return { root, svc };
 }
 
-function make(root: string, svc: MpmService): MpmOrientation {
-  return new MpmOrientation({ service: svc, root });
+function make(
+  root: string,
+  svc: MpmService,
+  rerank?: (req: RerankRequest) => Promise<Set<string> | null>,
+): MpmOrientation {
+  return new MpmOrientation({ service: svc, root, ...(rerank ? { rerank } : {}) });
+}
+
+interface RerankCandidate {
+  id: string;
+  path: string;
+  symbols: readonly string[];
+  provenance: string;
+}
+
+interface RerankRequest {
+  task: string;
+  candidates: readonly RerankCandidate[];
 }
 
 describe("MpmOrientation eligibility (#616)", () => {
@@ -282,6 +298,197 @@ describe("MpmOrientation ambiguity and stats (#759)", () => {
       o.planFor("continue", "settling on formatDate");
       const stats = o.seedStats;
       expect(stats).toEqual({ pathPlans: 1, symbolPlans: 1, reasoningPlans: 1, overThreshold: 0 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("#788 classifier gate", () => {
+  test("noteGated records the classifier-gated fallback reason", async () => {
+    const { root, svc } = await setup();
+    try {
+      const o = make(root, svc);
+      expect(o.lastFallbackReason).toBeNull();
+      o.noteGated();
+      expect(o.lastFallbackReason).toBe("classifier-gated");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("MPM seed rerank (#790)", () => {
+  test("an over-threshold seed set produces a rescued plan when the rerank hook returns kept paths", async () => {
+    const { root, svc } = await setup();
+    try {
+      // Six files all declaring the same symbol — over-threshold by one.
+      for (let i = 0; i < 6; i++) {
+        const p = `src/gen${i}.ts`;
+        const content = `export function helper${i}(): number { return ${i}; }`;
+        await writeFile(join(root, p), content);
+        svc.upsert({
+          ...rec(p, content),
+          symbols: [{ name: "sharedHelper", kind: "function", line: 1 }],
+        });
+      }
+      const calls: RerankRequest[] = [];
+      const rerank = async (req: RerankRequest): Promise<Set<string> | null> => {
+        calls.push(req);
+        // Pick the three most plausible files: the symbol actually appears
+        // in every file; the ranker chooses — the orientation module only
+        // checks the result is non-empty and within the kept size.
+        return new Set(["src/gen0.ts", "src/gen2.ts", "src/gen4.ts"]);
+      };
+      const o = make(root, svc, rerank);
+      const plan = await o.planForWithRerank("update sharedHelper usage");
+      expect(plan).not.toBeNull();
+      // One request, one fan-out: the orientation module never makes two
+      // rerank calls per send.
+      expect(calls.length).toBe(1);
+      // The state shape: the task text plus a candidate per over-threshold
+      // path (six files, six candidates).
+      expect(calls[0]!.task).toBe("update sharedHelper usage");
+      expect(calls[0]!.candidates.length).toBe(6);
+      const candidatePaths = new Set(calls[0]!.candidates.map((c) => c.path));
+      expect(candidatePaths).toEqual(new Set(["src/gen0.ts", "src/gen1.ts", "src/gen2.ts", "src/gen3.ts", "src/gen4.ts", "src/gen5.ts"]));
+      // Per-candidate shape: path, symbols (top 3), provenance (the seed's reason).
+      const first = calls[0]!.candidates[0]!;
+      expect(typeof first.id).toBe("string");
+      expect(first.symbols).toContain("sharedHelper");
+      expect(first.provenance).toContain("sharedHelper");
+      // Advisory by contract: the state carries metadata only — never a
+      // source excerpt (asserted; the fixture files contain declarations).
+      expect(JSON.stringify(calls[0])).not.toContain("export function");
+      // Rescued plan: the kept paths show up, marked reranked so a reader
+      // can see why an over-threshold seed produced a plan.
+      expect(plan).toContain("src/gen0.ts");
+      expect(plan).toContain("src/gen2.ts");
+      expect(plan).toContain("src/gen4.ts");
+      expect(plan).toContain("reranked");
+      // Diagnostics: not an over-threshold fallback — a real plan with the
+      // symbolPlans counter incremented (the seed source was a symbol).
+      expect(o.lastFallbackReason).toBeNull();
+      expect(o.seedStats.overThreshold).toBe(0);
+      expect(o.seedStats.symbolPlans).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the rerank hook is NEVER consulted when the seed set is already within threshold", async () => {
+    const { root, svc } = await setup();
+    try {
+      // The base fixture's `src/date.ts` is a path seed that yields a
+      // within-threshold plan (it has relations, so query returns results).
+      let called = false;
+      const rerank = async (): Promise<Set<string> | null> => {
+        called = true;
+        return new Set();
+      };
+      const o = make(root, svc, rerank);
+      const plan = o.planFor("work on src/date.ts");
+      expect(plan).not.toBeNull();
+      // The hook was never consulted — a plan that already exists costs
+      // nothing extra.
+      expect(called).toBe(false);
+      // No `reranked` marker on a within-threshold plan.
+      expect(plan).not.toContain("reranked");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fewer than 2 kept paths degrades to no plan (never a guessed one)", async () => {
+    const { root, svc } = await setup();
+    try {
+      for (let i = 0; i < 6; i++) {
+        const p = `src/gen${i}.ts`;
+        const content = `export function helper${i}(): number { return ${i}; }`;
+        await writeFile(join(root, p), content);
+        svc.upsert({
+          ...rec(p, content),
+          symbols: [{ name: "sharedHelper", kind: "function", line: 1 }],
+        });
+      }
+      const rerank = async (): Promise<Set<string> | null> => new Set(["src/gen0.ts"]);
+      const o = make(root, svc, rerank);
+      expect(await o.planForWithRerank("update sharedHelper usage")).toBeNull();
+      expect(o.lastFallbackReason).toBe("over-threshold");
+      expect(o.seedStats.overThreshold).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an empty rerank hook (null) degrades to no plan, never a broken turn", async () => {
+    const { root, svc } = await setup();
+    try {
+      for (let i = 0; i < 6; i++) {
+        const p = `src/gen${i}.ts`;
+        const content = `export function helper${i}(): number { return ${i}; }`;
+        await writeFile(join(root, p), content);
+        svc.upsert({
+          ...rec(p, content),
+          symbols: [{ name: "sharedHelper", kind: "function", line: 1 }],
+        });
+      }
+      const rerank = async (): Promise<Set<string> | null> => null;
+      const o = make(root, svc, rerank);
+      expect(await o.planForWithRerank("update sharedHelper usage")).toBeNull();
+      expect(o.lastFallbackReason).toBe("over-threshold");
+      expect(o.seedStats.overThreshold).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an empty rerank Set also degrades to no plan", async () => {
+    const { root, svc } = await setup();
+    try {
+      for (let i = 0; i < 6; i++) {
+        const p = `src/gen${i}.ts`;
+        const content = `export function helper${i}(): number { return ${i}; }`;
+        await writeFile(join(root, p), content);
+        svc.upsert({
+          ...rec(p, content),
+          symbols: [{ name: "sharedHelper", kind: "function", line: 1 }],
+        });
+      }
+      const rerank = async (): Promise<Set<string> | null> => new Set();
+      const o = make(root, svc, rerank);
+      expect(await o.planForWithRerank("update sharedHelper usage")).toBeNull();
+      expect(o.lastFallbackReason).toBe("over-threshold");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rescued plan rehashes every entry against the mapped record (freshness unchanged)", async () => {
+    const { root, svc } = await setup();
+    try {
+      for (let i = 0; i < 6; i++) {
+        const p = `src/gen${i}.ts`;
+        const content = `export function helper${i}(): number { return ${i}; }`;
+        await writeFile(join(root, p), content);
+        svc.upsert({
+          ...rec(p, content),
+          symbols: [{ name: "sharedHelper", kind: "function", line: 1 }],
+        });
+      }
+      // Stale one file after mapping: the rescued plan MUST exclude it,
+      // exactly the way today's within-threshold plan does (#616).
+      await writeFile(join(root, "src/gen3.ts"), "// stale");
+      const rerank = async (): Promise<Set<string> | null> =>
+        new Set(["src/gen0.ts", "src/gen3.ts", "src/gen4.ts"]);
+      const o = make(root, svc, rerank);
+      const plan = await o.planForWithRerank("update sharedHelper usage");
+      expect(plan).not.toBeNull();
+      // The stale file is absent from the plan; the rest survived the
+      // freshness check.
+      expect(plan).toContain("src/gen0.ts");
+      expect(plan).not.toContain("src/gen3.ts");
+      expect(plan).toContain("src/gen4.ts");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

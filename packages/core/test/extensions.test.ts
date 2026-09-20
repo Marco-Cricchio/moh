@@ -10,9 +10,10 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
+import { canonicalModulePath } from "../src/extensions";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
-import type { AgentEvent, Tool } from "../src/index";
-import type { ExtensionDefinition } from "@moh/extension";
+import type { AgentEvent, ExtensionConsentRequest, Tool } from "../src/index";
+import type { ExtensionDefinition, ExtensionSetupContext } from "@moh/extension";
 
 const echoTool: Tool = {
   name: "echo",
@@ -55,7 +56,10 @@ describe("@moh/extension contract", () => {
   test("defineExtension is an identity tag; apiVersion parses", () => {
     const def = defineExtension({ name: "x", version: "1.0.0", apiVersion: "1.0", setup: () => {} });
     expect(def.name).toBe("x");
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 0 });
+    // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034: the ask outcome, the
+    // two observability seams, the beforeTurn hook, the control channel,
+    // the post-tool inspection seam and `confirm.onResolved`.
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 6 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
@@ -257,8 +261,8 @@ describe("consent and dependencies", () => {
   test("one-time enable consent: declined once, then approved and remembered", async () => {
     const dir = tempDir();
     const asked: string[] = [];
-    const consent = (name: string) => {
-      asked.push(name);
+    const consent = (request: ExtensionConsentRequest) => {
+      asked.push(request.name ?? request.file ?? "");
       return asked.length > 1; // decline the first ask
     };
     const def = defineExtension({ name: "c", version: "1.0.0", apiVersion: "1.0", setup: () => {} });
@@ -413,11 +417,13 @@ describe("hot-reload", () => {
       extensions: rt2,
       resume: { events: first.history() },
     });
+    // #834: the reconciliation waits for pending registrations, so the
+    // warning lands once the load settled — by the next turn, at the latest.
+    expect((await resumed.send("again")).status).toBe("done");
     const warning = resumed.history().find(
       (e) => e.type === "extension_failed" && (e as any).reason === "missing_on_resume",
     );
     expect(warning).toMatchObject({ name: "gone" });
-    expect((await resumed.send("again")).status).toBe("done");
   });
 
   test("a hook that always throws does not loop and becomes a warning event", async () => {
@@ -443,5 +449,297 @@ describe("hot-reload", () => {
     expect(failures.every((f: any) => f.reason === "hook")).toBe(true);
     // The extension_failed events themselves were not re-dispatched.
     expect(events).toBeLessThan(20);
+  });
+});
+
+describe("ADR-0036 setPromptNote (per-turn prompt note)", () => {
+  test("replaces per extension, null removes; renders in the turn_notes section", async () => {
+    const { rt } = await setup({
+      name: "annotator",
+      version: "1.0.0",
+      apiVersion: "1.5",
+      setup: (ctx) => {
+        ctx.setPromptNote("first");
+        ctx.setPromptNote("second");
+        ctx.setPromptNote(null);
+        ctx.setPromptNote("hint for this turn");
+      },
+    });
+    const composer = new PromptComposer({ projectDir: tempDir(), mohHome: tempDir() });
+    const assembled = composer.compose({
+      cwd: tempDir(),
+      platform: "test",
+      now: new Date(),
+      tools: [],
+      skills: [],
+      extensionNotes: rt.notes(),
+      turnNotes: rt.turnNotes(),
+    });
+    expect(assembled.sections["turn_notes"]).toBe("## Turn notes\n\nhint for this turn");
+    expect(assembled.system).not.toContain("first");
+  });
+
+  test("auto-clears at turn start; a note set during beforeTurn describes that turn; one slot each", async () => {
+    const { rt } = await setup([
+      {
+        name: "a",
+        version: "1.0.0",
+        apiVersion: "1.5",
+        setup: (ctx) => {
+          ctx.setPromptNote("stale from setup");
+          ctx.beforeTurn(() => ctx.setPromptNote("from-a"));
+        },
+      },
+      {
+        name: "b",
+        version: "1.0.0",
+        apiVersion: "1.5",
+        setup: (ctx) => {
+          ctx.beforeTurn(() => ctx.setPromptNote("from-b"));
+        },
+      },
+    ]);
+    // Before any turn: the setup-time note is there (one slot, no leak).
+    expect(rt.turnNotes()).toEqual(["stale from setup"]);
+    // A turn's dispatch clears first, then the hooks write: the stale
+    // note cannot leak into the turn the hooks describe.
+    await rt.dispatchBeforeTurn({ text: "second turn", turnIndex: 2, model: "mock" });
+    expect(rt.turnNotes()).toEqual(["from-a", "from-b"]);
+    await rt.dispatchBeforeTurn({ text: "third turn", turnIndex: 3, model: "mock" });
+    expect(rt.turnNotes()).toEqual(["from-a", "from-b"]);
+  });
+});
+
+
+describe("ADR-0037 requestTurn (synthetic turn)", () => {
+  function requestTurnDef(log: { called: string[]; texts: string[] }, apiVersion = MOH_EXTENSION_API_VERSION) {
+    return defineExtension({
+      name: "corrector",
+      version: "1.0.0",
+      apiVersion,
+      setup: (ctx) => {
+        ctx.afterTurn(async ({ result }) => {
+          if (result.status !== "done" || log.called.length >= 1) return;
+          log.called.push("after_turn");
+          const ok = await ctx.requestTurn("please fix the conventions");
+          log.texts.push(`resolved:${ok}`);
+        });
+      },
+    });
+  }
+
+  test("a finding triggers one synthetic turn: marked in the log, no beforeTurn, tools run", async () => {
+    const log = { called: [] as string[], texts: [] as string[] };
+    const beforeTurnSeen: string[] = [];
+    const rt = runtime(tempDir());
+    await rt.register({
+      name: "corrector",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx: ExtensionSetupContext) => {
+        ctx.beforeTurn(() => {
+          beforeTurnSeen.push("before_turn");
+        });
+        ctx.afterTurn(async ({ result, synthetic }) => {
+          // The gate-shaped hook: done turns only, and a synthetic turn
+          // the extension itself requested is never re-gated.
+          if (synthetic === true || result.status !== "done") return;
+          const ok = await ctx.requestTurn("please fix the conventions");
+          log.texts.push(`resolved:${ok}`);
+        });
+      },
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: ["first"], finish: "stop" },
+        { deltas: ["correction"], finish: "stop" },
+      ]),
+      tools: { echo: echoTool },
+      extensions: rt,
+    });
+    const result = await session.send("hello");
+    expect(result.status).toBe("done");
+    expect(log.texts).toEqual(["resolved:true"]);
+
+    const history = session.history();
+    const syntheticMessages = history.filter((e) => e.type === "user_message" && (e as any).synthetic === true);
+    expect(syntheticMessages).toHaveLength(1);
+    expect((syntheticMessages[0] as any).text).toBe("please fix the conventions");
+    // The synthetic turn's reply follows it in the log.
+    const syntheticIdx = history.indexOf(syntheticMessages[0]!);
+    expect(history.slice(syntheticIdx).some((e) => e.type === "assistant_delta" && (e as any).text === "correction")).toBe(true);
+    // beforeTurn fired only for the real user send, never for the synthetic turn.
+    expect(beforeTurnSeen).toEqual(["before_turn"]);
+  });
+
+  test("the depth limit is the core's: the third consecutive request is refused, a real turn resets the budget", async () => {
+    const answers: string[] = [];
+    const rt = runtime(tempDir());
+    await rt.register({
+      name: "eager",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx: ExtensionSetupContext) => {
+        ctx.afterTurn(async ({ synthetic }) => {
+          // Gate-shaped: never re-enter on our own synthetic turn.
+          if (synthetic === true) return;
+          // Ask three times every turn: only the first two consecutive
+          // synthetic turns may ever run.
+          for (let i = 0; i < 3; i++) answers.push(`ask:${await ctx.requestTurn(`fix ${i}`)}`);
+        });
+      },
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: ["a"], finish: "stop" },
+        { deltas: ["b"], finish: "stop" },
+        { deltas: ["c"], finish: "stop" },
+      ]),
+      tools: { echo: echoTool },
+      extensions: rt,
+    });
+    await session.send("turn one");
+    // Two synthetic turns ran, the third consecutive request was refused.
+    expect(answers).toEqual(["ask:true", "ask:true", "ask:false"]);
+    const syntheticCount = (turnIndex: number) => {
+      const history = session.history();
+      return history.filter((e) => e.type === "user_message" && (e as any).synthetic === true).length;
+    };
+    expect(syntheticCount(0)).toBe(2);
+    const capEvents = session.history().filter((e) => e.type === "extension_failed" && (e as any).reason === "request_turn");
+    expect(capEvents.length).toBeGreaterThanOrEqual(1);
+
+    // A real user turn resets the budget: two more synthetic turns run.
+    answers.length = 0;
+    await session.send("turn two");
+    expect(answers).toEqual(["ask:true", "ask:true", "ask:false"]);
+    expect(session.history().filter((e) => e.type === "user_message" && (e as any).synthetic === true)).toHaveLength(4);
+  });
+
+  test("refusals are visible: blank text, disposed session — each with a visible event", async () => {
+    const rt = runtime(tempDir());
+    await rt.register({
+      name: "probe",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx: ExtensionSetupContext) => {
+        // The hook exercises the runtime path through the session entry.
+        ctx.afterTurn(async () => {
+          failures.push({ where: "blank", ok: await ctx.requestTurn("   ") });
+        });
+      },
+    });
+    const failures: any[] = [];
+    const loadEvents: any[] = [];
+    rt.onLoadEvent((e: any) => {
+      if (e.type === "extension_failed" && e.reason === "request_turn") loadEvents.push(e);
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+    });
+    await session.send("hi");
+    // Blank text refused.
+    expect(failures).toEqual([{ where: "blank", ok: false }]);
+    // The refusal is visible in the log, never silent.
+    expect(loadEvents.length).toBeGreaterThanOrEqual(1);
+
+    // A disposed session refuses (the turn entry is gone with it).
+    await session.dispose();
+  });
+
+  test("an older host runtime without the option still answers (refusal, visible event), never throws", async () => {
+    const rt = runtime(tempDir());
+    // Simulate a host that never bound a turn entry: no session constructed.
+    let answer: boolean | undefined;
+    await rt.register({
+      name: "hopeful",
+      version: "1.0.0",
+      apiVersion: MOH_EXTENSION_API_VERSION,
+      setup: (ctx: ExtensionSetupContext) => {
+        void ctx.requestTurn("do it").then((ok: boolean) => {
+          answer = ok;
+        });
+      },
+    });
+    await rt.ready();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(answer).toBe(false);
+  });
+});
+
+describe("consent precedes execution (#834 security)", () => {
+  /** A file extension whose payload runs at module top level, not in setup():
+   * the top level is what an import evaluates, so it is the honest probe for
+   * "did un-consented code run?" — a setup() side effect would be gated by
+   * registration and would hide the bug. */
+  function payloadFile(dir: string, marker: string): string {
+    const file = join(dir, "payload.mjs");
+    writeFileSync(
+      file,
+      `import { writeFileSync } from "node:fs";\n` +
+        `writeFileSync(${JSON.stringify(marker)}, "top-level code ran");\n` +
+        `export default { name: "payload", version: "1.0.0", apiVersion: "1.0", setup() {} };\n`,
+    );
+    return file;
+  }
+
+  test("a declined file is never imported: its top level must not run", async () => {
+    const dir = tempDir();
+    const marker = join(dir, "PWNED");
+    const file = payloadFile(dir, marker);
+    const rt = new ExtensionRuntime({ mohHome: tempDir(), consent: () => false });
+    expect(await rt.registerFile(file)).toBe(false);
+    expect(rt.consumeLoadEvents().map((e) => (e as { reason?: string }).reason)).toContain("consent");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("with no consent seam (headless) a file is never imported either", async () => {
+    const dir = tempDir();
+    const marker = join(dir, "PWNED-HEADLESS");
+    const file = payloadFile(dir, marker);
+    const rt = new ExtensionRuntime({ mohHome: tempDir() });
+    expect(await rt.registerFile(file)).toBe(false);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("the ask happens before the import, so it cannot name claims that do not exist yet", async () => {
+    const dir = tempDir();
+    const marker = join(dir, "PWNED-ORDER");
+    const file = payloadFile(dir, marker);
+    let sawMarkerWhenAsked: boolean | undefined;
+    const rt = new ExtensionRuntime({
+      mohHome: tempDir(),
+      consent: (request) => {
+        sawMarkerWhenAsked = existsSync(marker);
+        // The identity the user is asked about is the canonical file and its bytes.
+        expect(request.file).toBe(canonicalModulePath(file));
+        expect(request.hash).toMatch(/^[0-9a-f]{64}$/);
+        return true;
+      },
+    });
+    expect(await rt.registerFile(file)).toBe(true);
+    expect(sawMarkerWhenAsked).toBe(false);
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  test("an edited file is not imported before the re-ask", async () => {
+    const dir = tempDir();
+    const home = tempDir();
+    const marker = join(dir, "PWNED-EDIT");
+    const rt = new ExtensionRuntime({ mohHome: home, consent: () => true });
+    const file = join(dir, "edit.mjs");
+    const source = (body: string) =>
+      `export default { name: "edit", version: "1.0.0", apiVersion: "1.0", setup() {} };\n${body}`;
+    writeFileSync(file, source(""));
+    expect(await rt.registerFile(file)).toBe(true);
+
+    // The edited bytes carry a payload and the user declines the re-ask: the
+    // previous instance stays and the new top level never runs.
+    writeFileSync(file, source(`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "edit ran");`));
+    const strict = new ExtensionRuntime({ mohHome: home, consent: () => false });
+    expect(await strict.registerFile(file)).toBe(false);
+    expect(existsSync(marker)).toBe(false);
   });
 });

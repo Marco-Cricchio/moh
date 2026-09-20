@@ -87,6 +87,7 @@ export type MpmFallbackReason =
   | "model-seeded"
   | "over-threshold"
   | "reasoning-seeded"
+  | "classifier-gated"
   | null;
 
 /** Confidence tier of an orientation plan's seed source (#759). */

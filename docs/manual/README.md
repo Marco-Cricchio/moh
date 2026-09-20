@@ -8,7 +8,9 @@ regenerates it).
 - [CLI reference](./cli-reference.md) — cli-reference
 - [Commands & keys](./commands-and-keys.md) — commands-and-keys
 - [Config reference](./config-reference.md) — config-reference
+- [Extensions](./extensions.md) — extensions
 - [Getting started](./getting-started.md) — getting-started
+- [Jev (TypeSafe)](./jev.md) — jev
 - [MCP](./mcp.md) — mcp
 - [Memory & compaction](./memory-and-compaction.md) — memory-and-compaction
 - [Permissions & rules](./permissions.md) — permissions

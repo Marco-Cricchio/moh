@@ -21,6 +21,7 @@ export const SECTION_ORDER = [
   "session_state",
   "mpm",
   "extension_notes",
+  "turn_notes",
 ] as const;
 
 export type SectionName = (typeof SECTION_ORDER)[number];
@@ -53,6 +54,8 @@ export interface PromptContext {
   sessionState?: string;
   /** Trailing notes appended by extensions (append-only; hooks land later). */
   extensionNotes?: string[];
+  /** ADR-0036: per-turn notes, one per extension, cleared at turn start. */
+  turnNotes?: string[];
   /** #616: turn-scoped MPM orientation plan (advisory, source-cited). */
   mpmOrientation?: string;
 }
@@ -109,8 +112,17 @@ export interface PromptComposerConfig {
   sections?: Partial<Record<SectionName, SectionRenderer>>;
 }
 
-function readIfExists(file: string): string | null {
-  if (!existsSync(file)) return null;
+/** ADR-0036: a turn note is a hint, not a channel — hard character cap. */
+export const TURN_NOTE_MAX_CHARS = 300;
+
+/** Truncates an oversized turn note on a code-point boundary, with a marker. */
+export function truncateTurnNote(text: string, maxChars = TURN_NOTE_MAX_CHARS): string {
+  const chars = [...text];
+  if (chars.length <= maxChars) return text;
+  return `${chars.slice(0, maxChars).join("")} [truncated]`;
+}
+
+function readIfExists(file: string): string | null {  if (!existsSync(file)) return null;
   return readFileSync(file, "utf8");
 }
 
@@ -149,6 +161,13 @@ export class PromptComposer {
       session_state: (ctx) => (ctx.sessionState ? `## Session state\n\n${ctx.sessionState}` : ""),
       extension_notes: (ctx) =>
         ctx.extensionNotes?.length ? `## Extension notes\n\n${ctx.extensionNotes.join("\n\n")}` : "",
+      // ADR-0036: the per-turn hint section — after the project's
+      // instructions (this section sits last), before the conversation
+      // context. One line per extension, registration order, truncated.
+      turn_notes: (ctx) =>
+        ctx.turnNotes?.length
+          ? `## Turn notes\n\n${ctx.turnNotes.map((n) => truncateTurnNote(n)).join("\n\n")}`
+          : "",
       // #616: the turn-scoped MPM orientation plan, rendered verbatim.
       mpm: (ctx) => (ctx.mpmOrientation ? ctx.mpmOrientation : ""),
     };

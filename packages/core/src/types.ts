@@ -16,6 +16,12 @@ export const SCHEMA_VERSION = 2;
  * else the last event). New events never carry `line:N` ids — the bridge
  * is read-only and only ever appears as a referenced value.
  */
+/**
+ * ADR-0038: the opaque, JSON-serializable command payload a client sends to
+ * one extension. The core never interprets it.
+ */
+export type ExtensionControlPayload = Record<string, unknown>;
+
 export interface EventIdentity {
   id?: string;
   parentId?: string;
@@ -246,6 +252,12 @@ type AgentEventBase =
    */
   | { type: "tree_bookmarked"; to: string; name?: string }
   | { type: "user_message"; text: string; /**
+   * ADR-0037: true when this message was requested by an extension
+   * through `requestTurn` — machine-composed, run as a normal turn. The
+   * marker rides the event, so replay, the transcript and analysis can
+   * tell a human-typed turn from a machine-triggered one. Absent on real
+   * user sends. */
+      synthetic?: boolean; /**
    * #488 (vision note 3): structured snapshots of the `@path` mentions in
    * `text` — file content snapshots and directory listings assembled by
    * the core at send time, gated by read-permission rules. The log records
@@ -285,7 +297,8 @@ type AgentEventBase =
   | { type: "done"; usage?: TokenUsage; models?: string[] }
   | { type: "error"; reason: string; message: string }
   | { type: "cancelled" }
-  | { type: "permission_requested"; callId: string; tool: string }
+  | { type: "permission_requested"; callId: string; tool: string; /** ADR-0031: "extension" when an extension's `ask` outcome raised this prompt. */
+      reason?: string }
   | { type: "permission_granted"; callId: string; tool: string; reason: PermissionGrantReason }
   | { type: "permission_denied"; callId: string; tool: string; reason: string }
   | { type: "permission_rule_added"; rule: PermissionRule }
@@ -316,9 +329,35 @@ type AgentEventBase =
    * again. Legacy numeric `upTo` markers (pre-tree logs) read as
    * `line:N` and resolve positionally.
    */
-  | { type: "compaction"; summary: string; upTo?: number; upToId?: string }
+  | { type: "compaction"; summary: string; upTo?: number; upToId?: string;
+      /** ADR-0035: an extension's section cut was reduced to the survival
+       * floor before rendering (chrome — audit only, replay ignores it). */
+      keptByFloor?: true }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
+  /**
+   * ADR-0032 (apiVersion 1.1): a structured record an extension appended
+   * through `ctx.appendEvent`. `extension` is stamped by the runtime (never
+   * self-declared); the payload is opaque to the core — chrome only, never
+   * fed to the model, never a turn error. Clients render one subdued line.
+   */
+  | { type: "extension_event"; extension: string; name: string; payload?: unknown }
+  /**
+   * ADR-0038 (apiVersion 1.3): a client command addressed to one running
+   * extension (`AgentSession.setExtensionState`). The payload is opaque to
+   * the core and JSON-serializable; the event is chrome — never fed to the
+   * model, never a turn error — and it is delivered to the named
+   * extension's `onEvent` hooks alone. Recording it keeps the intent
+   * replayable: a resumed log still explains why an extension was paused.
+   */
+  | { type: "extension_control"; extension: string; payload: ExtensionControlPayload }
+  /**
+   * One informational startup line (e.g. a bundled integration that stayed
+   * inactive because its configuration is absent). Chrome only: never a
+   * warning, never a turn error, never model context — the client renders
+   * it dim.
+   */
+  | { type: "session_note"; text: string }
   /** #774 / ADR-0029: the browser tool was requested but the toolchain is
    * missing. Visible diagnostic chrome — never a turn error. */
   | { type: "browser_unavailable"; reason: string }
@@ -376,6 +415,16 @@ type AgentEventBase =
        * child log. Absent when the child produced no output. */
       preview?: string;
     };
+
+/**
+ * ADR-0032: one status an extension currently publishes (its name plus its
+ * own text). Ephemeral client chrome: never in the event log, cleared at
+ * session end and on extension reload.
+ */
+export interface ExtensionStatus {
+  extension: string;
+  text: string;
+}
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
 export type PermissionGrantReason = "yolo" | "auto_accept" | "user";

@@ -50,11 +50,19 @@
       "name": "@moh/extension",
       "version": "0.1.0",
     },
+    "packages/jev-guard": {
+      "name": "@moh/jev-guard",
+      "version": "0.1.0",
+      "dependencies": {
+        "@moh/extension": "workspace:*",
+      },
+    },
     "packages/tui": {
       "name": "@moh/tui",
       "version": "0.1.0",
       "dependencies": {
         "@moh/core": "workspace:*",
+        "@moh/jev-guard": "workspace:*",
         "cli-highlight": "^2.1.11",
         "cli-table3": "^0.6.5",
         "ink": "^6.4.0",
@@ -93,6 +101,8 @@
     "@moh/evals": ["@moh/evals@workspace:packages/evals"],
 
     "@moh/extension": ["@moh/extension@workspace:packages/extension"],
+
+    "@moh/jev-guard": ["@moh/jev-guard@workspace:packages/jev-guard"],
 
     "@moh/tui": ["@moh/tui@workspace:packages/tui"],
 

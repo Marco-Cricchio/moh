@@ -206,6 +206,155 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
   return { startIndex: first, sourceOffset: prefix.length, previousLine: prefix.trimEnd().split("\n").at(-1) ?? "" };
 }
 
+/** ADR-0032 (#784): the one line an `extension_event` gets. The payload is
+ * `unknown` by contract (the core never inspects it), so every field is
+ * narrowed defensively: a shape this renderer does not recognize degrades to
+ * the bare event name — it never guesses and never throws.
+ *
+ * `jev_judgment` (the Jev guardrail's record, #786) is phrased as
+ * `jev · guardrail · ask (destructive 0.42)`: the event name minus its
+ * `_judgment` suffix names the product, then the payload's `useCase` and
+ * `decision`, then the first question with its answer. A routing judgment
+ * (#787) reads `jev · routing · switch to a/big` instead — its payload has
+ * no numeric question to inline. `jev_routing` (the router's own notices:
+ * a misconfigured label, an unpriced model, a manual override) gets one
+ * short line per kind. */
+export function extensionEventLine(name: string, payload: unknown): string {
+  const record = asRecord(payload);
+  if (record === undefined) return name;
+  if (name === "jev_routing") return routingNoticeLine(record);
+  if (name === "jev_usecase") return useCaseLine(record);
+  if (!name.endsWith("_judgment")) return name;
+  if (record.useCase === "routing") return routingJudgmentLine(record);
+  if (record.useCase === "injection") return injectionJudgmentLine(record);
+  const parts = [name.slice(0, -"_judgment".length)];
+  if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
+  if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
+  const first = Object.entries(asRecord(record.questions) ?? {})[0];
+  // Only a numeric answer is short enough to be worth reading inline; the
+  // distribution shapes (choice/score) stay in the log for /jev-style views.
+  if (first !== undefined && typeof first[1] === "number" && Number.isFinite(first[1])) {
+    parts[parts.length - 1] = `${parts[parts.length - 1]} (${first[0]} ${first[1]})`;
+  }
+  return parts.join(" · ");
+}
+
+/** ADR-0038: the short form of a control payload (`{ cmd: "off" }` → `off`).
+ * #832: the uniform grammar names the use case first (`injection off`). */
+function controlCommandLine(payload: Record<string, unknown> | undefined): string {
+  if (payload?.cmd === "usecase") {
+    const usecase = typeof payload.usecase === "string" && payload.usecase !== "" ? payload.usecase : "?";
+    const action = typeof payload.action === "string" && payload.action !== "" ? payload.action : "?";
+    return `${usecase} ${action}`;
+  }
+  const cmd = payload?.cmd;
+  return typeof cmd === "string" && cmd !== "" ? cmd : "control";
+}
+
+/**
+ * #832: one line per per-use-case control change. The asymmetry is the whole
+ * point of the line — a warm `on` for a use case the config left off must
+ * say so, and so must a warm `off` for one the config leaves on, because the
+ * very next session starts from the config again. A refusal is a refusal:
+ * nothing pretends the command landed. Anything unrecognized degrades to the
+ * use case and action, never to a guess.
+ */
+function useCaseLine(record: Record<string, unknown>): string {
+  const usecase = typeof record.usecase === "string" ? record.usecase : "?";
+  const action = typeof record.action === "string" ? record.action : "?";
+  const refused = typeof record.refused === "string" ? record.refused : undefined;
+  if (refused === "unknown-usecase") return `jev · ${usecase} · not a Jev use case`;
+  if (refused === "unknown-action") return `jev · ${usecase} · "${action}" is not a command (on, off${usecase === "routing" ? ", auto" : ""})`;
+  if (refused === "unavailable") return `jev · ${usecase} · ${action} refused — not available in this session`;
+  if (refused === "unsupported") return `jev · ${usecase} · "${action}" belongs to model routing`;
+  if (refused === "yolo") return "jev · guardrail · off refused — yolo keeps the lethal checks on";
+  const note = typeof record.note === "string" ? record.note : undefined;
+  if (note !== undefined) return `jev · ${usecase} · ${action} for this session — ${note}`;
+  if (record.sessionOnly === true) {
+    return `jev · ${usecase} · ${action} for this session — the config still says ${record.config === true ? "on" : "off"}`;
+  }
+  return `jev · ${usecase} · ${action} for this session`;
+}
+
+/** #787: the router's notices — one line each, never a warning, never a
+ * turn error. An unknown kind degrades to the bare product name. */
+function routingNoticeLine(record: Record<string, unknown>): string {
+  const kind = typeof record.kind === "string" ? record.kind : "";
+  if (kind === "ignored-label" && typeof record.ref === "string") {
+    return `jev · routing · label ${record.ref} ignored (not in the model pool)`;
+  }
+  if (kind === "unpriced" && typeof record.count === "number") {
+    return `jev · routing · ${record.count} model(s) have no catalog price → bilanciato`;
+  }
+  if (kind === "listing-failed" && typeof record.message === "string") {
+    return `jev · routing · ${record.message}`;
+  }
+  if (kind === "inert") return "jev · routing · inert (fewer than two tiers to choose from)";
+  if (kind === "override" && typeof record.model === "string") {
+    return `jev · routing · suspended by your manual model switch (${record.model})`;
+  }
+  return "jev · routing";
+}
+
+/**
+ * #791: one anti-injection judgment. The mid band is the whole point of
+ * the line — it is the visible warning the user gets instead of a silent
+ * pass — and a `sensitive`-driven warning carries the advice the record
+ * brought with it (its copy lives in the extension, not here). The confirm
+ * band's outcome reads as what happened to the turn: sent anyway,
+ * cancelled (nothing was sent), or refused in headless.
+ */
+function injectionJudgmentLine(record: Record<string, unknown>): string {
+  const decision = typeof record.decision === "string" ? record.decision : "judgment";
+  const injection = typeof record.injection === "number" ? record.injection : 0;
+  const sensitive = typeof record.sensitive === "number" ? record.sensitive : 0;
+  const where = typeof record.source === "string" && record.source.startsWith("tool:")
+    ? ` (${record.source.slice("tool:".length)} result withheld)`
+    : "";
+  if (decision === "cancelled") return "jev · injection · cancelled — nothing was sent";
+  if (decision === "refused-headless") return "jev · injection · refused — possible injection, nothing was sent";
+  if (decision === "confirmed") return `jev · injection · sent anyway (injection ${injection.toFixed(2)})`;
+  if (decision === "withheld") return `jev · injection · withheld${where} (injection ${injection.toFixed(2)})`;
+  if (decision === "warn") {
+    const advice = typeof record.advice === "string" ? record.advice : undefined;
+    if (advice !== undefined) return `jev · injection · warn (sensitive ${sensitive.toFixed(2)} — ${advice})`;
+    return `jev · injection · warn (injection ${injection.toFixed(2)})`;
+  }
+  return `jev · injection · ${decision} (injection ${injection.toFixed(2)})`;
+}
+
+/** #787: one routing judgment — what the router decided, and why. */
+function routingJudgmentLine(record: Record<string, unknown>): string {
+  const tier = typeof record.tier === "string" ? record.tier : undefined;
+  if (record.decision === "switch") {
+    const target = typeof record.target === "string" ? record.target : tier;
+    return `jev · routing · switch to ${target}${tier ? ` (${tier})` : ""}`;
+  }
+  const reason = typeof record.reason === "string" ? record.reason : "stay";
+  return `jev · routing · stay (${reason})`;
+}
+
+/**
+ * #791: the anti-injection judgments the transcript leaves out. The record
+ * is in the log (every judgment is), the line is not: below the warn
+ * threshold there is nothing for the user to read, and a per-turn check
+ * that announced itself on every turn would be the noise the band exists
+ * to avoid.
+ */
+function isSilentInjection(name: string, payload: unknown): boolean {
+  if (name !== "jev_judgment") return false;
+  const record = asRecord(payload);
+  if (record?.useCase !== "injection") return false;
+  return record.decision === "silent" || record.decision === "pass";
+}
+
+/** A JSON object as an inspectable record; anything else (arrays, null,
+ * primitives, a getter that throws) is not something to read fields from. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
 /** Complete, deterministic projection of the append-only event log. Events
  * may be grouped (assistant deltas, tool call/result), but none disappear
  * without an intentional chrome representation.
@@ -244,12 +393,17 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "user_message": {
         // Vision note 4 (#490): an image attachment rides its citing row.
         const image = (event.attachments ?? []).find((a) => a.kind === "image");
+        // ADR-0037: a synthetic turn is machine-triggered — the reader
+        // must never mistake it for something a human typed.
+        const synthetic = event.synthetic === true;
         blocks.push({
           key,
           kind: "user",
-          glyph: "›",
-          type: "you",
-          lines: sanitizeForDisplay(event.text).split("\n"),
+          glyph: synthetic ? "»" : "›",
+          type: synthetic ? "synthetic" : "you",
+          lines: (synthetic ? `[automatic correction] ${event.text}` : event.text)
+            .split("\n")
+            .map(sanitizeForDisplay),
           ...(image ? { image: { name: image.path, mime: image.mime, base64: image.content, width: image.width, height: image.height } } : {}),
         });
         break;
@@ -559,6 +713,35 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
       case "extension_loaded":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "extension loaded", detail: `${event.name} ${event.version}`, lines: [] });
+        break;
+      case "extension_control":
+        // ADR-0038: a client command addressed to one extension — the
+        // extension's own record (an `extension_event`) explains what it
+        // did with it, so this one line only names the command.
+        blocks.push({
+          key,
+          kind: "chrome",
+          glyph: "◈",
+          type: `${event.extension} · ${controlCommandLine(event.payload)}`,
+          lines: [],
+        });
+        break;
+      case "extension_event":
+        // ADR-0032 (#784): an extension's own chrome record — one dim line.
+        // The renderer stays generic: only the records this client can
+        // phrase get a summary, every other name renders as itself. The
+        // one record that renders nothing is the anti-injection check's
+        // `silent`/`pass` band (#791): the log keeps every judgment, but
+        // the low band is *silent* — the whole point of the threshold is
+        // that an unremarkable turn gains no line.
+        if (isSilentInjection(event.name, event.payload)) break;
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: extensionEventLine(event.name, event.payload), lines: [] });
+        break;
+      case "session_note":
+        // One informational startup line (e.g. a bundled integration that
+        // stayed inactive): information, never a warning — dim, no glyph
+        // beyond the marker that says "this is chrome".
+        blocks.push({ key, kind: "chrome", glyph: "·", type: event.text, lines: [] });
         break;
       case "extension_failed":
         blocks.push({ key, kind: "error", glyph: "✗", type: "extension failed", detail: event.name, lines: [event.message], state: "fail" });

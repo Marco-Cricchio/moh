@@ -69,8 +69,14 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const top = lines.findIndex((l) => l.text.indexOf("╭") >= 28);
       expect(top).toBeGreaterThanOrEqual(10);
       expect(top).toBeLessThanOrEqual(20);
-      const border = lines[top]!;
-      const dialogStart = border.text.indexOf("╭");
+      // The dialog's own bottom border measures its horizontal extent: the
+      // top border row can also carry the action-chip row's glyphs (the
+      // dialog grows with the settings list and floats over the chat), and
+      // the chips' own width would pollute the measurement.
+      const bottom = lines.findIndex((l) => l.text.indexOf("╰") >= 28);
+      expect(bottom).toBeGreaterThan(top);
+      const border = lines[bottom]!;
+      const dialogStart = border.text.indexOf("╰");
       expect(border.width - dialogStart).toBeGreaterThanOrEqual(97);
       expect(border.width - dialogStart).toBeLessThanOrEqual(101);
       const visibleSettings = ["Mode", "Theme", "Icons", "File preview", "Answer language", "Telemetry", "Default permission mode", "Provider"]

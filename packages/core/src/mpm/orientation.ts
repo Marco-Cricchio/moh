@@ -34,6 +34,13 @@ const MAX_TOKEN_LEN = 200;
 export const AMBIGUITY_THRESHOLD = 5;
 /** #759: reasoning seeds below this recency weight never enter the plan. */
 const MIN_REASONING_WEIGHT = 0.5;
+/** #790: a reranked plan must clear this floor (kept paths). Below it
+ *  the rerank degrades to "no plan" (unchanged behavior — never guessed). */
+const RERANK_MIN_KEPT = 2;
+/** #790: cap on the rerank request size, mirroring the extension's
+ *  RERANK_CANDIDATES_MAX (30) — the core never sends more than 30
+ *  candidates to one call. */
+const RERANK_CANDIDATES_MAX = 30;
 
 /** A path-like token: relative paths and dotted file names. */
 const PATH_TOKEN = /[A-Za-z0-9_@./-]+\.[A-Za-z][A-Za-z0-9]{1,11}/g;
@@ -48,7 +55,37 @@ interface PlanEntry {
   reason: string;
   /** #759: the entry's tier — low entries render visually subordinate. */
   tier: "high" | "medium" | "low";
+  /** #790: this entry came from a reranked seed set. The reason text
+   *  gets a `(reranked)` marker so the reader knows why an over-threshold
+   *  seed produced a plan. */
+  reranked?: boolean;
 }
+
+/** #790: one candidate in the rerank request — the over-threshold paths
+ *  the orientation collected plus the per-path metadata the rerank needs. */
+export interface RerankCandidate {
+  /** Stable id used as the rerank question key. */
+  readonly id: string;
+  /** Workspace-root-relative path (the canonical MPM path form). */
+  readonly path: string;
+  /** Top symbols the candidate declares (capped; the prompt would balloon otherwise). */
+  readonly symbols: readonly string[];
+  /** The seed's original reason text — the rerank call forwards it. */
+  readonly provenance: string;
+}
+
+/** #790: the rerank request the orientation module hands to the
+ *  extension-supplied hook when a seed set goes over-threshold. */
+export interface RerankRequest {
+  readonly task: string;
+  readonly candidates: readonly RerankCandidate[];
+}
+
+/** #790: what the hook returns. `null` = no plan (fail-open: outage,
+ *  timeout, malformed answer). A `Set<string>` of size < 2 = also no
+ *  plan (never a guessed one). Otherwise the kept paths are the rescued
+ *  seed set the orientation module uses to assemble the plan. */
+export type RerankResponse = Set<string> | null;
 
 export interface MpmOrientationOptions {
   /** The loaded projection service (read-only queries). */
@@ -59,6 +96,19 @@ export interface MpmOrientationOptions {
   maxEntries?: number;
   /** Character budget override (tests). */
   budgetChars?: number;
+  /**
+   * #790: the rerank hook the orientation module calls when a seed set
+   * goes over-threshold. Returns the kept paths (≤ 5, probability above
+   * the rerank floor) the orientation module uses to assemble the
+   * rescued plan, or `null` for "no plan" (outage, timeout, fewer than
+   * 2 candidates cleared the floor). Absent = the use case is off and
+   * today's discard branch runs unchanged.
+   *
+   * The hook is consulted at most once per `planFor` call, only when at
+   * least one seed set went over-threshold; a plan that already exists
+   * (within-threshold seeds) costs nothing extra.
+   */
+  rerank?: (req: RerankRequest) => Promise<RerankResponse>;
 }
 
 /** Hash the file like the extractor does, to verify the projection is fresh.
@@ -95,6 +145,20 @@ export class MpmOrientation {
   readonly #root: string;
   readonly #maxEntries: number;
   readonly #budgetChars: number;
+  /** #790: the rerank hook — null = the use case is off. */
+  readonly #rerank: ((req: RerankRequest) => Promise<RerankResponse>) | null;
+  /**
+   * #790: the over-threshold candidate set the last `planFor` call
+   * collected, when the rerank hook could rescue it. Consumed (once) by
+   * `planForWithRerank`; never leaks past one `planFor` call otherwise.
+   */
+  #pendingOverThreshold: { task: string; candidates: { path: string; reason: string; tier: MpmSeedTier; line?: number }[] } | null = null;
+  /**
+   * #790: the rescued plan for the current send, keyed by task text —
+   * the mid-turn prompt reassemblies reuse it through the sync `planFor`
+   * so one rerank call serves the whole turn. Cleared at `beginTurn`.
+   */
+  #rerankCache: { task: string; entries: PlanEntry[] } | null = null;
   /** #618: why the most recent plan lookup produced no plan (diagnostics). */
   #lastFallback: MpmFallbackReason = null;
   /** #759: cumulative per-session seed statistics (metadata only). */
@@ -105,6 +169,7 @@ export class MpmOrientation {
     this.#root = options.root;
     this.#maxEntries = options.maxEntries ?? MAX_ENTRIES;
     this.#budgetChars = options.budgetChars ?? PLAN_BUDGET_CHARS;
+    this.#rerank = options.rerank ?? null;
   }
 
   /**
@@ -140,6 +205,11 @@ export class MpmOrientation {
 
     let staleSeed = false;
     let overThreshold = false;
+    /** #790: every over-threshold path the seed pipeline surfaced, with
+     *  the per-path metadata the rerank hook needs. Collected by
+     *  `resolve` below and handed to `planForWithRerank` through
+     *  `#pendingOverThreshold` — never leaks past one `planFor` call. */
+    const overThresholdPaths: { path: string; reason: string; tier: MpmSeedTier; line?: number }[] = [];
     /** #759: resolves a seed to a queryable mapped path (or paths) plus its
      * tier reason. A seed resolving to more than AMBIGUITY_THRESHOLD files
      * is discarded entirely — ambiguity is noise, never guessed. */
@@ -151,6 +221,13 @@ export class MpmOrientation {
     ): boolean => {
       if (paths.length > AMBIGUITY_THRESHOLD) {
         overThreshold = true;
+        // #790: keep the candidate list for the rerank hook to consume.
+        // The path's reason text is the seed's reason text — the same
+        // shape a non-over-threshold entry would have surfaced.
+        for (const path of paths) {
+          if (overThresholdPaths.some((c) => c.path === path)) continue;
+          overThresholdPaths.push({ path, reason: reasonFor(path), tier });
+        }
         return false;
       }
       if (paths.length === 1 && !this.#fresh(paths[0]!)) {
@@ -163,6 +240,19 @@ export class MpmOrientation {
         if (!result) continue;
         if (result.paths.length > AMBIGUITY_THRESHOLD) {
           overThreshold = true;
+          // The query produced a wide result: collect the related paths
+          // for the rerank hook (each carries the seed's provenance).
+          for (let i = 0; i < result.paths.length; i++) {
+            const candidatePath = result.paths[i]!;
+            if (overThresholdPaths.some((c) => c.path === candidatePath)) continue;
+            const prov: MpmProvenance = result.provenance[i]!;
+            overThresholdPaths.push({
+              path: candidatePath,
+              reason: reasonFor(candidatePath),
+              tier,
+              ...(prov.line !== undefined ? { line: prov.line } : {}),
+            });
+          }
           continue;
         }
         any = true;
@@ -206,19 +296,138 @@ export class MpmOrientation {
         this.#stats.reasoningPlans += 1;
         this.#lastFallback = "reasoning-seeded";
       }
+      this.#pendingOverThreshold = null;
       return this.#render(entries);
     }
+    // #790: the over-threshold branch. Two doors:
+    //  - the hook already answered this task this turn (`#rerankCache`):
+    //    the mid-turn prompt reassemblies reuse the rescued entries —
+    //    one rerank call per send, never one per assembly;
+    //  - otherwise the discard branch runs exactly as today (and
+    //    `planForWithRerank` may still rescue afterwards, once, at send).
+    const cached = this.#rerankCache;
+    if (overThreshold && cached && cached.task === text && cached.entries.length > 0) {
+      return this.#finishRescued(cached.entries);
+    }
+    this.#pendingOverThreshold =
+      overThreshold && this.#rerank !== null && overThresholdPaths.length > 0
+        ? { task: text, candidates: overThresholdPaths }
+        : null;
     if (staleSeed) this.#lastFallback = "stale";
     else if (overThreshold) {
+      // #790: when the rerank hook could still rescue this lookup
+      // (`#pendingOverThreshold` set) the discard is not final — the
+      // counter is written by `planForWithRerank` on its failure path,
+      // so a rescued lookup never counts as a discard.
+      if (!this.#pendingOverThreshold) this.#stats.overThreshold += 1;
       this.#lastFallback = "over-threshold";
-      this.#stats.overThreshold += 1;
     } else this.#lastFallback = "no-eligible-seed";
     return null;
+  }
+
+  /**
+   * #790: the rerank-aware variant, called at send time only. Runs the
+   * same synchronous pipeline first (a plan that already exists costs
+   * nothing extra — the hook is never consulted within threshold);
+   * when the pipeline would discard for over-threshold and the use case
+   * is on, asks the hook once and assembles the rescued plan from the
+   * kept paths. Mid-turn reassemblies then reuse the rescued entries
+   * through the sync `planFor` (`#rerankCache`, cleared at `beginTurn`).
+   *
+   * The session owns the call site: `planFor` stays synchronous (the
+   * prompt assembly is sync — #616), so the await lives here and only
+   * here.
+   */
+  async planForWithRerank(text: string, reasoning?: string): Promise<string | null> {
+    const plan = this.planFor(text, reasoning);
+    if (plan !== null) return plan;
+    const pending = this.#pendingOverThreshold;
+    const hook = this.#rerank;
+    if (!pending || !hook) return null;
+    this.#pendingOverThreshold = null;
+    // Cap to 30 — the fan-out request's bound (vendor guidance); the
+    // extension may drop further, the core never sends more.
+    const sliced = pending.candidates.slice(0, RERANK_CANDIDATES_MAX);
+    const rerankCandidates: RerankCandidate[] = sliced.map((c) => ({
+      id: c.path,
+      path: c.path,
+      symbols: this.#symbolsForRerankCandidate(c.path),
+      provenance: c.reason,
+    }));
+    let kept: Set<string> | null;
+    try {
+      kept = await hook({ task: pending.task, candidates: rerankCandidates });
+    } catch {
+      // Fail-open: a thrown hook (extension bug, crash after the promise
+      // was handed out) is the same as a returned null — today's "no
+      // plan" branch, never a broken turn.
+      return null;
+    }
+    if (!kept || kept.size < RERANK_MIN_KEPT) {
+      // The hook did not rescue: record the discard the sync pass deferred.
+      this.#stats.overThreshold += 1;
+      return null;
+    }
+    // Freshness is unchanged by the rerank use case: every rescued entry
+    // is re-hashed against the mapped record, exactly like a
+    // within-threshold entry (#790 spec). The hook's order is the
+    // ranking (top probability first) — the plan preserves it.
+    const sourceByPath = new Map(pending.candidates.map((c) => [c.path, c]));
+    const rescued: PlanEntry[] = [];
+    for (const path of kept) {
+      if (!this.#fresh(path)) continue;
+      const source = sourceByPath.get(path);
+      rescued.push({
+        path,
+        reason: source?.reason ?? "reranked from the over-threshold seed set",
+        tier: source?.tier ?? "medium",
+        reranked: true,
+        ...(source?.line !== undefined ? { coordinate: `line ${source.line}` } : {}),
+      });
+      if (rescued.length >= this.#maxEntries) break;
+    }
+    if (rescued.length === 0) {
+      // Every kept path went stale between the pipeline and the hook:
+      // the deferred discard becomes final.
+      this.#stats.overThreshold += 1;
+      return null;
+    }
+    this.#rerankCache = { task: text, entries: rescued };
+    return this.#finishRescued(rescued);
+  }
+
+  /**
+   * #790: stats + fallback bookkeeping for a rescued plan — a real plan
+   * (the decisive tier's counter increments, `overThreshold` does not,
+   * the fallback clears), rendered with the `(reranked)` markers.
+   */
+  #finishRescued(entries: PlanEntry[]): string | null {
+    if (entries.some((e) => e.tier === "high")) this.#stats.pathPlans += 1;
+    else if (entries.some((e) => e.tier === "medium")) this.#stats.symbolPlans += 1;
+    else this.#stats.reasoningPlans += 1;
+    this.#lastFallback = null;
+    return this.#render(entries);
+  }
+
+  /** #790: top symbols of a candidate for the rerank question payload. */
+  #symbolsForRerankCandidate(path: string): string[] {
+    const record = this.#service.record(path);
+    if (!record) return [];
+    return record.symbols.slice(0, 3).map((s) => s.name);
   }
 
   /** #618: why the most recent plan lookup produced no plan (or null). */
   get lastFallbackReason(): MpmFallbackReason {
     return this.#lastFallback;
+  }
+
+  /**
+   * #788: records that this turn's plan was suppressed by the classifier's
+   * codebase-oriented gate (metadata only — the gate's own caller applies
+   * the suppression; this only makes the diagnostics honest).
+   */
+  noteGated(): void {
+    this.#lastFallback = "classifier-gated";
   }
 
   /** #759: cumulative per-session seed statistics (metadata only). */
@@ -243,9 +452,12 @@ export class MpmOrientation {
   /** #759: cleared at every send, with the turn-scoped plan. */
   #modelQueryNoted = false;
 
-  /** #759: session lifecycle — a new send resets the model-query gate. */
+  /** #759: session lifecycle — a new send resets the model-query gate.
+   *  #790: it also drops the rerank cache — a rescued plan is per-send. */
   beginTurn(): void {
     this.#modelQueryNoted = false;
+    this.#rerankCache = null;
+    this.#pendingOverThreshold = null;
   }
 
 
@@ -334,12 +546,16 @@ export class MpmOrientation {
     const kept: string[] = [];
     for (const e of entries) {
       const where = e.coordinate ? ` at ${e.coordinate}` : "";
+      // #790: a rescued entry carries a `(reranked)` marker so a reader
+      // can see why an over-threshold seed produced a plan — the path was
+      // chosen semantically, not by direct symbol resolution.
+      const reranked = e.reranked === true ? " (reranked)" : "";
       // #759: low-tier entries render visually subordinate — a quieter
       // bullet, never reading as pressure away from exploration tools.
       const line =
         e.tier === "low"
-          ? `  · ${e.path}${where} — ${e.reason}`
-          : `- ${e.path}${where} — ${e.reason}`;
+          ? `  · ${e.path}${where} — ${e.reason}${reranked}`
+          : `- ${e.path}${where} — ${e.reason}${reranked}`;
       if (used + line.length + 1 > this.#budgetChars) break;
       used += line.length + 1;
       kept.push(line);
