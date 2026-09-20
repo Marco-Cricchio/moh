@@ -104,13 +104,14 @@ const CODE_EXTENSIONS =
 
 export function containsCodeChanges(diff: string): boolean {
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ b/") || line.startsWith("--- a/")) {
-      const file = line.slice(6).trim();
-      if (CODE_EXTENSIONS.test(file)) return true;
-    } else if (line.startsWith("+++ /dev/null") || line.startsWith("--- /dev/null")) {
-      // The no-index new-file form names /dev/null on one side; the
-      // other side carries the real path — already checked above.
-    }
+    // Both hunk-header sides are checked: `+++ b/src/a.ts` for edits,
+    // `+++ b/tmp/…` for the absolute no-index new-file form. `git diff`
+    // always emits the `a/`/`b/` prefixes (verified against the no-index
+    // new-file form), but stripping either is prefix-agnostic by design.
+    if (!line.startsWith("+++ ") && !line.startsWith("--- ")) continue;
+    const file = line.slice(4).trim().replace(/^[ab]\//, "");
+    if (file === "/dev/null") continue;
+    if (CODE_EXTENSIONS.test(file)) return true;
   }
   return false;
 }

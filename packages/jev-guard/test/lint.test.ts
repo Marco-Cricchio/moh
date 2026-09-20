@@ -11,9 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JevAnswer, JevJudgeInput } from "../src/client";
 import { correctionText, containsCodeChanges, LINT_THRESHOLDS } from "../src/lint";
-import { scopePaths } from "../src/lint-gate";
 import { createLintJudge, type LintState } from "../src/lint-judge";
-import { createLintGate, createLintTaskState, LINT_MAX_CYCLES } from "../src/lint-gate";
+import { createLintGate, createLintTaskState, LINT_MAX_CYCLES, scopePaths } from "../src/lint-gate";
 import { discoverRubrics } from "../src/rubrics";
 
 const noul = (p: number): JevAnswer => ({ type: "noul", noul: p });
@@ -176,9 +175,6 @@ describe("#851: code-rubric gate", () => {
 });
 
 describe("lint gate runner (#789)", () => {
-  function fakeFsRoot(files: Record<string, string>) {
-    return files;
-  }
   // The gate reads the real filesystem through `discoverRubrics(deps.root)`:
   // a fixture directory is materialized in /tmp per test.
   function fixtureRoot(files: Record<string, string> = { "AGENTS.md": "handle every error\n" }): string {

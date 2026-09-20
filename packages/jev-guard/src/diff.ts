@@ -52,8 +52,10 @@ export function taskDiff(cwd: string, head: string, paths: readonly string[]): s
   const tracked: string[] = [];
   for (const p of paths) {
     // #851: repository scoping enforced here too, independently of the
-    // caller — an absolute path that resolves outside the work tree is
-    // never diffed (`--no-index` would happily compare it).
+    // caller's `scopePaths` (lint-gate.ts — the same containment check
+    // in the same terms; keep the two in step) — an absolute path that
+    // resolves outside the work tree is never diffed (`--no-index`
+    // would happily compare it).
     if (isAbsolute(p)) {
       const rel = relative(cwd, p);
       if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
