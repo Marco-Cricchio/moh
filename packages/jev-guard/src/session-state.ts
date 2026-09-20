@@ -35,8 +35,8 @@ export function gitSnapshot(cwd: string): string | null {
  * incerto (destructive 0.42)") and its key probability; a cached ask still
  * prompts normally when served. */
 export type GuardrailVerdict =
-  | { verdict: "deny"; reason: string }
-  | { verdict: "ask"; badge: string; keyProbability: number }
+  | { verdict: "deny"; reason: string; keyDimension?: string; keyProbability?: number }
+  | { verdict: "ask"; badge: string; keyDimension: string; keyProbability: number }
   | { verdict: "pass" };
 
 export interface GuardrailCache {

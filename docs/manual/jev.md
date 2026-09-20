@@ -206,15 +206,20 @@ judged by Jev with one call — four questions (`destructive`, `in_scope`,
 `exfiltration`, `risk_level`) — before your permission rules are even
 consulted. The verdicts:
 
-- **deny** (destructive or exfiltration probability > 0.75, or risk ≥ 1.5)
-  — the call is vetoed and the model receives the reason plus an
-  actionable suggestion ("scope the path to /tmp and re-run").
+- **pass** — nothing changes; your rules and modes decide as always. A
+  pass leaves no line in the transcript: nothing happened to you. The
+  judgment is still in the session log, with its verdict.
 - **ask** (either probability in 0.40–0.75, or risk in 0.75–1.5) — the
   call reaches the ordinary permission prompt even in auto-accept mode,
-  marked **Jev: caso incerto (…)** with the key probability. The prompt
+  marked **Jev: caso incerto (…)** with the key probability. The transcript
+  shows one line — `jev · guardrail · ask (destructive 0.42)` — naming the
+  probability the verdict was based on. The prompt
   offers yes/no only: a guardrail false positive must never write an
   "always" rule that disarms the filter.
-- **pass** — nothing changes; your rules and modes decide as always.
+- **deny** — the call is vetoed and the model receives the reason plus an
+  actionable suggestion ("scope the path to /tmp and re-run"); the
+  transcript shows one `jev · guardrail · deny (…)` line with the key
+  probability.
 
 In **yolo** mode only the lethal checks run (destructive, exfiltration):
 they can still deny, but Jev never prompts — yolo means zero prompts.
@@ -226,7 +231,10 @@ Identical commands are judged once per session: verdicts are cached
 against the command plus the current git branch and dirty/clean state,
 so switching branch or staging changes re-judges. Every judgment —
 including passes and cache hits — is recorded as a `jev_judgment` event
-in the session log.
+in the session log, each naming its verdict (`decision`) and, on an ask
+or deny, the key probability it was based on. Only the notable outcomes
+reach the transcript: an ask and a deny get one line each, a pass gets
+none.
 
 The v1 guardrail gates `bash` only; write/edit follow in v1.1 once
 thresholds are calibrated on real data.

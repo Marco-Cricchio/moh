@@ -214,7 +214,9 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * `jev_judgment` (the Jev guardrail's record, #786) is phrased as
  * `jev · guardrail · ask (destructive 0.42)`: the event name minus its
  * `_judgment` suffix names the product, then the payload's `useCase` and
- * `decision`, then the first question with its answer. A routing judgment
+ * `decision`, then the key probability the verdict was based on (#843) —
+ * not the first answer, which may be an `in_scope` the verdict ignored. A
+ * routing judgment
  * (#787) reads `jev · routing · switch to a/big` instead — its payload has
  * no numeric question to inline. `jev_routing` (the router's own notices:
  * a misconfigured label, an unpriced model, a manual override) gets one
@@ -227,6 +229,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
   if (record.useCase === "injection") return injectionJudgmentLine(record);
+  if (record.useCase === "guardrail") return guardrailJudgmentLine(record);
   const parts = [name.slice(0, -"_judgment".length)];
   if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
   if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
@@ -327,6 +330,21 @@ function injectionJudgmentLine(record: Record<string, unknown>): string {
   return `jev · injection · ${decision} (injection ${injection.toFixed(2)})`;
 }
 
+/** #786, #843: one guardrail judgment — the verdict, and on an ask/deny the
+ * key dimension and probability it was based on. A `pass` never reaches
+ * this line (the projection filters it); old logs without a `decision`
+ * degrade to the use-case-only line rather than inventing a verdict. */
+function guardrailJudgmentLine(record: Record<string, unknown>): string {
+  const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : undefined;
+  if (decision === undefined) return "jev · guardrail";
+  const key = typeof record.keyProbability === "number" && Number.isFinite(record.keyProbability)
+    ? record.keyProbability
+    : undefined;
+  if (key === undefined) return `jev · guardrail · ${decision}`;
+  const dimension = typeof record.keyDimension === "string" && record.keyDimension !== "" ? record.keyDimension : "destructive";
+  return `jev · guardrail · ${decision} (${dimension} ${key.toFixed(2)})`;
+}
+
 /** #787: one routing judgment — what the router decided, and why. */
 function routingJudgmentLine(record: Record<string, unknown>): string {
   const tier = typeof record.tier === "string" ? record.tier : undefined;
@@ -339,17 +357,20 @@ function routingJudgmentLine(record: Record<string, unknown>): string {
 }
 
 /**
- * #791: the anti-injection judgments the transcript leaves out. The record
- * is in the log (every judgment is), the line is not: below the warn
- * threshold there is nothing for the user to read, and a per-turn check
- * that announced itself on every turn would be the noise the band exists
- * to avoid.
+ * #791, #843: the judgments the transcript leaves out. The record is in the
+ * log (every judgment is), the line is not: an injection pass below the
+ * warn threshold and a guardrail `pass` changed nothing the user could act
+ * on — a line each would be the noise the threshold exists to avoid. A
+ * guardrail record with no `decision` (pre-#843 log) keeps its old line:
+ * replay never rewrites history.
  */
 function isSilentInjection(name: string, payload: unknown): boolean {
   if (name !== "jev_judgment") return false;
   const record = asRecord(payload);
-  if (record?.useCase !== "injection") return false;
-  return record.decision === "silent" || record.decision === "pass";
+  if (record === undefined) return false;
+  if (record.useCase === "injection") return record.decision === "silent" || record.decision === "pass";
+  if (record.useCase === "guardrail") return record.decision === "pass";
+  return false;
 }
 
 /** A JSON object as an inspectable record; anything else (arrays, null,
