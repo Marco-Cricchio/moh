@@ -293,6 +293,10 @@ function routingNoticeLine(record: Record<string, unknown>): string {
   if (kind === "override" && typeof record.model === "string") {
     return `jev · routing · suspended by your manual model switch (${record.model})`;
   }
+  // #847: the serving model is not the one the router picked — name both sides.
+  if (kind === "mismatch" && typeof record.current === "string" && typeof record.expected === "string") {
+    return `jev · routing · serving ${record.current}, router picked ${record.expected}`;
+  }
   return "jev · routing";
 }
 
