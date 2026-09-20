@@ -37,9 +37,9 @@ describe("guardrail decision rule (#786 thresholds)", () => {
     expect(decideGuardrail(signals({ destructive: t.denyHigh }), false).verdict).toBe("ask");
   });
 
-  test("deny above the exfiltration threshold — the curl hole is closed", () => {
-    expect(decideGuardrail(signals({ exfiltration: 0.9 }), false).verdict).toBe("deny");
-    const d = decideGuardrail(signals({ exfiltration: 0.9 }), false);
+  test("deny above the exfiltration threshold — the curl hole is closed (#867: low in_scope)", () => {
+    const d = decideGuardrail(signals({ exfiltration: 0.9, inScope: 0.2 }), false);
+    expect(d.verdict).toBe("deny");
     expect(d.reason).toContain("exfiltration");
     expect(d.reason).toContain("ask first");
   });
@@ -61,7 +61,34 @@ describe("guardrail decision rule (#786 thresholds)", () => {
   test("lethal-only (yolo): never asks, only the two deny checks decide", () => {
     expect(decideGuardrail(signals({ destructive: 0.6, exfiltration: 0.6, riskLevel: 0.9 }), true).verdict).toBe("pass");
     expect(decideGuardrail(signals({ destructive: 0.9 }), true).verdict).toBe("deny");
-    expect(decideGuardrail(signals({ exfiltration: 0.9 }), true).verdict).toBe("deny");
+    expect(decideGuardrail(signals({ exfiltration: 0.9, inScope: 0.2 }), true).verdict).toBe("deny");
+  });
+});
+
+describe("guardrail decision rule (#867 exfiltration/in-scope contradiction)", () => {
+  const t = GUARDRAIL_THRESHOLDS;
+
+  test("full mode: exfiltration high but in_scope high downgrades deny to ask", () => {
+    const d = decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.9 }), false);
+    expect(d.verdict).toBe("ask");
+    expect(d.reason).toBeUndefined();
+  });
+
+  test("full mode: exfiltration high with low in_scope still denies", () => {
+    expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.2 }), false).verdict).toBe("deny");
+  });
+
+  test("full mode: the contradiction only saves exfiltration, never destructive", () => {
+    expect(decideGuardrail(signals({ destructive: 0.92, inScope: 0.9 }), false).verdict).toBe("deny");
+  });
+
+  test("full mode: exfiltration in the ask band with high in_scope still asks", () => {
+    expect(decideGuardrail(signals({ exfiltration: t.askLow, inScope: 0.9 }), false).verdict).toBe("ask");
+  });
+
+  test("yolo: exfiltration high but in_scope high passes (never asks)", () => {
+    expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.9 }), true).verdict).toBe("pass");
+    expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.2 }), true).verdict).toBe("deny");
   });
 
   test("all four questions are declared, one call", () => {

@@ -94,13 +94,23 @@ export interface GuardrailDecision {
  *
  * Full mode: deny if destructive>0.75 ∨ exfiltration>0.75 ∨ risk≥1.5;
  * ask if destructive/exfiltration∈[0.40,0.75] ∨ risk∈[0.75,1.5];
- * pass otherwise. `in_scope` is recorded but never decides in v1.
+ * pass otherwise.
+ *
+ * #867: a high `exfiltration` contradicted by a high `in_scope` is the
+ * false-positive signature (publishing to the project's own tracker reads
+ * as "in scope" AND "sends data to a remote"). The contradiction downgrades
+ * the exfiltration deny one band: ask in full mode, pass in lethal-only
+ * (yolo never asks). `destructive` and `risk_level` denies are unaffected.
  *
  * Lethal-only mode (yolo): destructive and exfiltration above the deny
  * threshold deny; everything else passes — yolo is never asked (#786).
  */
+/** #867: in_scope at or above this contradicts a high exfiltration. */
+export const SCOPE_CONTRADICTION = 0.6;
+
 export function decideGuardrail(signals: GuardrailSignals, lethalOnly: boolean): GuardrailDecision {
   const t = GUARDRAIL_THRESHOLDS;
+  const inScopeContradicts = signals.inScope >= SCOPE_CONTRADICTION;
   if (signals.destructive > t.denyHigh) {
     return {
       verdict: "deny",
@@ -108,6 +118,11 @@ export function decideGuardrail(signals: GuardrailSignals, lethalOnly: boolean):
     };
   }
   if (signals.exfiltration > t.denyHigh) {
+    // #867: the contradiction downgrades one band — ask (full) or pass (yolo).
+    if (inScopeContradicts) {
+      if (lethalOnly) return { verdict: "pass" };
+      return { verdict: "ask" };
+    }
     return {
       verdict: "deny",
       reason: `exfiltration (${signals.exfiltration.toFixed(2)}): this command sends local data to the network. If a remote call is genuinely needed, show exactly what is sent and ask first.`,
