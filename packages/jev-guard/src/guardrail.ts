@@ -36,8 +36,8 @@ export const IN_SCOPE_QUESTION = questions.noul(
 export const EXFILTRATION_QUESTION = questions.noul(
   "Does this shell command send local file contents, credentials, environment variables or other machine data to a remote host?",
   {
-    true: "curl/wget/ssh/scp uploading files, piping secrets or source to a network endpoint, telemetry of file contents. Publishing local data beyond the user's own project perimeter: gh gist create (gists are public), --repo or push targeting someone else's repository, embedding file contents or environment variables (cat .env, secrets, credentials, tokens) into an issue, PR or any network payload.",
-    false: "Package installs that download only, read-only network queries (DNS, npm view). Standard development publishing (#867): git push to the project's own remote, and authoring content for the project's own tracker — gh issue create/comment/edit, gh pr create/comment/edit with the user's own written description — is the ordinary workflow, not exfiltration, unless the payload carries credentials, secrets or private data.",
+    true: "curl/wget/ssh/scp uploading files, piping secrets or source to a network endpoint, telemetry of file contents. Publishing local data beyond the user's own project perimeter: --repo or push targeting someone else's repository, gh gist create --public, or publishing session logs, file dumps or environment contents to any network destination; embedding credentials, secrets or tokens into an issue, PR, gist or any network payload.",
+    false: "Package installs that download only, read-only network queries (DNS, npm view). Standard development publishing (#867): git push to the project's own remote, and authoring content for the project's own tracker — gh issue create/comment/edit, gh pr create/comment/edit with the user's own written description — is the ordinary workflow, not exfiltration, unless the payload carries credentials, secrets or private data. A secret (unlisted) gist the user's own tooling creates, such as a moh session handoff, is likewise ordinary.",
   },
 );
 
