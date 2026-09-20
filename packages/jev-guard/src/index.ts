@@ -571,7 +571,25 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         // seven use cases, by the uniform channel registered at the end of
         // this setup.
         ctx.onEvent(({ event }) => {
+          // #868: a decided switch that failed to apply (an unresolvable
+          // ref at switch time) is never silence — the skip is an explicit,
+          // visible outcome naming what was attempted.
+          if (event.type === "extension_failed") {
+            const reason = (event as { reason?: unknown }).reason;
+            if (reason !== "invalid_model" || !judge.switchPending()) return;
+            judge.dropPendingSwitch();
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: {
+                kind: "switch-skipped",
+                reason: "invalid_model",
+                target: judge.snapshot().decidedModel,
+              },
+            });
+            return;
+          }
           if (event.type !== "model_switched" || typeof event.to !== "string") return;
+          judge.clearPendingSwitch();
           if (!judge.noteModelSwitched(event.to)) return;
           // The user picked a model by hand: the router steps aside and
           // says so. `/routing auto` (or `/model auto`) hands it back.

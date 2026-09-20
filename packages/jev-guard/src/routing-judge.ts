@@ -147,6 +147,8 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
   let resolution: Promise<RoutingResolution> | undefined;
   /** The resolved value, once it landed (see `peekResolution`). */
   let resolved: RoutingResolution | null = null;
+  /** #868: the ref of a decided switch awaiting application, if any. */
+  let pendingApply: string | null = null;
 
   /** One place owns "a fresh start": five call sites need it, and a missed
    * one is a hysteresis bug that only shows up turns later. */
@@ -361,6 +363,27 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       state.decidedModel = ref;
       restartStreak();
       state.mismatchAnnounced = false;
+      pendingApply = ref;
+    },
+
+    /**
+     * #868: true while a decided switch is awaiting its application — the
+     * window between `noteSwitch` and the next `model_switched` (applied)
+     * or `extension_failed { invalid_model }` (skipped).
+     */
+    switchPending(): boolean {
+      return pendingApply !== null;
+    },
+
+    /** #868: the decided switch failed to apply — drop the pending mark;
+     * the skip event carries the reason and the attempted target. */
+    dropPendingSwitch(): void {
+      pendingApply = null;
+    },
+
+    /** #868: the decided switch applied — clear the pending mark. */
+    clearPendingSwitch(): void {
+      pendingApply = null;
     },
 
     /**
