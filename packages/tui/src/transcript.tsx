@@ -331,17 +331,18 @@ function injectionJudgmentLine(record: Record<string, unknown>): string {
 }
 
 /** #786, #843: one guardrail judgment — the verdict, and on an ask/deny the
- * key probability it was based on. A `pass` never reaches this line (the
- * projection filters it); old logs without a `decision` degrade to the
- * use-case-only line rather than inventing a verdict. */
+ * key dimension and probability it was based on. A `pass` never reaches
+ * this line (the projection filters it); old logs without a `decision`
+ * degrade to the use-case-only line rather than inventing a verdict. */
 function guardrailJudgmentLine(record: Record<string, unknown>): string {
   const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : undefined;
   if (decision === undefined) return "jev · guardrail";
   const key = typeof record.keyProbability === "number" && Number.isFinite(record.keyProbability)
     ? record.keyProbability
     : undefined;
-  if (key !== undefined) return `jev · guardrail · ${decision} (destructive ${key.toFixed(2)})`;
-  return `jev · guardrail · ${decision}`;
+  if (key === undefined) return `jev · guardrail · ${decision}`;
+  const dimension = typeof record.keyDimension === "string" && record.keyDimension !== "" ? record.keyDimension : "destructive";
+  return `jev · guardrail · ${decision} (${dimension} ${key.toFixed(2)})`;
 }
 
 /** #787: one routing judgment — what the router decided, and why. */

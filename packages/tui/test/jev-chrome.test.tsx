@@ -35,13 +35,21 @@ describe("extension_event / session_note in the transcript (#784)", () => {
   });
 
   test("a guardrail judgment phrases the verdict and its key probability (#843)", () => {
+    expect(
+      extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42 }),
+    ).toBe("jev · guardrail · ask (destructive 0.42)");
+    expect(
+      extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "deny", keyDimension: "exfiltration", keyProbability: 0.9 }),
+    ).toBe("jev · guardrail · deny (exfiltration 0.90)");
+    expect(
+      extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyDimension: "risk", keyProbability: 0.8 }),
+    ).toBe("jev · guardrail · ask (risk 0.80)");
+    // A record with a probability but no dimension (transitional) keeps the
+    // historical label; a pre-#843 log has no decision at all — degrade,
+    // never invent.
     expect(extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyProbability: 0.42 })).toBe(
       "jev · guardrail · ask (destructive 0.42)",
     );
-    expect(extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "deny", keyProbability: 0.9 })).toBe(
-      "jev · guardrail · deny (destructive 0.90)",
-    );
-    // A pre-#843 log has no decision to read — degrade, never invent.
     expect(extensionEventLine("jev_judgment", { useCase: "guardrail", lethalOnly: false, answers: {} })).toBe(
       "jev · guardrail",
     );
@@ -50,8 +58,8 @@ describe("extension_event / session_note in the transcript (#784)", () => {
   test("a guardrail pass renders nothing; an ask and a deny render one line each (#843)", () => {
     const events = [
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass", callId: "c1" } },
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "ask", keyProbability: 0.42, callId: "c2" } },
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyProbability: 0.9, callId: "c3" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42, callId: "c2" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9, callId: "c3" } },
       // A pre-#843 record keeps its old line: replay never rewrites history.
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", lethalOnly: false } },
     ] as unknown as AgentEvent[];
@@ -178,7 +186,7 @@ describe("extension_event / session_note in the transcript (#784)", () => {
 
   test("both variants land as chrome blocks, never as errors", () => {
     const events = [
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyProbability: 0.9 } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9 } },
       { type: "session_note", text: "jev: inactive (no api key)" },
     ] as unknown as AgentEvent[];
     const blocks = projectTranscript(events, {});

@@ -11,6 +11,7 @@
 import { noulProbability, type JevAnswer, type JevClient } from "./client";
 import {
   GUARDRAIL_QUESTIONS,
+  GUARDRAIL_THRESHOLDS,
   decideGuardrail,
   type GuardrailSignals,
 } from "./guardrail";
@@ -64,15 +65,18 @@ function scoreOf(answers: Record<string, JevAnswer>, id: string): number {
 }
 
 /**
- * #843: the key probability a verdict was based on — the same dimension the
- * ratified badge names on an ask (destructive first, then exfiltration,
- * then risk). A pass decided nothing, so it has none.
+ * #843: the key dimension a verdict was based on, and its probability — the
+ * same priority the ratified badge uses (destructive first, then
+ * exfiltration, then risk). A pass decided nothing, so it has none.
+ * Thresholds come from GUARDRAIL_THRESHOLDS, never re-inlined (#843 review:
+ * askBadge used to drift from the rule here).
  */
-function keyProbabilityOf(signals: GuardrailSignals, verdict: string): number | undefined {
+function keyDimensionOf(signals: GuardrailSignals, verdict: string): { dimension: string; probability: number } | undefined {
   if (verdict === "pass") return undefined;
-  if (signals.destructive >= 0.4) return signals.destructive;
-  if (signals.exfiltration >= 0.4) return signals.exfiltration;
-  return signals.riskLevel;
+  const t = GUARDRAIL_THRESHOLDS;
+  if (signals.destructive >= t.askLow) return { dimension: "destructive", probability: signals.destructive };
+  if (signals.exfiltration >= t.askLow) return { dimension: "exfiltration", probability: signals.exfiltration };
+  return { dimension: "risk", probability: signals.riskLevel };
 }
 
 /** #843: the judgment record for a verdict (used on cache hits, where no
@@ -83,8 +87,12 @@ function guardrailRecord(
   judged: GuardrailState,
   verdict: GuardrailVerdict,
 ): Record<string, unknown> {
-  const keyProbability =
-    verdict.verdict === "pass" ? undefined : verdict.verdict === "ask" ? verdict.keyProbability : undefined;
+  const key =
+    verdict.verdict === "ask"
+      ? { dimension: verdict.keyDimension, probability: verdict.keyProbability }
+      : verdict.verdict === "deny" && verdict.keyProbability !== undefined
+        ? { dimension: verdict.keyDimension ?? "destructive", probability: verdict.keyProbability }
+        : undefined;
   return {
     useCase: "guardrail",
     callId,
@@ -93,18 +101,25 @@ function guardrailRecord(
     state: { command: judged.command, cwd: judged.cwd, git: judged.git },
     ...(answers !== undefined ? { answers } : {}),
     decision: verdict.verdict,
-    ...(keyProbability !== undefined ? { keyProbability } : {}),
+    ...(key !== undefined ? { keyDimension: key.dimension, keyProbability: key.probability } : {}),
   };
 }
 
-/** The ratified "uncertain" badge text, quoted in the permission modal. */
-export function askBadge(signals: GuardrailSignals): { badge: string; keyProbability: number } {
+/** The ratified "uncertain" badge text, quoted in the permission modal.
+ * #843 review: the key probability rides `keyDimensionOf` — it used to
+ * always report `destructive`, even when exfiltration decided. */
+export function askBadge(signals: GuardrailSignals): { badge: string; keyDimension: string; keyProbability: number } {
   const parts: string[] = [];
-  if (signals.destructive >= 0.4) parts.push(`destructive ${signals.destructive.toFixed(2)}`);
-  if (signals.exfiltration >= 0.4) parts.push(`exfiltration ${signals.exfiltration.toFixed(2)}`);
-  if (signals.riskLevel >= 0.75) parts.push(`risk ${signals.riskLevel.toFixed(2)}`);
-  const key = parts[0] ?? `risk ${signals.riskLevel.toFixed(2)}`;
-  return { badge: `Jev: caso incerto (${key})`, keyProbability: signals.destructive };
+  const t = GUARDRAIL_THRESHOLDS;
+  if (signals.destructive >= t.askLow) parts.push(`destructive ${signals.destructive.toFixed(2)}`);
+  if (signals.exfiltration >= t.askLow) parts.push(`exfiltration ${signals.exfiltration.toFixed(2)}`);
+  if (signals.riskLevel >= t.askRisk) parts.push(`risk ${signals.riskLevel.toFixed(2)}`);
+  const key = keyDimensionOf(signals, "ask")!;
+  return {
+    badge: `Jev: caso incerto (${key.dimension} ${key.probability.toFixed(2)})`,
+    keyDimension: key.dimension,
+    keyProbability: key.probability,
+  };
 }
 
 export interface GuardrailJudgeHost {
@@ -156,8 +171,8 @@ export function createGuardrailJudge(
       const command = typeof a.command === "string" ? a.command : "";
       if (!command) return { verdict: { verdict: "pass" }, cached: false, state: { command: "", cwd: cwdOf(args), git: null } };
       const judged = bashState(command, cwdOf(args));
-      const key = guardrailStateKey(judged);
-      const hit = cache.get(key);
+      const cacheKey = guardrailStateKey(judged);
+      const hit = cache.get(cacheKey);
       // #843: a cache hit is a real judgment record too — the verdict plus
       // the key probability ride along, no fabricated model/latency/usage.
       if (hit) {
@@ -199,11 +214,11 @@ export function createGuardrailJudge(
         riskLevel: scoreOf(answers, "risk_level"),
       };
       const decision = decideGuardrail(signals, lethalOnly);
-      const keyProbability = keyProbabilityOf(signals, decision.verdict);
+      const key = keyDimensionOf(signals, decision.verdict);
       // #843: the record is built only now — the decision already made is
       // part of it. Complete, or not recorded at all: a fail-open pass is a
       // "no judgment", and inventing a verdict for it would lie.
-      if (recordBase !== undefined && outcome.ok) {
+      if (recordBase !== undefined) {
         recordBase.useCase = "guardrail";
         recordBase.callId = callId;
         recordBase.tool = GUARDRAIL_TOOL;
@@ -214,16 +229,24 @@ export function createGuardrailJudge(
         recordBase.latencyMs = outcome.latencyMs;
         recordBase.usage = outcome.usage;
         recordBase.decision = decision.verdict;
-        if (keyProbability !== undefined) recordBase.keyProbability = keyProbability;
+        if (key !== undefined) {
+          recordBase.keyDimension = key.dimension;
+          recordBase.keyProbability = key.probability;
+        }
         deps.append!(recordBase);
       }
       let verdict: GuardrailVerdict;
-      if (decision.verdict === "deny") verdict = { verdict: "deny", reason: decision.reason ?? "denied by guardrail" };
-      else if (decision.verdict === "ask") {
+      if (decision.verdict === "deny") {
+        verdict = {
+          verdict: "deny",
+          reason: decision.reason ?? "denied by guardrail",
+          ...(key !== undefined ? { keyDimension: key.dimension, keyProbability: key.probability } : {}),
+        };
+      } else if (decision.verdict === "ask") {
         const b = askBadge(signals);
-        verdict = { verdict: "ask", badge: b.badge, keyProbability: b.keyProbability };
+        verdict = { verdict: "ask", badge: b.badge, keyDimension: b.keyDimension, keyProbability: b.keyProbability };
       } else verdict = { verdict: "pass" };
-      cache.set(key, verdict);
+      cache.set(cacheKey, verdict);
       return { verdict, cached: false, state: judged, signals };
     },
   };

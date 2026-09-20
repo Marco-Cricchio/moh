@@ -9,7 +9,18 @@ matching section here at tag time.
 
 ### Added
 
+- **The Jev guardrail's judgment records its verdict** (#843): every
+  `jev_judgment` for the bash guardrail now carries `decision`
+  (`pass`/`ask`/`deny`) and, on an ask or deny, the key dimension and
+  probability the verdict was based on — a complete audit record.
+
 ### Changed
+
+- **The transcript shows only notable guardrail outcomes** (#843): an ask
+  or a deny renders one `jev · guardrail · <verdict> (<dimension> 0.42)`
+  line; a pass renders none — the log keeps every record, only the
+  projection changes. Old sessions without a recorded verdict keep their
+  previous line on replay.
 
 ### Fixed
 

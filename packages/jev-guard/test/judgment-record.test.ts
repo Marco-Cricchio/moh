@@ -53,26 +53,40 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
     expect(record && "keyProbability" in record).toBe(false);
   });
 
-  test("an ask records decision: ask with the key probability", async () => {
+  test("an ask records decision: ask with the key dimension and probability", async () => {
     const { result, record } = await judged(
       okOutcome({ destructive: noul(0.42), in_scope: noul(0.9), exfiltration: noul(0.05), risk_level: score(0.6) }),
     );
     expect(result.verdict.verdict).toBe("ask");
-    expect(record).toMatchObject({ useCase: "guardrail", decision: "ask", keyProbability: 0.42 });
+    expect(record).toMatchObject({ useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42 });
   });
 
-  test("a deny records decision: deny with the key probability", async () => {
+  test("a deny records decision: deny with the key dimension and probability", async () => {
     const { result, record } = await judged(
       okOutcome({ destructive: noul(0.9), in_scope: noul(0.9), exfiltration: noul(0.01), risk_level: score(0.2) }),
     );
     expect(result.verdict.verdict).toBe("deny");
-    expect(record).toMatchObject({ useCase: "guardrail", decision: "deny", keyProbability: 0.9 });
+    expect(record).toMatchObject({ useCase: "guardrail", decision: "deny", keyDimension: "destructive", keyProbability: 0.9 });
   });
 
   test("an exfiltration-driven ask keys on exfiltration, not destructive", async () => {
     const { record } = await judged(
       okOutcome({ destructive: noul(0.01), in_scope: noul(0.9), exfiltration: noul(0.5), risk_level: score(0.2) }),
     );
-    expect(record).toMatchObject({ decision: "ask", keyProbability: 0.5 });
+    expect(record).toMatchObject({ decision: "ask", keyDimension: "exfiltration", keyProbability: 0.5 });
+  });
+
+  test("a cache hit records the verdict too, including a deny's key probability (#843 review)", async () => {
+    const records: Record<string, unknown>[] = [];
+    const outcome = okOutcome({ destructive: noul(0.9), in_scope: noul(0.9), exfiltration: noul(0.01), risk_level: score(0.2) });
+    const judge = createGuardrailJudge(
+      { client: fakeClient([outcome]), state: {}, append: (p) => records.push(p) },
+      { cwd: () => process.cwd() },
+    );
+    await judge.judge("c1", args);
+    const r2 = await judge.judge("c2", args);
+    expect(r2.cached).toBe(true);
+    expect(r2.verdict.verdict).toBe("deny");
+    expect(records[1]).toMatchObject({ decision: "deny", keyDimension: "destructive", keyProbability: 0.9 });
   });
 });
