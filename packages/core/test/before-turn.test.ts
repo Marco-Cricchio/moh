@@ -87,7 +87,7 @@ describe("beforeTurn (ADR-0033)", () => {
   });
 
   test("the hook sees the typed text, the 1-based turn index and the active model", async () => {
-    const seen: { text: string; turnIndex: number; model: string }[] = [];
+    const seen: { text: string; turnIndex: number; model: string; endpointCooldowns?: unknown }[] = [];
     const rt = await runtime((ctx) => ctx.beforeTurn((c) => void seen.push({ ...c })));
     const session = createSession({ provider: "mock", extensions: rt });
 
