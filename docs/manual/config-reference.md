@@ -77,6 +77,10 @@ All keys are optional. Notes:
   asks again; a clone you never answered for loads nothing.
 - `mcpServers` — project servers ask consent on first use; tools become
   `mcp__<server>__<tool>`.
+- `routingPool` — #868: `<endpoint>/<model-id>` refs the Jev model router
+  may rotate through when its tier target cannot serve (beyond its
+  tier-bounded default). Absent = tier-bounded rotation only (see the
+  Jev page).
 - `handoff.transport` — absent = Not Set = off; `"gist"` enables
   publish-on-push session handoff.
 - `mpm` — per-project Moh Project Map override (ADR-0026): an explicit

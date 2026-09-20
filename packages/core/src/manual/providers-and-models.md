@@ -61,7 +61,10 @@ re-probe it until the cooldown expires.
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
   models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself
-  suspends it for the session.
+  suspends it for the session. When the router's tier target cannot
+  serve (a failure cooldown), it rotates within the tier — or through a
+  declared `routingPool` in moh.json — and a skipped switch is always
+  announced, never silent.
 - `moh run --provider <endpoint/model-id>` picks the model per run.
 - The Settings panel's endpoint → model picker saves the default into
   moh.json (user-level endpoints are display-only there).
