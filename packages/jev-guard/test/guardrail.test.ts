@@ -209,6 +209,22 @@ describe("guardrail judge", () => {
     expect(askBadge(signals({ riskLevel: 1.0 })).badge).toContain("risk");
   });
 
+  test("#867 contradiction carries a visible note; ordinary passes do not", async () => {
+    // Yolo, exfiltration high, in_scope high: pass, with a note.
+    let mode: "normal" | "yolo" = "yolo";
+    const fake = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.01 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.92 }, risk_level: { type: "score", score: 0.2, legend: {}, probabilities: {}, confidence: 0.9 } })]);
+    const judge = createGuardrailJudge({ client: fake.client, state: {} }, { mode: () => mode, cwd: () => process.cwd() });
+    const r = await judge.judge("c1", args);
+    expect(r.verdict.verdict).toBe("pass");
+    if (r.verdict.verdict === "pass") expect(r.verdict.note).toContain("in scope");
+    // An ordinary pass carries no note.
+    const fake2 = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.01 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.01 }, risk_level: { type: "score", score: 0.1, legend: {}, probabilities: {}, confidence: 0.9 } })]);
+    const judge2 = createGuardrailJudge({ client: fake2.client, state: {} }, { mode: () => "yolo", cwd: () => process.cwd() });
+    const r2 = await judge2.judge("c2", args);
+    expect(r2.verdict.verdict).toBe("pass");
+    if (r2.verdict.verdict === "pass") expect(r2.verdict.note).toBeUndefined();
+  });
+
   test("non-bash guard: the judge itself only sees bash", async () => {
     const fake = fakeClient([safe()]);
     const judge = createGuardrailJudge({ client: fake.client, state: {} }, { cwd: () => process.cwd() });
