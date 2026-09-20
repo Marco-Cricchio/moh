@@ -27,11 +27,40 @@ describe("extension_event / session_note in the transcript (#784)", () => {
   test("a known judgment renders useCase, decision and the first answer", () => {
     expect(
       extensionEventLine("jev_judgment", {
-        useCase: "guardrail",
+        useCase: "classification",
         decision: "ask",
         questions: { destructive: 0.42, in_scope: 0.98 },
       }),
-    ).toBe("jev · guardrail · ask (destructive 0.42)");
+    ).toBe("jev · classification · ask (destructive 0.42)");
+  });
+
+  test("a guardrail judgment phrases the verdict and its key probability (#843)", () => {
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "ask", keyProbability: 0.42 })).toBe(
+      "jev · guardrail · ask (destructive 0.42)",
+    );
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail", decision: "deny", keyProbability: 0.9 })).toBe(
+      "jev · guardrail · deny (destructive 0.90)",
+    );
+    // A pre-#843 log has no decision to read — degrade, never invent.
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail", lethalOnly: false, answers: {} })).toBe(
+      "jev · guardrail",
+    );
+  });
+
+  test("a guardrail pass renders nothing; an ask and a deny render one line each (#843)", () => {
+    const events = [
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass", callId: "c1" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "ask", keyProbability: 0.42, callId: "c2" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyProbability: 0.9, callId: "c3" } },
+      // A pre-#843 record keeps its old line: replay never rewrites history.
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", lethalOnly: false } },
+    ] as unknown as AgentEvent[];
+    const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered).toEqual([
+      "jev · guardrail · ask (destructive 0.42)",
+      "jev · guardrail · deny (destructive 0.90)",
+      "jev · guardrail",
+    ]);
   });
 
   test("an unknown name renders as itself; a malformed payload never throws", () => {
@@ -89,12 +118,12 @@ describe("extension_event / session_note in the transcript (#784)", () => {
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "silent", injection: 0.02, sensitive: 0.01 } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "pass", injection: 0.03, sensitive: 0.01, source: "tool:fetch" } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 } },
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
     ] as unknown as AgentEvent[];
     const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
     // The low band is silence: the log keeps the record, the transcript
     // does not gain a line for it (the whole point of the threshold).
-    expect(rendered).toEqual(["jev · injection · warn (injection 0.63)", "jev · guardrail · pass"]);
+    // #843: a guardrail pass is silence for the same reason.
+    expect(rendered).toEqual(["jev · injection · warn (injection 0.63)"]);
   });
 
   test("an anti-injection judgment reads as what happened to the turn (#791)", () => {
@@ -149,12 +178,12 @@ describe("extension_event / session_note in the transcript (#784)", () => {
 
   test("both variants land as chrome blocks, never as errors", () => {
     const events = [
-      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "pass" } },
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "guardrail", decision: "deny", keyProbability: 0.9 } },
       { type: "session_note", text: "jev: inactive (no api key)" },
     ] as unknown as AgentEvent[];
     const blocks = projectTranscript(events, {});
     const rendered = blocks.map((b) => (b.kind === "chrome" ? b.type : b.kind));
-    expect(rendered).toContain("jev · guardrail · pass");
+    expect(rendered).toContain("jev · guardrail · deny (destructive 0.90)");
     expect(rendered).toContain("jev: inactive (no api key)");
     expect(blocks.every((b) => b.kind === "chrome")).toBe(true);
   });
