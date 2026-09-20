@@ -405,7 +405,7 @@ export class ExtensionRuntime {
   statuses(): ExtensionStatus[] {
     return this.#instances
       .filter((i) => i.status !== null || i.capStatusOverlay !== null)
-      .map((i) => ({ extension: i.def.name, text: i.capStatusOverlay ?? i.status! }));
+      .map((i) => ({ extension: i.def.name, text: i.capStatusOverlay ?? i.status ?? "" }));
   }
 
   /** Clears every published status (session end, extension reload). */
