@@ -89,4 +89,23 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
     expect(r2.verdict.verdict).toBe("deny");
     expect(records[1]).toMatchObject({ decision: "deny", keyDimension: "destructive", keyProbability: 0.9 });
   });
+
+  test("#848: a cache-hit record is marked cached: true and carries no fabricated model/latency/usage", async () => {
+    const records: Record<string, unknown>[] = [];
+    const outcome = okOutcome({ destructive: noul(0.01), in_scope: noul(0.99), exfiltration: noul(0.01), risk_level: score(0.1) });
+    const judge = createGuardrailJudge(
+      { client: fakeClient([outcome]), state: {}, append: (p) => records.push(p) },
+      { cwd: () => process.cwd() },
+    );
+    await judge.judge("c1", args);
+    await judge.judge("c2", args);
+    expect(records).toHaveLength(2);
+    expect(records[1]!.cached).toBe(true);
+    expect(records[0]!.cached).toBeUndefined();
+    expect(records[1]!.model).toBeUndefined();
+    expect(records[1]!.latencyMs).toBeUndefined();
+    expect(records[1]!.usage).toBeUndefined();
+    expect(records[1]!.answers).toBeUndefined();
+    expect(records[1]!.decision).toBe("pass");
+  });
 });

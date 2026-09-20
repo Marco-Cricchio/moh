@@ -232,7 +232,11 @@ against the command plus the current git branch and dirty/clean state,
 so switching branch or staging changes re-judges. Every judgment —
 including passes and cache hits — is recorded as a `jev_judgment` event
 in the session log, each naming its verdict (`decision`) and, on an ask
-or deny, the key probability it was based on. Only the notable outcomes
+or deny, the key probability it was based on. A cache hit carries
+`cached: true` and repeats the already-decided verdict; it has no
+`model`, `latencyMs`, `usage` or `answers` fields, because a cached
+verdict involves no model call and nothing fabricated is ever written.
+Only the notable outcomes
 reach the transcript: an ask and a deny get one line each, a pass gets
 none.
 
