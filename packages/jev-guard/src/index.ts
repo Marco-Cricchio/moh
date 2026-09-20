@@ -541,7 +541,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         router = judge;
         ctx.beforeTurn(async (call) => {
           if (!control.isOn("routing")) return;
-          const verdict = await judge.decide(call.text, call.model);
+          // #852: the route's cooled-down chain stops ride the context —
+          // the judge refuses a switch targeting a known-unhealthy model.
+          const verdict = await judge.decide(call.text, call.model, call.endpointCooldowns ?? []);
           if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
           // Arm the switch before returning: the `model_switched` it causes
           // is the router's, not the user taking the wheel.

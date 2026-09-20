@@ -492,7 +492,8 @@ export class AgentSession {
       ...(dispatchBeforeTurn
         ? {
             beforeTurn: {
-              dispatch: (text, turnIndex, model) => dispatchBeforeTurn({ text, turnIndex, model }),
+              dispatch: (text, turnIndex, model) =>
+                dispatchBeforeTurn({ text, turnIndex, model, endpointCooldowns: this.endpointCooldowns }),
               applyModel: (ref) => this.switchModel(ref),
               // ADR-0033 §4: the client answers a confirmation. No seam =
               // headless: the loop refuses the turn itself ("silence by
@@ -819,6 +820,20 @@ export class AgentSession {
     return "serving" in this.#provider && typeof this.#provider.serving === "string"
       ? this.#provider.serving
       : this.#provider.name;
+  }
+
+  /**
+   * #852: endpoint health at decision time — the active route's chain
+   * stops that are in a failure cooldown (quota exhausted, rate limit,
+   * empty completion, ...). Read by the model router so a switch never
+   * names a target the session already knows cannot serve it. Empty for
+   * a non-route provider (a pre-built instance, a bare registered id).
+   */
+  get endpointCooldowns(): readonly { ref: string; kind: string }[] {
+    const route = this.#provider as Partial<import("../route").Route>;
+    return typeof route.health === "function"
+      ? route.health().map(({ ref, kind }) => ({ ref, kind }))
+      : [];
   }
 
   /** The provider type of the active endpoint (#166): feeds /model's

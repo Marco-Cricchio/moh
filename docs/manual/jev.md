@@ -308,8 +308,15 @@ still receives the whole context, as always.
 
 **When it switches.** Jev answers with a tier and a confidence. moh acts on
 it only when the confidence is at least 0.60 *and* two turns in a row named
-the same tier — one surprising judgment never flips your model. A switch is
-shown by the ordinary `model switched` line, plus a
+the same tier — one surprising judgment never flips your model. A message
+that carries no task of its own — a bare continuation like `procedi`,
+`continue` or `yes` — is never judged at all: it costs nothing, never
+counts toward the hysteresis, and can never move your model on its own.
+And when a switch does happen, it names a model moh has no reason to
+distrust: a target the route machinery currently has in a failure cooldown
+(quota exhausted, rate-limited, recently failing) is refused — the router
+never moves you onto a model it already knows cannot serve you. A switch
+is shown by the ordinary `model switched` line, plus a
 `jev · routing · switch to <model>` line in the transcript, and applies to
 the turn that made the decision. Fallback chains are untouched: the router
 names one model, and the route machinery does the rest.

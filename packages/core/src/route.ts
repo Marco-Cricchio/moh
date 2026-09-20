@@ -152,6 +152,13 @@ export interface Route extends Provider {
   readonly chain: string[];
   /** Starts a user turn: allows one expired-selected recovery probe. */
   beginTurn(): void;
+  /**
+   * #852: endpoint health at decision time — for each chain stop, whether
+   * it is in a failure cooldown (the kind that put it there). The routing
+   * layer reads this before it names a switch target: a model the session
+   * already knows cannot serve it is never chosen.
+   */
+  health(): ReadonlyArray<{ ref: string; kind: string; until: number }>;
 }
 
 /**
@@ -205,6 +212,14 @@ export function createRoute(config: RouteConfig): Route {
     chain: chain.map(refFor),
     beginTurn() {
       selectedRecoveryDue = servingIndex !== 0 && (failures.get(0)?.until ?? Infinity) <= now();
+    },
+    health() {
+      const t = now();
+      const out: { ref: string; kind: string; until: number }[] = [];
+      for (const [index, failure] of failures) {
+        if (failure.until > t) out.push({ ref: refFor(chain[index]!), kind: failure.kind, until: failure.until });
+      }
+      return out;
     },
     async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions): AsyncIterable<StreamEvent> {
       const recoveryProbe = selectedRecoveryDue;

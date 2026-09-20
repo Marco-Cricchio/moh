@@ -59,7 +59,7 @@ describe("@moh/extension contract", () => {
     // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034: the ask outcome, the
     // two observability seams, the beforeTurn hook, the control channel,
     // the post-tool inspection seam and `confirm.onResolved`.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 6 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 7 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
