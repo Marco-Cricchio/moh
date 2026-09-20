@@ -373,6 +373,49 @@ function isSilentInjection(name: string, payload: unknown): boolean {
   return false;
 }
 
+/**
+ * #845: which Jev records survive **vibe** mode. Vibe is the plain-language
+ * projection — a Jev-heavy turn must not read as a wall of `◈ jev · …`
+ * lines — but the records that tell the user Jev is earning its keep stay:
+ * an anti-injection verdict that changed what the user saw or sent, a
+ * guardrail `ask`/`deny` (the notable outcomes), a real routing `switch`,
+ * a quality-gate `correct` (a correction turn is running), a skill that was
+ * actually suggested, and the user's own use-case control lines (including
+ * refusals). Everything else — passes, stays, classifications, rerank
+ * records, router notices — drops from the transcript only: the event log
+ * is never filtered, this is a projection option (the vibe contract).
+ * Phrased on the event `name` + `payload`, never on rendered strings — the
+ * renderer stays the single place that turns a record into a line. Dev
+ * mode never consults this: its output is byte-for-byte today's.
+ */
+function survivesVibe(name: string, payload: unknown): boolean {
+  if (name === "jev_usecase") return true;
+  if (name === "jev_routing") return false;
+  if (name === "jev_skill_suggest") {
+    const record = asRecord(payload);
+    return record?.suggested !== undefined && record.suggested !== null;
+  }
+  if (name !== "jev_judgment") return true;
+  const record = asRecord(payload);
+  if (record === undefined) return true;
+  const decision = typeof record.decision === "string" ? record.decision : undefined;
+  switch (record.useCase) {
+    case "injection":
+      // Anything that changed what the user saw or sent; the silent/pass
+      // band is already dropped in both modes (isSilentInjection).
+      return decision !== undefined && decision !== "silent" && decision !== "pass";
+    case "guardrail":
+      return decision === "ask" || decision === "deny";
+    case "routing":
+      return decision === "switch";
+    case "lint":
+      return decision === "correct";
+    default:
+      // classification, rerank and any future judgment: measured, not read.
+      return false;
+  }
+}
+
 /** A JSON object as an inspectable record; anything else (arrays, null,
  * primitives, a getter that throws) is not something to read fields from. */
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -759,7 +802,13 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // `silent`/`pass` band (#791): the log keeps every judgment, but
         // the low band is *silent* — the whole point of the threshold is
         // that an unremarkable turn gains no line.
+        // is *silent* — the whole point of the threshold is that an
+        // unremarkable turn gains no line.
+        //
+        // #845: vibe mode keeps only the Jev lines that earn their keep —
+        // the same audit trail stays whole in dev mode and in the log.
         if (isSilentInjection(event.name, event.payload)) break;
+        if (vibe && !survivesVibe(event.name, event.payload)) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: extensionEventLine(event.name, event.payload), lines: [] });
         break;
       case "session_note":
