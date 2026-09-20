@@ -57,6 +57,12 @@ export interface JevRoutingOptions {
   pool: () => Promise<RoutingPool>;
   /** Explicit tier labels (`typesafe.tiers`): `<endpoint>/<model-id>` → tier. */
   labels?: Record<string, string>;
+  /**
+   * #868 (option B): a moh.json-declared pool of `<endpoint>/<model-id>`
+   * refs the router may rotate through when the tier target cannot serve.
+   * Absent: tier-bounded rotation only (the default).
+   */
+  declaredPool?: readonly string[];
 }
 
 export interface JevGuardOptions {
@@ -493,6 +499,10 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           {
             pool: routing.pool,
             labels: routing.labels ?? {},
+            // #868 (option B): the moh.json-declared rotation pool, when
+            // one was declared — the user's explicit consent to rotation
+            // beyond the tier bound.
+            declaredPool: routing.declaredPool,
             // #788: when the router makes its per-turn call, the
             // classification rides it — one state, one round trip, both
             // consumers reading their own answers. #832: the rider stays

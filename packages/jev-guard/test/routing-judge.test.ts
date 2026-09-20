@@ -358,6 +358,86 @@ describe("routing judge (#787)", () => {
     expect(allowed).toMatchObject({ decision: "switch", ref: "a/cheap" });
   });
 
+  test("#868: a cooled-down tier target rotates to the next viable same-tier candidate", async () => {
+    // A pool whose economico tier has two members: the target `a/cheap`
+    // and the cheaper-sorted `a/cheaper2`. Labels pin the tier so the
+    // members list is explicit.
+    const richPool: RoutingModel[] = [
+      { ref: "a/cheap", price: 1 },
+      { ref: "b/cheap", price: 1.5 },
+      { ref: "a/big", price: 100 },
+    ];
+    const labels = { "a/cheap": "economico", "b/cheap": "economico", "a/big": "potente" };
+    const fake = fakeClient({ choice: "economico", confidence: 0.95 });
+    const { judge } = judgeFor(fake, richPool, labels);
+
+    await judge.decide("write the briefs", "a/big");
+    // The tier target `a/cheap` is dead: the router serves `b/cheap` —
+    // the next member of the same tier — and records the substitution.
+    const rotated = await judge.decide("harden the error paths", "a/big", [
+      { ref: "a/cheap", kind: "quota_exhausted" },
+    ]);
+    expect(rotated).toMatchObject({ decision: "switch", ref: "b/cheap", skipped: "a/cheap" });
+    expect(fake.records[1]).toMatchObject({ decision: "switch", target: "b/cheap", skipped: "a/cheap" });
+  });
+
+  test("#868: every rotation candidate cooled down stays, visibly, as cooled-down", async () => {
+    const richPool: RoutingModel[] = [
+      { ref: "a/cheap", price: 1 },
+      { ref: "b/cheap", price: 1.5 },
+      { ref: "a/big", price: 100 },
+    ];
+    const labels = { "a/cheap": "economico", "b/cheap": "economico", "a/big": "potente" };
+    const fake = fakeClient({ choice: "economico", confidence: 0.95 });
+    const { judge } = judgeFor(fake, richPool, labels);
+
+    await judge.decide("write the briefs", "a/big");
+    const stayed = await judge.decide("harden the error paths", "a/big", [
+      { ref: "a/cheap", kind: "quota_exhausted" },
+      { ref: "b/cheap", kind: "rate_limited" },
+    ]);
+    expect(stayed).toMatchObject({ decision: "stay", reason: "no-viable-candidate", skipped: "a/cheap" });
+    expect(stayed!.ref).toBeUndefined();
+  });
+
+  test("#868: a declared pool widens rotation beyond the tier bound (option B)", async () => {
+    const richPool: RoutingModel[] = [
+      { ref: "a/cheap", price: 1 },
+      { ref: "a/big", price: 100 },
+      { ref: "b/big", price: 110 },
+    ];
+    const labels = { "a/cheap": "economico", "a/big": "potente" };
+    const fake = fakeClient({ choice: "economico", confidence: 0.95 });
+    const state: Record<string, unknown> = {};
+    const judge = createRoutingJudge(
+      { client: fake, state },
+      {
+        pool: async () => ({ models: richPool }),
+        labels,
+        // b/big is potente-priced, outside the economico tier: only the
+        // declared pool makes it a rotation candidate.
+        declaredPool: ["b/big"],
+      },
+    );
+
+    await judge.decide("write the briefs", "a/big");
+    const widened = await judge.decide("harden the error paths", "a/big", [
+      { ref: "a/cheap", kind: "quota_exhausted" },
+    ]);
+    expect(widened).toMatchObject({ decision: "switch", ref: "b/big", skipped: "a/cheap" });
+  });
+
+  test("#868: a single-model tier behaves exactly as #852 left it", async () => {
+    const fake = fakeClient({ choice: "economico", confidence: 0.95 });
+    const { judge } = judgeFor(fake);
+    await judge.decide("write the briefs", "a/big");
+    const refused = await judge.decide("harden the error paths", "a/big", [
+      { ref: "a/cheap", kind: "quota_exhausted" },
+    ]);
+    expect(refused).toMatchObject({ decision: "stay", reason: "cooled-down" });
+    expect(refused!.ref).toBeUndefined();
+  });
+
   test("a command pauses, resumes and releases — and the streak follows", async () => {
     const fake = fakeClient({ choice: "potente", confidence: 0.9 });
     const { judge } = judgeFor(fake);

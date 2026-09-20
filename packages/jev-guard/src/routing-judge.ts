@@ -50,6 +50,14 @@ export interface RoutingJudgeHost {
   pool: () => Promise<RoutingPool>;
   /** The user's `<endpoint>/<model-id>` → tier labels from the config. */
   labels?: TierLabels;
+  /**
+   * #868 (option B): a moh.json-declared pool of `<endpoint>/<model-id>`
+   * refs the router may draw from. Present and non-empty, it *replaces*
+   * the tier-members candidate list on an unavailable tier target (the
+   * user's explicit consent to rotation beyond the tier bound); absent,
+   * rotation stays tier-bounded (option A, the default).
+   */
+  declaredPool?: readonly string[];
   /** Called once, when the assignment is first resolved (fail-open). */
   onResolved?: (resolution: RoutingResolution) => void;
   /**
@@ -93,6 +101,9 @@ export interface RoutingVerdict {
   readonly streak: number;
   /** The model to serve the turn with — present on `switch` only. */
   readonly ref?: string;
+  /** #868: the tier target the judgment named when it was skipped for a
+   * viable rotation candidate — the audit trail of the substitution. */
+  readonly skipped?: string;
   /** The exact judged state (already truncated), for the record. */
   readonly message: string;
 }
@@ -272,17 +283,41 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
           // decision time (the context the hook was handed) — a target the
           // serving route already knows is out of quota / cooling down is
           // never chosen, even on a confident hysteresis.
+          // #868: an unavailable primary target no longer ends the switch —
+          // the router rotates to the next viable candidate of the same
+          // tier (option A, default), or through the declared pool when one
+          // was given (option B, it replaces the tier bound). None viable →
+          // a visible stay that names why.
           const cooled = rawRef !== undefined && cooldowns.some((c) => c.ref === rawRef);
-          const ref = cooled ? undefined : rawRef;
+          const candidates = (host.declaredPool && host.declaredPool.length > 0
+            ? [rawRef, ...host.declaredPool.filter((ref) => ref !== rawRef)]
+            : answered !== undefined
+              ? tiers.members[answered] ?? []
+              : []
+          ).filter((ref): ref is string => ref !== undefined);
+          const viable = cooled ? candidates.find((c) => !cooldowns.some((cd) => cd.ref === c)) : rawRef;
+          // #868: the tier target was cooled down but a same-tier (or
+          // declared-pool) candidate is viable — a switch to it, with the
+          // skip recorded. All candidates cooled → a visible stay.
+          const skipped = cooled ? rawRef : undefined;
+          const ref = viable;
           decided = {
-            decision: decision.switch && !cooled ? "switch" : "stay",
-            reason: cooled ? "cooled-down" : decision.reason,
+            decision: decision.switch && ref !== undefined ? "switch" : "stay",
+            // #868: the stay keeps #852's "cooled-down" when the tier had
+            // only the dead target to offer; with rotation candidates that
+            // all failed the health gate, it names the fuller reason.
+            reason: cooled
+              ? candidates.length > 1
+                ? "no-viable-candidate"
+                : "cooled-down"
+              : decision.reason,
             ...(routable ? { tier: answered } : {}),
             confidence: verdictConfidence,
             ...(currentTier !== undefined ? { currentTier } : {}),
             streak,
             counts: routable,
             ...(ref !== undefined ? { ref } : {}),
+            ...(skipped !== undefined ? { skipped } : {}),
           };
           return {
             useCase: "routing",
@@ -293,6 +328,7 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
             currentTier: currentTier ?? null,
             streak,
             ...(ref !== undefined ? { target: ref } : {}),
+            ...(skipped !== undefined ? { skipped } : {}),
             message,
             answers,
             model: meta.model,
