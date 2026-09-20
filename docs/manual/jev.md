@@ -322,7 +322,8 @@ with a declared pool in `moh.json` — `"routingPool": ["endpoint/model-id",
 tier bound; without the declaration the rotation stays tier-bounded. When
 every candidate is unavailable the switch stays off and the transcript
 says so. A decided switch that fails to apply is never silent either:
-`jev · routing · switch skipped (<reason>), staying <current>` names what
+`jev · routing · switch skipped (<reason>), staying <current>` plus the
+attempted target names what
 was attempted. A switch
 is shown by the ordinary `model switched` line, plus a
 `jev · routing · switch to <model>` line in the transcript, and applies to

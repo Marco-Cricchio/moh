@@ -106,13 +106,13 @@ describe("semantic transcript projection (#183)", () => {
         type: "extension_event",
         extension: "jev-guard",
         name: "jev_routing",
-        payload: { kind: "switch-skipped", reason: "invalid_model", target: "openrouter/openai/o3-mini-high" },
+        payload: { kind: "switch-skipped", reason: "invalid_model", target: "openrouter/openai/o3-mini-high", staying: "openai-compat/glm-5.3-flash" },
       } as AgentEvent,
     ];
     const dev = projectTranscript(events, { mode: "dev" });
-    expect(dev[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openrouter/openai/o3-mini-high");
+    expect(dev[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openai-compat/glm-5.3-flash, tried openrouter/openai/o3-mini-high");
     const vibe = projectTranscript(events, { mode: "vibe" });
-    expect(vibe[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openrouter/openai/o3-mini-high");
+    expect(vibe[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openai-compat/glm-5.3-flash, tried openrouter/openai/o3-mini-high");
   });
 
   test("vibe hides metric/chrome blocks and keeps failures; dev keeps the full grammar (#193)", () => {

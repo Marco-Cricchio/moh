@@ -563,7 +563,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
           // Arm the switch before returning: the `model_switched` it causes
           // is the router's, not the user taking the wheel.
-          judge.noteSwitch(verdict.ref);
+          judge.noteSwitch(verdict.ref, call.model);
           return { model: verdict.ref };
         });
         // #832: routing's own notices (a mismatch, a manual override, a

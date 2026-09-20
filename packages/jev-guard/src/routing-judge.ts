@@ -121,6 +121,9 @@ export interface RoutingJudgeState {
   paused: boolean;
   /** The model of the tier the router last decided to serve. */
   decidedModel: string | null;
+  /** #868: the model serving when the last switch was decided (the
+   * "staying <current>" half of a skip event). */
+  servingAtDecision: string | null;
   /** A `mismatch` notice was already published for this episode. */
   mismatchAnnounced: boolean;
   expected: string | null;
@@ -132,6 +135,7 @@ const INITIAL: RoutingJudgeState = {
   override: false,
   paused: false,
   decidedModel: null,
+  servingAtDecision: null,
   mismatchAnnounced: false,
   expected: null,
 };
@@ -291,12 +295,15 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
           // was given (option B, it replaces the tier bound). None viable →
           // a visible stay that names why.
           const cooled = rawRef !== undefined && cooldowns.some((c) => c.ref === rawRef);
-          const candidates = (host.declaredPool && host.declaredPool.length > 0
-            ? [rawRef, ...host.declaredPool.filter((ref) => ref !== rawRef)]
-            : answered !== undefined
-              ? tiers.members[answered] ?? []
-              : []
-          ).filter((ref): ref is string => ref !== undefined);
+          // #868: candidates in rotation order — the tier's own members
+          // first (option A), then any declared-pool refs outside the tier
+          // (option B *widens*, it never drops the tier's own candidates).
+          const candidates = [
+            ...(answered !== undefined ? tiers.members[answered] ?? [] : []),
+            ...(host.declaredPool ?? []).filter(
+              (ref) => answered === undefined || !tiers.members[answered]?.includes(ref),
+            ),
+          ].filter((ref): ref is string => ref !== undefined);
           const viable = cooled ? candidates.find((c) => !cooldowns.some((cd) => cd.ref === c)) : rawRef;
           // #868: the tier target was cooled down but a same-tier (or
           // declared-pool) candidate is viable — a switch to it, with the
@@ -358,9 +365,13 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * also resets the streak (ratified) and becomes what the next turn
      * expects to see serving.
      */
-    noteSwitch(ref: string): void {
+    noteSwitch(ref: string, current?: string): void {
       state.expected = ref;
       state.decidedModel = ref;
+      // #868: the model serving when the switch was decided — the skip
+      // event's "staying <current>" names it (the attempted target does
+      // not: that is the model that failed).
+      if (current !== undefined) state.servingAtDecision = current;
       restartStreak();
       state.mismatchAnnounced = false;
       pendingApply = ref;
