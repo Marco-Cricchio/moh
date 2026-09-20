@@ -214,10 +214,16 @@ allowed. The result: the agent moves fast inside the lines *you* drew.
 
 ## Highlights
 
+Quick list of everything above — details in *What can it do?*:
+
 - **Terminal UI (TUI)** — a fast, keyboard-driven interface with file
   mentions (`@path`), image previews, session picker, and guided provider
   onboarding. Or go headless with `moh run` for scripts and CI — no prompts,
   fail-fast.
+- **Built-in browser** — open pages, snapshot, click, fill forms, with
+  URL-scoped permissions and SSRF protection.
+- **Project Map** — a structural map of your codebase backing every change
+  plan with citations.
 - **Workflow mode** — an optional first-party port of the Matt Pocock agent
   workflow (wayfinder, grilling, to-spec, to-tickets, tdd, code-review, …)
   plus declarative GitHub repo management ([gh-manager](https://github.com/ddlaws0n/gh-manager), by David Lawson). One command to
@@ -233,6 +239,11 @@ allowed. The result: the agent moves fast inside the lines *you* drew.
   with a single command: moh publishes a structured synthesis plus a filtered
   event-log extract as a secret GitHub gist, and offers it at the next startup
   on the other machine (manual file export/import when `gh` isn't available).
+- **Jev (opt-in)** — TypeSafe-powered judgment calls: bash guardrail, model
+  routing, anti-injection screening, quality gate. Fails open, sends only
+  what the use case needs.
+- **Theme studio** — create your own color themes with live previews and
+  contrast checks.
 - **Always up to date** — moh quietly checks for new releases and skill
   updates while you work (never installing anything without your explicit
   consent; fully disableable).
