@@ -38,6 +38,12 @@ export interface BundledActivationContext {
   endpoints: readonly EndpointProfile[];
   /** The session's model pool resolver (lazy: nothing is listed until asked). */
   modelPool: () => Promise<ModelPoolResult>;
+  /**
+   * #868: the project's declared routing pool (`moh.json` `routingPool`) —
+   * `<endpoint>/<model-id>` refs a model router may rotate through beyond
+   * its tier bound. Generic: the core knows only "a declared ref list".
+   */
+  routingPool?: readonly string[];
   /** The session's skill roster (bundled first-party + user skills). */
   skillRoster: () => Promise<readonly { name: string; description: string }[]>;
 }

@@ -123,6 +123,14 @@ export const mohConfigSchema = z.object({
   handoff: handoffConfigSchema.optional(),
   /** Project label → workflow-command suggestions after a Frontier claim (#357). */
   skillRouting: skillRoutingSchema.optional(),
+  /**
+   * #868 (option B): `<endpoint>/<model-id>` refs the model router may
+   * rotate through when its tier target cannot serve — the user's explicit
+   * consent to rotation beyond the tier bound. Absent = tier-bounded
+   * rotation only. Core-owned shape, extension-agnostic: the core learns
+   * only "a list of model refs", never who consumes it.
+   */
+  routingPool: z.array(z.string().min(1)).optional(),
   /** Per-turn tool-call iteration cap (#190). Default 50 (when absent);
    * the cap triggers a final no-tools wrap-up call instead of dropping the
    * turn. `0` is the #498 unlimited sentinel: no cap at all. Any integer
