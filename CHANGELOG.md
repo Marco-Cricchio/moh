@@ -7,6 +7,17 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An empty completion is a failed call, and the fallback chain fires** (#853):
+  a provider call returning no content, no tool calls and no usage was
+  accepted as a successful turn (`usage {0,0}`, `done`, no error), so the
+  ADR-0012 fallback chain never engaged. It is now classified as a new
+  `empty_completion` ProviderError: the chain walks to the next viable
+  target (15-minute cooldown on the empty one), and with the chain
+  exhausted the turn ends with a visible classified error naming the
+  endpoint that produced nothing — never a silent empty `done`.
+
 ### Added
 
 - **The Jev guardrail's judgment records its verdict** (#843): every
