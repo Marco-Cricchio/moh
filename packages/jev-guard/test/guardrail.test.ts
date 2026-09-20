@@ -34,7 +34,6 @@ describe("guardrail decision rule (#786 thresholds)", () => {
     const t = GUARDRAIL_THRESHOLDS;
     expect(decideGuardrail(signals({ destructive: t.denyHigh + 0.01 }), false).verdict).toBe("deny");
     expect(decideGuardrail(signals({ destructive: t.denyHigh }), false).verdict).toBe("ask");
-    expect(decideGuardrail(signals({ destructive: t.denyHigh }), false).verdict).toBe("ask");
   });
 
   test("deny above the exfiltration threshold — the curl hole is closed (#867: low in_scope)", () => {
@@ -62,6 +61,10 @@ describe("guardrail decision rule (#786 thresholds)", () => {
     expect(decideGuardrail(signals({ destructive: 0.6, exfiltration: 0.6, riskLevel: 0.9 }), true).verdict).toBe("pass");
     expect(decideGuardrail(signals({ destructive: 0.9 }), true).verdict).toBe("deny");
     expect(decideGuardrail(signals({ exfiltration: 0.9, inScope: 0.2 }), true).verdict).toBe("deny");
+  });
+
+  test("all four questions are declared, one call", () => {
+    expect(Object.keys(GUARDRAIL_QUESTIONS).sort()).toEqual(["destructive", "exfiltration", "in_scope", "risk_level"]);
   });
 });
 
@@ -91,9 +94,6 @@ describe("guardrail decision rule (#867 exfiltration/in-scope contradiction)", (
     expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.2 }), true).verdict).toBe("deny");
   });
 
-  test("all four questions are declared, one call", () => {
-    expect(Object.keys(GUARDRAIL_QUESTIONS).sort()).toEqual(["destructive", "exfiltration", "in_scope", "risk_level"]);
-  });
 });
 
 describe("session cache + key", () => {
