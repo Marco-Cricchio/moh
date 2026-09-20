@@ -156,6 +156,17 @@ describe("jev-guard extension setup (#786)", () => {
     expect(out ?? undefined).toBeUndefined();
   });
 
+  test("#867: yolo pass with the in_scope contradiction shows the visible line", async () => {
+    const ctx = fakeCtx();
+    const answers = { ...SAFE_ANSWERS, exfiltration: { type: "noul", noul: 0.92 }, in_scope: { type: "noul", noul: 0.9 } };
+    const def = createJevGuardExtension({ apiKey: "sk-test", fetchImpl: (async () => okResponse(answers)) as unknown as typeof fetch });
+    await def.setup(ctx);
+    ctx.eventHooks.forEach((h) => h({ event: { type: "session_mode", mode: "yolo" } }));
+    const out = await runHook(ctx.toolHooks, bash);
+    expect(out ?? undefined).toBeUndefined(); // no veto, no ask
+    expect(ctx.statuses.at(-1)).toContain("in_scope");
+  });
+
   test("failure: fail-open pass, offline status published once", async () => {
     const ctx = fakeCtx();
     const def = createJevGuardExtension({

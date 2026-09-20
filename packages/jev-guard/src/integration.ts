@@ -82,7 +82,12 @@ export const jevBundledSource = {
     return createJevGuardExtension({
       apiKey: typesafe.apiKey!,
       ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
-      routing: { pool: context.modelPool, labels: typesafe.tiers },
+      routing: {
+        pool: context.modelPool,
+        labels: typesafe.tiers,
+        // #868 (option B): the project's declared routing pool.
+        ...(context.routingPool !== undefined ? { declaredPool: context.routingPool } : {}),
+      },
       enabled: typesafe.routing,
       injection: typesafe.injection,
       classification: typesafe.classification,

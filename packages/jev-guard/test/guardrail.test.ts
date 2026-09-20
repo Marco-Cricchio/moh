@@ -34,12 +34,11 @@ describe("guardrail decision rule (#786 thresholds)", () => {
     const t = GUARDRAIL_THRESHOLDS;
     expect(decideGuardrail(signals({ destructive: t.denyHigh + 0.01 }), false).verdict).toBe("deny");
     expect(decideGuardrail(signals({ destructive: t.denyHigh }), false).verdict).toBe("ask");
-    expect(decideGuardrail(signals({ destructive: t.denyHigh }), false).verdict).toBe("ask");
   });
 
-  test("deny above the exfiltration threshold — the curl hole is closed", () => {
-    expect(decideGuardrail(signals({ exfiltration: 0.9 }), false).verdict).toBe("deny");
-    const d = decideGuardrail(signals({ exfiltration: 0.9 }), false);
+  test("deny above the exfiltration threshold — the curl hole is closed (#867: low in_scope)", () => {
+    const d = decideGuardrail(signals({ exfiltration: 0.9, inScope: 0.2 }), false);
+    expect(d.verdict).toBe("deny");
     expect(d.reason).toContain("exfiltration");
     expect(d.reason).toContain("ask first");
   });
@@ -61,12 +60,40 @@ describe("guardrail decision rule (#786 thresholds)", () => {
   test("lethal-only (yolo): never asks, only the two deny checks decide", () => {
     expect(decideGuardrail(signals({ destructive: 0.6, exfiltration: 0.6, riskLevel: 0.9 }), true).verdict).toBe("pass");
     expect(decideGuardrail(signals({ destructive: 0.9 }), true).verdict).toBe("deny");
-    expect(decideGuardrail(signals({ exfiltration: 0.9 }), true).verdict).toBe("deny");
+    expect(decideGuardrail(signals({ exfiltration: 0.9, inScope: 0.2 }), true).verdict).toBe("deny");
   });
 
   test("all four questions are declared, one call", () => {
     expect(Object.keys(GUARDRAIL_QUESTIONS).sort()).toEqual(["destructive", "exfiltration", "in_scope", "risk_level"]);
   });
+});
+
+describe("guardrail decision rule (#867 exfiltration/in-scope contradiction)", () => {
+  const t = GUARDRAIL_THRESHOLDS;
+
+  test("full mode: exfiltration high but in_scope high downgrades deny to ask", () => {
+    const d = decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.9 }), false);
+    expect(d.verdict).toBe("ask");
+    expect(d.reason).toBeUndefined();
+  });
+
+  test("full mode: exfiltration high with low in_scope still denies", () => {
+    expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.2 }), false).verdict).toBe("deny");
+  });
+
+  test("full mode: the contradiction only saves exfiltration, never destructive", () => {
+    expect(decideGuardrail(signals({ destructive: 0.92, inScope: 0.9 }), false).verdict).toBe("deny");
+  });
+
+  test("full mode: exfiltration in the ask band with high in_scope still asks", () => {
+    expect(decideGuardrail(signals({ exfiltration: t.askLow, inScope: 0.9 }), false).verdict).toBe("ask");
+  });
+
+  test("yolo: exfiltration high but in_scope high passes (never asks)", () => {
+    expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.9 }), true).verdict).toBe("pass");
+    expect(decideGuardrail(signals({ exfiltration: 0.92, inScope: 0.2 }), true).verdict).toBe("deny");
+  });
+
 });
 
 describe("session cache + key", () => {
@@ -180,6 +207,22 @@ describe("guardrail judge", () => {
     expect(askBadge(signals({ destructive: 0.5 })).badge).toBe("Jev: caso incerto (destructive 0.50)");
     expect(askBadge(signals({ exfiltration: 0.5 })).badge).toBe("Jev: caso incerto (exfiltration 0.50)");
     expect(askBadge(signals({ riskLevel: 1.0 })).badge).toContain("risk");
+  });
+
+  test("#867 contradiction carries a visible note; ordinary passes do not", async () => {
+    // Yolo, exfiltration high, in_scope high: pass, with a note.
+    let mode: "normal" | "yolo" = "yolo";
+    const fake = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.01 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.92 }, risk_level: { type: "score", score: 0.2, legend: {}, probabilities: {}, confidence: 0.9 } })]);
+    const judge = createGuardrailJudge({ client: fake.client, state: {} }, { mode: () => mode, cwd: () => process.cwd() });
+    const r = await judge.judge("c1", args);
+    expect(r.verdict.verdict).toBe("pass");
+    if (r.verdict.verdict === "pass") expect(r.verdict.note).toContain("in scope");
+    // An ordinary pass carries no note.
+    const fake2 = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.01 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.01 }, risk_level: { type: "score", score: 0.1, legend: {}, probabilities: {}, confidence: 0.9 } })]);
+    const judge2 = createGuardrailJudge({ client: fake2.client, state: {} }, { mode: () => "yolo", cwd: () => process.cwd() });
+    const r2 = await judge2.judge("c2", args);
+    expect(r2.verdict.verdict).toBe("pass");
+    if (r2.verdict.verdict === "pass") expect(r2.verdict.note).toBeUndefined();
   });
 
   test("non-bash guard: the judge itself only sees bash", async () => {

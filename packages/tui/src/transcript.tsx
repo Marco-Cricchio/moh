@@ -299,6 +299,14 @@ function routingNoticeLine(record: Record<string, unknown>): string {
   if (kind === "mismatch" && typeof record.current === "string" && typeof record.expected === "string") {
     return `jev · routing · serving ${record.current}, router picked ${record.expected}`;
   }
+  // #868: a decided switch that failed to apply — never silence. "staying"
+  // names the model actually serving; the skipped target rides after it.
+  if (kind === "switch-skipped") {
+    const target = typeof record.target === "string" ? record.target : "(unknown)";
+    const reason = typeof record.reason === "string" ? record.reason : "unavailable";
+    const staying = typeof record.staying === "string" ? record.staying : undefined;
+    return `jev · routing · switch skipped (${reason})${staying ? `, staying ${staying}` : ""}, tried ${target}`;
+  }
   return "jev · routing";
 }
 
@@ -395,9 +403,14 @@ function isSilentInjection(name: string, payload: unknown): boolean {
 function survivesVibe(name: string, payload: unknown): boolean {
   if (name === "jev_usecase") return true;
   // The router's notices (unpriced, ignored-label, inert, mismatch) are
-  // chatter in vibe; the one exception is the `override` — the echo of the
-  // user's own manual model switch, their command like a control line.
-  if (name === "jev_routing") return asRecord(payload)?.kind === "override";
+  // chatter in vibe; two exceptions: the `override` — the echo of the
+  // user's own manual model switch, their command like a control line —
+  // and #868's `switch-skipped`, a decided switch that failed to apply
+  // (the user must never learn about it from the mismatch line alone).
+  if (name === "jev_routing") {
+    const kind = asRecord(payload)?.kind;
+    return kind === "override" || kind === "switch-skipped";
+  }
   if (name === "jev_skill_suggest") {
     const record = asRecord(payload);
     return record?.suggested !== undefined && record.suggested !== null;
@@ -414,7 +427,9 @@ function survivesVibe(name: string, payload: unknown): boolean {
     case "guardrail":
       return decision === "ask" || decision === "deny";
     case "routing":
-      return decision === "switch";
+      // A real switch earns its keep; #868: so does a rotation-exhausted
+      // stay — the user must not learn of it from the mismatch line alone.
+      return decision === "switch" || record.reason === "no-viable-candidate";
     case "lint":
       return decision === "correct";
     default:

@@ -171,7 +171,10 @@ export type RoutingStayReason =
   | "continuation"
   /** #852: the switch's target is in a known failure cooldown. The
    * switch is refused; the streak was already satisfied, so it persists. */
-  | "cooled-down";
+  | "cooled-down"
+  /** #868: every rotation candidate (tier members, or the declared pool)
+   * is in a known failure cooldown — the switch stays, visibly. */
+  | "no-viable-candidate";
 
 /** #852: a bare continuation carries no task signal. Matched as a whole
  * trimmed, lowercased, punctuation-stripped message — never a substring,
