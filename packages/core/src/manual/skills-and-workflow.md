@@ -39,32 +39,7 @@ invocation (`/releaser 1.2.3 draft=yes`):
   `name=value` tokens (here `draft=yes`).
 
 Arguments substitute into the skill instructions when the turn starts.
-Any `# Skills & workflow mode
-
-Skills are markdown instruction packages the agent loads on demand.
-They are discovered from `~/.moh/skills/` (user) and `.moh/skills/`
-(project; project wins) and surface as slash commands.
-
-## Workflow mode
-
-Workflow mode (per user, off by default) enables the first-party
-workflow: the bundled skills — grilling, prototype, to-spec, to-tickets,
-implement,
-tdd, code-review, triage, diagnosing-bugs, report-bug, and more — as slash
-commands,
-plus the wayfinder frontier panel.
-
-```
-/workflow on     # copies the bundled skills to ~/.moh/skills/
-/workflow off    # hides them; base behavior never changes
-```
-
-With workflow mode **off**, nothing about the agent's base behavior
-changes — the slash commands simply do not exist.
-
-## Skills as slash commands
-
- that is not a known placeholder stays literal. If a placeholder
+Any `$` that is not a known placeholder stays literal. If a placeholder
 receives no argument, its default (or the placeholder itself) is
 pre-filled in the composer so you can complete it before sending — an
 invocation is never blocked.

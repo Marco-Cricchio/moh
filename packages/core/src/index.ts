@@ -189,10 +189,12 @@ export {
 
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 // #765: prompt snippets — skill argument parsing and placeholder
-// substitution. Pure and client-reusable (TUI pre-fill, CLI args).
+// substitution. Pure and client-reusable (the TUI detects
+// placeholder-bearing skill bodies and pre-fills unresolved args).
 export {
   parseSkillArgs,
   substituteSkillArgs,
+  hasSkillPlaceholders,
   type SkillArgs,
 } from "./skill-args";
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config

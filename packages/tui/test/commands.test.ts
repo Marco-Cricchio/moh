@@ -215,6 +215,17 @@ describe("#765: skill alias slash args", () => {
     expect(unresolved[0]).toEqual(["level", "1"]);
   });
 
+  test("repeated positional placeholders count once", () => {
+    const ctx = makeCtx() as any;
+    const { session } = capturingSession();
+    ctx.session = session;
+    const unresolved: string[][] = [];
+    ctx.onUnresolvedSkillArgs = (_skill: string, placeholders: string[]) => unresolved.push(placeholders);
+    setup(ctx, "implement", "Do $1 then $1 again, finally $2.");
+    runSlashCommand("/implement only-one", ctx);
+    expect(unresolved[0]).toEqual(["2"]);
+  });
+
   test("a body without placeholders keeps the plain-text invocation", () => {
     const ctx = makeCtx() as any;
     const { sends, session } = capturingSession();

@@ -39,6 +39,15 @@ export function parseSkillArgs(tokens: readonly string[]): SkillArgs {
 }
 
 /**
+ * True when the body carries at least one #765 placeholder. Clients use
+ * it to pick the argument-bearing invocation path; keeps the grammar in
+ * one place next to `substituteSkillArgs`.
+ */
+export function hasSkillPlaceholders(text: string): boolean {
+  return /\$\{[A-Za-z_][A-Za-z0-9_-]*(?::-[^}]*)?\}|\$@|\$[1-9]/.test(text);
+}
+
+/**
  * Substitutes argument placeholders in a skill body. `$N` reads
  * `args.positional[N-1]`; `$@` joins every positional argument;
  * `${name:-default}` reads `args.named[name]`, falling back to

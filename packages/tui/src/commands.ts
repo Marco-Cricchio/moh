@@ -26,7 +26,7 @@ import { join } from "node:path";
 import type { UserConfig } from "./user-config";
 import { ROUTING_TIERS } from "@moh/jev-guard";
 import { readRoutingState, setJevUseCase, type ExtensionStateReader } from "./jev-control";
-import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS, parseSkillArgs } from "@moh/core";
+import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS, parseSkillArgs, hasSkillPlaceholders } from "@moh/core";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
 
@@ -720,7 +720,7 @@ export function workflowCommands(): SlashCommand[] {
         // placeholders keeps the plain-text invocation shape.
         const skillFiles = readInstalled(ctx.mohHome, skill);
         const body = skillFiles["SKILL.md"];
-        if (body && HAS_PLACEHOLDER.test(body)) {
+        if (body && hasSkillPlaceholders(body)) {
           const parsed = parseSkillArgs(rest ? rest.split(/\s+/) : []);
           void ctx.session.send(`/${name} ${rest}`.trim(), {
             prompt: { name: skill, text: stripSkillFrontmatter(body) },
@@ -738,8 +738,7 @@ export function workflowCommands(): SlashCommand[] {
   ];
 }
 
-/** Any #765 placeholder form in a skill body: positional, $@, or named. */
-const HAS_PLACEHOLDER = /\$\{[A-Za-z_][A-Za-z0-9_-]*(?::-[^}]*)?\}|\$@|\$[1-9]/;
+/** The command list active for a context (base + workflow when on). */
 
 /** Placeholder names still unfilled after substitution, for the zero-
  * stress pre-fill: the composer receives them instead of an error. */
@@ -749,8 +748,10 @@ function unresolvedPlaceholders(body: string, args: ReturnType<typeof parseSkill
     const name = match[1]!;
     if (!(name in args.named)) names.push(name);
   }
-  const positionalCount = body.match(/\$[1-9]|\$@/g)?.length ?? 0;
-  for (let i = positionalCount; i > args.positional.length; i -= 1) names.push(`${i}`);
+  // Distinct positional indexes, not occurrences: `$1 $1` is one slot.
+  const indexes = new Set<number>();
+  for (const match of body.matchAll(/\$([1-9])/g)) indexes.add(Number(match[1]));
+  for (const index of [...indexes].sort((a, b) => a - b).slice(args.positional.length)) names.push(`${index}`);
   return names;
 }
 
