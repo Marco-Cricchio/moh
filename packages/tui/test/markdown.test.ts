@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { closeOpenFences, createMarkdownRenderer, wrapRenderedLines } from "../src/markdown";
+import { closeOpenFences, createMarkdownRenderer, parseAnsiSegments, wrapRenderedLines } from "../src/markdown";
 import { THEMES } from "../src/themes";
 
 describe("closeOpenFences", () => {
@@ -240,5 +240,27 @@ describe("colon placeholder never leaks (#296)", () => {
     expect(out).not.toContain("*#COLON|*");
     expect(out).toContain("http://localhost:1234/");
     expect(out).toContain("bash:sh -c 'x:y'");
+  });
+});
+
+describe("parseAnsiSegments defaultColor (reply body must take theme.fg)", () => {
+  test("a plain paragraph carries the theme fg (#749 token, not terminal default)", () => {
+    const md = createMarkdownRenderer(THEMES["gruvbox-material"], 60);
+    const out = String(md.parse("Just a plain sentence."));
+    const line = out.split("\n").find((l) => l.includes("plain sentence"))!;
+    const [first] = parseAnsiSegments(line, THEMES["gruvbox-material"].fg);
+    expect(first!.color).toBe(THEMES["gruvbox-material"].fg);
+  });
+
+  test("the default survives an inner styled run (39 resets to fg, not undefined)", () => {
+    const line = "plain \x1b[38;2;170;180;130b\x1b[1mcode\x1b[22m\x1b[39m tail";
+    const segments = parseAnsiSegments(line, "#d4be98");
+    const tail = segments.find((s) => s.text === " tail");
+    expect(tail!.color).toBe("#d4be98");
+  });
+
+  test("no default leaves plain runs uncolored (callers that opt out)", () => {
+    const segments = parseAnsiSegments("plain words");
+    expect(segments[0]!.color).toBeUndefined();
   });
 });

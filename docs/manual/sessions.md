@@ -24,7 +24,13 @@ them newest-first; `moh run --session <file>` targets an exact log.
 
 Forking copies history into a **new** session file and continues there —
 use it to branch a "what if" off a real session without touching the
-original. On the CLI: `moh run --session <file> --fork`.
+original. On the CLI: `moh run --session <file> --fork`. Two scopes
+exist: `--fork-scope tree` (the default) copies the full history — every
+branch of an in-file tree; `--fork-scope branch` copies only the active
+root→head path into a small single-pathed file — the "extract this
+experiment into its own session" move, which also slims a heavy session
+(sibling branches and their bookmarks do not come along; a compaction
+pointer on the path travels with it).
 
 ## Rename
 
