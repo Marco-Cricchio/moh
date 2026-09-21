@@ -84,9 +84,11 @@ export interface SlashContext {
    * config read, appending to the same session file (history kept).
    * Absent (headless callers): /reload explains it needs the TUI. */
   onReload?: () => void;
-  /** #468/ADR-0020: fork now — dispose + activate a full-history fork.
-   * Reachable only from the growth-warning state (no general fork). */
-  onForkNow?: () => void;
+  /** #468/ADR-0020: fork now — dispose + activate a fork. Scope (#768):
+   * "tree" (default) is a full-history copy, "branch" copies only the
+   * active root→head path. Reachable only from the growth-warning state
+   * (no general fork). */
+  onForkNow?: (scope?: "tree" | "branch") => void;
   /** #468: whether the sticky growth banner is currently up. */
   growthWarning?: () => boolean;
   /** #581: opens the /tree panel (session-tree topology view). Absent
@@ -539,15 +541,22 @@ const sessionCommand: SlashCommand = {
 };
 
 /** #468/ADR-0020: the explicit fork action, reachable only while the
- * session-file-growth warning is up — no general fork command. */
+ * session-file-growth warning is up — no general fork command. #768: an
+ * argument picks the scope — `/fork branch` copies only the active
+ * root→head path (the slimming move), default `/fork` keeps the
+ * full-history copy. */
 const forkCommand: SlashCommand = {
   name: "fork",
   description: "fork now — recover from external session-file growth",
-  usage: "/fork",
-  run(ctx) {
+  usage: "/fork [tree|branch]",
+  run(ctx, args) {
     if (!ctx.growthWarning?.()) return ctx.notify("/fork is available only while the session-file-growth warning is active");
     if (!ctx.onForkNow) return ctx.notify("/fork needs the TUI session shell");
-    ctx.onForkNow();
+    const scope = args.trim();
+    if (scope !== "" && scope !== "tree" && scope !== "branch") {
+      return ctx.notify("/fork scope must be tree or branch");
+    }
+    ctx.onForkNow(scope === "" ? "tree" : (scope as "tree" | "branch"));
   },
 };
 

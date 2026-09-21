@@ -90,3 +90,38 @@ describe("/fork command gating (#468, ADR-0020)", () => {
     expect(called).toBe(true);
   });
 });
+
+describe("/fork scope (#768)", () => {
+  const run = (args: string, onForkNow: (scope?: "tree" | "branch") => void): string[] => {
+    const notices: string[] = [];
+    BASE_COMMANDS.find((c) => c.name === "fork")!.run({
+      session: {} as any,
+      notify: (t: string) => notices.push(t),
+      config: { workflow: { enabled: false } } as any,
+      mohHome: "/tmp",
+      cwd: "/tmp",
+      growthWarning: () => true,
+      onForkNow,
+    } as any, args);
+    return notices;
+  };
+
+  test("bare /fork keeps the tree scope (full-history copy)", () => {
+    const scopes: (string | undefined)[] = [];
+    run("", (scope) => scopes.push(scope));
+    expect(scopes).toEqual(["tree"]);
+  });
+
+  test("/fork branch passes the branch scope through", () => {
+    const scopes: (string | undefined)[] = [];
+    run("branch", (scope) => scopes.push(scope));
+    expect(scopes).toEqual(["branch"]);
+  });
+
+  test("an unknown scope is refused with a notice, no fork", () => {
+    let called = false;
+    const notices = run("wide", () => { called = true; });
+    expect(called).toBe(false);
+    expect(notices[0]).toContain("tree or branch");
+  });
+});

@@ -53,6 +53,8 @@ options:
                             query the sessions are listed (newest first) to pick
                             from (a query may be a session id or title text)
   --fork                     with --session: copy history into a new session file
+  --fork-scope <s>           fork scope (#768): "tree" (default, all branches)
+                            or "branch" — only the active root→head path
   --provider <ref>           "mock", a custom id, or endpoint/model-id (moh.json)
   --max-iterations <n>       per-turn iteration cap override (#498): 50|100|200|500
                             or "unlimited" (any integer 1-500 is also accepted);
