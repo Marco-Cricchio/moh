@@ -223,6 +223,38 @@ describe("Route fallback chains", () => {
     expect(events.filter((e) => e.type === "text_delta").map((e) => (e as { text: string }).text).join("")).toBe("ok");
   });
 
+  test("#873: overloaded gets a deeper same-endpoint retry budget before fallback", async () => {
+    const flaky = MockProvider.scripted([
+      { deltas: [], finish: "stop", error: { kind: "overloaded", message: "5xx one" } },
+      { deltas: [], finish: "stop", error: { kind: "overloaded", message: "5xx two" } },
+      { deltas: ["served"], finish: "stop" },
+    ]);
+    const secondary = MockProvider.scripted([{ deltas: ["fallback"], finish: "stop" }]);
+    const attempts = [flaky, flaky, flaky, secondary]; // 3 same-endpoint attempts, no fallback needed
+    const targets = [
+      { endpoint: mockEndpoint("a"), modelId: "ma" },
+      { endpoint: mockEndpoint("b"), modelId: "mb" },
+    ];
+    let idx = 0;
+    const route = createRoute({
+      target: targets[0]!,
+      fallbacks: [targets[1]!],
+      retries: 1,
+      retryBackoffMs: 0,
+      createStream: () => {
+        const p = attempts[idx]!;
+        idx += 1;
+        return (m, s) => p.stream(m, s);
+      },
+    });
+    const events: StreamEvent[] = [];
+    for await (const e of route.stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) {
+      events.push(e);
+    }
+    expect(idx).toBe(3);
+    expect(events.filter((e) => e.type === "text_delta").map((e) => (e as { text: string }).text).join("")).toBe("served");
+  });
+
   test("non-fallback errors (auth) propagate to the caller", async () => {
     const primary = MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "auth", message: "bad key" } }]);
     const { route } = routeWith([primary]);
