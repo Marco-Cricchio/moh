@@ -5,6 +5,7 @@ import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./s
 import { fitRow, type WidthClass } from "./viewport";
 import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import type { JevStatusSummary } from "./jev-control";
+import { scannerRole } from "./scanner";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -167,6 +168,22 @@ function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: nu
  * end; if required content still overflows, the longest segment truncates. */
 export const fitStatusSegments = fitRow;
 
+/** #876/ADR-0042: the pending left slot — the liveness scanner strip rendered
+ * cell by cell, so the light leads in the theme's true red and the trail fades
+ * behind it. Cells that are not part of the strip (the phase word, or a caller
+ * passing the older braille frame) keep the slot's own colour. */
+function ScannerText({ text, theme }: { text: string; theme: Theme }) {
+  return (
+    <Text color={theme.accent}>
+      {Array.from(text).map((glyph, index) => {
+        const role = scannerRole(glyph);
+        if (role === null) return glyph;
+        return <Text key={index} color={role === "track" ? theme.dim : theme.err} bold={role === "head"} dimColor={role === "trail"}>{glyph}</Text>;
+      })}
+    </Text>
+  );
+}
+
 /** #876: the permission-mode chip — the mode in force, in the same place
  * for every value (the tail, after the projection chip). Copy is
  * capitalized (unlike the rest of the bar) and each value owns one token:
@@ -280,7 +297,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
+        <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (

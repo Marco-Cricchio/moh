@@ -14,7 +14,9 @@ matching section here at tag time.
   `◐ Auto-Accept`, `⚠ YOLO`; glyph only below 70 columns) beside the
   shortened `⚠ YOLO` banner, and row 1 gains a `◈ jev` chip summarizing the
   extension's seven use cases (`active` / `off` / `inert`), silent when Jev
-  is not registered or has not answered.
+  is not registered or has not answered. Row 1's braille cycle is replaced
+  by a seven-cell liveness scanner — one lit segment sweeping left→right and
+  back with a decaying trail (ADR-0042) — in every session.
 
 ## [0.42.0] - 2026-09-20
 ### Added

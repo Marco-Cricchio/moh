@@ -7,7 +7,7 @@ import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { useToolProgress } from "./tool-progress";
-import { SPINNER_FRAMES } from "./icons";
+import { scannerFrame } from "./scanner";
 import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
@@ -1014,7 +1014,9 @@ export function Chat({
     frozenRef.current = null;
     staticItems = emittedRef.current;
   }
-  const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
+  // #876/ADR-0042: the liveness beat is the scanner sweep, one cell per tick
+  // (the tick above is the 90 ms clock, gated on the active turn).
+  const spinner = scannerFrame(tick);
 
   // Vision note 4 (#490): place-once image emission. After the Static
   // paint of a settled user row that cites an image (the block carries
