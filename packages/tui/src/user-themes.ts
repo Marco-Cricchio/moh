@@ -28,16 +28,16 @@ export function themesDir(home: string = homedir()): string {
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
-/** #749: display label for a theme ref — built-ins show `label · built-in`,
- * user themes `name · personal`, unknown refs the raw ref. */
+/** #749: display label for a theme ref — built-ins show `label [s]`,
+ * user themes `name [u]`, unknown refs the raw ref. */
 export function themeLabelFor(ref: ThemeRef, home: string = homedir()): string {
   if (ref.startsWith("user:")) {
     const id = ref.slice("user:".length);
     const theme = loadUserTheme(home, id);
-    return theme ? `${theme.label} · personal` : `${ref} (missing)`;
+    return theme ? `${theme.label} [u]` : `${ref} (missing)`;
   }
   const preset = THEMES[ref as keyof typeof THEMES];
-  return preset ? `${preset.label} · built-in` : ref;
+  return preset ? `${preset.label} [s]` : ref;
 }
 
 
