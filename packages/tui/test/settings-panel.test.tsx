@@ -537,8 +537,8 @@ describe("user themes in settings (#749)", () => {
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await down(i, 1);
     i.stdin.write("\r"); // open theme picker
-    await waitForFrame(frame, "My Violet · personal");
-    expect(frame()).toContain("· built-in");
+    await waitForFrame(frame, "My Violet [u]");
+    expect(frame()).toContain("[s]");
     await down(i, THEME_ORDER.length); // first user theme (built-ins before it)
     i.stdin.write("\r");
     await waitForFrame(frame, "enter change · esc close");
@@ -685,8 +685,8 @@ describe("user themes in settings (#749)", () => {
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await down(i, 1);
     i.stdin.write("\r"); // picker
-    await waitForFrame(frame, "Gone · personal");
-    await down(i, 8); // Gone · personal
+    await waitForFrame(frame, "Gone [u]");
+    await down(i, THEME_ORDER.length); // first user theme: "Gone"
     i.stdin.write("d");
     await waitForFrame(frame, "enter change · esc close");
     expect(existsSync(join(home, ".moh", "themes", "gone.json"))).toBe(false);

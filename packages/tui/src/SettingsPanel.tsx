@@ -932,16 +932,27 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             </>
           ) : sub.kind === "theme-pick" ? (
             <>
-              {sub.options.map((ref, i) => {
-                const selected = i === sub.cursor;
-                return (
-                  <Text key={ref} {...(selected ? selectionStyle(theme) : {})}>
-                    {truncate(` ${selected ? "›" : " "} ${themeLabelFor(ref, home)}${selected ? " " : ""}`, innerWidth)}
+              {(() => {
+                // Two columns, column-major: the first half reads down the
+                // left column, the second down the right — ↑↓ walk one list
+                // at a time, unchanged cursor semantics.
+                const colWidth = Math.max(12, Math.floor(innerWidth / 2) - 1);
+                const rows = Math.ceil(sub.options.length / 2);
+                return Array.from({ length: rows }, (_, row) => (
+                  <Text key={row}>
+                    {[0, 1].map((col) => {
+                      const i = col === 0 ? row : row + rows;
+                      if (i >= sub.options.length) return <Text key={col}>{" ".repeat(colWidth)}</Text>;
+                      const ref = sub.options[i]!;
+                      const selected = i === sub.cursor;
+                      const cell = truncate(` ${selected ? "›" : " "} ${themeLabelFor(ref, home)}${selected ? " " : ""}`, colWidth).padEnd(colWidth);
+                      return <Text key={col} {...(selected ? selectionStyle(theme) : {})}>{cell}</Text>;
+                    })}
                   </Text>
-                );
-              })}
+                ));
+              })()}
               <Text> </Text>
-              <Dim>↑↓ select · enter apply · e edit · d delete (personal) · esc back</Dim>
+              <Dim>↑↓ select · enter apply · e edit · d delete [u] · esc back</Dim>
             </>
           ) : (
             <>
