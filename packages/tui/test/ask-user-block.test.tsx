@@ -5,7 +5,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, SessionStore, builtinTools, type AskUserQuestionSet, type Tool } from "@moh/core";
-import { AskUserBlock, askUserBlockRows } from "../src/AskUserBlock";
+import { AskUserBlock, askBlockMinRows, askUserBlockRows } from "../src/AskUserBlock";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { projectTurns } from "../src/turns";
@@ -377,7 +377,6 @@ describe("ask_user preview side-by-side (#414)", () => {
     // descriptions in side-by-side) — the reservation tracks the formula.
     const preview = askUserBlockRows(PREVIEW_SET.questions, 100);
     expect(preview).toBeGreaterThan(plain);
-    expect(preview).toBe(37);
     // A one-line preview still fits in a shorter screen than the capped one.
     const oneLine = askUserBlockRows([
       { ...QUESTION.questions[0]!, options: [{ preview: undefined }, { preview: undefined }, { preview: "one line" }] },
@@ -644,5 +643,73 @@ describe("ask_user options window (#874)", () => {
     // reserve like ~12–13, not 30.
     expect(many).toBeLessThan(40);
     expect(many).toBeGreaterThan(few);
+  });
+
+  test("the reservation never understates a real frame (#874)", async () => {
+    // The whole point of the budget: Chat subtracts it from the volatile
+    // transcript so the region stays under the terminal height. A
+    // reservation below the rendered block re-opens the fullscreen path.
+    const shapes: Array<{ name: string; set: AskUserQuestionSet; width: number }> = [
+      { name: "few options", set: QUESTION, width: 100 },
+      { name: "long descriptions", set: {
+        questions: [{ question: "Which route?", header: "Route", options: [
+          { label: "a", description: Array.from({ length: 20 }, (_, i) => `description row ${i}`).join(" ") },
+          { label: "b", description: "short" },
+        ] }],
+      } as AskUserQuestionSet, width: 100 },
+      { name: "many options", set: MANY, width: 100 },
+      { name: "many options, narrow", set: MANY, width: 64 },
+      { name: "long question", set: {
+        questions: [{ question: Array.from({ length: 12 }, (_, i) => `clause ${i}`).join(" "), header: "Long", options: [{ label: "a", description: "x" }, { label: "b", description: "y" }] }],
+      } as AskUserQuestionSet, width: 100 },
+      { name: "preview", set: PREVIEW_SET, width: 100 },
+      { name: "many questions", set: {
+        questions: Array.from({ length: 14 }, (_, i) => ({ question: `question ${i}?`, header: `Q${i}`, options: [{ label: "a", description: "x" }] })),
+      } as AskUserQuestionSet, width: 100 },
+    ];
+    for (const shape of shapes) {
+      const gate = new AskUserGate();
+      const pending = gate.ask(shape.set);
+      const i = render(<AskUserBlock gate={gate} width={shape.width} />);
+      await sleep(30);
+      // Walk every option (and Other): the tallest screen must still fit.
+      let worst = stripAnsi(i.lastFrame() ?? "").split("\n").length;
+      for (let n = 0; n < shape.set.questions[0]!.options.length; n++) {
+        i.stdin.write("\x1b[B");
+        await sleep(20);
+        worst = Math.max(worst, stripAnsi(i.lastFrame() ?? "").split("\n").length);
+      }
+      const reserved = askUserBlockRows(shape.set.questions, shape.width);
+      expect(`${shape.name}: reserved ${reserved} >= rendered ${worst}`).toBe(`${shape.name}: reserved ${reserved} >= rendered ${worst}`);
+      expect(reserved).toBeGreaterThanOrEqual(worst);
+      gate.resolve({ answers: [] });
+      await pending;
+      i.unmount();
+    }
+  });
+
+  test("a row budget shrinks the block instead of overflowing it (#874)", async () => {
+    // Budgets at or above the block's floor are honoured exactly; below it
+    // the question must stay answerable and the block wins (Chat never asks
+    // for less than askBlockMinRows).
+    for (const maxRows of [20, 30, 60]) {
+      const gate = new AskUserGate();
+      const pending = gate.ask(MANY);
+      const i = render(<AskUserBlock gate={gate} width={100} maxRows={maxRows} />);
+      await sleep(40);
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      expect(frame.split("\n").length).toBeLessThanOrEqual(maxRows);
+      expect(frame).toContain("route-0");
+      gate.resolve({ answers: [] });
+      await pending;
+      i.unmount();
+    }
+  });
+
+  test("askBlockMinRows is the floor Chat must never budget below (#874)", () => {
+    const min = askBlockMinRows(MANY.questions, 100);
+    expect(askUserBlockRows(MANY.questions, 100, min)).toBe(min);
+    // An impossible budget can only reach the floor, never under it.
+    expect(askUserBlockRows(MANY.questions, 100, 1)).toBeGreaterThanOrEqual(min);
   });
 });

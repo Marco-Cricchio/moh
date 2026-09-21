@@ -23,7 +23,7 @@ import {
   type TrackedSubagent,
 } from "./subagent-panel";
 import { SubagentPanel } from "./SubagentPanel";
-import { AskUserBlock, askUserBlockRows } from "./AskUserBlock";
+import { AskUserBlock, askBlockMinRows, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
 import type { SidebarTokens } from "./sidebar";
@@ -949,20 +949,28 @@ export function Chat({
   // ◌→✓ mutation is what settledBoundary keeps volatile). Once resolved,
   // the settled projection carries the answer rows into Static.
   const askOpen = askGate !== undefined && askGate.current !== null;
-  // #874: every volatile element shares one terminal-height budget — the
-  // peek panel (header + tail previews) is accounted for like the ask
-  // block, so the open turn compresses instead of the whole region
-  // crossing the viewport (Ink's fullscreen threshold).
-  const panelBudget = panelOpen && panelSub ? panelRows : 0;
+  // #874: every volatile element shares one terminal-height budget. The
+  // subagent peek is already counted inside `footerRows` (header + previews),
+  // so only the ask block is subtracted here — counting the panel twice
+  // would shrink the open turn for rows nothing renders.
+  // The ask block is told how many rows it may occupy; below its own floor
+  // (chrome + one question row + Other) it cannot shrink further, and then
+  // the block wins — a question must stay answerable. The transcript budget
+  // below uses the same number the block renders with, so the reservation
+  // and the frame can never disagree.
+  const askMaxRows = askOpen
+    ? Math.max(askBlockMinRows(askGate!.current!.questions, cols), viewport.rows - footerRows)
+    : 0;
+  const askRows = askOpen ? askUserBlockRows(askGate!.current!.questions, cols, askMaxRows) : 0;
   // #413: the block's row height shrinks the volatile transcript budget so
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
   const askBudget = askOpen
-    ? Math.max(1, viewport.rows - footerRows - panelBudget - askUserBlockRows(askGate!.current!.questions, cols))
+    ? Math.max(1, viewport.rows - footerRows - askRows)
     : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows - panelBudget)),
-    [liveBlocks, cols, viewport.rows, askBudget, footerRows, panelBudget],
+    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows)),
+    [liveBlocks, cols, viewport.rows, askBudget, footerRows],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items appended at the current end — never through the settled
@@ -1135,7 +1143,13 @@ export function Chat({
       {/* #412: inline ask_user block — one blank line of padding above and
           below (inside AskUserBlock), between the text area's separator
           and row 1. */}
-      {askGate && askGate.current && <AskUserBlock gate={askGate} width={cols} />}
+      {askGate && askGate.current && (
+        <AskUserBlock
+          gate={askGate}
+          width={cols}
+          maxRows={askMaxRows}
+        />
+      )}
       <Box height={1} />
       <BottomBar
         width={cols}
