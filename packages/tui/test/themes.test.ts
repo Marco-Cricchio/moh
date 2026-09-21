@@ -15,10 +15,13 @@ function contrast(a: string, b: string): number {
 }
 
 describe("themes catalog (issue #114)", () => {
-  it("offers the curated eight themes in THEME_ORDER", () => {
+  it("offers the curated catalog in THEME_ORDER", () => {
     expect(THEME_ORDER).toEqual([
       "tokyo-night", "catppuccin", "gruvbox-material", "phosphor",
       "phosphor-amber", "neon-noir", "lava", "candy",
+      "commodore64", "amiga-workbench13", "iron-man", "star-wars",
+      "daylight", "daylight-frost", "tron", "blade-runner",
+      "vaporwave", "pop-art",
     ]);
   });
 
