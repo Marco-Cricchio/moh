@@ -193,7 +193,9 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return 2;
   }
   // #768: fork scope — "tree" (default) copies all branches, "branch"
-  // copies only the active root→head path into the new file.
+  // copies only the active root→head path into the new file. The scope is
+  // a separate flag rather than a `--fork branch` value because `--fork`
+  // is a boolean in the argv grammar (bare `--fork` must keep working).
   const forkScopeRaw = parsed.strings["fork-scope"];
   if (forkScopeRaw !== undefined && !parsed.booleans["fork"]) {
     err.write("moh run: --fork-scope applies to --session <file> --fork\n");

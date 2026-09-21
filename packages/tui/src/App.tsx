@@ -866,7 +866,7 @@ export function App({
     if (!current) return push("fork needs an open session");
     const file = current.sessionFile;
     if (!file) return push("fork: session file unknown — open a session first");
-    const forkedStore = SessionStore.open(file).fork(scope);
+    const forkedStore = SessionStore.open(file, { register: false }).fork(scope);
     current.abort();
     await current.dispose();
     const result = makeSession({

@@ -291,7 +291,9 @@ export function branchProjection(events: ReadonlyArray<AgentEvent>): AgentEvent[
           if (target?.id !== undefined && onPath.has(target.id)) next.upToId = target.id;
           else delete next.upToId; // visible dangling, never a shifted line
         }
-        // id pointers survive: ids are preserved by the projection.
+        // id pointers survive untouched — even when their target was
+        // dropped (off-path): ids are preserved by the projection, so the
+        // pointer dangles visibly (replayWarnings), never silently shifts.
       } else if (marker.upTo !== undefined) {
         const idx = events[marker.upTo] !== undefined ? pathIndexOf.get(events[marker.upTo]!) : undefined;
         if (idx === undefined) delete next.upTo;

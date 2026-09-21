@@ -599,8 +599,8 @@ describe("run --fork-scope (#768)", () => {
     const files = sessionFiles(home).filter((f) => f !== file);
     expect(files).toHaveLength(1);
     const forked = readFileSync(files[0]!, "utf8");
-    // The original grew only by the fork run's own… no — the run continued
-    // on the fork; the original is untouched by it.
+    // The original is untouched: the run continued on the fork, never on
+    // the source file.
     expect(readFileSync(file, "utf8")).toBe(before);
     // The fork inherited the projected history (parent chains stripped —
     // #768 branch scope) and received the new turn and the born-consumed marker.
