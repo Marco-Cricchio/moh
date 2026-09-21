@@ -186,20 +186,24 @@ function ScannerText({ text, theme }: { text: string; theme: Theme }) {
   );
 }
 
-/** #876: the permission-mode chip — the mode in force, in the same place
- * for every value (the tail, after the projection chip). Copy is
- * capitalized (unlike the rest of the bar) and each value owns one token:
- * `normal` is dim, `auto-accept` warns — it grants every prompt without
- * asking — and `yolo` keeps the true-red alarm. Compact terminals keep the
- * glyph only: the row must stay a row, and `◌ ◐ ⚠` stay unambiguous
- * against the glyphs already in use (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). */
-function permissionModeChip(mode: SessionMode, cls: WidthClass): { text: string; color: "dim" | "warn" | "err" } {
-  const spec = mode === "normal"
-    ? { glyph: "◌", label: "Normal", color: "dim" as const }
-    : mode === "auto-accept"
-      ? { glyph: "◐", label: "Auto-Accept", color: "warn" as const }
-      : { glyph: "⚠", label: "YOLO", color: "err" as const };
-  return { text: cls === "compact" ? spec.glyph : `${spec.glyph} ${spec.label}`, color: spec.color };
+/** #876: the permission-mode indicator — the mode in force, spoken on the
+ * **left** of row 2, where the yolo banner has always been (owner decision:
+ * the mode is a statement about the session, not a property of where you
+ * are, so it does not belong beside the projection chip on the right).
+ *
+ * Copy is capitalized (unlike the rest of the bar) and each value owns one
+ * token: `normal` is dim, `auto-accept` warns — it grants every prompt
+ * without asking — and `yolo` keeps the true-red alarm, back to its full
+ * wording now that the tail no longer competes for the row. The text is the
+ * first thing to go when the width class is tight; the glyph stays, and
+ * `◌ ◐ ⚠` stay unambiguous against the glyphs already in use
+ * (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). */
+function permissionModeLead(mode: SessionMode, cls: WidthClass): { text: string; color: "dim" | "warn" | "err" } {
+  if (mode === "yolo") {
+    return { text: cls === "wide" ? "⚠ YOLO — unrestricted tools" : cls === "regular" ? "⚠ YOLO" : "⚠", color: "err" };
+  }
+  const spec = mode === "auto-accept" ? { glyph: "◐", label: "Auto-Accept" } : { glyph: "◌", label: "Normal" };
+  return { text: cls === "compact" ? spec.glyph : `${spec.glyph} ${spec.label}`, color: mode === "auto-accept" ? "warn" : "dim" };
 }
 
 /** Middle-elision for the cwd label: keeps the head and — more importantly —
@@ -247,23 +251,22 @@ function StatusRow(props: StatusProps) {
     if (text.startsWith("default·✗⚙")) return theme.warn;
     return theme.dim;
   };
-  // ── Row 2: where you are — cwd, branch, the projection chip (`◉ dev` /
-  // `○ vibe`) and, since #876, the permission-mode chip. Segments are
-  // space-joined explicitly: ink's `gap` is unreliable on a right-aligned
-  // nested row (segments render glued).
+  // ── Row 2: where you are — the permission mode on the left (the slot the
+  // yolo banner has always used), then the right-aligned tail: cwd, branch,
+  // projection chip (`◉ dev` / `○ vibe`). Segments are space-joined
+  // explicitly: ink's `gap` is unreliable on a right-aligned nested row
+  // (segments render glued).
   const projectionChip = props.mode === "dev" ? "◉ dev" : "○ vibe";
-  const modeChip = props.permissionMode ? permissionModeChip(props.permissionMode, cls) : null;
-  // #876: the permission-mode chip is never dropped, so the fixed tail takes
-  // its space first and the cwd — the only middle-elidable segment — is
-  // fitted to what remains: its head and (above all) the project directory
-  // stay readable instead of being truncated from the end. The branch keeps
-  // truncating in the rare overflow that is left over.
-  const yoloBanner = props.permissionMode === "yolo" ? "⚠ YOLO" : null;
-  const tailBudget = Math.max(1, props.width - 4 - (yoloBanner ? yoloBanner.length + 1 : 0));
+  const modeLead = props.permissionMode ? permissionModeLead(props.permissionMode, cls) : null;
+  // #876: the mode lead is never dropped, so it reserves its space first and
+  // the cwd — the only middle-elidable segment — is fitted to what remains:
+  // its head and (above all) the project directory stay readable instead of
+  // being truncated from the end. The branch keeps truncating in the rare
+  // overflow that is left over.
+  const tailBudget = Math.max(1, props.width - 4 - (modeLead ? modeLead.text.length + 1 : 0));
   const fixedTail = [
     props.branch ? `⎇ ${props.branch}` : "",
     projectionChip,
-    modeChip?.text ?? "",
   ].filter((text) => text !== "");
   const fixedTailWidth = fixedTail.reduce((sum, text) => sum + text.length + 1, 0);
   // The floor keeps the cwd's elision marker alive ("▣ he…ail"); when the
@@ -278,18 +281,13 @@ function StatusRow(props: StatusProps) {
     if (text.startsWith("▣")) return theme.dim;
     if (text.startsWith("⎇")) return theme.ok;
     if (text === "◉ dev") return theme.accent;
-    if (modeChip !== null && text === modeChip.text) return theme[modeChip.color];
     return theme.dim;
   };
-  // #328/#876: an active update notice leads row 2, left-aligned; the tail
-  // keeps its budget and the notice elides to whatever remains.
+  // #328: an active update notice follows the mode lead in the same left
+  // slot, elided to whatever budget remains — a session still learns about
+  // updates instead of losing the notice entirely.
   const row2Text = row2.join(" ");
-  // #377/#876: the yolo banner is always live — it leads the notice slot in
-  // its fixed `⚠ YOLO` shape (the tail chip carries the mode, the banner is
-  // the alarm) and never elides away; the update notice (#328) renders after
-  // it in whatever budget remains, elided — a yolo session still learns
-  // about updates instead of losing the notice entirely.
-  const noticeLead = yoloBanner !== null ? `${yoloBanner} · ` : "";
+  const noticeLead = modeLead !== null ? `${modeLead.text} · ` : "";
   const noticeBudget = Math.max(0, props.width - 4 - row2Text.length - 1 - noticeLead.length);
   const noticeText = props.updateMessage && noticeBudget >= 4
     ? props.updateMessage.length <= noticeBudget
@@ -303,9 +301,9 @@ function StatusRow(props: StatusProps) {
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
-        <Box justifyContent={yoloBanner !== null || noticeText !== null ? "space-between" : "flex-end"} flexWrap="nowrap" paddingX={1}>
-          {yoloBanner !== null && <Text color={theme.err} wrap="truncate">{yoloBanner}</Text>}
-          {yoloBanner !== null && noticeText !== null && <Text color={theme.dim}> · </Text>}
+        <Box justifyContent={modeLead !== null || noticeText !== null ? "space-between" : "flex-end"} flexWrap="nowrap" paddingX={1}>
+          {modeLead !== null && <Text color={theme[modeLead.color]} wrap="truncate">{modeLead.text}</Text>}
+          {modeLead !== null && noticeText !== null && <Text color={theme.dim}> · </Text>}
           {noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
           <Box justifyContent="flex-end" flexWrap="nowrap">
             <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>

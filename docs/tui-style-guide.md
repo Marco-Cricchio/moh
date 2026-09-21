@@ -59,17 +59,15 @@ Thinking labels are `·`, `🌱`, `⚙️`, `🧠✨`, `🧠🔥`. VS16 emoji ma
 The status area is two logical rows (2A layout):
 
 - **Row 1 — session state**: left the liveness scanner + phase/progress while live (ADR-0042), otherwise ready/done and memory freshness, then the chips the session publishes — memory freshness, the MPM map status, one per ADR-0032 extension status, and the Jev chip (below); right context bar, token count, turns, model + thinking level, workflow flag. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229).
-- **Row 2 — where you are**: cwd (`▣ <path>`), git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached), the projection chip (`○ vibe`/`◉ dev`) and the permission-mode chip, in that order, right-aligned. The cwd is middle-elided to a width-class budget (18/30/44) so the head and — above all — the tail (the project directory) stay readable; the branch truncates only in the rare overflow left over. The tail is right-aligned in every combination: its justification follows the left slot, so an empty left slot is simply empty.
+- **Row 2 — where you are**: the permission-mode lead on the left (below), then the right-aligned tail — cwd (`▣ <path>`), git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached), the projection chip (`○ vibe`/`◉ dev`), in that order. The cwd is middle-elided to a width-class budget (18/30/44) so the head and — above all — the tail (the project directory) stay readable; the branch truncates only in the rare overflow left over. The tail is right-aligned in every combination: its justification follows the left slot, so an empty left slot (no mode to show, no notice) is simply empty.
 
-The permission-mode chip (#876) renders in the same tail position for all three values of `SessionMode` (ADR-0040: the mode is runtime-mutable — shift+tab rotates `normal → auto-accept → yolo → normal`), capitalized to stand apart from the rest of the bar, one semantic token each:
+The **permission mode** (#876) speaks in the row's left slot — the one the `⚠ YOLO` banner has always used — for all three values of `SessionMode` (ADR-0040: the mode is runtime-mutable — shift+tab rotates `normal → auto-accept → yolo → normal`). It is a statement about the session, not a property of where you are, so it never sits beside the projection chip. Copy is capitalized to stand apart from the rest of the bar, one semantic token each, and the text is the first thing the width class takes away:
 
-- `◌ Normal` — `dim`;
-- `◐ Auto-Accept` — `warn`: it grants every prompt without asking;
-- `⚠ YOLO` — `err`, the true-red alarm.
+- `◌ Normal` — `dim`; compact: `◌`;
+- `◐ Auto-Accept` — `warn` (it grants every prompt without asking); compact: `◐`;
+- `⚠ YOLO — unrestricted tools` — `err`, the true-red alarm; regular: `⚠ YOLO`; compact: `⚠`.
 
-Below 70 columns the chip keeps its glyph (`◌` / `◐` / `⚠`) and drops the word — the row must stay a row. The glyphs stay distinguishable from the ones already in use (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). The permission-mode chip is never dropped: the fixed tail (branch + both chips) reserves its space first and the cwd absorbs the pressure, keeping its head and its elision marker.
-
-In `yolo` the left slot of the row still leads with the fixed banner `⚠ YOLO` — never elided below that shape — and the update notice follows it (`⚠ YOLO · notice`), eliding as before. The banner is the alarm, the chip is the mode.
+The glyphs stay distinguishable from the ones already in use (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). The lead is never dropped: it reserves its space first and the cwd absorbs the pressure, keeping its head and its elision marker. An active update notice follows the lead in the same slot (`⚠ YOLO · notice`), eliding as before.
 
 The Jev chip (#876) sits in row 1's left cluster right after the memory, MPM and extension-status chips — the two alarm chips (compaction failure, external growth) still close the cluster, so an alarm never ends up inward of a status. The seven use cases are independent, so the chip can only summarize and `/jev` keeps the detail:
 
