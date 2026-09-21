@@ -276,23 +276,24 @@ export function branchProjection(events: ReadonlyArray<AgentEvent>): AgentEvent[
   const out: AgentEvent[] = [];
   for (const e of path) {
     if (e.type === "branch_switched") continue;
-    const next: AgentEvent & { parentId?: string } = { ...e };
+    const next = { ...e } as AgentEvent & Record<string, unknown>;
     delete next.parentId; // parent chains name the source file's topology
     if (e.type === "tree_bookmarked") {
-      const target = resolveRef(e.to);
+      const target = resolveRef((e as { to: string }).to);
       if (target?.id === undefined || !onPath.has(target.id)) continue;
       next.to = target.id;
     } else if (e.type === "compaction") {
-      if (e.upToId !== undefined) {
-        const line = parseLineRefLocal(e.upToId);
+      const marker = e as { upToId?: string; upTo?: number };
+      if (marker.upToId !== undefined) {
+        const line = parseLineRefLocal(marker.upToId);
         if (line !== null) {
           const target = events[line - 1];
           if (target?.id !== undefined && onPath.has(target.id)) next.upToId = target.id;
           else delete next.upToId; // visible dangling, never a shifted line
         }
         // id pointers survive: ids are preserved by the projection.
-      } else if (e.upTo !== undefined) {
-        const idx = events[e.upTo] !== undefined ? pathIndexOf.get(events[e.upTo]!) : undefined;
+      } else if (marker.upTo !== undefined) {
+        const idx = events[marker.upTo] !== undefined ? pathIndexOf.get(events[marker.upTo]!) : undefined;
         if (idx === undefined) delete next.upTo;
         else next.upTo = idx;
       }
