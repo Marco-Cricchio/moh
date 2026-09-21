@@ -96,63 +96,59 @@ export function optionWindow(
   return { start, count, above: start, below: Math.max(0, total - start - count) };
 }
 
-/** The block's row budget for one question screen (#413, #426): the
- * bordered panel adds 2 border rows; the tallest screen wins — question
- * screen (1 blank + border + chip row + divider + question rows +
- * per-option rows with wrapped descriptions + Other row + border +
- * 1 blank) or the summary screen. #414: a preview-bearing question
- * renders side-by-side (labels only), its screen reserves the tallest
- * preview box. Shared with Chat so the transcript-compression
- * arithmetic and the layout stay in one place. */
+/** The block's row budget for the tallest screen it can render (#413,
+ * #426, #874). Mirrors the render below row-for-row — a reservation that
+ * understates the block would let the volatile region cross the terminal
+ * height, which is the whole point of the budget. Shared with Chat so the
+ * transcript-compression arithmetic and the layout stay in one place.
+ *
+ * Layout A chrome: blank + top border + chip row + divider + blank after
+ * the question + Other row + bottom border + footer + trailing blank = 9.
+ * Layout C chrome (no border, no chips, footer after the options) = 6. */
 export function askUserBlockRows(
   questions: ReadonlyArray<{ question: string; options: ReadonlyArray<{ preview?: string }> }>,
   width?: number,
 ): number {
   const compact = width !== undefined && width < ASK_COMPACT_WIDTH;
-  const chrome = (compact ? 0 : 2) + 2; // panel borders (A) + blank padding
-  const previewRows = (q: { options: ReadonlyArray<{ preview?: string }> }): number => {
-    if (compact || !q.options.some((o) => o.preview !== undefined)) return 0;
-    return Math.min(
+  const inner = Math.max(50, (width ?? 100) - 6);
+  const descWidth = Math.max(1, inner - DESC_INDENT_A.trim().length - 1);
+  const hasPreviewList = (q: { options: ReadonlyArray<{ preview?: string }> }): boolean =>
+    !compact && q.options.some((o) => o.preview !== undefined);
+  const previewRows = (q: { options: ReadonlyArray<{ preview?: string }> }): number =>
+    Math.min(
       PREVIEW_ROW_CAP,
       Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1))),
     ) + 3; // top border + bottom border + truncation indicator
+  /** Option rows the window actually renders, with their wrapped
+   * descriptions (#874): capped per description, counted with the
+   * truncation marker row that replaces the hidden tail. */
+  const optionRows = (q: { options: ReadonlyArray<{ preview?: string }> }): number => {
+    const visible = q.options.slice(0, ASK_MAX_OPTION_ROWS);
+    if (hasPreviewList(q)) return visible.length; // side-by-side: label only
+    return visible.reduce((sum, option) => {
+      const desc = "description" in option ? String((option as { description?: string }).description ?? "") : "";
+      if (desc.trim() === "") return sum + 1;
+      const wraps = wrapText(desc, descWidth).length;
+      return sum + 1 + Math.min(ASK_DESCRIPTION_ROW_CAP, wraps) + (wraps > ASK_DESCRIPTION_ROW_CAP ? 1 : 0);
+    }, 0);
   };
-  const inner = Math.max(50, (width ?? 100) - 6);
-  // #874: the rendered screen never shows more than ASK_MAX_OPTION_ROWS
-  // option rows (the internal window), so the reservation follows what is
-  // actually on screen — an extreme option count no longer inflates the
-  // block (or the transcript budget) past the viewport.
-  const shownOptions = (q: { options: ReadonlyArray<{ preview?: string }> }): number =>
-    Math.min(q.options.length + 1, ASK_MAX_OPTION_ROWS); // + Other
+  /** Hidden-row markers: at most one above and one below the window. */
+  const markerRows = (q: { options: ReadonlyArray<unknown> }): number =>
+    q.options.length > ASK_MAX_OPTION_ROWS ? 2 : 0;
   const questionScreens = questions.map((q) => {
-    const head = compact ? 2 : 4; // ▌header N/M + question  |  blank + border + chip + divider
-    const question = wrapText(q.question, inner).length + (compact ? 0 : 1); // + blank after question (A)
-    const options = shownOptions(q);
-    if (!compact && q.options.some((o) => o.preview !== undefined)) {
-      // side-by-side: one row per option (label only), no descriptions
-      return head + wrapText(q.question, inner).length + options + previewRows(q) + chrome;
-    }
-    // Descriptions wrap too; they ride the windowed rows only. Empty
-    // descriptions render no row, so count only non-empty ones, capped by
-    // the rows the window can show (2 each).
-    const descriptions = Math.min(
-      q.options.reduce((sum, o) => {
-        const desc = "description" in o ? String((o as { description?: string }).description ?? "") : "";
-        return desc.trim() === "" ? sum : sum + Math.min(
-          ASK_DESCRIPTION_ROW_CAP,
-          wrapText(desc, inner - DESC_INDENT_A.trim().length - 1).length,
-        );
-      }, 0),
-      Math.max(0, options - 1) * ASK_DESCRIPTION_ROW_CAP,
-    );
-    return head + question + options + descriptions + 1 + chrome + (options - 1) + 2; // + footer + blank interleave + window markers
+    const chrome = compact ? 6 : 9;
+    const questionRows = wrapText(q.question, inner).length;
+    const window = optionRows(q) + markerRows(q) + 1; // + the Other row
+    return chrome + questionRows + window + (hasPreviewList(q) ? previewRows(q) : 0);
   });
-  // #874: the summary screen is also windowed — one answer row per
-  // question, bounded by the same option-row window so a many-question
-  // set cannot grow past the viewport either (arrow keys page through
-  // nothing here; the full answer set is echoed to the model regardless).
-  const summaryFloor = Math.min(questions.length, ASK_MAX_OPTION_ROWS) + 5 + chrome;
-  return Math.max(...questionScreens, summaryFloor) + 1; // footer line
+  // #874: the summary screen is windowed the same way — one answer row per
+  // question, bounded by the option-row window, so a many-question set
+  // cannot grow past the viewport either (the full answer set is echoed to
+  // the model regardless).
+  const summaryVisible = Math.min(questions.length, ASK_MAX_OPTION_ROWS)
+    + (questions.length > ASK_MAX_OPTION_ROWS ? 2 : 0);
+  const summary = (compact ? 6 : 8) + summaryVisible;
+  return Math.max(...questionScreens, summary);
 }
 
 const FOOTER = " ↑↓ options · enter/tab next question";

@@ -43,8 +43,10 @@ describe.skipIf(!hasPython)("long-session ask_user gate (PTY regression #874)", 
             { wait: 0.4, send: Buffer.from("\r").toString("base64") },
             // Turn 1 settles with a long transcript (60 paragraphs ≫ 20 rows).
             { wait: 8.0, until: "paragraph 5" },
-            // Turn 2 opens the oversized ask gate on top of it.
-            { wait: 12.0, until: "tall box question" },
+            // Turn 2 opens the oversized ask gate on top of it. untilOnScreen
+            // (#874): once the fix removes the repaint churn, a needle may be
+            // painted exactly once, possibly before this step starts.
+            { wait: 12.0, until: "tall box question", untilOnScreen: true },
             // Idle/blocked window (≥10s acceptance): the user is reading —
             // before the fix this streamed clearTerminal repaints; after it,
             // none.
