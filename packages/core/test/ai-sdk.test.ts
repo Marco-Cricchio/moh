@@ -272,6 +272,10 @@ describe("#873 bug 1: double-encoded tool call arguments", () => {
   });
 
   it("normalizes string args on replayed tool_call parts in toAiMessages", async () => {
+    // #873 trade-off: a *legitimate* string arg containing valid JSON
+    // (a tool that takes a JSON payload as a string) is also unescaped
+    // once — accepted, because the double-encoded backends are the
+    // motivating case and non-JSON strings (shell commands) are kept.
     const h = harness([finish("stop")]);
     await h.run([
       {

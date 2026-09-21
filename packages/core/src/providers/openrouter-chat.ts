@@ -387,7 +387,7 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
     supportedUrls: proto.supportedUrls as never,
     async doGenerate(callOptions: { providerOptions?: unknown; [key: string]: unknown }) {
       const { buffer, inner, options } = prepare(callOptions);
-      const result = await (inner.doGenerate as (o: unknown) => Promise<{ content: unknown[] }>)>(options);
+      const result = await (inner.doGenerate as (o: unknown) => Promise<{ content: unknown[] }>)(options);
       if (buffer.texts.length === 0) return result as never;
       const body = result as unknown as { content: unknown[] };
       const content = [
