@@ -263,6 +263,43 @@ function answerText(a: AskUserAnswer | undefined): string {
   return [...(a.labels ?? []), ...(a.other !== undefined ? [`Other: ${a.other}`] : [])].join(", ");
 }
 
+/** The summary screen's answer rows, windowed by the same plan the budget
+ * uses (#874): one shared renderer for both layouts, so the two can never
+ * disagree about how many rows the summary occupies. */
+function SummaryRows({
+  questions,
+  answers,
+  window,
+  compact,
+}: {
+  questions: readonly AskUserQuestion[];
+  answers: readonly AskUserAnswer[];
+  window: { start: number; count: number; above: number; below: number };
+  compact: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <>
+      {window.above > 0 && <Text color={theme.dim}>{compact ? ` ↑ ${window.above} more` : `  ↑ ${window.above} more`}</Text>}
+      {questions.slice(window.start, window.start + window.count).map((q, i) => {
+        const value = answerText(answers[window.start + i]);
+        return compact ? (
+          <Text key={q.question}>
+            <Text bold>{`${sanitizeForDisplay(q.header)}: `}</Text>
+            <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
+          </Text>
+        ) : (
+          <Text key={q.question}>
+            <Text bold>{` ✓ ${pad(sanitizeForDisplay(q.header), 12)} — `}</Text>
+            <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
+          </Text>
+        );
+      })}
+      {window.below > 0 && <Text color={theme.dim}>{compact ? ` ↓ ${window.below} more` : `  ↓ ${window.below} more`}</Text>}
+    </>
+  );
+}
+
 function pad(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length);
 }
@@ -419,7 +456,8 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
   const summaryFit = fitAskSummary(questions.length, blockWidth, maxRows);
   const questionLines = wrapText(question.question, Math.max(1, innerWidth - 1)).slice(0, fit.questionRows);
   const questionHidden = questionLines.length < wrapText(question.question, Math.max(1, innerWidth - 1)).length;
-  const optionRows = (descWidth: number, sideBySide: boolean, descIndent: string) => {
+  /** The windowed option rows, rendered at the caller's layout width. */
+  const renderOptionRows = (descWidth: number, sideBySide: boolean, descIndent: string) => {
     const visible = question.options.slice(window.start, window.start + window.count);
     const rows = visible.map((option, i) => {
       const optionIndex = window.start + i;
@@ -472,25 +510,12 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
         {summary ? (
           <Box flexDirection="column">
             <Text bold color={theme.purple}>Review your answers</Text>
-            {(() => {
-              const w = optionWindow(questions.length, Math.min(index, questions.length - 1), summaryFit.window);
-              return (
-                <>
-                  {w.above > 0 && <Text color={theme.dim}>{` ↑ ${w.above} more`}</Text>}
-                  {questions.slice(w.start, w.start + w.count).map((q, i) => {
-                    const a = answers[w.start + i];
-                    const value = answerText(a);
-                    return (
-                      <Text key={q.question}>
-                        <Text bold>{`${sanitizeForDisplay(q.header)}: `}</Text>
-                        <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
-                      </Text>
-                    );
-                  })}
-                  {w.below > 0 && <Text color={theme.dim}>{` ↓ ${w.below} more`}</Text>}
-                </>
-              );
-            })()}
+            <SummaryRows
+              questions={questions}
+              answers={answers}
+              window={optionWindow(questions.length, Math.min(index, questions.length - 1), summaryFit.window)}
+              compact
+            />
             <Text> </Text>
             <Dim>{FOOTER_SUMMARY_FIRST}</Dim>
           </Box>
@@ -501,7 +526,7 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
               <Text color={theme.dim}>{` ${index + 1}/${questions.length}`}</Text>
             </Text>
             <Text bold>{questionLines.join("\n")}</Text>
-            {optionRows(innerWidth - DESC_INDENT_C.length - 2, false, DESC_INDENT_C)}
+            {renderOptionRows(innerWidth - DESC_INDENT_C.length - 2, false, DESC_INDENT_C)}
             <Text>
               {textMode ? (
                 <>
@@ -570,25 +595,12 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
           </Text>
           {/* #874: windowed like the question screens — a huge set shows a
               bounded slice (no navigation here; the model gets all answers). */}
-          {(() => {
-            const w = optionWindow(questions.length, Math.min(index, questions.length - 1), summaryFit.window);
-            return (
-              <>
-                {w.above > 0 && <Text color={theme.dim}>{` ↑ ${w.above} more`}</Text>}
-                {questions.slice(w.start, w.start + w.count).map((q, i) => {
-                  const a = answers[w.start + i];
-                  const value = answerText(a);
-                  return (
-                    <Text key={q.question}>
-                      <Text bold>{` ✓ ${pad(sanitizeForDisplay(q.header), 12)} — `}</Text>
-                      <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
-                    </Text>
-                  );
-                })}
-                {w.below > 0 && <Text color={theme.dim}>{` ↓ ${w.below} more`}</Text>}
-              </>
-            );
-          })()}
+          <SummaryRows
+            questions={questions}
+            answers={answers}
+            window={optionWindow(questions.length, Math.min(index, questions.length - 1), summaryFit.window)}
+            compact={false}
+          />
         </Box>
       ) : hasPreview(question) ? (
         <Box flexDirection="column" borderStyle="round" borderColor={theme.purple} paddingX={1} width={panelWidth}>
@@ -599,7 +611,7 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
           <Text bold>{` ${questionLines.join("\n")}`}</Text>
           <Box flexDirection="row" gap={2} paddingLeft={1}>
             <Box flexDirection="column" width={Math.min(32, Math.max(20, Math.floor((innerWidth - 2) * 0.4)))}>
-              {optionRows(0, true, DESC_INDENT_A)}
+              {renderOptionRows(0, true, DESC_INDENT_A)}
               {otherRow}
             </Box>
             <Box flexDirection="column">
@@ -624,7 +636,7 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
           <Text color={theme.dim}>{` ${divider}`}</Text>
           <Text bold>{` ${questionLines.join("\n")}`}</Text>
           <Text> </Text>
-          {optionRows(innerWidth - DESC_INDENT_A.length - 6, false, DESC_INDENT_A)}
+          {renderOptionRows(innerWidth - DESC_INDENT_A.length - 6, false, DESC_INDENT_A)}
           {otherRow}
         </Box>
       )}
