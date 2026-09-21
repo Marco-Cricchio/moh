@@ -76,7 +76,7 @@ import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
 import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } from "./commands";
 import { SkillUpdatesModal } from "./SkillUpdatesModal";
-import { BlockedInputProvider, Toasts, useToasts } from "./Toasts";
+import { Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
 import { launchSkillSync } from "./launch-skill-sync";
 import {
@@ -337,7 +337,8 @@ export function App({
     confirmGate.onCancelled((text) => setComposerPrefill(text));
   }, [confirmGate]);
 
-  const { toasts, push } = useToasts();
+  const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
+  const { toasts, push } = useToasts(blocked);
   const [memoryFresh, setMemoryFresh] = useState(false);
   /** #619: live MPM projection status for the footer chip — polled every
    * 2s while the session is open; null when MPM never activated (the chip
@@ -432,8 +433,6 @@ export function App({
     if (resolved.error) push(resolved.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
-
   // Memory (#38): discreet indicator only — a brief toast, never chat noise.
   useEffect(() => {
     if (!session) return;
@@ -1321,7 +1320,6 @@ export function App({
 
   return (
     <ThemeProvider value={resolvedTheme}>
-      <BlockedInputProvider blocked={blocked}>
       <Box
         flexDirection="column"
         width={Math.max(1, viewport.columns - 1)}
@@ -1600,7 +1598,6 @@ export function App({
         {/* Toasts remain non-blocking bottom chrome on every screen. */}
         {!showChat && <Toasts toasts={toasts} />}
       </Box>
-      </BlockedInputProvider>
     </ThemeProvider>
   );
 }
