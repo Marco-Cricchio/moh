@@ -380,8 +380,10 @@ export function createMarkdownRenderer(theme: PaintableTheme, width: number): Ma
         // bright-black opening to whichever of {theme.dim, grey} contrasts
         // better on this theme's reply tint — the same pick-the-legible-
         // candidate rule the palette audit enforces (the reset \x1b[39m stays).
-        const replyTint = mixHex(theme.accent, theme.bg, 0.14);
-        const border = contrastRatio(theme.dim, replyTint) >= contrastRatio("#808080", replyTint) ? theme.dim : "#808080";
+        const { accent, bg, dim } = theme;
+        if (accent === undefined || bg === undefined) return `${t.toString()}\n`;
+        const replyTint = mixHex(accent, bg, 0.14);
+        const border = dim !== undefined && contrastRatio(dim, replyTint) >= contrastRatio("#808080", replyTint) ? dim : "#808080";
         return `${t.toString().replace(/\x1b\[90m/g, fg(border))}\n`;
       },
     },
