@@ -7,8 +7,18 @@ import { useMemo } from "react";
 import { Box, Text } from "ink";
 import Table from "cli-table3";
 import type { PaintableTheme } from "./themes";
-import { useTheme } from "./themes";
+import { contrastRatio, useTheme } from "./themes";
 import { colorEnabled, fgTruecolor } from "./color";
+
+/** Blend two hex colors (result = a*t + b*(1-t)) — same math as the
+ * transcript's blockTint mix, inlined here for the table-border pick. */
+function mixHex(a: string, b: string, t: number): string {
+  const pa = a.replace("#", ""), pb = b.replace("#", "");
+  const [ra, ga, ba] = [0, 2, 4].map((i) => parseInt(pa.slice(i, i + 2), 16));
+  const [rb, gb, bb] = [0, 2, 4].map((i) => parseInt(pb.slice(i, i + 2), 16));
+  const ch = (x: number, y: number) => Math.round(x * t + y * (1 - t)).toString(16).padStart(2, "0");
+  return `#${ch(ra, rb)}${ch(ga, gb)}${ch(ba, bb)}`;
+}
 
 /** One styled run of a rendered markdown row. */
 export interface StyledSegment {
@@ -364,7 +374,17 @@ export function createMarkdownRenderer(theme: PaintableTheme, width: number): Ma
           style: { head: [], border: ["grey"] },
         });
         for (const row of token.rows) t.push(row.map(cell));
-        return `${t.toString()}\n`;
+        // cli-table3 draws borders in chalk "grey" (ANSI 90 → #808080), a
+        // fixed color no theme controls: it clears 3:1 on dark reply tints
+        // but sinks under the floor on light ones. Remap the border's
+        // bright-black opening to whichever of {theme.dim, grey} contrasts
+        // better on this theme's reply tint — the same pick-the-legible-
+        // candidate rule the palette audit enforces (the reset \x1b[39m stays).
+        const { accent, bg, dim } = theme;
+        if (accent === undefined || bg === undefined) return `${t.toString()}\n`;
+        const replyTint = mixHex(accent, bg, 0.14);
+        const border = dim !== undefined && contrastRatio(dim, replyTint) >= contrastRatio("#808080", replyTint) ? dim : "#808080";
+        return `${t.toString().replace(/\x1b\[90m/g, fg(border))}\n`;
       },
     },
   });
