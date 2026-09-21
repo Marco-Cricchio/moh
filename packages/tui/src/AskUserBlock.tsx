@@ -143,7 +143,7 @@ export function askUserBlockRows(
           wrapText(desc, inner - DESC_INDENT_A.trim().length - 1).length,
         );
       }, 0),
-      Math.max(0, options - 1) * ASK_DESCRIPTION_ROW_CAP, 
+      Math.max(0, options - 1) * ASK_DESCRIPTION_ROW_CAP,
     );
     return head + question + options + descriptions + 1 + chrome + (options - 1) + 2; // + footer + blank interleave + window markers
   });
