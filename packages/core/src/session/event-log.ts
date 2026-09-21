@@ -239,6 +239,69 @@ export function pathTo(events: ReadonlyArray<AgentEvent>, nodeId: string): Agent
   return path;
 }
 
+/**
+ * #768 (scoped fork): the branch-scoped fork projection — the active
+ * root→head path (`activePath`) rewritten as a valid degenerate linear
+ * tree for a new session file. Sibling branches and off-path chrome are
+ * dropped; source-tree head markers (`branch_switched`, whose `to` may
+ * name a dropped sibling) are dropped; bookmarks survive only when their
+ * target survives, their pointer rewritten to the target's id (line refs
+ * would shift in the copy). Parent chains point into the source file's
+ * topology, so they are stripped — the copy's file order is its path.
+ * Compaction pointers are remapped: a `line:N` pointer is converted to
+ * the target's id when the target survives, dropped otherwise (a kept
+ * positional pointer would silently resolve to a different line in the
+ * shorter copy — dropping leaves the visible dangling-restart warning,
+ * never silent mis-replay); legacy numeric pointers remap to the new
+ * path index, or are dropped when their target did not survive. Id
+ * pointers survive untouched — the projection preserves ids.
+ */
+export function branchProjection(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
+  const path = activePath(events);
+  const onPath = new Set<string>();
+  for (const e of path) {
+    if (e.id !== undefined) onPath.add(e.id);
+  }
+  const pathIndexOf = new Map<AgentEvent, number>();
+  path.forEach((e, i) => pathIndexOf.set(e, i));
+  const byId = new Map<string, AgentEvent>();
+  for (const e of events) {
+    if (e.id !== undefined) byId.set(e.id, e);
+  }
+  const resolveRef = (ref: string): AgentEvent | null => {
+    const line = parseLineRefLocal(ref);
+    if (line !== null) return events[line - 1] ?? null;
+    return byId.get(ref) ?? null;
+  };
+  const out: AgentEvent[] = [];
+  for (const e of path) {
+    if (e.type === "branch_switched") continue;
+    const next: AgentEvent & { parentId?: string } = { ...e };
+    delete next.parentId; // parent chains name the source file's topology
+    if (e.type === "tree_bookmarked") {
+      const target = resolveRef(e.to);
+      if (target?.id === undefined || !onPath.has(target.id)) continue;
+      next.to = target.id;
+    } else if (e.type === "compaction") {
+      if (e.upToId !== undefined) {
+        const line = parseLineRefLocal(e.upToId);
+        if (line !== null) {
+          const target = events[line - 1];
+          if (target?.id !== undefined && onPath.has(target.id)) next.upToId = target.id;
+          else delete next.upToId; // visible dangling, never a shifted line
+        }
+        // id pointers survive: ids are preserved by the projection.
+      } else if (e.upTo !== undefined) {
+        const idx = events[e.upTo] !== undefined ? pathIndexOf.get(events[e.upTo]!) : undefined;
+        if (idx === undefined) delete next.upTo;
+        else next.upTo = idx;
+      }
+    }
+    out.push(next);
+  }
+  return out;
+}
+
 export interface EventLogOptions {
   /** Persistence sink: every appended (never seeded) event, in order. */
   sink?: (event: AgentEvent) => void;
