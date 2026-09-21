@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { listOpenAiCompatModels, type CatalogModel } from "@moh/core";
 import { useTheme } from "./themes";
@@ -193,8 +194,7 @@ export function ModelPickerModal({
         return (
           <Text
             key={index}
-            color={selected ? theme.bg : undefined}
-            backgroundColor={selected ? theme.accent : undefined}
+            {...(selected ? selectionStyle(theme) : {})}
           >
             {truncate(line(row, selected), innerWidth)}
           </Text>

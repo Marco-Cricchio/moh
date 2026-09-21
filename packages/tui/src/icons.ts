@@ -1,7 +1,11 @@
 /**
- * Nerd Font glyph with ASCII fallback. Capability detection and the `i`
- * toggle are follow-ups (see docs/tui-style-guide.md §11); callers get the
- * glyph set until then.
+ * The glyph set, and the ASCII fallbacks the `Icons` toggle swaps in (the
+ * `ic(glyph, ascii)` seam). Only some chrome reads it today — the rest of the
+ * UI paints its glyphs literally — so turning icons off yields a partly-ASCII
+ * bar. Finishing that wiring is the glyph-capability follow-up.
+ *
+ * Color capability is a separate question with its own seam (#880, color.ts):
+ * `NO_COLOR` suppresses color, never glyphs.
  */
 let icons = true;
 

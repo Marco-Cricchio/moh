@@ -4,6 +4,7 @@ import type { Marked } from "marked";
 import { createMarkdownRenderer, parseAnsiSegments, wrapRenderedLines } from "./markdown";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { useTheme } from "./themes";
+import { fgTruecolor } from "./color";
 
 /**
  * The side-by-side preview box for ask_user options carrying `preview`
@@ -29,7 +30,7 @@ export function truncateAnsiLine(line: string, width: number): string {
     if (remaining <= 0) break;
     const text = visibleWidth(segment.text) > remaining ? segment.text.slice(0, remaining) : segment.text;
     out.push(
-      (segment.color ? `\x1b[38;2;${[1, 3, 5].map((i) => parseInt(segment.color!.slice(i, i + 2), 16)).join(";")}m` : "") +
+      fgTruecolor(segment.color) +
         (segment.bold ? "\x1b[1m" : "") +
         (segment.italic ? "\x1b[3m" : "") +
         (segment.strikethrough ? "\x1b[9m" : "") +

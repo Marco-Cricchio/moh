@@ -53,13 +53,16 @@ function HomeRow({
   selected: boolean;
   boxW: number;
   /** Row background when selected. */
-  bg: string;
+  /** #880: absent when the terminal takes no color. */
+  bg?: string;
   /** Row color when not selected; undefined = terminal default. */
   fg: string | undefined;
   /** Row color when selected (the theme bg, so it reads on `bg`). */
-  selectedFg: string;
+  /** #880: absent when the terminal takes no color. */
+  selectedFg?: string;
   /** Chip color on the selected background — never the background token itself. */
-  chipFg: string;
+  /** #880: absent when the terminal takes no color. */
+  chipFg?: string;
   label: string;
   chip?: string;
   prefix?: string;

@@ -8,6 +8,13 @@ matching section here at tag time.
 ## [Unreleased]
 ### Added
 
+- **`NO_COLOR` is honoured by the TUI** (#880): with the variable set
+  (present and non-empty) no color code reaches the terminal — through Ink
+  or through the escapes moh writes itself (markdown, the quota table, the
+  preview box) — while bold/dim emphasis stays. `moh update` already
+  respected it; the session UI now agrees. An empty value means "not set",
+  per the convention.
+
 - **Bottom-bar status rows** (#876): row 2's tail is right-aligned in every
   combination — it rendered flush left whenever no yolo banner or update
   notice was up — every permission mode now speaks in the row's left slot

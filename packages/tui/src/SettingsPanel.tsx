@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -831,7 +832,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         const selected = index === cursor;
         const line = ` ${selected ? "›" : " "} ${row.label.padEnd(26)}${row.value}${selected ? " " : ""}`;
         return (
-          <Text key={row.key} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+          <Text key={row.key} {...(selected ? selectionStyle(theme) : {})}>
             {truncate(line, innerWidth)}
           </Text>
         );
@@ -902,7 +903,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                             ? "clear the key"
                             : "nothing to remove";
                 return (
-                  <Text key={option} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                  <Text key={option} {...(selected ? selectionStyle(theme) : {})}>
                     {truncate(` ${selected ? "›" : " "} ${option.padEnd(17)}${value}${selected ? " " : ""}`, innerWidth)}
                   </Text>
                 );
@@ -934,7 +935,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               {sub.options.map((ref, i) => {
                 const selected = i === sub.cursor;
                 return (
-                  <Text key={ref} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                  <Text key={ref} {...(selected ? selectionStyle(theme) : {})}>
                     {truncate(` ${selected ? "›" : " "} ${themeLabelFor(ref, home)}${selected ? " " : ""}`, innerWidth)}
                   </Text>
                 );
@@ -949,7 +950,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 const index = subWin.start + i;
                 const selected = index === subCursor;
                 return (
-                  <Text key={`${index}-${option}`} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+                  <Text key={`${index}-${option}`} {...(selected ? selectionStyle(theme) : {})}>
                     {truncate(` ${selected ? "›" : " "} ${option}${selected ? " " : ""}`, innerWidth)}
                   </Text>
                 );

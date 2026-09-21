@@ -1,6 +1,7 @@
 import React from "react";
+import { selectionStyle } from "./color";
 import { Box, Text } from "ink";
-import { useTheme, type Theme } from "./themes";
+import { useTheme, type PaintableTheme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
 import { fitRow, type WidthClass } from "./viewport";
 import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
@@ -121,7 +122,7 @@ interface StatusProps {
 /** #619: the MPM status chip on the first status row, next to memory.
  * Silent and inspectable (owner decision): ✓ ready / ↻ updating / —
  * unavailable, with the word only when the terminal is wide. */
-export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "updating" | "unavailable"; wide: boolean; theme: Theme }) {
+export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "updating" | "unavailable"; wide: boolean; theme: PaintableTheme }) {
   const spec = status === "ready"
     ? { glyph: "✓", color: theme.ok }
     : status === "updating"
@@ -138,7 +139,7 @@ export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "upda
  * chip at all when the client has no snapshot to read — the bar never makes
  * a claim it cannot back. The outage text (`∅ jev offline`) is a different
  * thing on a different seam (ADR-0032's status), and stays there. */
-export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: Theme }) {
+export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: PaintableTheme }) {
   const spec = status === "active"
     ? { word: "active", color: theme.ok }
     : status === "off"
@@ -152,11 +153,11 @@ export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSu
  * the extension's name leads it so two extensions' statuses never read as
  * one. Compact terminals drop the name — the texts carry their own marker
  * (e.g. `∅ jev offline`) and the row must stay a row. */
-export function ExtensionStatusChip({ status, wide, theme }: { status: ExtensionStatus; wide: boolean; theme: Theme }) {
+export function ExtensionStatusChip({ status, wide, theme }: { status: ExtensionStatus; wide: boolean; theme: PaintableTheme }) {
   return <Text color={theme.dim} wrap="truncate">{wide ? `${status.extension} ${status.text}` : status.text}</Text>;
 }
 
-function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: number; width: number; theme: Theme }) {
+function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: number; width: number; theme: PaintableTheme }) {
   const fraction = contextFraction(tokens, limit);
   const cells = widthClass183(width) === "compact" ? 8 : widthClass183(width) === "wide" ? 16 : 12;
   const filled = Math.round(fraction * cells);
@@ -173,7 +174,7 @@ export const fitStatusSegments = fitRow;
  * behind it and the unlit track stays `dim`. Whatever the module does not
  * claim as a cell (the phase word, or a caller passing the older braille
  * frame) keeps the slot's own colour. */
-function ScannerText({ text, theme }: { text: string; theme: Theme }) {
+function ScannerText({ text, theme }: { text: string; theme: PaintableTheme }) {
   const { strip, rest } = scannerStripSplit(text);
   return (
     <Text color={theme.accent}>
@@ -244,7 +245,7 @@ function StatusRow(props: StatusProps) {
     { text: props.unsupportedLevel ? `default·✗⚙ ${props.unsupportedLevel}` : "", optional: true },
     { text: props.workflowOn ? "◈ wf" : "", optional: true },
   ].filter((item) => item.text), Math.max(1, props.width - left.length - (!vibe && props.tokens.contextIn ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0) - 5));
-  const row1Color = (text: string): string => {
+  const row1Color = (text: string): string | undefined => {
     if (text.startsWith("⊣")) return tokenColor;
     if (text === "◈ wf" || (text.startsWith("◆") && (props.level === "high" || props.level === "xhigh"))) return theme.purple;
     if (text.startsWith("◆")) return theme.fg;
@@ -277,7 +278,7 @@ function StatusRow(props: StatusProps) {
     { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
     ...fixedTail.map((text) => ({ text })),
   ].filter((item) => item.text), tailBudget);
-  const row2Color = (text: string): string => {
+  const row2Color = (text: string): string | undefined => {
     if (text.startsWith("▣")) return theme.dim;
     if (text.startsWith("⎇")) return theme.ok;
     if (text === "◉ dev") return theme.accent;
@@ -350,7 +351,7 @@ function KeyRow({ width, focused, keepMyBranch }: { width: number; focused: numb
         <Text color={focused === index ? theme.accent : theme.fg} bold>{chip.key} </Text><Text color={chip.color === "purple" ? theme.purple : focused === index ? theme.accent : theme.dim}>{chip.label}</Text>
       </Box>
     ) : (
-      <Text key={chip.label} backgroundColor={focused === index ? theme.accent : undefined} color={focused === index ? theme.bg : theme.fg}>( <Text color={focused === index ? theme.bg : theme.accent}>{chip.key} </Text>{chip.label} )</Text>
+      <Text key={chip.label} {...(focused === index ? selectionStyle(theme) : { color: theme.fg })}>( <Text color={focused === index ? theme.bg : theme.accent}>{chip.key} </Text>{chip.label} )</Text>
     ))}
   </Box>;
 }
