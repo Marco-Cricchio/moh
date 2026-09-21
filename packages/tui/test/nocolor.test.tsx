@@ -17,8 +17,8 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { THEMES, paintable, useTheme } from "../src/themes";
-import { colorEnabled, fgAnsi256, fgTruecolor } from "../src/color";
+import { THEMES, paintable } from "../src/themes";
+import { colorEnabled, fgAnsi256, fgTruecolor, selectionStyle } from "../src/color";
 import { blockTint, type TranscriptBlock } from "../src/transcript";
 
 /** Runs `body` with NO_COLOR pinned to `value` (undefined = unset). A
@@ -130,7 +130,6 @@ describe("the rendered TUI honours NO_COLOR (#880)", () => {
     // NO_COLOR in the runtime's own detection, and says so on stderr): that
     // is the point — the color must go because *moh* withheld it, not
     // because some other layer stripped it.
-    expect(JSON.parse(proc.stdout.toString())).toBeDefined();
     return JSON.parse(proc.stdout.toString()) as { fg: number; bg: number; bold: number; dim: number; row: string };
   };
 
@@ -194,11 +193,65 @@ describe("the rendered TUI honours NO_COLOR (#880)", () => {
     expect(Object.values(plain.saved).every((value) => /^#[0-9a-f]{6}$/i.test(value))).toBe(true);
   }, 30_000);
 
-  test("useTheme is the switch the components consume", () => {
-    // A component's view of the palette is the projection, never the raw
-    // context value: with colors off no token survives.
-    const theme = withNoColor("1", () => paintable(THEMES["candy"]));
-    expect(theme.accent).toBeUndefined();
-    expect(typeof useTheme).toBe("function");
+  /**
+   * The selection idiom on a real list: a cursor row is a `bg`-on-`accent`
+   * fill, which would paint *nothing* when both tokens are gone — the cursor
+   * would be unfindable. It degrades to inverse video (SGR 7), an attribute
+   * `NO_COLOR` keeps. Driven on the handoff modal's choice list, the smallest
+   * surface using the shared helper.
+   */
+  const listProbe = (noColor: boolean): { fg: number; bg: number; inverse: number; styledRow: string } => {
+    const modal = join(__dirname, "../src/HandoffActivationModal.tsx");
+    const themes = join(__dirname, "../src/themes.ts");
+    const script = [
+      `const React = (await import("react")).default;`,
+      `const { render } = await import("ink-testing-library");`,
+      `const [{ HandoffActivationModal }, { ThemeProvider, THEMES }] = await Promise.all([import(${JSON.stringify(modal)}), import(${JSON.stringify(themes)})]);`,
+      `const ink = render(React.createElement(ThemeProvider, { value: THEMES["tokyo-night"] },`,
+      `  React.createElement(HandoffActivationModal, { cwd: "/tmp/moh-880-list", onDone: () => {}, onClose: () => {} })));`,
+      `const frame = ink.lastFrame() ?? "";`,
+      `ink.unmount();`,
+      `const count = (re) => (frame.match(re) ?? []).length;`,
+      `const inverse = count(/\\u001b\\[7m/g);`,
+      // The cursor row is the "GitHub Gist" row that carries a style (its
+      // neighbour in the two-column layout is the description).
+      `const gistRows = frame.split("\\n").filter((l) => l.includes("GitHub Gist"));`,
+      `const styledRow = gistRows.find((l) => /\\u001b\\[(7|48[;0-9]*)m/.test(l)) ?? "";`,
+      `process.stdout.write(JSON.stringify({ fg: count(/\\u001b\\[38[;0-9]*m/g), bg: count(/\\u001b\\[48[;0-9]*m/g), inverse, styledRow }));`,
+    ].join("\n");
+    const env = { ...process.env, FORCE_COLOR: "3", ...(noColor ? { NO_COLOR: "1" } : {}) };
+    if (!noColor) delete (env as Record<string, string | undefined>).NO_COLOR;
+    return JSON.parse(Bun.spawnSync(["bun", "-e", script], { env }).stdout.toString()) as { fg: number; bg: number; inverse: number; styledRow: string };
+  };
+
+  test("a cursor row keeps its fill in color, and turns inverse without it", () => {
+    const colored = listProbe(false);
+    // In color the cursor row is painted (a background fill), not inverted.
+    expect(colored.bg).toBeGreaterThan(0);
+    expect(colored.inverse).toBe(0);
+    expect(colored.styledRow).toContain("GitHub Gist");
+    expect(colored.styledRow).toContain("\x1b[48;");
+
+    const plain = listProbe(true);
+    expect(plain.fg).toBe(0);
+    expect(plain.bg).toBe(0);
+    // With no color the same row is inverse video: the cursor stays findable,
+    // and its text is still there to be read.
+    expect(plain.inverse).toBeGreaterThan(0);
+    expect(plain.styledRow).toContain("GitHub Gist");
+    expect(plain.styledRow).toContain("\x1b[7m");
+  }, 30_000);
+
+  test("the selection idiom survives without color: inverse video instead of a fill", () => {
+    // `bg` on `accent` (and the `dim` variant of the "free text" row) paints
+    // nothing at all when both tokens are gone — the cursor would vanish. The
+    // attribute that means the same thing stays.
+    const colored = selectionStyle(THEMES["tokyo-night"]);
+    expect(colored).toEqual({ color: THEMES["tokyo-night"].bg, backgroundColor: THEMES["tokyo-night"].accent });
+    expect(selectionStyle(THEMES["tokyo-night"], "dim").backgroundColor).toBe(THEMES["tokyo-night"].dim);
+    // The projection is taken *inside* the color-free window, as a component
+    // would see it.
+    expect(withNoColor("1", () => selectionStyle(paintable(THEMES["tokyo-night"])))).toEqual({ inverse: true });
+    expect(withNoColor("1", () => selectionStyle(paintable(THEMES["tokyo-night"]), "dim"))).toEqual({ inverse: true });
   });
 });

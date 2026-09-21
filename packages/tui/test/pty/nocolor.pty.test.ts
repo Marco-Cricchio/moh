@@ -19,8 +19,14 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { hasPython, runPtyRaw } from "./pty-runner";
 
-const COLOR_FG = /\x1b\[38[;0-9]*m/g;
-const COLOR_BG = /\x1b\[48[;0-9]*m/g;
+/**
+ * Every way a color can reach the terminal: truecolor (38/48), the 16-color
+ * range (30-37 fg / 40-47 bg / 90-97 bright fg / 100-107 bright bg) and the
+ * 256-color index (38;5 / 48;5). The 16-color forms matter: cli-highlight's
+ * own fallback theme paints with them, and a regex that only knew truecolor
+ * would call that run color-free (the leak #880's review caught).
+ */
+const COLOR = /\x1b\[(3[0-7]|4[0-7]|9[0-7]|10[0-7]|38;|48;)/g;
 const BOLD = /\x1b\[1m/g;
 const DIM = /\x1b\[2m/g;
 const B = (s: string) => btoa(s);
@@ -82,8 +88,7 @@ describe.skipIf(!hasPython)("NO_COLOR in a real PTY (#880)", () => {
       server.stop(true);
     }
     const bytes = raw("/tmp/moh-nocolor-on.bin");
-    expect(count(bytes, COLOR_FG)).toBe(0);
-    expect(count(bytes, COLOR_BG)).toBe(0);
+    expect(count(bytes, COLOR)).toBe(0);
     // Emphasis is not color: the scanner's light stays bold and its trail
     // stays dim (ADR-0042), so a color-free terminal keeps the beat readable.
     expect(count(bytes, BOLD)).toBeGreaterThan(0);
@@ -101,7 +106,7 @@ describe.skipIf(!hasPython)("NO_COLOR in a real PTY (#880)", () => {
       server.stop(true);
     }
     const bytes = raw("/tmp/moh-nocolor-off.bin");
-    expect(count(bytes, COLOR_FG)).toBeGreaterThan(0);
+    expect(count(bytes, COLOR)).toBeGreaterThan(0);
     expect(bytes).toContain("Hello from moh");
   }, 60_000);
 });

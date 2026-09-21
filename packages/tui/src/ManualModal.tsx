@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { manualIndex, manualPage } from "@moh/core";
 import { createMarkdownRenderer, parseAnsiSegments, renderMarkdownRows } from "./markdown";
@@ -128,8 +129,7 @@ export function ManualModal({ onClose }: { onClose: () => void }) {
         return (
           <Text
             key={entry.id}
-            color={selected ? theme.bg : undefined}
-            backgroundColor={selected ? theme.accent : undefined}
+            {...(selected ? selectionStyle(theme) : {})}
             wrap="truncate-end"
           >
             {truncate(line, viewport.columns - 6)}

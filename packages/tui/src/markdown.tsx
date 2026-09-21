@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { Box, Text } from "ink";
 import Table from "cli-table3";
 import type { PaintableTheme } from "./themes";
-import { fgTruecolor } from "./color";
+import { colorEnabled, fgTruecolor } from "./color";
 
 /** One styled run of a rendered markdown row. */
 export interface StyledSegment {
@@ -272,14 +272,20 @@ export function createMarkdownRenderer(theme: PaintableTheme, width: number): Ma
         const raw = (token.lang ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
         const lang = raw ? (LANG_ALIASES[raw] ?? raw) : "";
         let body = token.text.replace(/\n$/, "");
-        if (lang && supportsLanguage(lang)) {
-          try {
-            body = cliHighlight(token.text, { language: lang, theme: highlightThemeFor(theme) }).replace(/\n$/, "");
-          } catch {
+        // #880: a syntax theme *is* color, and cli-highlight paints roles our
+        // map does not cover with its own 16-color theme — a color code on the
+        // wire that no projection can reach. So a color-free run highlights
+        // nothing: the block keeps the code and loses the paint.
+        if (colorEnabled()) {
+          if (lang && supportsLanguage(lang)) {
+            try {
+              body = cliHighlight(token.text, { language: lang, theme: highlightThemeFor(theme) }).replace(/\n$/, "");
+            } catch {
+              body = `${fg(theme.accent)}${token.text.replace(/\n$/, "")}\x1b[39m`;
+            }
+          } else {
             body = `${fg(theme.accent)}${token.text.replace(/\n$/, "")}\x1b[39m`;
           }
-        } else {
-          body = `${fg(theme.accent)}${token.text.replace(/\n$/, "")}\x1b[39m`;
         }
         // marked-terminal indents code blocks by its tab (4 spaces) and
         // sections them with a trailing blank line — same shape here.

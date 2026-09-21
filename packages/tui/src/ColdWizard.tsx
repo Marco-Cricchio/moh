@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import {
   cloneHandoffRepo,
@@ -163,7 +164,7 @@ export function ColdWizard({ offers, cwd, home, fetchPayload, seams, onProceed, 
           <Text>Sessions published from your other machines (secret gists):</Text>
           <Text> </Text>
           {offers.map((offer, index) => (
-            <Text key={offer.url} color={index === cursor ? theme.bg : undefined} backgroundColor={index === cursor ? theme.accent : undefined}>
+            <Text key={offer.url} {...(index === cursor ? selectionStyle(theme) : {})}>
               {` ${index === cursor ? "›" : " "} ${offerTitle(offer)}${offer.repoUrl ? "" : " · no repoUrl"}`}
             </Text>
           ))}

@@ -1,4 +1,5 @@
 import React from "react";
+import { selectionStyle } from "./color";
 import { Box, Text } from "ink";
 import { useTheme, type PaintableTheme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
@@ -350,7 +351,7 @@ function KeyRow({ width, focused, keepMyBranch }: { width: number; focused: numb
         <Text color={focused === index ? theme.accent : theme.fg} bold>{chip.key} </Text><Text color={chip.color === "purple" ? theme.purple : focused === index ? theme.accent : theme.dim}>{chip.label}</Text>
       </Box>
     ) : (
-      <Text key={chip.label} backgroundColor={focused === index ? theme.accent : undefined} color={focused === index ? theme.bg : theme.fg}>( <Text color={focused === index ? theme.bg : theme.accent}>{chip.key} </Text>{chip.label} )</Text>
+      <Text key={chip.label} {...(focused === index ? selectionStyle(theme) : { color: theme.fg })}>( <Text color={focused === index ? theme.bg : theme.accent}>{chip.key} </Text>{chip.label} )</Text>
     ))}
   </Box>;
 }
