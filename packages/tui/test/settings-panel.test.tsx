@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/core";
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
-import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
+import { ThemeProvider, THEMES, DEFAULT_THEME, THEME_ORDER } from "../src/themes";
 import { actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -539,7 +539,7 @@ describe("user themes in settings (#749)", () => {
     i.stdin.write("\r"); // open theme picker
     await waitForFrame(frame, "My Violet · personal");
     expect(frame()).toContain("· built-in");
-    await down(i, 8); // first user theme (8 built-ins before it)
+    await down(i, THEME_ORDER.length); // first user theme (built-ins before it)
     i.stdin.write("\r");
     await waitForFrame(frame, "enter change · esc close");
     expect(changes).toContainEqual({ theme: "user:my-violet" });
