@@ -499,13 +499,12 @@ export function App({
     if (!session) return;
     const read = () => {
       try {
-        const next = snap?.status ?? null;
+        const next = session.mpmSnapshot()?.status ?? null;
         setMpmStatus((prev) => (prev === next ? prev : next));
       } catch {
         setMpmStatus((prev) => (prev === null ? prev : null));
       }
     };
-    const snap = session.mpmSnapshot();
     read();
     const timer = setInterval(() => read(), 2_000);
     return () => clearInterval(timer);

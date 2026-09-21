@@ -618,6 +618,24 @@ describe("ask_user options window (#874)", () => {
     i.unmount();
   });
 
+  test("long option descriptions truncate at the height cap", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask({
+      questions: [{
+        question: "Which route?",
+        header: "Route",
+        options: [{ label: "verbose", description: Array.from({ length: 20 }, (_, i) => `description row ${i}`).join(" ") }],
+      }],
+    });
+    const i = await mount(gate);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("description truncated");
+    expect(frame).not.toContain("description row 19");
+    gate.resolve({ answers: [{ labels: ["verbose"] }] });
+    await pending;
+    i.unmount();
+  });
+
   test("askUserBlockRows no longer scales with the option count past the window", () => {
     const few = askUserBlockRows([{ question: "q", options: [{}, {}, {}] }], 100);
     const many = askUserBlockRows(MANY.questions.map((q) => ({ question: q.question, options: q.options.map((o) => ({ preview: undefined })) })), 100);

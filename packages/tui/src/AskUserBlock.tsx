@@ -50,6 +50,9 @@ export const PREVIEW_ROW_CAP = 20;
  * the window the list scrolls internally around the focused option (with
  * ↑ N more / ↓ N more markers), like every other height-aware moh menu. */
 export const ASK_MAX_OPTION_ROWS = 12;
+/** Each visible option description is bounded too: a single model-provided
+ * essay must not defeat the option-window height cap. */
+export const ASK_DESCRIPTION_ROW_CAP = 2;
 
 /** Manual word-wrap to a width (grapheme-safe for our purposes: splits on
  * spaces only, never mid-word — the terminal's own wrap is what produced
@@ -135,9 +138,12 @@ export function askUserBlockRows(
     const descriptions = Math.min(
       q.options.reduce((sum, o) => {
         const desc = "description" in o ? String((o as { description?: string }).description ?? "") : "";
-        return desc.trim() === "" ? sum : sum + wrapText(desc, inner - DESC_INDENT_A.trim().length - 1).length;
+        return desc.trim() === "" ? sum : sum + Math.min(
+          ASK_DESCRIPTION_ROW_CAP,
+          wrapText(desc, inner - DESC_INDENT_A.trim().length - 1).length,
+        );
       }, 0),
-      Math.max(0, options - 1) * 2,
+      Math.max(0, options - 1) * ASK_DESCRIPTION_ROW_CAP, 
     );
     return head + question + options + descriptions + 1 + chrome + (options - 1) + 2; // + footer + blank interleave + window markers
   });
@@ -322,7 +328,11 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
       const marker = question.multiSelect ? (checked ? "[x]" : "[ ]") : isFocused ? "❯ " : "  ";
       const number = question.multiSelect ? "  " : `${optionIndex + 1} `;
       const label = sanitizeForDisplay(option.label);
-      const desc = sideBySide ? [] : wrapText(sanitizeForDisplay(option.description ?? ""), descWidth);
+      const fullDescription = sideBySide ? [] : wrapText(sanitizeForDisplay(option.description ?? ""), descWidth);
+      const descriptionHidden = fullDescription.length > ASK_DESCRIPTION_ROW_CAP;
+      const desc = fullDescription.slice(0, ASK_DESCRIPTION_ROW_CAP).map((line, index) =>
+        descriptionHidden && index === ASK_DESCRIPTION_ROW_CAP - 1 ? `${line.slice(0, Math.max(0, descWidth - 1))}…` : line,
+      );
       return (
         <React.Fragment key={option.label}>
           <Text>
@@ -334,6 +344,7 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
           {desc.length > 0 && desc.map((line, j) => (
             <Text key={`${option.label}-desc-${j}`} color={isFocused ? theme.muted : theme.dim}>{`${descIndent}${line}`}</Text>
           ))}
+          {descriptionHidden && <Text color={theme.dim}>{`${descIndent}… description truncated`}</Text>}
         </React.Fragment>
       );
     });
