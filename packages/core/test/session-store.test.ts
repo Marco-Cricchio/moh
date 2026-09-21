@@ -914,3 +914,98 @@ describe("#778: screenshot pixels ride replay", () => {
     expect(results[0]).toEqual({ kind: "tool_result", callId: "c1", ok: true, output: "file.txt" });
   });
 });
+
+describe("scoped fork (#768)", () => {
+  const ULID = (n: number) => `01J000000000000000000000${String(n).padStart(2, "0")}`;
+  const START: AgentEvent = { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1", id: ULID(1) };
+
+  /** A branchy hand-crafted log: root turn (u1/a1), a sibling branch
+   * (u2/a2) reached by a switch, then a switch back to a1 and a third
+   * turn (u3/a3). The active path is s1,u1,a1,u3,a3. */
+  function branchyStore(home: string, cwd: string): SessionStore {
+    const store = SessionStore.create(cwd, home);
+    const appends: AgentEvent[] = [
+      START,
+      { type: "user_message", text: "turn one", id: ULID(2), parentId: ULID(1) },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [], id: ULID(3), parentId: ULID(2) },
+      { type: "branch_switched", to: ULID(2), id: ULID(4), parentId: ULID(3) },
+      { type: "user_message", text: "sibling", id: ULID(5), parentId: ULID(2) },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [], id: ULID(6), parentId: ULID(5) },
+      { type: "tree_bookmarked", to: ULID(5), name: "sibling-mark", id: ULID(7), parentId: ULID(6) },
+      { type: "branch_switched", to: ULID(3), id: ULID(8), parentId: ULID(6) },
+      { type: "compaction", summary: "path so far", upToId: `line:2`, id: ULID(9), parentId: ULID(3) },
+      { type: "user_message", text: "turn three", id: ULID(10), parentId: ULID(3) },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [], id: ULID(11), parentId: ULID(10) },
+    ];
+    for (const e of appends) store.append(e);
+    return store;
+  }
+
+  test("default fork() keeps today's full-tree behavior", () => {
+    const home = tempHome();
+    const store = branchyStore(home, mkdtempSync(join(tmpdir(), "moh-proj-")));
+    const originalBytes = readFileSync(store.file, "utf8");
+    const fork = store.fork();
+    expect(readFileSync(fork.file, "utf8").startsWith(originalBytes)).toBe(true);
+    expect(fork.load()).toHaveLength(12); // 11 + session_resumed
+  });
+
+  test('fork("branch") copies only the active root→head path as a degenerate linear tree', () => {
+    const home = tempHome();
+    const store = branchyStore(home, mkdtempSync(join(tmpdir(), "moh-proj-")));
+    const originalBytes = readFileSync(store.file, "utf8");
+    const fork = store.fork("branch");
+    // The original is untouched.
+    expect(readFileSync(store.file, "utf8")).toBe(originalBytes);
+    const events = fork.load();
+    expect(events.map((e) => e.type)).toEqual([
+      "session_start",
+      "user_message",
+      "done",
+      "compaction",
+      "user_message",
+      "done",
+      "session_resumed",
+    ]);
+    // Sibling branch and its bookmark are gone; no source-tree switch markers.
+    expect(events.some((e) => e.type === "branch_switched")).toBe(false);
+    expect(JSON.stringify(events)).not.toContain("sibling");
+    // Parent chains into the source topology are dropped: the copy is a
+    // valid degenerate linear tree.
+    for (const e of events.slice(0, -1)) expect(e.parentId).toBeUndefined();
+    // The projected log replays as one certified path (its own activePath).
+    expect(fork.load()[events.length - 1]!.parentId).toBeDefined();
+    // Compaction line pointer remapped to the surviving id (line refs would
+    // shift in the copy).
+    const marker = events.find((e) => e.type === "compaction") as Extract<AgentEvent, { type: "compaction" }>;
+    expect(marker.upToId).toBe(ULID(2));
+  });
+
+  test('fork("branch") on a purely legacy linear log copies the log unchanged', () => {
+    const home = tempHome();
+    const store = SessionStore.create(mkdtempSync(join(tmpdir(), "moh-proj-")), home);
+    // A purely legacy tail: identity-less lines, written directly.
+    const lines = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abc" },
+      { type: "user_message", text: "hello" },
+      { type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] },
+    ];
+    writeFileSync(store.file, lines.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "w", mode: 0o600 });
+    const originalBytes = readFileSync(store.file, "utf8");
+    const fork = store.fork("branch");
+    expect(readFileSync(fork.file, "utf8").startsWith(originalBytes)).toBe(true);
+  });
+
+  test('fork("branch") of a session with a dangling compaction line pointer drops the pointer visibly, never mis-remaps', () => {
+    const home = tempHome();
+    const store = SessionStore.create(mkdtempSync(join(tmpdir(), "moh-proj-")), home);
+    store.append(START);
+    store.append({ type: "user_message", text: "only turn", id: ULID(2), parentId: ULID(1) });
+    store.append({ type: "compaction", summary: "gone", upToId: "line:99", id: ULID(3), parentId: ULID(2) });
+    const fork = store.fork("branch");
+    const marker = fork.load().find((e) => e.type === "compaction") as Extract<AgentEvent, { type: "compaction" }>;
+    // `line:99` does not exist in the source: keeping it would silently
+    // resolve to a different position in the short copy.
+    expect(marker.upToId).toBeUndefined();
+  });
+});

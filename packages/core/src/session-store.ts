@@ -20,7 +20,7 @@ import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 import { renderMentionAttachment } from "./mentions";
 import { isUlid, newUlid } from "./session/ulid";
-import { activePath } from "./session/event-log";
+import { activePath, branchProjection } from "./session/event-log";
 
 /**
  * #575 (format decision 8): a read-only bridge value referencing a
@@ -296,11 +296,25 @@ export class SessionStore {
 
   /**
    * Forks this session: a new file in the same directory inheriting the
-   * full history. The original file is left untouched.
+   * history. The original file is left untouched. Scope (#768):
+   * `"tree"` (default) copies the full history byte-identical — every
+   * branch; `"branch"` copies only the active root→head path
+   * (`branchProjection`), rewritten as a valid degenerate linear tree —
+   * the "extract this branch into its own session" move.
    */
-  fork(): SessionStore {
+  fork(scope: "tree" | "branch" = "tree"): SessionStore {
     const target = join(dirname(this.#file), `${newSessionId()}.jsonl`);
-    copyFileSync(this.#file, target);
+    if (scope === "branch") {
+      writeFileSync(
+        target,
+        branchProjection(this.load())
+          .map((e) => JSON.stringify(e) + "\n")
+          .join(""),
+        { flag: "wx", mode: 0o600 },
+      );
+    } else {
+      copyFileSync(this.#file, target);
+    }
     // copyFile preserves the source mode, which may be a legacy session log.
     // This target is freshly created, so tightening it does not alter a
     // pre-existing user-owned path.
