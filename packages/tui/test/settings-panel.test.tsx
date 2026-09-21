@@ -212,9 +212,15 @@ describe("settings panel (issue #33)", () => {
     await sleep(30);
     await down(i, 2); // openai
     i.stdin.write("\r");
-    await sleep(30);
+    await waitForFrame(
+      () => stripAnsi(i.lastFrame() ?? ""),
+      "openai", // the model level: the catalog list is fetched live (#129)
+    );
     i.stdin.write("mini");
-    await sleep(30);
+    await waitForFrame(
+      () => stripAnsi(i.lastFrame() ?? ""),
+      "gpt-5.4-mini",
+    );
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("gpt-5.4-mini");
     expect(frame).not.toContain("gpt-5.5");
