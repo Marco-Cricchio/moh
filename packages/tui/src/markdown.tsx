@@ -6,7 +6,8 @@ import { highlight as cliHighlight, supportsLanguage } from "cli-highlight";
 import { useMemo } from "react";
 import { Box, Text } from "ink";
 import Table from "cli-table3";
-import type { Theme } from "./themes";
+import type { PaintableTheme } from "./themes";
+import { fgTruecolor } from "./color";
 
 /** One styled run of a rendered markdown row. */
 export interface StyledSegment {
@@ -87,9 +88,10 @@ export function closeOpenFences(text: string): string {
   return open ? `${text}\n${open.char.repeat(open.length)}` : text;
 }
 
-const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(";");
-
-const fg = (hex: string) => `\x1b[38;2;${hexToRgb(hex)}m`;
+/** #880: the color-opening escape comes from the seam, so a `NO_COLOR` run
+ * emits none — the rest of each style (bold, italic, the reset) is an
+ * attribute and stays. */
+const fg = fgTruecolor;
 
 /** #504 follow-up: cli-highlight's bundled theme emits fixed ANSI-16 colors
  * (blue keywords #000080, red strings #800000) that measure 1.0–1.6:1 on
@@ -98,8 +100,8 @@ const fg = (hex: string) => `\x1b[38;2;${hexToRgb(hex)}m`;
  * palette instead, as plain (text) => ANSI string functions (the exact
  * interface cli-highlight applies per token); every mapped color must clear
  * 3:1 on the code tint (audited by markdown-contrast.test.ts). */
-export function highlightThemeFor(theme: Theme): Record<string, (text: string) => string> {
-  const c = (hex: string) => (text: string) => `${fg(hex)}${text}\x1b[39m`;
+export function highlightThemeFor(theme: PaintableTheme): Record<string, (text: string) => string> {
+  const c = (hex: string | undefined) => (text: string) => `${fg(hex)}${text}\x1b[39m`;
   return {
     keyword: c(theme.accent),
     literal: c(theme.accent),
@@ -222,14 +224,15 @@ export function adaptiveTableWidths(total: number, columns: readonly number[]): 
   });
 }
 
-export function createMarkdownRenderer(theme: Theme, width: number): Marked {
+export function createMarkdownRenderer(theme: PaintableTheme, width: number): Marked {
   const marked = new Marked(
     { gfm: true },
     markedTerminal({
       // marked-terminal styles through chalk, which disables itself when
-      // stdout is not a TTY (or NO_COLOR is set) — under the TUI the whole
+      // stdout is not a TTY (the unit-test path) — under the TUI the whole
       // reply rendered flat, with no theme colors in any theme (#205).
-      // Explicit ANSI strings keyed to the theme instead.
+      // Explicit ANSI strings keyed to the theme instead; the color-opening
+      // escape comes from the seam, so a NO_COLOR run emits none (#880).
       code: (code: string) => `${fg(theme.accent)}${code}\x1b[39m`,
       firstHeading: (t: string) => `${fg(theme.accent)}\x1b[1m${t}\x1b[22m\x1b[39m`,
       heading: (t: string) => `${fg(theme.accent)}\x1b[1m${t}\x1b[22m\x1b[39m`,

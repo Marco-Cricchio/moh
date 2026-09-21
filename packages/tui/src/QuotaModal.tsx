@@ -3,6 +3,7 @@ import { Text, useInput } from "ink";
 import { getQuota, aggregateLocalUsage, PRICING_SNAPSHOT, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import Table from "cli-table3";
+import { fgAnsi256 } from "./color";
 import { useTheme } from "./themes";
 import { Dialog, Dim, formatCount } from "./ui";
 import { SPINNER_FRAMES } from "./icons";
@@ -275,24 +276,17 @@ function windowFraction(w: { percent?: number; used?: number; limit?: number }):
   return undefined;
 }
 
-function fractionColor(fraction: number, theme: { ok: string; warn: string; err: string }): string {
+/** #880: table cells are plain strings, so their color comes from the seam
+ * (ANSI-256, the approximation cli-table3 can carry) and is `""` — no
+ * color — when the terminal must not receive codes. */
+const fg = fgAnsi256;
+
+function fractionColor(fraction: number, theme: { ok?: string; warn?: string; err?: string }): string | undefined {
   return fraction > 0.8 ? theme.err : fraction > 0.6 ? theme.warn : theme.ok;
 }
 
-function fg(color: string): string {
-  return `\x1b[38;5;${ansi256(color)}m`;
-}
 
-/** Best-effort hex → ANSI-256 for embedding color inside table cells
- * (cli-table3 builds plain strings; ink's Text can't style cell content
- * individually). Unrecognized values fall back to the default fg. */
-function ansi256(hex: string): number {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return 39;
-  const n = parseInt(m[1]!, 16);
-  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
-  return 16 + 36 * Math.round((r / 255) * 5) + 6 * Math.round((g / 255) * 5) + Math.round((b / 255) * 5);
-}
+
 
 function formatUsd(usd: number): string {
   return `$${usd.toFixed(usd < 0.01 ? 4 : 2)}`;

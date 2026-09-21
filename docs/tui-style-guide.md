@@ -96,3 +96,15 @@ Status and chip rows must fit from 35 through 140 columns without wrapping. Tran
 The curated catalog is exactly: Tokyo Night, Catppuccin Mocha, Gruvbox Material, Green Phosphor, Amber Phosphor P3, Neon Noir, Lava, and Candy Pop.
 
 Components use semantic tokens only: `fg`, `accent`, `dim`, `ok`, `warn`, `err`, `purple`, `border`, `bg`. The xhigh separator is the deliberate exception: its fixed seven-hue rainbow is theme-independent. `err` is true red and distinct from the warning semantic; it is used for failures, errors, diff removals and negative edit counts.
+
+### Color capability (`NO_COLOR`)
+
+`NO_COLOR` (no-color.org) is honoured, and it is about **color only** — never glyphs, never emphasis:
+
+- present and non-empty ⇒ no color code reaches the terminal. It says nothing about the glyph set (that is the separate `Icons` toggle): a color-free terminal keeps `▮ ▯ ▫` and its Unicode chrome.
+- Bold, dim and italic are attributes, not colors: they stay. The liveness scanner therefore keeps its bold light and dim trail, and the bar keeps its `⏱`/`⚠` emphasis.
+- **What a color-free session loses is the palette's hierarchy**: a `color={theme.dim}` site paints at normal intensity (there is no per-token attribute to substitute), and block tints disappear — a tint *is* color. What is left to read by is structure, glyphs and the attributes a component asks for explicitly, which is why the scanner carries its intensity in the glyph (ADR-0042).
+
+The rule has exactly one seam (`packages/tui/src/color.ts`): `colorEnabled()` for the escapes written by hand where a string is built outside Ink (the markdown renderer, the quota modal's table cells, the preview box), and the palette projection `paintable()`/`useTheme()` for everything painted through Ink — a projected palette hands Ink `undefined` for every color token, and Ink emits nothing for a color it isn't given. `Theme` stays the honest palette (a color per role) for the math: contrast, hex parsing and the theme studio all run on real values.
+
+The theme studio is the one surface that paints a palette rather than the session, and it builds its own theme instead of reading the context: it projects for its previews, drops its swatches and tints, and keeps the draft intact — what it hands to `onSave` is always real hexes, whatever the terminal does with them.
