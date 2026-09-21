@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-preview";
 import { Box, Static, Text, useInput, useStdout } from "ink";
-import type { AgentEvent, AgentSession, ExtensionStatus, ThinkingLevel } from "@moh/core";
+import type { AgentEvent, AgentSession, ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
@@ -98,8 +98,11 @@ export interface ChatProps {
   updateMessage?: string;
   /** Git branch label override (tests); default: read from the session cwd. */
   branch?: string | null;
-  /** #377: yolo session (launch-only) — persistent ⚠ YOLO status indicator. */
-  yolo?: boolean;
+  /** #876: the permission mode to show in the bar — the tail chip for all
+   * three values plus the ⚠ YOLO banner. Override for tests; the default is
+   * the session's own live mode (the launch flag seeds it, shift+tab moves
+   * it), so the bar never mirrors it in state of its own. */
+  permissionMode?: SessionMode;
   submitSignal?: number;
   /** Unsent external composer draft. */
   prefill?: string;
@@ -171,7 +174,7 @@ export function Chat({
   panelSubagent = null,
   onToggleSubagentPanel,
   branch,
-  yolo = false,
+  permissionMode = session.sessionMode,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
@@ -1155,7 +1158,7 @@ export function Chat({
         updateMessage={updateMessage}
         branch={branch ?? gitBranch}
         cwd={cwd}
-        yolo={yolo}
+        permissionMode={permissionMode}
         focusedChip={focusedChip}
         focusedSubagent={focusedSubagent}
         subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({

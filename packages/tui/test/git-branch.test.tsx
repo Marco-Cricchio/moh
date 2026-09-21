@@ -133,6 +133,81 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
     expect(frame).not.toContain("▣");
   });
 
+  test("the tail closes on the last printable cell with no left segment", () => {
+    // #876: with one child, `space-between` resolves to flex-start and the
+    // tail rendered flush left; the justification follows the left slot, so
+    // the offset — not just the suffix — is what must hold.
+    for (const width of [35, 45, 69, 70, 90, 109, 110, 120]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop" });
+      const row2 = frame.split("\n").find((line) => line.includes("▣"))!;
+      const tail = row2.slice(row2.indexOf("▣"));
+      expect(row2.length).toBe(width - 2);
+      expect(row2.indexOf("▣")).toBe(width - 2 - tail.length);
+    }
+  });
+
+  test("the tail is right-aligned with a left segment, with and without a notice", () => {
+    for (const width of [35, 70, 120]) {
+      for (const extra of [
+        { permissionMode: "yolo" as const },
+        { updateMessage: "moh 0.8.0 available" },
+        { permissionMode: "yolo" as const, updateMessage: "moh 0.8.0 available" },
+      ]) {
+        const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop", ...extra });
+        const row2 = frame.split("\n").find((line) => line.includes("▣"))!;
+        const tail = row2.slice(row2.indexOf("▣"));
+        expect(row2.length).toBe(width - 2);
+        expect(row2.indexOf("▣")).toBe(width - 2 - tail.length);
+      }
+    }
+  });
+
+  test("every permission mode renders its chip after the projection chip (#876)", () => {
+    const chips = { normal: "◌ Normal", "auto-accept": "◐ Auto-Accept", yolo: "⚠ YOLO" } as const;
+    for (const [permissionMode, chip] of Object.entries(chips)) {
+      const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", permissionMode });
+      const row = frame.split("\n").find((line) => line.includes("⎇ develop"))!;
+      expect(row).toContain(chip);
+      expect(row.indexOf("◉ dev")).toBeLessThan(row.lastIndexOf(chip));
+    }
+  });
+
+  test("compact terminals keep the permission glyph and drop the word (#876)", () => {
+    const glyphs = { normal: "◌", "auto-accept": "◐", yolo: "⚠" } as const;
+    for (const [permissionMode, glyph] of Object.entries(glyphs)) {
+      const frame = renderBar({ width: 60, mode: "dev", cwd: "/x", branch: "develop", permissionMode });
+      const row = frame.split("\n").find((line) => line.includes("⎇ develop"))!;
+      expect(row.endsWith(`◉ dev ${glyph}`)).toBe(true);
+      expect(row).not.toContain("Normal");
+      expect(row).not.toContain("Auto-Accept");
+    }
+  });
+
+  test("no permission-mode chip when the client has no mode to show (#876)", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop" });
+    for (const copy of ["Normal", "Auto-Accept", "YOLO"]) expect(frame).not.toContain(copy);
+  });
+
+  test("the permission-mode chip is never dropped, and no row wraps, 35–140 (#876)", () => {
+    const glyphs = { normal: "◌", "auto-accept": "◐", yolo: "⚠" } as const;
+    for (const width of [35, 45, 69, 70, 90, 109, 110, 120]) {
+      for (const [permissionMode, glyph] of Object.entries(glyphs)) {
+        const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop", permissionMode, updateMessage: "moh 0.8.0 available" });
+        const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+        expect(row).toContain(glyph);
+        expect(row).toContain("◉ dev");
+        for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+      }
+    }
+  });
+
+  test("the cwd keeps its head and tail: the chip takes its space, never the cwd's shape", () => {
+    const frame = renderBar({ width: 90, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "auto-accept" });
+    const row = frame.split("\n").find((line) => line.includes("⎇ develop"))!;
+    expect(row).toMatch(/▣ \S+…\S+/);
+    expect(row).toContain("◐ Auto-Accept");
+  });
+
   test("middleElide: no-op within budget, exact split at the boundary", () => {
     expect(middleElide("/short/path", 20)).toBe("/short/path");
     expect(middleElide("/a/b/c/d/e/f/g/h", 9)).toBe("/a/b…/g/h");
@@ -187,18 +262,21 @@ describe("yolo indicator (#377)", () => {
   };
 
   test("⚠ YOLO leads row 2 when the session is yolo; absent otherwise", () => {
-    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true });
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", permissionMode: "yolo" });
     const row2 = frame.split("\n").find((l) => l.includes("▣"))!;
-    expect(row2).toContain("⚠ YOLO — unrestricted tools");
+    // #876: the banner is the fixed `⚠ YOLO` alarm (never elided away); the
+    // mode itself is carried by the tail chip on the right.
+    expect(row2.trimStart().startsWith("⚠ YOLO")).toBe(true);
     expect(row2.indexOf("⚠")).toBeLessThan(row2.indexOf("▣"));
+    expect(row2.trimEnd().endsWith("◉ dev ⚠ YOLO")).toBe(true);
     const plain = renderBar({ mode: "dev", cwd: "/x", branch: "develop" });
     expect(plain).not.toContain("YOLO");
   });
 
   test("yolo indicator leads row 2 with the update notice beside it; the tail is never displaced", () => {
-    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true, updateMessage: "moh update available" });
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", permissionMode: "yolo", updateMessage: "moh update available" });
     const row2 = frame.split("\n").find((l) => l.includes("⎇ develop"))!;
-    expect(row2).toContain("⚠ YOLO");
+    expect(row2.trimStart().startsWith("⚠ YOLO")).toBe(true);
     expect(row2).toContain("◉ dev");
     // #391 follow-up: a yolo session still sees the update notice (#328),
     // elided to the remaining budget — never dropped entirely.
@@ -207,10 +285,10 @@ describe("yolo indicator (#377)", () => {
   });
 
   test("short form at narrow widths; rows stay within the viewport", () => {
-    const frame = renderBar({ width: 46, mode: "dev", cwd: "/long/path/to/project", branch: "develop", yolo: true });
+    const frame = renderBar({ width: 46, mode: "dev", cwd: "/long/path/to/project", branch: "develop", permissionMode: "yolo" });
     const row2 = frame.split("\n").find((l) => l.includes("⎇"))!;
-    // the indicator never drops below the bare ⚠ marker.
-    expect(row2).toContain("⚠");
+    // the banner never elides below its fixed shape, banner and chip alike.
+    expect(row2).toContain("⚠ YOLO");
     expect(row2).toContain("◉ dev");
     for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(45);
   });
