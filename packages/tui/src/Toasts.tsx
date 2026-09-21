@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
@@ -24,15 +24,39 @@ export interface ToastsApi {
   push: (text: string, kind?: Toast["kind"], position?: Toast["position"]) => void;
 }
 
-export function useToasts(): ToastsApi {
+/**
+ * #874: while a gate or modal owns the input, an expiring toast must not
+ * re-render — with the volatile region at viewport height Ink turns any
+ * frame into a whole-screen clear+reprint. Expiries are parked in a
+ * `pending` set and released when `blocked` clears, so the deferral costs
+ * no timer of its own (the old self-rescheduling poll ran forever if a
+ * gate never closed).
+ */
+export function useToasts(blocked = false): ToastsApi {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
+  const expired = useRef(new Set<number>());
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
 
   const push = useCallback((text: string, kind: Toast["kind"] = "info", position: Toast["position"] = "chat") => {
     const id = nextId.current++;
     setToasts((ts) => [...ts.slice(-2), { id, text, kind, position }]);
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), TOAST_MS);
+    setTimeout(() => {
+      if (blockedRef.current) {
+        expired.current.add(id);
+        return;
+      }
+      setToasts((ts) => ts.filter((t) => t.id !== id));
+    }, TOAST_MS);
   }, []);
+
+  useEffect(() => {
+    if (blocked || expired.current.size === 0) return;
+    const due = expired.current;
+    expired.current = new Set();
+    setToasts((ts) => ts.filter((t) => !due.has(t.id)));
+  }, [blocked]);
 
   return { toasts, push };
 }

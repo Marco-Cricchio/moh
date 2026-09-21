@@ -337,7 +337,8 @@ export function App({
     confirmGate.onCancelled((text) => setComposerPrefill(text));
   }, [confirmGate]);
 
-  const { toasts, push } = useToasts();
+  const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
+  const { toasts, push } = useToasts(blocked);
   const [memoryFresh, setMemoryFresh] = useState(false);
   /** #619: live MPM projection status for the footer chip — polled every
    * 2s while the session is open; null when MPM never activated (the chip
@@ -432,8 +433,6 @@ export function App({
     if (resolved.error) push(resolved.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
-
   // Memory (#38): discreet indicator only — a brief toast, never chat noise.
   useEffect(() => {
     if (!session) return;
@@ -493,18 +492,21 @@ export function App({
 
   // #619: MPM status chip — a cheap 2s poll of the session seam. Fail-silent
   // and cheap (no IO); never appends transcript events or status noise.
+  // #874: identical values bail out of the state update (like useGitBranch) —
+  // a poll tick must not become a re-render frame: when the volatile region
+  // fills the viewport, every frame is a whole-screen clear+reprint.
   useEffect(() => {
     if (!session) return;
     const read = () => {
       try {
-        const snap = session.mpmSnapshot();
-        setMpmStatus(snap?.status ?? null);
+        const next = session.mpmSnapshot()?.status ?? null;
+        setMpmStatus((prev) => (prev === next ? prev : next));
       } catch {
-        setMpmStatus(null);
+        setMpmStatus((prev) => (prev === null ? prev : null));
       }
     };
     read();
-    const timer = setInterval(read, 2_000);
+    const timer = setInterval(() => read(), 2_000);
     return () => clearInterval(timer);
   }, [session]);
 
