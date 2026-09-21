@@ -87,11 +87,13 @@ describe("the Jev chip in row 1 (#876)", () => {
   });
 
   test("compact keeps the glyph and drops the word", () => {
-    for (const [status, glyph] of [["active", "◈"], ["off", "◈"], ["inert", "◈"]] as const) {
+    for (const status of ["active", "off", "inert"] as const) {
       const frame = barFrame({ width: 60, jevStatus: status });
       const line = frame.split("\n").find((l) => l.includes("◈"))!;
-      expect(line).toContain(glyph);
+      expect(line).toContain("◈");
+      // neither the extension's name nor the state's own word survives.
       expect(line).not.toContain("jev");
+      expect(line).not.toContain(status);
     }
   });
 

@@ -247,7 +247,10 @@ function StatusRow(props: StatusProps) {
     modeChip?.text ?? "",
   ].filter((text) => text !== "");
   const fixedTailWidth = fixedTail.reduce((sum, text) => sum + text.length + 1, 0);
-  const cwdBudget = Math.min(cls === "compact" ? 18 : cls === "wide" ? 44 : 30, Math.max(8, tailBudget - fixedTailWidth - 2));
+  // The floor keeps the cwd's elision marker alive ("▣ he…ail"); when the
+  // residual is under it the longest remaining segment is the branch, so the
+  // overflow costs the branch characters, never the cwd's shape.
+  const cwdBudget = Math.min(cls === "compact" ? 18 : cls === "wide" ? 44 : 30, Math.max(4, tailBudget - fixedTailWidth - 2));
   const row2 = fitStatusSegments([
     { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
     ...fixedTail.map((text) => ({ text })),

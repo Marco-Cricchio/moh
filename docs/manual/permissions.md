@@ -42,10 +42,11 @@ tools).
 
 `shift+tab` in chat rotates `normal → auto-accept → yolo → normal`,
 effective from the very next tool decision — including entering and
-leaving yolo mid-session. Each change is announced in the transcript
-(the ⚠ YOLO banner appears and disappears with the mode) and recorded
-in the session log, so resume and replay show which mode was in force
-when each tool call was decided. The rotation is session-scoped and
+leaving yolo mid-session. The footer names the mode in force for every
+value — `◌ Normal`, `◐ Auto-Accept`, `⚠ YOLO`, the glyph alone below 70
+columns — and in yolo the `⚠ YOLO` banner appears beside it. Each change
+is announced in the transcript and recorded in the session log, so resume
+and replay show which mode was in force when each tool call was decided. The rotation is session-scoped and
 never persisted: a new session starts from its configuration again,
 and `--yolo` on the CLI remains the launch-time opt-in.
 

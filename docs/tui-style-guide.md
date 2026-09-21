@@ -69,7 +69,7 @@ Below 70 columns the chip keeps its glyph (`◌` / `◐` / `⚠`) and drops the 
 
 In `yolo` the left slot of the row still leads with the fixed banner `⚠ YOLO` — never elided below that shape — and the update notice follows it (`⚠ YOLO · notice`), eliding as before. The banner is the alarm, the chip is the mode.
 
-The Jev chip (#876) closes row 1's left cluster — last, after the memory, MPM and extension-status chips. The seven use cases are independent, so the chip can only summarize and `/jev` keeps the detail:
+The Jev chip (#876) sits in row 1's left cluster right after the memory, MPM and extension-status chips — the two alarm chips (compaction failure, external growth) still close the cluster, so an alarm never ends up inward of a status. The seven use cases are independent, so the chip can only summarize and `/jev` keeps the detail:
 
 - `◈ jev active` — at least one use case judges this session;
 - `◈ jev off` — none does, and at least one is off or paused: a choice, not a defect;

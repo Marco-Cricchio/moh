@@ -136,13 +136,17 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
   test("the tail closes on the last printable cell with no left segment", () => {
     // #876: with one child, `space-between` resolves to flex-start and the
     // tail rendered flush left; the justification follows the left slot, so
-    // the offset — not just the suffix — is what must hold.
-    for (const width of [35, 45, 69, 70, 90, 109, 110, 120]) {
+    // the offset — not just the suffix — is what must hold. Up to 120
+    // columns the host emits the whole row, so the offset is exact; at 140
+    // ink clamps the frame to the host width and only the tail's own end is
+    // observable ("flush right", never the left margin).
+    for (const width of [35, 45, 69, 70, 90, 109, 110, 120, 140]) {
       const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop" });
       const row2 = frame.split("\n").find((line) => line.includes("▣"))!;
       const tail = row2.slice(row2.indexOf("▣"));
-      expect(row2.length).toBe(width - 2);
-      expect(row2.indexOf("▣")).toBe(width - 2 - tail.length);
+      expect(row2.indexOf("▣")).toBe(row2.length - tail.length);
+      expect(row2.indexOf("▣")).toBeGreaterThan(1);
+      if (width <= 120) expect(row2.length).toBe(width - 2);
     }
   });
 
@@ -156,8 +160,8 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
         const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop", ...extra });
         const row2 = frame.split("\n").find((line) => line.includes("▣"))!;
         const tail = row2.slice(row2.indexOf("▣"));
+        expect(row2.indexOf("▣")).toBe(row2.length - tail.length);
         expect(row2.length).toBe(width - 2);
-        expect(row2.indexOf("▣")).toBe(width - 2 - tail.length);
       }
     }
   });
@@ -190,7 +194,7 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
 
   test("the permission-mode chip is never dropped, and no row wraps, 35–140 (#876)", () => {
     const glyphs = { normal: "◌", "auto-accept": "◐", yolo: "⚠" } as const;
-    for (const width of [35, 45, 69, 70, 90, 109, 110, 120]) {
+    for (const width of [35, 45, 69, 70, 90, 109, 110, 120, 140]) {
       for (const [permissionMode, glyph] of Object.entries(glyphs)) {
         const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop", permissionMode, updateMessage: "moh 0.8.0 available" });
         const row = frame.split("\n").find((line) => line.includes("⎇"))!;
@@ -202,10 +206,26 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
   });
 
   test("the cwd keeps its head and tail: the chip takes its space, never the cwd's shape", () => {
-    const frame = renderBar({ width: 90, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "auto-accept" });
-    const row = frame.split("\n").find((line) => line.includes("⎇ develop"))!;
-    expect(row).toMatch(/▣ \S+…\S+/);
-    expect(row).toContain("◐ Auto-Accept");
+    // The squeezed widths are the point: the chip reserves its space first, so
+    // the cwd shrinks and keeps its elision marker instead of being cut from
+    // the end (which would take the project directory with it).
+    for (const width of [35, 45, 69, 90, 120]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "auto-accept" });
+      const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+      expect(row).toMatch(/▣ \S+…\S+/);
+      expect(row).toContain("◐");
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+    }
+    // The tightest combination the row has: the yolo banner and the chip both
+    // claim space at the narrowest class. The cwd still keeps its shape — the
+    // branch is what gives way (style guide §4).
+    for (const width of [35, 45]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "yolo" });
+      const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+      expect(row).toMatch(/▣ \S+…\S+/);
+      expect(row).toContain("⚠ YOLO");
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+    }
   });
 
   test("middleElide: no-op within budget, exact split at the boundary", () => {

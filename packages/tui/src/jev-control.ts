@@ -89,8 +89,9 @@ export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStat
     .filter((status): status is JevUseCaseStatus => status !== undefined);
   if (statuses.length === 0) return null;
   if (statuses.includes("on")) return "active";
-  if (statuses.includes("off") || statuses.includes("paused")) return "off";
-  return statuses.includes("inert") ? "inert" : null;
+  // `off` is the residue (it covers `paused` too): the only way past it is
+  // that nothing is judging and nothing was switched off.
+  return statuses.includes("inert") && !statuses.includes("off") && !statuses.includes("paused") ? "inert" : "off";
 }
 
 /** The one call a poller needs: read the extension's state and summarize it.

@@ -6,6 +6,15 @@ SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
 ## [Unreleased]
+### Added
+
+- **Bottom-bar status rows** (#876): row 2's tail is right-aligned in every
+  combination — it rendered flush left whenever no yolo banner or update
+  notice was up — every permission mode now carries a chip (`◌ Normal`,
+  `◐ Auto-Accept`, `⚠ YOLO`; glyph only below 70 columns) beside the
+  shortened `⚠ YOLO` banner, and row 1 gains a `◈ jev` chip summarizing the
+  extension's seven use cases (`active` / `off` / `inert`), silent when Jev
+  is not registered or has not answered.
 
 ## [0.42.0] - 2026-09-20
 ### Added
