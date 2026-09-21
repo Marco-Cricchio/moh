@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { deletePlacement, emitImage, type ImagePreviewMode } from "./image-preview";
 import { Box, Static, Text, useInput, useStdout } from "ink";
-import type { AgentEvent, AgentSession, ExtensionStatus, ThinkingLevel } from "@moh/core";
+import type { AgentEvent, AgentSession, ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import { useSessionState } from "./session-bridge";
 import { createMarkdownRenderer, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { useToolProgress } from "./tool-progress";
-import { SPINNER_FRAMES } from "./icons";
+import { scannerFrame } from "./scanner";
 import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
@@ -15,6 +15,7 @@ import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
+import type { JevStatusSummary } from "./jev-control";
 import {
   trackSubagents,
   useSubagentTails,
@@ -72,6 +73,9 @@ export interface ChatProps {
   mpmStatus?: "ready" | "updating" | "unavailable" | null;
   /** ADR-0032 (#784): statuses extensions publish right now (empty = no chip). */
   extensionStatuses?: ExtensionStatus[];
+  /** #876: the Jev chip's summary (null = no chip: the extension is not
+   * registered, or has not answered yet). */
+  jevStatus?: JevStatusSummary | null;
   /** #466/ADR-0022: sticky compaction-failure indicator. */
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
@@ -98,8 +102,11 @@ export interface ChatProps {
   updateMessage?: string;
   /** Git branch label override (tests); default: read from the session cwd. */
   branch?: string | null;
-  /** #377: yolo session (launch-only) — persistent ⚠ YOLO status indicator. */
-  yolo?: boolean;
+  /** #876: the permission mode to show in the bar — the tail chip for all
+   * three values plus the ⚠ YOLO banner. Override for tests; the default is
+   * the session's own live mode (the launch flag seeds it, shift+tab moves
+   * it), so the bar never mirrors it in state of its own. */
+  permissionMode?: SessionMode;
   submitSignal?: number;
   /** Unsent external composer draft. */
   prefill?: string;
@@ -151,6 +158,7 @@ export function Chat({
   memoryFresh = false,
   mpmStatus = null,
   extensionStatuses = EMPTY_EXTENSION_STATUSES,
+  jevStatus = null,
   compactionFailed = false,
   growthWarning = null,
   onKeepMyBranch,
@@ -171,7 +179,7 @@ export function Chat({
   panelSubagent = null,
   onToggleSubagentPanel,
   branch,
-  yolo = false,
+  permissionMode = session.sessionMode,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
@@ -1019,7 +1027,9 @@ export function Chat({
     frozenRef.current = null;
     staticItems = emittedRef.current;
   }
-  const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
+  // #876/ADR-0042: the liveness beat is the scanner sweep, one cell per tick
+  // (the tick above is the 90 ms clock, gated on the active turn).
+  const spinner = scannerFrame(tick);
 
   // Vision note 4 (#490): place-once image emission. After the Static
   // paint of a settled user row that cites an image (the block carries
@@ -1166,6 +1176,7 @@ export function Chat({
         memoryFresh={memoryFresh}
         mpmStatus={mpmStatus}
         extensionStatuses={extensionStatuses}
+        jevStatus={jevStatus}
         compactionFailed={compactionFailed}
         growthWarning={growthWarning}
         onKeepMyBranch={onKeepMyBranch}
@@ -1174,7 +1185,7 @@ export function Chat({
         updateMessage={updateMessage}
         branch={branch ?? gitBranch}
         cwd={cwd}
-        yolo={yolo}
+        permissionMode={permissionMode}
         focusedChip={focusedChip}
         focusedSubagent={focusedSubagent}
         subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({

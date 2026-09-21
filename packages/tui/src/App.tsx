@@ -65,7 +65,7 @@ import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
-import { JEV_EXTENSION_NAME, setJevUseCase } from "./jev-control";
+import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { TreePanel } from "./TreePanel";
@@ -348,6 +348,11 @@ export function App({
   /** ADR-0032 (#784): statuses extensions publish right now, for the footer
    * chips. Ephemeral chrome, polled like the MPM status; empty = no chip. */
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatus[]>([]);
+  /** #876: what Jev is doing for this session, for the row-1 chip — the
+   * extension's own snapshot, summarized (null = no chip). Same cheap 2s
+   * poll: the snapshot is pulled, never pushed, and the outage text keeps
+   * the ADR-0032 status seam to itself. */
+  const [jevStatus, setJevStatus] = useState<JevStatusSummary | null>(null);
   /** #466/ADR-0022: sticky compaction-failure flag — set by
    * `compaction_failed`, cleared by a successful `compaction` marker. */
   const [compactionFailed, setCompactionFailed] = useState(false);
@@ -524,6 +529,32 @@ export function App({
         setExtensionStatuses((prev) => (sameStatuses(prev, next) ? prev : next));
       } catch {
         if (alive) setExtensionStatuses((prev) => (prev.length === 0 ? prev : []));
+      }
+    };
+    read();
+    const timer = setInterval(read, 2_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [session]);
+
+  // #876: the Jev chip — the same cheap, fail-silent 2s poll as the MPM and
+  // extension-status chips, off the extension's own state. A session swap
+  // clears it before the first read (the extension may not be registered at
+  // all: then there is simply no chip).
+  useEffect(() => {
+    if (!session) {
+      setJevStatus(null);
+      return;
+    }
+    let alive = true;
+    const read = () => {
+      try {
+        const next = readJevSummary((extension, name) => session.extensionState(extension, name));
+        if (alive) setJevStatus((prev) => (prev === next ? prev : next));
+      } catch {
+        if (alive) setJevStatus(null);
       }
     };
     read();
@@ -1100,8 +1131,9 @@ export function App({
       const order: SessionMode[] = ["normal", "auto-accept", "yolo"];
       const current = session.sessionMode;
       const next = order[(order.indexOf(current) + 1) % order.length]!;
+      // #876: no local mirror of the mode — the core's `session_mode` event
+      // re-renders every subscriber, and the bar reads `sessionMode` live.
       session.setSessionMode(next);
-      setYoloLive(next === "yolo");
       return push(`permission mode: ${next}${next === "yolo" ? " — unrestricted tools (shift+tab to leave)" : ""}`);
     }
     if (key.ctrl && input === "t") return cycleTheme();
@@ -1138,13 +1170,6 @@ export function App({
   });
 
   const showChat = session !== null;
-  // #849: the YOLO banner follows the session's live permission mode —
-  // the launch flag seeds it, an in-session shift+tab rotation moves it
-  // (set directly at the rotation site; a session swap re-syncs here).
-  const [yoloLive, setYoloLive] = useState(yolo ?? false);
-  useEffect(() => {
-    if (session) setYoloLive(session.sessionMode === "yolo");
-  }, [session]);
   // #426: the inline ask_user block is NOT an overlay — including `asking`
   // here drove the alternate-screen buffer flip (and the #330 deferred
   // repaint) while the block was open, freezing the screen under arrow
@@ -1180,12 +1205,12 @@ export function App({
       memoryFresh={memoryFresh}
       mpmStatus={mpmStatus}
       extensionStatuses={extensionStatuses}
+      jevStatus={jevStatus}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
       onKeepMyBranch={keepMyBranch}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
-      yolo={yoloLive}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}

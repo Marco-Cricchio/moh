@@ -39,7 +39,9 @@ The event log remains the source of truth. Projection may group adjacent deltas 
 
 **Vibe projection (#193).** The mode is a projection option, never a log filter. In vibe, usage/done metric blocks and non-essential chrome (session start, permission mode, skill invoked, model switched, memory updated, compaction, extension loaded, MCP started) do not render; tool activity collapses to one plain-language moh block ("read a file · src/a.ts", "ran a command") that keeps the run/ok state marker but shows no raw command line, argument dump, or output preview; failures always render as error blocks with their message. A mode switch cannot retro-edit native scrollback: each switch seals a new projection segment at the current boundary — printed blocks keep their grammar (same behavior as a theme switch), and later events follow the new one. Exception: the todo tool's box renders its full task list in both modes — the task list reads as a persistent panel, not a capped log.
 
-**Liveness (prototype alive-proto, variant C).** The volatile region stays visibly alive between stream events: running-block heads cycle animated glyph frames (`◔ ◑ ◕ ●`) on an independent ~120ms clock gated on the active turn (never on stream events, so the beat survives event gaps), and a running tool's partial output streams as a dim scrolling tail (last `TOOL_TAIL_CAP` = 9 lines) inside its volatile block via the ephemeral `tool_progress` live channel — never persisted; the settled block keeps its usual result cap, so scrollback determinism (#194) is untouched. No blinking cursor, no fake progress.
+**Liveness (prototype alive-proto, variant C; scanner per ADR-0042).** The volatile region stays visibly alive between stream events: running-block heads cycle animated glyph frames (`◔ ◑ ◕ ●`) on an independent ~120ms clock gated on the active turn (never on stream events, so the beat survives event gaps), and a running tool's partial output streams as a dim scrolling tail (last `TOOL_TAIL_CAP` = 9 lines) inside its volatile block via the ephemeral `tool_progress` live channel — never persisted; the settled block keeps its usual result cap, so scrollback determinism (#194) is untouched. No blinking cursor, no fake progress.
+
+**The bottom bar's liveness scanner (ADR-0042).** Row 1's left slot is a seven-cell scanner sweep while a turn is live: one lit segment walking left→right and back (ping-pong, one cell per tick, no wrap — a full round trip is ~1.1s on the existing ~90ms clock, gated on the active turn and on input not being blocked), two cells of decaying trail behind it, and the unlit track visible the whole time. The intensity lives in the glyph (`▮` light, `▯`/`▫` trail, `·` track; ASCII `# = - .` when icons are off), so the beat reads in a monochrome terminal; the bar adds `err` on the light and the trail and `dim` on the track. It encodes exactly one bit — the turn is live — and never where the turn is going: no fill, no monotonic advance, no progress. Compact terminals keep the strip and drop the phase word, as before. The tick still produces a plain string on the `spinner` prop (a caller passing the older braille frame renders it unchanged), and the transcript's block-head animation, the `moh update` progress line and the quota modal keep their own glyphs.
 
 ## 3. Input and thinking level
 
@@ -56,8 +58,26 @@ Thinking labels are `·`, `🌱`, `⚙️`, `🧠✨`, `🧠🔥`. VS16 emoji ma
 
 The status area is two logical rows (2A layout):
 
-- **Row 1 — session state**: left spinner + phase/progress while live, otherwise ready/done and memory freshness; right context bar, token count, turns, model + thinking level, workflow flag. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229).
-- **Row 2 — where you are**: cwd (`▣ <path>`), git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached), mode chip (`○ vibe`/`◉ dev`), in that order, right-aligned. The cwd is middle-elided to a width-class budget (18/30/44) so the head and — above all — the tail (the project directory) stay readable; the branch truncates only in rare overflow and the mode chip is never dropped.
+- **Row 1 — session state**: left the liveness scanner + phase/progress while live (ADR-0042), otherwise ready/done and memory freshness, then the chips the session publishes — memory freshness, the MPM map status, one per ADR-0032 extension status, and the Jev chip (below); right context bar, token count, turns, model + thinking level, workflow flag. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229).
+- **Row 2 — where you are**: cwd (`▣ <path>`), git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached), the projection chip (`○ vibe`/`◉ dev`) and the permission-mode chip, in that order, right-aligned. The cwd is middle-elided to a width-class budget (18/30/44) so the head and — above all — the tail (the project directory) stay readable; the branch truncates only in the rare overflow left over. The tail is right-aligned in every combination: its justification follows the left slot, so an empty left slot is simply empty.
+
+The permission-mode chip (#876) renders in the same tail position for all three values of `SessionMode` (ADR-0040: the mode is runtime-mutable — shift+tab rotates `normal → auto-accept → yolo → normal`), capitalized to stand apart from the rest of the bar, one semantic token each:
+
+- `◌ Normal` — `dim`;
+- `◐ Auto-Accept` — `warn`: it grants every prompt without asking;
+- `⚠ YOLO` — `err`, the true-red alarm.
+
+Below 70 columns the chip keeps its glyph (`◌` / `◐` / `⚠`) and drops the word — the row must stay a row. The glyphs stay distinguishable from the ones already in use (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). The permission-mode chip is never dropped: the fixed tail (branch + both chips) reserves its space first and the cwd absorbs the pressure, keeping its head and its elision marker.
+
+In `yolo` the left slot of the row still leads with the fixed banner `⚠ YOLO` — never elided below that shape — and the update notice follows it (`⚠ YOLO · notice`), eliding as before. The banner is the alarm, the chip is the mode.
+
+The Jev chip (#876) sits in row 1's left cluster right after the memory, MPM and extension-status chips — the two alarm chips (compaction failure, external growth) still close the cluster, so an alarm never ends up inward of a status. The seven use cases are independent, so the chip can only summarize and `/jev` keeps the detail:
+
+- `◈ jev active` — at least one use case judges this session;
+- `◈ jev off` — none does, and at least one is off or paused: a choice, not a defect;
+- `◈ jev inert` — none judges and none is off, every one structurally unable to act here (no pool, no roster, no project root).
+
+Below 70 columns the chip keeps its glyph alone (`◈`). There is no chip at all when the extension is not registered, or has not answered yet — the bar makes no claim it cannot read. It is read from the extension's own snapshot on the same cheap 2s poll as the MPM and extension-status chips; the outage text (`∅ jev offline`) keeps the ADR-0032 status seam to itself, one writer per seam.
 
 Context thresholds are `ok ≤ 60%`, `warn > 60%`, `err > 80%`. Optional segments drop before wrapping; if required content still exceeds the budget, the longest segment truncates. Status rows never wrap. Segments on the right-aligned row 2 are space-joined explicitly: ink's flex `gap` is unreliable on nested right-aligned rows (segments render glued).
 

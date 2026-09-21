@@ -29,22 +29,25 @@ describe("#849 shift+tab rotates the permission mode", () => {
 
     await waitForCondition(() => seen("vibe"), () => "chat never opened");
     expect(seen("⚠ YOLO")).toBe(false);
+    // #876: the mode is visible for every value, not only in yolo.
+    await waitForCondition(() => seen("◌ Normal"), () => "the normal chip never rendered");
 
     // shift+tab #1: normal → auto-accept. ANSI: shift+tab arrives as
     // ESC[Z (back-tab) on every terminal ink supports.
     i.stdin.write("\x1b[Z");
     await waitForCondition(() => seen("permission mode: auto-accept"), () => "auto-accept notice never appeared");
+    await waitForCondition(() => seen("◐ Auto-Accept"), () => "the auto-accept chip never rendered");
 
-    // shift+tab #2: auto-accept → yolo. The banner must appear.
+    // shift+tab #2: auto-accept → yolo. The banner and the chip must appear.
     i.stdin.write("\x1b[Z");
     await waitForCondition(() => seen("⚠ YOLO"), () => "yolo banner never appeared");
 
-    // shift+tab #3: yolo → normal. The banner must disappear.
+    // shift+tab #3: yolo → normal. Banner and chip must both follow back.
     i.stdin.write("\x1b[Z");
     await waitForCondition(
       () => {
         const f = frameOf(i)();
-        return !f.includes("⚠ YOLO");
+        return !f.includes("⚠ YOLO") && f.includes("◌ Normal");
       },
       () => "yolo banner never left",
     );

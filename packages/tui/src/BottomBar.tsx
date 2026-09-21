@@ -2,8 +2,10 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useTheme, type Theme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
-import { fitRow } from "./viewport";
-import type { ExtensionStatus, ThinkingLevel } from "@moh/core";
+import { fitRow, type WidthClass } from "./viewport";
+import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
+import type { JevStatusSummary } from "./jev-control";
+import { scannerPaint, scannerStripSplit } from "./scanner";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -82,6 +84,11 @@ interface StatusProps {
   /** ADR-0032 (#784): statuses extensions currently publish, in
    * registration order (empty when none) — one dim chip each. */
   extensionStatuses?: ExtensionStatus[];
+  /** #876: what the Jev extension is doing for this session (null = no
+   * chip: not registered, or nothing read yet). Polled by the client off
+   * the extension's own snapshot — never published through the status
+   * seam, whose single writer is the outage text. */
+  jevStatus?: JevStatusSummary | null;
   /** #466/ADR-0022: sticky compaction-failure indicator — set by
    * `compaction_failed`, cleared by the next successful marker. */
   compactionFailed?: boolean;
@@ -94,9 +101,12 @@ interface StatusProps {
   onKeepMyBranch?: () => void;
   phase?: string;
   notice?: string;
-  /** #377/#849: ⚠ YOLO banner — live while the yolo permission mode is in
-   * force, launch flag or in-session rotation alike. */
-  yolo?: boolean;
+  /** #377/#849/#876: the session's live permission mode, read from
+   * `AgentSession.sessionMode` (the launch flag seeds it, the in-session
+   * shift+tab rotation moves it). One value drives both the left banner
+   * (`yolo`) and the tail chip. Absent = the client has no mode to show:
+   * nothing renders, never a guessed default. */
+  permissionMode?: SessionMode;
   /** Current git branch, when the cwd is a repository (both modes). */
   branch?: string | null;
   /** Session working directory: shown in both modes, middle-elided when it
@@ -121,6 +131,22 @@ export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "upda
   return <Text color={spec.color}>{wide ? `${spec.glyph} ${label}` : spec.glyph}</Text>;
 }
 
+/** #876: the Jev chip — one glyph and one word for the whole extension, at
+ * the end of row 1's left cluster. The seven use cases are independent, so
+ * the chip summarizes (does it judge, is it switched off, can it act at
+ * all) and `/jev` keeps the detail. Compact terminals keep the glyph; no
+ * chip at all when the client has no snapshot to read — the bar never makes
+ * a claim it cannot back. The outage text (`∅ jev offline`) is a different
+ * thing on a different seam (ADR-0032's status), and stays there. */
+export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: Theme }) {
+  const spec = status === "active"
+    ? { word: "active", color: theme.ok }
+    : status === "off"
+      ? { word: "off", color: theme.dim }
+      : { word: "inert", color: theme.warn };
+  return <Text color={spec.color}>{labelled ? `◈ jev ${spec.word}` : "◈"}</Text>;
+}
+
 /** ADR-0032 (#784): one dim chip per status an extension currently
  * publishes, next to the MPM chip. The text is the extension's own string;
  * the extension's name leads it so two extensions' statuses never read as
@@ -141,6 +167,40 @@ function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: nu
 /** Prototype-compatible segment fitting: optional segments drop from the
  * end; if required content still overflows, the longest segment truncates. */
 export const fitStatusSegments = fitRow;
+
+/** #876/ADR-0042: the pending left slot — the liveness scanner strip rendered
+ * cell by cell, so the light leads in the theme's true red, the trail recedes
+ * behind it and the unlit track stays `dim`. Whatever the module does not
+ * claim as a cell (the phase word, or a caller passing the older braille
+ * frame) keeps the slot's own colour. */
+function ScannerText({ text, theme }: { text: string; theme: Theme }) {
+  const { strip, rest } = scannerStripSplit(text);
+  return (
+    <Text color={theme.accent}>
+      {strip.map((cell, index) => {
+        const paint = scannerPaint(cell.level);
+        return <Text key={index} color={theme[paint.token]} bold={paint.bold} dimColor={paint.dim}>{cell.glyph}</Text>;
+      })}
+      {rest}
+    </Text>
+  );
+}
+
+/** #876: the permission-mode chip — the mode in force, in the same place
+ * for every value (the tail, after the projection chip). Copy is
+ * capitalized (unlike the rest of the bar) and each value owns one token:
+ * `normal` is dim, `auto-accept` warns — it grants every prompt without
+ * asking — and `yolo` keeps the true-red alarm. Compact terminals keep the
+ * glyph only: the row must stay a row, and `◌ ◐ ⚠` stay unambiguous
+ * against the glyphs already in use (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). */
+function permissionModeChip(mode: SessionMode, cls: WidthClass): { text: string; color: "dim" | "warn" | "err" } {
+  const spec = mode === "normal"
+    ? { glyph: "◌", label: "Normal", color: "dim" as const }
+    : mode === "auto-accept"
+      ? { glyph: "◐", label: "Auto-Accept", color: "warn" as const }
+      : { glyph: "⚠", label: "YOLO", color: "err" as const };
+  return { text: cls === "compact" ? spec.glyph : `${spec.glyph} ${spec.label}`, color: spec.color };
+}
 
 /** Middle-elision for the cwd label: keeps the head and — more importantly —
  * the tail (the project directory) visible, collapsing the middle to `…`.
@@ -187,39 +247,50 @@ function StatusRow(props: StatusProps) {
     if (text.startsWith("default·✗⚙")) return theme.warn;
     return theme.dim;
   };
-  // ── Row 2: where you are — cwd, branch, mode. The cwd leads and is
-  // middle-elided to its class budget so head and (above all) the tail —
-  // the project directory — stay readable; the branch truncates from the
-  // end only in the rare overflow; the mode chip is never dropped.
-  // Segments are space-joined explicitly: ink's `gap` is unreliable on a
-  // right-aligned nested row (segments render glued).
-  const cwdBudget = cls === "compact" ? 18 : cls === "wide" ? 44 : 30;
+  // ── Row 2: where you are — cwd, branch, the projection chip (`◉ dev` /
+  // `○ vibe`) and, since #876, the permission-mode chip. Segments are
+  // space-joined explicitly: ink's `gap` is unreliable on a right-aligned
+  // nested row (segments render glued).
+  const projectionChip = props.mode === "dev" ? "◉ dev" : "○ vibe";
+  const modeChip = props.permissionMode ? permissionModeChip(props.permissionMode, cls) : null;
+  // #876: the permission-mode chip is never dropped, so the fixed tail takes
+  // its space first and the cwd — the only middle-elidable segment — is
+  // fitted to what remains: its head and (above all) the project directory
+  // stay readable instead of being truncated from the end. The branch keeps
+  // truncating in the rare overflow that is left over.
+  const yoloBanner = props.permissionMode === "yolo" ? "⚠ YOLO" : null;
+  const tailBudget = Math.max(1, props.width - 4 - (yoloBanner ? yoloBanner.length + 1 : 0));
+  const fixedTail = [
+    props.branch ? `⎇ ${props.branch}` : "",
+    projectionChip,
+    modeChip?.text ?? "",
+  ].filter((text) => text !== "");
+  const fixedTailWidth = fixedTail.reduce((sum, text) => sum + text.length + 1, 0);
+  // The floor keeps the cwd's elision marker alive ("▣ he…ail"); when the
+  // residual is under it the longest remaining segment is the branch, so the
+  // overflow costs the branch characters, never the cwd's shape.
+  const cwdBudget = Math.min(cls === "compact" ? 18 : cls === "wide" ? 44 : 30, Math.max(4, tailBudget - fixedTailWidth - 2));
   const row2 = fitStatusSegments([
     { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
-    { text: props.branch ? `⎇ ${props.branch}` : "" },
-    { text: props.mode === "dev" ? "◉ dev" : "○ vibe" },
-  ].filter((item) => item.text), Math.max(1, props.width - 4));
+    ...fixedTail.map((text) => ({ text })),
+  ].filter((item) => item.text), tailBudget);
   const row2Color = (text: string): string => {
     if (text.startsWith("▣")) return theme.dim;
     if (text.startsWith("⎇")) return theme.ok;
     if (text === "◉ dev") return theme.accent;
+    if (modeChip !== null && text === modeChip.text) return theme[modeChip.color];
     return theme.dim;
   };
-  // #328: an active update notice leads row 2, left-aligned; the tail keeps
-  // the full row budget and the notice elides to whatever remains.
+  // #328/#876: an active update notice leads row 2, left-aligned; the tail
+  // keeps its budget and the notice elides to whatever remains.
   const row2Text = row2.join(" ");
-  // #377: the yolo banner is always live — it leads the notice slot and
-  // never drops (down to the bare ⚠ marker); the update notice (#328)
-  // renders after it in whatever budget remains, elided — a yolo session
-  // still learns about updates instead of losing the notice entirely.
-  const yoloBudget = props.width - 4 - row2Text.length - 1;
-  const yoloText = props.yolo
-    ? yoloBudget >= "⚠ YOLO — unrestricted tools".length
-      ? "⚠ YOLO — unrestricted tools"
-      : yoloBudget >= "⚠ YOLO".length ? "⚠ YOLO" : null
-    : null;
-  const yoloLead = yoloText !== null ? `${yoloText} · ` : props.yolo ? "⚠ " : "";
-  const noticeBudget = Math.max(0, props.width - 4 - row2Text.length - 1 - yoloLead.length);
+  // #377/#876: the yolo banner is always live — it leads the notice slot in
+  // its fixed `⚠ YOLO` shape (the tail chip carries the mode, the banner is
+  // the alarm) and never elides away; the update notice (#328) renders after
+  // it in whatever budget remains, elided — a yolo session still learns
+  // about updates instead of losing the notice entirely.
+  const noticeLead = yoloBanner !== null ? `${yoloBanner} · ` : "";
+  const noticeBudget = Math.max(0, props.width - 4 - row2Text.length - 1 - noticeLead.length);
   const noticeText = props.updateMessage && noticeBudget >= 4
     ? props.updateMessage.length <= noticeBudget
       ? props.updateMessage
@@ -228,13 +299,13 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
+        <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
-        <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-          {props.yolo && <Text color={theme.err} wrap="truncate">{yoloText ?? "⚠"}</Text>}
-          {props.yolo && noticeText !== null && <Text color={theme.dim}> · </Text>}
+        <Box justifyContent={yoloBanner !== null || noticeText !== null ? "space-between" : "flex-end"} flexWrap="nowrap" paddingX={1}>
+          {yoloBanner !== null && <Text color={theme.err} wrap="truncate">{yoloBanner}</Text>}
+          {yoloBanner !== null && noticeText !== null && <Text color={theme.dim}> · </Text>}
           {noticeText !== null && <Text color={theme.warn} wrap="truncate">{noticeText}</Text>}
           <Box justifyContent="flex-end" flexWrap="nowrap">
             <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
