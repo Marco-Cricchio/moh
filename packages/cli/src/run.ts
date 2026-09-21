@@ -44,6 +44,8 @@ options:
                             query the sessions are listed (newest first) to pick
                             from (a query may be a session id or title text)
   --fork                     with --session: copy history into a new session file
+  --fork-scope <s>           fork scope (#768): "tree" (default, all branches)
+                            or "branch" — only the active root→head path
   --provider <ref>           "mock", a custom id, or endpoint/model-id (moh.json)
   --max-iterations <n>       per-turn iteration cap override (#498): 50|100|200|500
                             or "unlimited" (any integer 1-500 is also accepted);
@@ -156,7 +158,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   let parsed;
   try {
     parsed = parseArgs(argv, {
-      strings: ["prompt", "session", "provider", "cassette", "cwd", "max-iterations"],
+      strings: ["prompt", "session", "provider", "cassette", "cwd", "max-iterations", "fork-scope"],
       lists: ["allow", "deny"],
       booleans: ["auto-accept", "fork", "yolo"],
     });
@@ -190,6 +192,18 @@ export async function runCommand(options: RunOptions): Promise<number> {
     );
     return 2;
   }
+  // #768: fork scope — "tree" (default) copies all branches, "branch"
+  // copies only the active root→head path into the new file.
+  const forkScopeRaw = parsed.strings["fork-scope"];
+  if (forkScopeRaw !== undefined && !parsed.booleans["fork"]) {
+    err.write("moh run: --fork-scope applies to --session <file> --fork\n");
+    return 2;
+  }
+  if (forkScopeRaw !== undefined && forkScopeRaw !== "tree" && forkScopeRaw !== "branch") {
+    err.write(`moh run: --fork-scope expects tree|branch, got "${forkScopeRaw}"\n`);
+    return 2;
+  }
+  const forkScope = (forkScopeRaw ?? "tree") as "tree" | "branch";
 
   // #401 headless session discovery. `--resume` reuses the core's listing
   // (same seam as the TUI home): with a query it filters and opens the
@@ -298,7 +312,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
       let existing = SessionStore.open(
         pathResolve(cwd, parsed.strings["session"]),
       );
-      if (parsed.booleans["fork"]) existing = existing.fork();
+      if (parsed.booleans["fork"]) existing = existing.fork(forkScope);
       resumeStore = existing;
     } else if (resumeFile) {
       resumeStore = SessionStore.open(resumeFile);

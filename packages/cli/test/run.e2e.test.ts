@@ -578,3 +578,36 @@ describe("moh run (e2e)", () => {
     });
   });
 });
+
+describe("run --fork-scope (#768)", () => {
+  test("usage: --fork-scope requires --fork and only accepts tree|branch", () => {
+    const { spawn, home } = harness();
+    expect(spawn(["run", "seed"]).code).toBe(0);
+    const file = sessionFiles(home)[0]!;
+    expect(spawn(["run", "--session", file, "--fork-scope", "branch", "--prompt", "x"]).code).toBe(2);
+    expect(spawn(["run", "--session", file, "--fork", "--fork-scope", "wide", "--prompt", "x"]).code).toBe(2);
+  });
+
+  test("--fork --fork-scope branch writes a new single-path session file", () => {
+    const { spawn, home } = harness();
+    expect(spawn(["run", "seed one"]).code).toBe(0);
+    const file = sessionFiles(home)[0]!;
+    const before = readFileSync(file, "utf8");
+    const res = spawn(["run", "--session", file, "--fork", "--fork-scope", "branch", "--prompt", "seed two"]);
+    expect(res.code).toBe(0);
+    // The new file: the forked session, not the original (unchanged).
+    const files = sessionFiles(home).filter((f) => f !== file);
+    expect(files).toHaveLength(1);
+    const forked = readFileSync(files[0]!, "utf8");
+    // The original grew only by the fork run's own… no — the run continued
+    // on the fork; the original is untouched by it.
+    expect(readFileSync(file, "utf8")).toBe(before);
+    // The fork inherited the projected history (parent chains stripped —
+    // #768 branch scope) and received the new turn and the born-consumed marker.
+    const events = readEvents(forked);
+    expect(events.at(-1)!.type).toBe("done");
+    expect(events.some((e) => e.type === "user_message" && e.text === "seed one")).toBe(true);
+    expect(events.some((e) => e.type === "user_message" && e.text === "seed two")).toBe(true);
+    for (const e of events.slice(0, readEvents(before).length)) expect(e.parentId).toBeUndefined();
+  });
+});
