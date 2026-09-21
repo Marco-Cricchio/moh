@@ -10,9 +10,9 @@ matching section here at tag time.
 
 - **Bottom-bar status rows** (#876): row 2's tail is right-aligned in every
   combination — it rendered flush left whenever no yolo banner or update
-  notice was up — every permission mode now carries a chip (`◌ Normal`,
-  `◐ Auto-Accept`, `⚠ YOLO`; glyph only below 70 columns) beside the
-  shortened `⚠ YOLO` banner, and row 1 gains a `◈ jev` chip summarizing the
+  notice was up — every permission mode now speaks in the row's left slot
+  (`◌ Normal`, `◐ Auto-Accept`, `⚠ YOLO — unrestricted tools`, the text
+  dropped by width class), and row 1 gains a `◈ jev` chip summarizing the
   extension's seven use cases (`active` / `off` / `inert`), silent when Jev
   is not registered or has not answered. Row 1's braille cycle is replaced
   by a seven-cell liveness scanner — one lit segment sweeping left→right and
