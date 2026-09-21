@@ -857,15 +857,16 @@ export function App({
   };
 
   // #468/ADR-0020 fork-now: the explicit recovery action behind the growth
-  // banner. Disposes the current session, forks the file (full-history
-  // byte copy; the original stays intact), and activates the forked
+  // banner. Disposes the current session, forks the file (tree scope: a
+  // full-history byte copy; branch scope (#768): the active root→head
+  // path projected into a single-pathed file), and activates the forked
   // session — the same assembly path /reload uses.
-  const forkNow = async () => {
+  const forkNow = async (scope: "tree" | "branch" = "tree") => {
     const current = session;
     if (!current) return push("fork needs an open session");
     const file = current.sessionFile;
     if (!file) return push("fork: session file unknown — open a session first");
-    const forkedStore = SessionStore.open(file).fork();
+    const forkedStore = SessionStore.open(file).fork(scope);
     current.abort();
     await current.dispose();
     const result = makeSession({
@@ -887,7 +888,7 @@ export function App({
     setModelLabel(result.session.activeModel);
     setSession(result.session);
     setGrowth(null);
-    push(`forked → ${forkedStore.file.split("/").at(-1)}`);
+    push(`forked (${scope}) → ${forkedStore.file.split("/").at(-1)}`);
   };
 
   // ── /tree panel actions (#581) ────────────────────────────────────────
@@ -1265,7 +1266,7 @@ export function App({
         activeProviderType: () => session?.activeEndpointType,
         onModelSwitched: (model) => setModelLabel(model),
         onReload: () => void reload(),
-        onForkNow: () => void forkNow(),
+        onForkNow: (scope) => void forkNow(scope),
         growthWarning: () => growth !== null,
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
