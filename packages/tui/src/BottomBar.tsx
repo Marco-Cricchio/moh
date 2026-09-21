@@ -5,7 +5,7 @@ import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./s
 import { fitRow, type WidthClass } from "./viewport";
 import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import type { JevStatusSummary } from "./jev-control";
-import { scannerRole } from "./scanner";
+import { scannerPaint, scannerStripSplit } from "./scanner";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -169,17 +169,19 @@ function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: nu
 export const fitStatusSegments = fitRow;
 
 /** #876/ADR-0042: the pending left slot — the liveness scanner strip rendered
- * cell by cell, so the light leads in the theme's true red and the trail fades
- * behind it. Cells that are not part of the strip (the phase word, or a caller
- * passing the older braille frame) keep the slot's own colour. */
+ * cell by cell, so the light leads in the theme's true red, the trail recedes
+ * behind it and the unlit track stays `dim`. Whatever the module does not
+ * claim as a cell (the phase word, or a caller passing the older braille
+ * frame) keeps the slot's own colour. */
 function ScannerText({ text, theme }: { text: string; theme: Theme }) {
+  const { strip, rest } = scannerStripSplit(text);
   return (
     <Text color={theme.accent}>
-      {Array.from(text).map((glyph, index) => {
-        const role = scannerRole(glyph);
-        if (role === null) return glyph;
-        return <Text key={index} color={role === "track" ? theme.dim : theme.err} bold={role === "head"} dimColor={role === "trail"}>{glyph}</Text>;
+      {strip.map((cell, index) => {
+        const paint = scannerPaint(cell.level);
+        return <Text key={index} color={theme[paint.token]} bold={paint.bold} dimColor={paint.dim}>{cell.glyph}</Text>;
       })}
+      {rest}
     </Text>
   );
 }

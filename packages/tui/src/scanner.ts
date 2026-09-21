@@ -2,16 +2,17 @@
  * #876 / ADR-0042: the bottom bar's liveness beat.
  *
  * While a turn is live, row 1's left slot is a **scanner sweep**: a strip of
- * seven cells with one lit segment walking left→right and back, a couple of
+ * seven cells with one lit segment walking left→right and back, up to two
  * cells of decaying trail behind it, and the unlit track visible the whole
  * time — the light bar of KITT, not a generic glyph cycle. The shape carries
  * the intensity (▮ ▯ ▫ ·), so the beat survives a monochrome terminal; the
  * bar adds the theme's true red on top.
  *
- * The module is pure geometry: `Chat` owns the clock (the ~90 ms tick, gated
- * on the active turn and never on stream events), this module owns what a
- * given tick looks like, and the frame leaves as one plain string — the shape
- * the `spinner` prop already carried, so no caller or test had to widen.
+ * The module is pure geometry and pure paint: `Chat` owns the clock (the
+ * ~90 ms tick, gated on the active turn and never on stream events), this
+ * module owns what a given tick looks like and how each cell is painted, and
+ * the frame leaves as one plain string — the shape the `spinner` prop already
+ * carried, so no caller or test had to widen.
  */
 import { ic } from "./icons";
 
@@ -19,33 +20,51 @@ import { ic } from "./icons";
 export const SCANNER_CELLS = 7;
 /** Cells behind the light that keep a faded trail. */
 const TRAIL_CELLS = 2;
-
-/** The intensities the strip is made of, brightest first. One source of
- * truth for the frame and for the role the bar colours each cell with. */
-const LEVELS = [
-  { role: "head", glyph: "▮", ascii: "#" },
-  { role: "trail", glyph: "▯", ascii: "=" },
-  { role: "trail", glyph: "▫", ascii: "-" },
-  { role: "track", glyph: "·", ascii: "." },
-] as const;
-
-export type ScannerRole = "head" | "trail" | "track";
-
-/** The glyph of one cell, by how far behind the light it sits (0 = the
- * light). Read through `ic`, so an icon-free terminal gets the ASCII strip. */
-export function scannerGlyph(distance: number): string {
-  const level = LEVELS[Math.min(Math.max(distance, 0), LEVELS.length - 1)]!;
-  return ic(level.glyph, level.ascii);
-}
+/** The unlit level: everything the light has not just passed. */
+const UNLIT = 3;
 
 /**
- * What a rendered cell means, or `null` for any glyph that is not part of the
- * strip — the bar renders the pending slot generically, so a caller passing
- * the older braille frame still works (unrecognised glyphs simply keep the
- * slot's own colour).
+ * The four levels, brightest first — the light, two trail steps, the unlit
+ * track — in the one place that carries the whole strip: the glyph, the ASCII
+ * fallback, the role and the paint. The geometry below only produces indexes
+ * into this table.
  */
-export function scannerRole(glyph: string): ScannerRole | null {
-  return LEVELS.find((level) => level.glyph === glyph || level.ascii === glyph)?.role ?? null;
+const LEVELS = [
+  { role: "head", glyph: "▮", ascii: "#", token: "err", bold: true, dim: false },
+  { role: "trail", glyph: "▯", ascii: "=", token: "err", bold: false, dim: true },
+  { role: "trail", glyph: "▫", ascii: "-", token: "err", bold: false, dim: true },
+  { role: "track", glyph: "·", ascii: ".", token: "dim", bold: false, dim: false },
+] as const;
+
+export type ScannerLevel = 0 | 1 | 2 | 3;
+export type ScannerRole = (typeof LEVELS)[number]["role"];
+
+/** How one cell is painted: which theme token, and whether the light is
+ * emphasised or the trail recedes. Tokens only — never a raw colour. */
+export interface ScannerPaint {
+  token: "err" | "dim";
+  bold: boolean;
+  dim: boolean;
+}
+
+/** The glyph of one level, read through `ic` so an icon-free terminal gets
+ * the ASCII strip (`# = - .`). Read at frame time, never at import time. */
+export function scannerGlyph(level: ScannerLevel): string {
+  const cell = LEVELS[level]!;
+  return ic(cell.glyph, cell.ascii);
+}
+
+/** The level a rendered cell stands for, or `null` for any glyph that is not
+ * part of the strip (the phase word, an older braille frame). */
+export function scannerLevelOf(glyph: string): ScannerLevel | null {
+  const index = LEVELS.findIndex((cell) => cell.glyph === glyph || cell.ascii === glyph);
+  return index < 0 ? null : (index as ScannerLevel);
+}
+
+/** How the bar paints one level. */
+export function scannerPaint(level: ScannerLevel): ScannerPaint {
+  const { token, bold, dim } = LEVELS[level]!;
+  return { token, bold, dim };
 }
 
 /**
@@ -53,34 +72,56 @@ export function scannerRole(glyph: string): ScannerRole | null {
  * walks to the right end, turns around and walks back (the original sweep
  * never jumped from one end to the other).
  */
-export function scannerPosition(tick: number, cells: number = SCANNER_CELLS): number {
-  if (cells <= 1) return 0;
-  const span = 2 * cells - 2;
+export function scannerPosition(tick: number): number {
+  const span = 2 * SCANNER_CELLS - 2;
   const step = ((tick % span) + span) % span;
-  return step < cells ? step : span - step;
+  return step < SCANNER_CELLS ? step : span - step;
 }
 
 /**
- * One frame as distances: `0` is the lit cell, `1..TRAIL_CELLS` the cells it
- * just passed, and everything else is unlit track. Exactly one cell is ever
- * `0`.
+ * One frame as levels, one entry per cell: `0` is the lit cell, `1`/`2` the
+ * cells it just passed (the more recent one brighter), `3` the unlit track.
+ * Exactly one cell is ever `0`.
+ *
+ * The strip is defined by the tick alone, so the very first frame draws a
+ * trail as if the light were arriving from the right — the state a round trip
+ * reaches anyway, and one 90 ms frame at the start of a turn. Keeping the
+ * geometry stateless is what makes the beat perfectly periodic.
  */
-export function scannerSweep(tick: number, cells: number = SCANNER_CELLS): number[] {
-  const light = scannerPosition(tick, cells);
-  const passed: number[] = [];
-  for (let distance = 1; distance <= TRAIL_CELLS; distance++) {
-    const cell = scannerPosition(tick - distance, cells);
-    if (cell !== light && !passed.includes(cell)) passed.push(cell);
+export function scannerSweep(tick: number): ScannerLevel[] {
+  const light = scannerPosition(tick);
+  const passed = new Map<number, ScannerLevel>();
+  for (let step = 1 as ScannerLevel; step <= TRAIL_CELLS; step++) {
+    const cell = scannerPosition(tick - step);
+    if (cell !== light && !passed.has(cell)) passed.set(cell, step);
   }
-  const track = Math.max(TRAIL_CELLS + 1, passed.length + 1);
-  return Array.from({ length: cells }, (_, index) => {
-    if (index === light) return 0;
-    const behind = passed.indexOf(index);
-    return behind < 0 ? track : behind + 1;
-  });
+  return Array.from({ length: SCANNER_CELLS }, (_, index): ScannerLevel => (index === light ? 0 : passed.get(index) ?? UNLIT));
 }
 
 /** One frame as the single string the `spinner` seam carries. */
-export function scannerFrame(tick: number, cells: number = SCANNER_CELLS): string {
-  return scannerSweep(tick, cells).map(scannerGlyph).join("");
+export function scannerFrame(tick: number): string {
+  return scannerSweep(tick).map(scannerGlyph).join("");
+}
+
+/**
+ * Splits the pending left slot into the strip and whatever follows it (the
+ * phase word). The strip is the **leading run** of strip glyphs, at most
+ * `SCANNER_CELLS` long; anything else — the word itself, or a frame that is
+ * not the scanner at all — is `rest`, and the bar renders it in the slot's
+ * own colour. Nothing here looks at text *content*: a phase word like
+ * `running web-fetch` can never be painted as cells, and neither can an
+ * older braille frame.
+ */
+export function scannerStripSplit(text: string): { strip: { glyph: string; level: ScannerLevel }[]; rest: string } {
+  const glyphs = Array.from(text);
+  const strip: { glyph: string; level: ScannerLevel }[] = [];
+  let index = 0;
+  while (index < glyphs.length && strip.length < SCANNER_CELLS) {
+    const glyph = glyphs[index]!;
+    const level = scannerLevelOf(glyph);
+    if (level === null) break;
+    strip.push({ glyph, level });
+    index += 1;
+  }
+  return { strip, rest: glyphs.slice(index).join("") };
 }

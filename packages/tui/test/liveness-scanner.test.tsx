@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { BottomBar } from "../src/BottomBar";
 import { setIcons } from "../src/icons";
-import { SCANNER_CELLS, scannerFrame, scannerGlyph, scannerPosition, scannerRole, scannerSweep } from "../src/scanner";
+import { SCANNER_CELLS, scannerFrame, scannerGlyph, scannerLevelOf, scannerPaint, scannerPosition, scannerStripSplit, scannerSweep } from "../src/scanner";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { App } from "../src/App";
 import { stripAnsi, waitForCondition } from "./helpers";
@@ -30,11 +30,11 @@ afterEach(() => setIcons(true));
 
 describe("the sweep geometry (#876, ADR-0042)", () => {
   test("ping-pong: one cell per tick, reversing at both ends, never wrapping", () => {
-    const seen = Array.from({ length: 2 * SCANNER_CELLS }, (_, tick) => scannerPosition(tick, SCANNER_CELLS));
+    const seen = Array.from({ length: 2 * SCANNER_CELLS }, (_, tick) => scannerPosition(tick));
     expect(seen).toEqual([0, 1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1, 0, 1]);
     for (let tick = 0; tick < 200; tick++) {
-      const here = scannerPosition(tick, SCANNER_CELLS);
-      const next = scannerPosition(tick + 1, SCANNER_CELLS);
+      const here = scannerPosition(tick);
+      const next = scannerPosition(tick + 1);
       expect(Math.abs(next - here)).toBe(1);
       expect(here).toBeGreaterThanOrEqual(0);
       expect(here).toBeLessThan(SCANNER_CELLS);
@@ -43,10 +43,10 @@ describe("the sweep geometry (#876, ADR-0042)", () => {
 
   test("one frame: exactly one light, the trail on the cells it just passed, track elsewhere", () => {
     for (let tick = 0; tick < 24; tick++) {
-      const sweep = scannerSweep(tick, SCANNER_CELLS);
+      const sweep = scannerSweep(tick);
       expect(sweep).toHaveLength(SCANNER_CELLS);
       expect(sweep.filter((distance) => distance === 0)).toHaveLength(1);
-      expect(sweep.indexOf(0)).toBe(scannerPosition(tick, SCANNER_CELLS));
+      expect(sweep.indexOf(0)).toBe(scannerPosition(tick));
       // The trail dims with distance and never outnumbers the light's past.
       const trail = sweep.filter((distance) => distance === 1 || distance === 2);
       expect(trail.length).toBeGreaterThanOrEqual(1);
@@ -57,19 +57,21 @@ describe("the sweep geometry (#876, ADR-0042)", () => {
 
   test("the light is always where the previous frames left it: the trail follows the walk", () => {
     // At tick 4 the light sits on cell 4; the cells it passed are 3 then 2.
-    expect(scannerSweep(4, 7)).toEqual([3, 3, 2, 1, 0, 3, 3]);
+    expect(scannerSweep(4)).toEqual([3, 3, 2, 1, 0, 3, 3]);
+    // Read as the strip itself: the light, the trail fading behind it, the track.
+    expect(scannerFrame(4)).toBe("··▫▯▮··");
     // Reversing at the right end: the light turned on cell 5 having passed 6.
-    expect(scannerSweep(7, 7)).toEqual([3, 3, 3, 3, 3, 0, 1]);
+    expect(scannerSweep(7)).toEqual([3, 3, 3, 3, 3, 0, 1]);
   });
 
   test("the beat never repeats a frame within a cycle: a live turn always looks alive", () => {
     const period = 2 * SCANNER_CELLS - 2; // 12 ticks: 7 out, 5 back
-    const cycle = Array.from({ length: period }, (_, tick) => scannerFrame(tick, SCANNER_CELLS));
+    const cycle = Array.from({ length: period }, (_, tick) => scannerFrame(tick));
     // Every tick of a cycle is a distinct picture, and the picture recurs only
     // after the light has completed the whole round trip.
     expect(new Set(cycle).size).toBe(period);
     expect(scannerFrame(period)).toBe(cycle[0]!);
-    expect(scannerPosition(period * 7 + 5, SCANNER_CELLS)).toBe(scannerPosition(5, SCANNER_CELLS));
+    expect(scannerPosition(period * 7 + 5)).toBe(scannerPosition(5));
   });
 });
 
@@ -91,19 +93,36 @@ describe("the glyph family (#876, ADR-0042)", () => {
     expect(scannerGlyph(3)).toBe(".");
   });
 
-  test("the bar colours each cell by the role its glyph means, both families", () => {
-    expect(scannerRole("▮")).toBe("head");
-    expect(scannerRole("▯")).toBe("trail");
-    expect(scannerRole("▫")).toBe("trail");
-    expect(scannerRole("·")).toBe("track");
-    expect(scannerRole("#")).toBe("head");
-    expect(scannerRole("=")).toBe("trail");
-    expect(scannerRole("-")).toBe("trail");
-    expect(scannerRole(".")).toBe("track");
-    // Anything that is not part of the strip is not claimed: the older braille
-    // frame and the phase word keep the slot's own colour.
-    expect(scannerRole("⠸")).toBeNull();
-    expect(scannerRole("t")).toBeNull();
+  test("the bar paints each cell by the level its glyph means, both families", () => {
+    expect([scannerLevelOf("▮"), scannerLevelOf("▯"), scannerLevelOf("▫"), scannerLevelOf("·")]).toEqual([0, 1, 2, 3]);
+    expect([scannerLevelOf("#"), scannerLevelOf("="), scannerLevelOf("-"), scannerLevelOf(".")]).toEqual([0, 1, 2, 3]);
+    // The paint is tokens only, and the light is the only emphasised cell.
+    expect(scannerPaint(0)).toEqual({ token: "err", bold: true, dim: false });
+    expect(scannerPaint(1)).toEqual({ token: "err", bold: false, dim: true });
+    expect(scannerPaint(3)).toEqual({ token: "dim", bold: false, dim: false });
+  });
+
+  test("the strip is the leading run of cells: the phase word is never painted as one", () => {
+    // A phase word can carry glyphs the ASCII strip uses (hyphens here).
+    const { strip, rest } = scannerStripSplit("▮▯▫···· running web-fetch");
+    expect(strip.map((cell) => cell.level)).toEqual([0, 1, 2, 3, 3, 3, 3]);
+    expect(rest).toBe(" running web-fetch");
+    expect(scannerStripSplit("#=-.... running web-fetch")).toEqual({
+      strip: [
+        { glyph: "#", level: 0 },
+        { glyph: "=", level: 1 },
+        { glyph: "-", level: 2 },
+        { glyph: ".", level: 3 },
+        { glyph: ".", level: 3 },
+        { glyph: ".", level: 3 },
+        { glyph: ".", level: 3 },
+      ],
+      rest: " running web-fetch",
+    });
+    // Not the scanner at all: nothing is claimed, the whole slot keeps its colour.
+    expect(scannerStripSplit("⠸ thinking")).toEqual({ strip: [], rest: "⠸ thinking" });
+    // A strip cut short by the row budget still yields only cells.
+    expect(scannerStripSplit("▮▯").rest).toBe("");
   });
 });
 

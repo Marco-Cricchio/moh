@@ -22,14 +22,19 @@ around decoration therefore applies: an animation earns its place only as a
 indicator, for every session, with no configuration key.**
 
 - **One strip, seven cells.** A single lit segment walks left→right and back
-  (ping-pong, one cell per tick, no wrap), two cells of decaying trail behind
-  it, the unlit track visible the whole time — KITT's light bar, because that
-  shape reads as a *scan* rather than as a blink or a fill gauge. A full round
-  trip is ~1.1 s on the existing 90 ms clock.
+  (ping-pong, one cell per tick, no wrap), up to two cells of decaying trail
+  behind it (one at each turnaround, where the second coincides with the
+  light), the unlit track visible the whole time — KITT's light bar, because
+  that shape reads as a *scan* rather than as a blink or a fill gauge. A full
+  round trip is 12 ticks, ~1.1 s on the existing 90 ms clock.
 - **The intensity is in the glyph** (`▮ ▯ ▫ ·`, ASCII `# = - .` through the
   existing `ic` seam), so the beat survives a monochrome terminal; the bar
-  adds the theme's true red (`err`) on the light and the trail, and `dim` on
-  the unlit track. No new colour token, no hardcoded colour.
+  adds the theme's true red on the light (bold) and on the trail (dimmed),
+  and `dim` on the unlit track. No new colour token, no hardcoded colour.
+- **The geometry is stateless and periodic.** The frame is a function of the
+  tick alone, so the first frame of a turn draws a trail as if the light were
+  arriving from the right — the state every round trip reaches anyway — and
+  the beat repeats exactly, 12 ticks to the cycle.
 - **The clock does not change.** Same ~90 ms tick, same gating: only while a
   turn is live, never on stream events (so the beat survives event gaps), never
   while input is blocked (#622). The transcript's block-head animation and the
@@ -40,9 +45,10 @@ indicator, for every session, with no configuration key.**
   ("no blinking cursor, no fake progress") is what makes this compatible with
   #287 instead of a replay of it.
 - **The seam is unchanged.** A tick still produces one plain string, passed as
-  the `spinner` prop; the bar colours each cell by the role its glyph means.
-  No caller or test had to widen, and a caller still passing the older braille
-  frame renders it unchanged.
+  the `spinner` prop; the bar splits that string into the strip (a leading run
+  of at most seven cells) and whatever follows, so the phase word is painted
+  in the slot's own colour and can never be mistaken for cells — nor can a
+  caller passing the older braille frame. No caller or test had to widen.
 - **Compact terminals keep the strip and drop the phase word** (< 70 columns),
   as before — the strip is seven cells in every class.
 
