@@ -391,7 +391,7 @@ saying why. Decisions are recorded, not implied: see `docs/adr/`.
 ## Acknowledgements & disclaimer
 
 moh is an independent project, **not affiliated with or endorsed by** Matt
-Pocock or the authors of Pi. It was created drawing inspiration from:
+Pocock or the authors of Pi.
 
 - the **architectural principles of pi** (Mario Zechner's
   coding agent harness) — headless core, thin clients,
@@ -403,6 +403,10 @@ Pocock or the authors of Pi. It was created drawing inspiration from:
   https://github.com/ddlaws0n/gh-manager) — whose declarative
   `init → plan → apply` repository-management approach is ported as the
   first-party `gh-manager` skill under the terms of its MIT license.
+
+***Moh is 100% vibe-coded, with no preference between Western and Eastern
+LLMs, because AI should be a common good, not a tool of geopolitical
+power.***
 
 ## License
 
