@@ -5,6 +5,32 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.44.0] - 2026-09-21
+### Added
+
+- **Scoped fork** (#768, PR #884): forks are no longer whole-tree only.
+  `/fork [tree|branch]` in the TUI and `moh run --session --fork
+  --fork-scope branch|tree` in the CLI choose between the classic full
+  projection and a branch-scoped one: only the current turn's lineage is
+  replayed, the rest of the tree is not carried over. The projection is
+  implemented in the core (branchProjection, type-safe narrow writes), the
+  fork stays a chrome-level operation, and the choice is documented in the
+  manual and pinned by ADR-0043.
+
+- **Theme catalog expansion and two-column picker** (PRs #886, #887): ten
+  new built-in themes — retro machines (C64, Amiga Workbench 1.3), cinematic
+  darks (TRON, Blade Runner, Iron Man, Star Wars), a light pair (Daylight,
+  Daylight Frost) and two wildcards — all contrast-checked at ≥3:1; the
+  theme picker renders in two columns with `[s]`/`[u]` source labels
+  (builtin vs user), guarding color-free theme projections.
+
+### Fixed
+
+- **Reply body painted with the theme's fg token** (PR #885): plain runs of
+  an assistant reply no longer fall back to the terminal default color —
+  they use the theme's `fg`, so themes with a non-default background render
+  the reply body in the intended color.
+
 ## [0.43.0] - 2026-09-21
 ### Added
 
@@ -516,7 +542,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.43.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...develop
+[0.44.0]: https://github.com/Marco-Cricchio/moh/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/Marco-Cricchio/moh/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/Marco-Cricchio/moh/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...v0.41.0
