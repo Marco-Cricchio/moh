@@ -129,13 +129,25 @@ class ReasoningExtractor extends TransformStream<Uint8Array, Uint8Array> {
  * The generic `reasoning_effort` field (OpenAI-compatible dialect,
  * accepted natively by OpenAI/DeepSeek/Z.AI-style backends) is left as-is:
  * only the openrouter dialect gets rewritten. */
-function rewriteRequestBody(body: string, effort: string | undefined, openRouterDialect: boolean): string {
+function rewriteRequestBody(body: string, effort: string | undefined, openRouterDialect: boolean, reasoningContent: readonly (readonly [number, string])[]): string {
   try {
-    const json = JSON.parse(body) as Record<string, unknown> & { reasoning_effort?: unknown };
+    const json = JSON.parse(body) as Record<string, unknown> & { reasoning_effort?: unknown; messages?: Array<Record<string, unknown>> };
     if (!openRouterDialect) {
       // openai-compat dialect: reasoning_effort is already the right
       // shape; only ensure it is present when a level was selected.
       if (effort !== undefined && json.reasoning_effort === undefined) json.reasoning_effort = effort;
+      // #873: thinking-mode backends (DeepSeek/GLM lineage) require
+      // `reasoning_content` back on every assistant turn; the stock
+      // adapter drops reasoning parts before fetch. Re-inject the
+      // persisted reasoning captured from the prompt, one entry per
+      // assistant message index.
+      const messages = Array.isArray(json.messages) ? json.messages : [];
+      for (const [index, content] of reasoningContent) {
+        const message = messages[index];
+        if (message?.role === "assistant" && message.reasoning_content === undefined) {
+          message.reasoning_content = content;
+        }
+      }
       return JSON.stringify(json);
     }
     delete json.reasoning_effort;
@@ -150,10 +162,16 @@ function rewriteRequestBody(body: string, effort: string | undefined, openRouter
 
 type BaseFetch = typeof fetch;
 
-function patchedFetch(baseFetch: BaseFetch, buffer: ReasoningBuffer, effort: string | undefined, openRouterDialect: boolean): BaseFetch {
+function patchedFetch(
+  baseFetch: BaseFetch,
+  buffer: ReasoningBuffer,
+  effort: string | undefined,
+  openRouterDialect: boolean,
+  reasoningContent: readonly (readonly [number, string])[],
+): BaseFetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (typeof init?.body === "string" && init.body.startsWith("{")) {
-      init = { ...init, body: rewriteRequestBody(init.body, effort, openRouterDialect) };
+      init = { ...init, body: rewriteRequestBody(init.body, effort, openRouterDialect, reasoningContent) };
     }
     const res = await baseFetch(input, init);
     const contentType = res.headers.get("content-type") ?? "";
@@ -164,6 +182,31 @@ function patchedFetch(baseFetch: BaseFetch, buffer: ReasoningBuffer, effort: str
       headers: res.headers,
     });
   }) as BaseFetch;
+}
+
+/** #873: reasoning parts of the prompt the stock chat adapter will drop
+ * (convertToOpenAIChatMessages handles only text and tool-call).
+ * Collected in prompt order as [assistant message index, text] pairs so
+ * the fetch rewrite can put `reasoning_content` back on the right
+ * assistant message for thinking-mode backends (DeepSeek/GLM lineage
+ * that require it on every turn). Only used on the openai-compat
+ * dialect: the openrouter dialect's continuation contract is
+ * `reasoning_details`, not this field. */
+function reasoningContentFromPrompt(prompt: unknown): [number, string][] {
+  if (!Array.isArray(prompt)) return [];
+  const entries: [number, string][] = [];
+  for (let i = 0; i < prompt.length; i++) {
+    const message = prompt[i] as { role?: unknown; content?: unknown };
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+    const texts: string[] = [];
+    for (const part of message.content) {
+      if ((part as { type?: unknown })?.type === "reasoning" && typeof (part as { text?: unknown }).text === "string") {
+        texts.push((part as { text: string }).text);
+      }
+    }
+    if (texts.length > 0) entries.push([i, texts.join("")]);
+  }
+  return entries;
 }
 
 /** The effort moh selected for this call: thinkingForWire maps the
@@ -329,11 +372,12 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
   };
   // Per-call setup shared by doGenerate/doStream: the reasoning buffer,
   // the effort translation, the stripped options, the inner model.
-  const prepare = (callOptions: { providerOptions?: unknown }) => {
+  const prepare = (callOptions: { providerOptions?: unknown; prompt?: unknown }) => {
     const buffer: ReasoningBuffer = { texts: [], details: [] };
     const effort = effortFromProviderOptions(callOptions.providerOptions);
     const stripped = stripReasoningEffort(callOptions.providerOptions);
-    const inner = chatModel(patchedFetch(baseFetch, buffer, effort, openRouterDialect)) as unknown as Record<string, unknown>;
+    const reasoningContent = openRouterDialect ? [] : reasoningContentFromPrompt(callOptions.prompt);
+    const inner = chatModel(patchedFetch(baseFetch, buffer, effort, openRouterDialect, reasoningContent)) as unknown as Record<string, unknown>;
     return { buffer, inner, options: stripped !== callOptions.providerOptions ? { ...callOptions, providerOptions: stripped } : callOptions };
   };
   return {
