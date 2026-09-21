@@ -79,7 +79,7 @@ export function PreviewBox({ content, maxLines, minWidth, maxWidth }: PreviewBox
         <Box key={index} flexDirection="row" flexShrink={0}>
           <Text color={theme.dim}>{`${BOX.vertical} `}</Text>
           <Text>
-            {parseAnsiSegments(visibleWidth(line) > innerWidth ? truncateAnsiLine(line, innerWidth) : line).map((segment, s) => (
+            {parseAnsiSegments(visibleWidth(line) > innerWidth ? truncateAnsiLine(line, innerWidth) : line, theme.fg).map((segment, s) => (
               <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>
             ))}
           </Text>

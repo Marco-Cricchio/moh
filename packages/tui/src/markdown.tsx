@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { Box, Text } from "ink";
 import Table from "cli-table3";
 import type { PaintableTheme } from "./themes";
+import { useTheme } from "./themes";
 import { colorEnabled, fgTruecolor } from "./color";
 
 /** One styled run of a rendered markdown row. */
@@ -23,7 +24,7 @@ export interface StyledSegment {
  * ink's background painting — the tokenizer closes the Box tint at the
  * first embedded transition — so rows are rendered as ink-native styled
  * Text segments instead (#205). */
-export function parseAnsiSegments(line: string): StyledSegment[] {
+export function parseAnsiSegments(line: string, defaultColor?: string): StyledSegment[] {
   const segments: StyledSegment[] = [];
   let color: string | undefined;
   let bold = false;
@@ -34,7 +35,7 @@ export function parseAnsiSegments(line: string): StyledSegment[] {
   let match: RegExpExecArray | null;
   const push = (text: string) => {
     if (!text) return;
-    segments.push({ text, ...(color ? { color } : {}), ...(bold ? { bold: true } : {}), ...(italic ? { italic: true } : {}), ...(strike ? { strikethrough: true } : {}) });
+    segments.push({ text, color: color ?? defaultColor, ...(bold ? { bold: true } : {}), ...(italic ? { italic: true } : {}), ...(strike ? { strikethrough: true } : {}) });
   };
   while ((match = escape.exec(line))) {
     push(line.slice(at, match.index));
@@ -424,11 +425,15 @@ export function Markdown({ text, md, width, rowWidth, bg }: { text: string; md: 
   return <MarkdownRows rows={lines} rowWidth={rowWidth} bg={bg} />;
 }
 
-/** Paint pre-rendered rows without parsing, wrapping, or trimming chunks. */
+/** Paint pre-rendered rows without parsing, wrapping, or trimming chunks.
+ * Plain runs (no ANSI) fall back to the theme's `fg` — the body text token:
+ * without this default the reply body paints in the terminal's default
+ * foreground and looks identical white in every theme (#753 follow-up). */
 export function MarkdownRows({ rows, rowWidth, bg }: { rows: readonly string[]; rowWidth: number; bg?: string }) {
+  const theme = useTheme();
   return <>{rows.map((line, index) => (
     <Box key={index} width={Math.max(1, rowWidth - 1)} backgroundColor={bg} paddingLeft={4} flexShrink={0}>
-      <Text>{parseAnsiSegments(line).map((segment, s) => (
+      <Text>{parseAnsiSegments(line, theme.fg).map((segment, s) => (
         <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>
       ))}{line.trim() === "" ? " " : null}</Text>
     </Box>
