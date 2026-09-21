@@ -357,19 +357,41 @@ def main() -> None:
                     buf.extend(chunk)
                     screen.feed_bytes(chunk)
 
-    def pump_until(seconds: float, needle: str, since: int) -> bool:
+    def pump_until(seconds: float, needle: str, since: int, on_screen: bool = False) -> bool:
         """#236: readiness wait — pump for up to `seconds`, returning as soon
         as `needle` appears in the raw byte stream AFTER offset `since`
         (the cumulative buffer also holds everything painted before this
         step; matching it wholesale would return instantly on a stale
         match). Fixed budgets tuned on one machine systematically fail on
         slower hosts; waiting for the actual readiness signal makes timing
-        host-independent."""
+        host-independent.
+
+        `on_screen` (#874): also accept a needle already visible on the
+        current SCREEN at step entry. The `since` guard silently assumes
+        that whatever we wait for gets REPAINTED after the step starts —
+        true while the app churns frames, false once a flicker fix stops
+        the repaints (the #622 oversized ask box then paints exactly once,
+        before this step, and the guard could never match it: the wait
+        burned its whole budget and the runner killed the harness). Opt-in,
+        never the default: needles that merely prove "the app repainted"
+        (e.g. a modal-closed anchor) must keep requiring a fresh paint."""
         target = needle.encode("utf-8", "replace")
+
+        def visible() -> bool:
+            # Screen AND scrollback: the row may already have left the
+            # visible area while still being on screen for the user.
+            return any(needle in line for line in screen.lines()) \
+                or any(needle in line for line in screen.scrollback_view)
+
         end = time.time() + seconds
+        if on_screen and visible():
+            return True
         while time.time() < end:
             if buf.find(target, since) != -1:
                 pump(0.2)  # let the frame finish painting
+                return True
+            if on_screen and visible():
+                pump(0.2)
                 return True
             ready, _, _ = select.select([master], [], [], 0.05)
             if ready:
@@ -406,7 +428,7 @@ def main() -> None:
                 # refuse it loudly instead of silently dropping the send.
                 if step.get("send"):
                     raise ValueError("pty step: 'until' and 'send' are mutually exclusive")
-                pump_until(step.get("wait", 5.0), step["until"], since=len(buf))
+                pump_until(step.get("wait", 5.0), step["until"], since=len(buf), on_screen=bool(step.get("untilOnScreen")))
             else:
                 if step.get("send"):
                     send(step["send"])

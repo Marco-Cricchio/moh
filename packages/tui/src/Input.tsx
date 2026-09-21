@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { selectionStyle } from "./color";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { useViewport, windowing } from "./viewport";
@@ -582,7 +583,7 @@ export function MultilineInput({
               const budget = viewport.columns - 4;
               const row = full.length > budget ? `${full.slice(0, Math.max(command.name.length + 8, budget - 1))}…` : full;
               return (
-                <Text key={command.name} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
+                <Text key={command.name} {...(selected ? selectionStyle(theme) : { color: theme.dim })}>
                   {selected ? " ▶ " : "   "}{row}
                 </Text>
               );
@@ -599,7 +600,7 @@ export function MultilineInput({
             const budget = viewport.columns - 4;
             const row = path.length > budget ? `${path.slice(0, Math.max(8, budget - 1))}…` : path;
             return (
-              <Text key={path} color={selected ? theme.bg : theme.dim} backgroundColor={selected ? theme.accent : undefined}>
+              <Text key={path} {...(selected ? selectionStyle(theme) : { color: theme.dim })}>
                 {selected ? " ▶ " : "   "}{row}
               </Text>
             );

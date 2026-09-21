@@ -264,3 +264,86 @@ describe("openrouter live reasoning streaming (#253)", () => {
     ]);
   });
 });
+
+describe("#873 bug 2: reasoning_content re-injection (openai-compat dialect)", () => {
+  /** Thinking-mode backends (DeepSeek/GLM lineage) require
+   * `reasoning_content` back on every turn; the stock chat adapter drops
+   * reasoning parts before fetch. The wrapper must re-inject them into
+   * the assistant message of the request body. */
+  const reasoningMsgs: Message[] = [
+    { role: "user", parts: [{ kind: "text", text: "hi" }] },
+    {
+      role: "assistant",
+      parts: [
+        { kind: "reasoning", text: "inner thought", continuation: { openrouter: { reasoningDetails: [{ type: "reasoning.text", text: "inner thought" }] } } },
+        { kind: "text", text: "answer" },
+      ],
+    },
+    { role: "user", parts: [{ kind: "text", text: "go on" }] },
+  ];
+  const okStream = [
+    chunk({ role: "assistant", content: "ok" }, { finish_reason: "stop", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+    doneEvent,
+  ];
+
+  function compatHarness() {
+    const calls: FetchCall[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      calls.push({ url: typeof input === "string" ? input : input.url, body: JSON.parse(String(init?.body)) });
+      return sseResponse(okStream);
+    }) as typeof fetch;
+    const target: RouteTarget = {
+      endpoint: new Endpoint({ name: "oc", kind: "openai", apiKey: "k" }),
+      modelId: "glm-5.3",
+      thinkingFormat: "openai-effort",
+    };
+    const stream = aiSdkStreamFor(target, "k", undefined);
+    return {
+      calls,
+      run: async (messages: Message[]): Promise<StreamEvent[]> => {
+        const events: StreamEvent[] = [];
+        try {
+          for await (const e of stream(messages, new AbortController().signal)) events.push(e);
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+        return events;
+      },
+    };
+  }
+
+  it("re-injects reasoning_content into the matching assistant message", async () => {
+    const h = compatHarness();
+    await h.run(reasoningMsgs);
+    const messages = h.calls[0]!.body.messages;
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].reasoning_content).toBe("inner thought");
+  });
+
+  it("leaves messages without reasoning untouched", async () => {
+    const h = compatHarness();
+    await h.run(userMsg);
+    for (const m of h.calls[0]!.body.messages) {
+      expect(m.reasoning_content).toBeUndefined();
+    }
+  });
+
+  it("does not touch the openrouter dialect (reasoning_details is its contract)", async () => {
+    const calls: FetchCall[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      calls.push({ url: "u", body: JSON.parse(String(init?.body)) });
+      return sseResponse(okStream);
+    }) as typeof fetch;
+    try {
+      const target = openRouterTarget();
+      const stream = aiSdkStreamFor(target, "k", undefined);
+      for await (const _ of stream(reasoningMsgs, new AbortController().signal)) void _;
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const messages = calls[0]!.body.messages;
+    expect(messages.every((m: { reasoning_content?: unknown }) => m.reasoning_content === undefined)).toBe(true);
+  });
+});

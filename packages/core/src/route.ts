@@ -1,4 +1,4 @@
-import type { Message, Provider, StreamEvent, StreamOptions, ToolSpec } from "./types";
+import type { Message, Provider, ProviderErrorKind, StreamEvent, StreamOptions, ToolSpec } from "./types";
 import type { AuthMethodKind } from "./auth/types";
 import type { EndpointAuthContext } from "./auth/resolve";
 import { normalizeProviderError, isFallbackWorthy, isRetryable } from "./provider-errors";
@@ -172,6 +172,13 @@ export function createRoute(config: RouteConfig): Route {
   const chain = [config.target, ...(config.fallbacks ?? [])];
   const retries = config.retries ?? 1;
   const backoff = config.retryBackoffMs ?? 100;
+  // #873 follow-up: transient upstream 5xx (classified `overloaded`,
+  // e.g. opencode-go's "Upstream response was not valid JSON") are
+  // frequent and usually clear within a second or two — one attempt is
+  // not enough before falling back. Give `overloaded` a deeper
+  // same-endpoint retry budget (still bounded by `retries` when the
+  // user raises it explicitly).
+  const maxAttempts = (kind: ProviderErrorKind): number => (kind === "overloaded" ? Math.max(retries, 3) : retries);
   const streamFactory = config.createStream ?? (() => undefined);
   const resolveCredential = config.credentialResolver ?? resolveEndpointCredential;
   const defaultFactory = defaultStreamFactory();
@@ -291,7 +298,7 @@ export function createRoute(config: RouteConfig): Route {
           } catch (err) {
             if (signal.aborted) return;
             const normalized = normalizeProviderError(err);
-            if (isRetryable(normalized) && attempt < retries) {
+            if (isRetryable(normalized) && attempt < maxAttempts(normalized.kind)) {
               attempt += 1;
               if (backoff > 0) await Bun.sleep(backoff);
               continue;

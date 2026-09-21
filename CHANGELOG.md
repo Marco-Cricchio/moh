@@ -5,7 +5,39 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.43.0] - 2026-09-21
+### Added
+
+- **`NO_COLOR` is honoured by the TUI** (#880): with the variable set
+  (present and non-empty) no color code reaches the terminal — through Ink
+  or through the escapes moh writes itself (markdown, the quota table, the
+  preview box) — while bold/dim emphasis stays. `moh update` already
+  respected it; the session UI now agrees. An empty value means "not set",
+  per the convention.
+
+- **Bottom-bar status rows** (#876): row 2's tail is right-aligned in every
+  combination — it rendered flush left whenever no yolo banner or update
+  notice was up — every permission mode now speaks in the row's left slot
+  (`◌ Normal`, `◐ Auto-Accept`, `⚠ YOLO — unrestricted tools`, the text
+  dropped by width class), and row 1 gains a `◈ jev` chip summarizing the
+  extension's seven use cases (`active` / `off` / `inert`), silent when Jev
+  is not registered or has not answered. Row 1's braille cycle is replaced
+  by a seven-cell liveness scanner — one lit segment sweeping left→right and
+  back with a decaying trail (ADR-0042) — in every session.
+
+### Fixed
+
+- **The volatile region no longer exceeds the terminal height** (#874, PR
+  #877): with long sessions the open turn, composer and ask_user box could
+  overflow the viewport, flipping Ink into its fullscreen path
+  (`clearTerminal` + full static reprint every frame — scrollback wiped,
+  ~22 Hz flicker). The volatile region is now capped below the terminal
+  height, so the fullscreen repaint path never engages.
+
+- **opencode-go openai-chat wire repaired** (#873, PR #875): tool arguments
+  were double-encoded and `reasoning_content` dropped on the Go endpoint's
+  openai-chat wire; both are fixed, and 5xx responses retry with a deeper
+  backoff.
 
 ## [0.42.0] - 2026-09-20
 ### Added
@@ -484,7 +516,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.42.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.43.0...develop
+[0.43.0]: https://github.com/Marco-Cricchio/moh/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/Marco-Cricchio/moh/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/Marco-Cricchio/moh/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/Marco-Cricchio/moh/compare/v0.39.3...v0.40.0

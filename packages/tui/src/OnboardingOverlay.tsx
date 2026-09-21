@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import {
@@ -437,13 +438,13 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           {candidates.slice(detectWin.start, detectWin.start + detectWin.count - (detectWin.start + detectWin.count > candidates.length ? 1 : 0)).map((c, i) => {
             const index = detectWin.start + i;
             return (
-            <Text key={c.envVar} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+            <Text key={c.envVar} {...(index === phase.cursor ? selectionStyle(theme) : {})} wrap="truncate-end">
               {` ${index === phase.cursor ? "›" : " "} ${c.type} via ${c.envVar} · ${c.defaultModel}${index === phase.cursor ? " " : ""}`}
             </Text>
             );
           })}
           {detectWin.start + detectWin.count > candidates.length && (
-            <Text color={phase.cursor === candidates.length ? theme.bg : undefined} backgroundColor={phase.cursor === candidates.length ? theme.dim : undefined}>
+            <Text {...(phase.cursor === candidates.length ? selectionStyle(theme, "dim") : {})}>
               {` ${phase.cursor === candidates.length ? "›" : " "} skip — use the built-in mock demo`}
             </Text>
           )}
@@ -460,7 +461,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           {BUILTIN_PROVIDER_TYPES.slice(typeWin.start, typeWin.start + typeWin.count).map((t, i) => {
             const index = typeWin.start + i;
             return (
-            <Text key={t} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined}>
+            <Text key={t} {...(index === phase.cursor ? selectionStyle(theme) : {})}>
               {` ${index === phase.cursor ? "›" : " "} ${t}${index === phase.cursor ? " " : ""}`}
             </Text>
             );
@@ -473,7 +474,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       {phase.kind === "opencode-product" && (
         <>
           <Text>OpenCode product:</Text><Text> </Text>
-          {["Zen", "Go", "Zen and Go"].map((row, i) => <Text key={row} color={i === phase.cursor ? theme.bg : undefined} backgroundColor={i === phase.cursor ? theme.accent : undefined}>{` ${i === phase.cursor ? "›" : " "} ${row}${i === phase.cursor ? " " : ""}`}</Text>)}
+          {["Zen", "Go", "Zen and Go"].map((row, i) => <Text key={row} {...(i === phase.cursor ? selectionStyle(theme) : {})}>{` ${i === phase.cursor ? "›" : " "} ${row}${i === phase.cursor ? " " : ""}`}</Text>)}
           <Text> </Text><Dim>{`Sign in or create an API key: ${OPENCODE_AUTH_URL}`}</Dim><Dim>enter select · esc back</Dim>
         </>
       )}
@@ -482,7 +483,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           <Text>How does {wizard.type} authenticate?</Text>
           <Text> </Text>
           {["api-key — inline key or env var", "subscription — OAuth login (Claude Pro/Max, ChatGPT, Google)"].map((row, i) => (
-            <Text key={row} color={i === phase.cursor ? theme.bg : undefined} backgroundColor={i === phase.cursor ? theme.accent : undefined}>
+            <Text key={row} {...(i === phase.cursor ? selectionStyle(theme) : {})}>
               {` ${i === phase.cursor ? "\u203a" : " "} ${row}${i === phase.cursor ? " " : ""}`}
             </Text>
           ))}
@@ -543,13 +544,13 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           {catalog.slice(modelWin.start, modelWin.start + modelWin.count - 1).map((m, i) => {
             const index = modelWin.start + i;
             return (
-              <Text key={m.id} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+              <Text key={m.id} {...(index === phase.cursor ? selectionStyle(theme) : {})} wrap="truncate-end">
                 {` ${index === phase.cursor ? "›" : " "} ${m.name} · ${m.id}${index === phase.cursor ? " " : ""}`}
               </Text>
             );
           })}
           {modelWin.start + modelWin.count > catalog.length && (
-            <Text color={phase.cursor === catalog.length ? theme.bg : undefined} backgroundColor={phase.cursor === catalog.length ? theme.dim : undefined}>
+            <Text {...(phase.cursor === catalog.length ? selectionStyle(theme, "dim") : {})}>
               {` ${phase.cursor === catalog.length ? "›" : " "} enter a model id manually`}
             </Text>
           )}
@@ -568,7 +569,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
             const metadata = wizard.type === "openai-compat" ? knownCompatEndpointMetadata(entry.baseUrl) : undefined;
             const label = `${entry.label}${entry.baseUrl ? ` — ${entry.baseUrl}` : ""}${metadata ? " · reasoning enabled" : ""}`;
             return (
-              <Text key={entry.label} color={index === phase.cursor ? theme.bg : undefined} backgroundColor={index === phase.cursor ? theme.accent : undefined} wrap="truncate-end">
+              <Text key={entry.label} {...(index === phase.cursor ? selectionStyle(theme) : {})} wrap="truncate-end">
                 {` ${index === phase.cursor ? "›" : " "} ${label}${index === phase.cursor ? " " : ""}`}
               </Text>
             );
@@ -613,8 +614,7 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
           {["user — ~/.moh/config (available in every project)", "project — moh.json (this project only)"].map((row, i) => (
             <Text
               key={row}
-              color={i === phase.cursor ? theme.bg : undefined}
-              backgroundColor={i === phase.cursor ? theme.accent : undefined}
+              {...(i === phase.cursor ? selectionStyle(theme) : {})}
             >
               {` ${i === phase.cursor ? "\u203a" : " "} ${row}${i === phase.cursor ? " " : ""}`}
             </Text>

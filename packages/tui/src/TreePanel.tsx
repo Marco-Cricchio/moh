@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { selectionStyle } from "./color";
 import { Box, Text, useInput } from "ink";
 import type { TreeNode, TreeView } from "@moh/core";
 import { useTheme } from "./themes";
@@ -286,8 +287,7 @@ export function TreePanel({
           <FrameRow
             key={node.id}
             text={`${prefix}${truncate(sanitizeLine(node.label), contentW - prefix.length - bookmark.length - head.length)}${bookmark}${head}`}
-            color={isSelected ? theme.bg : color}
-            backgroundColor={isSelected ? theme.accent : undefined}
+            {...(isSelected ? selectionStyle(theme) : { color })}
           />
         );
       })}
