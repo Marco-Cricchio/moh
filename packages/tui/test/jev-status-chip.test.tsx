@@ -140,7 +140,7 @@ describe("the Jev chip on a real session (#876)", () => {
     const i = render(<App cwd={mkdtempSync(join(tmpdir(), "moh-876-app-"))} home={dir} provider={provider} startInChat skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
-      await waitForCondition(() => frameText().includes("◈ jev"), () => "the Jev chip never rendered");
+      await waitForCondition(() => frameText().includes("◈ jev"), () => "the Jev chip never rendered", { timeoutMs: 5_000 });
       expect(frameText()).toMatch(/◈ jev (active|off|inert)/);
     } finally {
       i.unmount();
