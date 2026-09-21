@@ -8,7 +8,8 @@
  */
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { THEMES, type Theme } from "./themes";
+import { THEMES, paintable, type Theme } from "./themes";
+import { colorEnabled } from "./color";
 import { Dialog, Dim } from "./ui";
 import { deleteUserTheme, guessExtendsOf, listUserThemes } from "./user-themes";
 
@@ -141,11 +142,24 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
     };
   })();
 
+  /**
+   * #880: the studio *paints* the palette under construction, so it is a
+   * color surface by nature. With `NO_COLOR` it shows its previews uncolored
+   * — tokens through the projection, derived hues and tints suppressed — and
+   * the draft stays intact: only what reaches the screen is affected, never
+   * what `onSave` persists.
+   */
+  const paint = paintable(theme);
+  const colorOn = colorEnabled();
+  /** A swatch is color: without it the cell keeps its character (a hue
+   * letter, a family name) instead of a filled block. */
+  const swatch = (hex: string): string | undefined => (colorOn ? hex : undefined);
+
   /** Resolved color of one chat box (box pick > signal pick > theme token). */
-  const boxColor = (id: string): string => {
+  const boxColor = (id: string): string | undefined => {
     const short = id.replace(/^box:/, "");
     const direct = boxPicks[id];
-    if (direct !== undefined) {
+    if (direct !== undefined && colorOn) {
       const family = BASIC_HUES[direct];
       if (family) {
         const [/*h*/, s, l] = hexToHsl(baseTheme.fg);
@@ -153,12 +167,12 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
         return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
       }
     }
-    if (short === "ok") return theme.ok;
-    if (short === "fail" || short === "error") return theme.err;
-    if (short === "user") return theme.warn;
-    if (short === "code" || short === "diff") return theme.purple;
-    if (short === "moh" || short === "tool-run" || short === "subagent") return theme.accent;
-    return theme.dim;
+    if (short === "ok") return paint.ok;
+    if (short === "fail" || short === "error") return paint.err;
+    if (short === "user") return paint.warn;
+    if (short === "code" || short === "diff") return paint.purple;
+    if (short === "moh" || short === "tool-run" || short === "subagent") return paint.accent;
+    return paint.dim;
   };
 
   useInput((input, key) => {
@@ -275,7 +289,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
     return (
       <Box key={sl} flexDirection="column">
         {!(focused && sl === "hue") && (
-          <Text color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+          <Text color={focused ? paint.bg : undefined} backgroundColor={focused ? paint.accent : undefined}>
             {` ${focused ? "›" : " "} ${sl.padEnd(12)}${value(sl).padStart(6)}`.padEnd(24)}
           </Text>
         )}
@@ -284,7 +298,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
           // strip center marks the current value (the color window slides
           // under it when ←→ rotates); the ←→ hint rides the right end.
           <Box width={24}>
-            <Text color={theme.muted}>{` › `}</Text>
+            <Text color={paint.muted}>{` › `}</Text>
             <Text>
               {Array.from({ length: 20 }, (_, i) => {
                 const h = (hue + (i - 9) * 6 + 3600) % 360;
@@ -294,7 +308,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
                 const inHint = i >= 17 && i <= 18;
                 const ch = inLabel ? "hue"[i - 1] : isMarker ? "│" : inHint ? "←→"[i - 17] : " ";
                 const onCell = inLabel || isMarker || inHint;
-                return <Text key={i} backgroundColor={hex} color={onCell ? theme.bg : hex}>{ch}</Text>;
+                return <Text key={i} backgroundColor={swatch(hex)} color={onCell ? paint.bg : swatch(hex)}>{ch}</Text>;
               })}
             </Text>
           </Box>
@@ -304,12 +318,14 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
   };
 
   const overrideRow = (key: string, label: string, val: string, focused: boolean) => (
-    <Text key={key} color={focused ? theme.bg : undefined} backgroundColor={focused ? theme.accent : undefined}>
+    <Text key={key} color={focused ? paint.bg : undefined} backgroundColor={focused ? paint.accent : undefined}>
       {` ${focused ? "›" : " "} ${label}${val.padStart(7)}`.padEnd(24)}
     </Text>
   );
 
-  const tintOf = (semantic: string, amount: number): string => mix(semantic, theme.surface, amount);
+  // A tint is color: without it the gallery rows keep their glyphs and text.
+  const tintOf = (semantic: string | undefined, amount: number): string | undefined =>
+    semantic === undefined || paint.surface === undefined || !colorOn ? undefined : mix(semantic, paint.surface, amount);
   const galleryBoxes = [
     { id: "box:user", color: boxColor("box:user"), tintAmount: 0.14, head: "› you", detail: "fix the login redirect" },
     { id: "box:moh", color: boxColor("box:moh"), tintAmount: 0.14, head: "◆ moh", detail: "checked the router" },
@@ -325,7 +341,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
   ];
 
   return (
-    <Dialog title=" theme studio " color={theme.accent}>
+    <Dialog title=" theme studio " color={paint.accent}>
       {naming ? (
         <Box flexDirection="column">
           <Text bold>{`theme name: ${nameBuf}▏`}</Text>
@@ -339,7 +355,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
           {listUserThemes(home).map((t, i) => {
             const selected = i === manageCursor;
             return (
-              <Text key={t.id} color={selected ? theme.bg : undefined} backgroundColor={selected ? theme.accent : undefined}>
+              <Text key={t.id} color={selected ? paint.bg : undefined} backgroundColor={selected ? paint.accent : undefined}>
                 {` ${selected ? "›" : " "} ${t.name.padEnd(24)}${activeRef === `user:${t.id}` ? "active" : ""}`}
               </Text>
             );
@@ -355,7 +371,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
             <Box flexDirection="column">{MAIN.slice(2).map(mainRow)}</Box>
           </Box>
           <Text> </Text>
-          <Text color={splitMode ? theme.accent : theme.muted}>{` overrides: ${splitMode ? "split — pick per element" : "auto — follow the sliders above"} (s toggles)`}</Text>
+          <Text color={splitMode ? paint.accent : paint.muted}>{` overrides: ${splitMode ? "split — pick per element" : "auto — follow the sliders above"} (s toggles)`}</Text>
           {splitMode && (() => {
             const BOX_COL1 = BOXES.slice(0, 5);
             const BOX_COL2 = BOXES.slice(5);
@@ -382,49 +398,49 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
                 const [/*h0*/, s0, l0] = hexToHsl(baseTheme.ok);
                 const lc = clamp(0.5 + (l0 + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
                 const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), lc);
-                return <Text key={i} backgroundColor={hex} color={i === pickOf(row) ? theme.bg : hex}>{name.slice(0, 3)}</Text>;
+                return <Text key={i} backgroundColor={swatch(hex)} color={i === pickOf(row) ? paint.bg : swatch(hex)}>{name.slice(0, 3)}</Text>;
               })}
             </Text>
           )}
           <Text> </Text>
           {/* previews side by side: transcript mini-pane + chat-box gallery */}
           <Box gap={2}>
-            <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={35}>
-              <Text color={theme.dim}> preview </Text>
-              <Text color={theme.warn}>› you</Text>
-              <Text color={theme.dim}>  check this color</Text>
-              <Text color={theme.accent}>◆ moh</Text>
-              <Text color={theme.fg}>  body text repaints live</Text>
-              <Text color={theme.muted}>  muted: secondary text</Text>
-              <Text color={theme.dim}>  dim: chrome, timestamps</Text>
+            <Box flexDirection="column" borderStyle="round" borderColor={paint.border} paddingX={1} width={35}>
+              <Text color={paint.dim}> preview </Text>
+              <Text color={paint.warn}>› you</Text>
+              <Text color={paint.dim}>  check this color</Text>
+              <Text color={paint.accent}>◆ moh</Text>
+              <Text color={paint.fg}>  body text repaints live</Text>
+              <Text color={paint.muted}>  muted: secondary text</Text>
+              <Text color={paint.dim}>  dim: chrome, timestamps</Text>
               <Text> </Text>
               <Text>
-                <Text backgroundColor={theme.accent} color={theme.bg}>{` ⏎ `}</Text>
-                <Text color={theme.dim}>{` send `}</Text>
-                <Text backgroundColor={theme.surfaceRaised} color={theme.fg}>{` esc `}</Text>
-                <Text color={theme.dim}>{` stop `}</Text>
+                <Text backgroundColor={paint.accent} color={paint.bg}>{` ⏎ `}</Text>
+                <Text color={paint.dim}>{` send `}</Text>
+                <Text backgroundColor={paint.surfaceRaised} color={paint.fg}>{` esc `}</Text>
+                <Text color={paint.dim}>{` stop `}</Text>
               </Text>
               <Text> </Text>
               <Text>
-                <Text color={theme.ok}>✓ ok </Text>
-                <Text color={theme.warn}>⚠ warn </Text>
-                <Text color={theme.err}>✗ err </Text>
-                <Text color={theme.purple}>◆ purple</Text>
+                <Text color={paint.ok}>✓ ok </Text>
+                <Text color={paint.warn}>⚠ warn </Text>
+                <Text color={paint.err}>✗ err </Text>
+                <Text color={paint.purple}>◆ purple</Text>
               </Text>
             </Box>
-            <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} width={40}>
-              <Text color={theme.dim}> chat command boxes </Text>
+            <Box flexDirection="column" borderStyle="round" borderColor={paint.border} paddingX={1} width={40}>
+              <Text color={paint.dim}> chat command boxes </Text>
               <Text> </Text>
               {galleryBoxes.map((b) => (
                 <Box key={b.id} backgroundColor={b.tintAmount > 0 ? tintOf(b.color, b.tintAmount) : undefined} paddingLeft={1}>
                   <Text color={b.color}>{b.head}</Text>
-                  <Text color={theme.dim}>{` ${b.detail}`}</Text>
+                  <Text color={paint.dim}>{` ${b.detail}`}</Text>
                 </Box>
               ))}
             </Box>
           </Box>
           <Text> </Text>
-          <Text color={theme.muted}>{` ↑↓ row · ←→ value (shift = coarse) · s split/auto · ⏎ auto · n name & save · r my themes `}</Text>
+          <Text color={paint.muted}>{` ↑↓ row · ←→ value (shift = coarse) · s split/auto · ⏎ auto · n name & save · r my themes `}</Text>
           <Dim>{` deriving from "${base}" — nothing is saved until you name it`}</Dim>
         </Box>
       )}

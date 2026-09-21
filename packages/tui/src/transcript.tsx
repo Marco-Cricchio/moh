@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { AgentEvent } from "@moh/core";
-import type { Theme } from "./themes";
+import type { PaintableTheme, Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
@@ -1090,7 +1090,7 @@ const mix = (a: string, b: string, amount: number): string => {
   return `#${aa.map((value, i) => Math.round(value * amount + bb[i]! * (1 - amount)).toString(16).padStart(2, "0")).join("")}`;
 };
 
-function blockColor(block: TranscriptBlock, theme: Theme): string {
+function blockColor(block: TranscriptBlock, theme: PaintableTheme): string | undefined {
   if (block.state === "fail" || block.kind === "error") return theme.err;
   if (block.state === "ok") return theme.ok;
   if (block.kind === "user") return theme.warn;
@@ -1099,9 +1099,13 @@ function blockColor(block: TranscriptBlock, theme: Theme): string {
   return theme.accent;
 }
 
-export function blockTint(block: TranscriptBlock, theme: Theme): string | undefined {
+export function blockTint(block: TranscriptBlock, theme: PaintableTheme): string | undefined {
   if (block.kind === "thinking") return undefined;
   const semantic = block.kind === "user" ? theme.warn : block.kind === "moh" ? theme.accent : block.kind === "code" || block.kind === "diff" ? theme.purple : block.kind === "error" ? theme.err : block.kind === "subagent" ? theme.accent : theme.dim;
+  // #880: a tint *is* color — the block keeps its text and loses its
+  // background when the terminal takes none (the blend would be meaningless
+  // without both tokens).
+  if (semantic === undefined || theme.surface === undefined) return undefined;
   return mix(semantic, theme.surface, block.kind === "error" ? 0.2 : block.kind === "chrome" || block.kind === "subagent" ? 0.07 : 0.14);
 }
 

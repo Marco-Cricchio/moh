@@ -43,6 +43,17 @@ const DESC_INDENT_C = "     ";  // "❯ 1 " under the ▌header layout
  * reservation in askUserBlockRows uses the same ceiling. */
 export const PREVIEW_ROW_CAP = 20;
 
+/** #874: max option rows (options + the Other row) a question screen shows
+ * at once. A pathological question (dozens of options, huge wrapped
+ * descriptions) once pushed the block past the terminal height, which
+ * puts Ink on its fullscreen path — a clear+full-reprint per frame. Past
+ * the window the list scrolls internally around the focused option (with
+ * ↑ N more / ↓ N more markers), like every other height-aware moh menu. */
+export const ASK_MAX_OPTION_ROWS = 12;
+/** Each visible option description is bounded too: a single model-provided
+ * essay must not defeat the option-window height cap. */
+export const ASK_DESCRIPTION_ROW_CAP = 2;
+
 /** Manual word-wrap to a width (grapheme-safe for our purposes: splits on
  * spaces only, never mid-word — the terminal's own wrap is what produced
  * the mid-word breaks of the old single-line rows). */
@@ -70,43 +81,169 @@ function hasPreview(question: AskUserQuestion): boolean {
   return question.options.some((o) => o.preview !== undefined);
 }
 
-/** The block's row budget for one question screen (#413, #426): the
- * bordered panel adds 2 border rows; the tallest screen wins — question
- * screen (1 blank + border + chip row + divider + question rows +
- * per-option rows with wrapped descriptions + Other row + border +
- * 1 blank) or the summary screen. #414: a preview-bearing question
- * renders side-by-side (labels only), its screen reserves the tallest
- * preview box. Shared with Chat so the transcript-compression
- * arithmetic and the layout stay in one place. */
-export function askUserBlockRows(
-  questions: ReadonlyArray<{ question: string; options: ReadonlyArray<{ preview?: string }> }>,
-  width?: number,
-): number {
-  const compact = width !== undefined && width < ASK_COMPACT_WIDTH;
-  const chrome = (compact ? 0 : 2) + 2; // panel borders (A) + blank padding
-  const previewRows = (q: { options: ReadonlyArray<{ preview?: string }> }): number => {
-    if (compact || !q.options.some((o) => o.preview !== undefined)) return 0;
-    return Math.min(
-      PREVIEW_ROW_CAP,
-      Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1))),
-    ) + 3; // top border + bottom border + truncation indicator
-  };
-  const inner = Math.max(50, (width ?? 100) - 6);
-  const questionScreens = questions.map((q) => {
-    const head = compact ? 2 : 4; // ▌header N/M + question  |  blank + border + chip + divider
-    const question = wrapText(q.question, inner).length + (compact ? 0 : 1); // + blank after question (A)
-    const options = q.options.length + 1; // + Other
-    if (!compact && q.options.some((o) => o.preview !== undefined)) {
-      // side-by-side: one row per option (label only), no descriptions
-      return head + wrapText(q.question, inner).length + options + previewRows(q) + chrome;
+/** The visible option-row window around the focused option (#874): at
+ * most ASK_MAX_OPTION_ROWS of the option list (the Other row included)
+ * render at once, with the count of rows hidden above/below. Keeps a
+ * many-option question inside the block's height budget so Ink never
+ * crosses its fullscreen threshold (the #622/#874 flicker mechanism). */
+export function optionWindow(
+  total: number,
+  focused: number,
+  budget = ASK_MAX_OPTION_ROWS,
+): { start: number; count: number; above: number; below: number } {
+  const count = Math.max(1, Math.min(budget, total));
+  const start = Math.min(Math.max(0, focused - (count - 1)), Math.max(0, total - count));
+  return { start, count, above: start, below: Math.max(0, total - start - count) };
+}
+
+/** One question screen's height model (#874). Every number here mirrors a
+ * row the render below actually emits; the measurement tests
+ * (`ask-user-block.test.tsx`, "row budget") pin them against real frames.
+ * A reservation that understates the block would let the volatile region
+ * cross the terminal height — the exact condition of this issue. */
+export interface AskScreenFit {
+  /** Option rows the internal window renders (never above ASK_MAX_OPTION_ROWS). */
+  window: number;
+  /** Wrapped description rows kept per option (never above ASK_DESCRIPTION_ROW_CAP). */
+  descriptionRows: number;
+  /** Wrapped question rows kept. */
+  questionRows: number;
+  /** Hidden-row marker rows the window still needs. */
+  markers: number;
+  /** Total rows this plan renders. */
+  rows: number;
+}
+
+/** Layout A chrome rows: blank + top border + chip row + divider + blank
+ * after the question + Other row + bottom border + footer + trailing blank. */
+const CHROME_A = 9;
+/** Layout C chrome rows: blank + header + Other + blank + footer + trailing blank. */
+const CHROME_C = 6;
+/** Summary screen chrome: A = blank + border + title + border + footer +
+ * trailing blank; C = blank + title + blank + footer + trailing blank. */
+const SUMMARY_CHROME_A = 6;
+const SUMMARY_CHROME_C = 5;
+/** Floor for the option window when a tiny viewport forces it down. */
+const ASK_MIN_OPTION_ROWS = 3;
+
+type AskScreen = { question: string; options: ReadonlyArray<{ description?: string; preview?: string }> };
+
+const screenCompact = (width: number): boolean => width < ASK_COMPACT_WIDTH;
+const screenInner = (width: number): number => Math.max(50, width - 6);
+
+/** Layout C renders its descriptions at a different indent than A, so the
+ * two layouts wrap them differently — the model must not share one width. */
+const screenDescWidth = (width: number, inner: number): number =>
+  screenCompact(width) ? Math.max(1, inner - DESC_INDENT_C.length - 2) : Math.max(1, inner - DESC_INDENT_A.length - 2);
+
+const screenHasPreview = (q: AskScreen, width: number): boolean =>
+  !screenCompact(width) && q.options.some((o) => o.preview !== undefined);
+
+/** Rows one screen renders for a given plan. */
+function screenRows(q: AskScreen, width: number, plan: Omit<AskScreenFit, "rows">): number {
+  const inner = screenInner(width);
+  const compact = screenCompact(width);
+  const visibleOptions = q.options.length > plan.window ? plan.window : q.options.length;
+  let optionArea = visibleOptions; // one label row each
+  if (!screenHasPreview(q, width)) {
+    const descWidth = screenDescWidth(width, inner);
+    for (const option of q.options.slice(0, visibleOptions)) {
+      const desc = option.description ?? "";
+      if (desc.trim() === "") continue;
+      const wraps = wrapText(desc, descWidth).length;
+      optionArea += Math.min(plan.descriptionRows, wraps) + (wraps > plan.descriptionRows ? 1 : 0);
     }
-    const descriptions = q.options.reduce((sum, o) => {
-      const desc = "description" in o ? String((o as { description?: string }).description ?? "") : "";
-      return sum + wrapText(desc, inner - DESC_INDENT_A.trim().length - 1).length;
-    }, 0);
-    return head + question + options + descriptions + 1 + chrome; // + footer
-  });
-  return Math.max(...questionScreens, questions.length + 5 + chrome) + 1; // summary screen + footer line
+  }
+  const preview = screenHasPreview(q, width)
+    ? Math.min(PREVIEW_ROW_CAP, Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1)))) + 3
+    : 0;
+  return (compact ? CHROME_C : CHROME_A) + plan.questionRows + optionArea + plan.markers + preview;
+}
+
+/**
+ * The largest plan that fits `maxRows`, or the natural one when no budget
+ * is given (#874). Preference order: keep as many question rows as
+ * possible, then options, then description rows — the user answering a
+ * question needs the options, not the prose. Shrinking to the floor
+ * overflows still: a viewport too small to show three options cannot be
+ * honoured, and the caller's transcript budget already floors at one row.
+ */
+export function fitAskScreen(q: AskScreen, width: number, maxRows?: number): AskScreenFit {
+  const natural: Omit<AskScreenFit, "rows"> = {
+    window: Math.min(q.options.length, ASK_MAX_OPTION_ROWS),
+    descriptionRows: ASK_DESCRIPTION_ROW_CAP,
+    questionRows: wrapText(q.question, Math.max(1, screenInner(width))).length,
+    markers: q.options.length > ASK_MAX_OPTION_ROWS ? 2 : 0,
+  };
+  const naturalRows = screenRows(q, width, natural);
+  if (maxRows === undefined || naturalRows <= maxRows) return { ...natural, rows: naturalRows };
+  const questionRows = Math.max(1, Math.min(natural.questionRows, maxRows - (screenCompact(width) ? CHROME_C : CHROME_A) - ASK_MIN_OPTION_ROWS));
+  for (let window = natural.window; window >= ASK_MIN_OPTION_ROWS; window--) {
+    for (let descriptionRows = natural.descriptionRows; descriptionRows >= 0; descriptionRows--) {
+      const markers = q.options.length > window ? 2 : 0;
+      const plan = { window, descriptionRows, questionRows, markers };
+      const rows = screenRows(q, width, plan);
+      if (rows <= maxRows) return { ...plan, rows };
+    }
+  }
+  const floorPlan = { ...natural, window: Math.min(natural.window, ASK_MIN_OPTION_ROWS), descriptionRows: 0, questionRows, markers: q.options.length > ASK_MIN_OPTION_ROWS ? 2 : 0 };
+  return { ...floorPlan, rows: screenRows(q, width, floorPlan) };
+}
+
+/** Summary-screen rows for `count` questions inside a row budget. */
+export function fitAskSummary(count: number, width: number, maxRows?: number): { window: number; markers: number; rows: number } {
+  const compact = screenCompact(width);
+  const chrome = compact ? SUMMARY_CHROME_C : SUMMARY_CHROME_A;
+  const naturalWindow = Math.min(count, ASK_MAX_OPTION_ROWS);
+  const naturalMarkers = count > naturalWindow ? 2 : 0;
+  const naturalRows = chrome + naturalWindow + naturalMarkers;
+  if (maxRows === undefined || naturalRows <= maxRows) return { window: naturalWindow, markers: naturalMarkers, rows: naturalRows };
+  let window = naturalWindow;
+  while (window > 1) {
+    const markers = count > window ? 2 : 0;
+    if (chrome + window + markers <= maxRows) return { window, markers, rows: chrome + window + markers };
+    window--;
+  }
+  const markers = count > 1 ? 2 : 0;
+  return { window: 1, markers, rows: chrome + 1 + markers };
+}
+
+/**
+ * The smallest row count the block can render at this width: one question
+ * row, the minimum option window (labels plus their truncation markers),
+ * the window markers and the chrome — for the TALLEST question screen, so
+ * whichever question is showing fits. A caller asking for less than this
+ * cannot be honoured: the question must stay answerable, so the block wins
+ * over the transcript budget (which floors at one row anyway). Callers use
+ * it to avoid granting an impossible budget. Derived from the same
+ * `screenRows` model the renderer budgets with, so the two cannot drift.
+ */
+export function askBlockMinRows(questions: ReadonlyArray<AskScreen>, width: number): number {
+  const blockWidth = Math.max(40, width);
+  const screens = questions.map((q) =>
+    screenRows(q, blockWidth, {
+      window: Math.min(q.options.length, ASK_MIN_OPTION_ROWS),
+      descriptionRows: 0,
+      questionRows: 1,
+      markers: q.options.length > ASK_MIN_OPTION_ROWS ? 2 : 0,
+    }));
+  return Math.max(...screens, fitAskSummary(questions.length, blockWidth).rows);
+}
+
+/** The block's row budget for the tallest screen it can render (#413,
+ * #426, #874). Shared with Chat so the transcript-compression arithmetic
+ * and the layout stay in one place; `maxRows` is the height the caller
+ * allows (viewport minus the composer/footer chrome) and is enforced by
+ * the renderer through the same `fitAskScreen` plans. */
+export function askUserBlockRows(
+  questions: ReadonlyArray<AskScreen>,
+  width?: number,
+  maxRows?: number,
+): number {
+  const blockWidth = Math.max(40, width ?? 100);
+  const screens = questions.map((q) => fitAskScreen(q, blockWidth, maxRows).rows);
+  const summary = fitAskSummary(questions.length, blockWidth, maxRows).rows;
+  return Math.max(...screens, summary);
 }
 
 const FOOTER = " ↑↓ options · enter/tab next question";
@@ -126,11 +263,48 @@ function answerText(a: AskUserAnswer | undefined): string {
   return [...(a.labels ?? []), ...(a.other !== undefined ? [`Other: ${a.other}`] : [])].join(", ");
 }
 
+/** The summary screen's answer rows, windowed by the same plan the budget
+ * uses (#874): one shared renderer for both layouts, so the two can never
+ * disagree about how many rows the summary occupies. */
+function SummaryRows({
+  questions,
+  answers,
+  window,
+  compact,
+}: {
+  questions: readonly AskUserQuestion[];
+  answers: readonly AskUserAnswer[];
+  window: { start: number; count: number; above: number; below: number };
+  compact: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <>
+      {window.above > 0 && <Text color={theme.dim}>{compact ? ` ↑ ${window.above} more` : `  ↑ ${window.above} more`}</Text>}
+      {questions.slice(window.start, window.start + window.count).map((q, i) => {
+        const value = answerText(answers[window.start + i]);
+        return compact ? (
+          <Text key={q.question}>
+            <Text bold>{`${sanitizeForDisplay(q.header)}: `}</Text>
+            <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
+          </Text>
+        ) : (
+          <Text key={q.question}>
+            <Text bold>{` ✓ ${pad(sanitizeForDisplay(q.header), 12)} — `}</Text>
+            <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
+          </Text>
+        );
+      })}
+      {window.below > 0 && <Text color={theme.dim}>{compact ? ` ↓ ${window.below} more` : `  ↓ ${window.below} more`}</Text>}
+    </>
+  );
+}
+
 function pad(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length);
 }
 
-export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: number }) {
+export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; width?: number; maxRows?: number }) {
   const theme = useTheme();
   const blockWidth = Math.max(40, width ?? 100);
   const compact = blockWidth < ASK_COMPACT_WIDTH;
@@ -268,15 +442,36 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
 
   if (!question) return null;
 
-  const optionRows = (descWidth: number, sideBySide: boolean, descIndent: string) =>
-    question.options.map((option, i) => {
-      const isFocused = "option" in focused && focused.option === i;
+  // #874: the visible slice of the option list around the focused option —
+  // a many-option question scrolls internally instead of growing past the
+  // viewport (Ink's fullscreen path). The plan is the SAME model the caller
+  // budgets with (`fitAskScreen`): window size, description cap and
+  // question cap come from one place, so render and reservation can't drift.
+  const fit = fitAskScreen(
+    { question: question.question, options: question.options },
+    blockWidth,
+    maxRows,
+  );
+  const window = optionWindow(question.options.length, "option" in focused ? focused.option : 0, fit.window);
+  const summaryFit = fitAskSummary(questions.length, blockWidth, maxRows);
+  const questionLines = wrapText(question.question, Math.max(1, innerWidth - 1)).slice(0, fit.questionRows);
+  const questionHidden = questionLines.length < wrapText(question.question, Math.max(1, innerWidth - 1)).length;
+  /** The windowed option rows, rendered at the caller's layout width. */
+  const renderOptionRows = (descWidth: number, sideBySide: boolean, descIndent: string) => {
+    const visible = question.options.slice(window.start, window.start + window.count);
+    const rows = visible.map((option, i) => {
+      const optionIndex = window.start + i;
+      const isFocused = "option" in focused && focused.option === optionIndex;
       const checked = question.multiSelect && selected.includes(option.label);
       const isSuggested = option.label === question.suggested;
       const marker = question.multiSelect ? (checked ? "[x]" : "[ ]") : isFocused ? "❯ " : "  ";
-      const number = question.multiSelect ? "  " : `${i + 1} `;
+      const number = question.multiSelect ? "  " : `${optionIndex + 1} `;
       const label = sanitizeForDisplay(option.label);
-      const desc = sideBySide ? [] : wrapText(sanitizeForDisplay(option.description ?? ""), descWidth);
+      const fullDescription = sideBySide ? [] : wrapText(sanitizeForDisplay(option.description ?? ""), descWidth);
+      const descriptionHidden = fullDescription.length > fit.descriptionRows;
+      const desc = fullDescription.slice(0, fit.descriptionRows).map((line, index) =>
+        descriptionHidden && index === fit.descriptionRows - 1 ? `${line.slice(0, Math.max(0, descWidth - 1))}…` : line,
+      );
       return (
         <React.Fragment key={option.label}>
           <Text>
@@ -288,9 +483,24 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
           {desc.length > 0 && desc.map((line, j) => (
             <Text key={`${option.label}-desc-${j}`} color={isFocused ? theme.muted : theme.dim}>{`${descIndent}${line}`}</Text>
           ))}
+          {descriptionHidden && <Text color={theme.dim}>{`${descIndent}… description truncated`}</Text>}
         </React.Fragment>
       );
     });
+    if (window.above > 0) rows.unshift(<Text key="more-above" color={theme.dim}>{`  ↑ ${window.above} more`}</Text>);
+    if (window.below > 0) rows.push(<Text key="more-below" color={theme.dim}>{`  ↓ ${window.below} more`}</Text>);
+    return rows;
+  };
+  /** The question, clipped to its budget (#874): a model-provided wall of
+   * text must not push the block past the viewport. */
+  const questionText = (prefix = "") => (
+    <>
+      {questionLines.map((line, i) => (
+        <Text key={`q-${i}`} bold={i === 0}>{`${prefix}${line}`}</Text>
+      ))}
+      {questionHidden && <Text color={theme.dim}>{`${prefix}… question truncated`}</Text>}
+    </>
+  );
 
   // ——— Layout C (narrow terminals): borderless, compact ———
   if (compact) {
@@ -300,16 +510,12 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
         {summary ? (
           <Box flexDirection="column">
             <Text bold color={theme.purple}>Review your answers</Text>
-            {questions.map((q, i) => {
-              const a = answers[i];
-              const value = answerText(a);
-              return (
-                <Text key={q.question}>
-                  <Text bold>{`${sanitizeForDisplay(q.header)}: `}</Text>
-                  <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
-                </Text>
-              );
-            })}
+            <SummaryRows
+              questions={questions}
+              answers={answers}
+              window={optionWindow(questions.length, Math.min(index, questions.length - 1), summaryFit.window)}
+              compact
+            />
             <Text> </Text>
             <Dim>{FOOTER_SUMMARY_FIRST}</Dim>
           </Box>
@@ -319,8 +525,8 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
               <Text backgroundColor={theme.purple} color={theme.bg} bold>{` ${sanitizeForDisplay(question.header)} `}</Text>
               <Text color={theme.dim}>{` ${index + 1}/${questions.length}`}</Text>
             </Text>
-            <Text bold>{sanitizeForDisplay(question.question)}</Text>
-            {optionRows(innerWidth - DESC_INDENT_C.length - 2, false, DESC_INDENT_C)}
+            <Text bold>{questionLines.join("\n")}</Text>
+            {renderOptionRows(innerWidth - DESC_INDENT_C.length - 2, false, DESC_INDENT_C)}
             <Text>
               {textMode ? (
                 <>
@@ -387,16 +593,14 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
             <Text color={theme.dim}>{" "}</Text>
             <Text bold color={theme.purple}>Review your answers</Text>
           </Text>
-          {questions.map((q, i) => {
-            const a = answers[i];
-            const value = answerText(a);
-            return (
-              <Text key={q.question}>
-                <Text bold>{` ✓ ${pad(sanitizeForDisplay(q.header), 12)} — `}</Text>
-                <Text color={theme.fg}>{sanitizeForDisplay(value)}</Text>
-              </Text>
-            );
-          })}
+          {/* #874: windowed like the question screens — a huge set shows a
+              bounded slice (no navigation here; the model gets all answers). */}
+          <SummaryRows
+            questions={questions}
+            answers={answers}
+            window={optionWindow(questions.length, Math.min(index, questions.length - 1), summaryFit.window)}
+            compact={false}
+          />
         </Box>
       ) : hasPreview(question) ? (
         <Box flexDirection="column" borderStyle="round" borderColor={theme.purple} paddingX={1} width={panelWidth}>
@@ -404,10 +608,10 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
             <Text color={theme.dim}>{` ${chipLine}`}</Text>
           </Text>
           <Text color={theme.dim}>{` ${divider}`}</Text>
-          <Text bold>{` ${sanitizeForDisplay(question.question)}`}</Text>
+          <Text bold>{` ${questionLines.join("\n")}`}</Text>
           <Box flexDirection="row" gap={2} paddingLeft={1}>
             <Box flexDirection="column" width={Math.min(32, Math.max(20, Math.floor((innerWidth - 2) * 0.4)))}>
-              {optionRows(0, true, DESC_INDENT_A)}
+              {renderOptionRows(0, true, DESC_INDENT_A)}
               {otherRow}
             </Box>
             <Box flexDirection="column">
@@ -430,9 +634,9 @@ export function AskUserBlock({ gate, width }: { gate: AskUserGate; width?: numbe
             <Text color={theme.dim}>{` ${chipLine}`}</Text>
           </Text>
           <Text color={theme.dim}>{` ${divider}`}</Text>
-          <Text bold>{` ${sanitizeForDisplay(question.question)}`}</Text>
+          <Text bold>{` ${questionLines.join("\n")}`}</Text>
           <Text> </Text>
-          {optionRows(innerWidth - DESC_INDENT_A.length - 6, false, DESC_INDENT_A)}
+          {renderOptionRows(innerWidth - DESC_INDENT_A.length - 6, false, DESC_INDENT_A)}
           {otherRow}
         </Box>
       )}

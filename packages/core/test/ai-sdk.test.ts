@@ -239,3 +239,52 @@ describe("OpenCode session header (#798, docs/go MissingSessionID)", () => {
     expect(plain["x-opencode-session"]).toBeUndefined();
   });
 });
+
+describe("#873 bug 1: double-encoded tool call arguments", () => {
+  it("parses string input at the stream tool-call event into object args", async () => {
+    const h = harness([
+      {
+        type: "tool-call",
+        toolCallId: "call_d1",
+        toolName: "bash",
+        input: JSON.stringify(JSON.stringify({ command: "ls" })),
+      },
+      finish("tool-calls"),
+    ]);
+    const events = await h.run([{ role: "user", parts: [{ kind: "text", text: "hi" }] }]);
+    const call = events.find((e) => e.type === "tool_calls") as Extract<StreamEvent, { type: "tool_calls" }>;
+    expect(call.calls[0]!.args).toEqual({ command: "ls" });
+  });
+
+  it("keeps non-JSON string input as a string (no invented args)", async () => {
+    const h = harness([
+      {
+        type: "tool-call",
+        toolCallId: "call_d2",
+        toolName: "bash",
+        input: "ls -la not json",
+      },
+      finish("tool-calls"),
+    ]);
+    const events = await h.run([{ role: "user", parts: [{ kind: "text", text: "hi" }] }]);
+    const call = events.find((e) => e.type === "tool_calls") as Extract<StreamEvent, { type: "tool_calls" }>;
+    expect(call.calls[0]!.args).toBe("ls -la not json");
+  });
+
+  it("normalizes string args on replayed tool_call parts in toAiMessages", async () => {
+    // #873 trade-off: a *legitimate* string arg containing valid JSON
+    // (a tool that takes a JSON payload as a string) is also unescaped
+    // once — accepted, because the double-encoded backends are the
+    // motivating case and non-JSON strings (shell commands) are kept.
+    const h = harness([finish("stop")]);
+    await h.run([
+      {
+        role: "assistant",
+        parts: [{ kind: "tool_call", callId: "call_r1", name: "bash", args: JSON.stringify({ cmd: "ls" }) as never }],
+      },
+      { role: "user", parts: [{ kind: "tool_result", callId: "call_r1", ok: true, output: "done" }] },
+    ]);
+    const messages = h.calls[0]!.prompt;
+    expect(messages[0].content[0]).toMatchObject({ type: "tool-call", toolName: "bash", input: { cmd: "ls" } });
+  });
+});

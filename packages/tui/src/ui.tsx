@@ -6,7 +6,7 @@ import { dialogWidth, useViewport } from "./viewport";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 /** pi-style labelled message box: single round border, label row inside. */
-export function MsgBox({ label, color, children }: { label: string; color: string; children: React.ReactNode }) {
+export function MsgBox({ label, color, children }: { label: string; /** #880: absent when the terminal takes no color. */ color?: string; children: React.ReactNode }) {
   return (
     <Box borderStyle="round" borderColor={color} flexDirection="column" width="100%" paddingX={1}>
       <Text color={color}>{label}</Text>
@@ -99,7 +99,8 @@ export function Dialog({
   children,
 }: {
   title: string;
-  color: string;
+  /** #880: absent when the terminal takes no color. */
+  color?: string;
   width?: number | string;
   center?: boolean;
   children: React.ReactNode;

@@ -164,6 +164,20 @@ export function languageModelFor(
   throw new Error(`endpoint "${name}": wire "${wire}" has no AI SDK model factory; provide createStream`);
 }
 
+/** #873: some backends (opencode-go upstream) emit tool-call arguments
+ * already JSON-encoded twice; the adapter parses once and a string
+ * survives. Parse one extra level when the result is still a string;
+ * on parse failure keep the string (a shell command is a legal string
+ * arg for some tools — never invent args). */
+function normalizeToolArgs(input: unknown): unknown {
+  if (typeof input !== "string") return input ?? {};
+  try {
+    return JSON.parse(input);
+  } catch {
+    return input;
+  }
+}
+
 /** Maps moh messages to AI SDK: system messages become the `system` option. */
 function toAiMessages(messages: Message[]): { system: string | undefined; messages: Parameters<typeof streamText>[0]["messages"] } {
   // Tool results carry only a callId; resolve the tool name (#46) from the
@@ -193,7 +207,10 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
           type: "tool-call",
           toolCallId: part.callId,
           toolName: part.name,
-          input: part.args ?? {},
+          // #873: backends that emit double-encoded arguments leave a
+          // string in stored `args`; normalize before replay so the
+          // adapter re-serializes once, not twice (upstream 400).
+          input: normalizeToolArgs(part.args),
         });
       } else if (part.kind === "reasoning") {
         // #240: replayed provider reasoning rides back to the provider with
@@ -327,7 +344,9 @@ export function aiSdkStreamFor(
               yield { type: "text_delta", text: part.text };
               break;
             case "tool-call": {
-              const input = (part as { input?: unknown }).input ?? {};
+              // #873: normalize double-encoded string input at the stream
+              // event so string args never survive to the session.
+              const input = normalizeToolArgs((part as { input?: unknown }).input);
               yield { type: "tool_calls", calls: [{ callId: part.toolCallId, name: part.toolName, args: input }] };
               break;
             }

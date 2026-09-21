@@ -26,7 +26,7 @@ export interface PtySpec {
   files?: Record<string, string>;
   /** `checkpoint` snapshots physical screen + native scrollback after this
    * step, letting one script assert a mid-stream viewport and final settle. */
-  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; checkpoint?: string }>;
+  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; checkpoint?: string }>;
   tail?: number;
 }
 

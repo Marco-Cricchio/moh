@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { ghUsername, loadMohConfig, spawnGh, writeMohConfig, type HandoffTransportError } from "@moh/core";
 import { useTheme } from "./themes";
@@ -89,7 +90,7 @@ export function HandoffActivationModal({ cwd, startup = false, verifyGh = () => 
       <Text>Requires GitHub CLI (<Text color={theme.accent}>gh</Text>) installed and logged in with the same account on both machines.</Text>
       <Text> </Text>
       {choices.map((choice, index) => (
-        <Text key={choice} color={index === cursor ? theme.bg : undefined} backgroundColor={index === cursor ? theme.accent : undefined}>
+        <Text key={choice} {...(index === cursor ? selectionStyle(theme) : {})}>
           {` ${index === cursor ? "›" : " "} ${choice}${index === cursor ? " " : ""}`}
         </Text>
       ))}

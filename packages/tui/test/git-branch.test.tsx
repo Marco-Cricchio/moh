@@ -133,6 +133,115 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
     expect(frame).not.toContain("▣");
   });
 
+  test("the tail closes on the last printable cell with no left segment", () => {
+    // #876: with one child, `space-between` resolves to flex-start and the
+    // tail rendered flush left; the justification follows the left slot, so
+    // the offset — not just the suffix — is what must hold. Up to 120
+    // columns the host emits the whole row, so the offset is exact; at 140
+    // ink clamps the frame to the host width and only the tail's own end is
+    // observable ("flush right", never the left margin).
+    for (const width of [35, 45, 69, 70, 90, 109, 110, 120, 140]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop" });
+      const row2 = frame.split("\n").find((line) => line.includes("▣"))!;
+      const tail = row2.slice(row2.indexOf("▣"));
+      expect(row2.indexOf("▣")).toBe(row2.length - tail.length);
+      expect(row2.indexOf("▣")).toBeGreaterThan(1);
+      if (width <= 120) expect(row2.length).toBe(width - 2);
+    }
+  });
+
+  test("the tail is right-aligned with a left segment, with and without a notice", () => {
+    for (const width of [35, 70, 120]) {
+      for (const extra of [
+        { permissionMode: "yolo" as const },
+        { updateMessage: "moh 0.8.0 available" },
+        { permissionMode: "yolo" as const, updateMessage: "moh 0.8.0 available" },
+      ]) {
+        const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop", ...extra });
+        const row2 = frame.split("\n").find((line) => line.includes("▣"))!;
+        const tail = row2.slice(row2.indexOf("▣"));
+        expect(row2.indexOf("▣")).toBe(row2.length - tail.length);
+        expect(row2.length).toBe(width - 2);
+      }
+    }
+  });
+
+  test("every permission mode speaks on the left, before the cwd (#876)", () => {
+    // Owner decision: the mode is a statement about the session, so it reads
+    // in the left slot the yolo banner always used — never beside the
+    // projection chip on the right.
+    for (const [width, leads] of [
+      [120, { normal: "◌ Normal", "auto-accept": "◐ Auto-Accept", yolo: "⚠ YOLO — unrestricted tools" }],
+      [90, { normal: "◌ Normal", "auto-accept": "◐ Auto-Accept", yolo: "⚠ YOLO" }],
+      [60, { normal: "◌", "auto-accept": "◐", yolo: "⚠" }],
+    ] as const) {
+      for (const [permissionMode, lead] of Object.entries(leads)) {
+        const frame = renderBar({ width, mode: "dev", cwd: "/x", branch: "develop", permissionMode });
+        const row = frame.split("\n").find((line) => line.includes("⎇ develop"))!;
+        expect(row.trimStart().startsWith(lead)).toBe(true);
+        expect(row.indexOf("▣")).toBeGreaterThan(row.indexOf(lead));
+        // the tail keeps exactly its two segments: cwd, branch, projection chip.
+        expect(row.indexOf("▣")).toBeLessThan(row.indexOf("⎇ develop"));
+        expect(row.indexOf("⎇ develop")).toBeLessThan(row.indexOf("◉ dev"));
+        for (const copy of ["Normal", "Auto-Accept"]) expect(row.indexOf(copy) <= row.indexOf("▣")).toBe(true);
+      }
+    }
+  });
+
+  test("the word is what goes when the width class is tight; the glyph stays (#876)", () => {
+    for (const [permissionMode, glyph] of [["normal", "◌"], ["auto-accept", "◐"], ["yolo", "⚠"]] as const) {
+      const frame = renderBar({ width: 60, mode: "dev", cwd: "/x", branch: "develop", permissionMode });
+      const row = frame.split("\n").find((line) => line.includes("⎇ develop"))!;
+      expect(row.trimStart().startsWith(glyph)).toBe(true);
+      expect(row).not.toContain("Normal");
+      expect(row).not.toContain("Auto-Accept");
+      expect(row).not.toContain("YOLO");
+    }
+  });
+
+  test("no mode lead when the client has no mode to show (#876)", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop" });
+    for (const copy of ["Normal", "Auto-Accept", "YOLO"]) expect(frame).not.toContain(copy);
+    // The tail is still right-aligned: an empty left slot is simply empty.
+    const row = frame.split("\n").find((line) => line.includes("▣"))!;
+    expect(row.indexOf("▣")).toBe(row.length - row.slice(row.indexOf("▣")).length);
+  });
+
+  test("the mode lead is never dropped, and no row wraps, 35–140 (#876)", () => {
+    for (const width of [35, 45, 69, 70, 90, 109, 110, 120, 140]) {
+      for (const [permissionMode, glyph] of [["normal", "◌"], ["auto-accept", "◐"], ["yolo", "⚠"]] as const) {
+        const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop", permissionMode, updateMessage: "moh 0.8.0 available" });
+        const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+        expect(row).toContain(glyph);
+        expect(row).toContain("◉ dev");
+        for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+      }
+    }
+  });
+
+  test("the cwd keeps its head and tail: the lead takes its space, never the cwd's shape", () => {
+    // The squeezed widths are the point: the lead reserves its space first, so
+    // the cwd shrinks and keeps its elision marker instead of being cut from
+    // the end (which would take the project directory with it).
+    for (const width of [35, 45, 69, 90, 120]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "auto-accept" });
+      const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+      expect(row).toMatch(/▣ \S+…\S+/);
+      expect(row.trimStart().startsWith("◐")).toBe(true);
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+    }
+    // The tightest combination the row has: the mode lead and the whole tail
+    // claim space at the narrowest class. The cwd still keeps its shape — the
+    // branch is what gives way (style guide §4).
+    for (const width of [35, 45]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "yolo" });
+      const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+      expect(row).toMatch(/▣ \S+…\S+/);
+      expect(row.trimStart().startsWith("⚠")).toBe(true);
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+    }
+  });
+
   test("middleElide: no-op within budget, exact split at the boundary", () => {
     expect(middleElide("/short/path", 20)).toBe("/short/path");
     expect(middleElide("/a/b/c/d/e/f/g/h", 9)).toBe("/a/b…/g/h");
@@ -187,30 +296,34 @@ describe("yolo indicator (#377)", () => {
   };
 
   test("⚠ YOLO leads row 2 when the session is yolo; absent otherwise", () => {
-    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true });
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", permissionMode: "yolo" });
     const row2 = frame.split("\n").find((l) => l.includes("▣"))!;
-    expect(row2).toContain("⚠ YOLO — unrestricted tools");
+    // #876: yolo keeps its original full wording on the left, and the tail is
+    // exactly cwd · branch · projection chip.
+    expect(row2.trimStart().startsWith("⚠ YOLO — unrestricted tools")).toBe(true);
     expect(row2.indexOf("⚠")).toBeLessThan(row2.indexOf("▣"));
+    expect(row2.trimEnd().endsWith("◉ dev")).toBe(true);
     const plain = renderBar({ mode: "dev", cwd: "/x", branch: "develop" });
     expect(plain).not.toContain("YOLO");
   });
 
   test("yolo indicator leads row 2 with the update notice beside it; the tail is never displaced", () => {
-    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", yolo: true, updateMessage: "moh update available" });
+    const frame = renderBar({ mode: "dev", cwd: "/x", branch: "develop", permissionMode: "yolo", updateMessage: "moh update available" });
     const row2 = frame.split("\n").find((l) => l.includes("⎇ develop"))!;
-    expect(row2).toContain("⚠ YOLO");
+    expect(row2.trimStart().startsWith("⚠ YOLO")).toBe(true);
     expect(row2).toContain("◉ dev");
     // #391 follow-up: a yolo session still sees the update notice (#328),
     // elided to the remaining budget — never dropped entirely.
     expect(row2).toContain("moh upd");
     expect(row2.indexOf("YOLO")).toBeLessThan(row2.indexOf("moh"));
+    expect(row2.indexOf("moh")).toBeLessThan(row2.indexOf("▣"));
   });
 
   test("short form at narrow widths; rows stay within the viewport", () => {
-    const frame = renderBar({ width: 46, mode: "dev", cwd: "/long/path/to/project", branch: "develop", yolo: true });
+    const frame = renderBar({ width: 46, mode: "dev", cwd: "/long/path/to/project", branch: "develop", permissionMode: "yolo" });
     const row2 = frame.split("\n").find((l) => l.includes("⎇"))!;
-    // the indicator never drops below the bare ⚠ marker.
-    expect(row2).toContain("⚠");
+    // the lead never elides below the glyph.
+    expect(row2.trimStart().startsWith("⚠")).toBe(true);
     expect(row2).toContain("◉ dev");
     for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(45);
   });

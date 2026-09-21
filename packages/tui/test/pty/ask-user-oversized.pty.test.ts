@@ -43,7 +43,12 @@ describe.skipIf(!hasPython)("ask_user box taller than the viewport (PTY regressi
             { wait: 0.3, send: Buffer.from("hello").toString("base64") },
             { wait: 0.4, send: Buffer.from("\r").toString("base64") },
             // Readiness: the oversized question painted (#236 pump_until).
-            { wait: 45.0, until: "tall box question" },
+            // untilOnScreen (#874): once the flicker is gone the box is
+            // painted exactly ONCE — possibly before this step starts — so
+            // the stream-offset guard alone could never match it (the wait
+            // burned its budget and the runner killed the harness). Reading
+            // the live screen makes the readiness independent of repaints.
+            { wait: 45.0, until: "tall box question", untilOnScreen: true },
             // Idle window: no keystrokes — the user is reading. Before the
             // fix this window produced ~20 clearTerminal repaints/second for
             // as long as the gate stayed open; after the fix the steady

@@ -1,4 +1,5 @@
 import React, { createContext, useContext } from "react";
+import { colorEnabled } from "./color";
 
 /**
  * Semantic color tokens — components never use raw hex. Theme catalog of 8
@@ -61,7 +62,48 @@ export const DEFAULT_THEME: ThemeName = "tokyo-night";
 const ThemeCtx = createContext<Theme>(THEMES[DEFAULT_THEME]);
 
 export const ThemeProvider = ThemeCtx.Provider;
-export const useTheme = (): Theme => useContext(ThemeCtx);
+
+/**
+ * A palette as a **component** receives it (#880): the same token names, but
+ * every color is `undefined` when the terminal must not receive color codes
+ * (`NO_COLOR`, see color.ts). `label` is a name rather than a color, so it
+ * always stays.
+ *
+ * This is the whole color switch for everything painted through Ink: a
+ * `<Text color={undefined}>` emits no color (`colorize` returns early on a
+ * falsy color) while `bold` and `dimColor` — separate props — survive, which
+ * is exactly the line `NO_COLOR` draws. The cost of a color-free terminal is
+ * the palette's hierarchy: a `color={theme.dim}` site paints at normal
+ * intensity, and what is left to read by is structure, glyphs and the
+ * attributes the component asks for explicitly.
+ *
+ * `Theme` stays the honest palette (always a color per role) so the math —
+ * contrast, hex parsing, the theme studio — keeps working on real values.
+ */
+export type PaintableTheme = { [K in keyof Theme]: K extends "label" ? string : string | undefined };
+
+/** Projections are cached per palette object: a fresh object on every render
+ * would invalidate every memo keyed on the theme (the markdown renderer, the
+ * block tints). */
+const colorFree = new WeakMap<Theme, PaintableTheme>();
+
+function withoutColor(theme: Theme): PaintableTheme {
+  const cached = colorFree.get(theme);
+  if (cached !== undefined) return cached;
+  const projection = Object.fromEntries(
+    Object.entries(theme).map(([role, value]) => [role, role === "label" ? value : undefined]),
+  ) as PaintableTheme;
+  colorFree.set(theme, projection);
+  return projection;
+}
+
+/** The palette a painter should use. Returns the palette itself when color is
+ * allowed, so identity-keyed memos keep working in the common case. */
+export function paintable(theme: Theme): PaintableTheme {
+  return colorEnabled() ? theme : withoutColor(theme);
+}
+
+export const useTheme = (): PaintableTheme => paintable(useContext(ThemeCtx));
 
 /* ---- WCAG relative luminance + contrast (#749) -------------------------- */
 
