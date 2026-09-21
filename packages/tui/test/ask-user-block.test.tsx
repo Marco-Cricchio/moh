@@ -581,3 +581,50 @@ describe("ask_user dynamic resize + Static projection (#413)", () => {
     ink.unmount();
   }, 15000);
 });
+
+describe("ask_user options window (#874)", () => {
+  const MANY = {
+    questions: [{
+      question: "Pick a route among many?",
+      header: "Route",
+      options: Array.from({ length: 30 }, (_, i) => ({ label: `route-${i}`, description: `route number ${i}` })),
+    }],
+  } satisfies AskUserQuestionSet;
+
+  test("optionWindow: count-capped window follows the focus, reports hidden rows", async () => {
+    const { optionWindow } = await import("../src/AskUserBlock");
+    expect(optionWindow(3, 0)).toEqual({ start: 0, count: 3, above: 0, below: 0 });
+    expect(optionWindow(30, 0)).toEqual({ start: 0, count: 12, above: 0, below: 18 });
+    expect(optionWindow(30, 20)).toEqual({ start: 9, count: 12, above: 9, below: 9 });
+    expect(optionWindow(30, 29)).toEqual({ start: 18, count: 12, above: 18, below: 0 });
+  });
+
+  test("a 30-option question renders at most 12 option rows with more-markers", async () => {
+    const gate = new AskUserGate();
+    const pending = gate.ask(MANY);
+    const i = await mount(gate);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    expect(frame()).toContain("route-0");
+    expect(frame()).toContain("↓ 18 more");
+    expect(frame()).not.toContain("route-12");
+    // Arrow far down: the window scrolls, the focus stays visible.
+    for (let n = 0; n < 20; n++) i.stdin.write("\x1b[B");
+    await sleep(30);
+    expect(frame()).toContain("route-20");
+    expect(frame()).toContain("↑ ");
+    expect(frame()).not.toContain("route-8\n");
+    gate.resolve({ answers: [{ labels: ["route-20"] }] });
+    await pending;
+    i.unmount();
+  });
+
+  test("askUserBlockRows no longer scales with the option count past the window", () => {
+    const few = askUserBlockRows([{ question: "q", options: [{}, {}, {}] }], 100);
+    const many = askUserBlockRows(MANY.questions.map((q) => ({ question: q.question, options: q.options.map((o) => ({ preview: undefined })) })), 100);
+    // The reservation tracks the windowed screen (12 options × ~2 rows
+    // with interleave + markers), not the raw option count: 30 options
+    // reserve like ~12–13, not 30.
+    expect(many).toBeLessThan(40);
+    expect(many).toBeGreaterThan(few);
+  });
+});
