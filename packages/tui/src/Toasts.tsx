@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
@@ -24,14 +24,39 @@ export interface ToastsApi {
   push: (text: string, kind?: Toast["kind"], position?: Toast["position"]) => void;
 }
 
+/**
+ * #874: the blocked-input owner (App: permission/ask/confirm gate or a
+ * modal overlay) registers here. While blocked, a toast's expiry timer
+ * fires its removal only after the gate closes — otherwise the timer's
+ * re-render lands in exactly the idle, gate-open window where every frame
+ * is a whole-screen clear+reprint (the flicker mechanism).
+ */
+const BlockedInputContext = createContext<boolean>(false);
+
+export function BlockedInputProvider({ blocked, children }: { blocked: boolean; children: React.ReactNode }) {
+  return <BlockedInputContext.Provider value={blocked}>{children}</BlockedInputContext.Provider>;
+}
+
 export function useToasts(): ToastsApi {
+  const blocked = useContext(BlockedInputContext);
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
 
   const push = useCallback((text: string, kind: Toast["kind"] = "info", position: Toast["position"] = "chat") => {
     const id = nextId.current++;
     setToasts((ts) => [...ts.slice(-2), { id, text, kind, position }]);
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), TOAST_MS);
+    const remove = () => setToasts((ts) => ts.filter((t) => t.id !== id));
+    setTimeout(() => {
+      // Blocked: defer the removal re-render until the gate closes (checked
+      // on a slow poll — the toast lingers at most a poll interval longer).
+      const wait = () => {
+        if (!blockedRef.current) remove();
+        else setTimeout(wait, 500);
+      };
+      wait();
+    }, TOAST_MS);
   }, []);
 
   return { toasts, push };

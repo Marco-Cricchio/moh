@@ -76,7 +76,7 @@ import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
 import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } from "./commands";
 import { SkillUpdatesModal } from "./SkillUpdatesModal";
-import { Toasts, useToasts } from "./Toasts";
+import { BlockedInputProvider, Toasts, useToasts } from "./Toasts";
 import { createFallbackWatcher } from "./fallback-notice";
 import { launchSkillSync } from "./launch-skill-sync";
 import {
@@ -493,18 +493,22 @@ export function App({
 
   // #619: MPM status chip — a cheap 2s poll of the session seam. Fail-silent
   // and cheap (no IO); never appends transcript events or status noise.
+  // #874: identical values bail out of the state update (like useGitBranch) —
+  // a poll tick must not become a re-render frame: when the volatile region
+  // fills the viewport, every frame is a whole-screen clear+reprint.
   useEffect(() => {
     if (!session) return;
     const read = () => {
       try {
-        const snap = session.mpmSnapshot();
-        setMpmStatus(snap?.status ?? null);
+        const next = snap?.status ?? null;
+        setMpmStatus((prev) => (prev === next ? prev : next));
       } catch {
-        setMpmStatus(null);
+        setMpmStatus((prev) => (prev === null ? prev : null));
       }
     };
+    const snap = session.mpmSnapshot();
     read();
-    const timer = setInterval(read, 2_000);
+    const timer = setInterval(() => read(), 2_000);
     return () => clearInterval(timer);
   }, [session]);
 
@@ -1317,6 +1321,7 @@ export function App({
 
   return (
     <ThemeProvider value={resolvedTheme}>
+      <BlockedInputProvider blocked={blocked}>
       <Box
         flexDirection="column"
         width={Math.max(1, viewport.columns - 1)}
@@ -1595,6 +1600,7 @@ export function App({
         {/* Toasts remain non-blocking bottom chrome on every screen. */}
         {!showChat && <Toasts toasts={toasts} />}
       </Box>
+      </BlockedInputProvider>
     </ThemeProvider>
   );
 }

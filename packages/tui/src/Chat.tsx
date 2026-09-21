@@ -949,15 +949,20 @@ export function Chat({
   // ◌→✓ mutation is what settledBoundary keeps volatile). Once resolved,
   // the settled projection carries the answer rows into Static.
   const askOpen = askGate !== undefined && askGate.current !== null;
+  // #874: every volatile element shares one terminal-height budget — the
+  // peek panel (header + tail previews) is accounted for like the ask
+  // block, so the open turn compresses instead of the whole region
+  // crossing the viewport (Ink's fullscreen threshold).
+  const panelBudget = panelOpen && panelSub ? panelRows : 0;
   // #413: the block's row height shrinks the volatile transcript budget so
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
   const askBudget = askOpen
-    ? Math.max(1, viewport.rows - footerRows - askUserBlockRows(askGate!.current!.questions, cols))
+    ? Math.max(1, viewport.rows - footerRows - panelBudget - askUserBlockRows(askGate!.current!.questions, cols))
     : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows)),
-    [liveBlocks, cols, viewport.rows, askBudget, footerRows],
+    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows - panelBudget)),
+    [liveBlocks, cols, viewport.rows, askBudget, footerRows, panelBudget],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items appended at the current end — never through the settled
