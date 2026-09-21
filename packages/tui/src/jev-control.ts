@@ -13,7 +13,7 @@
  * on|off` in the CLI, never by a session command (ADR-0038 §1).
  */
 import type { AgentSession } from "@moh/core";
-import type { JevUseCase, JevUseCaseAction, JevUseCaseSnapshot } from "@moh/jev-guard";
+import { JEV_USE_CASES, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseStatus } from "@moh/jev-guard";
 
 /** The bundled extension every Jev surface talks to (ADR-0038). */
 export const JEV_EXTENSION_NAME = "jev-guard";
@@ -63,6 +63,40 @@ export function readJevState(read: ExtensionStateReader | undefined): JevUseCase
   const state = readStored(read, "jevState");
   if (state === null || typeof state !== "object" || Array.isArray(state)) return null;
   return state as JevUseCaseSnapshot;
+}
+
+/**
+ * #876: what the bottom-bar chip can honestly say about the whole extension.
+ * The seven use cases are independent, so one glyph cannot carry seven
+ * states — the chip summarizes and `/jev` keeps the detail:
+ *
+ * - `active` — at least one use case judges this session;
+ * - `off` — none does, and at least one is off or paused (a choice, not a
+ *   defect);
+ * - `inert` — none judges and none is off: every one of them is structurally
+ *   unable to act here (no pool, no roster, no root).
+ *
+ * `null` = the bar makes no claim: the extension is not registered, has not
+ * answered yet, or reports nothing at all.
+ */
+export type JevStatusSummary = "active" | "off" | "inert";
+
+/** The summary of one snapshot, in `JEV_USE_CASES` order (never a guess). */
+export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStatusSummary | null {
+  if (snapshot === null) return null;
+  const statuses = JEV_USE_CASES
+    .map((usecase) => snapshot[usecase]?.status)
+    .filter((status): status is JevUseCaseStatus => status !== undefined);
+  if (statuses.length === 0) return null;
+  if (statuses.includes("on")) return "active";
+  if (statuses.includes("off") || statuses.includes("paused")) return "off";
+  return statuses.includes("inert") ? "inert" : null;
+}
+
+/** The one call a poller needs: read the extension's state and summarize it.
+ * Never throws (a getter that blows up reads as "no claim"). */
+export function readJevSummary(read: ExtensionStateReader | undefined): JevStatusSummary | null {
+  return summarizeJevStatus(readJevState(read));
 }
 
 /** The router's own view of its state, read from the extension's `state`. */

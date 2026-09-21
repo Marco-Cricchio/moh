@@ -15,6 +15,7 @@ import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
+import type { JevStatusSummary } from "./jev-control";
 import {
   trackSubagents,
   useSubagentTails,
@@ -72,6 +73,9 @@ export interface ChatProps {
   mpmStatus?: "ready" | "updating" | "unavailable" | null;
   /** ADR-0032 (#784): statuses extensions publish right now (empty = no chip). */
   extensionStatuses?: ExtensionStatus[];
+  /** #876: the Jev chip's summary (null = no chip: the extension is not
+   * registered, or has not answered yet). */
+  jevStatus?: JevStatusSummary | null;
   /** #466/ADR-0022: sticky compaction-failure indicator. */
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
@@ -154,6 +158,7 @@ export function Chat({
   memoryFresh = false,
   mpmStatus = null,
   extensionStatuses = EMPTY_EXTENSION_STATUSES,
+  jevStatus = null,
   compactionFailed = false,
   growthWarning = null,
   onKeepMyBranch,
@@ -1150,6 +1155,7 @@ export function Chat({
         memoryFresh={memoryFresh}
         mpmStatus={mpmStatus}
         extensionStatuses={extensionStatuses}
+        jevStatus={jevStatus}
         compactionFailed={compactionFailed}
         growthWarning={growthWarning}
         onKeepMyBranch={onKeepMyBranch}

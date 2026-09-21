@@ -65,7 +65,7 @@ import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
-import { JEV_EXTENSION_NAME, setJevUseCase } from "./jev-control";
+import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { TreePanel } from "./TreePanel";
@@ -347,6 +347,11 @@ export function App({
   /** ADR-0032 (#784): statuses extensions publish right now, for the footer
    * chips. Ephemeral chrome, polled like the MPM status; empty = no chip. */
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatus[]>([]);
+  /** #876: what Jev is doing for this session, for the row-1 chip — the
+   * extension's own snapshot, summarized (null = no chip). Same cheap 2s
+   * poll: the snapshot is pulled, never pushed, and the outage text keeps
+   * the ADR-0032 status seam to itself. */
+  const [jevStatus, setJevStatus] = useState<JevStatusSummary | null>(null);
   /** #466/ADR-0022: sticky compaction-failure flag — set by
    * `compaction_failed`, cleared by a successful `compaction` marker. */
   const [compactionFailed, setCompactionFailed] = useState(false);
@@ -522,6 +527,32 @@ export function App({
         setExtensionStatuses((prev) => (sameStatuses(prev, next) ? prev : next));
       } catch {
         if (alive) setExtensionStatuses((prev) => (prev.length === 0 ? prev : []));
+      }
+    };
+    read();
+    const timer = setInterval(read, 2_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [session]);
+
+  // #876: the Jev chip — the same cheap, fail-silent 2s poll as the MPM and
+  // extension-status chips, off the extension's own state. A session swap
+  // clears it before the first read (the extension may not be registered at
+  // all: then there is simply no chip).
+  useEffect(() => {
+    if (!session) {
+      setJevStatus(null);
+      return;
+    }
+    let alive = true;
+    const read = () => {
+      try {
+        const next = readJevSummary((extension, name) => session.extensionState(extension, name));
+        if (alive) setJevStatus((prev) => (prev === next ? prev : next));
+      } catch {
+        if (alive) setJevStatus(null);
       }
     };
     read();
@@ -1172,6 +1203,7 @@ export function App({
       memoryFresh={memoryFresh}
       mpmStatus={mpmStatus}
       extensionStatuses={extensionStatuses}
+      jevStatus={jevStatus}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
       onKeepMyBranch={keepMyBranch}

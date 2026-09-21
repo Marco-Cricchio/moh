@@ -4,6 +4,7 @@ import { useTheme, type Theme } from "./themes";
 import { CONTEXT_WINDOW_DEFAULT, contextFraction, type SidebarTokens } from "./sidebar";
 import { fitRow, type WidthClass } from "./viewport";
 import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
+import type { JevStatusSummary } from "./jev-control";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -82,6 +83,11 @@ interface StatusProps {
   /** ADR-0032 (#784): statuses extensions currently publish, in
    * registration order (empty when none) — one dim chip each. */
   extensionStatuses?: ExtensionStatus[];
+  /** #876: what the Jev extension is doing for this session (null = no
+   * chip: not registered, or nothing read yet). Polled by the client off
+   * the extension's own snapshot — never published through the status
+   * seam, whose single writer is the outage text. */
+  jevStatus?: JevStatusSummary | null;
   /** #466/ADR-0022: sticky compaction-failure indicator — set by
    * `compaction_failed`, cleared by the next successful marker. */
   compactionFailed?: boolean;
@@ -122,6 +128,22 @@ export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "upda
       : { glyph: "—", color: theme.dim };
   const label = status === "ready" ? "map" : status === "updating" ? "mapping" : "no map";
   return <Text color={spec.color}>{wide ? `${spec.glyph} ${label}` : spec.glyph}</Text>;
+}
+
+/** #876: the Jev chip — one glyph and one word for the whole extension, at
+ * the end of row 1's left cluster. The seven use cases are independent, so
+ * the chip summarizes (does it judge, is it switched off, can it act at
+ * all) and `/jev` keeps the detail. Compact terminals keep the glyph; no
+ * chip at all when the client has no snapshot to read — the bar never makes
+ * a claim it cannot back. The outage text (`∅ jev offline`) is a different
+ * thing on a different seam (ADR-0032's status), and stays there. */
+export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: Theme }) {
+  const spec = status === "active"
+    ? { word: "active", color: theme.ok }
+    : status === "off"
+      ? { word: "off", color: theme.dim }
+      : { word: "inert", color: theme.warn };
+  return <Text color={spec.color}>{labelled ? `◈ jev ${spec.word}` : "◈"}</Text>;
 }
 
 /** ADR-0032 (#784): one dim chip per status an extension currently
@@ -255,7 +277,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
+        <Box gap={1}><Text color={props.pending ? theme.accent : theme.dim}>{left}</Text>{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
