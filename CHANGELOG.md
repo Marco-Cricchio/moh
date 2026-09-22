@@ -5,6 +5,19 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.45.1] - 2026-09-22
+### Fixed
+
+- **A thinking turn with no reasoning stays valid after a tool call**
+  (#895, PR #901): the openai-compat dialect now pads an assistant message
+  that still lacks `reasoning_content` with an empty string — but only when
+  a thinking effort is selected. Live measurement against opencode-go
+  showed the upstream enforces the round-trip requirement
+  nondeterministically: identical post-tool payloads failed 4/55 times
+  without the field and never with it, and turns where the model produced no
+  reasoning were left bare by v0.45.0's persisted-reasoning re-injection
+  alone. Thinking-off requests gain no new fields.
+
 ## [0.45.0] - 2026-09-22
 ### Added
 
@@ -566,7 +579,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...develop
+[0.45.1]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/Marco-Cricchio/moh/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/Marco-Cricchio/moh/compare/v0.42.0...v0.43.0
