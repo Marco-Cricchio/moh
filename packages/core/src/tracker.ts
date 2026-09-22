@@ -50,7 +50,15 @@ export interface WayfinderSnapshot {
 export type ShellRunner = (cmd: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export const defaultRunner: ShellRunner = async (cmd) => {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  // Bun.spawn throws synchronously when the executable is missing (unlike
+  // child_process.spawn, which reports ENOENT); a box without git or gh
+  // must degrade to "command failed", never reject the tracker promise.
+  let proc: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>;
+  try {
+    proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  } catch (err) {
+    return { code: 127, stdout: "", stderr: err instanceof Error ? err.message : String(err) };
+  }
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -312,9 +320,19 @@ export function resolveTrackerSync(options: ResolveTrackerOptions = {}): Tracker
   // uses per-test cwd temp dirs.
   const memoKey = resolve(cwd);
   if (trackerRemoteMemo.has(memoKey)) return trackerRemoteMemo.get(memoKey)!;
-  const proc = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
+  // A box without git (minimal server images): Bun.spawnSync throws on a
+  // missing executable instead of returning a nonzero exit code, so the
+  // probe is guarded — git absent is the same answer as "no origin
+  // remote": no tracker, panel hidden. Unguarded, this threw inside the
+  // App's lazy useState and killed the TUI before the first frame.
+  let proc: Bun.SyncSubprocess<"pipe", "pipe"> | null = null;
+  try {
+    proc = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
+  } catch {
+    proc = null;
+  }
   let backend: TrackerBackend | null = null;
-  if (proc.exitCode === 0) {
+  if (proc && proc.exitCode === 0) {
     const url = proc.stdout.toString().trim();
     const m = /[:/]([^/:]+\/[^/.]+)(?:\.git)?$/.exec(url);
     if (m) {
