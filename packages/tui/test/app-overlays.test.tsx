@@ -6,10 +6,65 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listSessionSummaries, loadMohConfig, MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition } from "./helpers";
+import { installAiSdkWarningSink } from "../src/ai-sdk-warnings";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-app-ov-"));
+
+/** Push a toast through App's own channel with no keystroke involved (the
+ * SDK warning sink), so the intro is still on screen when it lands. */
+function emitAiSdkWarning(message: string): void {
+  const sink = (globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS as
+    | ((options: { warnings: Array<Record<string, unknown>> }) => void)
+    | undefined;
+  if (typeof sink !== "function") throw new Error("the AI SDK warning sink is not installed");
+  sink({ warnings: [{ type: "probe", message }] });
+}
+
+describe("home logo intro — chrome stays off the animation", () => {
+  test("the footer and toasts are hidden while the intro plays, and return after it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-intro-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(150);
+    // The animation owns the screen: no footer, no bottom toast chrome.
+    expect(frame()).not.toContain("ctrl+t theme");
+    // A toast pushed without any keystroke — the shape of a startup notice
+    // (an available update, a skill sync) landing while the intro plays.
+    // The AI SDK warning sink is App's own toast channel, so no key ends
+    // the intro before the assertion.
+    installAiSdkWarningSink();
+    emitAiSdkWarning("intro probe notice");
+    await sleep(120);
+    expect(frame()).not.toContain("intro probe notice");
+    // Ending the intro hands the screen back: the deferred toast is shown,
+    // not lost.
+    i.stdin.write(" ");
+    await waitForCondition(
+      () => frame().includes("intro probe notice"),
+      () => "the toast deferred behind the intro never re-appeared",
+      { timeoutMs: 4000 },
+    );
+    expect(frame()).toContain("ctrl+t theme");
+    i.unmount();
+  }, 10000);
+
+  test("the intro plays once per process: a theme remount does not replay it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-intro-once-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(120);
+    i.stdin.write(" "); // end the intro
+    await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled");
+    i.stdin.write("\x14"); // ctrl+t: theme cycle remounts Home
+    await sleep(120);
+    // Still the settled banner and chrome — no second animation run.
+    expect(frame()).toContain("My Own Harness");
+    expect(frame()).toContain("ctrl+t theme");
+    i.unmount();
+  }, 10000);
+});
 
 describe("App overlays (issue #33)", () => {
   // #236 Class 1: App must isolate onboarding env-detection from the real

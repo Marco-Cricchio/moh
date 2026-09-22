@@ -132,6 +132,9 @@ export interface HomeProps {
   version?: string;
   /** Startup logo intro (default on); tests pass false for a static frame. */
   intro?: boolean;
+  /** Fired once when the intro ends (settled or skipped). The client uses it
+   * to stop suppressing its own chrome (toasts) over the animation. */
+  onIntroEnd?: () => void;
 }
 
 /**
@@ -141,7 +144,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, intro: introEnabled = true }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, intro: introEnabled = true, onIntroEnd }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -364,7 +367,11 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   });
 
   // Stable identity: LogoIntro's settle effect depends on this callback.
-  const skipIntro = useCallback(() => setIntro(false), []);
+  // Ending the intro also notifies the client (App stops hiding its toasts).
+  const skipIntro = useCallback(() => {
+    setIntro(false);
+    onIntroEnd?.();
+  }, [onIntroEnd]);
 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
@@ -453,8 +460,6 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       {skillUpdateCount > 0 ? <Text color={theme.warn}>{skillUpdateNoticeText(skillUpdateCount)}</Text> : null}
-        </>
-      )}
       <Footer
         keys={
           (banner ? "" : `v${version} · `) +
@@ -463,6 +468,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             : `${theme.label} · ctrl+t theme · ctrl+o mode · new (n) · settings (s) · keys (?) · ctrl+c ×2 quit`)
         }
       />
+        </>
+      )}
     </Box>
   );
 }

@@ -344,8 +344,17 @@ export function App({
     confirmGate.onCancelled((text) => setComposerPrefill(text));
   }, [confirmGate]);
 
+  // The logo intro owns the first seconds of the Home screen. It plays once
+  // per process (a Home remount — theme switch, viewport key — must not
+  // replay it), and while it plays the animation is the ONLY thing on
+  // screen: transient chrome such as toasts is deferred, not painted over
+  // the animation. `useToasts`'s blocked semantics hold the expiry, so a
+  // startup notice (an available update, a skill sync) is shown once the
+  // intro ends instead of being lost behind it.
+  const [introActive, setIntroActive] = useState(introEnabled);
+  const introEnded = useCallback(() => setIntroActive(false), []);
   const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
-  const { toasts, push } = useToasts(blocked);
+  const { toasts, push } = useToasts(blocked || introActive);
   const [memoryFresh, setMemoryFresh] = useState(false);
   /** #619: live MPM projection status for the footer chip — polled every
    * 2s while the session is open; null when MPM never activated (the chip
@@ -1178,6 +1187,12 @@ export function App({
   });
 
   const showChat = session !== null;
+  // A session opened before the intro ended (a resume straight into chat,
+  // startInChat) means the intro is not on screen any more: stop deferring
+  // the toast chrome on its behalf.
+  useEffect(() => {
+    if (showChat) setIntroActive(false);
+  }, [showChat]);
   // #426: the inline ask_user block is NOT an overlay — including `asking`
   // here drove the alternate-screen buffer flip (and the #330 deferred
   // repaint) while the block was open, freezing the screen under arrow
@@ -1368,7 +1383,8 @@ export function App({
             cwd={cwd}
             home={home}
             mode={mode}
-            intro={introEnabled}
+            intro={introActive}
+            onIntroEnd={introEnded}
             onOpen={open}
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}
@@ -1628,8 +1644,9 @@ export function App({
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
         {confirming && <ConfirmTurnModal gate={confirmGate} />}
         </OverlayLayer>}
-        {/* Toasts remain non-blocking bottom chrome on every screen. */}
-        {!showChat && <Toasts toasts={toasts} />}
+        {/* Toasts remain non-blocking bottom chrome on every screen — except
+            while the logo intro plays: the animation is the whole screen. */}
+        {!showChat && !introActive && <Toasts toasts={toasts} />}
       </Box>
     </ThemeProvider>
   );

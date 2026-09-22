@@ -12,6 +12,14 @@ pressing enter starts a new session with your text as the first prompt.
 `n` starts an empty one. From the CLI, `moh run "prompt"` runs a single
 non-interactive session.
 
+Opening the home screen plays a short ASCII animation of the logo (a
+different style each launch, in the active theme's colors); any key
+skips it. While it plays the animation is the only thing on screen —
+the picker, its chrome and any startup notice appear when it ends, so a
+notice is shown rather than painted over the animation. The session
+list itself is read after the animation, so a project with hundreds of
+sessions still paints immediately.
+
 ## Resume
 
 Reopening a past session **appends to the same file**: history, memory

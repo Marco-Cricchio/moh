@@ -482,14 +482,38 @@ describe("home logo intro", () => {
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // During the intro the settled banner's acronym line is absent — the
-    // whole content area below it too.
+    // whole content area below it too: the animation is the ONLY thing on
+    // screen (footer and update notice included).
     await sleep(80);
     expect(frame()).not.toContain("My Own Harness");
     expect(frame()).not.toContain("title s1");
+    expect(frame()).not.toContain("ctrl+t theme");
+    expect(frame()).not.toContain("settings (s)");
     // After ~3s (2.8s animation + settle delay) the banner appears with
     // the list below it.
     await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled into the banner", { timeoutMs: 6000 });
     await waitForFrame(frame, "title s1", { timeoutMs: 6000 });
+    // The chrome returns with the settled home.
+    expect(frame()).toContain("ctrl+t theme");
+    i.unmount();
+  }, 10000);
+
+  test("the update notice is hidden during the intro and shows on the settled home", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(
+      <Home
+        cwd={cwd}
+        home={home}
+        mode="vibe"
+        onOpen={() => {}}
+        updateNotice={{ kind: "available", latestVersion: "9.9.9" }}
+      />,
+    );
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(80);
+    expect(frame()).not.toContain("moh 9.9.9 available");
+    await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled", { timeoutMs: 6000 });
+    await waitForFrame(frame, "moh 9.9.9 available", { timeoutMs: 6000 });
     i.unmount();
   }, 10000);
 
