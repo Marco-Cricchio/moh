@@ -420,6 +420,48 @@ describe("#895: bare thinking-capable entries route to the openai-compat dialect
     expect(h.calls[0]!.body.reasoning_effort).toBe("high");
   });
 
+  it("with thinking off the effort field disappears; reasoning_content rides on (harmless, per backend contract)", async () => {
+    const h = flagHarness();
+    await h.run(reasoningMsgs, { thinking: { level: "off" } });
+    // No new thinking-shaped field when the level is off...
+    expect(h.calls[0]!.body.reasoning_effort).toBeUndefined();
+    // ...but the round-trip content is still supplied: the flagged
+    // backend requires it whenever prior reasoning exists, thinking
+    // mode or not (DeepSeek/GLM accept the field unconditionally).
+    const messages = h.calls[0]!.body.messages;
+    expect(messages[1].reasoning_content).toBe("prior thought");
+  });
+
+  it("multi-turn: each assistant turn's reasoning lands on its own message index", async () => {
+    const h = flagHarness();
+    await h.run([
+      { role: "user", parts: [{ kind: "text", text: "q1" }] },
+      {
+        role: "assistant",
+        parts: [
+          { kind: "reasoning", text: "thought one" },
+          { kind: "tool_call", callId: "t1", name: "bash", args: {} },
+        ],
+      },
+      { role: "user", parts: [{ kind: "tool_result", callId: "t1", ok: true, output: "out1" }] },
+      {
+        role: "assistant",
+        parts: [
+          { kind: "reasoning", text: "thought two" },
+          { kind: "tool_call", callId: "t2", name: "read", args: {} },
+        ],
+      },
+      { role: "user", parts: [{ kind: "tool_result", callId: "t2", ok: true, output: "out2" }] },
+      { role: "user", parts: [{ kind: "text", text: "wrap up" }] },
+    ]);
+    const messages = h.calls[0]!.body.messages;
+    expect(messages[1].reasoning_content).toBe("thought one");
+    expect(messages[3].reasoning_content).toBe("thought two");
+    for (const i of [0, 2, 4, 5]) {
+      expect(messages[i].reasoning_content).toBeUndefined();
+    }
+  });
+
   it("the opencode-go catalog carries the flag on the reported DeepSeek/GLM entries", () => {
     for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash"]) {
       const overrides = catalogTargetOverrides("opencode", id, "https://opencode.ai/zen/go/v1");
