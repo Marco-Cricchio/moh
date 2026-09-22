@@ -471,8 +471,13 @@ describe("home pins (ctrl+p)", () => {
     const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "title s1");
+    // Lost-first-keystroke race (#637): settle after the render before the
+    // first keystroke — 100ms + a frame, per the tree-panel hardening.
+    await sleep(100);
+    await waitForFrame(frame, "title s1");
     i.stdin.write(PIN);
     await waitForCondition(() => listSessionSummaries(cwd, home)[0].pinned === true, () => "pin never persisted");
+    await sleep(100); // settle across the summaries re-read before the second toggle
     i.stdin.write(PIN);
     await waitForCondition(() => listSessionSummaries(cwd, home)[0].pinned === false, () => "unpin never persisted");
     i.unmount();
