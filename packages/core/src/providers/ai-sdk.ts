@@ -148,15 +148,27 @@ export function languageModelFor(
     // the standard `reasoning_effort` field.
     if (
       target.compat?.thinkingFormat === "openrouter" ||
+      // #895: the compat flag is the generic openai-compat opt-in — a
+      // thinking-capable model whose catalog entry declares no thinking
+      // format (bare opencode-go DeepSeek/GLM entries) still needs the
+      // reasoning round-trip, and the flag says the backend requires it.
+      target.compat?.requiresReasoningContentOnAssistantMessages === true ||
       target.thinkingFormat === "openrouter-effort" ||
       target.thinkingFormat === "openai-effort"
     ) {
+      const openRouterDialect =
+        target.compat?.thinkingFormat === "openrouter" || target.thinkingFormat === "openrouter-effort";
       return openRouterChatModel({
         modelId: target.modelId,
         apiKey,
         ...(baseUrl ? { baseUrl } : {}),
         ...(headers ? { headers } : {}),
-        ...(target.thinkingFormat === "openai-effort" ? { dialect: "openai-compat" } : {}),
+        // The request dialect follows the shape the backend speaks:
+        // OpenRouter's `reasoning: { effort }` only for OpenRouter-marked
+        // models; everything else (declared `openai-effort` or the #895
+        // compat flag) keeps the standard `reasoning_effort` field and
+        // gains the `reasoning_content` re-injection.
+        ...(openRouterDialect ? {} : { dialect: "openai-compat" }),
       });
     }
     return openai.chat(target.modelId);

@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   TRACKER_DIR,
+  defaultRunner,
   ghTracker,
   localMarkdownTracker,
   projectFrontier,
   resolveTracker,
+  resolveTrackerSync,
   trackerTools,
   type ShellRunner,
 } from "../src/tracker";
@@ -167,6 +169,40 @@ describe("resolveTracker", () => {
     );
     expect((await resolveTracker({ cwd: "/tmp", run: runGlab }))?.kind).toBe("gitlab");
     expect(await resolveTracker({ cwd: "/tmp", run: async () => ({ code: 1, stdout: "", stderr: "" }) })).toBeNull();
+  });
+});
+
+describe("git absent from $PATH (minimal server boxes)", () => {
+  test("defaultRunner degrades a missing executable to a failed command instead of throwing", async () => {
+    const res = await defaultRunner(["definitely-not-a-real-binary-moh-test"]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toBe("");
+    expect(res.stderr.length).toBeGreaterThan(0);
+  });
+
+  test("resolveTrackerSync returns null when the git probe cannot spawn (no crash)", () => {
+    // The bug: Bun.spawnSync throws on a missing executable instead of
+    // returning a nonzero exit code, and the throw escaped into the App's
+    // lazy useState, killing the TUI before the first frame. Reproduce it
+    // by pointing the probe at an absolute path that cannot exist — the
+    // exact ENOENT shape a box without git produces. cwd is a fresh temp
+    // dir so the per-cwd memo never answers for us.
+    const cwd = mkdtempSync(join(tmpdir(), "moh-nogit-"));
+    const realSpawnSync = Bun.spawnSync;
+    (Bun as { spawnSync: typeof Bun.spawnSync }).spawnSync = ((cmd: string[], opts?: unknown) => {
+      // Only the git probe is rewritten; anything else keeps real behavior.
+      if (Array.isArray(cmd) && cmd[0] === "git") return realSpawnSync(["/no/such/git/binary"], opts as never);
+      return realSpawnSync(cmd as never, opts as never);
+    }) as typeof Bun.spawnSync;
+    try {
+      const backend = resolveTrackerSync({
+        cwd,
+        run: async () => ({ code: 127, stdout: "", stderr: "git: not found" }),
+      });
+      expect(backend).toBeNull();
+    } finally {
+      (Bun as { spawnSync: typeof Bun.spawnSync }).spawnSync = realSpawnSync;
+    }
   });
 });
 

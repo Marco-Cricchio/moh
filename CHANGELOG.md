@@ -5,6 +5,30 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.45.0] - 2026-09-22
+### Added
+
+- **Wizard: `c` copies the authorize URL** (PR #897): on the provider login
+  screen the `c` binding copies the full authorization URL to the clipboard
+  (extracted from the raw log, never the truncated rendering). A clipboard
+  failure is reported visibly and the URL stays on screen as a manual
+  fallback.
+
+### Fixed
+
+- **Bare thinking-capable chat entries route to the reasoning-aware
+  wrapper** (#895, PR #896): catalog entries that declare
+  `requiresReasoningContentOnAssistantMessages` are now honored when the
+  thinking format is absent — previously only explicit thinking formats
+  reached the wrapper, so the first tool call after a thinking turn failed
+  with "thinking mode requires reasoning_content" on opencode-go. Mapping
+  of multi-turn reasoning indexes and thinking-off behavior are pinned by
+  tests.
+
+- **The tracker probe survives a directory without git** (PR #898): opening
+  moh in a box without a git repository no longer throws from the Frontier
+  tracker probe; the tracker degrades to its no-repo state.
+
 ## [0.44.0] - 2026-09-21
 ### Added
 
@@ -542,7 +566,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...develop
+[0.45.0]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/Marco-Cricchio/moh/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/Marco-Cricchio/moh/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/Marco-Cricchio/moh/compare/v0.41.0...v0.42.0

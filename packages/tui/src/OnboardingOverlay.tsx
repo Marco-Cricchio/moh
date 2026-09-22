@@ -31,7 +31,8 @@ import {
 import { userConfigFile } from "@moh/core";
 import { detectEnvProviders, saveDetectedProvider, saveWizardProvider, saveWizardProviderUser, saveProviderRefProject, profileDiff, wizardSavePlan, readUserWizardEndpoints, projectConfigExists, type EnvCandidate } from "./onboarding";
 import { useTheme } from "./themes";
-import { TuiAuthorizationIo } from "./subscription-io";
+import { TuiAuthorizationIo, latestAuthorizeUrl } from "./subscription-io";
+import { copyToClipboard } from "./clipboard";
 import { Dialog, Dim } from "./ui";
 import { useViewport, windowing } from "./viewport";
 
@@ -86,6 +87,10 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
   const [authKind, setAuthKind] = useState<"api-key" | "subscription">("api-key");
   const [askValue, setAskValue] = useState("");
   const [, setTick] = useState(0);
+  // sub-login: clipboard-copy state for the authorize URL (#672 backend):
+  // null = idle, true = copied, false = copy failed (never left silent).
+  const [urlCopyState, setUrlCopyState] = useState<null | boolean>(null);
+  const copyErrorRef = useRef<string | null>(null);
   const authIo = useRef<TuiAuthorizationIo | null>(null);
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
   const userFile = useMemo(() => userConfigFile(home), [home]);
@@ -219,7 +224,11 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
     if (phase.kind !== "sub-login" || phase.error) return;
     const io = new TuiAuthorizationIo(openUrl);
     authIo.current = io;
-    const unsubscribe = io.subscribe(() => setTick((t) => t + 1));
+    setUrlCopyState(null);
+    const unsubscribe = io.subscribe(() => {
+      setUrlCopyState(null); // a new log line invalidates the outcome
+      setTick((t) => t + 1);
+    });
     let live = true;
     const type = (wizard.type ?? "anthropic") as "anthropic" | "openai" | "google";
     const login =
@@ -336,6 +345,23 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
         }
         const io = authIo.current;
         if (input === "s" && !io?.pendingPrompt) return onDone(null);
+        // Clipboard copy of the full authorize URL (the rendered line is
+        // truncated): 'c' copies while no paste is in progress — once the
+        // user has typed into the code field, 'c' is a literal character.
+        const authorizeUrl = io ? latestAuthorizeUrl(io.log) : null;
+        if (input === "c" && !key.ctrl && !key.meta && authorizeUrl && !(io?.pendingPrompt && askValueRef.current !== "")) {
+          // The outcome is surfaced, never swallowed: a failed copy leaves
+          // the truncated render as the only source of the URL, which the
+          // user must know (OSC 52 terminals may ignore the write).
+          void copyToClipboard(authorizeUrl).then(
+            () => setUrlCopyState(true),
+            (err: unknown) => {
+              copyErrorRef.current = err instanceof Error ? err.message : String(err);
+              setUrlCopyState(false);
+            },
+          );
+          return;
+        }
         if (io?.pendingPrompt) {
           if (key.escape) {
             io.answer(""); // empty line terminates a multi-line paste
@@ -517,6 +543,23 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
               {(authIo.current?.log ?? []).slice(-Math.max(3, budget - 4)).map((line, idx) => (
                 <Text key={idx} wrap="truncate-middle">{` ${line}`}</Text>
               ))}
+              {(() => {
+                const url = authIo.current ? latestAuthorizeUrl(authIo.current.log) : null;
+                if (!url) return null;
+                if (urlCopyState === true) {
+                  return <Text color={theme.ok}>✓ authorize URL copied to the clipboard</Text>;
+                }
+                if (urlCopyState === false) {
+                  // Visible failure: the user still has the (truncated)
+                  // rendered line — copy did not happen.
+                  return (
+                    <Text color={theme.warn}>
+                      ✗ clipboard copy failed{copyErrorRef.current ? ` (${copyErrorRef.current})` : ""} — widen the terminal or copy the URL manually
+                    </Text>
+                  );
+                }
+                return <Dim>c copy the authorize URL to the clipboard</Dim>;
+              })()}
               <Text> </Text>
               {pendingPrompt ? (
                 <>

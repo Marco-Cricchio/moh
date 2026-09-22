@@ -37,6 +37,20 @@ interface PendingAsk {
 }
 
 /**
+ * Last standalone URL line in an AuthorizationIo log (the authorize URLs
+ * the core emits on their own line). The rendered line can be wider than
+ * the dialog (`truncate-middle`), so the overlay offers a clipboard copy
+ * of the full URL instead — this helper finds it in the raw log.
+ */
+export function latestAuthorizeUrl(lines: readonly string[]): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const match = /^\s*(https?:\/\/\S+)\s*$/.exec(lines[i]!);
+    if (match) return match[1]!;
+  }
+  return null;
+}
+
+/**
  * The overlay-backed `AuthorizationIo`. The overlay re-renders on every
  * `notify` (new info line or pending-prompt change) and calls `answer`
  * on enter. One instance per login attempt.

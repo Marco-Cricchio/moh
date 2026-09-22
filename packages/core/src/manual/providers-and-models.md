@@ -22,7 +22,12 @@ The wizard first asks **API key or subscription**. A subscription login
 OAuth flow and stores its tokens in `~/.moh/config` — never in
 moh.json, never in logs. `moh provider login <name>` re-establishes
 tokens, `moh provider logout <name>` drops them, `moh provider status`
-shows per-endpoint auth state and plan usage.
+shows per-endpoint auth state and plan usage. On the wizard's login
+screen the authorize URL can be wider than the dialog (the rendered line
+is truncated); press `c` to copy the full URL to the clipboard and open
+it in a browser. If the terminal refuses the clipboard write (OSC 52 may
+be ignored), the login screen says so instead of failing silently — the
+URL line stays on screen as the manual fallback.
 
 ## Endpoints and routing
 
