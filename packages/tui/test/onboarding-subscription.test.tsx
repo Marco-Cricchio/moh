@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TOS_WARNING, getStoredToken, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
+import { clipboardBackend } from "../src/clipboard";
 import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
@@ -30,6 +31,17 @@ const scriptedLogin = async (io: AuthorizationIo, code = "CODE-123"): Promise<Au
   await io.info("✓ Authorization code received — exchanging tokens…");
   if (pasted !== code) throw new Error("authorization failed: invalid code");
   return TOKEN;
+};
+
+/** A scripted grant that never reaches the paste prompt: browser-opened
+ * path stuck waiting for the callback (where `c` is bound with no
+ * prompt on screen). */
+const browserWaitingLogin = async (io: AuthorizationIo): Promise<AuthToken> => {
+  await io.info("Authorize via:\n  https://provider.example/oauth/manual");
+  if (!io.openUrl) throw new Error("no openUrl");
+  await io.openUrl("https://provider.example/oauth/auto");
+  await io.info("Waiting for the browser to complete the authorization…");
+  return new Promise(() => {}); // never settles within the test
 };
 
 
@@ -142,6 +154,144 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       expect(frame).not.toContain("rt-secret-value");
     }
     i.unmount();
+  });
+
+  test("'c' copies the full authorize URL to the clipboard (manual path, paste prompt pending)", async () => {
+    const writes: string[] = [];
+    clipboardBackend({ kind: "binary", write: async (t) => { writes.push(t); } });
+    try {
+      const i = render(
+        <Onboarding
+          cwd={tempCwd()}
+          home={tempHome()}
+          env={{}}
+          tester={okTester}
+          subscriptionLogin={async (io) => scriptedLogin(io)}
+          openUrl={async () => true}
+          onDone={() => {}}
+        />,
+      );
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      await waitForFrame(frame, "Pick a provider type");
+      i.stdin.write("\r");
+      await waitForFrame(frame, "How does anthropic authenticate?");
+      i.stdin.write("\x1b[B\r");
+      await waitForFrame(frame, "Terms of service");
+      i.stdin.write("y");
+      await waitForFrame(frame, "Paste code here");
+      // Hint is visible next to the (possibly truncated) URL line.
+      await waitForFrame(frame, "c copy the authorize URL to the clipboard");
+      expect(writes).toEqual([]); // nothing copied until asked
+      i.stdin.write("c");
+      await waitForFrame(frame, "✓ authorize URL copied to the clipboard");
+      // The copy carries the full URL from the log — never the truncated
+      // render or dialog chrome.
+      expect(writes).toEqual(["https://provider.example/oauth/manual"]);
+      i.unmount();
+    } finally {
+      clipboardBackend(null);
+    }
+  });
+
+  test("'c' is a literal character once the user has typed into the code field", async () => {
+    const writes: string[] = [];
+    clipboardBackend({ kind: "binary", write: async (t) => { writes.push(t); } });
+    try {
+      const i = render(
+        <Onboarding
+          cwd={tempCwd()}
+          home={tempHome()}
+          env={{}}
+          tester={okTester}
+          subscriptionLogin={async (io) => scriptedLogin(io, "XCcODE") }
+          openUrl={async () => true}
+          onDone={() => {}}
+        />,
+      );
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      await waitForFrame(frame, "Pick a provider type");
+      i.stdin.write("\r");
+      await waitForFrame(frame, "How does anthropic authenticate?");
+      i.stdin.write("\x1b[B\r");
+      await waitForFrame(frame, "Terms of service");
+      i.stdin.write("y");
+      await waitForFrame(frame, "Paste code here");
+      i.stdin.write("X");
+      await waitForFrame(frame, "› *");
+      // askValue is non-empty: 'c' must type, not copy.
+      i.stdin.write("c");
+      await sleep(50);
+      expect(writes).toEqual([]);
+      expect(frame()).toContain("› **"); // masked input grew by one character
+      i.unmount();
+    } finally {
+      clipboardBackend(null);
+    }
+  });
+
+  test("'c' surfaces a failed clipboard copy instead of failing silently", async () => {
+    clipboardBackend({ kind: "binary", write: async () => { throw new Error("no clipboard"); } });
+    try {
+      const i = render(
+        <Onboarding
+          cwd={tempCwd()}
+          home={tempHome()}
+          env={{}}
+          tester={okTester}
+          subscriptionLogin={async (io) => scriptedLogin(io)}
+          openUrl={async () => true}
+          onDone={() => {}}
+        />,
+      );
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      await waitForFrame(frame, "Pick a provider type");
+      i.stdin.write("\r");
+      await waitForFrame(frame, "How does anthropic authenticate?");
+      i.stdin.write("\x1b[B\r");
+      await waitForFrame(frame, "Terms of service");
+      i.stdin.write("y");
+      await waitForFrame(frame, "Paste code here");
+      i.stdin.write("c");
+      await waitForFrame(frame, "clipboard copy failed (no clipboard)");
+      // The failure line keeps the URL visible as the manual fallback.
+      expect(frame()).toContain("https://provider.example/oauth/manual");
+      expect(frame()).not.toContain("✓ authorize URL copied");
+      i.unmount();
+    } finally {
+      clipboardBackend(null);
+    }
+  });
+
+  test("'c' copies while waiting for the browser (no paste prompt on screen)", async () => {
+    const writes: string[] = [];
+    clipboardBackend({ kind: "binary", write: async (t) => { writes.push(t); } });
+    try {
+      const i = render(
+        <Onboarding
+          cwd={tempCwd()}
+          home={tempHome()}
+          env={{}}
+          tester={okTester}
+          subscriptionLogin={async (io) => browserWaitingLogin(io)}
+          openUrl={async () => true}
+          onDone={() => {}}
+        />,
+      );
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      await waitForFrame(frame, "Pick a provider type");
+      i.stdin.write("\r");
+      await waitForFrame(frame, "How does anthropic authenticate?");
+      i.stdin.write("\x1b[B\r");
+      await waitForFrame(frame, "Terms of service");
+      i.stdin.write("y");
+      await waitForFrame(frame, "Waiting for the browser");
+      i.stdin.write("c");
+      await waitForFrame(frame, "✓ authorize URL copied to the clipboard");
+      expect(writes).toEqual(["https://provider.example/oauth/manual"]);
+      i.unmount();
+    } finally {
+      clipboardBackend(null);
+    }
   });
 
   test("endpoint stub is persisted immediately after login, before the model prompt", async () => {
