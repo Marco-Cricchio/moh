@@ -738,25 +738,24 @@ export function listSessionSummaries(
       let title = "(unreadable session)";
       let displayName: string | null = null;
       let pinned = false;
+      let consumed = false;
       try {
+        // One full JSONL parse supplies every listing projection. The old
+        // form parsed the same log again just to read `consumed`, making a
+        // large Home session directory pay roughly 2× its necessary I/O.
         const peek = peekSession(store.file);
         title = peek.title;
         displayName = peek.displayName;
         pinned = peek.pinned;
+        consumed = peek.consumed;
       } catch {
-        // keep placeholder
+        // keep the unreadable projection; listings never crash on user data
       }
       let mtimeMs = 0;
       try {
         mtimeMs = statSync(store.file).mtimeMs;
       } catch {
         // keep 0
-      }
-      let consumed = false;
-      try {
-        consumed = peekSession(store.file).consumed;
-      } catch {
-        // unreadable: keep false (placeholder title keeps it out of the banner)
       }
       return {
         file: store.file,

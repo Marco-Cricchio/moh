@@ -9,7 +9,7 @@ import { Home } from "../src/Home";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { MockProvider, createSession, SessionStore } from "@moh/core";
-import { actUntilFrame, stripAnsi, unwrap, waitForFrame } from "./helpers";
+import { actUntilFrame, stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-smoke-"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -118,6 +118,10 @@ describe("home smoke", () => {
         }}
        
       />,
+    );
+    await waitForCondition(
+      () => stripAnsi(i.lastFrame() ?? "").includes("fix the login page"),
+      () => "Home never completed its deferred session projection",
     );
     let frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("fix the login page");

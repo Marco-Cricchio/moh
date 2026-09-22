@@ -224,7 +224,11 @@ export function App({
     // Direct chat/resume paths must remain transparent: they have no Home
     // screen on which to make the first-run choice, and existing history
     // proves this is not a new project on this machine.
-    if (skipOnboarding || needsOnboarding || startInChat || listSessionSummaries(cwd, home).length > 0) return false;
+    // This gate only needs to know whether a local session file exists —
+    // parsing every JSONL summary here blocked Home's first paint on large
+    // projects. The spawn-free store listing preserves the predicate without
+    // reading session contents.
+    if (skipOnboarding || needsOnboarding || startInChat || SessionStore.listSpawnFree(cwd, home).length > 0) return false;
     try {
       const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
       return handoff?.transport === undefined && handoff?.onboarding === undefined;

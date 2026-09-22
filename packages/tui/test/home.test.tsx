@@ -371,6 +371,8 @@ describe("session delete (#478)", () => {
     const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "title s1");
+    await sleep(100); // list effect committed; avoid the #637 first-key race
+    await waitForFrame(frame, "title s1");
     i.stdin.write("\x04");
     await waitForFrame(frame, "Delete?");
     // Default No: enter cancels, the row stays.
@@ -390,6 +392,8 @@ describe("session delete (#478)", () => {
     const { cwd, home } = await homeWithSessions(1);
     const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "title s1");
+    await sleep(100);
     await waitForFrame(frame, "title s1");
     i.stdin.write("\x04");
     await waitForFrame(frame, "Delete?");
@@ -485,7 +489,7 @@ describe("home logo intro", () => {
     // After ~3s (2.8s animation + settle delay) the banner appears with
     // the list below it.
     await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled into the banner", { timeoutMs: 6000 });
-    expect(frame()).toContain("title s1");
+    await waitForFrame(frame, "title s1", { timeoutMs: 6000 });
     i.unmount();
   }, 10000);
 
@@ -497,7 +501,7 @@ describe("home logo intro", () => {
     expect(frame()).not.toContain("My Own Harness");
     i.stdin.write(" "); // skip
     await waitForCondition(() => frame().includes("My Own Harness"), () => "keystroke never skipped the intro", { timeoutMs: 6000 });
-    expect(frame()).toContain("title s1");
+    await waitForFrame(frame, "title s1", { timeoutMs: 6000 });
     i.unmount();
   }, 10000);
 
