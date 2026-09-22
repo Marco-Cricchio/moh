@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
@@ -329,11 +329,13 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // skips). One random style per Home mount. `intro={false}` (tests)
   // starts settled.
   const [intro, setIntro] = useState(introEnabled);
+  // Stable identity: LogoIntro's settle effect depends on this callback.
+  const skipIntro = useCallback(() => setIntro(false), []);
 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
       {intro ? (
-        <LogoIntro onSkip={() => setIntro(false)} />
+        <LogoIntro onSkip={skipIntro} />
       ) : (
         <>
           <Logo banner={banner} version={banner ? version : undefined} />
