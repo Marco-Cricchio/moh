@@ -381,7 +381,11 @@ describe("#776: per-hop redirect re-check", () => {
 
   test("a redirect hop bouncing a public URL into private space is caught", async () => {
     const fake = fakePlaywright({});
-    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    const session = new BrowserSession({
+      home: mkdtempSync(join(tmpdir(), "moh-browser-")),
+      playwright: fake,
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    });
     await session.navigate("http://localhost:3000");
     const handler = fake.page.routeInterceptor! as (route: ReturnType<typeof routeObj>) => Promise<void>;
     const hop = routeObj("http://example.com/");
