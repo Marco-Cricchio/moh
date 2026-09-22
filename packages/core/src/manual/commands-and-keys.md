@@ -66,8 +66,9 @@ page is the same content in manual form, plus the manual's own entries
 | enter | open selection / start the typed prompt |
 | n | new session |
 | o | resume from another machine (cold-start wizard: pick a published handoff, clone, pull, open the seeded session) |
-| r / → | rename the selected session (enter confirm, empty = reset, esc cancel) |
-| d | delete the selected session (y/N confirm; moves it to the trash) |
+| ctrl+r / → | rename the selected session (enter confirm, empty = reset, esc cancel) |
+| ctrl+d | delete the selected session (y/N confirm; moves it to the trash) |
+| ctrl+p | pin/unpin the selected session (pinned rows float to the top, 📌) |
 | s | settings panel |
 | ? | this command list |
 

@@ -719,6 +719,8 @@ export interface SessionSummary {
    * suggestible again.
    */
   consumed: boolean;
+  /** True when the LAST `session_pinned` in the log says pinned (#Home pins). */
+  pinned: boolean;
 }
 
 /**
@@ -735,10 +737,12 @@ export function listSessionSummaries(
     .map((store) => {
       let title = "(unreadable session)";
       let displayName: string | null = null;
+      let pinned = false;
       try {
         const peek = peekSession(store.file);
         title = peek.title;
         displayName = peek.displayName;
+        pinned = peek.pinned;
       } catch {
         // keep placeholder
       }
@@ -762,6 +766,7 @@ export function listSessionSummaries(
         derivedTitle: title,
         mtimeMs,
         consumed,
+        pinned,
       };
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -773,6 +778,8 @@ interface SessionPeek {
   displayName: string | null;
   title: string;
   consumed: boolean;
+  /** The LAST `session_pinned` pinned flag; false when never pinned. */
+  pinned: boolean;
 }
 
 /**
@@ -790,6 +797,7 @@ function peekSession(file: string): SessionPeek {
   const events: AgentEvent[] = [];
   let title: string | null = null;
   let displayName: string | null = null;
+  let pinned = false;
   for (const line of raw.split("\n")) {
     if (line.trim() === "") continue;
     let event: AgentEvent;
@@ -806,6 +814,9 @@ function peekSession(file: string): SessionPeek {
     // reset — the override clears and the derived title shows again.
     if (event.type === "session_renamed") {
       displayName = event.name === "" ? null : event.name;
+    }
+    if (event.type === "session_pinned") {
+      pinned = event.pinned;
     }
     events.push(event);
   }
@@ -827,6 +838,7 @@ function peekSession(file: string): SessionPeek {
     displayName,
     title: title ?? "(empty session)",
     consumed: lastResumedIdx > lastTurnIdx,
+    pinned,
   };
 }
 
@@ -849,6 +861,23 @@ export function renameSession(file: string, name: string): void {
   }
   const trimmed = name.trim();
   appendFileSync(file, JSON.stringify(stampEvent({ type: "session_renamed", name: trimmed }, file)) + "\n");
+}
+
+/**
+ * Home pin: appends a `session_pinned` chrome event to the session's log
+ * (same append-only discipline as `renameSession` — resume and fork carry
+ * the state for free). The LAST `session_pinned` wins; toggling appends a
+ * new event either way, so unpinning is history, not deletion. `file`
+ * must be an existing session file.
+ */
+export function setSessionPinned(file: string, pinned: boolean): void {
+  if (!existsSync(file)) {
+    throw new Error(`setSessionPinned: session file not found: ${file}`);
+  }
+  if (!isSessionFile(basename(file))) {
+    throw new Error(`setSessionPinned: not a session file: ${basename(file)}`);
+  }
+  appendFileSync(file, JSON.stringify(stampEvent({ type: "session_pinned", pinned }, file)) + "\n");
 }
 
 /**

@@ -37,7 +37,7 @@ pointer on the path travels with it).
 A session can carry a **display name**: a permanent override of the
 derived title (the first message), shown in the home picker and used by
 the search — which matches both the display name and the original
-derived title. Rename from the home screen with `r` or → on a selected
+derived title. Rename from the home screen with `ctrl+r` or → on a selected
 session row (the pertinent banner included): edit the prefilled name,
 enter confirms, esc cancels, enter on an empty name resets to the
 derived title. In an open session, `ctrl+r` opens a rename editor (empty resets,
@@ -46,6 +46,17 @@ esc cancels); `/rename <name>` sets the same display name. From the CLI:
 a chrome event in the log — resume,
 fork (it is inherited) and compaction carry it for free — and it never
 touches file names or slugs.
+
+## Pins
+
+A session can be **pinned** from the home screen with `ctrl+p` on a
+selected row (the pertinent banner included). Pinned sessions float to
+the top of the list (ordered among themselves by recency, then the
+unpinned ones) and carry a 📌 marker; pressing `ctrl+p` again unpins.
+The pinned state is a chrome event in the log — the last
+`session_pinned` wins — so resume, fork (it is inherited) and
+compaction carry it for free. It is home-screen presentation only: it
+never affects the pertinent-session suggestion or session data.
 
 ## The session tree (/tree)
 
