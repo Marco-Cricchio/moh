@@ -224,11 +224,14 @@ export function App({
     // Direct chat/resume paths must remain transparent: they have no Home
     // screen on which to make the first-run choice, and existing history
     // proves this is not a new project on this machine.
-    // This gate only needs to know whether a local session file exists —
-    // parsing every JSONL summary here blocked Home's first paint on large
-    // projects. The spawn-free store listing preserves the predicate without
-    // reading session contents.
-    if (skipOnboarding || needsOnboarding || startInChat || SessionStore.listSpawnFree(cwd, home).length > 0) return false;
+    // This gate only asks whether a local session file exists. Both listing
+    // seams answer with the same identity-resolved directory; the store
+    // listing skips the JSONL parse `listSessionSummaries` does (57ms vs
+    // 2.4s on a 677-session project), which used to block Home's first
+    // paint. `listSpawnFree` is NOT usable here: it resolves the legacy
+    // path-derived slug, and its docstring's precondition (a cold-directory
+    // gate already returned false) does not hold in this branch.
+    if (skipOnboarding || needsOnboarding || startInChat || SessionStore.list(cwd, home).length > 0) return false;
     try {
       const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
       return handoff?.transport === undefined && handoff?.onboarding === undefined;
