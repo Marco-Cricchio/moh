@@ -14,7 +14,7 @@ const frame = (i: { lastFrame(): string | undefined }) => () => stripAnsi(i.last
 
 function mount() {
   return render(
-    <App cwd={process.cwd()} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />,
+    <App intro={false} cwd={process.cwd()} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />,
     // ink-testing-library renders with exitOnCtrlC: false — the production
     // setting — so App's own ctrl+c handler is what receives \x03 here.
   );

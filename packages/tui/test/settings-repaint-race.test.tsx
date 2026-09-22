@@ -31,7 +31,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["HISTMARKER historical reasoning"] }, deltas: ["ANSWERMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     // The alternate-screen choreography is TTY-gated; the harness stdout
     // reports as non-TTY unless marked here.
     Object.defineProperty(i.stdout, "isTTY", { value: true });
@@ -93,7 +93,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["HISTMARKER historical reasoning"] }, deltas: ["ANSWERMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "isTTY", { value: true });
     await sleep(50);
     i.stdin.write("hello");
@@ -133,7 +133,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["HISTMARKER historical reasoning"] }, deltas: ["ANSWERMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "isTTY", { value: true });
     await sleep(50);
     i.stdin.write("hello");

@@ -36,7 +36,7 @@ describe("growth banner keep-my-branch (#581)", () => {
     const originalFile = store.file!;
 
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     try {
       await waitForFrame(frame, "▸");

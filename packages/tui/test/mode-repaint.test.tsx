@@ -17,7 +17,7 @@ describe("mode switch repaints the transcript (#201)", () => {
       { deltas: ["answer two"], finish: "stop", usage: { inputTokens: 200, outputTokens: 20 } },
     ]);
     const i = render(
-      <App cwd={process.cwd()} home={mkdtempSync(join(tmpdir(), "moh-rep-"))} provider={provider} startInChat skipOnboarding />,
+      <App intro={false} cwd={process.cwd()} home={mkdtempSync(join(tmpdir(), "moh-rep-"))} provider={provider} startInChat skipOnboarding />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // Settled turns promote through Static and leave the volatile frame,

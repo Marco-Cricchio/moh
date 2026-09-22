@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
 import { Accent, Dim, Footer, Logo, truncate, formatCount } from "./ui";
+import { LogoIntro } from "./LogoIntro";
 import {
   HOME_LIST_DEFAULT,
   homeBannerFits,
@@ -129,6 +130,8 @@ export interface HomeProps {
   onOpenColdWizard?: () => void;
   /** Version shown under the logo (#292; defaults to MOH_VERSION). */
   version?: string;
+  /** Startup logo intro (default on); tests pass false for a static frame. */
+  intro?: boolean;
 }
 
 /**
@@ -138,7 +141,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, intro: introEnabled = true }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -321,10 +324,20 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     }
   });
 
+  // Startup intro: a random ASCII animation of the logo plays before the
+  // home content; it settles into the logo's exact spot (~3s, any key
+  // skips). One random style per Home mount. `intro={false}` (tests)
+  // starts settled.
+  const [intro, setIntro] = useState(introEnabled);
+
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
-      <Logo banner={banner} version={banner ? version : undefined} />
-      <Text> </Text>
+      {intro ? (
+        <LogoIntro onSkip={() => setIntro(false)} />
+      ) : (
+        <>
+          <Logo banner={banner} version={banner ? version : undefined} />
+          <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
         {renaming ? (
@@ -403,6 +416,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       <Text> </Text>
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       {skillUpdateCount > 0 ? <Text color={theme.warn}>{skillUpdateNoticeText(skillUpdateCount)}</Text> : null}
+        </>
+      )}
       <Footer
         keys={
           (banner ? "" : `v${version} · `) +

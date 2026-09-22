@@ -42,7 +42,7 @@ describe("cross-machine continuity, TUI surface (#402)", () => {
     // shared home carries skills metadata; skip onboarding like the CLI
     // would on a configured machine.
     const provider = MockProvider.scripted([{ deltas: ["picking up where we left off"], finish: "stop" }]);
-    const i = render(<App cwd={rootB} home={home} provider={provider} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={rootB} home={home} provider={provider} env={{}} skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       // Yesterday's session is listed despite the different checkout path.

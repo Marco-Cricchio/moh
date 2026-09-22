@@ -173,7 +173,7 @@ describe("open-turn scrollback is scrollable mid-turn (#194)", () => {
       // Long slow final reply: the turn stays pending well after the tool result settled.
       { deltas: Array.from({ length: 30 }, (_, i) => `streaming-word-${i} `), deltaDelayMs: 40, finish: "stop" },
     ]);
-    const app = <App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />;
+    const app = <App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />;
     const ink = render(app);
     Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
     Object.defineProperty(ink.stdout, "rows", { value: 40, configurable: true });

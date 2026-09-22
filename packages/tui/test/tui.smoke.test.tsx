@@ -109,6 +109,7 @@ describe("home smoke", () => {
 
     const i = render(
       <Home
+        intro={false}
         cwd={cwd}
         home={home}
         mode="vibe"
@@ -130,7 +131,7 @@ describe("home smoke", () => {
 
   test("App: enter on the new-session row opens a chat and sends the prompt", async () => {
     const provider = MockProvider.scripted([{ deltas: ["hello there"], finish: "stop" }]);
-    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} skipOnboarding />);
+    const i = render(<App intro={false} cwd={process.cwd()} home={tempHome()} provider={provider} skipOnboarding />);
     i.stdin.write("greet me");
     await sleep(20);
     await sleep(50);
@@ -153,7 +154,7 @@ describe("home smoke", () => {
     await persisted.send("fix the login page");
 
     const provider = MockProvider.scripted([{ deltas: ["done!"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     expect(frameText()).not.toContain("session handoff");
     await waitForFrame(frameText, "workflow mode");
@@ -185,7 +186,7 @@ describe("home smoke", () => {
 
   test("App: ctrl+o switches vibe ↔ dev in session (regression: ctrl+m is \\r, indistinguishable from Enter)", async () => {
     const provider = MockProvider.demo();
-    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={process.cwd()} home={tempHome()} provider={provider} startInChat skipOnboarding />);
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
     i.stdin.write("\x0f");
@@ -203,7 +204,7 @@ describe("home smoke", () => {
       { deltas: ["second answer"], finish: "stop", usage: { inputTokens: 200, outputTokens: 40 } },
       { deltas: ["third answer"], finish: "stop", usage: { inputTokens: 300, outputTokens: 50 } },
     ]);
-    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={process.cwd()} home={tempHome()} provider={provider} startInChat skipOnboarding />);
     await sleep(30);
     i.stdin.write("one");
     await sleep(20);
@@ -241,7 +242,7 @@ describe("home smoke", () => {
 
   test("App: ctrl+t switches theme (remount), footer label follows", async () => {
     const provider = MockProvider.demo();
-    const i = render(<App cwd={process.cwd()} home={tempHome()} provider={provider} />);
+    const i = render(<App intro={false} cwd={process.cwd()} home={tempHome()} provider={provider} />);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Tokyo Night");
     i.stdin.write("\x14"); // ctrl+t
     await sleep(50);
@@ -258,7 +259,7 @@ describe("visible assembly error (#100, ADR-0005)", () => {
     const home = mkdtempSync(join(tmpdir(), "moh-tui-broken-h-"));
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "no-such-endpoint/model" }));
-    const i = render(<App cwd={cwd} home={home} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} startInChat skipOnboarding />);
     await sleep(120);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("session error (provider)");

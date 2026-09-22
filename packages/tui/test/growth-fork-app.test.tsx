@@ -37,7 +37,7 @@ describe("detect-and-fork (#468)", () => {
     const originalBytes = readFileSync(originalFile, "utf8");
 
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       // The pertinent session (unconsumed) is suggested as the pre-selected

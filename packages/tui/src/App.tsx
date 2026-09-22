@@ -101,6 +101,8 @@ export interface AppProps {
   initialTheme?: ThemeRef;
   /** Skip first-run onboarding (tests, CLI flags). */
   skipOnboarding?: boolean;
+  /** Disable the home logo intro (tests; default on). */
+  intro?: boolean;
   /** Environment for onboarding env-detection (tests inject a clean map;
    * default is the real process.env — #236: without this seam a machine with
    * provider keys in the environment makes every "first run" test see the
@@ -137,6 +139,7 @@ export function App({
   initialMode,
   initialTheme,
   skipOnboarding,
+  intro: introEnabled = true,
   env,
   verifyHandoffGh,
   version,
@@ -1361,6 +1364,7 @@ export function App({
             cwd={cwd}
             home={home}
             mode={mode}
+            intro={introEnabled}
             onOpen={open}
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}

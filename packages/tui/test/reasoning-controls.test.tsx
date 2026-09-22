@@ -85,7 +85,7 @@ describe("reasoning display and controls (#242)", () => {
       name: "custom-provider",
       async *stream() { yield { type: "finish" as const, reason: "stop" as const }; },
     };
-    const ui = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const ui = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     await sleep(50);
     expect(stripAnsi(ui.lastFrame() ?? "")).toContain("provider-exposed reasoni");
     expect(loadUserConfig(join(home, ".moh", "config")).reasoningNoticeShown).toBe(true);
@@ -109,7 +109,7 @@ describe("reasoning display and controls (#242)", () => {
         yield { type: "finish", reason: "stop" };
       },
     };
-    const ui = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const ui = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     await sleep(50);
     const frame = stripAnsi(ui.lastFrame() ?? "");
     expect(frame).toContain("provider-exposed reasoni"); // width-capped status projection
