@@ -347,3 +347,107 @@ describe("#873 bug 2: reasoning_content re-injection (openai-compat dialect)", (
     expect(messages.every((m: { reasoning_content?: unknown }) => m.reasoning_content === undefined)).toBe(true);
   });
 });
+
+describe("#895: bare thinking-capable entries route to the openai-compat dialect", () => {
+  /** A catalog entry with no thinking format at all (bare opencode-go
+   * DeepSeek/GLM entries) that declares only
+   * `requiresReasoningContentOnAssistantMessages` must reach the same
+   * re-injecting wrapper: the backend requires the reasoning round-trip
+   * whenever `reasoning_effort` is sent. */
+  const reasoningMsgs: Message[] = [
+    { role: "user", parts: [{ kind: "text", text: "hi" }] },
+    {
+      role: "assistant",
+      parts: [
+        { kind: "reasoning", text: "prior thought" },
+        { kind: "tool_call", callId: "c1", name: "bash", args: {} },
+      ],
+    },
+    { role: "user", parts: [{ kind: "tool_result", callId: "c1", ok: true, output: "ok" }] },
+    { role: "user", parts: [{ kind: "text", text: "continue" }] },
+  ];
+  const okStream = [
+    chunk({ role: "assistant", content: "ok" }, { finish_reason: "stop", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+    doneEvent,
+  ];
+
+  function flagHarness() {
+    const calls: FetchCall[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      calls.push({ url: typeof input === "string" ? input : input.url, body: JSON.parse(String(init?.body)) });
+      return sseResponse(okStream);
+    }) as typeof fetch;
+    const restore = () => {
+      globalThis.fetch = originalFetch;
+    };
+    // Bare target: no thinkingFormat declared anywhere — only the compat
+    // flag from the catalog entry.
+    const target: RouteTarget = {
+      endpoint: new Endpoint({ name: "oc-go", kind: "opencode", apiKey: "k", baseUrl: "https://opencode.ai/zen/go/v1" }),
+      modelId: "deepseek-v4.1-flash",
+      wire: "openai-chat",
+      compat: { requiresReasoningContentOnAssistantMessages: true },
+    };
+    const stream = aiSdkStreamFor(target, "k", undefined);
+    return {
+      calls,
+      restore,
+      run: async (messages: Message[], options?: import("../src/types").StreamOptions): Promise<StreamEvent[]> => {
+        const events: StreamEvent[] = [];
+        try {
+          for await (const e of stream(messages, new AbortController().signal, undefined, options)) events.push(e);
+        } finally {
+          restore();
+        }
+        return events;
+      },
+    };
+  }
+
+  it("re-injects reasoning_content on the assistant message even when tool calls follow it", async () => {
+    const h = flagHarness();
+    await h.run(reasoningMsgs);
+    const messages = h.calls[0]!.body.messages;
+    // Assistant index 1 (user, assistant, tool, user) gets the round-trip.
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].reasoning_content).toBe("prior thought");
+  });
+
+  it("keeps the standard reasoning_effort field (openai-compat request dialect)", async () => {
+    const h = flagHarness();
+    await h.run(reasoningMsgs, { thinking: { level: "high" } });
+    expect(h.calls[0]!.body.reasoning_effort).toBe("high");
+  });
+
+  it("the opencode-go catalog carries the flag on the reported DeepSeek/GLM entries", () => {
+    for (const id of ["deepseek-v4.1-flash", "glm-5.3-flash"]) {
+      const overrides = catalogTargetOverrides("opencode", id, "https://opencode.ai/zen/go/v1");
+      expect(overrides.compat?.requiresReasoningContentOnAssistantMessages).toBe(true);
+    }
+    // Non-flagged models stay bare.
+    const kimi = catalogTargetOverrides("opencode", "kimi-k2.6", "https://opencode.ai/zen/go/v1");
+    expect(kimi.compat).toBeUndefined();
+  });
+
+  it("a target without the flag and without a declared format is untouched (stock adapter)", async () => {
+    const calls: FetchCall[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      calls.push({ url: "u", body: JSON.parse(String(init?.body)) });
+      return sseResponse(okStream);
+    }) as typeof fetch;
+    try {
+      const target: RouteTarget = {
+        endpoint: new Endpoint({ name: "plain", kind: "openai", apiKey: "k" }),
+        modelId: "m",
+      };
+      const stream = aiSdkStreamFor(target, "k", undefined);
+      for await (const _ of stream(reasoningMsgs, new AbortController().signal)) void _;
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const messages = calls[0]!.body.messages;
+    expect(messages.every((m: { reasoning_content?: unknown }) => m.reasoning_content === undefined)).toBe(true);
+  });
+});
