@@ -493,3 +493,71 @@ describe("#895: bare thinking-capable entries route to the openai-compat dialect
     expect(messages.every((m: { reasoning_content?: unknown }) => m.reasoning_content === undefined)).toBe(true);
   });
 });
+
+describe("#895 residue: thinking-on turns without persisted reasoning still round-trip", () => {
+  /** The model produced no reasoning on the previous turn (observed live
+   * on opencode-go), so there is nothing to re-inject — but strict
+   * upstreams behind the aggregator still require `reasoning_content` on
+   * the tool-call assistant message whenever thinking is on. An empty
+   * string satisfies them and is ignored by permissive ones. */
+  const noReasoningMsgs: Message[] = [
+    { role: "user", parts: [{ kind: "text", text: "hi" }] },
+    {
+      role: "assistant",
+      parts: [{ kind: "tool_call", callId: "c1", name: "bash", args: {} }],
+    },
+    { role: "user", parts: [{ kind: "tool_result", callId: "c1", ok: true, output: "ok" }] },
+  ];
+  const target: RouteTarget = {
+    endpoint: new Endpoint({ name: "oc-go", kind: "opencode", apiKey: "k", baseUrl: "https://opencode.ai/zen/go/v1" }),
+    modelId: "deepseek-v4.1-flash",
+    wire: "openai-chat",
+    compat: { requiresReasoningContentOnAssistantMessages: true },
+  };
+
+  const okStreamLocal = [
+    chunk({ role: "assistant", content: "ok" }, { finish_reason: "stop", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+    doneEvent,
+  ];
+
+  function noReasoningHarness() {
+    const calls: FetchCall[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: any, init?: RequestInit) => {
+      calls.push({ url: String(_input), body: JSON.parse(String(init?.body)) });
+      return sseResponse(okStreamLocal);
+    }) as typeof fetch;
+    const restore = () => {
+      globalThis.fetch = originalFetch;
+    };
+    const stream = aiSdkStreamFor(target, "k", undefined);
+    return {
+      calls,
+      restore,
+      run: async (options?: import("../src/types").StreamOptions): Promise<void> => {
+        try {
+          for await (const _e of stream(noReasoningMsgs, new AbortController().signal, undefined, options)) {
+            // drain
+          }
+        } finally {
+          restore();
+        }
+      },
+    };
+  }
+
+  it("fills reasoning_content with an empty string on the tool-call assistant message", async () => {
+    const h = noReasoningHarness();
+    await h.run({ thinking: { level: "high" } });
+    const messages = h.calls[0]!.body.messages;
+    const assistant = messages.find((m: { role: string }) => m.role === "assistant");
+    expect(assistant.reasoning_content).toBe("");
+  });
+
+  it("thinking off: no reasoning_content is added at all", async () => {
+    const h = noReasoningHarness();
+    await h.run();
+    const messages = h.calls[0]!.body.messages;
+    expect(messages.every((m: { reasoning_content?: unknown }) => m.reasoning_content === undefined)).toBe(true);
+  });
+});

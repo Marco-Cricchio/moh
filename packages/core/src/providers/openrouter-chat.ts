@@ -148,6 +148,20 @@ function rewriteRequestBody(body: string, effort: string | undefined, openRouter
           message.reasoning_content = content;
         }
       }
+      // #895 residue: thinking-mode backends behind aggregators
+      // (opencode-go observed, ~7% of requests) enforce the round-trip
+      // nondeterministically — even on turns where the model produced no
+      // reasoning at all, so there is nothing persisted to re-inject. An
+      // empty string satisfies the strict upstream (verified live:
+      // 4/55 failures without the field, 0/47 with `""`) and is ignored
+      // by permissive ones. Only when thinking is actually on.
+      if (effort !== undefined) {
+        for (const message of messages) {
+          if (message?.role === "assistant" && message.reasoning_content === undefined) {
+            message.reasoning_content = "";
+          }
+        }
+      }
       return JSON.stringify(json);
     }
     delete json.reasoning_effort;
