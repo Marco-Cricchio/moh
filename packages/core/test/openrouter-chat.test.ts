@@ -472,6 +472,21 @@ describe("#895: bare thinking-capable entries route to the openai-compat dialect
     expect(kimi.compat).toBeUndefined();
   });
 
+  it("the zai catalog carries the flag on every GLM entry (reasoning_content stream extraction)", () => {
+    for (const id of [
+      "glm-4.7",
+      "glm-5-turbo",
+      "glm-5.2",
+      "glm-5.2-highspeed",
+      "glm-5.3",
+      "glm-5.3-flash",
+      "glm-5.3-highspeed",
+    ]) {
+      const overrides = catalogTargetOverrides("zai", id);
+      expect(overrides.compat?.requiresReasoningContentOnAssistantMessages).toBe(true);
+    }
+  });
+
   it("a target without the flag and without a declared format is untouched (stock adapter)", async () => {
     const calls: FetchCall[] = [];
     const originalFetch = globalThis.fetch;
