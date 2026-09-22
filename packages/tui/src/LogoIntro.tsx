@@ -227,27 +227,42 @@ const STYLES = [
  */
 export function LogoIntro({ onSkip }: { onSkip: () => void }) {
   const theme = useTheme();
-  const style = useMemo(() => STYLES[Math.floor(Math.random() * STYLES.length)]!, []);
-  const frames = useMemo(() => style.make(), []);
+  const style = useMemo(
+    () => STYLES[Math.floor(Math.random() * STYLES.length)] ?? STYLES[0]!,
+    [],
+  );
+  const frames = useMemo(() => {
+    const made = style.make();
+    // A style that yields nothing must not crash the render: fall back to
+    // the settled banner as a single frame.
+    return made.length > 0 ? made : [[...LOGO_BANNER]];
+  }, [style]);
   const [tick, setTick] = useState(0);
   const total = frames.length;
   const delay = DURATION_MS / total;
   const settled = tick >= total - 1;
+  // Skip can arrive twice (settle timer racing a keystroke); fire once.
+  const skippedRef = React.useRef(false);
+  const skip = React.useCallback(() => {
+    if (skippedRef.current) return;
+    skippedRef.current = true;
+    onSkip();
+  }, [onSkip]);
 
   useEffect(() => {
     if (settled) {
-      const t = setTimeout(onSkip, 350);
+      const t = setTimeout(skip, 350);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => setTick((n) => n + 1), delay);
     return () => clearTimeout(t);
-  }, [tick, settled, delay, onSkip]);
+  }, [tick, settled, delay, skip]);
 
   useInput(() => {
-    if (!settled) onSkip();
+    if (!settled) skip();
   });
 
-  const frame = frames[tick]!;
+  const frame = frames[Math.min(tick, total - 1)] ?? frames[0]!;
   // Render purity: the per-row flicker is seeded per frame, not re-rolled
   // inside the render body (nested updates from render crash Ink).
   const flicker = useMemo(() => frames.map(() => Math.random() > 0.2), [frames]);
