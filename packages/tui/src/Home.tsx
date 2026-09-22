@@ -11,7 +11,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { deleteSession, listSessionSummaries, renameSession, type SessionSummary } from "./sessions";
+import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "./sessions";
 import { MOH_VERSION, aggregateTelemetry, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
@@ -30,8 +30,10 @@ function offerAt(offer: Extract<HandoffOffer, { status: "offer" }>): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** #478: the action chip rendered on a selected home row. */
-const ROW_CHIP = " rename (r) · del (d)";
+/** #478 + Home pins: the action chip rendered on a selected home row. The
+ * keys live in the hint line under the list — a full-key chip would eat the
+ * label on a 50-column box. */
+const ROW_CHIP = " pin · rename · del";
 
 /**
  * One home list row. The label truncates so label + cursor + chip always fit
@@ -183,7 +185,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // #478 delete: when non-null, the composer area becomes the inline
   // `Delete? y/N` confirm (default No; Esc cancels). Owns input while open.
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
-  const sessionsList = sessions;
+  // Home pins: pinned sessions float to the top of the list (then by mtime).
+  const sessionsList = useMemo(() => {
+    const pinnedFirst = [...sessions].sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return b.mtimeMs - a.mtimeMs;
+    });
+    return pinnedFirst;
+  }, [sessions]);
   // #478: refusal (open session) renders as a visible error line.
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const pertinent = useMemo(
@@ -255,27 +264,34 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     if (input === "q" && query === "") return; // q is just a search char; exit is double ctrl+c (App-level)
     if (key.upArrow) return setCursor(Math.max(0, Math.min(effectiveCursor, totalRows - 1) - 1));
     if (key.downArrow) return setCursor(Math.min(totalRows - 1, Math.max(effectiveCursor, 0) + 1));
-    // #477: `r` or → on a selected session row (banner or list hit, never
-    // the handoff row) enters the inline rename.
+    // Rename/delete/pin act on a selected session row (banner or list hit,
+    // never the handoff row).
     const selectedSession =
       pertinentRow >= 0 && cursorRow === pertinentRow && pertinent
         ? pertinent
         : hitIndex >= 0
           ? hits[hitIndex]
           : null;
-    // #477 + #478: → opens the action chip for the selected session row —
-    // it enters the rename edit (the r shortcut's behavior, kept stable);
-    // delete stays on its direct `d` shortcut.
-    if ((input === "r" || key.rightArrow) && query === "" && selectedSession) {
-      setRenaming(selectedSession);
-      setNameBuf(selectedSession.title);
-      return;
+    // ctrl+r (and →) on a selected session row enters the inline rename.
+    if ((key.ctrl && input === "r") || key.rightArrow) {
+      if (query === "" && selectedSession) {
+        setRenaming(selectedSession);
+        setNameBuf(selectedSession.title);
+        return;
+      }
+      if (key.ctrl && input === "r") return; // plain → falls through to the query append below
     }
-    // #478: `d` on a selected session row (banner or list hit, never the
-    // handoff row) enters the inline delete confirm. → stays rename.
-    if (input === "d" && query === "" && selectedSession) {
+    // #478 → ctrl+d: enter the inline delete confirm.
+    if (key.ctrl && input === "d" && query === "" && selectedSession) {
       setDeleteError(null);
       setDeleting(selectedSession);
+      return;
+    }
+    // Home pin (ctrl+p): toggles the `session_pinned` chrome event; pinned
+    // rows float to the top of the list.
+    if (key.ctrl && input === "p" && query === "" && selectedSession) {
+      setSessionPinned(selectedSession.file, !selectedSession.pinned);
+      setRenamesDone((n) => n + 1); // re-read the summaries
       return;
     }
     if (key.return || input === "\n") {
@@ -350,7 +366,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             fg={theme.accent}
             selectedFg={theme.bg}
             chipFg={theme.bg}
-            prefix="▸ "
+            prefix={pertinent.pinned ? "📌 ▸ " : "▸ "}
             label={`${relativeTime(pertinent.mtimeMs)} · ${pertinent.title}`}
             chip={ROW_CHIP}
           />
@@ -369,12 +385,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
               chipFg={theme.fg}
               label={s.title}
               chip={ROW_CHIP}
+              prefix={s.pinned ? "📌 " : ""}
             />
           );
         })}
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
         {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         {onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
+        {!compact && sessionsList.length > 0 ? <Dim>{` pin ctrl+p · rename ctrl+r · delete ctrl+d`}</Dim> : null}
         {usageLine ? <Dim>{` ${usageLine}`}</Dim> : null}
         <Text> </Text>
       </Box>

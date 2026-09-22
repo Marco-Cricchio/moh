@@ -58,7 +58,7 @@ function fakeTransport(result: FetchResult | "hang"): HandoffTransport {
   };
 }
 
-function local(overrides: Partial<Omit<SessionSummary, "consumed">> & { consumed?: boolean } = {}): SessionSummary {
+function local(overrides: Partial<Omit<SessionSummary, "consumed" | "pinned">> & { consumed?: boolean } = {}): SessionSummary {
   return {
     file: "/tmp/x.jsonl",
     id: "local-1",
@@ -66,6 +66,7 @@ function local(overrides: Partial<Omit<SessionSummary, "consumed">> & { consumed
     derivedTitle: "local session",
     mtimeMs: Date.parse("2026-09-02T12:00:00.000Z"),
     consumed: false,
+    pinned: false,
     ...overrides,
   };
 }

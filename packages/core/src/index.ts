@@ -49,6 +49,8 @@ import {
   // #477: session rename — the ADR-0004 reopening that lets clients (TUI
   // Home picker, `moh sessions rename`) append the `session_renamed` event.
   renameSession,
+  // Home pin: appends the `session_pinned` chrome event (TUI Home ctrl+p).
+  setSessionPinned,
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
@@ -674,6 +676,7 @@ export {
   // later user message) — the /copy command's source. ADR-0004 export.
   lastAssistantText,
   renameSession,
+  setSessionPinned,
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
