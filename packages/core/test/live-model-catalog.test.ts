@@ -11,6 +11,7 @@ import {
   listProviderModels,
   hasLiveListingContract,
   liveListings,
+  liveCatalogFailureReasons,
   summarizeLiveCatalogReport,
   reportNeedsNotice,
   type LiveCatalogReport,
@@ -580,7 +581,10 @@ describe("live-catalog status projection (ADR-0045)", () => {
     expect(summary).toContain("fresh refreshed");
     expect(summary).toContain("cached cached (3h)");
     expect(summary).toContain("stale stale (30h, refresh failed)");
-    expect(summary).toContain("failed unavailable (HTTP 401)");
+    // The reason is a diagnostic, never inlined into user-facing copy.
+    expect(summary).toContain("failed unavailable");
+    expect(summary).not.toContain("HTTP 401");
+    expect(liveCatalogFailureReasons(report)).toEqual(["model listing unavailable: HTTP 401"]);
     // A provider with no listing route is static by design: never phrased
     // as a problem.
     expect(summary).toContain("static static (no listing route)");
@@ -589,6 +593,16 @@ describe("live-catalog status projection (ADR-0045)", () => {
 
   test("an empty report has no summary at all", () => {
     expect(summarizeLiveCatalogReport({})).toBeNull();
+    expect(liveCatalogFailureReasons({})).toEqual([]);
+  });
+
+  test("a stale entry with no models still has the vendored catalog behind it", () => {
+    // An expired cache whose entry was itself empty (a listing that once
+    // answered 200 with no models) leaves the vendored catalog to show:
+    // a usable list, so no interruption.
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "stale", ageHours: 40 }, type: "anthropic" } })).toBe(false);
+    // The same shape without a catalog behind it earns the notice.
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "stale", ageHours: 40 }, type: "my-custom" } })).toBe(true);
   });
 
   test("the notice rule interrupts only when nothing would be left to show", () => {

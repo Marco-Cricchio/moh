@@ -240,6 +240,7 @@ export {
   fetchLiveCatalogs,
   liveListings,
   summarizeLiveCatalogReport,
+  liveCatalogFailureReasons,
   reportNeedsNotice,
   type LiveModelListing,
   type LiveCatalogReport,

@@ -559,7 +559,9 @@ function hoursSince(fetchedAt: number, now: number): number {
 /**
  * One line describing a report — the shared vocabulary for client
  * surfaces, so the picker and Settings cannot disagree about what
- * happened. Returns `null` when the report is empty (nothing was asked).
+ * happened. The `failed` reason is deliberately NOT inlined: it is a
+ * diagnostic for callers, and a summary is user-facing copy. Returns
+ * `null` when the report is empty (nothing was asked).
  */
 export function summarizeLiveCatalogReport(report: LiveCatalogReport): string | null {
   const entries = Object.entries(report);
@@ -569,11 +571,19 @@ export function summarizeLiveCatalogReport(report: LiveCatalogReport): string | 
       case "fresh": return `${endpoint} refreshed`;
       case "cached": return `${endpoint} cached (${status.ageHours}h)`;
       case "stale": return `${endpoint} stale (${status.ageHours}h, refresh failed)`;
-      case "failed": return `${endpoint} unavailable (${status.reason})`;
+      case "failed": return `${endpoint} unavailable`;
       case "unsupported": return `${endpoint} static (no listing route)`;
     }
   });
   return parts.join(" · ");
+}
+
+/** The diagnostic behind a `failed` status, for a log line or a
+ * diagnostic surface — never for user-facing copy. */
+export function liveCatalogFailureReasons(report: LiveCatalogReport): string[] {
+  return Object.values(report)
+    .filter((result): result is LiveCatalogResult & { status: { kind: "failed"; reason: string } } => result.status.kind === "failed")
+    .map(({ status }) => `model listing unavailable: ${status.reason}`);
 }
 
 /**
@@ -618,7 +628,12 @@ export async function fetchLiveCatalogs(
   const targets: typeof endpoints = [];
   // Static by design: reported, never fetched, never a failure (ADR-0045).
   for (const e of endpoints) {
-    if (CONTRACTS[e.type] === undefined && hasVendoredCatalog(e.type)) report[e.name] = { models: [], status: { kind: "unsupported" }, type: e.type };    if (CONTRACTS[e.type] !== undefined && hasVendoredCatalog(e.type)) targets.push(e);
+    if (!hasVendoredCatalog(e.type)) continue;
+    if (CONTRACTS[e.type] === undefined) {
+      report[e.name] = { models: [], status: { kind: "unsupported" }, type: e.type };
+      continue;
+    }
+    targets.push(e);
   }
   if (targets.length === 0) return report;
   const cache = await loadLiveModelCache(cacheFile);

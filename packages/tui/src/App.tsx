@@ -61,7 +61,7 @@ import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
-import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
+import { fetchLiveCatalogs, liveCatalogFailureReasons, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
@@ -307,11 +307,14 @@ export function App({
       fetchLiveCatalogs(targets, { mohHome, force: opts.force })
         .then((report) => {
           setLiveCatalog((prev) => ({ ...prev, ...liveListings(report) }));
-          // An explicit refresh answers; a background one interrupts only
-          // when nothing would be left to pick.
+          // ADR-0045: an explicit refresh always answers ("no news" included);
+          // a background one interrupts only when nothing would be left to pick.
           const summary = summarizeLiveCatalogReport(report);
-          if (opts.force && summary) push(`models: ${summary}`, "ok", "side");
-          else if (!opts.force && reportNeedsNotice(report)) push(`models: ${summary ?? "model list unavailable"}`, "warn");
+          if (opts.force) push(`models: ${summary ?? "nothing to refresh"}`, "ok", "side");
+          else if (reportNeedsNotice(report)) push(`models: ${summary ?? "list unavailable"}`, "warn");
+          // The reason is diagnostic copy: it belongs in the transcript's
+          // side channel, never in the toast the summary rides in.
+          for (const reason of liveCatalogFailureReasons(report)) push(reason, "warn", "side");
         })
         .catch(() => {
           // The seam does not throw for provider failures (the failure is
