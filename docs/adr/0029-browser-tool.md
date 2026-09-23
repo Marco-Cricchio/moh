@@ -65,3 +65,65 @@ Key decisions, each with its rationale:
   wayfinder map #770's resolution trail). The ADR summarizes every normative decision;
   the implementation PRs are the source of truth for fine detail. Manual page updates
   ship with the implementation PRs.
+
+## Amendment — 2026-09-23, #935: the toolchain is moh-managed
+
+Decision 2 assumed the user installs the toolchain themselves
+(`bunx playwright-core install chromium`, global cache). That assumption
+was wrong for the artifact moh actually ships: a compiled Bun binary
+cannot resolve a package installed by `npm i -g` unless the environment
+happens to expose it through `NODE_PATH`, so "install it yourself" was a
+broken contract for the audience that has no npm and no system Bun. The
+core now owns one browser-toolchain seam
+(`core/src/browser-toolchain.ts`, ADR-0004 amendment) that both clients
+consume.
+
+- **Resolution** — the project's own installation first (the nearest
+  `node_modules` walking up from the project root, so a hoisted workspace
+  install still counts), then the user-owned
+  `<home>/.moh/browser-toolchain/node_modules`. Existence-gated absolute
+  paths only, never a lookup: `require("playwright-core")` with no local
+  install answers from Bun's global install cache, so a compiled binary
+  could silently load a copy nobody installed for it. Nothing is resolved
+  through `NODE_PATH` or a global npm root.
+- **Ownership split** — the package lives in the moh-owned root; Chromium
+  stays in Playwright's normal per-user cache, so the OS-specific
+  canonical location and `XDG_CACHE_HOME` behavior remain Playwright's.
+  moh invents no cache path and detects no platform.
+- **Compatibility policy** — "latest compatible" is `playwright-core@latest`,
+  recorded in the install result so a client can show what it got. moh
+  drives Playwright's stable public surface (persistent-context launch, the
+  a11y snapshot, `aria-ref` addressing), and Playwright ships each release
+  with the browser revisions it expects — so the version and the builds
+  cannot drift apart as long as they come from the same install.
+- **Setup** — headless-first: the Chromium *headless shell* (~200 MB) is
+  what a `headless: true` launch actually needs (Playwright resolves
+  `chromium-headless-shell` for it), and the pre-#935 probe could not tell
+  the two builds apart — it checked only the full build, so an enabled
+  tool could be registered on a machine where every headless launch would
+  fail. The probe now reads Playwright's own registry (its declared
+  `lib/coreBundle` export) for both paths and versions, and falls back to
+  the public `executablePath()` if that shape ever moves: a *probe* must
+  never block a toolchain that would work. The full Chromium build (~500 MB, headful) and
+  Playwright's system dependencies (`install-deps`, which may ask for the
+  system administrator password) are explicit options. No sudo, no system
+  packages, no npm: `BUN_BE_BUN=1` makes the compiled moh binary behave as
+  the Bun CLI it embeds.
+- **Safety** — installation is staged beside the root and promoted by one
+  atomic rename of a symlink over the previous one, under the shared
+  content-based lock (`memory-lock.ts`, #399). The canonical root path is
+  therefore never absent — not even for the instant between two renames —
+  so a failed, interrupted, or killed install leaves a previously working
+  toolchain exactly as it was, and a concurrent moh process is refused
+  (and told to retry) instead of raced. The lock's staleness is decided by
+  ownership (machine, boot, pid), never by age: a 500 MB download on a
+  slow line is a live install, not an abandoned one. The browser cache
+  itself stays Playwright's: a build left half-downloaded there is
+  re-fetched by the next install, and moh neither inspects nor repairs it.
+
+Unchanged: opt-in activation (`browser.enabled` defaults to false), the
+security posture of decisions 3–5, the lazy-loading of the browser
+session, and the missing-toolchain rule — diagnosed in every surface,
+never a turn error and never a session failure. The client surfaces that
+project this seam (Settings setup, #934; transcript and CLI diagnostics,
+#936) render and ask; they never probe or resolve on their own.

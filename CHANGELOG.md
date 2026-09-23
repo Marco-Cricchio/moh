@@ -7,6 +7,27 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **The browser tool installs itself** (#935, ADR-0029 amendment):
+  enabling `browser` used to require `npm i -g playwright-core` plus a
+  Chromium download — a contract that cannot hold for moh's prebuilt
+  binaries, where a globally installed npm package is not resolvable
+  unless the environment happens to expose it through `NODE_PATH`. The
+  core now owns one cross-client toolchain seam: it resolves
+  playwright-core through explicit, existence-gated paths (the project's
+  own `node_modules` first — a hoisted workspace install still counts —
+  then `~/.moh/browser-toolchain`), probes the package, the Chromium
+  headless shell and the full build with versions and actionable reasons,
+  and installs them with the Bun runtime embedded in moh: no npm, no
+  system Bun, no sudo. Setup is headless-first (the ~200 MB shell a
+  headless launch actually needs); the full build (~500 MB, headful) and
+  Playwright's system dependencies are explicit options, never implicit.
+  Installs are staged beside the root and promoted by a single atomic
+  rename behind a lock file, so a failed or interrupted download never
+  replaces a working toolchain and a second moh process is told to retry
+  instead of racing.
+
 ## [0.48.0] - 2026-09-23
 
 ### Added

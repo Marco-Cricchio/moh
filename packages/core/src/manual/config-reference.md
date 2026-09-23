@@ -104,10 +104,16 @@ All keys are optional. Notes:
   (`navigate`, `snapshot`, `read_text`, `close`, `screenshot`, plus the
   act tier: `click`, `fill`, `select`, `scroll`, `press_key`,
   `wait_for`, `upload`, `eval_js`) driving a headless
-  Chromium via playwright-core. Requires the optional toolchain
-  (`npm i -g playwright-core && npx playwright-core install chromium`);
-  when missing, the tool is not registered and a visible
-  `browser_unavailable` diagnostic is recorded at session start.
+  Chromium via playwright-core. moh owns the optional toolchain: a
+  `playwright-core` installed in the project's own `node_modules` is used
+  as-is, otherwise `moh browser install` (or the Browser row in Settings)
+  installs playwright-core into `~/.moh/browser-toolchain` and the
+  Chromium headless shell (~200 MB) into Playwright's per-user cache — no
+  npm, no system Bun, no sudo. The full Chromium build (~500 MB, for
+  `headless: false`) and Playwright's system dependencies are explicit
+  options of that setup, never implicit. When the toolchain is missing, the
+  tool is not registered and a visible `browser_unavailable` diagnostic is
+  recorded at session start.
   `headless` (default `true`) runs a real Chrome window when `false`
   (same permission rules; the window is reaped when the session
   closes).
