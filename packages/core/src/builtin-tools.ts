@@ -14,8 +14,13 @@ const lazyRequire: (id: string) => unknown =
     : (id: string) => {
         throw new Error(`browser: cannot load "${id}" on this runtime`);
       };
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 /**
  * All built-in tools, keyed by name. Pure contract: name, description,
@@ -715,58 +720,176 @@ export function isPrivateHost(host: string): boolean {
 const fetchAllowsPrivate = (): boolean =>
   ["1", "true", "yes"].includes((process.env.MOH_FETCH_ALLOW_PRIVATE ?? "").toLowerCase());
 
+export interface PinnedResponse {
+  status: number;
+  headers: Headers;
+  readBody(): Promise<string>;
+  discard(): void;
+}
+
+const PINNED_REQUEST_TIMEOUT_MS = 30_000;
+
+function responseHeaders(source: import("node:http").IncomingHttpHeaders): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(source)) {
+    if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+    else if (value !== undefined) headers.set(name, value);
+  }
+  return headers;
+}
+
+/** The optional decoder Fetch used to apply for us. `pipeline` owns
+ * propagation from the IncomingMessage through this transform. */
+function bodyDecoder(response: import("node:http").IncomingMessage) {
+  switch (response.headers["content-encoding"]?.toLowerCase()) {
+    case "gzip": return createGunzip();
+    case "deflate": return createInflate();
+    case "br": return createBrotliDecompress();
+    default: return undefined;
+  }
+}
+
 /**
- * #697: undici must be loaded as the real package. Bun resolves the bare
- * specifier `undici` to an internal shim whose fetch ignores the
- * `dispatcher` option entirely — the pinning seam below would silently
- * degrade to a plain (re-resolving) fetch. Requiring the resolved package
- * path bypasses the shim on both runtimes.
+ * #922: one HTTP(S) request to an already-verified address. Resolves at
+ * headers, not body completion: redirect/error callers can discard the
+ * stream immediately; successful callers explicitly consume it.
+ *
+ * The URL hostname remains the authority for Host and TLS SNI; `lookup`
+ * supplies the verified address directly, so the socket never re-resolves
+ * it. This deliberately avoids undici's Fetch wrapper: under Bun 1.2.19 +
+ * undici 7.29.0 a pinned Response settled while body consumption
+ * intermittently did not. Node's native request stream is deterministic.
  */
-let undiciPromise: Promise<typeof import("undici")> | undefined;
-function loadUndici(): Promise<typeof import("undici")> {
-  undiciPromise ??= (async () => {
-    if (typeof Bun !== "undefined") {
-      // Bun maps the bare specifier (and import.meta.resolve of it) to an
-      // internal shim; load the package's real entry instead. The runtime
-      // variable specifier keeps TS (and bundlers) from rewriting it.
-      const spec: string = ["../../node_modules/undici/index.js", "../../../node_modules/undici/index.js"].find(
-        (p) => existsSync(join(import.meta.dir, p)),
-      )!;
-      if (spec) {
-        const real = (await import(spec).catch(() => null)) as typeof import("undici") | null;
-        if (real) return real;
+export function requestPinnedUrl(
+  url: URL,
+  address: { address: string; family: number },
+  signal?: AbortSignal,
+): Promise<PinnedResponse> {
+  return new Promise((resolve, reject) => {
+    let headersSettled = false;
+    let bodySettled = false;
+    let response: import("node:http").IncomingMessage | undefined;
+    let rejectBody: ((reason?: unknown) => void) | undefined;
+    let bodyError: unknown;
+
+    const cleanup = (): void => {
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (error: unknown): void => {
+      if (!headersSettled) {
+        headersSettled = true;
+        cleanup();
+        reject(error);
+      } else if (!bodySettled) {
+        bodySettled = true;
+        bodyError = error;
+        cleanup();
+        rejectBody?.(error);
       }
-    }
-    try {
-      // Node: resolve through this module's own node_modules.
-      const url = import.meta.resolve("undici");
-      if (url && url.startsWith("file:") && url.includes("node_modules/undici/")) {
-        return await import(url);
-      }
-    } catch {
-      // fall through to the bare specifier
-    }
-    return await import("undici");
-  })();
-  return undiciPromise;
+    };
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+      url,
+      {
+        method: "GET",
+        lookup: (_host, options, callback) => {
+          if (typeof options === "object" && options?.all) callback(null, [address]);
+          else callback(null, address.address, address.family);
+        },
+        headers: { Host: url.host, "Accept-Encoding": "gzip, deflate, br" },
+        servername: url.hostname,
+      },
+      (incoming) => {
+        response = incoming;
+        headersSettled = true;
+        // Observe failures immediately, before the caller chooses readBody
+        // or discard: a peer can reset in the header→consume gap.
+        incoming.once("error", fail);
+        incoming.once("aborted", () => fail(new Error("fetch response aborted")));
+        incoming.once("close", () => {
+          if (!incoming.complete) fail(new Error("fetch response closed before completion"));
+        });
+        const headers = responseHeaders(incoming.headers);
+        let consumed = false;
+        const consumeOnce = (): void => {
+          if (consumed) throw new Error("fetch response body was already consumed or discarded");
+          consumed = true;
+        };
+        resolve({
+          status: incoming.statusCode ?? 0,
+          headers,
+          discard: () => {
+            if (consumed) return;
+            consumed = true;
+            bodySettled = true;
+            cleanup();
+            incoming.destroy();
+          },
+          readBody: () => {
+            consumeOnce();
+            if (bodyError !== undefined) return Promise.reject(bodyError);
+            return new Promise<string>((resolveBody, rejectBodyPromise) => {
+              rejectBody = rejectBodyPromise;
+              const chunks: Buffer[] = [];
+              const sink = new Writable({
+                write(chunk: Buffer | string, _encoding, callback) {
+                  chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                  callback();
+                },
+              });
+              const decoder = bodyDecoder(incoming);
+              const flow = decoder ? pipeline(incoming, decoder, sink) : pipeline(incoming, sink);
+              flow.then(() => {
+                  if (bodySettled) return;
+                  const body = Buffer.concat(chunks);
+                  const declared = Number(incoming.headers["content-length"]);
+                  if (!incoming.headers["content-encoding"] && Number.isFinite(declared) && declared >= 0 && body.byteLength !== declared) {
+                    fail(new Error(`fetch response body truncated: expected ${declared} bytes, received ${body.byteLength}`));
+                    return;
+                  }
+                  bodySettled = true;
+                  cleanup();
+                  resolveBody(body.toString("utf8"));
+                })
+                .catch((error) => fail(error));
+            });
+          },
+        });
+      },
+    );
+    request.setTimeout(PINNED_REQUEST_TIMEOUT_MS, () => request.destroy(new Error("fetch request timed out")));
+    const onAbort = (): void => {
+      const error = new Error("fetch aborted");
+      response?.destroy(error);
+      request.destroy(error);
+      fail(error);
+    };
+    request.on("error", fail);
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+    request.end();
+  });
 }
 
 /**
  * SEC-05 + #697: scheme + host checks on one URL, ONE DNS resolution,
- * and a dispatcher pinned to the verified address. Closes the
- * DNS-rebinding TOCTOU: the legacy code resolved inside the check and let
- * `globalThis.fetch` re-resolve independently at connect time, so a
- * short-TTL name could answer public for the check and private for the
- * dial. Here the single resolution result feeds the undici Agent's
- * `connect.lookup` hook — every socket (redirect hops included) dials
- * the verified address with no further DNS traffic.
+ * and a request pinned to the verified address. Closes the DNS-rebinding
+ * TOCTOU: the legacy code resolved inside the check and let fetch
+ * re-resolve independently at connect time. The single resolution result
+ * feeds `requestPinnedUrl`'s lookup hook — every redirect hop resolves and
+ * pins independently.
  *
  * Returns null when no pinning applies (numeric/private hosts under the
  * explicit `MOH_FETCH_ALLOW_PRIVATE=1` opt-out resolve normally).
  */
-async function verifiedDispatcher(
+export type FetchLookup = (host: string) => Promise<{ address: string; family: number }[]>;
+
+/** Resolve and verify one URL once. The optional lookup seam makes the
+ * DNS-rebinding invariant deterministic in tests; production uses
+ * `node:dns/promises.lookup({ all: true })`. */
+export async function resolveVerifiedUrl(
   rawUrl: string,
-): Promise<{ url: URL; dispatcher: unknown } | null> {
+  lookupImpl?: FetchLookup,
+): Promise<{ url: URL; address: { address: string; family: number } } | null> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -785,28 +908,24 @@ async function verifiedDispatcher(
   }
   if (isNumericHost(host)) return null;
   // The single resolution: verification and pinning share this answer.
-  const { lookup } = await import("node:dns/promises");
+  const resolver = lookupImpl ?? (async (hostname: string) => {
+    const { lookup } = await import("node:dns/promises");
+    return lookup(hostname, { all: true });
+  });
   let addresses: { address: string; family: number }[];
   try {
-    addresses = await lookup(host, { all: true });
-  } catch {
-    // Unresolvable here: let the request itself surface the real error.
-    return null;
+    addresses = await resolver(host);
+  } catch (error) {
+    // Never let a failed verification fall through to global fetch: that
+    // would re-resolve the hostname and reopen the #697 TOCTOU.
+    throw new Error(`fetch: DNS lookup failed for "${host}": ${error instanceof Error ? error.message : String(error)}`);
   }
+  if (addresses.length === 0) throw new Error(`fetch: DNS lookup returned no addresses for "${host}"`);
   const bad = addresses.find((a) => isPrivateHost(a.address));
   if (bad) {
     throw new Error(`fetch: "${host}" resolves to private address ${bad.address}; blocked by default (set MOH_FETCH_ALLOW_PRIVATE=1 to allow)`);
   }
-  const good = addresses[0]!;
-  const { Agent } = await loadUndici();
-  return {
-    url,
-    dispatcher: new Agent({
-      connect: { lookup: (_h: string, _o: unknown, cb: unknown) => (cb as (e: null, a: { address: string; family: number }[]) => void)(null, [good]) },
-      // Each fetch call gets a fresh agent; don't keep sockets pooled after.
-      connections: 8,
-    }),
-  };
+  return { url, address: addresses[0]! };
 }
 
 /** A bare IPv4/IPv6 address literal needs no DNS and no pinning. */
@@ -815,24 +934,27 @@ function isNumericHost(host: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":");
 }
 
-/** One fetch with the (optional) pinned dispatcher; always manual-redirect. */
+/** One fetch with the optional verified address; always manual-redirect. */
 async function doFetch(
   url: URL,
-  pin: { dispatcher: unknown } | null,
+  pin: { address: { address: string; family: number } } | null,
   signal: AbortSignal,
-): Promise<Response> {
-  if (!pin) return globalThis.fetch(url, { signal, redirect: "manual" });
-  const { fetch: undiciFetch } = await loadUndici();
-  return (await undiciFetch(url, {
-    signal,
-    redirect: "manual",
-    dispatcher: pin.dispatcher,
-  } as never)) as unknown as Response;
+): Promise<PinnedResponse> {
+  if (pin) return requestPinnedUrl(url, pin.address, signal);
+  const response = await globalThis.fetch(url, { signal, redirect: "manual" });
+  return {
+    status: response.status,
+    headers: response.headers,
+    readBody: () => response.text(),
+    discard: () => {
+      response.body?.cancel().catch(() => {});
+    },
+  };
 }
 
 
 /** SEC-05: scheme + literal-host checks on one URL (throws on violation).
- * DNS resolution lives in verifiedDispatcher (#697) — one resolution per
+ * DNS resolution lives in resolveVerifiedUrl (#697) — one resolution per
  * URL, shared by verification and the pinned connection. */
 function assertFetchable(rawUrl: string): URL {
   let url: URL;
@@ -854,6 +976,50 @@ function assertFetchable(rawUrl: string): URL {
   return url;
 }
 
+export interface FetchTransportDeps {
+  lookup?: FetchLookup;
+  requestPinned?: typeof requestPinnedUrl;
+}
+
+/** The complete fetch algorithm behind the tool, with only the two
+ * security-sensitive effects injectable for hermetic integration tests. */
+export async function fetchUrlText(
+  args: z.infer<typeof fetchSchema>,
+  signal: AbortSignal,
+  deps: FetchTransportDeps = {},
+): Promise<string> {
+  const resolveUrl = (raw: string) => resolveVerifiedUrl(raw, deps.lookup);
+  const requestPinned = deps.requestPinned ?? requestPinnedUrl;
+  const fetchHop = async (url: URL, pin: Awaited<ReturnType<typeof resolveVerifiedUrl>>): Promise<PinnedResponse> => {
+    if (pin) return requestPinned(url, pin.address, signal);
+    return doFetch(url, null, signal);
+  };
+
+  // #697: one DNS resolution per URL — the same answer both verifies the
+  // host and pins the dial; every redirect hop re-checks and re-pins.
+  let pin = await resolveUrl(args.url);
+  let url = assertFetchable(args.url);
+  let res = await fetchHop(url, pin);
+  for (let hop = 0; hop < FETCH_MAX_REDIRECTS && [301, 302, 303, 307, 308].includes(res.status); hop++) {
+    const location = res.headers.get("location");
+    if (!location) break;
+    res.discard();
+    const next = new URL(location, url).toString();
+    pin = await resolveUrl(next);
+    url = assertFetchable(next);
+    res = await fetchHop(url, pin);
+  }
+  if ([301, 302, 303, 307, 308].includes(res.status)) {
+    res.discard();
+    throw new Error(`fetch: too many redirects (> ${FETCH_MAX_REDIRECTS}) for ${args.url}`);
+  }
+  if (res.status < 200 || res.status >= 300) {
+    res.discard();
+    throw new Error(`HTTP ${res.status} for ${args.url}`);
+  }
+  return truncate((await res.readBody()).slice(0, args.maxLength ?? MAX_OUTPUT));
+}
+
 const fetchTool: Tool<z.infer<typeof fetchSchema>> = {
   name: "fetch",
   description:
@@ -862,29 +1028,8 @@ const fetchTool: Tool<z.infer<typeof fetchSchema>> = {
     "Connections are pinned to the DNS-verified address (#697): a rebinding host cannot " +
     "pass verification as public and connect as private.",
   inputSchema: fetchSchema,
-  async execute(args, ctx) {
-    // #697: one DNS resolution per URL — the same answer both verifies the
-    // host and pins the dial; every redirect hop re-checks and re-pins.
-    const pin = await verifiedDispatcher(args.url);
-    let url = assertFetchable(args.url);
-    // SEC-05: redirects are followed manually (capped) so every hop
-    // re-passes the scheme/private-network checks — a public URL can't
-    // bounce the fetch into 169.254.169.254 or file://.
-    let res = await doFetch(url, pin, ctx.signal);
-    for (let hop = 0; hop < FETCH_MAX_REDIRECTS && [301, 302, 303, 307, 308].includes(res.status); hop++) {
-      const location = res.headers.get("location");
-      res.body?.cancel().catch(() => {});
-      if (!location) break;
-      const next = new URL(location, url).toString();
-      const nextPin = await verifiedDispatcher(next);
-      url = assertFetchable(next);
-      res = await doFetch(url, nextPin, ctx.signal);
-    }
-    if ([301, 302, 303, 307, 308].includes(res.status)) {
-      throw new Error(`fetch: too many redirects (> ${FETCH_MAX_REDIRECTS}) for ${args.url}`);
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${args.url}`);
-    return truncate((await res.text()).slice(0, args.maxLength ?? MAX_OUTPUT));
+  execute(args, ctx) {
+    return fetchUrlText(args, ctx.signal);
   },
 };
 
