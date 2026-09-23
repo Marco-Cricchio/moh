@@ -40,7 +40,7 @@ echo "→ detected platform: $platform"
 
 # --- prerequisites ----------------------------------------------------------
 
-for cmd in curl uname mktemp grep; do
+for cmd in curl uname mktemp grep id; do
   command -v "$cmd" >/dev/null 2>&1 || err "required command not found: $cmd"
 done
 
@@ -69,7 +69,8 @@ if [ "$in_wsl" = "1" ]; then
 fi
 
 # Root: warn always, ask when a human is actually reachable, never refuse on
-# the user's behalf. The prompt reads /dev/tty, never stdin — under
+# the user's behalf. `id` is a checked prerequisite, so this guard cannot be
+# skipped in silence. The prompt reads /dev/tty, never stdin — under
 # `curl … | sh` stdin *is* the script.
 #
 # `[ -r /dev/tty ]` alone proves nothing: access(2) reports the device node's

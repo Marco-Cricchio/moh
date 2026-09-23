@@ -29,7 +29,7 @@ matching section here at tag time.
   `WSL_DISTRO_NAME`/`WSL_INTEROP`, with a `/proc/version` fallback) the script
   prints two informational lines: this Linux binary is the supported install,
   and projects belong in the distro filesystem because `/mnt/c` is dramatically
-  slower — the same message the TUI footer carries for a `/mnt` project root.
+  slower — the same guidance the TUI footer carries for a `/mnt` project root.
 
 - **The installer can no longer leave a half-written `moh`** (#917): the
   verified binary is staged inside the install directory and renamed within it,

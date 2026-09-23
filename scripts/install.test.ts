@@ -22,6 +22,9 @@ import { sha256File } from "./build";
 
 const SCRIPT = join(import.meta.dir, "install.sh");
 const PTY_RUN = join(import.meta.dir, "pty-run.py");
+/** The interactive root paths need a controlling terminal, which only
+ * scripts/pty-run.py can give them (same python3 dependency the TUI PTY tests
+ * declare); hosts without python3 skip those four tests. */
 const python3 = Bun.which("python3");
 
 /** Same platform mapping as scripts/install.sh — refuses to guess (no cross-arch fallback). */
@@ -79,53 +82,58 @@ function serveBody(body: string, checksumOf: string = body, platform: string = P
 }
 
 /**
- * A PATH directory holding a fake `uname`, so the script's platform detection
- * can be exercised for a host other than the one running the tests (#916).
- * `uname` is resolved through PATH (as in packages/cli/test/run-handoff.test.ts),
- * so no seam is added to the script itself.
+ * A PATH directory holding a fake command, so the behaviours the script
+ * reaches through PATH can be exercised without adding seams to the script:
+ * `uname` for platform detection (#916, as in
+ * packages/cli/test/run-handoff.test.ts), `id` for the root branch (#917),
+ * `mv` for the atomic install (#917).
  */
+function fakeCommand(name: string, body: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `moh-install-${name}-`));
+  fakeBinDirs.push(dir);
+  const path = join(dir, name);
+  writeFileSync(path, body);
+  chmodSync(path, 0o755);
+  return dir;
+}
+
+/** A fake `uname`, so platform detection can be exercised for a host other
+ * than the one running the tests (#916). */
 function fakeUname(os: string, arch: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "moh-install-uname-"));
-  fakeBinDirs.push(dir);
-  const path = join(dir, "uname");
-  writeFileSync(path, `#!/bin/sh\ncase "$1" in\n  -s) echo ${os} ;;\n  -m) echo ${arch} ;;\nesac\n`);
-  chmodSync(path, 0o755);
-  return dir;
+  return fakeCommand(
+    "uname",
+    `#!/bin/sh\ncase "$1" in\n  -s) echo ${os} ;;\n  -m) echo ${arch} ;;\nesac\n`,
+  );
 }
 
-/**
- * A PATH directory holding a fake `id` reporting `uid` (#917), so the root
- * branch is reachable without actually running the suite as root. Same
- * PATH-resolution pattern as `fakeUname`.
- */
+/** A fake `id` reporting `uid`, so the root branch is reachable without
+ * actually running the suite as root (#917). */
 function fakeId(uid: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "moh-install-id-"));
-  fakeBinDirs.push(dir);
-  const path = join(dir, "id");
-  writeFileSync(path, `#!/bin/sh\necho ${uid}\n`);
-  chmodSync(path, 0o755);
-  return dir;
+  return fakeCommand("id", `#!/bin/sh\necho ${uid}\n`);
 }
 
-/**
- * A PATH directory holding a logging `mv` (#917): every call is appended to
- * `log` before the real `mv` runs, which is how the atomic-install test sees
- * *where* the binary was staged and renamed.
- */
+/** A logging `mv` (#917): every call is appended to `log` before the real `mv`
+ * runs, which is how the atomic-install test sees *where* the binary was
+ * staged and renamed. */
 function fakeMv(log: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "moh-install-mv-"));
-  fakeBinDirs.push(dir);
   const real = Bun.which("mv");
   if (!real) throw new Error("no mv on PATH");
-  const path = join(dir, "mv");
-  writeFileSync(path, `#!/bin/sh\necho "$@" >> ${log}\nexec ${real} "$@"\n`);
-  chmodSync(path, 0o755);
-  return dir;
+  return fakeCommand("mv", `#!/bin/sh\necho "$@" >> ${log}\nexec ${real} "$@"\n`);
 }
 
 /** PATH with `dir` in front, so the fake `uname` wins over the real one. */
 function pathWith(dir: string): string {
   return `${dir}:${process.env.PATH ?? ""}`;
+}
+
+/** Waits for a spawned script and collects both pipes plus the exit code. */
+async function collect(proc: ReturnType<typeof Bun.spawn>) {
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
+    new Response(proc.stderr as ReadableStream<Uint8Array>).text(),
+    proc.exited,
+  ]);
+  return { stdout, stderr, exitCode };
 }
 
 /**
@@ -138,12 +146,7 @@ async function runScript(extraEnv: Record<string, string> = {}) {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout, stderr, exitCode };
+  return collect(proc);
 }
 
 /**
@@ -170,12 +173,7 @@ async function runScriptTty(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout, stderr, exitCode };
+  return collect(proc);
 }
 
 describe("install.sh (#269)", () => {
@@ -364,10 +362,10 @@ describe("install.sh atomic install (#917)", () => {
     const r = await runScript({ MOH_INSTALL_DIR: installDir, PATH: pathWith(fakeMv(log)) });
     expect(r.exitCode).toBe(0);
     const calls = readFileSync(log, "utf8").trim().split("\n").map((line) => line.split(" "));
-    const last = calls[calls.length - 1]!;
-    expect(dirname(last[0]!)).toBe(installDir);
-    expect(basename(last[0]!)).toMatch(/^\.moh\.tmp\.\d+$/);
-    expect(last[1]).toBe(join(installDir, "moh"));
+    const [stagedPath, destination] = calls[calls.length - 1]!;
+    expect(dirname(stagedPath!)).toBe(installDir);
+    expect(basename(stagedPath!)).toMatch(/^\.moh\.tmp\.\d+$/);
+    expect(destination).toBe(join(installDir, "moh"));
     // No staging leftovers next to the installed binary.
     expect(readdirSync(installDir)).toEqual(["moh"]);
   });
