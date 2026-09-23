@@ -302,7 +302,7 @@ application. See [`docs/extending/`](docs/extending/index.md).
 Requirements: none — the binary is self-contained (Bun runtime embedded);
 no Node, no Bun, no npm.
 
-One command, from the latest GitHub Release (macOS arm64/x64, Linux x64):
+One command, from the latest GitHub Release (macOS arm64/x64, Linux x64/arm64):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/develop/scripts/install.sh | sh

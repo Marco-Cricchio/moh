@@ -5,6 +5,18 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Added
+
+- **Linux arm64 is a first-class platform** (#916): the release now ships
+  `moh-linux-arm64` (built and smoke-tested natively on the free
+  `ubuntu-24.04-arm` runner) alongside the existing three binaries, and the
+  install script maps `aarch64`/`arm64` onto it instead of refusing the host
+  — which is what serves WSL on ARM64 Windows laptops. `moh update` learned
+  the same platform name, so an arm64 install can update itself instead of
+  reporting an unsupported platform.
+
 ## [0.47.0] - 2026-09-23
 
 ### Added
