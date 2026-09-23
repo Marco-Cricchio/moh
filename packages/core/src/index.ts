@@ -112,7 +112,7 @@ import {
 // #849: the session mode rides the setSessionMode/sessionMode doors — a
 // client rotating the mode needs the same union the core judges with.
 export type { SessionMode } from "./permissions";
-import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
+import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
@@ -419,6 +419,7 @@ import {
   upsertUserEndpoint,
   removeUserEndpoint,
   saveUserProviderRef,
+  setUserEndpointModel,
   type MergedConfigOptions,
   type UserProviderConfig,
 } from "./provider-config";
@@ -750,11 +751,14 @@ export {
   upsertUserEndpoint,
   removeUserEndpoint,
   saveUserProviderRef,
+  setUserEndpointModel,
   type MergedConfigOptions,
   type UserProviderConfig,
   defaultRegistry,
   resolveProvider,
   resolveProviderRef,
+  isFallbackEligible,
+  fallbackIneligibleReason,
   sessionFromConfig,
   // Session handoff (#433, T2 #435): the transport seam and gist impl
   // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.

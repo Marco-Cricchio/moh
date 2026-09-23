@@ -13,7 +13,7 @@ import {
   useViewport,
 } from "./viewport";
 import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "./sessions";
-import { MOH_VERSION, aggregateTelemetry, type HandoffOffer } from "@moh/core";
+import { MOH_VERSION, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 import { skillUpdateNoticeText } from "./update-poll";
@@ -84,13 +84,6 @@ function HomeRow({
       {selected ? <Text color={chipFg}>{`${pad}${chip}`}</Text> : null}
     </Text>
   );
-}
-
-/** #718: compact token count for the Home usage line. */
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
 }
 
 /** Relative time for the pertinent-session banner (T3 #470). */
@@ -169,14 +162,12 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // per session on EVERY render: sync work inside React commits is the
   // #595 crash window ("Should not already be working." in Ink).
   const [renamesDone, setRenamesDone] = useState(0);
-  // Home startup must paint before scanning a large session directory. Both
-  // projections read many JSONL logs; doing either in render delayed even the
-  // logo intro by seconds on projects with hundreds of sessions. Effects run
-  // after the first frame, and the usage rollup is deferred once more so the
-  // picker can become interactive before its secondary chrome arrives.
+  // Home startup must paint before scanning a large session directory: the
+  // projection reads every JSONL log, which delayed even the logo intro by
+  // seconds on projects with hundreds of sessions. The effect runs after the
+  // first frame, so the picker paints immediately and fills in behind it.
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
-  const [usageLine, setUsageLine] = useState<string | null>(null);
   useEffect(() => {
     // Do not let synchronous JSONL parsing freeze the logo animation.
     // Once the intro settles, the static Home paints its loading state first.
@@ -201,27 +192,6 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       clearTimeout(timer);
     };
   }, [cwd, home, renamesDone, intro]);
-  useEffect(() => {
-    // Usage is tertiary chrome: only scan after the list has completed.
-    if (intro || !sessionsLoaded) return;
-    let cancelled = false;
-    const load = () => {
-      let line: string | null = null;
-      try {
-        const report = aggregateTelemetry({ cwd, home, sinceMs: Date.now() - 7 * 24 * 3_600_000 * 1000 });
-        const total = report.models.reduce((s, m) => s + m.calls, 0);
-        if (total > 0) line = `last 7 days: ${formatCompact(total)} tok · top ${report.models[0]!.model}`;
-      } catch {
-        // Usage is optional chrome; a broken log never blocks Home.
-      }
-      if (!cancelled) setUsageLine(line);
-    };
-    const timer = setTimeout(load, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [cwd, home, renamesDone, intro, sessionsLoaded]);
   // #477 rename: when non-null, the composer area becomes an inline edit
   // for the display name (prefilled with the current name; Enter confirms,
   // Esc cancels, Enter on empty resets). Owns input while open.
@@ -450,7 +420,6 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {sessionsLoaded && hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         {onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
         {!compact && sessionsList.length > 0 ? <Dim>{` pin ctrl+p · rename ctrl+r · delete ctrl+d`}</Dim> : null}
-        {usageLine ? <Dim>{` ${usageLine}`}</Dim> : null}
         <Text> </Text>
       </Box>
       {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}

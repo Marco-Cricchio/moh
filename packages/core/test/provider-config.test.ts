@@ -8,6 +8,7 @@ import {
   readUserProviderConfig,
   upsertUserEndpoint,
   saveUserProviderRef,
+  setUserEndpointModel,
   type UserProviderConfig,
 } from "../src/provider-config";
 import { loadMohConfig, type MohConfig } from "../src/config";
@@ -258,6 +259,69 @@ describe("user-level writes (guardian)", () => {
       const raw = JSON.parse(readFileSync(file, "utf8"));
       expect(raw.provider).toBe("work/m");
       expect(raw.theme).toBe("dark");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("setUserEndpointModel sets the preferred model of one endpoint, leaving the rest untouched", () => {
+    const { dir, cleanup } = tempDir("write-pref");
+    try {
+      const file = userConfigFile(join(dir, "home"));
+      mkdirSync(join(dir, "home", ".moh"), { recursive: true });
+      writeFileSync(
+        file,
+        JSON.stringify({
+          theme: "dark",
+          provider: "a/m1",
+          endpoints: [
+            { name: "a", type: "anthropic", defaultModel: "m1", fallbackEligible: false },
+            { name: "b", type: "openai", defaultModel: "m2" },
+          ],
+        }),
+      );
+      setUserEndpointModel(file, "b", "gpt-5.1");
+      const raw = JSON.parse(readFileSync(file, "utf8"));
+      // The target changed…
+      expect(raw.endpoints[1].defaultModel).toBe("gpt-5.1");
+      // …the sibling kept every field, including the ones this never touches…
+      expect(raw.endpoints[0]).toEqual({ name: "a", type: "anthropic", defaultModel: "m1", fallbackEligible: false });
+      // …and unrelated keys/sections survive.
+      expect(raw.theme).toBe("dark");
+      expect(raw.provider).toBe("a/m1");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("setUserEndpointModel(null) clears the field instead of writing an empty string", () => {
+    const { dir, cleanup } = tempDir("write-pref-clear");
+    try {
+      const file = userConfigFile(join(dir, "home"));
+      mkdirSync(join(dir, "home", ".moh"), { recursive: true });
+      writeFileSync(file, JSON.stringify({ endpoints: [{ name: "a", type: "anthropic", defaultModel: "m1", apiKey: "sk" }] }));
+      setUserEndpointModel(file, "a", null);
+      const endpoint = JSON.parse(readFileSync(file, "utf8")).endpoints[0];
+      // A cleared preferred model is an absent field, not `""` — the chain
+      // builder tests `defaultModel !== undefined` for eligibility.
+      expect("defaultModel" in endpoint).toBe(false);
+      expect(endpoint.apiKey).toBe("sk");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("setUserEndpointModel refuses an endpoint the user config does not declare", () => {
+    const { dir, cleanup } = tempDir("write-pref-missing");
+    try {
+      const file = userConfigFile(join(dir, "home"));
+      mkdirSync(join(dir, "home", ".moh"), { recursive: true });
+      writeFileSync(file, JSON.stringify({ endpoints: [{ name: "a", type: "anthropic" }] }));
+      // Silently inventing a provider the user never configured would put an
+      // endpoint with no credentials into the fallback chain.
+      expect(() => setUserEndpointModel(file, "ghost", "m")).toThrow(/no user-level endpoint "ghost"/);
+      const raw = JSON.parse(readFileSync(file, "utf8"));
+      expect(raw.endpoints).toEqual([{ name: "a", type: "anthropic" }]);
     } finally {
       cleanup();
     }

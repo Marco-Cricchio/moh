@@ -18,7 +18,9 @@ skips it. While it plays the animation is the only thing on screen —
 the picker, its chrome and any startup notice appear when it ends, so a
 notice is shown rather than painted over the animation. The session
 list itself is read after the animation, so a project with hundreds of
-sessions still paints immediately.
+sessions still paints immediately. The list carries no usage or model
+line: token rollups and the active model live in `moh usage` and the
+status bar of a session, where they belong.
 
 ## Resume
 

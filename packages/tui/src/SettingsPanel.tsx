@@ -3,7 +3,7 @@ import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointModel, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -217,8 +217,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "endpoint"; cursor: number }
     | { kind: "jev"; cursor: number }
     | { kind: "jev-key"; value: string; busy: boolean; message?: string }
-    | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; cursor: number; query: string }
-    | { kind: "model-free"; name: string; userOwned: boolean; value: string }
+    /** `purpose` decides what committing a model does: "default" selects
+     * the model AND makes the endpoint active (#181); "fallback" only sets
+     * the endpoint's preferred model — the one it serves with when it is an
+     * automatic fallback stop (ADR-0012) — and never touches the active
+     * provider. */
+    | { kind: "model"; name: string; type: string; baseUrl?: string; current?: string; userOwned: boolean; purpose: "default" | "fallback"; cursor: number; query: string }
+    | { kind: "fallback"; cursor: number }
+    | { kind: "model-free"; name: string; userOwned: boolean; purpose: "default" | "fallback"; value: string }
     | { kind: "remove"; options: string[]; cursor: number }
     | { kind: "tos"; provider: string }
     | { kind: "theme-pick"; options: ThemeRef[]; cursor: number }
@@ -277,6 +283,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
 
   const cycle = <T,>(values: readonly T[], current: T): T => values[(values.indexOf(current) + 1) % values.length]!;
 
+  // Fallback stops, counted with the chain builder's own predicate so the
+  // summary can never disagree with what the route actually builds.
+  const fallbackStops = useMemo(
+    () => (moh.endpoints ?? []).filter((e) => fallbackIneligibleReason(e) === null),
+    [moh],
+  );
+  const fallbackSummary = `${fallbackStops.length} of ${moh.endpoints?.length ?? 0} endpoint(s)`;
+
   const rows: Row[] = useMemo(
     () => [
       { key: "mode", label: "Mode", value: config.mode },
@@ -288,6 +302,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "telemetry", label: "Telemetry", value: config.telemetry ? "on (opt-in)" : "off" },
       { key: "permissionMode", label: "Default permission mode", value: config.permissionMode },
       { key: "provider", label: "Provider", value: modelLabel },
+      { key: "fallback", label: "Fallback models", value: fallbackSummary },
       { key: "provider-add", label: "Add provider", value: "" },
       { key: "provider-remove", label: "Remove provider", value: `${moh.endpoints?.length ?? 0} endpoint(s)` },
       { key: "jev", label: "Jev (TypeSafe)", value: jevLabel },
@@ -298,7 +313,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
     ],
-    [config, modelLabel, moh, handoffTransport, mpmSetting, jevLabel],
+    [config, modelLabel, moh, handoffTransport, mpmSetting, jevLabel, fallbackSummary],
   );
 
   // Endpoints defined in the project moh.json (editable defaultModel);
@@ -331,10 +346,19 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (sub.kind === "model-free") return [];
     if (sub.kind === "jev") return [...JEV_OPTIONS];
     if (sub.kind === "remove") return sub.options;
+    if (sub.kind === "fallback") {
+      // Every endpoint is listed: one that cannot be a stop says why, rather
+      // than vanishing from a screen whose whole point is the chain.
+      return (moh.endpoints ?? []).map((e) => {
+        const reason = fallbackIneligibleReason(e);
+        const mark = e.defaultModel ? `📌 ${e.defaultModel}` : "— no preferred model";
+        return reason === null ? `${e.name} · ${mark}` : `${e.name} · ${mark} (${reason})`;
+      });
+    }
     return (moh.endpoints ?? []).map((e) => e.name);
   }, [sub, moh, projectNames, remote]);
 
-  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev") ? sub.cursor : 0;
+  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" || sub.kind === "fallback") ? sub.cursor : 0;
   const subWin = windowing(
     subOptions.length,
     subCursor,
@@ -381,6 +405,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       }
       case "provider":
         return setSub({ kind: "endpoint", cursor: 0 });
+      case "fallback":
+        return setSub({ kind: "fallback", cursor: 0 });
       case "provider-add":
         return onStartWizard();
       case "provider-remove":
@@ -608,6 +634,57 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     onToast(`provider: ${ref} (new sessions)${userOwned ? " · user endpoint, default not editable here" : " · default saved in moh.json"}`);
   };
 
+  /**
+   * The preferred model of one endpoint — the `defaultModel` field, which is
+   * also the model that endpoint serves with when it is an automatic
+   * fallback stop (ADR-0012). Writing it never touches the active `provider`
+   * ref: choosing a fallback model must not switch what you are using now.
+   *
+   * Project endpoints keep living in moh.json; user-level ones go through
+   * the config guardian. `null` clears the preference (the endpoint drops
+   * out of the chain).
+   */
+  const commitFallbackModel = (name: string, modelId: string | null, userOwned: boolean) => {
+    try {
+      if (userOwned) {
+        setUserEndpointModel(userFile, name, modelId);
+      } else {
+        const project = loadMohConfig(configFile);
+        writeMohConfig(configFile, {
+          ...project,
+          endpoints: (project.endpoints ?? []).map((e) => {
+            if (e.name !== name) return e;
+            if (modelId === null) {
+              const { defaultModel: _dropped, ...rest } = e;
+              return rest;
+            }
+            return { ...e, defaultModel: modelId };
+          }),
+        });
+      }
+    } catch (e) {
+      // The guardian refuses an endpoint the user config does not declare;
+      // surface it instead of leaving the panel silently out of sync.
+      return onToast(`fallback model: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setMoh((m) => ({
+      ...m,
+      endpoints: (m.endpoints ?? []).map((e) => {
+        if (e.name !== name) return e;
+        if (modelId === null) {
+          const { defaultModel: _dropped, ...rest } = e;
+          return rest;
+        }
+        return { ...e, defaultModel: modelId };
+      }),
+    }));
+    onToast(
+      modelId === null
+        ? `fallback: ${name} removed from the chain (new sessions)`
+        : `fallback: ${name} → ${modelId} (new sessions)`,
+    );
+  };
+
   // The studio modal owns the keyboard while open: Ink fans every key out
   // to all mounted useInput handlers, so this one must stand down or
   // enter/esc would drive the settings list underneath the modal.
@@ -615,8 +692,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (key.escape) {
       if (sub && sub.kind !== "tos") {
         if (sub.kind === "jev-key") return setSub({ kind: "jev", cursor: 0 });
-        if (sub.kind === "model") return setSub({ kind: "endpoint", cursor: 0 });
-        if (sub.kind === "model-free") return setSub({ kind: "endpoint", cursor: 0 });
+        if (sub.kind === "model") return setSub(sub.purpose === "fallback" ? { kind: "fallback", cursor: 0 } : { kind: "endpoint", cursor: 0 });
+        if (sub.kind === "model-free") return setSub(sub.purpose === "fallback" ? { kind: "fallback", cursor: 0 } : { kind: "endpoint", cursor: 0 });
         return setSub(null);
       }
       if (sub?.kind === "tos") return setSub({ kind: "endpoint", cursor: 0 });
@@ -632,6 +709,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (sub?.kind === "model-free") {
       if (key.backspace || key.delete) return setSub({ ...sub, value: sub.value.slice(0, -1) });
       if ((key.return || input === "\n") && sub.value.trim()) {
+        if (sub.purpose === "fallback") {
+          commitFallbackModel(sub.name, sub.value.trim(), sub.userOwned);
+          return setSub({ kind: "fallback", cursor: 0 });
+        }
         commitModel(sub.name, sub.value.trim(), sub.userOwned);
         return setSub(null);
       }
@@ -681,6 +762,12 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         if (!endpoint) return;
         return setSub({ kind: "tos", provider: endpoint.type });
       }
+      if (sub.kind === "fallback" && input === "c") {
+        const option = subOptions[sub.cursor];
+        if (!option) return;
+        const name = option.split(" · ")[0]!;
+        return commitFallbackModel(name, null, !projectNames.has(name));
+      }
       if (key.upArrow) {
         if (sub.kind === "tos") return;
         return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
@@ -698,7 +785,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       }
       if (key.return || input === "\n") {
         const index =
-          sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" ? sub.cursor : 0;
+          sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" || sub.kind === "fallback"
+            ? sub.cursor
+            : 0;
         const option = subOptions[index];
         if (option === undefined) return;
         if (sub.kind === "jev") {
@@ -713,6 +802,18 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (option === "Skill suggestion") return toggleJevSkills();
           if (option === "Remove") return removeJevKey();
           return;
+        }
+        if (sub.kind === "fallback") {
+          const name = option.split(" · ")[0]!;
+          const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
+          if (!endpoint) return;
+          const userOwned = !projectNames.has(name);
+          const catalog = endpointModelCatalog(endpoint.type, endpoint.baseUrl);
+          if (catalog.length === 0 && !endpoint.baseUrl) {
+            return setSub({ kind: "model-free", name, userOwned, purpose: "fallback", value: endpoint.defaultModel ?? "" });
+          }
+          if (catalog.length === 0) fetchRemoteModels(endpoint);
+          return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current: endpoint.defaultModel, userOwned, purpose: "fallback", cursor: 0, query: "" });
         }
         if (sub.kind === "endpoint") {
           if (option === "mock") {
@@ -731,16 +832,20 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (catalog.length === 0 && !endpoint.baseUrl) {
             // Unknown types without a base URL (custom): free text only,
             // as in the wizard (acceptance).
-            return setSub({ kind: "model-free", name, userOwned, value: endpoint.defaultModel ?? "" });
+            return setSub({ kind: "model-free", name, userOwned, purpose: "default", value: endpoint.defaultModel ?? "" });
           }
           if (catalog.length === 0) fetchRemoteModels(endpoint);
-          return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current: endpoint.defaultModel, userOwned, cursor: 0, query: "" });
+          return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current: endpoint.defaultModel, userOwned, purpose: "default", cursor: 0, query: "" });
         }
         if (sub.kind === "model") {
           const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
           const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
           const catalog = filterCatalog(list, sub.query);
           if (index < catalog.length) {
+            if (sub.purpose === "fallback") {
+              commitFallbackModel(sub.name, catalog[index]!.id, sub.userOwned);
+              return setSub({ kind: "fallback", cursor: 0 });
+            }
             commitModel(sub.name, catalog[index]!.id, sub.userOwned);
             return setSub(null);
           }
@@ -748,10 +853,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           if (index === catalog.length) {
             const typed = sub.query.trim();
             if (typed) {
+              if (sub.purpose === "fallback") {
+                commitFallbackModel(sub.name, typed, sub.userOwned);
+                return setSub({ kind: "fallback", cursor: 0 });
+              }
               commitModel(sub.name, typed, sub.userOwned);
               return setSub(null);
             }
-            return setSub({ kind: "model-free", name: sub.name, userOwned: sub.userOwned, value: "" });
+            return setSub({ kind: "model-free", name: sub.name, userOwned: sub.userOwned, purpose: sub.purpose, value: "" });
           }
           return;
         }
@@ -862,7 +971,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             <>
               <Text bold>{`model id: ${sub.value}▏`}</Text>
               <Text> </Text>
-              <Dim>{sub.userOwned ? "user endpoint — the default is not editable here" : "saved as defaultModel in moh.json"}</Dim>
+              <Dim>
+                {sub.purpose === "fallback"
+                  ? `saved as the preferred model${sub.userOwned ? " in ~/.moh/config" : " in moh.json"} — used when this endpoint is a fallback stop`
+                  : sub.userOwned
+                    ? "user endpoint — this sets the active provider; the default model lives in the fallback models screen"
+                    : "saved as defaultModel in moh.json"}
+              </Dim>
             </>
           ) : sub.kind === "jev" ? (
             <>
@@ -983,10 +1098,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 ? "↑↓ select · enter confirm · esc back — Jev (TypeSafe)"
                 : sub.kind === "jev-key"
                   ? "type the key · enter save and validate · esc back"
+              : sub.kind === "fallback"
+              ? "↑↓ · enter pick the model · c clear (out of the chain) · esc back — fallback models"
               : sub.kind === "endpoint"
               ? "↑↓ · enter · t ToS · esc — switch endpoint"
               : sub.kind === "model"
-                ? "type to filter · enter select · esc back — set default model"
+                ? sub.purpose === "fallback"
+                  ? "type to filter · enter set the fallback model · esc back — does not switch the provider"
+                  : "type to filter · enter select · esc back — set default model"
                 : sub.kind === "model-free"
                   ? "type a model id · enter save · esc back"
                   : "↑↓ select · enter confirm · esc back — remove endpoint"}

@@ -624,19 +624,16 @@ describe("home row chip alignment (#480)", () => {
   });
 });
 
-describe("home usage summary (#718)", () => {
-  test("shows a 7-day local usage line when sessions have model calls, hidden when empty", async () => {
-    const { cwd, home } = await homeWithSessions(1);
+describe("home chrome — no usage/model row (#718 removed)", () => {
+  test("the session list carries no usage line and no model name", async () => {
+    const { cwd, home } = await homeWithSessions(2);
     const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
-    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("last 7 days"));
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("tok · top");
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await untilFrame(frame, (f) => f.includes("title s1"));
+    // The usage rollup ("last 7 days: N tok · top <model>") was removed: it
+    // was the only place a model name appeared on Home.
+    expect(frame()).not.toContain("last 7 days");
+    expect(frame()).not.toContain("tok · top");
     i.unmount();
-
-    // No sessions at all → no usage line, no error.
-    const emptyHome = mkdtempSync(join(tmpdir(), "moh-tui-home-empty-"));
-    const e = render(<Home intro={false} cwd={emptyHome} home={emptyHome} mode="vibe" onOpen={() => {}} />);
-    await sleep(60);
-    expect(stripAnsi(e.lastFrame() ?? "")).not.toContain("last 7 days");
-    e.unmount();
   });
 });

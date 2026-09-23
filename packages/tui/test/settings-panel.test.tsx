@@ -61,12 +61,34 @@ const down = async (i: ReturnType<typeof render>, n: number) => {
   }
 };
 
+/**
+ * Moves the settings cursor onto the row whose label starts with `label`.
+ * Navigating by label instead of by a fixed count keeps these tests honest
+ * when a row is inserted: an off-by-one otherwise silently drives a
+ * neighbouring setting (which is how a new row broke 13 tests at once).
+ */
+const gotoRow = async (i: ReturnType<typeof render>, label: string) => {
+  const on = () => stripAnsi(i.lastFrame() ?? "").split("\n").some((l) => l.includes("›") && l.includes(label));
+  // Reset to the first row first: the walk is downward-only, so a cursor
+  // already below the target would otherwise never reach it.
+  for (let k = 0; k < 24; k++) {
+    i.stdin.write("\x1b[A");
+    await sleep(15);
+  }
+  for (let k = 0; k < 24; k++) {
+    if (on()) return;
+    i.stdin.write("\x1b[B");
+    await sleep(30);
+  }
+  throw new Error(`settings row not reachable by label: ${label}`);
+};
+
 describe("settings panel ToS card (#444)", () => {
   test("pressing t on an endpoint shows the full ToS card with disclaimer, links and verification date", async () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 8); // Provider row
+    await gotoRow(i, "Provider");
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("t"); // ToS for mock: toast, no card
@@ -113,7 +135,7 @@ describe("settings panel (issue #33)", () => {
     expect(frame).toContain("vibe");
     expect(frame).toContain("Tokyo Night");
     // The list scrolls: the rows below the fold are reachable, not missing.
-    await down(i.i, 16);
+    await gotoRow(i.i, "Provider reasoning");
     expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("Provider reasoning");
     i.i.unmount();
   });
@@ -123,21 +145,18 @@ describe("settings panel (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\r"); // mode → dev
     await sleep(10);
-    await down(i, 1);
+    await gotoRow(i, "Theme");
     i.stdin.write("\r"); // theme → opens the theme picker
     await sleep(30);
     i.stdin.write("\x1b[B"); // catppuccin
     await sleep(30);
     i.stdin.write("\r"); // apply catppuccin (picker closes, cursor stays on theme row)
     await sleep(30);
-    await down(i, 2);
-    i.stdin.write("\r"); // icons off (row 3)
+    await gotoRow(i, "Icons");
+    i.stdin.write("\r"); // icons off
     await sleep(10);
-    await down(i, 3);
-    i.stdin.write("\r"); // telemetry on (row 6 after Themes… insert)
-    await sleep(10);
-    await down(i, 3);
-    i.stdin.write("\r"); // telemetry on (row 5)
+    await gotoRow(i, "Telemetry");
+    i.stdin.write("\r"); // telemetry on
     await sleep(10);
     expect(changes).toContainEqual({ mode: "dev" });
     expect(changes).toContainEqual({ theme: "catppuccin" });
@@ -153,7 +172,7 @@ describe("settings panel (issue #33)", () => {
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Session handoff");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Not Set");
-    await down(i, 12); // Session handoff (the Jev entry sits at 11, #784)
+    await gotoRow(i, "Session handoff");
     i.stdin.write("\r");
     await sleep(30);
     expect(opened).toBe(1);
@@ -163,7 +182,7 @@ describe("settings panel (issue #33)", () => {
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
     await sleep(30);
-    await down(i, 16); // Provider reasoning (Themes… + Jev rows inserted, #784)
+    await gotoRow(i, "Provider reasoning");
     i.stdin.write("\r");
     await sleep(10);
     expect(changes).toContainEqual({ showReasoning: true });
@@ -174,7 +193,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i, switched, toasts } = mount(cwd);
     await sleep(30);
-    await down(i, 8); // Provider row
+    await gotoRow(i, "Provider");
     i.stdin.write("\r");
     await sleep(30);
     let frame = stripAnsi(i.lastFrame() ?? "");
@@ -189,10 +208,14 @@ describe("settings panel (issue #33)", () => {
     // type a model id → the free-text row commits it
     i.stdin.write("gpt-5.4");
     await sleep(30);
-    i.stdin.write("\x1b[B"); // gpt-5.4-mini
-    await sleep(30);
-    i.stdin.write("\x1b[B"); // the free-text row (catalog rows first)
-    await sleep(30);
+    // The filtered catalog ends with the free-text row; walk to the last row
+    // by label rather than by a hand-counted number of presses.
+    for (let k = 0; k < 20; k++) {
+      const f = stripAnsi(i.lastFrame() ?? "");
+      if (f.includes("› + use \"gpt-5.4\"")) break;
+      i.stdin.write("\x1b[B");
+      await sleep(30);
+    }
     i.stdin.write("\r");
     await sleep(30);
     expect(switched).toEqual(["openai/gpt-5.4"]);
@@ -231,7 +254,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    await down(i, 10); // Remove provider row
+    await gotoRow(i, "Remove provider");
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 1); // openai
@@ -248,7 +271,7 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 10);
+    await gotoRow(i, "Remove provider");
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("\r"); // first option = anthropic (the active one)
@@ -260,7 +283,7 @@ describe("settings panel (issue #33)", () => {
   test("add provider opens the wizard overlay", async () => {
     const h = mount(setupCwd());
     await sleep(30);
-    await down(h.i, 9); // Add provider row (mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7)
+    await gotoRow(h.i, "Add provider");
     h.i.stdin.write("\r");
     await sleep(30);
     expect(h.wizardCount()).toBe(1);
@@ -373,7 +396,7 @@ describe("merged provider endpoints (#129)", () => {
     });
     const { i, toasts } = mount(cwd, { home });
     await sleep(30);
-    await down(i, 10);
+    await gotoRow(i, "Remove provider");
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 2); // anthropic, openai, then zai
@@ -385,6 +408,128 @@ describe("merged provider endpoints (#129)", () => {
   });
 });
 
+describe("fallback models screen (ADR-0012 preferred model)", () => {
+  /** A project endpoint plus a user-level one — the two storage homes. */
+  function fallbackSetup() {
+    const cwd = setupCwd();
+    const home = mkdtempSync(join(tmpdir(), "moh-fb-home-"));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    upsertUserEndpoint(join(home, ".moh", "config"), { name: "zai", type: "zai", defaultModel: "glm-5.3-flash" });
+    return { cwd, home };
+  }
+
+  test("the row summarises how many endpoints can serve as fallback stops", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    const frame = stripAnsi(i.i.lastFrame() ?? "");
+    expect(frame).toContain("Fallback models");
+    // anthropic + openai (project) + zai (user) all carry a preferred model.
+    expect(frame).toContain("3 of 3 endpoint(s)");
+    i.i.unmount();
+  });
+
+  test("lists every endpoint with its preferred model, and why one cannot be a stop", async () => {
+    const { cwd, home } = fallbackSetup();
+    // A custom-factory type is route-incapable: listed, with the reason.
+    const moh = loadMohConfig(join(cwd, "moh.json"));
+    writeFileSync(
+      join(cwd, "moh.json"),
+      JSON.stringify({ ...moh, endpoints: [...(moh.endpoints ?? []), { name: "mine", type: "my-factory" }] }),
+    );
+    const i = mount(cwd, { home });
+    await sleep(30);
+    await down(i.i, 9); // Mode…Provider are 0..8; Fallback models is 9
+    i.i.stdin.write("\r");
+    await sleep(40);
+    let frame = stripAnsi(i.i.lastFrame() ?? "");
+    expect(frame).toContain("anthropic · 📌 claude-sonnet-4-5");
+    expect(frame).toContain("openai · 📌 gpt-5");
+    // The ineligible one says why instead of disappearing.
+    expect(frame).toContain("mine · — no preferred model (provider type \"my-facto");
+    expect(frame).toContain("c clear");
+    // The user-level endpoint is in the same list (one screen, one chain).
+    await down(i.i, 3);
+    frame = stripAnsi(i.i.lastFrame() ?? "");
+    expect(frame).toContain("zai · 📌 glm-5.3-flash");
+    i.i.unmount();
+  });
+
+  test("picking a model writes the preferred model and NEVER switches the active provider", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    await down(i.i, 9);
+    i.i.stdin.write("\r"); // fallback list
+    await sleep(40);
+    i.i.stdin.write("\x1b[B"); // to openai
+    await sleep(30);
+    i.i.stdin.write("\r"); // its model list
+    await sleep(60);
+    // The model list opens on the endpoint's current model; pick another row.
+    i.i.stdin.write("\x1b[B");
+    await sleep(30);
+    i.i.stdin.write("\r");
+    await sleep(80);
+    // The project endpoint's defaultModel changed in moh.json…
+    const project = loadMohConfig(join(cwd, "moh.json"));
+    const openai = project.endpoints!.find((e) => e.name === "openai")!;
+    expect(openai.defaultModel).not.toBe("gpt-5");
+    // …the active provider ref did NOT move (that is the whole point)…
+    expect(project.provider).toBe("anthropic/claude-sonnet-4-5");
+    expect(i.switched).toEqual([]);
+    // …and the toast says so.
+    expect(i.toasts.some((t) => t.includes("fallback: openai →"))).toBe(true);
+    i.i.unmount();
+  });
+
+  test("picking a preferred model for a USER endpoint writes ~/.moh/config, not moh.json", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    await down(i.i, 9);
+    i.i.stdin.write("\r");
+    await sleep(40);
+    i.i.stdin.write("\x1b[B");
+    await sleep(20);
+    i.i.stdin.write("\x1b[B"); // to zai (third row)
+    await sleep(30);
+    i.i.stdin.write("\r");
+    await sleep(60);
+    i.i.stdin.write("\x1b[B");
+    await sleep(30);
+    i.i.stdin.write("\r");
+    await sleep(80);
+    // The user-level endpoint is writable now (it used to be display-only).
+    const user = readUserProviderConfig(join(home, ".moh", "config"));
+    const zai = user.endpoints!.find((e) => e.name === "zai")!;
+    expect(zai.defaultModel).toBeDefined();
+    expect(zai.defaultModel).not.toBe("glm-5.3-flash");
+    // moh.json is untouched: no user endpoint leaked into the project file.
+    const project = loadMohConfig(join(cwd, "moh.json"));
+    expect(project.endpoints!.some((e) => e.name === "zai")).toBe(false);
+    i.i.unmount();
+  });
+
+  test("`c` clears the preferred model and drops the endpoint out of the chain", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    await down(i.i, 9);
+    i.i.stdin.write("\r");
+    await sleep(40);
+    i.i.stdin.write("c"); // clear the first row (anthropic)
+    await sleep(60);
+    const project = loadMohConfig(join(cwd, "moh.json"));
+    const anthropic = project.endpoints!.find((e) => e.name === "anthropic")!;
+    // Cleared means ABSENT, not empty: the chain tests `!== undefined`.
+    expect("defaultModel" in anthropic).toBe(false);
+    expect(i.toasts.some((t) => t.includes("removed from the chain"))).toBe(true);
+    expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("anthropic · — no preferred model");
+    i.i.unmount();
+  });
+});
+
 describe("max iterations row (#498)", () => {
   test("cycles presets forward on enter and persists to moh.json; unlimited shows warning once", async () => {
     const cwd = setupCwd();
@@ -393,7 +538,7 @@ describe("max iterations row (#498)", () => {
     // Rows: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
     // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7
     // provider8 add9 remove10 jev11 handoff12 mpm13 maxIterations14 (#784)
-    await down(i, 14);
+    await gotoRow(i, "Max iterations/turn");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
     i.stdin.write("\r"); // 50 → 100
     await sleep(30);
@@ -422,7 +567,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 14);
+    await gotoRow(i, "Max iterations/turn");
     await sleep(30);
     // shift+tab from 50 wraps back to unlimited (warning shows).
     i.stdin.write("\x1b[Z");
@@ -439,7 +584,7 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 14);
+    await gotoRow(i, "Max iterations/turn");
     await sleep(30);
     i.stdin.write("\r"); // 50 → 100
     await sleep(30);
@@ -471,7 +616,7 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 14);
+    await gotoRow(i, "Max iterations/turn");
     await sleep(30);
     i.stdin.write("\x1b[C"); // →: 50 → 100
     await sleep(30);
@@ -487,7 +632,7 @@ describe("max iterations row (#498) — right arrow", () => {
     const { i, toasts } = mount(cwd);
     await sleep(30);
     // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7 provider8 add9 remove10 jev11 handoff12 mpm13 (#784)
-    await down(i, 13);
+    await gotoRow(i, "Moh Project Map");
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Moh Project Map");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
@@ -516,7 +661,7 @@ describe("max iterations row (#498) — right arrow", () => {
     }));
     const { i } = mount(cwd);
     await sleep(30);
-    await down(i, 13);
+    await gotoRow(i, "Moh Project Map");
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("off (this project)");
     i.unmount();
