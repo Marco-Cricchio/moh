@@ -101,13 +101,19 @@ orchestrator (startup and picker open), caching results in
 section, default 24h; `enabled: false` restores the fully static
 catalog) and merging additively — the vendored catalog always wins on
 id collision, and fetched-only models carry conservative metadata (moh
-never invents capabilities). Any failure degrades silently to the
-static list, and a well-formed but *empty* listing counts as a failure
-(a version gate or an account without access must not wipe the picker).
-Both the `/model` modal and the Settings panel's model picker consume
-the same live projection. This is a picker/cache seam
-only: routing, `catalogEntryFor` and thinking resolution keep reading
-the vendored data.
+never invents capabilities). A well-formed but *empty* listing counts
+as a failure (a version gate or an account without access must not wipe
+the picker), and every endpoint's outcome is reported rather than
+inferred from an entry count (ADR-0045): `fresh`, `cached` (the healthy
+steady state, not a degradation), `stale` (an expired cache kept while
+the refresh failed, carrying its age), `failed` (nothing to serve, with
+the reason) or `unsupported` (no verified contract — the vendored
+catalog *is* the answer). Clients choose the noise: the `r` refresh
+always reports, while startup and picker-open speak only when they would
+leave the user without a list. Both the `/model` modal and the Settings
+panel's model picker consume the same live projection. This is a
+picker/cache seam only: routing, `catalogEntryFor` and thinking
+resolution keep reading the vendored data.
 
 **Thinking capability declarations (#256).** An endpoint profile may
 declare a thinking capability in `capabilities`: `thinking` (endpoint-

@@ -87,8 +87,11 @@ re-probe it until the cooldown expires.
   stays static: **Baseten** — its catalog is updated with a moh release.
   A fetched-only model carries conservative metadata: no thinking levels
   and no vision, because capability data lives in the shipped catalog
-  (moh never invents capabilities). The Settings panel's endpoint →
-  model picker shows the same live overlay. The switch takes effect from
+  (moh never invents capabilities). `r` reports what actually happened:
+  refreshed, served from a cache (with its age), or not refreshable.
+  Baseten, which has no listing route, never reports a failure — static
+  is its design. The Settings panel's endpoint → model picker shows the
+  same live overlay and the same state. The switch takes effect from
   the next turn.
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
