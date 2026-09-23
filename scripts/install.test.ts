@@ -6,7 +6,7 @@
  * isolated HOME so nothing touches the developer machine.
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sha256File } from "./build";
@@ -28,6 +28,8 @@ let home = "";
 let installDir = "";
 let servedBody = "";
 let servedChecksum = "";
+/** Fake `uname` dirs created per test, removed in afterAll. */
+const unameDirs: string[] = [];
 const binaryBody = `#!/bin/sh\necho "moh 0.1.0"\n`;
 const badBody = `#!/bin/sh\necho "moh tampered"\n`;
 
@@ -42,7 +44,10 @@ const server = Bun.serve({
   },
 });
 
-afterAll(() => server.stop());
+afterAll(() => {
+  server.stop();
+  for (const dir of unameDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "moh-install-test-"));
@@ -65,14 +70,14 @@ function serveBody(body: string, checksumOf: string = body, platform: string = P
 /**
  * A PATH directory holding a fake `uname`, so the script's platform detection
  * can be exercised for a host other than the one running the tests (#916).
+ * `uname` is resolved through PATH (as in packages/cli/test/run-handoff.test.ts),
+ * so no seam is added to the script itself.
  */
 function fakeUname(os: string, arch: string): string {
   const dir = mkdtempSync(join(tmpdir(), "moh-install-uname-"));
+  unameDirs.push(dir);
   const path = join(dir, "uname");
-  writeFileSync(
-    path,
-    `#!/bin/sh\ncase "$1" in\n  -s) echo ${os} ;;\n  -m) echo ${arch} ;;\n  *) echo ${os} ;;\nesac\n`,
-  );
+  writeFileSync(path, `#!/bin/sh\ncase "$1" in\n  -s) echo ${os} ;;\n  -m) echo ${arch} ;;\nesac\n`);
   chmodSync(path, 0o755);
   return dir;
 }

@@ -16,11 +16,12 @@ describe("TARGETS", () => {
 });
 
 /**
- * A platform is four doors at once — the compile target, the release matrix,
- * the installer's `uname` mapping, and self-update's vocabulary. A platform
- * added to one of them only is invisible until a user hits it (#916).
+ * A platform lives in four places at once — the compile target, the release
+ * matrix, the installer's `uname` mapping, and self-update's vocabulary. One
+ * added to a single place is invisible until a user hits it (#916), so each
+ * is reconciled against TARGETS here. This file runs in CI (job `scripts`).
  */
-describe("platform vocabulary is one list", () => {
+describe("the four platform doors agree", () => {
   const platforms = TARGETS.map((t) => t.platform);
   const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
@@ -29,9 +30,20 @@ describe("platform vocabulary is one list", () => {
     expect(matrix.sort()).toEqual([...platforms].sort());
   });
 
-  test("install.sh maps every TARGETS platform", () => {
-    const mapped = [...read("scripts/install.sh").matchAll(/platform="([^"]+)"/g)].map((m) => m[1]);
-    expect(mapped.sort()).toEqual([...platforms].sort());
+  test("install.sh maps each uname pair onto the platform that release ships", () => {
+    // Case arms may list alternatives (`Linux:aarch64|Linux:arm64)`): expand them.
+    const mapping: Record<string, string> = {};
+    for (const arm of read("scripts/install.sh").matchAll(/^\s+([\w:|]+)\)\s+platform="([^"]+)"/gm)) {
+      for (const key of arm[1].split("|")) mapping[key] = arm[2];
+    }
+    expect(mapping).toEqual({
+      "Darwin:arm64": "darwin-arm64",
+      "Darwin:x86_64": "darwin-x64",
+      "Linux:x86_64": "linux-x64",
+      "Linux:aarch64": "linux-arm64",
+      "Linux:arm64": "linux-arm64",
+    });
+    for (const platform of Object.values(mapping)) expect(platforms as readonly string[]).toContain(platform);
   });
 
   test("self-update speaks the same vocabulary", () => {
