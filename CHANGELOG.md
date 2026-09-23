@@ -5,9 +5,23 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.47.0] - 2026-09-23
 
 ### Added
+
+- **A provider can be excluded from the fallback chain** (#919): the
+  preferred-model screen could only clear a model, which dropped an endpoint
+  from the chain as a side effect — "keep this provider out of the chain, but
+  remember the model I chose for it" was not expressible. `x` in Settings →
+  Fallback models now excludes the selected provider (or puts it back) while
+  keeping its preferred model, and the row reads `✗ excluded`; `c` still
+  clears the model itself, and the two controls are independent. CLI:
+  `moh provider fallback <endpoint> --exclude`/`--include`, with
+  `moh provider status` saying `(excluded from the chain)`. The core writes
+  the ADR-0012 `fallbackEligible` flag on user-level endpoints, and
+  re-including removes the key instead of writing `true`. The eligibility
+  rule is genuinely one predicate now (`fallbackStopsFor` filters on
+  `fallbackIneligibleReason`, the same one the screen shows).
 
 - **The live model-list refresh reports its outcome** (#920, ADR-0045): a
   failed or skipped refresh used to be indistinguishable from an
@@ -62,7 +76,6 @@ matching section here at tag time.
   50 times, so it tests the real transport without public DNS or network
   timing; the rebinding tests now separately pin single-shot resolution and
   per-redirect verification instead of succeeding through a blackholed IP.
-## [Unreleased]
 
 ### Changed
 
@@ -698,7 +711,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...develop
+[0.47.0]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...v0.45.0
