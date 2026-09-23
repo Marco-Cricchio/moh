@@ -66,7 +66,10 @@ notes:
     re-pass them on every run (runtime "always" rules from the log are
     restored automatically).
   - a turn an extension asks to confirm is refused here (one stderr line,
-    exit 0): headless cannot ask, so it never sends what it cannot show.`;
+    exit 0): headless cannot ask, so it never sends what it cannot show.
+  - a project root under /mnt (a Windows drive in WSL) prints one note on
+    stderr: file I/O there is dramatically slower. Environment information,
+    never a turn error; stdout stays pure JSONL.`;
 
 /**
  * ADR-0033 §4 (#791): the headless answer to a pre-send confirmation.
@@ -389,6 +392,15 @@ export async function runCommand(options: RunOptions): Promise<number> {
     return 2;
   }
   const session = assembled.session;
+  // #918/ADR-0044: the project root lives on a Windows drive mounted into
+  // WSL (`/mnt/...`), where every file operation is dramatically slower.
+  // One visible line on stderr — stdout stays pure JSONL — and never a turn
+  // error: this is environment information, not a failure.
+  if (session.rootOnWindowsMount) {
+    err.write(
+      "moh run: note: project root is under /mnt — a Windows drive mounted in WSL; file I/O there is dramatically slower. Keep projects in the Linux filesystem (e.g. ~/projects)\n",
+    );
+  }
 
   const onSignal = () => {
     session.abort();

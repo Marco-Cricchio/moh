@@ -324,6 +324,27 @@ The tap formula ([Marco-Cricchio/homebrew-moh](https://github.com/Marco-Cricchio
 installs the same checksummed release binary and is updated automatically
 after each published release.
 
+### Windows (via WSL)
+
+There is no native Windows build: on Windows, moh runs as the Linux binary
+inside WSL (ARM64 Windows laptops included). If you do not have WSL yet,
+install it from an administrator PowerShell and reboot when it asks:
+
+```powershell
+wsl --install
+```
+
+Then run the same install command **inside the distro**, not in PowerShell:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/develop/scripts/install.sh | sh
+```
+
+Keep your projects in the Linux filesystem (`~/projects`, say), not on your
+Windows drives through `/mnt/c`: a repository under `/mnt/` works, but every
+file operation crosses into Windows and is dramatically slower. moh says so
+itself — a hint in the TUI footer, one line from `moh run`.
+
 ## Use moh
 
 Run the TUI client and complete guided provider onboarding:

@@ -35,6 +35,7 @@ import { MpmOrientation, type MpmOrientationOptions } from "../mpm/orientation";
 import { mpmQueryTool } from "../mpm/query-tool";
 import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
+import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
 
 /**
@@ -104,6 +105,12 @@ export class AgentSession {
   readonly #sessionFile: string | undefined;
   /** #400: external-growth probe (from-config: `SessionStore.externalGrowth`). */
   readonly #externalGrowth: (() => { expectedBytes: number; actualBytes: number } | null) | undefined;
+  /**
+   * #918: does the project root resolve under `/mnt/` (a Windows drive
+   * mounted into WSL)? Resolved once, here — the root never changes
+   * mid-session, so no client ever re-probes it per turn or per render.
+   */
+  readonly #rootOnWindowsMount: boolean;
   /**
    * #576: this writer's own last-appended event id (ULID). While divergence
    * (#400) is unresolved, appends carry an explicit local-tip parent (head
@@ -191,6 +198,11 @@ export class AgentSession {
     const maxIterations = resolveMaxIterations(config.maxIterations);
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
+    // #918: the `/mnt` fact is environment information, not a validation —
+    // it can never fail the session, and every construction path
+    // (`sessionFromConfig`, `createSession`) passes through here, so no
+    // client can forget to ask for it.
+    this.#rootOnWindowsMount = isOnWindowsMount(this.#cwd);
     const perms = config.permissions ?? {};
     // #849: the mode is the session's live source of truth — construction
     // seeds it from the config (or the launch flag), and `setSessionMode`
@@ -896,6 +908,17 @@ export class AgentSession {
    * /reload seam); sessions without a file store return undefined. */
   get sessionFile(): string | undefined {
     return this.#sessionFile;
+  }
+
+  /**
+   * #918 (ADR-0044): does this session's project root live on a Windows
+   * drive mounted into WSL (`/mnt/...`)? Environment information, never an
+   * error — clients render it as chrome (a persistent TUI footer hint, one
+   * stderr line in a headless run) and nothing about it can block a turn.
+   * Resolved once at assembly, realpath-anchored like the permission spine.
+   */
+  get rootOnWindowsMount(): boolean {
+    return this.#rootOnWindowsMount;
   }
 
   /**

@@ -17,6 +17,30 @@ matching section here at tag time.
   the same platform name, so an arm64 install can update itself instead of
   reporting an unsupported platform.
 
+- **A project under `/mnt` says so, in the TUI and in `moh run`** (#918,
+  ADR-0044): a repository kept on a Windows drive reached through WSL
+  (`/mnt/c`, `/mnt/d`, …) works, but every file operation crosses the 9P
+  boundary into the Windows filesystem and is dramatically slower — nobody
+  in the category mentions it. The session now resolves its project root
+  once, at assembly, with the same realpath anchoring the permission spine
+  uses (a symlink into `/mnt` counts, one out of it does not; the
+  filesystem type is not sniffed). Under that condition the TUI footer
+  carries one persistent, never-blocking hint line above the status rows —
+  self-sufficient copy at every width, from the full explanation down to
+  `⚠ /mnt is slow — use ~/projects` — and headless `moh run`
+  prints one stderr line (stdout stays pure JSONL). It is always on, there
+  is no config key to silence it, and it can never fail a session or turn
+  into a turn error: it is environment information, not a validation. The
+  distro-filesystem case renders exactly what it did before.
+
+- **Windows install guidance in the README and the manual** (#918,
+  ADR-0044): README §Install gained a `### Windows (via WSL)` subsection —
+  no native Windows build, `wsl --install` first, the same single install
+  command run *inside* the distro, and why projects belong in the Linux
+  filesystem — and the manual's getting-started page explains what `/mnt`
+  is, why it is slow, what to do about it, and that the advice is
+  WSL-only.
+
 ### Changed
 
 - **The installer asks before installing as root, and greets WSL users**
