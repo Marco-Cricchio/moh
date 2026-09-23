@@ -17,6 +17,7 @@ import { sessionsCommand, SESSIONS_USAGE } from "./sessions";
 import { usageCommand, USAGE_USAGE } from "./usage";
 import { jevCommand, JEV_USAGE } from "./jev";
 import { trashCommand, TRASH_USAGE } from "./trash";
+import { browserCommand, BROWSER_USAGE } from "./browser";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -40,6 +41,7 @@ commands:
   usage    usage reports: models, tools, routes (see: moh usage --help)
   jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
+  browser  browser tool status and setup (see: moh browser --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -217,6 +219,13 @@ export async function main(
       return 0;
     }
     return handoffCommand({ argv: rest, home: process.env.HOME });
+  }
+  if (command === "browser") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(BROWSER_USAGE + "\n");
+      return 0;
+    }
+    return browserCommand({ argv: rest, home: process.env.HOME });
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;
