@@ -7,6 +7,17 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **The live model-list refresh reports its outcome** (#920, ADR-0045): a
+  failed or skipped refresh used to be indistinguishable from an
+  up-to-date list, which is how a stale Z.ai picker and a hidden ChatGPT
+  model went unnoticed for months. Each endpoint's result is now explicit
+  — refreshed, served from a cache (with its age), not refreshable, or
+  unsupported (a provider with no listing route is static by design) —
+  and `r` in the model picker states it. The background refresh stays
+  quiet unless it would leave you without a list.
+
 ### Fixed
 
 - **The live model list now covers every provider moh ships a catalog for**
@@ -51,7 +62,6 @@ matching section here at tag time.
   50 times, so it tests the real transport without public DNS or network
   timing; the rebinding tests now separately pin single-shot resolution and
   per-redirect verification instead of succeeding through a blackholed IP.
-
 ## [0.46.0] - 2026-09-23
 ### Added
 
