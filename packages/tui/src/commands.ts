@@ -105,9 +105,9 @@ export interface SlashContext {
    * switches instead of pretending a session command exists. */
   onOpenJev?: () => void;
   /** #936: opens the guided browser-toolchain setup modal (/browser, ctrl+b
-   * while the diagnostic is up) — the same flow the Settings Browser row
-   * opens (#934). Absent (headless): the command points at the CLI door
-   * (`moh browser status|install`) instead. */
+   * while the diagnostic is up) — the flow #934's Settings Browser row is
+   * meant to open too, so the two never diverge. Absent (headless): the
+   * command points at the CLI door (`moh browser status|install`) instead. */
   onOpenBrowserSetup?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;

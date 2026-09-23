@@ -374,7 +374,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
         // stdout stays pure JSONL and the tool stays optional — never a
         // session or turn error.
         if (event.type === "browser_unavailable") {
-          err.write(`moh run: warning: ${event.reason}\n`);
+          err.write(`moh run: warning: browser tool unavailable — ${event.reason}\n`);
         }
         out.write(JSON.stringify(event) + "\n");
       },

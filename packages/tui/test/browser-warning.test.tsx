@@ -29,7 +29,7 @@ const tempHome = () => mkdtempSync(join(tmpdir(), "moh-browser-"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const REASON =
-  "browser tool disabled: playwright-core is not installed — the browser tool needs playwright-core plus a Chromium build; run `moh browser install` (or Settings → Browser → Install)";
+  "playwright-core is not installed — the browser tool needs playwright-core plus a Chromium build; run `moh browser install` (or Settings → Browser → Install)";
 
 const MISSING: BrowserToolchainStatus = {
   root: "/home/u/.moh/browser-toolchain",
@@ -215,17 +215,30 @@ describe("browser diagnostic in the App (#936)", () => {
     return { i, frame: () => stripAnsi(i.lastFrame() ?? "") };
   }
 
-  test("the warning is visible at startup and ctrl+b opens the guided setup", async () => {
+  test("the warning, the footer alarm and the install chip are visible at startup", async () => {
     const { i, frame } = appWithEnabledBrowser();
     await waitForFrame(frame, "browser");
     expect(frame()).toContain("tool unavailable");
     expect(frame()).toContain(BROWSER_SETUP_ACTION);
-    // The footer alarm states the present and carries the key (the label
-    // is width-class aware: compact below 110 columns).
-    expect(frame()).toContain("browser");
-    i.stdin.write("\x02"); // ctrl+b
+    // The present state is stated in the footer: the alarm names the
+    // problem, the chip offers the action (tab-reachable, `^b`).
+    expect(frame()).toContain("⚠ browser");
+    expect(frame()).toContain("install");
+    i.unmount();
+  }, 20000);
+
+  test("the install chip's enter and ctrl+b both open the guided setup", async () => {
+    const { i, frame } = appWithEnabledBrowser();
+    await waitForFrame(frame, "browser");
+    i.stdin.write("\t"); // tab focuses the first chip: install
+    await sleep(60);
+    i.stdin.write("\r");
     await waitForFrame(frame, "browser setup");
     expect(frame()).toContain("chromium headless shell");
+    i.stdin.write("\x1b"); // esc closes
+    await sleep(60);
+    i.stdin.write("\x02"); // ctrl+b, the same door
+    await waitForFrame(frame, "browser setup");
     i.unmount();
   }, 20000);
 

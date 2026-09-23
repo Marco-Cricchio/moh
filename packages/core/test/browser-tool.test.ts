@@ -270,7 +270,9 @@ describe("registration policy (builtinTools)", () => {
     expect(tools.browser).toBeUndefined();
     expect(options.browserSession).toBeUndefined();
     expect(options.diagnostics).toHaveLength(1);
-    expect(options.diagnostics![0]).toContain("browser tool disabled:");
+    // The diagnosis names the missing component; the surface frames it
+    // (an enabled browser is unavailable, never "disabled").
+    expect(options.diagnostics![0]).toContain("is not installed");
     expect(options.diagnostics![0]).toContain(BROWSER_SETUP_HINT);
   });
 

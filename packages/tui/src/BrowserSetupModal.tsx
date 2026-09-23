@@ -17,7 +17,8 @@ import { SPINNER_FRAMES } from "./icons";
 /**
  * The guided browser-toolchain setup (#936), the one setup flow in the
  * TUI: the `browser_unavailable` warning opens it with `install now`, and
- * the Settings Browser row (#934) opens the same surface. It is a thin
+ * the Settings Browser row (#934, not built yet) is meant to open this
+ * same surface rather than grow a second one. It is a thin
  * client over the core seam (#935) like every other client: the probe
  * reports the truth, the installer does the work, and this component owns
  * only what to show and which optional pieces the user asked for.

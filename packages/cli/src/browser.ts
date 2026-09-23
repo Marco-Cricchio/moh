@@ -80,9 +80,12 @@ function buildLabel(build: { available: boolean; version?: string }): string {
   return build.version ? `ready · ${build.version}` : "ready";
 }
 
-/** The status report: one row per component, then the verdict and — when
- * the toolchain is not usable — the core's own actionable reasons. */
-function renderStatus(status: BrowserToolchainStatus, out: NodeJS.WritableStream): number {
+/** Writes the status report — one row per component, the verdict, and the
+ * core's own actionable reasons when the toolchain is not usable — and
+ * returns the exit code (0 = a headless launch would work, 1 = it would
+ * not): a report is a question with an answer, and scripts read it from
+ * the code. */
+function reportStatus(status: BrowserToolchainStatus, out: NodeJS.WritableStream): number {
   const row = (label: string, value: string) => `  ${label.padEnd(24)}${value}\n`;
   out.write(`browser toolchain · ${status.root}\n\n`);
   out.write(
@@ -186,7 +189,7 @@ export async function browserCommand(options: BrowserCommandOptions): Promise<nu
   }
   const cwd = resolveCwd(parsed.strings["cwd"], options.cwd);
   const home = options.home ?? homedir();
-  if (sub === "status") return renderStatus((options.probe ?? probeBrowserToolchain)({ cwd, home }), out);
+  if (sub === "status") return reportStatus((options.probe ?? probeBrowserToolchain)({ cwd, home }), out);
   return runInstall({
     out,
     err,

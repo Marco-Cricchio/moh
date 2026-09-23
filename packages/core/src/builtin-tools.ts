@@ -1284,8 +1284,10 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
       // the browser at session dispose.
       (options as { browserSession?: BrowserSession }).browserSession = session;
     } else {
-      // #935: the reason already carries the actionable setup sentence.
-      (options.diagnostics ??= []).push(`browser tool disabled: ${availability.reason}`);
+      // #935: the reason is the diagnosis the clients frame for their own
+      // surface (the event type already says which tool is missing); the
+      // actionable setup sentence travels with it.
+      (options.diagnostics ??= []).push(availability.reason);
     }
   }
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));

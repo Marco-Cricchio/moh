@@ -22,9 +22,11 @@
 import type { AgentEvent } from "@moh/core";
 
 /** The TUI's action line under the transcript warning. The core's reason
- * already names the CLI command and the Settings path; this names the two
- * doors that exist right here in the TUI. */
-export const BROWSER_SETUP_ACTION = "install now: ^b (or /browser)";
+ * already names the CLI command and the Settings path; this names the door
+ * that always exists in the TUI — the block is history, so it must not
+ * advertise a key that only works while the warning is current (the footer
+ * alarm and the `install` chip carry that one). */
+export const BROWSER_SETUP_ACTION = "install now: /browser";
 
 /**
  * The `browser_unavailable` reason this open observed, or null when the

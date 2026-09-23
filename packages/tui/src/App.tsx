@@ -392,15 +392,15 @@ export function App({
    * `session_file_growth`; the fork chip projects the explicit recovery
    * action. Counters update on repeat incidents; the banner never stacks. */
   const [growth, setGrowth] = useState<{ count: number } | null>(null);
-  /** #936: the browser-toolchain diagnostic of the CURRENT open — the
-   * row-1 alarm and the `^b` setup action exist while it is set. Read from
-   * the log's open marker at session change (`currentBrowserDiagnostic`:
-   * a resumed session whose toolchain has since been installed must not
-   * keep offering setup), then set by live events, cleared by a successful
-   * install. Never derived from a stale diagnostic: the warning stays in
-   * the transcript as history, the alarm states the present. */
-  const [browserDiagnostic, setBrowserDiagnostic] = useState<string | null>(() =>
-    session ? currentBrowserDiagnostic(session.history()) : null,
+  /** #936: this open observed an enabled browser with a missing toolchain
+   * — the footer alarm, the `install` chip and the `^b` setup action exist
+   * while it is true. Decided by the log's open marker at session change
+   * (`currentBrowserDiagnostic`: a session resumed after the toolchain was
+   * installed must not keep offering setup), set by live events, cleared by
+   * a successful install. The warning itself stays in the transcript as
+   * history; this flag states the present. */
+  const [browserSetup, setBrowserSetup] = useState(() =>
+    session ? currentBrowserDiagnostic(session.history()) !== null : false,
   );
   /** #400: the foreign tail id of the latest growth event — the /tree
    * panel renders that whole branch with the warning glyph. */
@@ -466,7 +466,7 @@ export function App({
   );
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
-    const count = visibleChips(viewport.columns, growth !== null).chips.length;
+    const count = visibleChips(viewport.columns, growth !== null, browserSetup).chips.length;
     setFocusedChip((focused) => focused !== null && focused >= 0 && focused >= count ? null : focused);
   }, [viewport.columns]);
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
@@ -530,9 +530,10 @@ export function App({
             push(sanitizeForDisplay(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`), "warn");
           }
           // #936: the browser toolchain diagnostic of this open — the
-          // footer alarm + the `^b` setup action. The transcript renders
-          // the event itself (history); this is only the present state.
-          if (event.type === "browser_unavailable" && !fromHistory) setBrowserDiagnostic(event.reason);
+          // footer alarm, the `install` chip and the `^b` setup action.
+          // The transcript renders the event itself (history); this is
+          // only the present state.
+          if (event.type === "browser_unavailable" && !fromHistory) setBrowserSetup(true);
           const fallbackNotice = watchFallback(event);
           if (fallbackNotice) push(fallbackNotice, "warn");
         }
@@ -551,7 +552,7 @@ export function App({
   // alarm from its own log: the tool registers at assembly time, so a
   // toolchain installed in the meantime must clear the action.
   useEffect(() => {
-    setBrowserDiagnostic(session ? currentBrowserDiagnostic(session.history()) : null);
+    setBrowserSetup(session ? currentBrowserDiagnostic(session.history()) !== null : false);
   }, [session]);
 
   // #619: MPM status chip — a cheap 2s poll of the session seam. Fail-silent
@@ -1098,6 +1099,9 @@ export function App({
     setFocusedChip(null);
     if (action === "send") return setSubmitSignal((value) => value + 1);
     if (action === "keep") return keepMyBranch();
+    // #936: the browser toolchain warning's `install now` — the guided
+    // setup modal (also `/browser` and ctrl+b).
+    if (action === "install") return setOverlay("browser");
     if (action === "stop") return session?.abort();
     if (action === "model") return setOverlay("model");
     if (action === "mode") return cycleMode();
@@ -1126,7 +1130,7 @@ export function App({
     // not interrupt an active turn; streaming continues behind the modal.
     if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     if (session && !blocked) {
-      const chips = visibleChips(viewport.columns, growth !== null).chips;
+      const chips = visibleChips(viewport.columns, growth !== null, browserSetup).chips;
       const subCount = subagentCount;
       // While the input's completion popup owns the Tab key (a slash draft
       // with candidates), the textarea keeps focus: Tab completes the
@@ -1230,7 +1234,7 @@ export function App({
     // line and the footer alarm. Available while this open observed a
     // missing toolchain — the modal itself shows the live status, so a
     // stale open cannot mislead.
-    if (overlay === null && key.ctrl && input === "b" && browserDiagnostic !== null) return setOverlay("browser");
+    if (overlay === null && key.ctrl && input === "b" && browserSetup) return setOverlay("browser");
     // The post-claim chooser owns Esc: it returns to Frontier rather than
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
@@ -1289,7 +1293,7 @@ export function App({
       jevStatus={jevStatus}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
-      browserSetup={browserDiagnostic !== null}
+      browserSetup={browserSetup}
       onKeepMyBranch={keepMyBranch}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
@@ -1669,7 +1673,7 @@ export function App({
               // re-assemble so the browser becomes usable right away. The
               // reload carries the note — the generic "config reloaded"
               // would hide what the reload was for.
-              setBrowserDiagnostic(null);
+              setBrowserSetup(false);
               setOverlay(null);
               void reload(`✓ browser toolchain ready (playwright-core ${result.version}) — the browser tool is registered`);
             }}

@@ -10,7 +10,7 @@ import { scannerPaint, scannerStripSplit } from "./scanner";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
-export type ChipAction = "send" | "stop" | "model" | "mode" | "commands" | "settings" | "workflow" | "frontier" | "keep";
+export type ChipAction = "send" | "stop" | "model" | "mode" | "commands" | "settings" | "workflow" | "frontier" | "keep" | "install";
 export interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
 
 const ALL_CHIPS: ChipSpec[] = [
@@ -26,14 +26,20 @@ const ALL_CHIPS: ChipSpec[] = [
  * secondary). Enter on the chip appends `branch_switched { to: localTip }`. */
 const KEEP_CHIP: ChipSpec = { key: "^g", label: "keep" };
 
+/** #936: the browser-toolchain warning's action chip — prepended (after
+ * keep, which guards data safety) only while this open observed a missing
+ * toolchain. Enter opens the guided setup modal: the warning's `install
+ * now`, as a chip the keyboard can reach (tab) instead of a text line. */
+const INSTALL_CHIP: ChipSpec = { key: "^b", label: "install" };
+
 export const widthClass183 = (columns: number): "compact" | "regular" | "wide" => columns < 70 ? "compact" : columns < 110 ? "regular" : "wide";
 
 const compactChipWidth = (chip: ChipSpec) => 5 + chip.key.length + chip.label.length;
 const graphicChipWidth = (chip: ChipSpec) => 5 + chip.key.length + chip.label.length;
-export function visibleChips(columns: number, keepMyBranch = false): { chips: ChipSpec[]; graphic: boolean } {
+export function visibleChips(columns: number, keepMyBranch = false, browserSetup = false): { chips: ChipSpec[]; graphic: boolean } {
   const budget = Math.max(1, columns - 4);
   const cls = widthClass183(columns);
-  const all = keepMyBranch ? [KEEP_CHIP, ...ALL_CHIPS] : ALL_CHIPS;
+  const all = [...(keepMyBranch ? [KEEP_CHIP] : []), ...(browserSetup ? [INSTALL_CHIP] : []), ...ALL_CHIPS];
   const initial = cls === "compact" ? all.slice(0, 4) : [...all];
   const graphicWidth = initial.reduce((sum, chip) => sum + graphicChipWidth(chip) + 2, -2);
   if (graphicWidth <= budget) return { chips: initial, graphic: true };
@@ -383,9 +389,9 @@ function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: num
   </Box>;
 }
 
-function KeyRow({ width, focused, keepMyBranch }: { width: number; focused: number | null; keepMyBranch?: boolean }) {
+function KeyRow({ width, focused, keepMyBranch, browserSetup }: { width: number; focused: number | null; keepMyBranch?: boolean; browserSetup?: boolean }) {
   const theme = useTheme();
-  const { chips, graphic } = visibleChips(width, keepMyBranch);
+  const { chips, graphic } = visibleChips(width, keepMyBranch, browserSetup);
   return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={graphic ? 2 : 1} flexWrap="nowrap" marginTop={1}>
     {chips.map((chip, index) => graphic ? (
       <Box key={chip.label} borderStyle="round" borderColor={focused === index ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
@@ -397,11 +403,11 @@ function KeyRow({ width, focused, keepMyBranch }: { width: number; focused: numb
   </Box>;
 }
 
-export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; keepMyBranch?: boolean }) {
+export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; keepMyBranch?: boolean; browserSetup?: boolean }) {
   return <Box flexDirection="column">
     <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} />
     {props.rootOnWindowsMount && <WindowsMountHint width={props.width} />}
     <StatusRow {...props} />
-    <KeyRow width={props.width} focused={props.focusedChip} keepMyBranch={props.keepMyBranch} />
+    <KeyRow width={props.width} focused={props.focusedChip} keepMyBranch={props.keepMyBranch} browserSetup={props.browserSetup} />
   </Box>;
 }

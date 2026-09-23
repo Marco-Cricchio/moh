@@ -28,6 +28,20 @@ matching section here at tag time.
   replaces a working toolchain and a second moh process is told to retry
   instead of racing.
 
+- **The browser toolchain says what it needs** (#936, ADR-0029 amendment):
+  an enabled browser whose toolchain is missing used to be silent — the
+  TUI dropped the diagnostic and `moh run` printed nothing, so the tool
+  simply never ran. The TUI now renders it as a warning with an `install
+  now` action (the `install` chip, ctrl+b, `/browser`), stating the
+  present in the footer and keeping every past diagnostic in the log as
+  history; `moh run` prints one line on stderr (stdout stays pure JSONL,
+  the exit code unchanged). The action opens a guided setup modal — the
+  same surface Settings will open — that reports the toolchain truth and
+  installs it headless-first: the full Chromium build and Playwright's
+  system dependencies stay explicit choices. The new `moh browser
+  status|install` gives the headless user the same door the core's own
+  hint has been naming since #935.
+
 ## [0.48.0] - 2026-09-23
 
 ### Added

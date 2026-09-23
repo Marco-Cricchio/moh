@@ -145,9 +145,10 @@ decided here:
   Unchanged: chrome only — never provider context, never a turn error,
   never a permission rule, and stdout stays pure JSONL in headless runs.
 - **The action is one flow, and it has a CLI door.** The TUI's `install
-  now` (ctrl+b, `/browser`) opens the guided setup modal — the same
-  surface the Settings Browser row opens (#934), built here because the
-  transcript must not grow a second installer path. And because the core's
+  now` (ctrl+b, `/browser`) opens the guided setup modal — the surface
+  #934's Settings Browser row is meant to open as well, built here because
+  the transcript must not grow a second installer path, and because #934
+  is not a dependency of #936. And because the core's
   own hint (`BROWSER_SETUP_HINT`, #935) and the manual already named `moh
   browser install`, the CLI gained `moh browser status|install`: a thin
   client that renders the probe, decides which optional pieces to fetch
