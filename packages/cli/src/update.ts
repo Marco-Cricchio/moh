@@ -12,7 +12,7 @@ import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { performSelfUpdate, isDevRun } from "@moh/core";
-import type { SelfUpdateIo, SelfUpdateProgress, SelfUpdateResult } from "@moh/core";
+import type { SelfUpdateIo, SelfUpdateProgress, SelfUpdateResult, UpdatePlatform } from "@moh/core";
 import { CLI_VERSION } from "./version";
 import { UpdateProgress, interactiveStream } from "./update-progress";
 
@@ -82,7 +82,7 @@ export async function updateCommand(options: {
   /** Injectable current version (test seam). */
   currentVersion?: string;
   /** Injectable platform (test seam). */
-  platform?: "darwin-arm64" | "darwin-x64" | "linux-x64";
+  platform?: UpdatePlatform;
   /** moh home dir (test seam; default ~/.moh) — a successful update
    * refreshes the update-check cache there (#328). */
   mohHome?: string;

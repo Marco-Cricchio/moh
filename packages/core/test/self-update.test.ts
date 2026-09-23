@@ -96,8 +96,10 @@ describe("detectUpdatePlatform", () => {
     expect(detectUpdatePlatform("darwin" as NodeJS.Platform, "arm64")).toBe("darwin-arm64");
     expect(detectUpdatePlatform("darwin" as NodeJS.Platform, "x64")).toBe("darwin-x64");
     expect(detectUpdatePlatform("linux" as NodeJS.Platform, "x64")).toBe("linux-x64");
+    expect(detectUpdatePlatform("linux" as NodeJS.Platform, "arm64")).toBe("linux-arm64");
+    expect(() => detectUpdatePlatform("linux" as NodeJS.Platform, "riscv64")).toThrow(/unsupported platform riscv64/);
     expect(() => detectUpdatePlatform("win32" as NodeJS.Platform, "x64")).toThrow(/unsupported platform win32-x64/);
-    expect(UPDATE_PLATFORMS).toEqual(["darwin-arm64", "darwin-x64", "linux-x64"]);
+    expect(UPDATE_PLATFORMS).toEqual(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
   });
 });
 
