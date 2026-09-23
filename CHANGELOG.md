@@ -5,6 +5,41 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Fixed
+
+- **The live model list now covers every provider moh ships a catalog for**
+  (#920, follow-up to #551): the augmentation reached 7 of the 24 provider
+  kinds — for the rest the picker showed the vendored pi-ai snapshot and
+  nothing ever refreshed it, while the fifteen openai-compatible profiles of
+  #726 ship a *single* vendored model each. Every `<baseUrl>/models` route
+  was probed and wired into one contract table: Z.ai (11 models live against
+  7 shipped — the owner's own stale list), Kimi Code (its list lives under
+  `/v1`, not at the `/models` that made it look absent), DeepSeek, Groq,
+  Cerebras, NVIDIA NIM, Together, Fireworks, Hugging Face, Mistral, Moonshot,
+  MiniMax, Qwen, Xiaomi MiMo, Vercel AI Gateway and Cloudflare AI Gateway.
+  Baseten is the one provider with no verified route (its `/v1/models` is
+  served by the website) and stays static, as a declared decision. A listing
+  label now also reads `name`/`max_context_length`, the fields OpenRouter and
+  Mistral use, instead of showing a raw id.
+- **The ChatGPT/Codex listing no longer hides the newest models** (#920): the
+  backend requires `client_version` and gates each model on its own
+  `minimal_client_version`, so the old `0.0.0` default returned the
+  0.153-era list — `gpt-6-sol` and `gpt-6-luna` (min 0.155.0) were invisible
+  — and moh's own version would have returned an *empty* list. The listing
+  now asks for the full catalog with a saturating client version, and a
+  well-formed but empty list is classified as a failed fetch (degrading to
+  the cache) instead of being read as an unrecognized shape.
+- **An OpenCode model that only the live listing knows is routable** (#920):
+  the Zen/Go endpoints carry a per-model wire in the shipped catalog, so a
+  live-only id had none and the turn died with `provider kind "opencode" has
+  no wire mapping` — after the switch had been accepted. The kind now has a
+  verified default wire (both products serve every model over
+  `/chat/completions`, probed with a live-only id and with a catalog entry
+  whose per-model wire differs), so `grok-4.7`, `omen-alpha`, `deepseek-flash`
+  and friends work instead of being dead picker rows.
+
 ## [0.46.0] - 2026-09-23
 ### Added
 

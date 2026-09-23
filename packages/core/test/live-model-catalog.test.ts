@@ -9,9 +9,12 @@ import {
   fetchLiveCatalogs,
   readLiveModelsConfig,
   listProviderModels,
+  hasLiveListingContract,
+  CODEX_LISTING_CLIENT_VERSION,
   type LiveModelListing,
 } from "../src/live-model-catalog";
 import type { CatalogModel } from "../src/model-catalog";
+import { BUILTIN_PROVIDER_TYPES } from "../src/provider-onboarding";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,9 +69,16 @@ describe("parseModelsResponse", () => {
 
   test("returns undefined for unrecognized shapes", () => {
     expect(parseModelsResponse({ foo: 1 })).toBeUndefined();
-    expect(parseModelsResponse({ data: [] })).toBeUndefined();
     expect(parseModelsResponse(null)).toBeUndefined();
-    expect(parseModelsResponse({ data: [{ nope: true }] })).toBeUndefined();
+    expect(parseModelsResponse({ data: { models: [] } })).toBeUndefined();
+  });
+
+  test("an empty list is the shape's own answer, not an unrecognized body (#920)", () => {
+    expect(parseModelsResponse({ data: [] })).toEqual([]);
+    expect(parseModelsResponse({ models: [] })).toEqual([]);
+    // A recognized container whose entries are all unusable is empty too —
+    // never a different contract's body.
+    expect(parseModelsResponse({ data: [{ nope: true }] })).toEqual([]);
   });
 });
 
@@ -128,8 +138,7 @@ describe("fetchLiveCatalogs", () => {
   test("serves from a fresh cache without fetching; merges new fetches into the cache", async () => {
     const dir = home();
     try {
-      const fetchImpl = async () => ({
-        status: 200,
+      const fetchImpl = async () => ({        status: 200,
         json: { data: [{ id: "brand-new-model", display_name: "Brand New" }] },
       });
       const first = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl });
@@ -167,6 +176,33 @@ describe("fetchLiveCatalogs", () => {
       );
       expect(called).toBe(false);
       expect(out).toEqual({});
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("fetches the audited contracts: a #726 profile and Z.ai, never baseten (#920)", async () => {
+    const dir = home();
+    try {
+      const urls: string[] = [];
+      const out = await fetchLiveCatalogs(
+        [
+          { name: "zai", type: "zai" },
+          { name: "my-deepseek", type: "deepseek", baseUrl: "https://api.deepseek.com" },
+          { name: "baseten", type: "baseten" },
+        ],
+        {
+          mohHome: dir,
+          fetchImpl: async (url) => {
+            urls.push(url);
+            return { status: 200, json: { data: [{ id: `${url.split("/")[2]}-model` }] } };
+          },
+        },
+      );
+      expect(urls).toEqual(["https://api.z.ai/api/coding/paas/v4/models", "https://api.deepseek.com/models"]);
+      expect(out.zai).toEqual([{ id: "api.z.ai-model" }]);
+      expect(out["my-deepseek"]).toEqual([{ id: "api.deepseek.com-model" }]);
+      expect(out.baseten).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -306,15 +342,61 @@ describe("listProviderModels", () => {
     expect(out.map((m) => m.id)).toEqual(["a", "b"]);
   });
 
-  test("kimi-coding and zai have no verified contract and are never fetched", async () => {
-    let called = false;
-    const fail = async () => {
-      called = true;
-      return { status: 200, json: { data: [] } };
-    };
-    expect(listProviderModels("kimi-coding", "e", { fetchImpl: fail })).rejects.toThrow("no verified");
-    expect(listProviderModels("zai", "e", { fetchImpl: fail })).rejects.toThrow("no verified");
-    expect(called).toBe(false);
+  test("kimi-coding lists under /v1 on its coding backend (#920)", async () => {
+    let url = "";
+    const out = await listProviderModels("kimi-coding", "kimi", {
+      apiKey: "k",
+      fetchImpl: async (u, headers) => {
+        url = u;
+        expect(headers.Authorization).toBe("Bearer k");
+        return { status: 200, json: { data: [{ id: "k3-256k" }] } };
+      },
+    });
+    expect(url).toBe("https://api.kimi.com/coding/v1/models");
+    expect(out).toEqual([{ id: "k3-256k" }]);
+  });
+
+  test("the #726 profiles list at their documented <baseUrl>/models (#920)", async () => {
+    // Z.ai is the owner's own stale list: the coding endpoint answers 11
+    // models while the vendored catalog ships 7.
+    const zai = await listProviderModels("zai", "zai", {
+      apiKey: "k",
+      fetchImpl: async (url, headers) => {
+        expect(url).toBe("https://api.z.ai/api/coding/paas/v4/models");
+        expect(headers.Authorization).toBe("Bearer k");
+        return { status: 200, json: { object: "list", data: [{ id: "glm-5.1", object: "model", created: 1, owned_by: "z-ai" }] } };
+      },
+    });
+    expect(zai).toEqual([{ id: "glm-5.1" }]);
+
+    // The endpoint's own baseUrl wins (a regional alternative or a proxy).
+    let deepseekUrl = "";
+    await listProviderModels("deepseek", "ds", {
+      baseUrl: "https://proxy.internal/v1/",
+      fetchImpl: async (url) => {
+        deepseekUrl = url;
+        return { status: 200, json: { data: [{ id: "deepseek-chat" }] } };
+      },
+    });
+    expect(deepseekUrl).toBe("https://proxy.internal/v1//models");
+  });
+
+  test("a listing label falls back from display_name to name, and max_context_length to context_length", async () => {
+    const out = await listProviderModels("openrouter", "or", {
+      fetchImpl: async () => ({
+        status: 200,
+        json: {
+          data: [
+            { id: "openai/gpt-6-luna", name: "OpenAI: GPT-6 Luna", context_length: 1_050_000 },
+            { id: "mistral-large-latest", name: "mistral-large-latest", max_context_length: 131_072 },
+          ],
+        },
+      }),
+    });
+    expect(out).toEqual([
+      { id: "openai/gpt-6-luna", name: "OpenAI: GPT-6 Luna", contextWindow: 1_050_000 },
+      { id: "mistral-large-latest", name: "mistral-large-latest", contextWindow: 131_072 },
+    ]);
   });
 
   test("anthropic sends x-api-key + anthropic-version, never a Bearer mix", async () => {
@@ -342,14 +424,26 @@ describe("listProviderModels", () => {
     expect(url).toBe("https://api.anthropic.com/v1/models?limit=1000");
   });
 
-  test("throws on no verified contract (kimi-coding, zai)", async () => {
-    expect(listProviderModels("kimi-coding", "e")).rejects.toThrow("no verified");
-    expect(listProviderModels("zai", "e")).rejects.toThrow("no verified");
+  test("throws on no verified contract (baseten: its /v1/models is the website, not an inference API)", async () => {
+    expect(listProviderModels("baseten", "e")).rejects.toThrow("no verified");
+    expect(listProviderModels("my-custom", "e")).rejects.toThrow("no verified");
   });
 
   test("throws on HTTP failure and on unrecognized shape", async () => {
     expect(listProviderModels("anthropic", "e", { fetchImpl: async () => ({ status: 401, json: {} }) })).rejects.toThrow("HTTP 401");
     expect(listProviderModels("anthropic", "e", { fetchImpl: async () => ({ status: 200, json: { nope: [] } }) })).rejects.toThrow("unrecognized");
+  });
+
+  test("a well-formed but empty list is a failure, not an empty catalog (#920)", async () => {
+    // The Codex version gate and an account with no access both answer
+    // `200 {models: []}`: serving nothing would silently wipe the picker.
+    expect(listProviderModels("openai", "e", { fetchImpl: async () => ({ status: 200, json: { models: [] } }) })).rejects.toThrow("empty model list");
+    expect(listProviderModels("zai", "e", { fetchImpl: async () => ({ status: 200, json: { data: [] } }) })).rejects.toThrow("empty model list");
+    // …while an empty *continuation* page still just ends the pagination.
+    const pages = [{ data: [{ id: "m1" }], has_more: true }, { data: [], has_more: false }];
+    let n = 0;
+    const out = await listProviderModels("anthropic", "e", { fetchImpl: async () => ({ status: 200, json: pages[n++] }) });
+    expect(out).toEqual([{ id: "m1" }]);
   });
 
   test("google sends the key as x-goog-api-key", async () => {
@@ -405,5 +499,35 @@ describe("OpenCode live-catalog cache and fallback (#794)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("listing-contract coverage (#920 audit)", () => {
+  test("every builtin provider kind has a verified contract, except the one the audit found no route for", () => {
+    // Baseten's /v1/models is served by the marketing site (403 + a website
+    // CSP), not by an inference API: its vendored catalog stays the update
+    // story. Any other kind going static must fail here, loudly.
+    const staticByDesign = new Set(["baseten"]);
+    for (const type of BUILTIN_PROVIDER_TYPES) {
+      if (type === "openai-compat") continue; // arbitrary host: the pickers fetch it themselves (#181)
+      expect(hasVendoredCatalog(type)).toBe(true);
+      expect(hasLiveListingContract(type)).toBe(!staticByDesign.has(type));
+    }
+  });
+
+  test("the openai listing asks for the full list, never moh's own version (#920)", async () => {
+    // The backend gates each model on `minimal_client_version <=
+    // client_version`: moh's version returns an empty list, and the old
+    // `0.0.0` default hid the newest two models.
+    let url = "";
+    await listProviderModels("openai", "openai", {
+      apiKey: "t",
+      fetchImpl: async (u) => {
+        url = u;
+        return { status: 200, json: { models: [{ slug: "gpt-6-sol", visibility: "list", supported_in_api: true }] } };
+      },
+    });
+    expect(url).toBe(`https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_LISTING_CLIENT_VERSION}`);
+    expect(CODEX_LISTING_CLIENT_VERSION).not.toBe("0.0.0");
   });
 });
