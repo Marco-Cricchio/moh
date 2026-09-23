@@ -17,6 +17,31 @@ matching section here at tag time.
   the same platform name, so an arm64 install can update itself instead of
   reporting an unsupported platform.
 
+### Changed
+
+- **The installer asks before installing as root, and greets WSL users**
+  (#917): running `install.sh` as root was silent before — it now always warns
+  on stderr, and asks for confirmation on `/dev/tty` (never stdin, which under
+  `curl … | sh` *is* the script) whenever a terminal is actually reachable;
+  anything but `y` aborts with exit 1, while a non-interactive run (CI, a pipe,
+  `setsid`) proceeds with the warning visible. There is no override variable —
+  the no-TTY path is the escape hatch. On WSL (detected from
+  `WSL_DISTRO_NAME`/`WSL_INTEROP`, with a `/proc/version` fallback) the script
+  prints two informational lines: this Linux binary is the supported install,
+  and projects belong in the distro filesystem because `/mnt/c` is dramatically
+  slower — the same message the TUI footer carries for a `/mnt` project root.
+
+- **The installer can no longer leave a half-written `moh`** (#917): the
+  verified binary is staged inside the install directory and renamed within it,
+  so the swap is atomic on that filesystem and a `$TMPDIR` on another one can
+  no longer produce a truncated binary. A failing `--version` smoke test now
+  runs *before* the existing install is touched: a binary that cannot execute
+  (glibc on a musl distribution — Alpine, including Alpine WSL) aborts with a
+  message naming the likely cause and leaves the working `moh` in place, where
+  it previously replaced it and broke the command. The PATH hint names the file
+  your shell actually reads — `~/.bashrc` for bash, `~/.zshrc` for zsh,
+  `~/.profile` as the fallback — instead of always `~/.profile`.
+
 ## [0.47.0] - 2026-09-23
 
 ### Added
