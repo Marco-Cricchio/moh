@@ -6,10 +6,65 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listSessionSummaries, loadMohConfig, MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition } from "./helpers";
+import { installAiSdkWarningSink } from "../src/ai-sdk-warnings";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-app-ov-"));
+
+/** Push a toast through App's own channel with no keystroke involved (the
+ * SDK warning sink), so the intro is still on screen when it lands. */
+function emitAiSdkWarning(message: string): void {
+  const sink = (globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS as
+    | ((options: { warnings: Array<Record<string, unknown>> }) => void)
+    | undefined;
+  if (typeof sink !== "function") throw new Error("the AI SDK warning sink is not installed");
+  sink({ warnings: [{ type: "probe", message }] });
+}
+
+describe("home logo intro — chrome stays off the animation", () => {
+  test("the footer and toasts are hidden while the intro plays, and return after it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-intro-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(150);
+    // The animation owns the screen: no footer, no bottom toast chrome.
+    expect(frame()).not.toContain("ctrl+t theme");
+    // A toast pushed without any keystroke — the shape of a startup notice
+    // (an available update, a skill sync) landing while the intro plays.
+    // The AI SDK warning sink is App's own toast channel, so no key ends
+    // the intro before the assertion.
+    installAiSdkWarningSink();
+    emitAiSdkWarning("intro probe notice");
+    await sleep(120);
+    expect(frame()).not.toContain("intro probe notice");
+    // Ending the intro hands the screen back: the deferred toast is shown,
+    // not lost.
+    i.stdin.write(" ");
+    await waitForCondition(
+      () => frame().includes("intro probe notice"),
+      () => "the toast deferred behind the intro never re-appeared",
+      { timeoutMs: 4000 },
+    );
+    expect(frame()).toContain("ctrl+t theme");
+    i.unmount();
+  }, 10000);
+
+  test("the intro plays once per process: a theme remount does not replay it", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-intro-once-"));
+    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(120);
+    i.stdin.write(" "); // end the intro
+    await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled");
+    i.stdin.write("\x14"); // ctrl+t: theme cycle remounts Home
+    await sleep(120);
+    // Still the settled banner and chrome — no second animation run.
+    expect(frame()).toContain("My Own Harness");
+    expect(frame()).toContain("ctrl+t theme");
+    i.unmount();
+  }, 10000);
+});
 
 describe("App overlays (issue #33)", () => {
   // #236 Class 1: App must isolate onboarding env-detection from the real
@@ -19,12 +74,12 @@ describe("App overlays (issue #33)", () => {
   test("onboarding env-detection uses the injected env, not the real process env (#236)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const withKey = render(<App cwd={cwd} home={home} env={{ ANTHROPIC_API_KEY: "sk-test-236" }} />);
+    const withKey = render(<App intro={false} cwd={cwd} home={home} env={{ ANTHROPIC_API_KEY: "sk-test-236" }} />);
     await sleep(50);
     expect(stripAnsi(withKey.lastFrame() ?? "")).toContain("connect a provider");
     withKey.unmount();
     const fresh = tempHome();
-    const clean = render(<App cwd={mkdtempSync(join(tmpdir(), "moh-app-cwd-"))} home={fresh} env={{}} />);
+    const clean = render(<App intro={false} cwd={mkdtempSync(join(tmpdir(), "moh-app-cwd-"))} home={fresh} env={{}} />);
     await sleep(50);
     const frame = stripAnsi(clean.lastFrame() ?? "");
     expect(frame).toContain("connect a provider");
@@ -37,7 +92,7 @@ describe("App overlays (issue #33)", () => {
   test("first run with nothing configured opens onboarding; skip lands on home", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const i = render(<App cwd={cwd} home={home} env={{}} />);
+    const i = render(<App intro={false} cwd={cwd} home={home} env={{}} />);
     await sleep(50);
     // Either the env-detect list or the wizard — never the home screen.
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("connect a provider");
@@ -55,7 +110,7 @@ describe("App overlays (issue #33)", () => {
   test("a dismissed handoff offer reminds once at the first session end", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ handoff: { onboarding: "dismissed" } }));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("n"); // new session
     await sleep(50);
@@ -66,7 +121,7 @@ describe("App overlays (issue #33)", () => {
 
   test("direct chat skips the handoff offer", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat />);
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("type…");
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("session handoff");
@@ -75,7 +130,7 @@ describe("App overlays (issue #33)", () => {
 
   test("a configured provider skips onboarding entirely", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("search or start something new");
     i.unmount();
@@ -83,7 +138,7 @@ describe("App overlays (issue #33)", () => {
 
   test("? opens the all-commands panel, esc closes; s opens settings", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("?");
     await sleep(50);
@@ -102,7 +157,7 @@ describe("App overlays (issue #33)", () => {
 
   test("ctrl+s and ctrl+k open the panels from home too", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("\x13"); // ctrl+s
     await sleep(50);
@@ -118,7 +173,7 @@ describe("App overlays (issue #33)", () => {
 
   test("a modal layer remains transparent around the dialog", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "columns", { value: 100, configurable: true });
     Object.defineProperty(i.stdout, "rows", { value: 40, configurable: true });
     i.stdout.emit("resize");
@@ -138,7 +193,7 @@ describe("App overlays (issue #33)", () => {
 
   test("in chat, ? on an empty draft opens commands, then closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     i.stdin.write("n"); // new session → chat
     await sleep(50);
@@ -159,7 +214,7 @@ describe("in-session rename modal (#534)", () => {
   test("ctrl+r renames the live session and the restarted home shows the exact name", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const i = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
     await sleep(50);
     i.stdin.write("\x12"); // ctrl+r
     await sleep(50);
@@ -171,7 +226,7 @@ describe("in-session rename modal (#534)", () => {
     expect(listSessionSummaries(cwd, home)[0]?.title).toBe("Release checklist");
     i.unmount();
 
-    const reopened = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding />);
+    const reopened = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding />);
     await sleep(50);
     expect(stripAnsi(reopened.lastFrame() ?? "")).toContain("Release checklist");
     reopened.unmount();
@@ -180,7 +235,7 @@ describe("in-session rename modal (#534)", () => {
   test("ctrl+r starts empty for an unrenamed session; empty confirmation resets an existing name", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const i = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
     await sleep(50);
     i.stdin.write("\x12");
     await sleep(50);
@@ -202,7 +257,7 @@ describe("in-session rename modal (#534)", () => {
 
   test("ctrl+r opens while an action chip is focused", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
     await sleep(50);
     i.stdin.write("\t");
     await sleep(30);
@@ -216,7 +271,7 @@ describe("in-session rename modal (#534)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
     const provider = MockProvider.scripted([{ deltas: ["FIRST", "SECOND"], deltaDelayMs: 100, finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     await sleep(50);
     i.stdin.write("reply");
     await sleep(30);
@@ -238,7 +293,7 @@ describe("in-session rename modal (#534)", () => {
   test("esc cancels without changing the current display name", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const i = render(<App cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
     await sleep(50);
     i.stdin.write("\x12");
     await sleep(50);
@@ -260,7 +315,7 @@ describe("in-session rename modal (#534)", () => {
 describe("usage quota modal (#499)", () => {
   test("ctrl+q opens the modal from chat, esc closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("usage quota");
     i.stdin.write("\x11"); // ctrl+q
@@ -277,7 +332,7 @@ describe("usage quota modal (#499)", () => {
 describe("project map modal (#619)", () => {
   test("/mpm opens the inspection modal from chat, esc closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
-    const i = render(<App cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("project map");
     i.stdin.write("/mpm");

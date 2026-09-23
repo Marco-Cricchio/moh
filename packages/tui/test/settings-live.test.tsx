@@ -15,7 +15,7 @@ describe("settings changes apply live (#196)", () => {
   test("toggling mode in the settings panel flips the session label immediately", async () => {
     const provider = MockProvider.demo();
     const home = tempHome();
-    const i = render(<App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "○ vibe");
     i.stdin.write("\x13"); // ctrl+s → settings
@@ -33,7 +33,7 @@ describe("settings changes apply live (#196)", () => {
   test("changing theme in the settings panel remounts with the new theme", async () => {
     const provider = MockProvider.demo();
     const home = tempHome();
-    const i = render(<App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "type…");
     i.stdin.write("draft"); // a draft in the input proves the remount below

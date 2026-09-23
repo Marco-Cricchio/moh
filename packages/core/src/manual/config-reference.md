@@ -57,6 +57,14 @@ All keys are optional. Notes:
   registered via `registerProvider`.
 - `endpoints[].apiKey` — falls back to the env var
   `MOH_ENDPOINT_<NAME>_API_KEY`, then a first-party profile's documented provider environment variable; prefer the guardian-stored key from the wizard over inlining secrets in moh.json.
+- `endpoints[].defaultModel` — the endpoint's **preferred model**. It is
+  used when a route references the endpoint without a model, and it is the
+  model that endpoint serves with when it is an automatic fallback stop
+  (ADR-0012). Set it from Settings → *Fallback models* or with
+  `moh provider fallback <endpoint> <model>`; an endpoint with no
+  preferred model is never a fallback stop.
+- `endpoints[].fallbackEligible` — `false` keeps the endpoint out of the
+  automatic fallback chain (default `true`).
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
   uses the plan's OAuth tokens.
 - `capabilities.multimodal` — declares image input for endpoints without

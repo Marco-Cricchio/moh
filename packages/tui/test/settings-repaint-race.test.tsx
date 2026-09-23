@@ -24,6 +24,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * is asserted on write ordering: the post-close reprint of the settled
  * marker must come after the "\x1b[?1049l" buffer-flip write.
  */
+/**
+ * Opens Settings and walks the cursor onto the "Provider reasoning" row.
+ * Tolerant by design: the panel's row order grows as entries are added
+ * ("Fallback models" landed after Provider), and a fixed count ages into a
+ * false failure — it drove the wrong row and the flip never fired.
+ */
+async function openProviderReasoning(i: ReturnType<typeof render>): Promise<void> {
+  i.stdin.write("\x13"); // ctrl+s
+  await sleep(150);
+  for (let n = 0; n < 24; n++) {
+    if ((i.frames.at(-1) ?? "").includes("› " + "Provider reasoning")) return;
+    i.stdin.write("\x1b[B");
+    await sleep(20);
+  }
+  throw new Error("the Provider reasoning row was not reachable");
+}
+
 describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
   test("the post-close reprint happens after the buffer flip", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-cwd-"));
@@ -31,7 +48,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["HISTMARKER historical reasoning"] }, deltas: ["ANSWERMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     // The alternate-screen choreography is TTY-gated; the harness stdout
     // reports as non-TTY unless marked here.
     Object.defineProperty(i.stdout, "isTTY", { value: true });
@@ -47,15 +64,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     // entries are added (the Jev entry landed at 11, the ported MPM/
     // highlight entries shift it further), and a fixed count ages into a
     // false failure. Walk until the row is selected, then toggle.
-    i.stdin.write("\x13"); // ctrl+s
-    await sleep(150);
-    let onRow = false;
-    for (let n = 0; n < 24 && !onRow; n++) {
-      i.stdin.write("\x1b[B");
-      await sleep(20);
-      onRow = (i.frames.at(-1) ?? "").includes("Provider reasoning");
-    }
-    expect(onRow).toBe(true);
+    await openProviderReasoning(i);
     i.stdin.write("\r"); // toggle show
     await sleep(150);
     const frameBefore = i.frames.at(-1) ?? "";
@@ -93,7 +102,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["HISTMARKER historical reasoning"] }, deltas: ["ANSWERMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "isTTY", { value: true });
     await sleep(50);
     i.stdin.write("hello");
@@ -103,10 +112,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 16; n++) {
-      i.stdin.write("\x1b[B");
-      await sleep(20);
-    }
+    await openProviderReasoning(i);
     i.stdin.write("\r"); // toggle hide
     await sleep(150);
     const escAt = i.frames.length;
@@ -133,7 +139,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     const provider = MockProvider.scripted([
       { reasoning: { deltas: ["HISTMARKER historical reasoning"] }, deltas: ["ANSWERMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "isTTY", { value: true });
     await sleep(50);
     i.stdin.write("hello");
@@ -143,10 +149,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(150);
-    for (let n = 0; n < 16; n++) {
-      i.stdin.write("\x1b[B");
-      await sleep(20);
-    }
+    await openProviderReasoning(i);
     i.stdin.write("\r"); // toggle show → arms the deferred repaint
     await sleep(150);
     i.stdin.write("\x1b"); // esc → close, flip timer armed

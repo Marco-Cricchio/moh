@@ -37,15 +37,20 @@ describe("detect-and-fork (#468)", () => {
     const originalBytes = readFileSync(originalFile, "utf8");
 
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       // The pertinent session (unconsumed) is suggested as the pre-selected
-      // banner row; enter opens it.
+      // banner row; enter opens it. The session list now arrives in its own
+      // commit (Home defers the scan), so settle before the first keystroke —
+      // the #637 lost-first-keystroke race drops it otherwise, and the list
+      // row itself contains the title, which would mask the lost resume.
+      await waitForFrame(frameText, "▸");
+      await new Promise((r) => setTimeout(r, 100));
       await waitForFrame(frameText, "▸");
       await i.stdin.write("\r");
       await waitForCondition(
-        () => frameText().includes("earlier work"),
+        () => readFileSync(originalFile, "utf8").includes("session_resumed"),
         () => "session never opened",
       );
       await new Promise((r) => setTimeout(r, 100));

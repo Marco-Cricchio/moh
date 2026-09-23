@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
 import { Accent, Dim, Footer, Logo, truncate, formatCount } from "./ui";
+import { LogoIntro } from "./LogoIntro";
 import {
   HOME_LIST_DEFAULT,
   homeBannerFits,
@@ -12,7 +13,7 @@ import {
   useViewport,
 } from "./viewport";
 import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "./sessions";
-import { MOH_VERSION, aggregateTelemetry, type HandoffOffer } from "@moh/core";
+import { MOH_VERSION, type HandoffOffer } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 import { skillUpdateNoticeText } from "./update-poll";
@@ -85,13 +86,6 @@ function HomeRow({
   );
 }
 
-/** #718: compact token count for the Home usage line. */
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
-
 /** Relative time for the pertinent-session banner (T3 #470). */
 export function relativeTime(mtimeMs: number, now = Date.now()): string {
   const diff = now - mtimeMs;
@@ -129,6 +123,11 @@ export interface HomeProps {
   onOpenColdWizard?: () => void;
   /** Version shown under the logo (#292; defaults to MOH_VERSION). */
   version?: string;
+  /** Startup logo intro (default on); tests pass false for a static frame. */
+  intro?: boolean;
+  /** Fired once when the intro ends (settled or skipped). The client uses it
+   * to stop suppressing its own chrome (toasts) over the animation. */
+  onIntroEnd?: () => void;
 }
 
 /**
@@ -138,7 +137,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, intro: introEnabled = true, onIntroEnd }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -148,6 +147,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
   const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
+  // Startup intro: one random animation per Home mount; `intro={false}`
+  // starts directly on the settled Home (tests and scripted surfaces).
+  const [intro, setIntro] = useState(introEnabled);
   // Pre-select the pertinent banner row when present (#470): opening it is
   // the suggested action; the first keystroke moves off it as usual. The
   // rows are computed below, so the default rides a lazy state initializer
@@ -160,23 +162,36 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // per session on EVERY render: sync work inside React commits is the
   // #595 crash window ("Should not already be working." in Ink).
   const [renamesDone, setRenamesDone] = useState(0);
-  // #718: compact local usage summary — tokens in the last 7 days + top
-  // model, one dim line under the list. Computed on-render like the quota
-  // modal probe pattern (no background scanning), bounded read, degraded
-  // silently to "hidden" when there are no sessions / no model calls; a
-  // confirmed rename/delete re-reads it with the session list.
-  const usageLine = useMemo(() => {
-    try {
-      const report = aggregateTelemetry({ cwd, home, sinceMs: Date.now() - 7 * 24 * 3_600_000 * 1000 });
-      const total = report.models.reduce((s, m) => s + m.calls, 0);
-      if (total === 0) return null;
-      const top = report.models[0]!;
-      return `last 7 days: ${formatCompact(total)} tok · top ${top.model}`;
-    } catch {
-      return null;
-    }
-  }, [cwd, home, renamesDone]);
-  const sessions = useMemo(() => listSessionSummaries(cwd, home), [cwd, home, renamesDone]);
+  // Home startup must paint before scanning a large session directory: the
+  // projection reads every JSONL log, which delayed even the logo intro by
+  // seconds on projects with hundreds of sessions. The effect runs after the
+  // first frame, so the picker paints immediately and fills in behind it.
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  useEffect(() => {
+    // Do not let synchronous JSONL parsing freeze the logo animation.
+    // Once the intro settles, the static Home paints its loading state first.
+    if (intro) return;
+    let cancelled = false;
+    const load = () => {
+      let next: SessionSummary[] = [];
+      try {
+        next = listSessionSummaries(cwd, home);
+      } catch {
+        // The list seam already degrades per file; retain an empty, usable Home
+        // if the project directory itself cannot be read.
+      }
+      if (!cancelled) {
+        setSessions(next);
+        setSessionsLoaded(true);
+      }
+    };
+    const timer = setTimeout(load, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [cwd, home, renamesDone, intro]);
   // #477 rename: when non-null, the composer area becomes an inline edit
   // for the display name (prefilled with the current name; Enter confirms,
   // Esc cancels, Enter on empty resets). Owns input while open.
@@ -321,10 +336,21 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
     }
   });
 
+  // Stable identity: LogoIntro's settle effect depends on this callback.
+  // Ending the intro also notifies the client (App stops hiding its toasts).
+  const skipIntro = useCallback(() => {
+    setIntro(false);
+    onIntroEnd?.();
+  }, [onIntroEnd]);
+
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
-      <Logo banner={banner} version={banner ? version : undefined} />
-      <Text> </Text>
+      {intro ? (
+        <LogoIntro onSkip={skipIntro} />
+      ) : (
+        <>
+          <Logo banner={banner} version={banner ? version : undefined} />
+          <Text> </Text>
       <Text> </Text>
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
         {renaming ? (
@@ -390,10 +416,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
           );
         })}
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
-        {hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
+        {!sessionsLoaded ? <Dim>{` loading sessions…`}</Dim> : null}
+        {sessionsLoaded && hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
         {onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
         {!compact && sessionsList.length > 0 ? <Dim>{` pin ctrl+p · rename ctrl+r · delete ctrl+d`}</Dim> : null}
-        {usageLine ? <Dim>{` ${usageLine}`}</Dim> : null}
         <Text> </Text>
       </Box>
       {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}
@@ -411,6 +437,8 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             : `${theme.label} · ctrl+t theme · ctrl+o mode · new (n) · settings (s) · keys (?) · ctrl+c ×2 quit`)
         }
       />
+        </>
+      )}
     </Box>
   );
 }
