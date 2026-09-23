@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-09-23
+
 ### Added
 
 - **Linux arm64 is a first-class platform** (#916): the release now ships
@@ -66,7 +68,7 @@ matching section here at tag time.
   your shell actually reads — `~/.bashrc` for bash, `~/.zshrc` for zsh,
   `~/.profile` as the fallback — instead of always `~/.profile`.
 
-## [0.47.0] - 2026-09-23
+ - 2026-09-23
 
 ### Added
 
@@ -772,7 +774,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...develop
+[0.48.0]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...v0.45.1
