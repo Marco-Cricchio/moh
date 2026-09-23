@@ -238,7 +238,14 @@ export { catalogEntryFor, pricingForModel, modelSupportsImages, endpointModelCat
 export { estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 export {
   fetchLiveCatalogs,
+  liveListings,
+  summarizeLiveCatalogReport,
+  liveCatalogFailureReasons,
+  reportNeedsNotice,
   type LiveModelListing,
+  type LiveCatalogReport,
+  type LiveCatalogResult,
+  type LiveCatalogStatus,
 } from "./live-model-catalog";
 export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
 // #614: MPM — the ADR-0004 reopening that lets clients (TUI status row #619,
