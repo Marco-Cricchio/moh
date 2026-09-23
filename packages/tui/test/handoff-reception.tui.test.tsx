@@ -70,7 +70,7 @@ describe("home offer row", () => {
   test("renders the handoff row with timestamp; stale marker when stale", async () => {
     const { cwd, home } = project("row");
     const clean = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} handoff={OFFER} onOpenHandoff={() => {}} />,
+      <Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} handoff={OFFER} onOpenHandoff={() => {}} />,
     );
     await new Promise((r) => setTimeout(r, 30));
     const frame = stripAnsi(clean.lastFrame() ?? "");
@@ -81,6 +81,7 @@ describe("home offer row", () => {
 
     const stale = render(
       <Home
+        intro={false}
         cwd={cwd}
         home={home}
         mode="vibe"
@@ -96,13 +97,13 @@ describe("home offer row", () => {
 
   test("no offer row without a handoff or a handler", async () => {
     const { cwd, home } = project("norow");
-    const a = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} handoff={OFFER} />);
+    const a = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} handoff={OFFER} />);
     await new Promise((r) => setTimeout(r, 30));
     expect(stripAnsi(a.lastFrame() ?? "")).not.toContain("session handoff from");
     a.unmount();
 
     const b = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} handoff={{ status: "none" }} onOpenHandoff={() => {}} />,
+      <Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} handoff={{ status: "none" }} onOpenHandoff={() => {}} />,
     );
     await new Promise((r) => setTimeout(r, 30));
     expect(stripAnsi(b.lastFrame() ?? "")).not.toContain("session handoff from");
@@ -114,6 +115,7 @@ describe("home offer row", () => {
     const opened: unknown[] = [];
     const i = render(
       <Home
+        intro={false}
         cwd={cwd}
         home={home}
         mode="vibe"

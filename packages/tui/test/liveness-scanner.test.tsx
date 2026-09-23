@@ -171,7 +171,7 @@ describe("the live beat on a real session (#876, ADR-0042)", () => {
     // Slow deltas keep the turn pending long enough to see the beat move.
     const provider = MockProvider.scripted([{ deltas: ["one ", "two ", "three ", "four ", "five"], deltaDelayMs: 120, finish: "stop" }]);
     const home = mkdtempSync(join(tmpdir(), "moh-876-scan-home-"));
-    const i = render(<App cwd={mkdtempSync(join(tmpdir(), "moh-876-scan-cwd-"))} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={mkdtempSync(join(tmpdir(), "moh-876-scan-cwd-"))} home={home} provider={provider} startInChat skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       await waitForCondition(() => frameText().includes("ready"), () => "chat never opened");

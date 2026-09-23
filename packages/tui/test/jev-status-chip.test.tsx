@@ -137,7 +137,7 @@ describe("the Jev chip on a real session (#876)", () => {
     // the bundled source the TUI actually mounts.
     const dir = home({ typesafe: { apiKey: "sk-test" } });
     const provider = MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]);
-    const i = render(<App cwd={mkdtempSync(join(tmpdir(), "moh-876-app-"))} home={dir} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={mkdtempSync(join(tmpdir(), "moh-876-app-"))} home={dir} provider={provider} startInChat skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       await waitForCondition(() => frameText().includes("◈ jev"), () => "the Jev chip never rendered", { timeoutMs: 5_000 });
@@ -150,7 +150,7 @@ describe("the Jev chip on a real session (#876)", () => {
   test("no chip at all when Jev is not configured", async () => {
     const dir = home();
     const provider = MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]);
-    const i = render(<App cwd={mkdtempSync(join(tmpdir(), "moh-876-app-"))} home={dir} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={mkdtempSync(join(tmpdir(), "moh-876-app-"))} home={dir} provider={provider} startInChat skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       await waitForCondition(() => frameText().includes("vibe"), () => "chat never opened");

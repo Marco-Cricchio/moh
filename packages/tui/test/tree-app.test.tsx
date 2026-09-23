@@ -25,7 +25,7 @@ describe("/tree panel in the App (#581)", () => {
       { deltas: ["second answer"], finish: "stop" },
       { deltas: ["branch answer"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding startInChat />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding startInChat />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // The App assembles its own session: discover the actual log file in
     // the project slug directory rather than assuming `store`'.

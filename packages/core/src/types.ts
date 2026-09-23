@@ -227,6 +227,14 @@ type AgentEventBase =
    */
   | { type: "session_renamed"; name: string }
   /**
+   * Home pin (#user request): appended by `setSessionPinned()` when the
+   * user pins/unpins the session from the Home picker. Chrome only —
+   * never provider context. The LAST `session_pinned` in the log is the
+   * session's pinned state (a toggle, so both true and false append —
+   * the log stays append-only and the unpinned state is itself history).
+   */
+  | { type: "session_pinned"; pinned: boolean }
+  /**
    * #576 (format decision 6): the head moves — `to` is the ULID of the
    * event that becomes the new head (any node: tips and interior; an
    * interior target makes subsequent appends split implicitly). Appended

@@ -13,10 +13,14 @@ import { createInterface } from "node:readline/promises";
 import { spawn } from "node:child_process";
 import {
   addProviderToFile,
+  fallbackIneligibleReason,
   loadMergedConfig,
   providerLogin,
   providerLogout,
   providerStatus,
+  loadMohConfig,
+  setUserEndpointModel,
+  writeMohConfig,
   type ConnectionTester,
   type OnboardingIo,
   type ProviderAddOptions,
@@ -32,6 +36,10 @@ commands:
   login <name>     re-authenticate a subscription endpoint
   logout <name>    drop a subscription endpoint's stored tokens
   status           per-endpoint auth kind, token expiry, plan usage
+  fallback <name> [model]
+                   set the endpoint's preferred model — the model it serves
+                   with when it is an automatic fallback stop (ADR-0012);
+                   omit the model (or pass --clear) to drop it from the chain
 
 tokens live in ~/.moh/config (never in moh.json); \`logout\` and a
 successful \`login\` are the only token deleters.`;
@@ -154,6 +162,69 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
     }
   }
 
+  if (cmd === "fallback") {
+    const [name, ...modelArgs] = rest;
+    const clear = modelArgs.includes("--clear");
+    const model = modelArgs.filter((a) => a !== "--clear").join(" ").trim();
+    if (!name) {
+      errOut(opts).write(`usage: moh provider fallback <endpoint> [model] [--clear]\n`);
+      return 2;
+    }
+    const config = loadMergedConfig(opts.cwd, opts.home !== undefined ? { home: opts.home } : {});
+    const endpoints = config.endpoints ?? [];
+    const endpoint = endpoints.find((e) => e.name === name);
+    if (!endpoint) {
+      errOut(opts).write(`moh: no endpoint "${name}" configured\n`);
+      return 1;
+    }
+    const next = clear ? null : model || null;
+    if (model && clear) {
+      errOut(opts).write(`moh: pass a model or --clear, not both\n`);
+      return 2;
+    }
+    // The preferred model is `defaultModel`, which lives with the endpoint:
+    // a project-declared endpoint is edited in moh.json, a user-level one in
+    // the config guardian's file. The chain resolves env > project > user.
+    const inProject = (() => {
+      try {
+        return (loadMohConfig(join(opts.cwd, "moh.json")).endpoints ?? []).some((e) => e.name === name);
+      } catch {
+        return false;
+      }
+    })();
+    try {
+      if (inProject) {
+        const project = loadMohConfig(join(opts.cwd, "moh.json"));
+        writeMohConfig(join(opts.cwd, "moh.json"), {
+          ...project,
+          endpoints: (project.endpoints ?? []).map((e) => {
+            if (e.name !== name) return e;
+            if (next === null) {
+              const { defaultModel: _dropped, ...rest } = e;
+              return rest;
+            }
+            return { ...e, defaultModel: next };
+          }),
+        });
+      } else {
+        setUserEndpointModel(userConfigFile(opts.home), name, next);
+      }
+    } catch (e) {
+      errOut(opts).write(`moh: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 1;
+    }
+    const updated = { ...endpoint, ...(next === null ? {} : { defaultModel: next }) };
+    if (next === null) delete (updated as { defaultModel?: string }).defaultModel;
+    const reason = fallbackIneligibleReason(updated);
+    out(opts).write(
+      next === null
+        ? `fallback: ${name} removed from the chain\n`
+        : `fallback: ${name} → ${next}${reason ? ` (still not a fallback stop: ${reason})` : ""}\n`,
+    );
+    out(opts).write(`applies from the next session\n`);
+    return 0;
+  }
+
   if (cmd === "status") {
     if (rest.length) {
       errOut(opts).write(`moh provider status takes no arguments\n`);
@@ -163,6 +234,15 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
     const rows = await providerStatus(endpoints, { authFile });
     for (const row of rows) {
       const parts = [row.name, row.type, row.authKind];
+      // The preferred model (ADR-0012): what this endpoint serves with when
+      // it is an automatic fallback stop, and why it is not one when it
+      // cannot be. Printed here so the chain is inspectable headless.
+      const profile = endpoints.find((e) => e.name === row.name);
+      if (profile) {
+        const reason = fallbackIneligibleReason(profile);
+        parts.push(profile.defaultModel ? `fallback: 📌 ${profile.defaultModel}` : "fallback: —");
+        if (reason) parts.push(`(${reason})`);
+      }
       if (row.authKind === "api-key") parts.push(`key: ${row.apiKeySource}`);
       if (row.subscription) {
         if (!row.subscription.loggedIn) parts.push("not logged in (run `moh provider login`)");

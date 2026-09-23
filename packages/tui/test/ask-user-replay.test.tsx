@@ -133,7 +133,7 @@ describe("legacy ask_user replay (#415)", () => {
     const before = readFileSync(file, "utf8");
 
     const provider = MockProvider.scripted([{ deltas: ["done!"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       // The legacy session is listed by its user message; ↓ selects its

@@ -31,7 +31,7 @@ describe("App update polling (#348)", () => {
   test("discovers skills with workflow off and upstreamCheck false", async () => {
     const calls: string[] = [];
     globalThis.fetch = upstreamFetch(calls);
-    const i = render(<App cwd={process.cwd()} home={homeWithConfig({
+    const i = render(<App intro={false} cwd={process.cwd()} home={homeWithConfig({
       updateCheck: true,
       workflow: { enabled: false, upstreamCheck: false },
     })} skipOnboarding env={{}} />);
@@ -43,7 +43,7 @@ describe("App update polling (#348)", () => {
   test("the shared updateCheck opt-out suppresses skill-index traffic", async () => {
     const calls: string[] = [];
     globalThis.fetch = upstreamFetch(calls);
-    const i = render(<App cwd={process.cwd()} home={homeWithConfig({
+    const i = render(<App intro={false} cwd={process.cwd()} home={homeWithConfig({
       updateCheck: false,
       workflow: { enabled: false, upstreamCheck: false },
     })} skipOnboarding env={{}} />);

@@ -49,6 +49,8 @@ import {
   // #477: session rename — the ADR-0004 reopening that lets clients (TUI
   // Home picker, `moh sessions rename`) append the `session_renamed` event.
   renameSession,
+  // Home pin: appends the `session_pinned` chrome event (TUI Home ctrl+p).
+  setSessionPinned,
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
@@ -110,7 +112,7 @@ import {
 // #849: the session mode rides the setSessionMode/sessionMode doors — a
 // client rotating the mode needs the same union the core judges with.
 export type { SessionMode } from "./permissions";
-import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef } from "./provider-registry";
+import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
 import { type MemoryOptions } from "./memory";
 import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
@@ -417,6 +419,7 @@ import {
   upsertUserEndpoint,
   removeUserEndpoint,
   saveUserProviderRef,
+  setUserEndpointModel,
   type MergedConfigOptions,
   type UserProviderConfig,
 } from "./provider-config";
@@ -674,6 +677,7 @@ export {
   // later user message) — the /copy command's source. ADR-0004 export.
   lastAssistantText,
   renameSession,
+  setSessionPinned,
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
@@ -747,11 +751,14 @@ export {
   upsertUserEndpoint,
   removeUserEndpoint,
   saveUserProviderRef,
+  setUserEndpointModel,
   type MergedConfigOptions,
   type UserProviderConfig,
   defaultRegistry,
   resolveProvider,
   resolveProviderRef,
+  isFallbackEligible,
+  fallbackIneligibleReason,
   sessionFromConfig,
   // Session handoff (#433, T2 #435): the transport seam and gist impl
   // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.

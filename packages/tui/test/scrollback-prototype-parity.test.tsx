@@ -14,7 +14,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
   test("uses block heads and the model/status key bar instead of legacy flat rows", async () => {
     const home = mkdtempSync(join(tmpdir(), "moh-scrollback-parity-"));
     const provider = MockProvider.scripted([{ deltas: ["Prototype parity reply"], finish: "stop" }]);
-    const app = <App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />;
+    const app = <App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />;
     const ink = render(app);
     Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
     Object.defineProperty(ink.stdout, "rows", { value: 40, configurable: true });
@@ -43,7 +43,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
   test("Enter on the send chip submits the current draft", async () => {
     const home = mkdtempSync(join(tmpdir(), "moh-scrollback-send-"));
     const provider = MockProvider.scripted([{ deltas: ["sent by chip"], finish: "stop" }]);
-    const ink = render(<App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
+    const ink = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
     await sleep(30);
     ink.stdin.write("chip draft");
     await sleep(20);
@@ -59,7 +59,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
 
   test("tab focuses chips and Enter activates the model chip", async () => {
     const home = mkdtempSync(join(tmpdir(), "moh-scrollback-focus-"));
-    const app = <App cwd={process.cwd()} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />;
+    const app = <App intro={false} cwd={process.cwd()} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />;
     const ink = render(app);
     Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
     ink.rerender(app);

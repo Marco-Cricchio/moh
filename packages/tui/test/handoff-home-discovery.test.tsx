@@ -70,7 +70,7 @@ describe("App → Home → handoff discovery (#675)", () => {
   test("a normal Home launch discovers and renders the offer row", async () => {
     const { cwd, home } = project("home-offer", { handoff: { transport: "gist" } });
     discoveryResult.value = OFFER;
-    const i = render(<App cwd={cwd} home={home} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} env={{}} skipOnboarding />);
     try {
       expect(discoveryCalls.map((c) => c.cwd)).toContain(cwd);
       await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "session handoff from another machine");
@@ -83,7 +83,7 @@ describe("App → Home → handoff discovery (#675)", () => {
   test("a stale handoff renders the stale marker", async () => {
     const { cwd, home } = project("home-stale", { handoff: { transport: "gist" } });
     discoveryResult.value = { ...OFFER, stale: true };
-    const i = render(<App cwd={cwd} home={home} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} env={{}} skipOnboarding />);
     try {
       await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "session handoff from another machine");
       await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "stale");
@@ -94,7 +94,7 @@ describe("App → Home → handoff discovery (#675)", () => {
 
   test("no discovery on the direct-chat path (startInChat)", async () => {
     const { cwd, home } = project("chat", { handoff: { transport: "gist" } });
-    const i = render(<App cwd={cwd} home={home} env={{}} skipOnboarding startInChat />);
+    const i = render(<App intro={false} cwd={cwd} home={home} env={{}} skipOnboarding startInChat />);
     await new Promise((r) => setTimeout(r, 50));
     try {
       expect(discoveryCalls).toEqual([]);
@@ -105,7 +105,7 @@ describe("App → Home → handoff discovery (#675)", () => {
 
   test("a none result leaves Home without an offer row", async () => {
     const { cwd, home } = project("home-none", { handoff: { transport: "gist" } });
-    const i = render(<App cwd={cwd} home={home} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} env={{}} skipOnboarding />);
     await new Promise((r) => setTimeout(r, 50));
     try {
       expect(discoveryCalls.map((c) => c.cwd)).toContain(cwd);

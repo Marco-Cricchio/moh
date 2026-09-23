@@ -17,7 +17,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function renderChat() {
   return render(
-    <App cwd={mkdtempSync(join(tmpdir(), "moh-manual-"))} home={mkdtempSync(join(tmpdir(), "moh-manual-home-"))} provider={MockProvider.demo()} startInChat skipOnboarding />,
+    <App intro={false} cwd={mkdtempSync(join(tmpdir(), "moh-manual-"))} home={mkdtempSync(join(tmpdir(), "moh-manual-home-"))} provider={MockProvider.demo()} startInChat skipOnboarding />,
   );
 }
 

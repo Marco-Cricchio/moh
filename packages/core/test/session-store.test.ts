@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, setSessionPinned, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen } from "../src/session-store";
 import { canonicalRemoteSlug } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
@@ -698,6 +698,36 @@ describe("session rename (#477)", () => {
     const notSession = join(mkdtempSync(join(tmpdir(), "moh-proj-")), "random.jsonl");
     writeFileSync(notSession, "{}\n");
     expect(() => renameSession(notSession, "x")).toThrow();
+  });
+
+  test("setSessionPinned toggles SessionSummary.pinned; last event wins", () => {
+    const { home, cwd, file } = seedSession();
+    const [before] = listSessionSummaries(cwd, home);
+    expect(before.pinned).toBe(false);
+    setSessionPinned(file, true);
+    expect(listSessionSummaries(cwd, home)[0].pinned).toBe(true);
+    setSessionPinned(file, false);
+    expect(listSessionSummaries(cwd, home)[0].pinned).toBe(false);
+  });
+
+  test("setSessionPinned appends chrome-only events (append-only, not content)", () => {
+    const { file } = seedSession();
+    const before = readFileSync(file, "utf8");
+    setSessionPinned(file, true);
+    setSessionPinned(file, true); // a double toggle still appends
+    const after = readFileSync(file, "utf8");
+    expect(after.startsWith(before)).toBe(true);
+    const events = after.trim().split("\n").map((l) => JSON.parse(l) as AgentEvent);
+    expect(events.slice(-2).map((e) => e.type)).toEqual(["session_pinned", "session_pinned"]);
+    const messages = replayMessages(events);
+    expect(messages.length).toBe(1);
+  });
+
+  test("setSessionPinned validates the file", () => {
+    expect(() => setSessionPinned("/nope/missing.jsonl", true)).toThrow();
+    const notSession = join(mkdtempSync(join(tmpdir(), "moh-proj-")), "random.jsonl");
+    writeFileSync(notSession, "{}\n");
+    expect(() => setSessionPinned(notSession, true)).toThrow();
   });
 
   test("compaction/replay never treats the chrome event as content", () => {

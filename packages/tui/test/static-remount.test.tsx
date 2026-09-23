@@ -25,7 +25,7 @@ describe("settled transcript survives modal cycles (Static remount regression)",
     const provider = MockProvider.scripted([
       { deltas: ["SETTLEDMARKER turn done"], finish: "stop" },
     ]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} skipOnboarding />);
     await sleep(50);
     i.stdin.write("hello");
     await sleep(150);
