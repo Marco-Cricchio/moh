@@ -6,8 +6,12 @@ import { assetKey, resolveVersion, sha256File, skillFiles, TARGETS } from "./bui
 const ROOT = join(import.meta.dir, "..");
 
 describe("TARGETS", () => {
-  test("covers the three 0.1.0 platforms (ADR-0013)", () => {
-    expect(TARGETS.map((t) => t.platform)).toEqual(["darwin-arm64", "darwin-x64", "linux-x64"]);
+  test("covers every supported platform (ADR-0013; linux-arm64 in #916)", () => {
+    expect(TARGETS.map((t) => t.platform)).toEqual(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
+  });
+
+  test("every platform maps to a bun compile target of the same name", () => {
+    for (const t of TARGETS) expect(t.target).toBe(`bun-${t.platform}`);
   });
 });
 

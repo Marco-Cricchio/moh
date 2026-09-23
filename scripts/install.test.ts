@@ -13,11 +13,11 @@ import { sha256File } from "./build";
 
 const SCRIPT = join(import.meta.dir, "install.sh");
 
-/** Same platform mapping as scripts/install.sh — refuses to guess (no linux-arm64 → x64 fallback). */
+/** Same platform mapping as scripts/install.sh — refuses to guess (no cross-arch fallback). */
 function detectPlatform(): string {
   const os = process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : null;
   const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : null;
-  if (!os || !arch || `${os}-${arch}` === "linux-arm64") {
+  if (!os || !arch) {
     throw new Error(`test host platform unsupported: ${process.platform}/${process.arch}`);
   }
   return `${os}-${arch}`;
@@ -37,7 +37,7 @@ const server = Bun.serve({
     const path = new URL(req.url).pathname;
     const name = path.slice(1);
     if (name === "checksums.txt") return new Response(servedChecksum + "\n");
-    if (name === `moh-${PLATFORM}`) return new Response(servedBody);
+    if (name.startsWith("moh-")) return new Response(servedBody);
     return new Response("not found", { status: 404 });
   },
 });
@@ -57,9 +57,29 @@ function sha256Of(body: string): string {
 }
 
 /** Serve `body` as the platform asset with its checksum line (or a mismatching one). */
-function serveBody(body: string, checksumOf: string = body) {
+function serveBody(body: string, checksumOf: string = body, platform: string = PLATFORM) {
   servedBody = body;
-  servedChecksum = `${sha256Of(checksumOf)}  moh-${PLATFORM}`;
+  servedChecksum = `${sha256Of(checksumOf)}  moh-${platform}`;
+}
+
+/**
+ * A PATH directory holding a fake `uname`, so the script's platform detection
+ * can be exercised for a host other than the one running the tests (#916).
+ */
+function fakeUname(os: string, arch: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "moh-install-uname-"));
+  const path = join(dir, "uname");
+  writeFileSync(
+    path,
+    `#!/bin/sh\ncase "$1" in\n  -s) echo ${os} ;;\n  -m) echo ${arch} ;;\n  *) echo ${os} ;;\nesac\n`,
+  );
+  chmodSync(path, 0o755);
+  return dir;
+}
+
+/** PATH with `dir` in front, so the fake `uname` wins over the real one. */
+function pathWith(dir: string): string {
+  return `${dir}:${process.env.PATH ?? ""}`;
 }
 
 /**
@@ -124,5 +144,28 @@ describe("install.sh (#269)", () => {
     expect(r.exitCode).not.toBe(0);
     expect(r.stderr).toContain("download failed");
     expect(r.stderr).toContain(`moh-${PLATFORM}`);
+  });
+});
+
+describe("install.sh platform mapping (#916)", () => {
+  test("maps Linux aarch64 → linux-arm64 and installs the arm64 asset", async () => {
+    serveBody(binaryBody, binaryBody, "linux-arm64");
+    const r = await runScript({ MOH_INSTALL_DIR: installDir, PATH: pathWith(fakeUname("Linux", "aarch64")) });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("detected platform: linux-arm64");
+    expect(r.stdout).toContain(`installed moh → ${installDir}/moh`);
+  });
+
+  test("accepts the arm64 spelling as well", async () => {
+    serveBody(binaryBody, binaryBody, "linux-arm64");
+    const r = await runScript({ MOH_INSTALL_DIR: installDir, PATH: pathWith(fakeUname("Linux", "arm64")) });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("detected platform: linux-arm64");
+  });
+
+  test("refuses an unsupported architecture instead of falling back", async () => {
+    const r = await runScript({ MOH_INSTALL_DIR: installDir, PATH: pathWith(fakeUname("Linux", "riscv64")) });
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("unsupported platform: Linux riscv64");
   });
 });

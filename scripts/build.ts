@@ -21,11 +21,12 @@ import { join, relative, resolve } from "node:path";
 import { CryptoHasher } from "bun";
 import { spawnSync } from "node:child_process";
 
-/** Platform targets for 0.1.0 (ADR-0013; Windows deferred). */
+/** Platform targets (ADR-0013; Windows deferred — WSL is served by the Linux targets, #916). */
 export const TARGETS = [
   { platform: "darwin-arm64", target: "bun-darwin-arm64" },
   { platform: "darwin-x64", target: "bun-darwin-x64" },
   { platform: "linux-x64", target: "bun-linux-x64" },
+  { platform: "linux-arm64", target: "bun-linux-arm64" },
 ] as const;
 
 export type Platform = (typeof TARGETS)[number]["platform"];
