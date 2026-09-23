@@ -16,9 +16,13 @@ describe("wire separation (#159)", () => {
     expect(wireForKind("github-copilot")).toBe("openai-chat"); // per-model override comes from the catalog
     expect(wireForKind("openrouter")).toBe("openai-chat");
     expect(wireForKind("xai")).toBe("openai-chat");
-    // OpenCode has NO kind-level wire: every model carries its own
-    // (responses/anthropic-messages/chat/google per product overlay).
-    expect(() => wireForKind("opencode")).toThrow("no wire mapping");
+    // OpenCode carries a per-model wire for every model the catalog knows,
+    // but the kind-level fallback exists and is verified (#920): the Zen/Go
+    // backend serves every model over /chat/completions, so a live-listing
+    // model without catalog metadata is routable instead of a dead picker row.
+    expect(wireForKind("opencode")).toBe("openai-chat");
+    // An unknown kind still fails loudly rather than guessing a wire.
+    expect(() => wireForKind("not-a-provider")).toThrow("no wire mapping");
   });
 
   test("new builtin base URLs point at the vendor backends", () => {

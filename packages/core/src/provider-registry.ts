@@ -212,7 +212,7 @@ export function fallbackIneligibleReason(
   if (!isRouteCapable(profile)) {
     return `provider type "${profile.type}" cannot be a fallback stop (only built-in and openai-compat endpoints can)`;
   }
-  if (profile.fallbackEligible === false) return "excluded by fallbackEligible: false";
+  if (profile.fallbackEligible === false) return "excluded from the chain";
   if (profile.defaultModel === undefined) return "no preferred model set";
   if (active && active.type === "opencode" && profile.type === "opencode") {
     // Zen and Go are separate products: an entitlement failure on one must
@@ -240,15 +240,10 @@ function fallbackStopsFor(
   endpoints: EndpointProfile[],
   health: ProviderHealthEstimator | undefined,
 ): RouteTarget[] {
+  // One rule, one definition: the same predicate the settings screen shows
+  // the user, so the chain can never disagree with what the screen claims.
   const candidates = endpoints.filter(
-    (e) =>
-      e.name !== active.name &&
-      e.fallbackEligible !== false &&
-      e.defaultModel !== undefined &&
-      // Zen and Go are separate products: an entitlement failure on one
-      // must remain visible, never silently cross-product fall back.
-      !(active.type === "opencode" && e.type === "opencode") &&
-      isRouteCapable(e),
+    (e) => e.name !== active.name && fallbackIneligibleReason(e, active) === null,
   );
   const ranked = candidates
     .map((e, index) => ({ e, index, h: health?.(e) }))

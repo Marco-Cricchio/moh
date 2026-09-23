@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync, symlinkSync, utimesSync } from "node:fs";
+import { gzipSync } from "node:zlib";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { builtinTools } from "../src/builtin-tools";
+import { builtinTools, fetchUrlText, requestPinnedUrl, resolveVerifiedUrl, type PinnedResponse } from "../src/builtin-tools";
 // #304: classification unit-tested directly.
 import { isSuiteLike } from "../src/builtin-tools";
 import type { ToolContext } from "../src/types";
@@ -252,12 +254,21 @@ describe("built-in tools", () => {
     expect(next).toContain("[x] first");
   });
 
-  test("fetch retrieves a URL body", async () => {
-    const out = await tools.fetch.execute(
-      { url: "https://example.com/" },
-      ctx,
+  test("fetch retrieves a URL body through the integrated pinned path", async () => {
+    const out = await fetchUrlText(
+      { url: "https://example.test/" },
+      ctx.signal,
+      {
+        lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+        requestPinned: async (_url, address) => ({
+          status: 200,
+          headers: new Headers(),
+          readBody: async () => `Example body from ${address.address}`,
+          discard: () => {},
+        }),
+      },
     );
-    expect(out).toContain("Example Domain");
+    expect(out).toBe("Example body from 203.0.113.7");
   });
 
   // SEC-05 regression suite.
@@ -286,93 +297,195 @@ describe("built-in tools", () => {
     }
   });
 
-  test("fetch pins the connection to the verified address (#697 DNS-rebinding TOCTOU)", async () => {
-    // The rebinding host answers PUBLIC on the verification lookup and
-    // PRIVATE on any later resolution — exactly the TOCTOU the pinned
-    // path must close. A second lookup answering private would either
-    // (a) taint the name and get rejected in verifiedDispatcher, or
-    // (b) reach the private listener via a fresh dial and return PWNED.
-    // Either way the tripwire fails; the fix means exactly ONE lookup.
-    const { mock } = await import("bun:test");
-    const srv = Bun.serve({ port: 0, fetch: () => new Response("PWNED") });
+  test("the pinned transport is hermetic and settles its body repeatedly (#922)", async () => {
+    // No DNS and no public network: the URL keeps a fake hostname while
+    // the transport must dial the already-verified loopback address. This
+    // exercises the real Host/SNI-preserving pin seam, not global fetch.
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (request) => new Response(`${new URL(request.url).pathname}:${request.headers.get("host")}`),
+    });
     try {
-      let lookups = 0;
-      mock.module("node:dns/promises", () => ({
-        lookup: async () => {
-          lookups++;
-          return lookups === 1
-            ? [{ address: "203.0.113.7", family: 4 }] // public TEST-NET-3: verification answer
-            : [{ address: "127.0.0.1", family: 4 }]; // rebinding: private afterwards
-        },
-      }));
-      const ac = new AbortController();
-      setTimeout(() => ac.abort(), 3_000);
-      try {
-        const out = await tools.fetch.execute(
-          { url: `http://rebind.test:${srv.port}/x` },
-          { ...ctx, signal: ac.signal },
+      for (let i = 0; i < 50; i++) {
+        const response = await requestPinnedUrl(
+          new URL(`http://verified.invalid:${server.port}/body-${i}`),
+          { address: "127.0.0.1", family: 4 },
+          ctx.signal,
         );
-        // Reached the private listener through a re-dial → rebinding won.
-        expect(out).not.toContain("PWNED");
-      } catch {
-        // Rejected is fine — but only with a single resolution.
+        expect(response.status).toBe(200);
+        expect(await response.readBody()).toBe(`/body-${i}:verified.invalid:${server.port}`);
       }
-      expect(lookups).toBe(1);
     } finally {
-      srv.stop(true);
-      mock.restore();
+      server.stop(true);
     }
   });
 
-  test("fetch redirect hops re-verify and re-pin (#697)", async () => {
-    // Hop 1: rebinding host pinned to a public listener; hop 2 redirects
-    // to another rebinding host. Each host must resolve exactly once and
-    // the dial must use the verified (public) address.
-    const { mock } = await import("bun:test");
-    const srv = Bun.serve({ port: 0, fetch: () => new Response("PWNED") });
+  test("the pinned transport decodes compressed response bodies (#922)", async () => {
+    const compressed = gzipSync("COMPRESSED-OK");
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response(compressed, { headers: { "content-encoding": "gzip" } }),
+    });
     try {
-      let lookups = 0;
-      mock.module("node:dns/promises", () => ({
-        lookup: async () => {
-          lookups++;
-          return lookups === 1
-            ? [{ address: "203.0.113.7", family: 4 }]
-            : [{ address: "127.0.0.1", family: 4 }];
-        },
-      }));
-      // The listener redirects every path to itself once, then answers.
-      let hops = 0;
-      const redirector = Bun.serve({
-        port: 0,
-        hostname: "127.0.0.1",
-        fetch: (_req, server) => {
-          hops++;
-          return hops === 1
-            ? new Response(null, { status: 302, headers: { location: `http://rebind2.test:${server.port}/final` } })
-            : new Response("OK");
-        },
-      });      try {
-        // rebinding pattern on hop 2: lookup #2 answers private. The hop
-        // must be rejected — and the private listener must never see the
-        // redirect dial (hops stays 1). The pinned dial of hop 1 goes to
-        // the TEST-NET-3 address (not the listener) and fails to connect:
-        // exactly the guarantee that no un-verified dial ever happens.
-        const ac = new AbortController();
-        setTimeout(() => ac.abort(), 3_000);
-        await expect(
-          tools.fetch.execute({ url: `http://rebind1.test:${redirector.port}/a` }, { ...ctx, signal: ac.signal }),
-        ).rejects.toThrow();
-        // The listener was never dialed: hop 1 connected to the TEST-NET-3
-        // pinned address (unreachable), hop 2 was rejected as private —
-        // no un-verified dial ever happened.
-        expect(hops).toBe(0);
-      } finally {
-        redirector.stop(true);
-      }
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${server.port}/gzip`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      expect(await response.readBody()).toBe("COMPRESSED-OK");
     } finally {
-      srv.stop(true);
-      mock.restore();
+      server.stop(true);
     }
+  });
+
+  test("abort after headers rejects a pinned body read promptly (#922)", async () => {
+    const server = createNetServer((socket) => {
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n");
+        // Deliberately never finish the chunked body.
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (typeof address !== "object" || address === null) throw new Error("test server has no TCP address");
+    const controller = new AbortController();
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${address.port}/slow`),
+        { address: "127.0.0.1", family: 4 },
+        controller.signal,
+      );
+      const started = Date.now();
+      const body = response.readBody();
+      setTimeout(() => controller.abort(), 25);
+      await expect(body).rejects.toThrow(/fetch (?:response )?aborted/);
+      expect(Date.now() - started).toBeLessThan(1_000);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("a truncated compressed response rejects instead of hanging (#922)", async () => {
+    const server = createNetServer((socket) => {
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 100\r\n\r\n");
+        socket.write(Buffer.from([0x1f, 0x8b, 0x08]));
+        socket.destroy();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (typeof address !== "object" || address === null) throw new Error("test server has no TCP address");
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${address.port}/truncated`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      await expect(response.readBody()).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("a response reset before readBody is remembered and rejects later (#922)", async () => {
+    const server = createNetServer((socket) => {
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial");
+        setTimeout(() => socket.destroy(), 10);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (typeof address !== "object" || address === null) throw new Error("test server has no TCP address");
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${address.port}/reset`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      await Bun.sleep(25);
+      await expect(response.readBody()).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("fetch resolution is single-shot and rejects every private answer (#697)", async () => {
+    let calls = 0;
+    const resolveOnce = (answers: { address: string; family: number }[]) =>
+      resolveVerifiedUrl("https://rebind.test/x", async (host) => {
+        calls++;
+        expect(host).toBe("rebind.test");
+        return answers;
+      });
+
+    const verified = await resolveOnce([{ address: "203.0.113.7", family: 4 }]);
+    expect(verified?.address).toEqual({ address: "203.0.113.7", family: 4 });
+    expect(calls).toBe(1);
+
+    // If any answer is private, reject the entire resolution: choosing a
+    // public sibling while retaining a private alternative is unsafe.
+    await expect(resolveOnce([
+      { address: "203.0.113.7", family: 4 },
+      { address: "127.0.0.1", family: 4 },
+    ])).rejects.toThrow(/resolves to private address/);
+    expect(calls).toBe(2);
+  });
+
+  test("the integrated redirect loop verifies every hop before dialling it (#697)", async () => {
+    const resolved: string[] = [];
+    const dialled: string[] = [];
+    const discarded: string[] = [];
+    const response = (status: number, headers: Record<string, string>, body: string): PinnedResponse => ({
+      status,
+      headers: new Headers(headers),
+      readBody: async () => body,
+      discard: () => discarded.push(body),
+    });
+
+    const text = await fetchUrlText(
+      { url: "https://first.test/start" },
+      ctx.signal,
+      {
+        lookup: async (host) => {
+          resolved.push(host);
+          return [{ address: host === "first.test" ? "203.0.113.7" : "198.51.100.9", family: 4 }];
+        },
+        requestPinned: async (url, address) => {
+          dialled.push(`${url.hostname}@${address.address}`);
+          return url.hostname === "first.test"
+            ? response(302, { location: "https://second.test/final" }, "discard-me")
+            : response(200, {}, "OK");
+        },
+      },
+    );
+
+    expect(text).toBe("OK");
+    expect(resolved).toEqual(["first.test", "second.test"]);
+    expect(dialled).toEqual(["first.test@203.0.113.7", "second.test@198.51.100.9"]);
+    expect(discarded).toEqual(["discard-me"]);
+  });
+
+  test("a failed or empty DNS verification never falls through to another resolver (#697)", async () => {
+    let dials = 0;
+    const requestPinned = async (): Promise<PinnedResponse> => {
+      dials++;
+      throw new Error("must not dial");
+    };
+    await expect(fetchUrlText(
+      { url: "https://missing.test/x" },
+      ctx.signal,
+      { lookup: async () => { throw new Error("NXDOMAIN"); }, requestPinned },
+    )).rejects.toThrow(/DNS lookup failed.*NXDOMAIN/);
+    await expect(fetchUrlText(
+      { url: "https://empty.test/x" },
+      ctx.signal,
+      { lookup: async () => [], requestPinned },
+    )).rejects.toThrow(/returned no addresses/);
+    expect(dials).toBe(0);
   });
 
   test("MOH_FETCH_ALLOW_PRIVATE keeps resolving normally (no pinning) (#697)", async () => {

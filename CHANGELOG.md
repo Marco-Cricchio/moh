@@ -5,6 +5,88 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.47.0] - 2026-09-23
+
+### Added
+
+- **A provider can be excluded from the fallback chain** (#919): the
+  preferred-model screen could only clear a model, which dropped an endpoint
+  from the chain as a side effect — "keep this provider out of the chain, but
+  remember the model I chose for it" was not expressible. `x` in Settings →
+  Fallback models now excludes the selected provider (or puts it back) while
+  keeping its preferred model, and the row reads `✗ excluded`; `c` still
+  clears the model itself, and the two controls are independent. CLI:
+  `moh provider fallback <endpoint> --exclude`/`--include`, with
+  `moh provider status` saying `(excluded from the chain)`. The core writes
+  the ADR-0012 `fallbackEligible` flag on user-level endpoints, and
+  re-including removes the key instead of writing `true`. The eligibility
+  rule is genuinely one predicate now (`fallbackStopsFor` filters on
+  `fallbackIneligibleReason`, the same one the screen shows).
+
+- **The live model-list refresh reports its outcome** (#920, ADR-0045): a
+  failed or skipped refresh used to be indistinguishable from an
+  up-to-date list, which is how a stale Z.ai picker and a hidden ChatGPT
+  model went unnoticed for months. Each endpoint's result is now explicit
+  — refreshed, served from a cache (with its age), not refreshable, or
+  unsupported (a provider with no listing route is static by design) —
+  and `r` in the model picker states it. The background refresh stays
+  quiet unless it would leave you without a list.
+
+### Fixed
+
+- **The live model list now covers every provider moh ships a catalog for**
+  (#920, follow-up to #551): the augmentation reached 7 of the 24 provider
+  kinds — for the rest the picker showed the vendored pi-ai snapshot and
+  nothing ever refreshed it, while the fifteen openai-compatible profiles of
+  #726 ship a *single* vendored model each. Every `<baseUrl>/models` route
+  was probed and wired into one contract table: Z.ai (11 models live against
+  7 shipped — the owner's own stale list), Kimi Code (its list lives under
+  `/v1`, not at the `/models` that made it look absent), DeepSeek, Groq,
+  Cerebras, NVIDIA NIM, Together, Fireworks, Hugging Face, Mistral, Moonshot,
+  MiniMax, Qwen, Xiaomi MiMo, Vercel AI Gateway and Cloudflare AI Gateway.
+  Baseten is the one provider with no verified route (its `/v1/models` is
+  served by the website) and stays static, as a declared decision. A listing
+  label now also reads `name`/`max_context_length`, the fields OpenRouter and
+  Mistral use, instead of showing a raw id.
+- **The ChatGPT/Codex listing no longer hides the newest models** (#920): the
+  backend requires `client_version` and gates each model on its own
+  `minimal_client_version`, so the old `0.0.0` default returned the
+  0.153-era list — `gpt-6-sol` and `gpt-6-luna` (min 0.155.0) were invisible
+  — and moh's own version would have returned an *empty* list. The listing
+  now asks for the full catalog with a saturating client version, and a
+  well-formed but empty list is classified as a failed fetch (degrading to
+  the cache) instead of being read as an unrecognized shape.
+- **An OpenCode model that only the live listing knows is routable** (#920):
+  the Zen/Go endpoints carry a per-model wire in the shipped catalog, so a
+  live-only id had none and the turn died with `provider kind "opencode" has
+  no wire mapping` — after the switch had been accepted. The kind now has a
+  verified default wire (both products serve every model over
+  `/chat/completions`, probed with a live-only id and with a catalog entry
+  whose per-model wire differs), so `grok-4.7`, `omen-alpha`, `deepseek-flash`
+  and friends work instead of being dead picker rows.
+- **The DNS-pinned `fetch` tool no longer hangs while reading a response
+  body under Bun** (#922): the pinned path used undici's Fetch wrapper;
+  under Bun 1.2.19 + undici 7.29.0 the response could settle while
+  `text()`/`arrayBuffer()` never did (reproduced on both a corporate network
+  and mobile tethering; unpinned `globalThis.fetch` stayed stable). The
+  pinned transport now uses `node:http`/`node:https` with the already-verified
+  address supplied through the socket lookup seam, preserving the original
+  hostname for Host/TLS SNI and the #697 one-resolution guarantee. The
+  regression test is hermetic: a fake hostname is pinned to a local listener
+  50 times, so it tests the real transport without public DNS or network
+  timing; the rebinding tests now separately pin single-shot resolution and
+  per-redirect verification instead of succeeding through a blackholed IP.
+
+### Changed
+
+- **The live model-list refresh now says what it did** (ADR-0045, #920):
+  `fetchLiveCatalogs` returns a status per endpoint instead of a bare list —
+  refreshed, cached (with its age), stale (an expired cache kept while the
+  refresh failed), unavailable (with the reason), or static by design for a
+  provider with no listing route. The background refresh stays quiet unless
+  it would leave you without a list; `r` in the model picker always reports,
+  and the Settings model picker states what its list is.
+
 ## [0.46.0] - 2026-09-23
 ### Added
 
@@ -629,7 +711,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...develop
+[0.47.0]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...v0.45.0

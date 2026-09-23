@@ -203,6 +203,46 @@ export function setUserEndpointModel(
   }
 }
 
+/**
+ * Excludes (or re-includes) a user-level endpoint in the automatic fallback
+ * chain — the `fallbackEligible` flag, default `true` (ADR-0012). This is
+ * the whole-provider switch, independent of the preferred model: an
+ * endpoint can keep its model and still be kept out of the chain.
+ *
+ * Re-including REMOVES the field rather than writing `true`, so a config
+ * never accumulates redundant keys. Throws for an endpoint the user config
+ * does not declare, like `setUserEndpointModel` — the UI always operates on
+ * a provider that exists.
+ */
+export function setUserEndpointFallbackEligible(
+  file: string,
+  name: string,
+  eligible: boolean,
+  io: UserConfigIo = {},
+): void {
+  let found = false;
+  updateUserConfigFile(
+    file,
+    (data) => {
+      if (!Array.isArray(data.endpoints)) return;
+      data.endpoints = data.endpoints.map((entry) => {
+        const e = entry as EndpointProfile;
+        if (e?.name !== name) return entry;
+        found = true;
+        if (eligible) {
+          const { fallbackEligible: _dropped, ...rest } = e;
+          return rest;
+        }
+        return { ...e, fallbackEligible: false };
+      });
+    },
+    io,
+  );
+  if (!found) {
+    throw new Error(`no user-level endpoint "${name}" in ${file}; add it before excluding it from the chain`);
+  }
+}
+
 /** Removes a user-level endpoint profile by name, through the guardian. */
 export function removeUserEndpoint(file: string, name: string, io: UserConfigIo = {}): void {
   updateUserConfigFile(

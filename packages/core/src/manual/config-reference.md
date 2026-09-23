@@ -64,7 +64,9 @@ All keys are optional. Notes:
   `moh provider fallback <endpoint> <model>`; an endpoint with no
   preferred model is never a fallback stop.
 - `endpoints[].fallbackEligible` — `false` keeps the endpoint out of the
-  automatic fallback chain (default `true`).
+  automatic fallback chain while keeping its preferred model (default
+  `true`). Set it from Settings → *Fallback models* (`x`) or
+  `moh provider fallback <endpoint> --exclude` / `--include`.
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
   uses the plan's OAuth tokens.
 - `capabilities.multimodal` — declares image input for endpoints without
