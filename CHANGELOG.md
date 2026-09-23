@@ -39,6 +39,18 @@ matching section here at tag time.
   `/chat/completions`, probed with a live-only id and with a catalog entry
   whose per-model wire differs), so `grok-4.7`, `omen-alpha`, `deepseek-flash`
   and friends work instead of being dead picker rows.
+- **The DNS-pinned `fetch` tool no longer hangs while reading a response
+  body under Bun** (#922): the pinned path used undici's Fetch wrapper;
+  under Bun 1.2.19 + undici 7.29.0 the response could settle while
+  `text()`/`arrayBuffer()` never did (reproduced on both a corporate network
+  and mobile tethering; unpinned `globalThis.fetch` stayed stable). The
+  pinned transport now uses `node:http`/`node:https` with the already-verified
+  address supplied through the socket lookup seam, preserving the original
+  hostname for Host/TLS SNI and the #697 one-resolution guarantee. The
+  regression test is hermetic: a fake hostname is pinned to a local listener
+  50 times, so it tests the real transport without public DNS or network
+  timing; the rebinding tests now separately pin single-shot resolution and
+  per-redirect verification instead of succeeding through a blackholed IP.
 
 ## [0.46.0] - 2026-09-23
 ### Added

@@ -10,7 +10,6 @@
         "bun-types": "^1.4.0",
         "react-devtools-core": "^7.0.1",
         "typescript": "^7.0.2",
-        "undici": "^7.28.0",
       },
     },
     "packages/cli": {
@@ -36,7 +35,6 @@
         "@ai-sdk/openai": "^4.0.45",
         "@moh/extension": "workspace:*",
         "ai": "^7.0.71",
-        "undici": "^7.28.0",
       },
       "devDependencies": {
         "typescript": "^5",
