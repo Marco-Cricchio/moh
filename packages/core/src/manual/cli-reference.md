@@ -27,6 +27,7 @@ commands:
   usage    usage reports: models, tools, routes (see: moh usage --help)
   jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
+  browser  browser tool status and setup (see: moh browser --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -79,6 +80,10 @@ notes:
   - a project root under /mnt (a Windows drive in WSL) prints one note on
     stderr: file I/O there is dramatically slower. Environment information,
     never a turn error; stdout stays pure JSONL.
+  - an enabled browser tool whose toolchain is missing prints one note on
+    stderr naming the missing component and the setup command (moh browser
+    install): the optional tool is simply not registered, never a turn
+    error; stdout stays pure JSONL.
 ```
 
 ## moh serve
@@ -322,4 +327,31 @@ difference. Nothing here makes a call to TypeSafe: the key is validated when
 it is saved, from the TUI Settings panel (Jev / TypeSafe), and is never
 printed — only its masked tail. The status of an active or inactive Jev
 exits 0; a malformed "typesafe" section and any usage error exit 2.
+```
+
+## moh browser
+
+```
+usage: moh browser [status|install] [options]
+
+The native browser tool (#774, ADR-0029) is opt-in and needs an optional
+toolchain: playwright-core plus a Chromium build. moh owns it — setup runs
+on the Bun runtime embedded in the binary (no npm, no system Bun, no
+sudo), installs the package into ~/.moh/browser-toolchain and leaves
+Chromium in Playwright's own per-user cache. A playwright-core installed
+in the project's node_modules is used as-is and takes precedence.
+
+  status    what is available and what is missing (default). Exit code 0
+            when a headless launch would work, 1 otherwise
+  install   install or refresh playwright-core and the Chromium headless
+            shell (~200 MB — the piece a headless launch needs)
+
+options:
+  --with-chromium  with install: also download the full Chromium build
+                   (~500 MB, needed by browser.headless: false)
+  --with-deps      with install: also run Playwright's system dependency
+                   installer; it may ask for your system administrator
+                   password
+  --cwd <dir>      project root (default: process.cwd())
+  --help           show this help
 ```

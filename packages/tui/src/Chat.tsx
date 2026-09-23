@@ -80,6 +80,9 @@ export interface ChatProps {
   compactionFailed?: boolean;
   /** #468/ADR-0020: sticky growth-warning incident count (null = none). */
   growthWarning?: number | null;
+  /** #936: an enabled browser whose toolchain is missing (this open
+   * observed it) — the footer alarm offers the setup key. */
+  browserSetup?: boolean;
   /** #581: the keep-my-branch primary chip (recovery action over the
    * core switch seam) — rendered next to the growth warning. */
   onKeepMyBranch?: () => void;
@@ -166,6 +169,7 @@ export function Chat({
   jevStatus = null,
   compactionFailed = false,
   growthWarning = null,
+  browserSetup = false,
   onKeepMyBranch,
   branchFrom = null,
   onBranchFromDismiss,
@@ -1186,6 +1190,7 @@ export function Chat({
         jevStatus={jevStatus}
         compactionFailed={compactionFailed}
         growthWarning={growthWarning}
+        browserSetup={browserSetup}
         onKeepMyBranch={onKeepMyBranch}
         phase={armed ? "esc again to stop" : livePhase}
         notice={notice}

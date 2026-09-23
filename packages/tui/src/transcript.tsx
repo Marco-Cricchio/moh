@@ -11,6 +11,7 @@ import { askUserQuestionSummary } from "./permission-gate";
 import type { ToolTimings } from "./tool-timing";
 import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
+import { BROWSER_SETUP_ACTION } from "./browser-setup";
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
 export interface TranscriptBlock {
   key: string;
@@ -908,8 +909,19 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // bookmarked nodes from the log; the transcript has no projection.
         break;
       case "browser_unavailable":
-        // #774: chrome-only diagnostic — surfaces render the warning from
-        // the log; the transcript has no dedicated projection.
+        // #774/#936: the browser tool is enabled but its toolchain is
+        // missing, so the tool was not registered. Chrome only — the
+        // session runs fine without it — and the reason carries the
+        // actionable setup sentence from the core seam. Rendered as
+        // history, so a resumed session keeps its warning.
+        blocks.push({
+          key,
+          kind: "info",
+          glyph: "!",
+          type: "browser",
+          detail: "tool unavailable",
+          lines: [sanitizeForDisplay(event.reason), BROWSER_SETUP_ACTION],
+        });
         break;
       case "session_pinned":
         // Home pin chrome — the transcript has no projection; the Home

@@ -113,7 +113,11 @@ All keys are optional. Notes:
   `headless: false`) and Playwright's system dependencies are explicit
   options of that setup, never implicit. When the toolchain is missing, the
   tool is not registered and a visible `browser_unavailable` diagnostic is
-  recorded at session start.
+  recorded at session start: the TUI renders it as a warning with an
+  `install now` action (ctrl+b, or `/browser` — the same guided setup), and
+  `moh run` prints one line on stderr naming the missing component and the
+  setup command. Neither is a turn error: the session simply runs without
+  the optional tool.
   `headless` (default `true`) runs a real Chrome window when `false`
   (same permission rules; the window is reaped when the session
   closes).
