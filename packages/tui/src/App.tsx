@@ -74,6 +74,8 @@ import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
+import { BrowserSetupModal } from "./BrowserSetupModal";
+import { currentBrowserDiagnostic } from "./browser-setup";
 import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } from "./commands";
 import { SkillUpdatesModal } from "./SkillUpdatesModal";
 import { Toasts, useToasts } from "./Toasts";
@@ -118,7 +120,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -390,6 +392,16 @@ export function App({
    * `session_file_growth`; the fork chip projects the explicit recovery
    * action. Counters update on repeat incidents; the banner never stacks. */
   const [growth, setGrowth] = useState<{ count: number } | null>(null);
+  /** #936: the browser-toolchain diagnostic of the CURRENT open — the
+   * row-1 alarm and the `^b` setup action exist while it is set. Read from
+   * the log's open marker at session change (`currentBrowserDiagnostic`:
+   * a resumed session whose toolchain has since been installed must not
+   * keep offering setup), then set by live events, cleared by a successful
+   * install. Never derived from a stale diagnostic: the warning stays in
+   * the transcript as history, the alarm states the present. */
+  const [browserDiagnostic, setBrowserDiagnostic] = useState<string | null>(() =>
+    session ? currentBrowserDiagnostic(session.history()) : null,
+  );
   /** #400: the foreign tail id of the latest growth event — the /tree
    * panel renders that whole branch with the warning glyph. */
   const [foreignTip, setForeignTip] = useState<string | null>(null);
@@ -476,7 +488,14 @@ export function App({
     const watchFallback = createFallbackWatcher();
     const consume = async () => {
       try {
+        // #936: events already in the log at subscription time are the
+        // replayed history, not news — only events appended afterwards
+        // describe this open's state (the initial value comes from
+        // `currentBrowserDiagnostic`, which is stricter than the replay).
+        const replayed = session.history().length;
+        let seen = 0;
         for await (const event of session.events) {
+          const fromHistory = seen++ < replayed;
           if (stopped) return;
           if (event.type === "memory_updated") {
             setMemoryFresh(true);
@@ -510,6 +529,10 @@ export function App({
           if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);          if (event.type === "permission_rules_restored") {
             push(sanitizeForDisplay(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`), "warn");
           }
+          // #936: the browser toolchain diagnostic of this open — the
+          // footer alarm + the `^b` setup action. The transcript renders
+          // the event itself (history); this is only the present state.
+          if (event.type === "browser_unavailable" && !fromHistory) setBrowserDiagnostic(event.reason);
           const fallbackNotice = watchFallback(event);
           if (fallbackNotice) push(fallbackNotice, "warn");
         }
@@ -524,6 +547,12 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
+  // #936: a new session (reload, fork, resume) re-decides the browser
+  // alarm from its own log: the tool registers at assembly time, so a
+  // toolchain installed in the meantime must clear the action.
+  useEffect(() => {
+    setBrowserDiagnostic(session ? currentBrowserDiagnostic(session.history()) : null);
+  }, [session]);
 
   // #619: MPM status chip — a cheap 2s poll of the session seam. Fail-silent
   // and cheap (no IO); never appends transcript events or status noise.
@@ -859,11 +888,17 @@ export function App({
   // events settled) so nothing appends after the file is re-read; the
   // fresh session resumes the full history from that file. A broken
   // config keeps the old session alive (no silent fallback, ADR-0005).
-  const reload = async () => {
+  const reload = async (note?: string): Promise<boolean> => {
     const current = session;
-    if (!current) return push("/reload needs an open session");
+    if (!current) {
+      push("/reload needs an open session");
+      return false;
+    }
     const file = current.sessionFile;
-    if (!file) return push("/reload: session file unknown — open a session first");
+    if (!file) {
+      push("/reload: session file unknown — open a session first");
+      return false;
+    }
     current.abort();
     await current.dispose();
     const result = makeSession({
@@ -879,11 +914,15 @@ export function App({
       store: SessionStore.open(file),
     });
     if ("error" in result) {
-      return push(assemblyErrorToast(result.error) + " — keeping the current session");
+      push(assemblyErrorToast(result.error) + " — keeping the current session");
+      return false;
     }
     setModelLabel(result.session.activeModel);
     setSession(result.session);
-    push(`✓ config reloaded · model ${result.session.activeModel} · history preserved`);
+    // #936: the browser setup flow reloads with its own note (what the
+    // reload was for) instead of the generic config message.
+    push(note ?? `✓ config reloaded · model ${result.session.activeModel} · history preserved`);
+    return true;
   };
 
   // #468/ADR-0020 fork-now: the explicit recovery action behind the growth
@@ -1187,6 +1226,11 @@ export function App({
     // `branch_switched { to: localTip }` (adoption, head semantics d9);
     // /fork remains the secondary recovery chip.
     if (overlay === null && (input === "\x07" || (key.ctrl && input === "g")) && growth !== null && session) return activateChip("keep");
+    // #936: the browser setup flow, from the transcript warning's action
+    // line and the footer alarm. Available while this open observed a
+    // missing toolchain — the modal itself shows the live status, so a
+    // stale open cannot mislead.
+    if (overlay === null && key.ctrl && input === "b" && browserDiagnostic !== null) return setOverlay("browser");
     // The post-claim chooser owns Esc: it returns to Frontier rather than
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
@@ -1245,6 +1289,7 @@ export function App({
       jevStatus={jevStatus}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
+      browserSetup={browserDiagnostic !== null}
       onKeepMyBranch={keepMyBranch}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
@@ -1308,6 +1353,7 @@ export function App({
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
         onOpenJev: () => setOverlay("jev"),
+        onOpenBrowserSetup: () => setOverlay("browser"),
       })}
     />
   ) : null;
@@ -1612,6 +1658,22 @@ export function App({
               setSkillUpdatePlan(null);
               setOverlay(null);
             }}
+          />
+        )}
+        {overlay === "browser" && (
+          <BrowserSetupModal
+            cwd={cwd}
+            {...(home ? { home } : {})}
+            onInstalled={(result) => {
+              // The tool registers at assembly time: clear the alarm and
+              // re-assemble so the browser becomes usable right away. The
+              // reload carries the note — the generic "config reloaded"
+              // would hide what the reload was for.
+              setBrowserDiagnostic(null);
+              setOverlay(null);
+              void reload(`✓ browser toolchain ready (playwright-core ${result.version}) — the browser tool is registered`);
+            }}
+            onClose={() => setOverlay(null)}
           />
         )}
         {overlay === "workflow-offer" && (

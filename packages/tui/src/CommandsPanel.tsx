@@ -28,6 +28,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["ctrl+q", "usage quota (provider + local, this session and recent)"],
       ["ctrl+r", "rename the current session"],
       ["ctrl+g", "keep my branch (while the external-growth warning is up): move the head back to your local tip"],
+      ["ctrl+b", "browser setup (while the browser-toolchain warning is up): install the toolchain"],
       ["ctrl+k / ?", "this command list"],
       ["tab", "focus chips: subagent chips first (when running), then action chips"],
       ["shift+tab", "rotate permission mode: normal → auto-accept → yolo → normal (leaves yolo)"],
@@ -46,6 +47,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
     area: "Slash commands (type / for the completion popup)",
     keys: [
       ["/ask-moh", "router over moh skills + docs"],
+      ["/browser", "browser tool status and setup (install the toolchain)"],
       ["/commands", "this command list"],
       ["/compact", "force context compaction (same producer as the auto trigger)"],
       ["/copy", "copy the last assistant reply to the clipboard"],

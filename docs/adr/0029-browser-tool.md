@@ -127,3 +127,30 @@ session, and the missing-toolchain rule — diagnosed in every surface,
 never a turn error and never a session failure. The client surfaces that
 project this seam (Settings setup, #934; transcript and CLI diagnostics,
 #936) render and ask; they never probe or resolve on their own.
+
+## Amendment — 2026-09-23, #936: the diagnostic is visible, and it has a door
+
+Decision 6's diagnostic existed but was invisible: the TUI dropped the
+event and `moh run` printed nothing, so an enabled-but-unavailable browser
+tool looked like a tool that simply never ran. Two consequences, both
+decided here:
+
+- **The diagnostic is rendered, not consumed.** The TUI projects
+  `browser_unavailable` as a warning block (the core's own reason sentence
+  plus the TUI action) and states the present with a footer alarm — the
+  alarm reads the diagnostic of the *current open* (after the last
+  `session_start`/`session_resumed`), so a session resumed after the
+  toolchain was installed does not keep offering setup, while the log keeps
+  every diagnostic as history. `moh run` prints one line on stderr.
+  Unchanged: chrome only — never provider context, never a turn error,
+  never a permission rule, and stdout stays pure JSONL in headless runs.
+- **The action is one flow, and it has a CLI door.** The TUI's `install
+  now` (ctrl+b, `/browser`) opens the guided setup modal — the same
+  surface the Settings Browser row opens (#934), built here because the
+  transcript must not grow a second installer path. And because the core's
+  own hint (`BROWSER_SETUP_HINT`, #935) and the manual already named `moh
+  browser install`, the CLI gained `moh browser status|install`: a thin
+  client that renders the probe, decides which optional pieces to fetch
+  (the full build and the system dependencies stay explicit) and calls the
+  installer. #934 declared a separate CLI browser command out of its scope
+  and left headless setup/status to #935+#936; this is that door.
