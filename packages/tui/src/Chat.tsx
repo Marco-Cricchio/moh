@@ -107,6 +107,11 @@ export interface ChatProps {
    * the session's own live mode (the launch flag seeds it, shift+tab moves
    * it), so the bar never mirrors it in state of its own. */
   permissionMode?: SessionMode;
+  /** #918: does the session's project root resolve under `/mnt/`? Override
+   * for tests; the default is the session's own fact, resolved once at
+   * assembly (`session.rootOnWindowsMount`), so the footer never re-probes
+   * the filesystem. */
+  rootOnWindowsMount?: boolean;
   submitSignal?: number;
   /** Unsent external composer draft. */
   prefill?: string;
@@ -180,6 +185,7 @@ export function Chat({
   onToggleSubagentPanel,
   branch,
   permissionMode = session.sessionMode,
+  rootOnWindowsMount = session.rootOnWindowsMount,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
@@ -558,8 +564,9 @@ export function Chat({
   // bordered three-row chip; the frameless running peek is header + five
   // truncate-only previews (the settled peek is just its summary line).
   // This intentionally over-reserves at tiny sizes: a stable footer takes
-  // precedence over one more volatile transcript row.
-  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0);
+  // precedence over one more volatile transcript row. #918 adds one plain
+  // line while the project root sits on a Windows drive (`/mnt`).
+  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
@@ -1186,6 +1193,7 @@ export function Chat({
         branch={branch ?? gitBranch}
         cwd={cwd}
         permissionMode={permissionMode}
+        rootOnWindowsMount={rootOnWindowsMount}
         focusedChip={focusedChip}
         focusedSubagent={focusedSubagent}
         subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({

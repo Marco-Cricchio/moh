@@ -311,6 +311,27 @@ describe("moh run (e2e)", () => {
     expect(res.stderr).toBeTruthy();
   });
 
+  // #918/ADR-0044: a project root under /mnt — a Windows drive mounted into
+  // WSL — earns one visible stderr line. Environment information: the run
+  // still succeeds, stdout stays pure JSONL, and the distro-filesystem case
+  // prints nothing.
+  test("a /mnt project root prints one line; the distro filesystem prints none", () => {
+    const { spawn } = harness();
+    const onMount = spawn(["run", "--cwd", "/mnt/c/project", "hello"]);
+    expect(onMount.code).toBe(0);
+    const hinted = onMount.stderr.split("\n").filter((line) => line.includes("/mnt"));
+    expect(hinted).toHaveLength(1);
+    expect(hinted).toEqual([
+      "moh run: note: project root is under /mnt — a Windows drive mounted in WSL; file I/O there is dramatically slower. Keep projects in the Linux filesystem (e.g. ~/projects)",
+    ]);
+    // Never a turn error, and never noise in the JSON stream.
+    expect(readEvents(onMount.stdout).at(-1).type).toBe("done");
+
+    const onDistro = spawn(["run", "hello"]);
+    expect(onDistro.code).toBe(0);
+    expect(onDistro.stderr).not.toContain("/mnt");
+  });
+
   // #498: --max-iterations overrides moh.json; strict parse; unlimited → 0.
   describe("--max-iterations (#498)", () => {
     test("flag override lets a looping script run past the config cap without wrap-up", () => {

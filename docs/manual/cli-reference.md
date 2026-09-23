@@ -76,6 +76,9 @@ notes:
     restored automatically).
   - a turn an extension asks to confirm is refused here (one stderr line,
     exit 0): headless cannot ask, so it never sends what it cannot show.
+  - a project root under /mnt (a Windows drive in WSL) prints one note on
+    stderr: file I/O there is dramatically slower. Environment information,
+    never a turn error; stdout stays pure JSONL.
 ```
 
 ## moh serve

@@ -114,6 +114,13 @@ interface StatusProps {
    * exceeds the class-aware budget so the start and — above all — the end
    * (the project dir) stay visible. */
   cwd?: string;
+  /** #918/ADR-0044: the session's project root resolves under `/mnt/` (a
+   * Windows drive mounted into WSL), read from `session.rootOnWindowsMount`.
+   * The footer then carries one persistent, never-blocking hint line above
+   * the status rows; absent = nothing renders (the distro-filesystem case).
+   * Never a warning icon on the status row itself: the fact is environment
+   * information, and the footer's own rows keep their width. */
+  rootOnWindowsMount?: boolean;
   /** #328: active update notice — left-aligned on row 2; the right-aligned
    * cwd/branch/mode tail is never displaced or dropped (the notice elides). */
   updateMessage?: string;
@@ -315,6 +322,35 @@ function StatusRow(props: StatusProps) {
   );
 }
 
+/**
+ * #918/ADR-0044: the `/mnt` hint — one persistent, never-blocking line above
+ * the status rows, rendered only while the session's project root resolves
+ * under `/mnt/` (a Windows drive mounted into WSL, where every file
+ * operation is dramatically slower). It gets its own row on purpose: it is
+ * a standing fact about the project, not a chip competing with the live
+ * status for the width of row 1, and it leaves the status rows byte-for-byte
+ * unchanged for everyone else.
+ *
+ * The copy is self-sufficient at every width — what `/mnt` is, why it costs,
+ * and what to do, never a pointer to the manual — and it degrades by
+ * dropping the explanation, never the advice. Every tier fits the style
+ * guide's 35-column floor untruncated (the compact one is the tightest: 31
+ * of the 32 usable columns), because a truncated hint would cut exactly the
+ * advice that earns it a row.
+ */
+const WINDOWS_MOUNT_HINT: Record<WidthClass, string> = {
+  wide: "⚠ /mnt — a Windows drive in WSL: file I/O is dramatically slower; keep projects in Linux (~/projects)",
+  regular: "⚠ /mnt — slow I/O (a Windows drive in WSL); keep projects in Linux",
+  compact: "⚠ /mnt is slow — use ~/projects",
+};
+
+function WindowsMountHint({ width }: { width: number }) {
+  const theme = useTheme();
+  return <Box width={Math.max(1, width - 1)} paddingX={1} flexShrink={0}>
+    <Text color={theme.warn} wrap="truncate">{WINDOWS_MOUNT_HINT[widthClass183(width)]}</Text>
+  </Box>;
+}
+
 /** #497: the subagent chips row (footer row 0, above the action chips).
  * Owner spec: subagent chips live on their OWN row, not the action chips'
  * row. They degrade to a bare count (⊙N) when the terminal narrows and
@@ -359,6 +395,7 @@ function KeyRow({ width, focused, keepMyBranch }: { width: number; focused: numb
 export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; keepMyBranch?: boolean }) {
   return <Box flexDirection="column">
     <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} />
+    {props.rootOnWindowsMount && <WindowsMountHint width={props.width} />}
     <StatusRow {...props} />
     <KeyRow width={props.width} focused={props.focusedChip} keepMyBranch={props.keepMyBranch} />
   </Box>;
