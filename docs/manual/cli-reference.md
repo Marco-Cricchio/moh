@@ -80,6 +80,10 @@ notes:
   - a project root under /mnt (a Windows drive in WSL) prints one note on
     stderr: file I/O there is dramatically slower. Environment information,
     never a turn error; stdout stays pure JSONL.
+  - an enabled browser tool whose toolchain is missing prints one note on
+    stderr naming the missing component and the setup command (moh browser
+    install): the optional tool is simply not registered, never a turn
+    error; stdout stays pure JSONL.
 ```
 
 ## moh serve

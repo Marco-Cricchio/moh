@@ -69,7 +69,11 @@ notes:
     exit 0): headless cannot ask, so it never sends what it cannot show.
   - a project root under /mnt (a Windows drive in WSL) prints one note on
     stderr: file I/O there is dramatically slower. Environment information,
-    never a turn error; stdout stays pure JSONL.`;
+    never a turn error; stdout stays pure JSONL.
+  - an enabled browser tool whose toolchain is missing prints one note on
+    stderr naming the missing component and the setup command (moh browser
+    install): the optional tool is simply not registered, never a turn
+    error; stdout stays pure JSONL.`;
 
 /**
  * ADR-0033 §4 (#791): the headless answer to a pre-send confirmation.
@@ -362,6 +366,15 @@ export async function runCommand(options: RunOptions): Promise<number> {
           err.write(
             `moh run: warning: session file grew from elsewhere (${event.expectedBytes} → ${event.actualBytes} bytes); concurrent use of one session file is unsupported — fork the session to recover: moh run --session ${file} --fork\n`,
           );
+        }
+        // #774/#936: an enabled browser whose toolchain is missing is
+        // visible here too. Headless cannot offer the TUI's setup modal, so
+        // the core's own actionable sentence (the missing component plus
+        // the setup command) is the whole line. One line, stderr only:
+        // stdout stays pure JSONL and the tool stays optional — never a
+        // session or turn error.
+        if (event.type === "browser_unavailable") {
+          err.write(`moh run: warning: ${event.reason}\n`);
         }
         out.write(JSON.stringify(event) + "\n");
       },
