@@ -45,18 +45,28 @@ eligible endpoint, and the transcript shows a notice naming both.
 
 Every endpoint that can serve as a stop is in the chain, in declaration
 order, each using **its own preferred model** (`defaultModel`). An
-endpoint is not a stop when it has no preferred model, when it sets
-`fallbackEligible: false`, or when its provider type cannot be a stop
-(only built-in types and `openai-compat` can). *Settings → Fallback
-models* lists every endpoint with the model it would serve and, for one
-that cannot be a stop, the reason — so the chain is never a guess.
+endpoint is not a stop when it has no preferred model, when it is
+excluded from the chain (`fallbackEligible: false`), or when its
+provider type cannot be a stop (only built-in types and `openai-compat`
+can). *Settings → Fallback models* lists every endpoint with the model
+it would serve and, for one that cannot be a stop, the reason — so the
+chain is never a guess.
 
-Choosing a preferred model there never switches the provider you are
-using: it decides what that endpoint serves *with* if it is ever needed.
-Headless, the same choice is `moh provider fallback <endpoint> [model]`
-(`--clear` drops the endpoint from the chain), and
-`moh provider status` prints each endpoint's preferred model. A change
-applies from the next session.
+There you have two independent controls per provider:
+
+- **the model it would serve with** (`enter`) — what that endpoint uses
+  *if* the chain ever reaches it;
+- **exclude/include the whole provider** (`x`) — keeps the provider out
+  of the chain while keeping its preferred model, or puts it back. An
+  excluded row reads `✗ excluded`.
+
+Neither ever switches the provider you are using, and `c` clears the
+preferred model (which also drops the endpoint from the chain, since a
+stop needs a model). Headless, the same controls are
+`moh provider fallback <endpoint> [model]`, `--clear`, and
+`--exclude`/`--include`; `moh provider status` prints each endpoint's
+preferred model and says when it is excluded. A change applies from the
+next session.
 
 ### When a provider returns nothing
 

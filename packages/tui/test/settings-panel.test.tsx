@@ -511,6 +511,59 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     i.i.unmount();
   });
 
+  test("`x` excludes the whole provider while keeping its preferred model, and puts it back", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    await down(i.i, 9);
+    i.i.stdin.write("\r");
+    await sleep(40);
+    i.i.stdin.write("x"); // exclude the first row (anthropic)
+    await sleep(60);
+    const project = loadMohConfig(join(cwd, "moh.json"));
+    const anthropic = project.endpoints!.find((e) => e.name === "anthropic")!;
+    // The exclusion is the whole-provider switch: the preferred model stays.
+    expect(anthropic.fallbackEligible).toBe(false);
+    expect(anthropic.defaultModel).toBe("claude-sonnet-4-5");
+    expect(i.toasts.some((t) => t.includes("anthropic excluded from the chain"))).toBe(true);
+    expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("anthropic · ✗ excluded · 📌 claude-sonnet-4-5");
+    // …and the summary drops it from the eligible count.
+    i.i.stdin.write("\x1b"); // back to the settings list
+    await sleep(40);
+    expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("Fallback models");
+    i.i.stdin.write("\r"); // re-enter and put it back
+    await sleep(40);
+    i.i.stdin.write("x");
+    await sleep(60);
+    const after = loadMohConfig(join(cwd, "moh.json")).endpoints!.find((e) => e.name === "anthropic")!;
+    // Re-including removes the key instead of writing `true`.
+    expect("fallbackEligible" in after).toBe(false);
+    expect(i.toasts.some((t) => t.includes("anthropic back in the chain"))).toBe(true);
+    i.i.unmount();
+  });
+
+  test("`x` on a USER endpoint writes ~/.moh/config", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    await down(i.i, 9);
+    i.i.stdin.write("\r");
+    await sleep(40);
+    i.i.stdin.write("\x1b[B");
+    await sleep(20);
+    i.i.stdin.write("\x1b[B"); // zai (user-level, third row)
+    await sleep(30);
+    i.i.stdin.write("x");
+    await sleep(60);
+    const user = readUserProviderConfig(join(home, ".moh", "config"));
+    const zai = user.endpoints!.find((e) => e.name === "zai")!;
+    expect(zai.fallbackEligible).toBe(false);
+    expect(zai.defaultModel).toBe("glm-5.3-flash");
+    // No user endpoint leaked into the project file.
+    expect(loadMohConfig(join(cwd, "moh.json")).endpoints!.some((e) => e.name === "zai")).toBe(false);
+    i.i.unmount();
+  });
+
   test("`c` clears the preferred model and drops the endpoint out of the chain", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
