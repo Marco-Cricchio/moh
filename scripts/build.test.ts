@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assetKey, resolveVersion, sha256File, skillFiles, TARGETS } from "./build";
 
@@ -12,6 +12,32 @@ describe("TARGETS", () => {
 
   test("every platform maps to a bun compile target of the same name", () => {
     for (const t of TARGETS) expect(t.target).toBe(`bun-${t.platform}`);
+  });
+});
+
+/**
+ * A platform is four doors at once — the compile target, the release matrix,
+ * the installer's `uname` mapping, and self-update's vocabulary. A platform
+ * added to one of them only is invisible until a user hits it (#916).
+ */
+describe("platform vocabulary is one list", () => {
+  const platforms = TARGETS.map((t) => t.platform);
+  const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
+
+  test("release.yml builds exactly the TARGETS platforms", () => {
+    const matrix = [...read(".github/workflows/release.yml").matchAll(/^\s+- platform: (\S+)$/gm)].map((m) => m[1]);
+    expect(matrix.sort()).toEqual([...platforms].sort());
+  });
+
+  test("install.sh maps every TARGETS platform", () => {
+    const mapped = [...read("scripts/install.sh").matchAll(/platform="([^"]+)"/g)].map((m) => m[1]);
+    expect(mapped.sort()).toEqual([...platforms].sort());
+  });
+
+  test("self-update speaks the same vocabulary", () => {
+    const declared = read("packages/core/src/self-update.ts").match(/UPDATE_PLATFORMS = \[([^\]]*)\]/)?.[1] ?? "";
+    const names = [...declared.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(names.sort()).toEqual([...platforms].sort());
   });
 });
 
