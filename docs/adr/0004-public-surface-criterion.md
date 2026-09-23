@@ -251,3 +251,28 @@ a view), projects the active branch via `activePath`, reuses the #499/#719
 usage and pricing conventions, and returns an explicit `{ error }` on an
 unreadable or empty log. Metadata only: never message content, tool
 outputs, or reasoning; never a write to the log.
+
+## Amendment — 2026-09-23, #935 browser toolchain seam
+
+**Re-opened doors** (`core/src/browser-toolchain.ts`): `browserToolchainRoot`,
+`probeBrowserToolchain`, `installBrowserToolchain`, and the types they
+name — `BrowserToolchainStatus`, `BrowserBuildStatus`,
+`BrowserToolchainOptions`, `BrowserToolchainInstallOptions`,
+`BrowserToolchainInstallResult`, `BrowserToolchainProgress` — plus the
+copy constants every surface must share (`BROWSER_SETUP_HINT`,
+`BROWSER_WITH_DEPS_NOTE`, `HEADLESS_SHELL_DOWNLOAD_SIZE`,
+`FULL_CHROMIUM_DOWNLOAD_SIZE`).
+
+Consumed by the TUI (the Browser setup flow of #934 and the
+`browser_unavailable` warning action of #936) and by the CLI (the headless
+setup/diagnostic line). Both clients must show the same toolchain truth and
+offer the same setup: probing, the package-resolution order, the download
+sizes and the installer are exactly the logic that would otherwise be
+forked per surface — the duplication this ADR exists to prevent. The seam
+is deliberately narrow: probing returns a status with actionable reasons
+(never throws, never a session failure), installation returns an explicit
+`{ ok: false, kind }` instead of throwing. Everything else —
+`resolvePlaywright` and the resolution order, the lock protocol, the
+staging/symlink swap, the Playwright registry access, the embedded-Bun
+invocation — stays internal to the defining module (tests import it
+directly, per this ADR).

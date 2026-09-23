@@ -19,8 +19,8 @@ import {
   browserAvailability,
   refNumber,
   verifyNavigable,
-  BROWSER_INSTALL_HINT,
 } from "../src/browser";
+import { BROWSER_SETUP_HINT } from "../src/browser-toolchain";
 import { browserTool, isScreenshotToolResult } from "../src/browser-tool";
 import { builtinTools } from "../src/builtin-tools";
 
@@ -141,16 +141,22 @@ function fakePlaywright(pageBehavior: {
 describe("browserAvailability", () => {
   test("present toolchain: available", () => {
     const fake = fakePlaywright({});
-    expect(browserAvailability(fake)).toEqual({ available: true, pw: fake.pw });
+    expect(browserAvailability({ playwright: fake.pw })).toEqual({ available: true, pw: fake.pw });
   });
   test("missing playwright-core: unavailable with a reason", () => {
-    const probe = browserAvailability({ missing: "playwright-core is not installed" });
+    const probe = browserAvailability({ playwright: { missing: "playwright-core is not installed" } });
     expect(probe.available).toBe(false);
     if (!probe.available) expect(probe.reason).toContain("not installed");
   });
   test("no Chromium build: unavailable", () => {
-    const bad = { pw: { chromium: { executablePath: () => "/nonexistent/chrome", launch: async () => { throw new Error("no"); } } } };
-    expect(browserAvailability(bad).available).toBe(false);
+    const bad = {
+      playwright: {
+        chromium: { executablePath: () => "/nonexistent/chrome", launchPersistentContext: async () => ({}) },
+      },
+    };
+    const probe = browserAvailability(bad);
+    expect(probe.available).toBe(false);
+    if (!probe.available) expect(probe.reason).toContain("headless shell");
   });
 });
 
@@ -233,7 +239,7 @@ describe("browserTool dispatch", () => {
     const tool = browserTool({ session });
     const out = await tool.execute({ action: "navigate", url: "http://localhost:3000" }, ctx("/tmp"));
     expect(out).toContain("browser unavailable");
-    expect(out).toContain(BROWSER_INSTALL_HINT);
+    expect(out).toContain(BROWSER_SETUP_HINT);
   });
 
   test("snapshot before navigate is a precise error", async () => {
@@ -249,11 +255,26 @@ describe("registration policy (builtinTools)", () => {
     expect(tools.browser).toBeUndefined();
   });
 
-  test("enabled with an unavailable toolchain: not registered, visible diagnostic", () => {
-    // This environment has playwright-core; force the "no Chromium" branch
-    // through an unresolvable registry by monkeypatching is out of scope —
-    // instead assert the two invariants that hold either way: registration
-    // only with availability, and diagnostics only when enabled.
+  test("enabled in a project without a toolchain: not registered, visible diagnostic", () => {
+    // #935: the probe resolves against the project root and the home dir,
+    // so a session rooted in an empty temp project has no toolchain even
+    // on a machine where playwright-core happens to be installed.
+    const project = mkdtempSync(join(tmpdir(), "moh-browser-registration-"));
+    const options: Parameters<typeof builtinTools>[0] = {
+      browser: { enabled: true },
+      browserRoot: project,
+      ledgerRoot: join(project, ".moh", "bash-ledgers"),
+      diagnostics: [],
+    };
+    const tools = builtinTools(options);
+    expect(tools.browser).toBeUndefined();
+    expect(options.browserSession).toBeUndefined();
+    expect(options.diagnostics).toHaveLength(1);
+    expect(options.diagnostics![0]).toContain("browser tool disabled:");
+    expect(options.diagnostics![0]).toContain(BROWSER_SETUP_HINT);
+  });
+
+  test("disabled: no registration, no diagnostic", () => {
     const options: Parameters<typeof builtinTools>[0] = {
       browser: { enabled: false },
       diagnostics: [],
@@ -264,8 +285,11 @@ describe("registration policy (builtinTools)", () => {
   });
 
   test("enabled in an environment with the toolchain: registered and wired for dispose", () => {
-    const availability = browserAvailability();
-    const options: Parameters<typeof builtinTools>[0] = { browser: { enabled: true }, diagnostics: [] };
+    // #935: the probe is scoped to the project + home the session runs in,
+    // so the test asks the same question the assembly asked.
+    const cwd = process.cwd();
+    const availability = browserAvailability({ cwd });
+    const options: Parameters<typeof builtinTools>[0] = { browser: { enabled: true }, browserRoot: cwd, diagnostics: [] };
     const tools = builtinTools(options);
     if (availability.available) {
       expect(tools.browser).toBeDefined();
@@ -273,7 +297,7 @@ describe("registration policy (builtinTools)", () => {
       expect(options.diagnostics).toHaveLength(0);
     } else {
       expect(tools.browser).toBeUndefined();
-      expect(options.diagnostics![0]).toContain("Install with:");
+      expect(options.diagnostics![0]).toContain(BROWSER_SETUP_HINT);
     }
   });
 });

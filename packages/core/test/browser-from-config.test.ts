@@ -44,7 +44,10 @@ describe("from-config browser wiring", () => {
       });
       expect("error" in result).toBe(false);
       if ("error" in result) return;
-      const available = browserAvailability().available;
+      // #935: availability is scoped to the session's project + home (the
+      // project's own node_modules, then the moh-owned toolchain root), so
+      // the probe must ask the same question the assembly did.
+      const available = browserAvailability({ cwd, home }).available;
       if (available) {
         expect(result.session.tools.browser).toBeDefined();
         expect(events.filter((e) => e.type === "browser_unavailable")).toHaveLength(0);
@@ -52,7 +55,7 @@ describe("from-config browser wiring", () => {
         expect(result.session.tools.browser).toBeUndefined();
         const diags = events.filter((e) => e.type === "browser_unavailable");
         expect(diags).toHaveLength(1);
-        expect((diags[0] as { reason: string }).reason).toContain("Install with:");
+        expect((diags[0] as { reason: string }).reason).toContain("moh browser install");
       }
     } finally {
       cleanup();
