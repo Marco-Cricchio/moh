@@ -200,6 +200,34 @@ function isRouteCapable(profile: EndpointProfile): boolean {
 }
 
 /**
+ * Why an endpoint cannot be an automatic fallback stop, or `null` when it
+ * can. The chain builder filters on this and the settings screen explains
+ * the same verdict to the user, so the rule has exactly one definition
+ * (ADR-0012: route-capable, eligible, and carrying a preferred model).
+ */
+export function fallbackIneligibleReason(
+  profile: EndpointProfile,
+  active?: EndpointProfile,
+): string | null {
+  if (!isRouteCapable(profile)) {
+    return `provider type "${profile.type}" cannot be a fallback stop (only built-in and openai-compat endpoints can)`;
+  }
+  if (profile.fallbackEligible === false) return "excluded by fallbackEligible: false";
+  if (profile.defaultModel === undefined) return "no preferred model set";
+  if (active && active.type === "opencode" && profile.type === "opencode") {
+    // Zen and Go are separate products: an entitlement failure on one must
+    // remain visible, never silently cross-product fall back.
+    return "Zen and Go are separate products — no cross-product fallback";
+  }
+  return null;
+}
+
+/** Whether an endpoint can serve as an automatic fallback stop for `active`. */
+export function isFallbackEligible(profile: EndpointProfile, active?: EndpointProfile): boolean {
+  return fallbackIneligibleReason(profile, active) === null;
+}
+
+/**
  * ADR-0012 (#234): the automatic fallback stops for an active provider —
  * every other configured endpoint that is route-capable, fallback-eligible
  * (default) and has a defaultModel. Order: known health descending first

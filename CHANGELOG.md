@@ -5,6 +5,56 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.46.0] - 2026-09-23
+### Added
+
+- **Home session pins** (#904): `ctrl+p` pins/unpins the selected session row
+  (pertinent banner included); pinned rows float to the top of the Home list
+  (then by mtime) with a 📌 marker. The pin is a chrome event
+  (`session_pinned`) appended by the exported `setSessionPinned`, so resume,
+  fork and compaction inherit it, and `SessionSummary.pinned` carries it to
+  clients. Rename and delete move from `r`/`d` to `ctrl+r`/`ctrl+d` (→ still
+  enters the rename edit), and the manual's Home table follows.
+
+- **Logo intro on the Home screen** (#906): a randomized ASCII animation of
+  the logo plays before the content shows (~2.8s; any keystroke skips it) and
+  settles into the static banner's exact spot, so the layout never shifts.
+  Eight styles are picked per mount (scatter, typewriter, glitch, slide,
+  rain, unveil, pulse, wave) and colors ride the active theme. Transient
+  chrome (update notice, banners) stays off the animation.
+
+- **Per-endpoint preferred model for the fallback chain** (#906, ADR-0012):
+  the chain was automatic but the choice was not addressable. The endpoint
+  profile's `defaultModel` is now writable — project endpoints in moh.json,
+  user-level ones in `~/.moh/config` (the settings panel can now write it,
+  it was display-only). Settings gains a "Fallback models" row per endpoint
+  showing the model it would serve (📌) and, when it cannot be a stop, why;
+  `c` clears the preference and drops the endpoint from the chain. CLI:
+  `moh provider fallback <endpoint> [model]` (`--clear` removes it), and
+  `moh provider status` prints each endpoint's preferred model. The
+  eligibility rule is one predicate (`fallbackIneligibleReason`) shared by
+  the chain builder and the UI, so the screen can never disagree with the
+  route.
+
+### Changed
+
+- **Home startup paints before scanning** (#906): the Home screen renders
+  first and session-log scanning runs in a deferred effect after the intro
+  settles, with a loading state — on large session stores the first frame no
+  longer waits on parsing. The "last 7 days: N tok · top <model>" usage line
+  is gone from Home (it also cost an `aggregateTelemetry` scan at startup);
+  token rollups stay in `moh usage`.
+
+### Fixed
+
+- **zai GLM reasoning is rendered again** (#905): Z.ai GLM models stream
+  reasoning as `delta.reasoning_content` (DeepSeek/Z.AI lineage), which the
+  stock openai-chat adapter strips. zai targets now route through the
+  reasoning-aware openai-compat wrapper via the existing compat flag — the
+  same pattern as the opencode-go fix — restoring reasoning that was lost
+  when switching from an openai-compat endpoint to the built-in zai
+  provider.
+
 ## [0.45.1] - 2026-09-22
 ### Fixed
 
@@ -579,7 +629,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...develop
+[0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/Marco-Cricchio/moh/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/Marco-Cricchio/moh/compare/v0.43.0...v0.44.0

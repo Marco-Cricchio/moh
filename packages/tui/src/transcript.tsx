@@ -911,6 +911,10 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #774: chrome-only diagnostic — surfaces render the warning from
         // the log; the transcript has no dedicated projection.
         break;
+      case "session_pinned":
+        // Home pin chrome — the transcript has no projection; the Home
+        // picker reads the pinned state through the session summaries.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);

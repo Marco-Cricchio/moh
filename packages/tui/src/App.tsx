@@ -101,6 +101,8 @@ export interface AppProps {
   initialTheme?: ThemeRef;
   /** Skip first-run onboarding (tests, CLI flags). */
   skipOnboarding?: boolean;
+  /** Disable the home logo intro (tests; default on). */
+  intro?: boolean;
   /** Environment for onboarding env-detection (tests inject a clean map;
    * default is the real process.env — #236: without this seam a machine with
    * provider keys in the environment makes every "first run" test see the
@@ -137,6 +139,7 @@ export function App({
   initialMode,
   initialTheme,
   skipOnboarding,
+  intro: introEnabled = true,
   env,
   verifyHandoffGh,
   version,
@@ -221,7 +224,14 @@ export function App({
     // Direct chat/resume paths must remain transparent: they have no Home
     // screen on which to make the first-run choice, and existing history
     // proves this is not a new project on this machine.
-    if (skipOnboarding || needsOnboarding || startInChat || listSessionSummaries(cwd, home).length > 0) return false;
+    // This gate only asks whether a local session file exists. Both listing
+    // seams answer with the same identity-resolved directory; the store
+    // listing skips the JSONL parse `listSessionSummaries` does (57ms vs
+    // 2.4s on a 677-session project), which used to block Home's first
+    // paint. `listSpawnFree` is NOT usable here: it resolves the legacy
+    // path-derived slug, and its docstring's precondition (a cold-directory
+    // gate already returned false) does not hold in this branch.
+    if (skipOnboarding || needsOnboarding || startInChat || SessionStore.list(cwd, home).length > 0) return false;
     try {
       const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
       return handoff?.transport === undefined && handoff?.onboarding === undefined;
@@ -337,8 +347,17 @@ export function App({
     confirmGate.onCancelled((text) => setComposerPrefill(text));
   }, [confirmGate]);
 
+  // The logo intro owns the first seconds of the Home screen. It plays once
+  // per process (a Home remount — theme switch, viewport key — must not
+  // replay it), and while it plays the animation is the ONLY thing on
+  // screen: transient chrome such as toasts is deferred, not painted over
+  // the animation. `useToasts`'s blocked semantics hold the expiry, so a
+  // startup notice (an available update, a skill sync) is shown once the
+  // intro ends instead of being lost behind it.
+  const [introActive, setIntroActive] = useState(introEnabled);
+  const introEnded = useCallback(() => setIntroActive(false), []);
   const blocked = pending !== null || asking !== null || confirming !== null || overlay !== null;
-  const { toasts, push } = useToasts(blocked);
+  const { toasts, push } = useToasts(blocked || introActive);
   const [memoryFresh, setMemoryFresh] = useState(false);
   /** #619: live MPM projection status for the footer chip — polled every
    * 2s while the session is open; null when MPM never activated (the chip
@@ -1171,6 +1190,12 @@ export function App({
   });
 
   const showChat = session !== null;
+  // A session opened before the intro ended (a resume straight into chat,
+  // startInChat) means the intro is not on screen any more: stop deferring
+  // the toast chrome on its behalf.
+  useEffect(() => {
+    if (showChat) setIntroActive(false);
+  }, [showChat]);
   // #426: the inline ask_user block is NOT an overlay — including `asking`
   // here drove the alternate-screen buffer flip (and the #330 deferred
   // repaint) while the block was open, freezing the screen under arrow
@@ -1361,6 +1386,8 @@ export function App({
             cwd={cwd}
             home={home}
             mode={mode}
+            intro={introActive}
+            onIntroEnd={introEnded}
             onOpen={open}
             onOpenSettings={() => setOverlay("settings")}
             onOpenCommands={() => setOverlay("commands")}
@@ -1620,8 +1647,9 @@ export function App({
         {pending && <PermissionModal gate={gate} mode={mode} editor={config.editor} />}
         {confirming && <ConfirmTurnModal gate={confirmGate} />}
         </OverlayLayer>}
-        {/* Toasts remain non-blocking bottom chrome on every screen. */}
-        {!showChat && <Toasts toasts={toasts} />}
+        {/* Toasts remain non-blocking bottom chrome on every screen — except
+            while the logo intro plays: the animation is the whole screen. */}
+        {!showChat && !introActive && <Toasts toasts={toasts} />}
       </Box>
     </ThemeProvider>
   );

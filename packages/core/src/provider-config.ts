@@ -163,6 +163,46 @@ export function saveUserProviderRef(file: string, ref: string, io: UserConfigIo 
   updateUserConfigFile(file, (data) => void (data.provider = ref), io);
 }
 
+/**
+ * Sets (or clears, with `null`) the preferred model of a user-level
+ * endpoint — the `defaultModel` field, which is also the model that
+ * endpoint serves when it is an automatic fallback stop (ADR-0012). The
+ * endpoint's other fields, unrelated keys and unknown sections survive.
+ *
+ * Throws when the endpoint is not declared in the user config: this writes
+ * to one named profile, and silently creating one would invent a provider
+ * the user never configured. Clearing a model that is already absent is a
+ * no-op (nothing to remove).
+ */
+export function setUserEndpointModel(
+  file: string,
+  name: string,
+  modelId: string | null,
+  io: UserConfigIo = {},
+): void {
+  let found = false;
+  updateUserConfigFile(
+    file,
+    (data) => {
+      if (!Array.isArray(data.endpoints)) return;
+      data.endpoints = data.endpoints.map((entry) => {
+        const e = entry as EndpointProfile;
+        if (e?.name !== name) return entry;
+        found = true;
+        if (modelId === null) {
+          const { defaultModel: _dropped, ...rest } = e;
+          return rest;
+        }
+        return { ...e, defaultModel: modelId };
+      });
+    },
+    io,
+  );
+  if (!found) {
+    throw new Error(`no user-level endpoint "${name}" in ${file}; add it before setting a preferred model`);
+  }
+}
+
 /** Removes a user-level endpoint profile by name, through the guardian. */
 export function removeUserEndpoint(file: string, name: string, io: UserConfigIo = {}): void {
   updateUserConfigFile(

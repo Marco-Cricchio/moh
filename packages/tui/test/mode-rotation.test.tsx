@@ -23,7 +23,7 @@ describe("#849 shift+tab rotates the permission mode", () => {
     const provider = MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]);
     const home = mkdtempSync(join(tmpdir(), "moh-849-"));
     const i = render(
-      <App cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />,
+      <App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />,
     );
     const seen = (text: string) => i.frames.some((f) => stripAnsi(f).includes(text));
 

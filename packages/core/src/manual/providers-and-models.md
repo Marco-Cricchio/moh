@@ -36,6 +36,28 @@ name, type, optional base URL, credentials, default model, optional
 fallback models. A model reference is `endpoint/model-id`; the current
 one is shown in the status bar.
 
+### The automatic fallback chain
+
+moh builds the fallback chain for you (ADR-0012): when a call fails the
+way a fallback can help — quota exhausted, rate limited, network,
+overloaded, or an empty completion — the turn is retried on the next
+eligible endpoint, and the transcript shows a notice naming both.
+
+Every endpoint that can serve as a stop is in the chain, in declaration
+order, each using **its own preferred model** (`defaultModel`). An
+endpoint is not a stop when it has no preferred model, when it sets
+`fallbackEligible: false`, or when its provider type cannot be a stop
+(only built-in types and `openai-compat` can). *Settings → Fallback
+models* lists every endpoint with the model it would serve and, for one
+that cannot be a stop, the reason — so the chain is never a guess.
+
+Choosing a preferred model there never switches the provider you are
+using: it decides what that endpoint serves *with* if it is ever needed.
+Headless, the same choice is `moh provider fallback <endpoint> [model]`
+(`--clear` drops the endpoint from the chain), and
+`moh provider status` prints each endpoint's preferred model. A change
+applies from the next session.
+
 ### When a provider returns nothing
 
 A call that ends without any content, tool calls or usage is treated as

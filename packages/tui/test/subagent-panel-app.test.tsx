@@ -25,7 +25,7 @@ describe("subagent chips + panel integration", () => {
       { deltas: ["child first ", "child second ", "child third ", "child fourth"], deltaDelayMs: 600, finish: "stop", usage: { inputTokens: 10, outputTokens: 10 } },
       { deltas: ["parent finished"], finish: "stop" },
     ]);
-    const app = <App cwd={cwd} home={home} provider={provider} startInChat skipOnboarding yolo />;
+    const app = <App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding yolo />;
     const ink = render(app);
     Object.defineProperty(ink.stdout, "columns", { value: 170, configurable: true });
     ink.rerender(app);
@@ -66,6 +66,7 @@ describe("subagent chips + panel integration", () => {
     ]);
     const app = (
       <App
+        intro={false}
         cwd={cwd}
         home={home}
         provider={provider}

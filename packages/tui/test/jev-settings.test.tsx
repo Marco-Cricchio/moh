@@ -23,6 +23,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const JEV_ROW = 11;
 
 /**
+ * Moves the settings cursor onto the Jev entry by its LABEL. A fixed index
+ * broke 14 tests the moment a settings row was inserted above it; the label
+ * survives insertions.
+ */
+const gotoJevRow = async (i: ReturnType<typeof render>) => {
+  for (let k = 0; k < 24; k++) {
+    const on = stripAnsi(i.lastFrame() ?? "").split("\n").some((l) => l.includes("›") && l.includes("Jev (TypeSafe)"));
+    if (on) return;
+    i.stdin.write("\x1b[B");
+    await sleep(25);
+  }
+  throw new Error("the Jev settings row was not reachable by label");
+};
+
+/**
  * The sub-menu's rows, in order (#833 added "Classification" between
  * "Anti-injection" and "Quality gate", which shifted the ones below it):
  * 0 API key · 1 Model routing · 2 Anti-injection · 3 Classification ·
@@ -67,7 +82,7 @@ const down = async (i: ReturnType<typeof render>, n: number) => {
 
 /** Walk to the Jev entry's key input. */
 async function openKeyInput(i: ReturnType<typeof render>) {
-  await down(i, JEV_ROW);
+  await gotoJevRow(i);
   i.stdin.write("\r"); // open the Jev entry
   await sleep(30);
   i.stdin.write("\r"); // "API key"
@@ -86,7 +101,7 @@ describe("settings Jev entry (#784)", () => {
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 10 }));
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Jev (TypeSafe)");
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     await sleep(30);
     // The row's footer hint wraps, so assert on a fragment that always fits.
     const hint = stripAnsi(i.lastFrame() ?? "");
@@ -216,7 +231,7 @@ describe("settings Jev entry: model routing (#787)", () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
     await down(i, 1); // "Model routing"
@@ -238,7 +253,7 @@ describe("settings Jev entry: model routing (#787)", () => {
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-abcd", routing: true }, theme: "dark" }));
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 1);
@@ -267,7 +282,7 @@ describe("settings Jev entry: anti-injection (#791)", () => {
     await sleep(30);
     expect(storedInjection(home)).toBeUndefined();
 
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
     await down(i, 2); // "Anti-injection"
@@ -291,7 +306,7 @@ describe("settings Jev entry: anti-injection (#791)", () => {
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-abcd", injection: true } }));
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 2);
@@ -317,7 +332,7 @@ describe("settings Jev entry: quality gate (#789)", () => {
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
     expect(storedLint(home)).toBeUndefined(); // off by default
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
     await down(i, 4); // "Quality gate"
@@ -336,7 +351,7 @@ describe("settings Jev entry: quality gate (#789)", () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 4); // "Quality gate"
@@ -363,7 +378,7 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
     expect(storedSkills(home)).toBeUndefined(); // off by default
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
     await down(i, 6); // "Skill suggestion"
@@ -381,7 +396,7 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, 6); // "Skill suggestion"
@@ -408,7 +423,7 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
     expect(storedClassification(home)).toBeUndefined(); // on unless opted out
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
@@ -430,7 +445,7 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-me" }, telemetry: true }));
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
     await down(i, JEV_OPTION.classification);
@@ -449,7 +464,7 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
-    await down(i, JEV_ROW);
+    await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");

@@ -36,12 +36,21 @@ describe("growth banner keep-my-branch (#581)", () => {
     const originalFile = store.file!;
 
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
-    const i = render(<App cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
+    const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     try {
+      // The session list arrives in its own commit (Home defers the scan):
+      // settle before the first keystroke (the #637 lost-first-keystroke
+      // race), and assert the resume on disk — the list row carries the same
+      // title, so frame text would mask a lost enter.
+      await waitForFrame(frame, "▸");
+      await new Promise((r) => setTimeout(r, 100));
       await waitForFrame(frame, "▸");
       await i.stdin.write("\r");
-      await waitForCondition(() => frame().includes("earlier work"), () => "session never opened");
+      await waitForCondition(
+        () => readFileSync(originalFile, "utf8").includes("session_resumed"),
+        () => "session never opened",
+      );
       await new Promise((r) => setTimeout(r, 100));
 
       // External writer appends behind our back; the next turn emits the

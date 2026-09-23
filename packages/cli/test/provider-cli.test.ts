@@ -183,3 +183,92 @@ import { afterAll } from "bun:test";
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
+
+describe("moh provider fallback (ADR-0012 preferred model)", () => {
+  test("sets the preferred model on a user-level endpoint and prints the chain verdict", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(home, ".moh", "config"),
+      JSON.stringify({ endpoints: [{ name: "zai", type: "zai", defaultModel: "glm-5.3-flash" }] }),
+    );
+    const r = await run(["fallback", "zai", "glm-5.4"], { cwd, home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("fallback: zai → glm-5.4");
+    expect(r.out).toContain("applies from the next session");
+    const raw = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
+    expect(raw.endpoints[0].defaultModel).toBe("glm-5.4");
+  });
+
+  test("--clear drops the endpoint from the chain by removing the field", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(home, ".moh", "config"),
+      JSON.stringify({ endpoints: [{ name: "zai", type: "zai", defaultModel: "glm-5.3-flash", apiKey: "k" }] }),
+    );
+    const r = await run(["fallback", "zai", "--clear"], { cwd, home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("removed from the chain");
+    const endpoint = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8")).endpoints[0];
+    expect("defaultModel" in endpoint).toBe(false);
+    expect(endpoint.apiKey).toBe("k");
+  });
+
+  test("a project-declared endpoint is edited in moh.json, and never switches the active provider", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(cwd, "moh.json"),
+      JSON.stringify({
+        provider: "anthropic/claude-sonnet-4-5",
+        endpoints: [{ name: "openai", type: "openai", defaultModel: "gpt-5" }],
+      }),
+    );
+    const r = await run(["fallback", "openai", "gpt-5.4"], { cwd, home });
+    expect(r.code).toBe(0);
+    const project = JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8"));
+    expect(project.endpoints[0].defaultModel).toBe("gpt-5.4");
+    // The whole point: the active provider ref does not move.
+    expect(project.provider).toBe("anthropic/claude-sonnet-4-5");
+  });
+
+  test("an unknown endpoint is a named error, not a silent write", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    const r = await run(["fallback", "ghost", "m"], { cwd, home });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('no endpoint "ghost"');
+  });
+
+  test("a model that still cannot be a stop says why", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(home, ".moh", "config"),
+      JSON.stringify({ endpoints: [{ name: "zai", type: "zai", fallbackEligible: false }] }),
+    );
+    const r = await run(["fallback", "zai", "glm-5.4"], { cwd, home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("still not a fallback stop: excluded by fallbackEligible: false");
+  });
+
+  test("status prints each endpoint's preferred model", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(home, ".moh", "config"),
+      JSON.stringify({
+        endpoints: [
+          { name: "zai", type: "zai", defaultModel: "glm-5.3-flash", apiKey: "k" },
+          { name: "bare", type: "anthropic", apiKey: "k" },
+        ],
+      }),
+    );
+    const r = await run(["status"], { cwd, home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("fallback: 📌 glm-5.3-flash");
+    expect(r.out).toContain("fallback: —");
+    expect(r.out).toContain("(no preferred model set)");
+  });
+});

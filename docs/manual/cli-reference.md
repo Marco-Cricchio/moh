@@ -136,6 +136,10 @@ commands:
   login <name>     re-authenticate a subscription endpoint
   logout <name>    drop a subscription endpoint's stored tokens
   status           per-endpoint auth kind, token expiry, plan usage
+  fallback <name> [model]
+                   set the endpoint's preferred model — the model it serves
+                   with when it is an automatic fallback stop (ADR-0012);
+                   omit the model (or pass --clear) to drop it from the chain
 
 tokens live in ~/.moh/config (never in moh.json); \`logout\` and a
 successful \`login\` are the only token deleters.

@@ -4,7 +4,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionStore, createSession, MockProvider, listSessionSummaries } from "@moh/core";
+import { SessionStore, createSession, MockProvider, listSessionSummaries, setSessionPinned } from "@moh/core";
 import { Home } from "../src/Home";
 
 import { homeBannerFits } from "../src/viewport";
@@ -46,7 +46,7 @@ const DOWN = "\x1b[B";
 describe("home session list", () => {
   test("the first row is always New session, even with no sessions", async () => {
     const home = mkdtempSync(join(tmpdir(), "moh-tui-home-list-"));
-    const i = render(<Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("New session");
@@ -55,7 +55,7 @@ describe("home session list", () => {
 
   test("caps the list at 5 visible sessions with a more-below hint", async () => {
     const { cwd, home } = await homeWithSessions(8);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("New session");
@@ -68,7 +68,7 @@ describe("home session list", () => {
 
   test("scrolling follows the cursor to the tail and back up", async () => {
     const { cwd, home } = await homeWithSessions(8);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     for (const _ of Array.from({ length: 10 })) {
       i.stdin.write(DOWN);
@@ -86,7 +86,7 @@ describe("home session list — configurable cap", () => {
   test("listMax prop raises the visible window", async () => {
     const { cwd, home } = await homeWithSessions(8);
     const i = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} listMax={9} />,
+      <Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} listMax={9} />,
     );
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
@@ -103,7 +103,7 @@ describe("home chrome (#292)", () => {
   const isolatedHome = () => mkdtempSync(join(tmpdir(), "moh-tui-home-chrome-"));
 
   test("no static hint line; the footer carries new/settings/keys", async () => {
-    const { lastFrame } = render(<Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />);
+    const { lastFrame } = render(<Home intro={false} cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     const frame = stripAnsi(lastFrame() ?? "");
     expect(frame).not.toContain("type to filter or start new");
@@ -112,7 +112,7 @@ describe("home chrome (#292)", () => {
   });
 
   test("active-query hint appears while filtering", async () => {
-    const i = render(<Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     i.stdin.write("x");
     await sleep(30);
@@ -123,7 +123,7 @@ describe("home chrome (#292)", () => {
 
   test("shows the version (number only) under the logo", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
+      <Home intro={false} cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
     );
     await sleep(30);
     const frame = stripAnsi(lastFrame() ?? "");
@@ -133,7 +133,7 @@ describe("home chrome (#292)", () => {
 
   test("short terminals (test viewport 100×24) use the inline logo and move the version to the footer", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
+      <Home intro={false} cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} version="0.1.0" />,
     );
     await sleep(30);
     const frame = stripAnsi(lastFrame() ?? "");
@@ -156,7 +156,7 @@ describe("home update notice (#273)", () => {
   const home = mkdtempSync(join(tmpdir(), "moh-tui-home-notice-"));
   test("shows the fixed line when a newer stable is cached", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "available", latestVersion: "0.2.0" }} />,
+      <Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "available", latestVersion: "0.2.0" }} />,
     );
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).toContain("moh 0.2.0 available — run `moh update`");
@@ -164,14 +164,14 @@ describe("home update notice (#273)", () => {
 
   test("nonstable build shows the dev notice", async () => {
     const { lastFrame } = render(
-      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "nonstable", latestVersion: "0.2.0" }} />,
+      <Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} updateNotice={{ kind: "nonstable", latestVersion: "0.2.0" }} />,
     );
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).toContain("non-stable (dev) version");
   });
 
   test("no line without a notice", async () => {
-    const { lastFrame } = render(<Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
+    const { lastFrame } = render(<Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(30);
     expect(stripAnsi(lastFrame() ?? "")).not.toContain("moh update");
   });
@@ -180,7 +180,7 @@ describe("home update notice (#273)", () => {
 describe("pertinent session banner (#470, ADR-0021)", () => {
   test("the most recent unconsumed session renders as a pre-selected banner row", async () => {
     const { cwd, home } = await homeWithSessions(3);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("▸"); // banner marker
@@ -192,7 +192,7 @@ describe("pertinent session banner (#470, ADR-0021)", () => {
     const { cwd, home } = await homeWithSessions(2);
     let opened: string | null | undefined;
     const i = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={(s) => { opened = s?.title ?? null; }} />,
+      <Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={(s) => { opened = s?.title ?? null; }} />,
     );
     await sleep(60);
     i.stdin.write("\r");
@@ -205,7 +205,7 @@ describe("pertinent session banner (#470, ADR-0021)", () => {
     const { cwd, home } = await homeWithSessions(3);
     let opened: string | null | undefined;
     const i = render(
-      <Home cwd={cwd} home={home} mode="vibe" onOpen={(s) => { opened = s?.title ?? null; }} />,
+      <Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={(s) => { opened = s?.title ?? null; }} />,
     );
     await sleep(60);
     i.stdin.write("\x1b[B"); // down: banner row → first hit
@@ -226,7 +226,7 @@ describe("pertinent session banner (#470, ADR-0021)", () => {
     });
     await session.send("consumed one");
     store.append({ type: "session_resumed" }); // closed after a resume → consumed
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("▸");
@@ -236,7 +236,7 @@ describe("pertinent session banner (#470, ADR-0021)", () => {
 
   test("filtering hides the banner (query mode)", async () => {
     const { cwd, home } = await homeWithSessions(2);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     i.stdin.write("s1");
     await sleep(30);
@@ -247,11 +247,11 @@ describe("pertinent session banner (#470, ADR-0021)", () => {
 });
 
 describe("session rename (#477)", () => {
-  test("r enters the inline edit, enter confirms, the name persists to disk", async () => {
+  test("ctrl+r enters the inline edit, enter confirms, the name persists to disk", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
-    i.stdin.write("r");
+    i.stdin.write("\x12");
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename:");
     // Prefilled with the derived title; append a suffix and confirm.
@@ -269,10 +269,10 @@ describe("session rename (#477)", () => {
 
   test("esc cancels the rename; enter on an empty buffer resets the name", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     // Rename to "ZZ".
-    i.stdin.write("r");
+    i.stdin.write("\x12");
     await sleep(20);
     for (const ch of "\x7f".repeat(20) + "ZZ") i.stdin.write(ch); // clear prefill, type ZZ
     await sleep(20);
@@ -280,13 +280,13 @@ describe("session rename (#477)", () => {
     await sleep(30);
     expect(listSessionSummaries(cwd, home)[0].title).toBe("ZZ");
     // Esc cancels without writing.
-    i.stdin.write("r");
+    i.stdin.write("\x12");
     await sleep(20);
     i.stdin.write("\x1b");
     await sleep(20);
     expect(listSessionSummaries(cwd, home)[0].title).toBe("ZZ");
     // Enter on the emptied prefill (the current name "ZZ") resets.
-    i.stdin.write("r");
+    i.stdin.write("\x12");
     await sleep(20);
     for (const _ of Array.from({ length: 10 })) i.stdin.write("\x7f");
     await sleep(20);
@@ -298,24 +298,32 @@ describe("session rename (#477)", () => {
 
   test("the filter double-matches display name and derived title", async () => {
     const { cwd, home } = await homeWithSessions(2);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // Rename the newest (s2, banner row) to "banana".
-    i.stdin.write("r");
+    i.stdin.write("\x12");
     await untilFrame(frame, (f) => f.includes("rename:"));
     for (const _ of Array.from({ length: 20 })) i.stdin.write("\x7f");
     i.stdin.write("banana");
     await untilFrame(frame, (f) => f.includes("rename: banana"));
     i.stdin.write("\r");
     await untilFrame(frame, (f) => !f.includes("rename:"));
-    // Searching by the DISPLAY name hits it…
-    i.stdin.write("banana");
-    await untilFrame(frame, (f) => f.includes("start “banana”"));
+    // Searching by the DISPLAY name hits it… (type via paced writes: the
+    // lost-first-keystroke race (#637) eats burst input under CI load)
+    for (const ch of "banana") {
+      i.stdin.write(ch);
+      await sleep(15);
+    }
+    await untilFrame(frame, (f) => f.includes("start “banana”"), 4000);
     // …and searching by the DERIVED title still finds the same session row.
     for (const _ of Array.from({ length: 10 })) i.stdin.write("\x7f");
-    i.stdin.write("s2");
-    await untilFrame(frame, (f) => f.includes("start “s2”"));
+    await untilFrame(frame, (f) => !f.includes("start “banana”"), 4000);
+    for (const ch of "s2") {
+      i.stdin.write(ch);
+      await sleep(15);
+    }
+    await untilFrame(frame, (f) => f.includes("start “s2”"), 4000);
     expect(frame()).toContain("banana");
     i.unmount();
   });
@@ -324,7 +332,7 @@ describe("session rename (#477)", () => {
 describe("session rename (#477) — edges", () => {
   test("right-arrow enters the rename edit", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     i.stdin.write("\x1b[C"); // right arrow
     await sleep(30);
@@ -342,14 +350,14 @@ describe("session rename (#477) — edges", () => {
       stale: false,
     };
     const i = render(
-      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
+      <Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
     );
     await sleep(60);
     // Cursor sits on the handoff row (row 1, pre-selected as first special row? no:
     // pertinent banner absent, so effective cursor is 0 → New session). Move down once.
     i.stdin.write("\x1b[B");
     await sleep(20);
-    i.stdin.write("r");
+    i.stdin.write("\x12");
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("rename:");
@@ -358,19 +366,21 @@ describe("session rename (#477) — edges", () => {
 });
 
 describe("session delete (#478)", () => {
-  test("d enters the confirm, default No (enter/n), y deletes and refreshes", async () => {
+  test("ctrl+d enters the confirm, default No (enter/n), y deletes and refreshes", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "title s1");
-    i.stdin.write("d");
+    await sleep(100); // list effect committed; avoid the #637 first-key race
+    await waitForFrame(frame, "title s1");
+    i.stdin.write("\x04");
     await waitForFrame(frame, "Delete?");
     // Default No: enter cancels, the row stays.
     i.stdin.write("\r");
     await waitForFrame(frame, "Delete?", { absent: true });
     expect(listSessionSummaries(cwd, home).length).toBe(1);
     // Confirm with y.
-    i.stdin.write("d");
+    i.stdin.write("\x04");
     await waitForFrame(frame, "Delete?");
     i.stdin.write("y");
     await waitForCondition(() => listSessionSummaries(cwd, home).length === 0, () => "confirmed delete never removed the session");
@@ -380,10 +390,12 @@ describe("session delete (#478)", () => {
 
   test("esc cancels the delete", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "title s1");
-    i.stdin.write("d");
+    await sleep(100);
+    await waitForFrame(frame, "title s1");
+    i.stdin.write("\x04");
     await waitForFrame(frame, "Delete?");
     i.stdin.write("\x1b");
     await waitForFrame(frame, "Delete?", { absent: true });
@@ -393,10 +405,10 @@ describe("session delete (#478)", () => {
 
   test("the deleted pertinent banner row disappears on refresh", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "▸"); // pertinent banner
-    i.stdin.write("d"); // cursor pre-selects the banner row
+    i.stdin.write("\x04"); // cursor pre-selects the banner row
     i.stdin.write("y");
     await waitForFrame(frame, "▸", { absent: true });
     i.unmount();
@@ -412,12 +424,12 @@ describe("session delete (#478)", () => {
       stale: false,
     };
     const i = render(
-      <Home cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
+      <Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
     );
     await sleep(60);
     i.stdin.write("\x1b[B"); // down to the handoff row
     await sleep(20);
-    i.stdin.write("d");
+    i.stdin.write("\x04");
     await sleep(30);
     // falls through: the query buffer absorbs "d", no confirm opens
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("Delete?");
@@ -436,9 +448,9 @@ describe("session delete (#478) — refusal", () => {
     });
     await session.send("title open");
     // NB: no store.dispose() — the session stays open in this process.
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
-    i.stdin.write("d");
+    i.stdin.write("\x04");
     await sleep(30);
     i.stdin.write("y");
     await sleep(30);
@@ -453,13 +465,131 @@ describe("session delete (#478) — refusal", () => {
 describe("home row rendering (#480 regression)", () => {
   test("the selected session row never renders '[object Object]'", async () => {
     const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     // The pertinent banner row (pre-selected) and a list row after moving down.
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("[object Object]");
     i.stdin.write("\x1b[B"); // down to the list row
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("[object Object]");
+    i.unmount();
+  });
+});
+
+describe("home logo intro", () => {
+  test("the intro animation plays before the content and settles into the banner", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    // During the intro the settled banner's acronym line is absent — the
+    // whole content area below it too: the animation is the ONLY thing on
+    // screen (footer and update notice included).
+    await sleep(80);
+    expect(frame()).not.toContain("My Own Harness");
+    expect(frame()).not.toContain("title s1");
+    expect(frame()).not.toContain("ctrl+t theme");
+    expect(frame()).not.toContain("settings (s)");
+    // After ~3s (2.8s animation + settle delay) the banner appears with
+    // the list below it.
+    await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled into the banner", { timeoutMs: 6000 });
+    await waitForFrame(frame, "title s1", { timeoutMs: 6000 });
+    // The chrome returns with the settled home.
+    expect(frame()).toContain("ctrl+t theme");
+    i.unmount();
+  }, 10000);
+
+  test("the update notice is hidden during the intro and shows on the settled home", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(
+      <Home
+        cwd={cwd}
+        home={home}
+        mode="vibe"
+        onOpen={() => {}}
+        updateNotice={{ kind: "available", latestVersion: "9.9.9" }}
+      />,
+    );
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(80);
+    expect(frame()).not.toContain("moh 9.9.9 available");
+    await waitForCondition(() => frame().includes("My Own Harness"), () => "intro never settled", { timeoutMs: 6000 });
+    await waitForFrame(frame, "moh 9.9.9 available", { timeoutMs: 6000 });
+    i.unmount();
+  }, 10000);
+
+  test("any keystroke skips the intro straight to the settled home", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(80);
+    expect(frame()).not.toContain("My Own Harness");
+    i.stdin.write(" "); // skip
+    await waitForCondition(() => frame().includes("My Own Harness"), () => "keystroke never skipped the intro", { timeoutMs: 6000 });
+    await waitForFrame(frame, "title s1", { timeoutMs: 6000 });
+    i.unmount();
+  }, 10000);
+
+  test("intro={false} renders the settled home immediately (tests, scripted surfaces)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-intro-"));
+    const i = render(<Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(30);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("My Own Harness");
+    i.unmount();
+  });
+});
+
+describe("home pins (ctrl+p)", () => {
+  const PIN = "\x10"; // ctrl+p
+  test("ctrl+p toggles the pinned state on disk; the pinned row gets the 📌 prefix", async () => {
+    const { cwd, home } = await homeWithSessions(1);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await waitForFrame(frame, "title s1");
+    // Lost-first-keystroke race (#637): settle after the render before the
+    // first keystroke — 100ms + a frame, per the tree-panel hardening.
+    await sleep(100);
+    await waitForFrame(frame, "title s1");
+    i.stdin.write(PIN);
+    await waitForCondition(() => listSessionSummaries(cwd, home)[0].pinned === true, () => "pin never persisted");
+    await sleep(100); // settle across the summaries re-read before the second toggle
+    i.stdin.write(PIN);
+    await waitForCondition(() => listSessionSummaries(cwd, home)[0].pinned === false, () => "unpin never persisted");
+    i.unmount();
+  });
+
+  test("pinned sessions float to the top of the list (then by mtime)", async () => {
+    const { cwd, home } = await homeWithSessions(4);
+    // Pin the oldest (s1, list tail).
+    const summaries = listSessionSummaries(cwd, home);
+    setSessionPinned(summaries.find((s) => s.title === "title s1")!.file, true);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await sleep(60);
+    const text = stripAnsi(i.lastFrame() ?? "");
+    const s1At = text.indexOf("title s1");
+    const s4At = text.indexOf("title s4");
+    expect(s1At).toBeGreaterThanOrEqual(0);
+    expect(s1At).toBeLessThan(s4At); // pinned oldest floats above the newest
+    i.unmount();
+  });
+
+  test("the handoff row never enters the pin toggle", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-home-handoff-pin-"));
+    const offer: any = {
+      status: "offer",
+      source: { machine: "other", project: "p" },
+      payload: { slug: "p", sessionId: "s", updatedAt: new Date().toISOString(), synthesis: "syn", transcript: [] },
+      path: "/tmp/x.json",
+      stale: false,
+    };
+    const i = render(
+      <Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} handoff={offer} onOpenHandoff={() => {}} />,
+    );
+    await sleep(60);
+    i.stdin.write("\x1b[B"); // down to the handoff row
+    await sleep(20);
+    i.stdin.write(PIN);
+    await sleep(30);
+    // falls through harmlessly: nothing to pin, no crash
     i.unmount();
   });
 });
@@ -476,7 +606,7 @@ describe("home row chip alignment (#480)", () => {
     await session.send("hi"); // short title
     store.dispose();
     void cwd;
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
     await sleep(60);
     i.stdin.write("\x1b[B"); // select the list row → chip appears
     await sleep(30);
@@ -485,28 +615,25 @@ describe("home row chip alignment (#480)", () => {
     // and the second part closes the row's right edge (right-aligned).
     // The chip sits on the same line, right-aligned: the row ends with the
     // chip's last token and no wrap continuation follows.
-    const row = lines.find((l) => l.includes("rename (r) · del (d)"));
+    const row = lines.find((l) => l.includes("rename · del"));
     expect(row).toBeDefined();
-    expect(row!.trimEnd().endsWith("del (d)")).toBe(true);
+    expect(row!.trimEnd().endsWith("del")).toBe(true);
     const next = lines[lines.indexOf(row!) + 1] ?? "";
     expect(next.trim()).not.toBe("(d)");
         i.unmount();
   });
 });
 
-describe("home usage summary (#718)", () => {
-  test("shows a 7-day local usage line when sessions have model calls, hidden when empty", async () => {
-    const { cwd, home } = await homeWithSessions(1);
-    const i = render(<Home cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
-    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("last 7 days"));
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("tok · top");
+describe("home chrome — no usage/model row (#718 removed)", () => {
+  test("the session list carries no usage line and no model name", async () => {
+    const { cwd, home } = await homeWithSessions(2);
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await untilFrame(frame, (f) => f.includes("title s1"));
+    // The usage rollup ("last 7 days: N tok · top <model>") was removed: it
+    // was the only place a model name appeared on Home.
+    expect(frame()).not.toContain("last 7 days");
+    expect(frame()).not.toContain("tok · top");
     i.unmount();
-
-    // No sessions at all → no usage line, no error.
-    const emptyHome = mkdtempSync(join(tmpdir(), "moh-tui-home-empty-"));
-    const e = render(<Home cwd={emptyHome} home={emptyHome} mode="vibe" onOpen={() => {}} />);
-    await sleep(60);
-    expect(stripAnsi(e.lastFrame() ?? "")).not.toContain("last 7 days");
-    e.unmount();
   });
 });
