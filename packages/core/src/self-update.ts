@@ -14,7 +14,7 @@ import { CryptoHasher } from "bun";
 import { RELEASES_LATEST_URL, compareSemver, writeUpdateCache } from "./update-check";
 
 /** Platform vocabulary shared with scripts/build.ts (ADR-0013). */
-export const UPDATE_PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-x64"] as const;
+export const UPDATE_PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] as const;
 export type UpdatePlatform = (typeof UPDATE_PLATFORMS)[number];
 
 /** Injectable network seam (release JSON, binary asset, checksums). */
@@ -71,7 +71,7 @@ export type SelfUpdateProgress =
 /** Maps a (process.platform, process.arch) pair onto the release vocabulary. */
 export function detectUpdatePlatform(platform: NodeJS.Platform = process.platform, arch: string = process.arch): UpdatePlatform {
   if (platform === "darwin") return arch === "x64" ? "darwin-x64" : arch === "arm64" ? "darwin-arm64" : unsupported(arch);
-  if (platform === "linux" && arch === "x64") return "linux-x64";
+  if (platform === "linux") return arch === "x64" ? "linux-x64" : arch === "arm64" ? "linux-arm64" : unsupported(arch);
   return unsupported(`${platform}-${arch}`);
   function unsupported(what: string): never {
     throw new Error(`unsupported platform ${what} — supported: ${UPDATE_PLATFORMS.join(", ")}`);

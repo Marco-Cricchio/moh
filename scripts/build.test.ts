@@ -1,13 +1,55 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assetKey, resolveVersion, sha256File, skillFiles, TARGETS } from "./build";
 
 const ROOT = join(import.meta.dir, "..");
 
 describe("TARGETS", () => {
-  test("covers the three 0.1.0 platforms (ADR-0013)", () => {
-    expect(TARGETS.map((t) => t.platform)).toEqual(["darwin-arm64", "darwin-x64", "linux-x64"]);
+  test("covers every supported platform (ADR-0013; linux-arm64 in #916)", () => {
+    expect(TARGETS.map((t) => t.platform)).toEqual(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
+  });
+
+  test("every platform maps to a bun compile target of the same name", () => {
+    for (const t of TARGETS) expect(t.target).toBe(`bun-${t.platform}`);
+  });
+});
+
+/**
+ * A platform lives in four places at once — the compile target, the release
+ * matrix, the installer's `uname` mapping, and self-update's vocabulary. One
+ * added to a single place is invisible until a user hits it (#916), so each
+ * is reconciled against TARGETS here. This file runs in CI (job `scripts`).
+ */
+describe("the four platform doors agree", () => {
+  const platforms = TARGETS.map((t) => t.platform);
+  const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
+
+  test("release.yml builds exactly the TARGETS platforms", () => {
+    const matrix = [...read(".github/workflows/release.yml").matchAll(/^\s+- platform: (\S+)$/gm)].map((m) => m[1]);
+    expect(matrix.sort()).toEqual([...platforms].sort());
+  });
+
+  test("install.sh maps each uname pair onto the platform that release ships", () => {
+    // Case arms may list alternatives (`Linux:aarch64|Linux:arm64)`): expand them.
+    const mapping: Record<string, string> = {};
+    for (const arm of read("scripts/install.sh").matchAll(/^\s+([\w:|]+)\)\s+platform="([^"]+)"/gm)) {
+      for (const key of arm[1].split("|")) mapping[key] = arm[2];
+    }
+    expect(mapping).toEqual({
+      "Darwin:arm64": "darwin-arm64",
+      "Darwin:x86_64": "darwin-x64",
+      "Linux:x86_64": "linux-x64",
+      "Linux:aarch64": "linux-arm64",
+      "Linux:arm64": "linux-arm64",
+    });
+    for (const platform of Object.values(mapping)) expect(platforms as readonly string[]).toContain(platform);
+  });
+
+  test("self-update speaks the same vocabulary", () => {
+    const declared = read("packages/core/src/self-update.ts").match(/UPDATE_PLATFORMS = \[([^\]]*)\]/)?.[1] ?? "";
+    const names = [...declared.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(names.sort()).toEqual([...platforms].sort());
   });
 });
 

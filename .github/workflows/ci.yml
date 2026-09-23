@@ -9,6 +9,10 @@
 # Jobs run in parallel (wall time = slowest job, not the sum):
 #   typecheck  — bun run typecheck (~30s)
 #   core       — packages/core + packages/extension
+#   cli        — packages/cli
+#   scripts    — build/install/platform-vocabulary tests (~2s; the release
+#                pipeline's only automated coverage, since a tag-triggered
+#                release workflow cannot be exercised on a PR)
 #   tui-unit   — TUI component/ink tests (non-PTY)
 #   tui-pty    — PTY integration tests, the slow tail, all 12 files in
 #                parallel (~155s wall vs ~330s serial), one retry on
@@ -59,6 +63,21 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun test packages/cli
+
+  # Scripts tests (#916): the compile targets, the release matrix, the
+  # installer's uname mapping and the self-update vocabulary are four copies
+  # of one platform list, and the release workflow that consumes them only
+  # runs on a tag — so this cheap job is where they are reconciled on a PR.
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun test scripts
 
   # Eval harness (#524): deterministic, mock-backed task suites against the
   # real headless path. Cheap — run it on every PR already touching core/cli.

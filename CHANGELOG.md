@@ -5,7 +5,70 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [0.47.0] - 2026-09-23
+## [Unreleased]
+
+## [0.48.0] - 2026-09-23
+
+### Added
+
+- **Linux arm64 is a first-class platform** (#916): the release now ships
+  `moh-linux-arm64` (built and smoke-tested natively on the free
+  `ubuntu-24.04-arm` runner) alongside the existing three binaries, and the
+  install script maps `aarch64`/`arm64` onto it instead of refusing the host
+  — which is what serves WSL on ARM64 Windows laptops. `moh update` learned
+  the same platform name, so an arm64 install can update itself instead of
+  reporting an unsupported platform.
+
+- **A project under `/mnt` says so, in the TUI and in `moh run`** (#918,
+  ADR-0044): a repository kept on a Windows drive reached through WSL
+  (`/mnt/c`, `/mnt/d`, …) works, but every file operation crosses the 9P
+  boundary into the Windows filesystem and is dramatically slower — nobody
+  in the category mentions it. The session now resolves its project root
+  once, at assembly, with the same realpath anchoring the permission spine
+  uses (a symlink into `/mnt` counts, one out of it does not; the
+  filesystem type is not sniffed). Under that condition the TUI footer
+  carries one persistent, never-blocking hint line above the status rows —
+  self-sufficient copy at every width, from the full explanation down to
+  `⚠ /mnt is slow — use ~/projects` — and headless `moh run`
+  prints one stderr line (stdout stays pure JSONL). It is always on, there
+  is no config key to silence it, and it can never fail a session or turn
+  into a turn error: it is environment information, not a validation. The
+  distro-filesystem case renders exactly what it did before.
+
+- **Windows install guidance in the README and the manual** (#918,
+  ADR-0044): README §Install gained a `### Windows (via WSL)` subsection —
+  no native Windows build, `wsl --install` first, the same single install
+  command run *inside* the distro, and why projects belong in the Linux
+  filesystem — and the manual's getting-started page explains what `/mnt`
+  is, why it is slow, what to do about it, and that the advice is
+  WSL-only.
+
+### Changed
+
+- **The installer asks before installing as root, and greets WSL users**
+  (#917): running `install.sh` as root was silent before — it now always warns
+  on stderr, and asks for confirmation on `/dev/tty` (never stdin, which under
+  `curl … | sh` *is* the script) whenever a terminal is actually reachable;
+  anything but `y` aborts with exit 1, while a non-interactive run (CI, a pipe,
+  `setsid`) proceeds with the warning visible. There is no override variable —
+  the no-TTY path is the escape hatch. On WSL (detected from
+  `WSL_DISTRO_NAME`/`WSL_INTEROP`, with a `/proc/version` fallback) the script
+  prints two informational lines: this Linux binary is the supported install,
+  and projects belong in the distro filesystem because `/mnt/c` is dramatically
+  slower — the same guidance the TUI footer carries for a `/mnt` project root.
+
+- **The installer can no longer leave a half-written `moh`** (#917): the
+  verified binary is staged inside the install directory and renamed within it,
+  so the swap is atomic on that filesystem and a `$TMPDIR` on another one can
+  no longer produce a truncated binary. A failing `--version` smoke test now
+  runs *before* the existing install is touched: a binary that cannot execute
+  (glibc on a musl distribution — Alpine, including Alpine WSL) aborts with a
+  message naming the likely cause and leaves the working `moh` in place, where
+  it previously replaced it and broke the command. The PATH hint names the file
+  your shell actually reads — `~/.bashrc` for bash, `~/.zshrc` for zsh,
+  `~/.profile` as the fallback — instead of always `~/.profile`.
+
+ - 2026-09-23
 
 ### Added
 
@@ -711,7 +774,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...develop
+[0.48.0]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/Marco-Cricchio/moh/compare/v0.45.0...v0.45.1
