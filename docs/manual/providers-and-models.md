@@ -45,18 +45,28 @@ eligible endpoint, and the transcript shows a notice naming both.
 
 Every endpoint that can serve as a stop is in the chain, in declaration
 order, each using **its own preferred model** (`defaultModel`). An
-endpoint is not a stop when it has no preferred model, when it sets
-`fallbackEligible: false`, or when its provider type cannot be a stop
-(only built-in types and `openai-compat` can). *Settings → Fallback
-models* lists every endpoint with the model it would serve and, for one
-that cannot be a stop, the reason — so the chain is never a guess.
+endpoint is not a stop when it has no preferred model, when it is
+excluded from the chain (`fallbackEligible: false`), or when its
+provider type cannot be a stop (only built-in types and `openai-compat`
+can). *Settings → Fallback models* lists every endpoint with the model
+it would serve and, for one that cannot be a stop, the reason — so the
+chain is never a guess.
 
-Choosing a preferred model there never switches the provider you are
-using: it decides what that endpoint serves *with* if it is ever needed.
-Headless, the same choice is `moh provider fallback <endpoint> [model]`
-(`--clear` drops the endpoint from the chain), and
-`moh provider status` prints each endpoint's preferred model. A change
-applies from the next session.
+There you have two independent controls per provider:
+
+- **the model it would serve with** (`enter`) — what that endpoint uses
+  *if* the chain ever reaches it;
+- **exclude/include the whole provider** (`x`) — keeps the provider out
+  of the chain while keeping its preferred model, or puts it back. An
+  excluded row reads `✗ excluded`.
+
+Neither ever switches the provider you are using, and `c` clears the
+preferred model (which also drops the endpoint from the chain, since a
+stop needs a model). Headless, the same controls are
+`moh provider fallback <endpoint> [model]`, `--clear`, and
+`--exclude`/`--include`; `moh provider status` prints each endpoint's
+preferred model and says when it is excluded. A change applies from the
+next session.
 
 ### When a provider returns nothing
 
@@ -74,17 +84,25 @@ re-probe it until the cooldown expires.
 
 - `/model` in the TUI opens the picker: every configured endpoint's
   list (from the vendored catalog, or `GET /models` for openai-compat
-  endpoints). For catalog-backed providers with a verified listing
-  contract (anthropic, openai/ChatGPT, google, github-copilot,
-  openrouter, xai) the vendored list is augmented in the background
-  with the provider's own live model list (startup and picker open,
-  cached in `~/.moh/live-models.json` with a 24h TTL; `r` in the
-  picker forces a refresh), so newly released models appear without
-  waiting for a moh release. Providers without a verified listing
-  contract (kimi-coding, Z.ai Coding Plan) stay static — the
-  regen-from-pi-ai path remains their update story. The Settings
-  panel's endpoint → model picker shows the same live overlay. The
-  switch takes effect from the next turn.
+  endpoints). For every provider moh ships a catalog for **and** whose
+  `/models` route moh has verified, the vendored list is augmented in
+  the background with the provider's own live model list (startup and
+  picker open, cached in `~/.moh/live-models.json` with a 24h TTL; `r`
+  in the picker forces a refresh), so newly released models appear
+  without waiting for a moh release: Anthropic, ChatGPT/Codex, Google,
+  GitHub Copilot, OpenRouter, xAI, OpenCode (Zen/Go), Kimi Code, Z.ai,
+  DeepSeek, Groq, Cerebras, NVIDIA NIM, Together, Fireworks, Hugging
+  Face, Mistral, Moonshot, MiniMax, Qwen, Xiaomi MiMo, Vercel AI
+  Gateway and Cloudflare AI Gateway. One provider has no such route and
+  stays static: **Baseten** — its catalog is updated with a moh release.
+  A fetched-only model carries conservative metadata: no thinking levels
+  and no vision, because capability data lives in the shipped catalog
+  (moh never invents capabilities). `r` reports what actually happened:
+  refreshed, served from a cache (with its age), or not refreshable.
+  Baseten, which has no listing route, never reports a failure — static
+  is its design. The Settings panel's endpoint → model picker shows the
+  same live overlay and the same state. The switch takes effect from
+  the next turn.
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
   models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself
@@ -115,3 +133,9 @@ session's local token measurement per model and follow the Console link for
 account usage. Zen USD estimates appear only when moh ships an official
 OpenCode Zen price; Go calls are always token-only because moh does not infer
 USD prices from a matching model sold by another provider.
+
+The model list is the endpoints' own `/models` listing, merged over the
+catalog moh ships: a model moh has no metadata for is served over the
+endpoint's OpenAI-compatible route, so it works even without thinking
+levels or a context-window figure. The shipped catalog still decides the
+wire for the models it knows.

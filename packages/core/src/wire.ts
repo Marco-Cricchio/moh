@@ -20,10 +20,18 @@ export function isOAuthBuiltinKind(kind: string): kind is OAuthBuiltinKind {
 }
 
 /**
- * Default wire per builtin kind. github-copilot is per-model (catalog
- * decides: anthropic-messages for claude, openai-responses/completions
- * for gpt/grok — issue #160/#164); this map is the fallback when no
- * catalog entry exists.
+ * Default wire per builtin kind. github-copilot and opencode are
+ * per-model where the catalog knows better (the catalog decides:
+ * anthropic-messages for claude, openai-responses/completions for
+ * gpt/grok — issue #160/#164/#794); this map is the fallback when no
+ * catalog entry exists — a live-listing-only model, for instance.
+ *
+ * For opencode that fallback is verified, not assumed (#920): the
+ * Zen/Go backend serves every one of its models over
+ * `/chat/completions` (probed with a live-only id, `grok-4.7`, and with
+ * a catalog entry whose per-model wire is anthropic-messages,
+ * `minimax-m3` — both answer 200), so a model moh has no metadata for
+ * is still routable on the OpenAI wire.
  */
 const WIRE_FOR_KIND: Record<string, WireApi> = {
   anthropic: "anthropic-messages",
@@ -34,6 +42,7 @@ const WIRE_FOR_KIND: Record<string, WireApi> = {
   openrouter: "openai-chat",
   "kimi-coding": "anthropic-messages",
   xai: "openai-chat",
+  opencode: "openai-chat",
   deepseek: "openai-chat", groq: "openai-chat", cerebras: "openai-chat", "nvidia-nim": "openai-chat", together: "openai-chat", fireworks: "openai-chat", huggingface: "openai-chat", mistral: "openai-chat",
   moonshot: "openai-chat", minimax: "openai-chat", zai: "openai-chat", qwen: "openai-chat", "xiaomi-mimo": "openai-chat", "vercel-ai-gateway": "openai-chat", "cloudflare-ai-gateway": "openai-chat", baseten: "openai-chat",
 };

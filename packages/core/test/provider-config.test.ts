@@ -9,6 +9,7 @@ import {
   upsertUserEndpoint,
   saveUserProviderRef,
   setUserEndpointModel,
+  setUserEndpointFallbackEligible,
   type UserProviderConfig,
 } from "../src/provider-config";
 import { loadMohConfig, type MohConfig } from "../src/config";
@@ -306,6 +307,59 @@ describe("user-level writes (guardian)", () => {
       // builder tests `defaultModel !== undefined` for eligibility.
       expect("defaultModel" in endpoint).toBe(false);
       expect(endpoint.apiKey).toBe("sk");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("setUserEndpointFallbackEligible(false) excludes one endpoint and leaves its siblings alone", () => {
+    const { dir, cleanup } = tempDir("write-exclude");
+    try {
+      const file = userConfigFile(join(dir, "home"));
+      mkdirSync(join(dir, "home", ".moh"), { recursive: true });
+      writeFileSync(
+        file,
+        JSON.stringify({
+          endpoints: [
+            { name: "a", type: "anthropic", defaultModel: "m1" },
+            { name: "b", type: "openai", defaultModel: "m2" },
+          ],
+        }),
+      );
+      setUserEndpointFallbackEligible(file, "b", false);
+      const raw = JSON.parse(readFileSync(file, "utf8"));
+      // The excluded one keeps its preferred model — excluding is orthogonal
+      // to the model choice.
+      expect(raw.endpoints[1]).toEqual({ name: "b", type: "openai", defaultModel: "m2", fallbackEligible: false });
+      expect(raw.endpoints[0]).toEqual({ name: "a", type: "anthropic", defaultModel: "m1" });
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("setUserEndpointFallbackEligible(true) removes the flag instead of writing true", () => {
+    const { dir, cleanup } = tempDir("write-include");
+    try {
+      const file = userConfigFile(join(dir, "home"));
+      mkdirSync(join(dir, "home", ".moh"), { recursive: true });
+      writeFileSync(file, JSON.stringify({ endpoints: [{ name: "a", type: "anthropic", fallbackEligible: false, apiKey: "sk" }] }));
+      setUserEndpointFallbackEligible(file, "a", true);
+      const endpoint = JSON.parse(readFileSync(file, "utf8")).endpoints[0];
+      // Default is eligible, so the key is noise once it says so again.
+      expect("fallbackEligible" in endpoint).toBe(false);
+      expect(endpoint.apiKey).toBe("sk");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("setUserEndpointFallbackEligible refuses an endpoint the user config does not declare", () => {
+    const { dir, cleanup } = tempDir("write-exclude-missing");
+    try {
+      const file = userConfigFile(join(dir, "home"));
+      mkdirSync(join(dir, "home", ".moh"), { recursive: true });
+      writeFileSync(file, JSON.stringify({ endpoints: [{ name: "a", type: "anthropic" }] }));
+      expect(() => setUserEndpointFallbackEligible(file, "ghost", false)).toThrow(/no user-level endpoint "ghost"/);
     } finally {
       cleanup();
     }
