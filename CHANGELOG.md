@@ -62,6 +62,18 @@ matching section here at tag time.
   50 times, so it tests the real transport without public DNS or network
   timing; the rebinding tests now separately pin single-shot resolution and
   per-redirect verification instead of succeeding through a blackholed IP.
+## [Unreleased]
+
+### Changed
+
+- **The live model-list refresh now says what it did** (ADR-0045, #920):
+  `fetchLiveCatalogs` returns a status per endpoint instead of a bare list —
+  refreshed, cached (with its age), stale (an expired cache kept while the
+  refresh failed), unavailable (with the reason), or static by design for a
+  provider with no listing route. The background refresh stays quiet unless
+  it would leave you without a list; `r` in the model picker always reports,
+  and the Settings model picker states what its list is.
+
 ## [0.46.0] - 2026-09-23
 ### Added
 

@@ -509,37 +509,128 @@ export interface FetchLiveCatalogsOptions {
 }
 
 /**
+ * What happened to one endpoint's listing (ADR-0045). The distinction the
+ * old bare projection could not carry: a list you are seeing is one of
+ * these five things, and only the first is a refresh you just performed.
+ */
+export type LiveCatalogStatus =
+  /** The provider answered this run; a fresh cache entry was written. */
+  | { kind: "fresh" }
+  /** A cache entry within its TTL; no network call was made. This is the
+   * healthy steady state of a normal startup, never a degradation. */
+  | { kind: "cached"; ageHours: number }
+  /** The refresh failed and an expired cache entry was served instead,
+   * with the age of that entry. */
+  | { kind: "stale"; ageHours: number }
+  /** The refresh failed and there is nothing to serve; `reason` is kept
+   * for the caller to explain it (never rendered verbatim). */
+  | { kind: "failed"; reason: string }
+  /** This provider kind has no verified listing contract, so the vendored
+   * catalog *is* its answer. Static by design, never a fault. */
+  | { kind: "unsupported" };
+
+/** One endpoint's outcome: the status, plus the listing it is a status of. */
+export interface LiveCatalogResult {
+  /** Live-only models to overlay on the vendored catalog (empty for
+   * `failed` and `unsupported`). */
+  models: LiveModelListing[];
+  status: LiveCatalogStatus;
+  /** The provider kind, carried so a client can ask whether a vendored
+   * catalog backstops this endpoint without a second config lookup. */
+  type: string;
+}
+
+export type LiveCatalogReport = Record<string, LiveCatalogResult>;
+
+/** The live listings of a report, in the shape the pickers consumed
+ * before the status existed (#551's projection, derived). */
+export function liveListings(report: LiveCatalogReport): Record<string, LiveModelListing[]> {
+  const out: Record<string, LiveModelListing[]> = {};
+  for (const [endpoint, result] of Object.entries(report)) {
+    if (result.models.length > 0) out[endpoint] = result.models;
+  }
+  return out;
+}
+
+function hoursSince(fetchedAt: number, now: number): number {
+  return Math.max(0, Math.round(((now - fetchedAt) / 3_600_000) * 10) / 10);
+}
+
+/**
+ * One line describing a report — the shared vocabulary for client
+ * surfaces, so the picker and Settings cannot disagree about what
+ * happened. Returns `null` when the report is empty (nothing was asked).
+ */
+export function summarizeLiveCatalogReport(report: LiveCatalogReport): string | null {
+  const entries = Object.entries(report);
+  if (entries.length === 0) return null;
+  const parts = entries.map(([endpoint, { status }]) => {
+    switch (status.kind) {
+      case "fresh": return `${endpoint} refreshed`;
+      case "cached": return `${endpoint} cached (${status.ageHours}h)`;
+      case "stale": return `${endpoint} stale (${status.ageHours}h, refresh failed)`;
+      case "failed": return `${endpoint} unavailable (${status.reason})`;
+      case "unsupported": return `${endpoint} static (no listing route)`;
+    }
+  });
+  return parts.join(" · ");
+}
+
+/**
+ * Whether a report leaves the user with a usable list without outside
+ * help (ADR-0045's context rule). The question is never "did a refresh
+ * fail" — offline is normal — but "would the picker be empty". A failed
+ * or stale endpoint whose provider ships a vendored catalog still has
+ * models to show, and a provider with no listing route is static by
+ * design: neither interrupts. Only an endpoint that failed *and* has
+ * nothing behind it (no live models, no vendored catalog) earns a notice.
+ */
+export function reportNeedsNotice(report: LiveCatalogReport): boolean {
+  return Object.values(report).some(({ models, status, type }) =>
+    (status.kind === "failed" || status.kind === "stale") &&
+    models.length === 0 &&
+    !hasVendoredCatalog(type),
+  );
+}
+
+/**
  * The orchestrator the clients call at startup (fire-and-forget) and on
- * a forced picker refresh: for every endpoint with a vendored catalog
- * AND a verified live contract, serve from a fresh cache or fetch live,
- * merge the results into the cache, and return the live listings per
- * endpoint name. A failed refresh falls back to the stale cached list
- * when one exists (offline with an expired cache still shows the last
- * known live models); endpoints with neither keep no entry. Honors the
- * `liveModels.enabled` config switch (default on). A kind with no
- * verified contract (baseten) is never fetched: the vendored catalog is
- * its update story, the same as for a provider whose models each need
- * per-model wire metadata.
+ * a forced picker refresh: for every configured endpoint, report what
+ * happened to its listing (ADR-0045) alongside the live-only models. An
+ * endpoint with a vendored catalog AND a verified live contract is served
+ * from a fresh cache or fetched live; a failed refresh falls back to the
+ * stale cached list when one exists (offline with an expired cache still
+ * shows the last known live models); a kind with no verified contract
+ * (baseten) reports `unsupported`. Honors the `liveModels.enabled` config
+ * switch (default on) — disabled means no endpoint is reported at all.
+ *
+ * Never throws for a provider failure: the failure *is* the status.
  */
 export async function fetchLiveCatalogs(
   endpoints: { name: string; type: string; baseUrl?: string; apiKey?: string }[],
   opts: FetchLiveCatalogsOptions = {},
-): Promise<Record<string, LiveModelListing[]>> {
+): Promise<LiveCatalogReport> {
   const config = readLiveModelsConfig(opts.mohHome);
   if (config.enabled === false) return {};
-  const targets = endpoints.filter((e) => CONTRACTS[e.type] !== undefined && hasVendoredCatalog(e.type));
-  if (targets.length === 0) return {};
   const cacheFile = opts.cacheFile ?? liveModelCacheFile(opts.mohHome);
   const now = opts.now ?? Date.now();
-  const out: Record<string, LiveModelListing[]> = {};
-  const toFetch: typeof targets = [];
+  const report: LiveCatalogReport = {};
+  const targets: typeof endpoints = [];
+  // Static by design: reported, never fetched, never a failure (ADR-0045).
+  for (const e of endpoints) {
+    if (CONTRACTS[e.type] === undefined && hasVendoredCatalog(e.type)) report[e.name] = { models: [], status: { kind: "unsupported" }, type: e.type };    if (CONTRACTS[e.type] !== undefined && hasVendoredCatalog(e.type)) targets.push(e);
+  }
+  if (targets.length === 0) return report;
   const cache = await loadLiveModelCache(cacheFile);
   const ttl = config.ttlHours ?? DEFAULT_TTL_HOURS;
   const fresh = freshCacheEntries(cache, ttl, now);
+  const toFetch: typeof targets = [];
   for (const e of targets) {
     const cached = fresh[e.name];
-    if (cached && !opts.force) out[e.name] = cached;
-    else toFetch.push(e);
+    if (cached && !opts.force) {
+      const entry = cache[e.name];
+      report[e.name] = { models: cached, status: { kind: "cached", ageHours: hoursSince(entry?.fetchedAt ?? now, now) }, type: e.type };
+    } else toFetch.push(e);
   }
   const results = await Promise.all(
     toFetch.map(async (e) => {
@@ -551,21 +642,25 @@ export async function fetchLiveCatalogs(
           fetchImpl: opts.fetchImpl,
           clientVersion: opts.clientVersion,
         });
-        return [e.name, { fetchedAt: now, models }] as const;
-      } catch {
+        return [e.name, { models, status: { kind: "fresh" } as LiveCatalogStatus, type: e.type, entry: { fetchedAt: now, models } }] as const;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
         // Refresh failed (offline, auth, remote error): fall back to the
-        // stale cache entry when one exists — better than nothing, still
-        // a silent degradation.
+        // stale cache entry when one exists — better than nothing, and now
+        // named as what it is rather than implied.
         const stale = cache[e.name];
-        return stale ? ([e.name, { fetchedAt: stale.fetchedAt, models: stale.models }] as const) : undefined;
+        return stale
+          ? ([e.name, { models: stale.models, status: { kind: "stale", ageHours: hoursSince(stale.fetchedAt, now) } as LiveCatalogStatus, type: e.type, entry: undefined }] as const)
+          : ([e.name, { models: [] as LiveModelListing[], status: { kind: "failed", reason } as LiveCatalogStatus, type: e.type, entry: undefined }] as const);
       }
     }),
   );
   const succeeded: Record<string, LiveModelCacheEntry> = {};
   for (const r of results) {
     if (!r) continue;
-    succeeded[r[0]] = r[1];
-    out[r[0]] = r[1].models;
+    const [name, outcome] = r;
+    report[name] = { models: outcome.models, status: outcome.status, type: outcome.type };
+    if (outcome.entry) succeeded[name] = outcome.entry;
   }
   if (Object.keys(succeeded).length > 0) {
     try {
@@ -574,5 +669,5 @@ export async function fetchLiveCatalogs(
       // A cache write failure must never surface — the in-memory result stands.
     }
   }
-  return out;
+  return report;
 }

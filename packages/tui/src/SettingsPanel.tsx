@@ -3,7 +3,7 @@ import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -251,16 +251,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // endpoints. Fetched once per panel mount (cache-backed, never
   // blocking); vendored entries still win on collision.
   const [liveCatalog, setLiveCatalog] = useState<Record<string, LiveModelListing[]>>({});
+  /** ADR-0045: what the live overlay currently is (refreshed, cached,
+   * stale, unavailable) — never a silent difference between the two. */
+  const [liveCatalogNote, setLiveCatalogNote] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     const endpoints = [...(moh.endpoints ?? [])].map((e) => ({ name: e.name, type: e.type, baseUrl: e.baseUrl, apiKey: e.apiKey }));
     if (endpoints.length > 0) {
       fetchLiveCatalogs(endpoints)
-        .then((result) => {
-          if (live && Object.keys(result).length > 0) setLiveCatalog((prev) => ({ ...prev, ...result }));
+        .then((report) => {
+          // ADR-0045: the same report the picker reads, overlaid on the
+          // same vendored catalog — the panel states what the list is.
+          if (!live) return;
+          setLiveCatalog((prev) => ({ ...prev, ...liveListings(report) }));
+          setLiveCatalogNote(summarizeLiveCatalogReport(report));
         })
         .catch(() => {
-          // Silent degradation is the #551 contract.
+          // The seam does not throw for provider failures (the failure is
+          // the status); an unexpected error leaves the vendored catalog.
         });
     }
     return () => {
@@ -1149,6 +1157,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               )}
               {sub.kind === "model" && endpointModelCatalog(sub.type, sub.baseUrl).length === 0 && remote[sub.name] === "error" && (
                 <Dim> no list from this endpoint — free text works</Dim>
+              )}
+              {sub.kind === "model" && liveCatalogNote && (
+                <Dim>{` live: ${liveCatalogNote}`}</Dim>
               )}
             </>
           )}

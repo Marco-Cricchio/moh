@@ -61,7 +61,7 @@ import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
-import { fetchLiveCatalogs, type LiveModelListing } from "@moh/core";
+import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
@@ -290,9 +290,9 @@ export function App({
   const [thinkingPreferenceRevision, setThinkingPreferenceRevision] = useState(0);
   const [skillUpdatePlan, setSkillUpdatePlan] = useState<UpstreamUpdate[] | null>(null);
 
-  // #551: live model-list augmentation — fetched once per process in the
-  // background at mount (cache-backed, never blocking), refreshable from
-  // the model picker. Failure is silent: the static catalog stands.
+  // #551 live model-list augmentation. ADR-0045: the refresh reports what
+  // happened per endpoint; `r` always says it, the startup fetch speaks
+  // only when it would leave the user without a list.
   const [liveCatalog, setLiveCatalog] = useState<Record<string, LiveModelListing[]>>({});
   const [liveRefreshing, setLiveRefreshing] = useState(false);
   const liveBusyRef = useRef(false);
@@ -305,10 +305,18 @@ export function App({
       liveBusyRef.current = true;
       setLiveRefreshing(true);
       fetchLiveCatalogs(targets, { mohHome, force: opts.force })
-        .then((result) => setLiveCatalog((prev) => ({ ...prev, ...result })))
+        .then((report) => {
+          setLiveCatalog((prev) => ({ ...prev, ...liveListings(report) }));
+          // An explicit refresh answers; a background one interrupts only
+          // when nothing would be left to pick.
+          const summary = summarizeLiveCatalogReport(report);
+          if (opts.force && summary) push(`models: ${summary}`, "ok", "side");
+          else if (!opts.force && reportNeedsNotice(report)) push(`models: ${summary ?? "model list unavailable"}`, "warn");
+        })
         .catch(() => {
-          // Silent degradation is the #551 contract: a failed refresh
-          // leaves the previous state (cache/static) untouched.
+          // The seam does not throw for provider failures (the failure is
+          // the status): only an unexpected error lands here, and it must
+          // not break the picker.
         })
         .finally(() => {
           liveBusyRef.current = false;

@@ -10,6 +10,10 @@ import {
   readLiveModelsConfig,
   listProviderModels,
   hasLiveListingContract,
+  liveListings,
+  summarizeLiveCatalogReport,
+  reportNeedsNotice,
+  type LiveCatalogReport,
   CODEX_LISTING_CLIENT_VERSION,
   type LiveModelListing,
 } from "../src/live-model-catalog";
@@ -129,7 +133,10 @@ describe("fetchLiveCatalogs", () => {
     const dir = home();
     try {
       const out = await fetchLiveCatalogs([{ name: "e", type: "anthropic" }], { mohHome: dir, fetchImpl: async () => { throw new Error("offline"); } });
-      expect(out).toEqual({});
+      // ADR-0045: the failure is the status, not an empty object.
+      expect(out.e?.models).toEqual([]);
+      expect(out.e?.status.kind).toBe("failed");
+      expect(out.e?.status.kind === "failed" && out.e.status.reason).toContain("offline");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -142,7 +149,8 @@ describe("fetchLiveCatalogs", () => {
         json: { data: [{ id: "brand-new-model", display_name: "Brand New" }] },
       });
       const first = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl });
-      expect(first["my-anthropic"]).toEqual([{ id: "brand-new-model", name: "Brand New" }]);
+      expect(first["my-anthropic"]?.models).toEqual([{ id: "brand-new-model", name: "Brand New" }]);
+      expect(first["my-anthropic"]?.status).toEqual({ kind: "fresh" });
 
       // Second call within TTL: served from cache, fetch never invoked.
       let called = false;
@@ -152,12 +160,17 @@ describe("fetchLiveCatalogs", () => {
       };
       const second = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl: countingFetch });
       expect(called).toBe(false);
-      expect(second["my-anthropic"]).toEqual([{ id: "brand-new-model", name: "Brand New" }]);
+      expect(second["my-anthropic"]?.models).toEqual([{ id: "brand-new-model", name: "Brand New" }]);
+      // ADR-0045: served from a valid cache is the healthy steady state,
+      // reported as such with its age — never as a degradation.
+      expect(second["my-anthropic"]?.status.kind).toBe("cached");
+      expect(second["my-anthropic"]?.status.kind === "cached" && second["my-anthropic"]!.status.ageHours).toBe(0);
 
       // force bypasses the cache and re-fetches.
       const forced = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl: countingFetch, force: true });
       expect(called).toBe(true);
-      expect(forced["my-anthropic"].length).toBe(1);
+      expect(forced["my-anthropic"]?.models).toHaveLength(1);
+      expect(forced["my-anthropic"]?.status).toEqual({ kind: "fresh" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -200,9 +213,10 @@ describe("fetchLiveCatalogs", () => {
         },
       );
       expect(urls).toEqual(["https://api.z.ai/api/coding/paas/v4/models", "https://api.deepseek.com/models"]);
-      expect(out.zai).toEqual([{ id: "api.z.ai-model" }]);
-      expect(out["my-deepseek"]).toEqual([{ id: "api.deepseek.com-model" }]);
-      expect(out.baseten).toBeUndefined();
+      expect(out.zai?.models).toEqual([{ id: "api.z.ai-model" }]);
+      expect(out["my-deepseek"]?.models).toEqual([{ id: "api.deepseek.com-model" }]);
+      // ADR-0045: no route is static by design, never a failure notice.
+      expect(out.baseten).toEqual({ models: [], status: { kind: "unsupported" }, type: "baseten" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -242,7 +256,10 @@ describe("fetchLiveCatalogs", () => {
           throw new Error("offline");
         },
       });
-      expect(out["my-xai"]).toEqual([{ id: "stale-grok" }]);
+      // ADR-0045: the expired entry is served *and* named, with its age.
+      expect(out["my-xai"]?.models).toEqual([{ id: "stale-grok" }]);
+      expect(out["my-xai"]?.status.kind).toBe("stale");
+      expect(out["my-xai"]?.status.kind === "stale" && out["my-xai"]!.status.ageHours).toBeGreaterThanOrEqual(47);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -261,8 +278,11 @@ describe("fetchLiveCatalogs", () => {
           fetchImpl: async (url) => (url.includes("x.ai") ? { status: 200, json: { data: [{ id: "grok-5" }] } } : { status: 500, json: {} }),
         },
       );
-      expect(out["good"]).toEqual([{ id: "grok-5" }]);
-      expect(out["bad"]).toBeUndefined();
+      expect(out.good?.models).toEqual([{ id: "grok-5" }]);
+      expect(out.good?.status.kind).toBe("fresh");
+      // The failure is reported, and it does not take the other endpoint down.
+      expect(out.bad?.status.kind).toBe("failed");
+      expect(out.bad?.models).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -490,12 +510,16 @@ describe("OpenCode live-catalog cache and fallback (#794)", () => {
         calls += 1;
         return { status: 200, json: { data: [{ id: `live-${calls}` }] } };
       };
-      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl })).toEqual({ "opencode-zen": [{ id: "live-1" }] });
-      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl })).toEqual({ "opencode-zen": [{ id: "live-1" }] });
+      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl })).toEqual({ "opencode-zen": { models: [{ id: "live-1" }], status: { kind: "fresh" }, type: "opencode" } });
+      const cached = await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl });
+      expect(cached["opencode-zen"]?.models).toEqual([{ id: "live-1" }]);
+      expect(cached["opencode-zen"]?.status.kind).toBe("cached");
       expect(calls).toBe(1);
-      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl, force: true })).toEqual({ "opencode-zen": [{ id: "live-2" }] });
+      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl, force: true })).toEqual({ "opencode-zen": { models: [{ id: "live-2" }], status: { kind: "fresh" }, type: "opencode" } });
       await saveLiveModelCache({ "opencode-zen": { fetchedAt: Date.now() - 48 * 3_600_000, models: [{ id: "stale-open-code" }] } }, join(dir, ".moh", "live-models.json"));
-      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl: async () => { throw new Error("offline"); } })).toEqual({ "opencode-zen": [{ id: "stale-open-code" }] });
+      const stale = await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl: async () => { throw new Error("offline"); } });
+      expect(stale["opencode-zen"]?.models).toEqual([{ id: "stale-open-code" }]);
+      expect(stale["opencode-zen"]?.status.kind).toBe("stale");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -529,5 +553,56 @@ describe("listing-contract coverage (#920 audit)", () => {
     });
     expect(url).toBe(`https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_LISTING_CLIENT_VERSION}`);
     expect(CODEX_LISTING_CLIENT_VERSION).not.toBe("0.0.0");
+  });
+});
+
+describe("live-catalog status projection (ADR-0045)", () => {
+  const report: LiveCatalogReport = {
+    fresh: { models: [{ id: "m1" }], status: { kind: "fresh" }, type: "anthropic" },
+    cached: { models: [{ id: "m2" }], status: { kind: "cached", ageHours: 3 }, type: "anthropic" },
+    stale: { models: [{ id: "m3" }], status: { kind: "stale", ageHours: 30 }, type: "anthropic" },
+    failed: { models: [], status: { kind: "failed", reason: "HTTP 401" }, type: "anthropic" },
+    static: { models: [], status: { kind: "unsupported" }, type: "baseten" },
+  };
+
+  test("the #551 listing projection is derived, not a second source of truth", () => {
+    // Only endpoints with live-only models overlay the vendored catalog:
+    // a failure or a statically-unsupported provider contributes nothing.
+    expect(liveListings(report)).toEqual({
+      fresh: [{ id: "m1" }],
+      cached: [{ id: "m2" }],
+      stale: [{ id: "m3" }],
+    });
+  });
+
+  test("every status has a line, and only a real failure is called one", () => {
+    const summary = summarizeLiveCatalogReport(report)!;
+    expect(summary).toContain("fresh refreshed");
+    expect(summary).toContain("cached cached (3h)");
+    expect(summary).toContain("stale stale (30h, refresh failed)");
+    expect(summary).toContain("failed unavailable (HTTP 401)");
+    // A provider with no listing route is static by design: never phrased
+    // as a problem.
+    expect(summary).toContain("static static (no listing route)");
+    expect(summary).not.toContain("static unavailable");
+  });
+
+  test("an empty report has no summary at all", () => {
+    expect(summarizeLiveCatalogReport({})).toBeNull();
+  });
+
+  test("the notice rule interrupts only when nothing would be left to show", () => {
+    // A usable list behind the status — including a stale one — is enough.
+    expect(reportNeedsNotice(report)).toBe(false);
+    // A failed refresh over a provider whose vendored catalog still shows
+    // models leaves the user a list: no notice.
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "failed", reason: "offline" }, type: "anthropic" } })).toBe(false);
+    // Nothing behind it at all (no live models, no vendored catalog): notice.
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "failed", reason: "offline" }, type: "my-custom" } })).toBe(true);
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "stale", ageHours: 40 }, type: "my-custom" } })).toBe(true);
+    // Static-by-design and healthy outcomes never interrupt.
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "unsupported" }, type: "baseten" } })).toBe(false);
+    expect(reportNeedsNotice({ e: { models: [], status: { kind: "cached", ageHours: 1 }, type: "anatropic" } })).toBe(false);
+    expect(reportNeedsNotice({})).toBe(false);
   });
 });
