@@ -250,7 +250,47 @@ describe("moh provider fallback (ADR-0012 preferred model)", () => {
     );
     const r = await run(["fallback", "zai", "glm-5.4"], { cwd, home });
     expect(r.code).toBe(0);
-    expect(r.out).toContain("still not a fallback stop: excluded by fallbackEligible: false");
+    expect(r.out).toContain("still not a fallback stop: excluded from the chain");
+  });
+
+  test("--exclude keeps the whole provider out of the chain while its model stays", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(home, ".moh", "config"),
+      JSON.stringify({ endpoints: [{ name: "zai", type: "zai", defaultModel: "glm-5.3-flash" }] }),
+    );
+    const r = await run(["fallback", "zai", "--exclude"], { cwd, home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("fallback: zai excluded from the chain");
+    const endpoint = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8")).endpoints[0];
+    expect(endpoint.fallbackEligible).toBe(false);
+    // Excluding is orthogonal to the model: it stays.
+    expect(endpoint.defaultModel).toBe("glm-5.3-flash");
+    // …and status reports the endpoint as excluded.
+    const st = await run(["status"], { cwd, home });
+    expect(st.out).toContain("(excluded from the chain)");
+  });
+
+  test("--include puts the provider back by removing the flag", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    writeFileSync(
+      join(home, ".moh", "config"),
+      JSON.stringify({ endpoints: [{ name: "zai", type: "zai", defaultModel: "m", fallbackEligible: false }] }),
+    );
+    const r = await run(["fallback", "zai", "--include"], { cwd, home });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("back in the chain");
+    expect("fallbackEligible" in JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8")).endpoints[0]).toBe(false);
+  });
+
+  test("--exclude and --include together are refused", async () => {
+    const home = fakeHome();
+    const cwd = tmp();
+    const r = await run(["fallback", "zai", "--exclude", "--include"], { cwd, home });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("not both");
   });
 
   test("status prints each endpoint's preferred model", async () => {

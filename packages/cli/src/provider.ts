@@ -19,6 +19,7 @@ import {
   providerLogout,
   providerStatus,
   loadMohConfig,
+  setUserEndpointFallbackEligible,
   setUserEndpointModel,
   writeMohConfig,
   type ConnectionTester,
@@ -40,6 +41,8 @@ commands:
                    set the endpoint's preferred model — the model it serves
                    with when it is an automatic fallback stop (ADR-0012);
                    omit the model (or pass --clear) to drop it from the chain
+                   --exclude/--include keep the whole provider out of the
+                   chain (or back in), independent of its model
 
 tokens live in ~/.moh/config (never in moh.json); \`logout\` and a
 successful \`login\` are the only token deleters.`;
@@ -165,13 +168,62 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
   if (cmd === "fallback") {
     const [name, ...modelArgs] = rest;
     const clear = modelArgs.includes("--clear");
-    const model = modelArgs.filter((a) => a !== "--clear").join(" ").trim();
+    const exclude = modelArgs.includes("--exclude");
+    const include = modelArgs.includes("--include");
+    const model = modelArgs
+      .filter((a) => a !== "--clear" && a !== "--exclude" && a !== "--include")
+      .join(" ")
+      .trim();
     if (!name) {
-      errOut(opts).write(`usage: moh provider fallback <endpoint> [model] [--clear]\n`);
+      errOut(opts).write(`usage: moh provider fallback <endpoint> [model] [--clear] [--exclude|--include]\n`);
+      return 2;
+    }
+    if (exclude && include) {
+      errOut(opts).write(`moh: pass --exclude or --include, not both\n`);
       return 2;
     }
     const config = loadMergedConfig(opts.cwd, opts.home !== undefined ? { home: opts.home } : {});
     const endpoints = config.endpoints ?? [];
+    if (exclude || include) {
+      const eligible = include;
+      const inProjectFile = (() => {
+        try {
+          return (loadMohConfig(join(opts.cwd, "moh.json")).endpoints ?? []).some((e) => e.name === name);
+        } catch {
+          return false;
+        }
+      })();
+      try {
+        if (inProjectFile) {
+          const project = loadMohConfig(join(opts.cwd, "moh.json"));
+          writeMohConfig(join(opts.cwd, "moh.json"), {
+            ...project,
+            endpoints: (project.endpoints ?? []).map((e) => {
+              if (e.name !== name) return e;
+              if (eligible) {
+                const { fallbackEligible: _dropped, ...rest } = e;
+                return rest;
+              }
+              return { ...e, fallbackEligible: false };
+            }),
+          });
+        } else {
+          setUserEndpointFallbackEligible(userConfigFile(opts.home), name, eligible);
+        }
+      } catch (e) {
+        errOut(opts).write(`moh: ${e instanceof Error ? e.message : String(e)}\n`);
+        return 1;
+      }
+      out(opts).write(
+        eligible ? `fallback: ${name} back in the chain\n` : `fallback: ${name} excluded from the chain\n`,
+      );
+      out(opts).write(`applies from the next session\n`);
+      return 0;
+    }
+    if (!endpoints.some((e) => e.name === name)) {
+      errOut(opts).write(`moh: no endpoint "${name}" configured\n`);
+      return 1;
+    }
     const endpoint = endpoints.find((e) => e.name === name);
     if (!endpoint) {
       errOut(opts).write(`moh: no endpoint "${name}" configured\n`);

@@ -420,6 +420,7 @@ import {
   removeUserEndpoint,
   saveUserProviderRef,
   setUserEndpointModel,
+  setUserEndpointFallbackEligible,
   type MergedConfigOptions,
   type UserProviderConfig,
 } from "./provider-config";
@@ -752,6 +753,7 @@ export {
   removeUserEndpoint,
   saveUserProviderRef,
   setUserEndpointModel,
+  setUserEndpointFallbackEligible,
   type MergedConfigOptions,
   type UserProviderConfig,
   defaultRegistry,

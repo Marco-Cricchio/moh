@@ -3,7 +3,7 @@ import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointModel, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -348,10 +348,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (sub.kind === "remove") return sub.options;
     if (sub.kind === "fallback") {
       // Every endpoint is listed: one that cannot be a stop says why, rather
-      // than vanishing from a screen whose whole point is the chain.
+      // than vanishing from a screen whose whole point is the chain. The
+      // excluded state leads the row, since it is the whole-provider switch.
       return (moh.endpoints ?? []).map((e) => {
-        const reason = fallbackIneligibleReason(e);
+        const excluded = e.fallbackEligible === false;
         const mark = e.defaultModel ? `📌 ${e.defaultModel}` : "— no preferred model";
+        const reason = fallbackIneligibleReason(e);
+        if (excluded) return `${e.name} · ✗ excluded · ${mark}`;
         return reason === null ? `${e.name} · ${mark}` : `${e.name} · ${mark} (${reason})`;
       });
     }
@@ -635,6 +638,52 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   };
 
   /**
+   * Excludes or re-includes one endpoint in the automatic fallback chain —
+   * the whole-provider switch (`fallbackEligible`, ADR-0012), independent of
+   * its preferred model. Project endpoints live in moh.json, user-level ones
+   * in the config guardian's file; neither touches the active provider.
+   */
+  const commitFallbackEligible = (name: string, eligible: boolean) => {
+    const userOwned = !projectNames.has(name);
+    try {
+      if (userOwned) {
+        setUserEndpointFallbackEligible(userFile, name, eligible);
+      } else {
+        const project = loadMohConfig(configFile);
+        writeMohConfig(configFile, {
+          ...project,
+          endpoints: (project.endpoints ?? []).map((e) => {
+            if (e.name !== name) return e;
+            if (eligible) {
+              const { fallbackEligible: _dropped, ...rest } = e;
+              return rest;
+            }
+            return { ...e, fallbackEligible: false };
+          }),
+        });
+      }
+    } catch (e) {
+      return onToast(`fallback: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setMoh((m) => ({
+      ...m,
+      endpoints: (m.endpoints ?? []).map((e) => {
+        if (e.name !== name) return e;
+        if (eligible) {
+          const { fallbackEligible: _dropped, ...rest } = e;
+          return rest;
+        }
+        return { ...e, fallbackEligible: false };
+      }),
+    }));
+    onToast(
+      eligible
+        ? `fallback: ${name} back in the chain (new sessions)`
+        : `fallback: ${name} excluded from the chain (new sessions)`,
+    );
+  };
+
+  /**
    * The preferred model of one endpoint — the `defaultModel` field, which is
    * also the model that endpoint serves with when it is an automatic
    * fallback stop (ADR-0012). Writing it never touches the active `provider`
@@ -761,6 +810,19 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
         if (!endpoint) return;
         return setSub({ kind: "tos", provider: endpoint.type });
+      }
+      // `x` is the whole-provider switch (fallbackEligible): it keeps the
+      // preferred model and takes the endpoint out of the chain, or puts it
+      // back. Independent of `c`, which clears the model itself.
+      if (sub.kind === "fallback" && input === "x") {
+        const option = subOptions[sub.cursor];
+        if (!option) return;
+        const name = option.split(" · ")[0]!;
+        const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
+        if (!endpoint) return;
+        // The argument is the DESIRED state: an endpoint that is currently
+        // excluded gets re-included, an included one gets excluded.
+        return commitFallbackEligible(name, endpoint.fallbackEligible === false);
       }
       if (sub.kind === "fallback" && input === "c") {
         const option = subOptions[sub.cursor];
@@ -1099,7 +1161,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 : sub.kind === "jev-key"
                   ? "type the key · enter save and validate · esc back"
               : sub.kind === "fallback"
-              ? "↑↓ · enter pick the model · c clear (out of the chain) · esc back — fallback models"
+              ? "↑↓ · enter pick the model · x exclude/include provider · c clear model · esc back"
               : sub.kind === "endpoint"
               ? "↑↓ · enter · t ToS · esc — switch endpoint"
               : sub.kind === "model"
