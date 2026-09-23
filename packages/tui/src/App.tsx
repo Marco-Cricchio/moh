@@ -61,7 +61,7 @@ import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
-import { fetchLiveCatalogs, liveCatalogFailureReasons, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
+import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
@@ -309,12 +309,12 @@ export function App({
           setLiveCatalog((prev) => ({ ...prev, ...liveListings(report) }));
           // ADR-0045: an explicit refresh always answers ("no news" included);
           // a background one interrupts only when nothing would be left to pick.
+          // Both are the *user-facing* summary: the failure reason is
+          // diagnostic copy and must not compete with the status line for
+          // the notice slot (it would displace an unrelated notice).
           const summary = summarizeLiveCatalogReport(report);
           if (opts.force) push(`models: ${summary ?? "nothing to refresh"}`, "ok", "side");
           else if (reportNeedsNotice(report)) push(`models: ${summary ?? "list unavailable"}`, "warn");
-          // The reason is diagnostic copy: it belongs in the transcript's
-          // side channel, never in the toast the summary rides in.
-          for (const reason of liveCatalogFailureReasons(report)) push(reason, "warn", "side");
         })
         .catch(() => {
           // The seam does not throw for provider failures (the failure is
