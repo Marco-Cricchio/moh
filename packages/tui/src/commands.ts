@@ -104,6 +104,11 @@ export interface SlashContext {
    * surface. Absent (headless): the command points at the persistent
    * switches instead of pretending a session command exists. */
   onOpenJev?: () => void;
+  /** #936: opens the guided browser-toolchain setup modal (/browser, ctrl+b
+   * while the diagnostic is up) — the flow #934's Settings Browser row is
+   * meant to open too, so the two never diverge. Absent (headless): the
+   * command points at the CLI door (`moh browser status|install`) instead. */
+  onOpenBrowserSetup?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -365,6 +370,21 @@ const jevCommand: SlashCommand = {
       return ctx.notify("the Jev use cases modal needs the TUI — the persistent switches are in Settings (Jev / TypeSafe)");
     }
     return ctx.onOpenJev();
+  },
+};
+
+/** #936/#934: the browser tool — status and the guided setup (the same
+ * modal Settings → Browser opens). The TUI modal is the door; headless
+ * callers get the CLI equivalent named. */
+const browserCommand: SlashCommand = {
+  name: "browser",
+  description: "browser tool status and setup (enable for this project, headless/headful, install)",
+  usage: "/browser",
+  run(ctx) {
+    if (!ctx.onOpenBrowserSetup) {
+      return ctx.notify("the browser setup modal needs the TUI — headless: moh browser status | moh browser install");
+    }
+    return ctx.onOpenBrowserSetup();
   },
 };
 
@@ -692,6 +712,7 @@ const copyCommand: SlashCommand = {
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
+  browserCommand,
   commandsCommand,
   compactCommand,
   copyCommand,

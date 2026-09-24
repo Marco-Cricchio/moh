@@ -1254,14 +1254,17 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
   // enabled. A missing toolchain is a visible diagnostic, never a turn
   // error and never a session failure — the other tools stay untouched.
   if (options.browser?.enabled) {
-    const { browserAvailability, BrowserSession, BROWSER_INSTALL_HINT } = lazyRequire("./browser") as typeof import("./browser");
+    const { browserAvailability, BrowserSession } = lazyRequire("./browser") as typeof import("./browser");
     const { browserTool } = lazyRequire("./browser-tool") as typeof import("./browser-tool");
-    const availability = browserAvailability();
+    const home = options.ledgerRoot ? dirname(dirname(options.ledgerRoot)) : undefined;
+    // #935: one project root for the whole browser seam — the project's
+    // own `node_modules` wins resolution, and the same cwd picks the
+    // profile/download slug.
+    const cwd = options.browserRoot ?? process.cwd();
+    const headless = options.browser.headless ?? true;
+    const availability = browserAvailability({ cwd, home, headless });
     if (availability.available) {
-      const session = new BrowserSession({
-        home: options.ledgerRoot ? dirname(dirname(options.ledgerRoot)) : undefined,
-        headless: options.browser.headless ?? true,
-      });
+      const session = new BrowserSession({ home, cwd, headless });
       all.push(
         browserTool({
           session,
@@ -1281,9 +1284,10 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
       // the browser at session dispose.
       (options as { browserSession?: BrowserSession }).browserSession = session;
     } else {
-      (options.diagnostics ??= []).push(
-        `browser tool disabled: ${availability.reason}. Install with: ${BROWSER_INSTALL_HINT}`,
-      );
+      // #935: the reason is the diagnosis the clients frame for their own
+      // surface (the event type already says which tool is missing); the
+      // actionable setup sentence travels with it.
+      (options.diagnostics ??= []).push(availability.reason);
     }
   }
   return Object.fromEntries(all.map((t) => [t.name, t as Tool]));

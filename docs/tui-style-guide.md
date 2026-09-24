@@ -69,7 +69,7 @@ The **permission mode** (#876) speaks in the row's left slot — the one the `�
 
 The glyphs stay distinguishable from the ones already in use (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). The lead is never dropped: it reserves its space first and the cwd absorbs the pressure, keeping its head and its elision marker. An active update notice follows the lead in the same slot (`⚠ YOLO · notice`), eliding as before.
 
-The Jev chip (#876) sits in row 1's left cluster right after the memory, MPM and extension-status chips — the two alarm chips (compaction failure, external growth) still close the cluster, so an alarm never ends up inward of a status. The seven use cases are independent, so the chip can only summarize and `/jev` keeps the detail:
+The Jev chip (#876) sits in row 1's left cluster right after the memory, MPM and extension-status chips — the three alarm chips (compaction failure, external growth, browser toolchain missing) still close the cluster, so an alarm never ends up inward of a status. The browser alarm (#936) is the one non-`err` alarm (`warn`): the optional tool is simply not registered, and the session is otherwise fine. The seven use cases are independent, so the chip can only summarize and `/jev` keeps the detail:
 
 - `◈ jev active` — at least one use case judges this session;
 - `◈ jev off` — none does, and at least one is off or paused: a choice, not a defect;
@@ -79,7 +79,7 @@ Below 70 columns the chip keeps its glyph alone (`◈`). There is no chip at all
 
 Context thresholds are `ok ≤ 60%`, `warn > 60%`, `err > 80%`. Optional segments drop before wrapping; if required content still exceeds the budget, the longest segment truncates. Status rows never wrap. Segments on the right-aligned row 2 are space-joined explicitly: ink's flex `gap` is unreliable on nested right-aligned rows (segments render glued).
 
-The third logical row contains centered key chips (graphic round chips occupy three terminal rows) in this priority order: send, stop, model, mode, commands, settings, workflow, frontier. The theme and thinking chips were removed: `/theme` + ctrl+t and `/thinking` + ctrl+y remain the controls. Chips degrade graphic → compact → dropped as width shrinks; compact terminals prioritize the first four before measured dropping.
+The third logical row contains centered key chips (graphic round chips occupy three terminal rows) in this priority order: send, stop, model, mode, commands, settings, workflow, frontier. A sticky warning prepends its own chip while it is up — the external-growth `keep` chip, and the browser-toolchain `install` chip (#936) — so the recovery action is reachable by tab as well as by its key. The theme and thinking chips were removed: `/theme` + ctrl+t and `/thinking` + ctrl+y remain the controls. Chips degrade graphic → compact → dropped as width shrinks; compact terminals prioritize the first four before measured dropping.
 
 Tab/Shift+Tab cycles textarea and visible chips. Left/Right moves between chips, Enter activates, Escape returns to the textarea. Chip key labels are compact mnemonics; `^m` is activated through chip focus because terminal Ctrl+M is indistinguishable from Enter. A focused chip dims the textarea and owns ordinary key input.
 

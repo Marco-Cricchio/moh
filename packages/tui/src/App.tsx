@@ -74,6 +74,8 @@ import { contextWindowForLabel } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
+import { BrowserSetupModal } from "./BrowserSetupModal";
+import { currentBrowserDiagnostic } from "./browser-setup";
 import { applySkillUpdates, readInstalled, runSlashCommand, commandEntries } from "./commands";
 import { SkillUpdatesModal } from "./SkillUpdatesModal";
 import { Toasts, useToasts } from "./Toasts";
@@ -118,7 +120,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -273,6 +275,11 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay]);
   const [handoffFromSettings, setHandoffFromSettings] = useState(false);
+  /** #934: the browser setup modal opened from the Settings Browser row.
+   * Remembered so leaving the modal can return to Settings — the panel is
+   * remounted on the way back, which is also what makes its row re-probe
+   * and show what the modal left behind. */
+  const [browserFromSettings, setBrowserFromSettings] = useState(false);
   const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
   const [offerWorkflow] = useState(
@@ -390,6 +397,16 @@ export function App({
    * `session_file_growth`; the fork chip projects the explicit recovery
    * action. Counters update on repeat incidents; the banner never stacks. */
   const [growth, setGrowth] = useState<{ count: number } | null>(null);
+  /** #936: this open observed an enabled browser with a missing toolchain
+   * — the footer alarm, the `install` chip and the `^b` setup action exist
+   * while it is true. Decided by the log's open marker at session change
+   * (`currentBrowserDiagnostic`: a session resumed after the toolchain was
+   * installed must not keep offering setup), set by live events, cleared by
+   * a successful install. The warning itself stays in the transcript as
+   * history; this flag states the present. */
+  const [browserSetup, setBrowserSetup] = useState(() =>
+    session ? currentBrowserDiagnostic(session.history()) !== null : false,
+  );
   /** #400: the foreign tail id of the latest growth event — the /tree
    * panel renders that whole branch with the warning glyph. */
   const [foreignTip, setForeignTip] = useState<string | null>(null);
@@ -454,7 +471,7 @@ export function App({
   );
   const [submitSignal, setSubmitSignal] = useState(0);
   useEffect(() => {
-    const count = visibleChips(viewport.columns, growth !== null).chips.length;
+    const count = visibleChips(viewport.columns, growth !== null, browserSetup).chips.length;
     setFocusedChip((focused) => focused !== null && focused >= 0 && focused >= count ? null : focused);
   }, [viewport.columns]);
   // A failed eager assembly surfaces as a toast instead of a swapped-in demo provider.
@@ -476,7 +493,14 @@ export function App({
     const watchFallback = createFallbackWatcher();
     const consume = async () => {
       try {
+        // #936: events already in the log at subscription time are the
+        // replayed history, not news — only events appended afterwards
+        // describe this open's state (the initial value comes from
+        // `currentBrowserDiagnostic`, which is stricter than the replay).
+        const replayed = session.history().length;
+        let seen = 0;
         for await (const event of session.events) {
+          const fromHistory = seen++ < replayed;
           if (stopped) return;
           if (event.type === "memory_updated") {
             setMemoryFresh(true);
@@ -510,6 +534,11 @@ export function App({
           if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);          if (event.type === "permission_rules_restored") {
             push(sanitizeForDisplay(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`), "warn");
           }
+          // #936: the browser toolchain diagnostic of this open — the
+          // footer alarm, the `install` chip and the `^b` setup action.
+          // The transcript renders the event itself (history); this is
+          // only the present state.
+          if (event.type === "browser_unavailable" && !fromHistory) setBrowserSetup(true);
           const fallbackNotice = watchFallback(event);
           if (fallbackNotice) push(fallbackNotice, "warn");
         }
@@ -524,6 +553,12 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
   useEffect(() => { setMemoryFresh(false); }, [session, sidebar.turnCount]);
+  // #936: a new session (reload, fork, resume) re-decides the browser
+  // alarm from its own log: the tool registers at assembly time, so a
+  // toolchain installed in the meantime must clear the action.
+  useEffect(() => {
+    setBrowserSetup(session ? currentBrowserDiagnostic(session.history()) !== null : false);
+  }, [session]);
 
   // #619: MPM status chip — a cheap 2s poll of the session seam. Fail-silent
   // and cheap (no IO); never appends transcript events or status noise.
@@ -859,11 +894,17 @@ export function App({
   // events settled) so nothing appends after the file is re-read; the
   // fresh session resumes the full history from that file. A broken
   // config keeps the old session alive (no silent fallback, ADR-0005).
-  const reload = async () => {
+  const reload = async (note?: string): Promise<boolean> => {
     const current = session;
-    if (!current) return push("/reload needs an open session");
+    if (!current) {
+      push("/reload needs an open session");
+      return false;
+    }
     const file = current.sessionFile;
-    if (!file) return push("/reload: session file unknown — open a session first");
+    if (!file) {
+      push("/reload: session file unknown — open a session first");
+      return false;
+    }
     current.abort();
     await current.dispose();
     const result = makeSession({
@@ -879,11 +920,15 @@ export function App({
       store: SessionStore.open(file),
     });
     if ("error" in result) {
-      return push(assemblyErrorToast(result.error) + " — keeping the current session");
+      push(assemblyErrorToast(result.error) + " — keeping the current session");
+      return false;
     }
     setModelLabel(result.session.activeModel);
     setSession(result.session);
-    push(`✓ config reloaded · model ${result.session.activeModel} · history preserved`);
+    // #936: the browser setup flow reloads with its own note (what the
+    // reload was for) instead of the generic config message.
+    push(note ?? `✓ config reloaded · model ${result.session.activeModel} · history preserved`);
+    return true;
   };
 
   // #468/ADR-0020 fork-now: the explicit recovery action behind the growth
@@ -1059,6 +1104,9 @@ export function App({
     setFocusedChip(null);
     if (action === "send") return setSubmitSignal((value) => value + 1);
     if (action === "keep") return keepMyBranch();
+    // #936: the browser toolchain warning's `install now` — the guided
+    // setup modal (also `/browser` and ctrl+b).
+    if (action === "install") return setOverlay("browser");
     if (action === "stop") return session?.abort();
     if (action === "model") return setOverlay("model");
     if (action === "mode") return cycleMode();
@@ -1087,7 +1135,7 @@ export function App({
     // not interrupt an active turn; streaming continues behind the modal.
     if (overlay === null && key.ctrl && input === "r" && session) return setOverlay("rename");
     if (session && !blocked) {
-      const chips = visibleChips(viewport.columns, growth !== null).chips;
+      const chips = visibleChips(viewport.columns, growth !== null, browserSetup).chips;
       const subCount = subagentCount;
       // While the input's completion popup owns the Tab key (a slash draft
       // with candidates), the textarea keeps focus: Tab completes the
@@ -1187,6 +1235,11 @@ export function App({
     // `branch_switched { to: localTip }` (adoption, head semantics d9);
     // /fork remains the secondary recovery chip.
     if (overlay === null && (input === "\x07" || (key.ctrl && input === "g")) && growth !== null && session) return activateChip("keep");
+    // #936: the browser setup flow, from the transcript warning's action
+    // line and the footer alarm. Available while this open observed a
+    // missing toolchain — the modal itself shows the live status, so a
+    // stale open cannot mislead.
+    if (overlay === null && key.ctrl && input === "b" && browserSetup) return setOverlay("browser");
     // The post-claim chooser owns Esc: it returns to Frontier rather than
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
@@ -1245,6 +1298,7 @@ export function App({
       jevStatus={jevStatus}
       compactionFailed={compactionFailed}
       growthWarning={growth?.count ?? null}
+      browserSetup={browserSetup}
       onKeepMyBranch={keepMyBranch}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
@@ -1308,6 +1362,7 @@ export function App({
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
         onOpenJev: () => setOverlay("jev"),
+        onOpenBrowserSetup: () => setOverlay("browser"),
       })}
     />
   ) : null;
@@ -1484,6 +1539,10 @@ export function App({
               setHandoffFromSettings(true);
               setOverlay("handoff-onboarding");
             }}
+            onConfigureBrowser={() => {
+              setBrowserFromSettings(true);
+              setOverlay("browser");
+            }}
             onToast={push}
             onClose={() => setOverlay(null)}
           />
@@ -1614,6 +1673,42 @@ export function App({
             }}
           />
         )}
+        {overlay === "browser" && (
+          <BrowserSetupModal
+            cwd={cwd}
+            {...(home ? { home } : {})}
+            hasSession={session !== null}
+            onDone={(outcome) => {
+              const backToSettings = browserFromSettings;
+              setBrowserFromSettings(false);
+              // The effect of a change reaches the session at assembly time
+              // (the tool registers, the launch mode is read, the toolchain
+              // module is resolved): a live session is re-assembled, a
+              // setting changed from Home applies to the next one.
+              if (outcome.kind === "installed") setBrowserSetup(false);
+              if (outcome.kind !== "none" && session) {
+                const note = applyBrowserOutcome(outcome).note;
+                setOverlay(null);
+                void reload(note).then((ok) => {
+                  if (!ok) {
+                    // The reload refused (a broken config, an unknown session
+                    // file): say what was done anyway rather than losing it.
+                    push(note);
+                  }
+                  // Opened from Settings, it returns there — remounted, so
+                  // the Browser row states what the modal just wrote. A
+                  // reconfigured session is still a settings session.
+                  if (backToSettings) setOverlay("settings");
+                });
+                return;
+              }
+              if (outcome.kind !== "none") push(applyBrowserOutcome(outcome).note);
+              // Nothing to apply: back to wherever it was opened from, with
+              // the panel remounted so its Browser row re-probes.
+              setOverlay(backToSettings || outcome.kind === "config" ? "settings" : null);
+            }}
+          />
+        )}
         {overlay === "workflow-offer" && (
           <WorkflowOffer
             onDone={(enable) => {
@@ -1695,6 +1790,13 @@ function assemblyErrorToast(error: AssemblyError): string {
       ? " · re-run onboarding (ctrl+k → onboarding) or fix the provider in moh.json"
       : " · fix moh.json and retry";
   return `session error (${error.kind}): ${error.message}${hint}`;
+}
+
+/** #934: the toast line for a browser setup outcome. The modal decides what
+ * happened (and says it in the user's words); this only prefixes the check
+ * that the app-level test — and the user — can search for. */
+function applyBrowserOutcome(outcome: { kind: "config" | "installed"; note: string }): { note: string } {
+  return { note: `✓ ${outcome.note}` };
 }
 
 /** #242: true when the active ref is a catalog model that can return

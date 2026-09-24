@@ -17,12 +17,15 @@ import { homedir } from "node:os";
 import { isAbsolute, dirname, join, relative, resolve } from "node:path";
 import { projectSlug } from "./session-store";
 import { isPrivateHost } from "./builtin-tools";
+import {
+  probeBrowserToolchainWithModule,
+  type BrowserToolchainOptions,
+  type PlaywrightModuleLike,
+  type ResolvedPlaywright,
+} from "./browser-toolchain";
 
 /** Hard snapshot budget: ~20k tokens ≈ 80 KiB of text. */
 const SNAPSHOT_BUDGET_BYTES = 80 * 1024;
-
-export const BROWSER_INSTALL_HINT =
-  "npm i -g playwright-core && npx playwright-core install chromium";
 
 /** Thrown when the toolchain (playwright-core or a Chromium build) is missing. */
 export class BrowserUnavailableError extends Error {
@@ -321,49 +324,36 @@ interface PlaywrightChromium {
   executablePath(): string;
 }
 
-interface PlaywrightModule {
+/** The playwright-core surface this module drives. #935: the *resolution*
+ * of that module (project-local first, then the moh-owned root) lives in
+ * `browser-toolchain.ts`; here we only cast the resolved module to the
+ * launch shapes we use. */
+export interface PlaywrightModule {
   chromium: PlaywrightChromium;
 }
 
-/** Probes for the optional peer: null (with a reason) when absent. */
-export function loadPlaywrightSync(): { pw: PlaywrightModule } | { missing: string } {
-  try {
-    // Synchronous on purpose: the registration decision (register the
-    // tool or emit the diagnostic) happens inside the sync session
-    // assembly. createRequire dodges Bun's eager-async import graph.
-    const { createRequire } = require("node:module") as typeof import("node:module");
-    const req = createRequire(import.meta.url);
-    const pw = req("playwright-core") as PlaywrightModule;
-    if (typeof pw?.chromium?.launchPersistentContext !== "function") return { missing: "playwright-core is installed but unusable" };
-    return { pw };
-  } catch {
-    return { missing: "playwright-core is not installed" };
-  }
+function asPlaywrightModule(resolved: ResolvedPlaywright): PlaywrightModule {
+  // The runtime shape (a `chromium` with `launchPersistentContext`) was
+  // already validated by the toolchain seam; only the return types differ.
+  return resolved.module as unknown as PlaywrightModule;
 }
 
-/** True when a Chromium build exists in playwright's registry. */
-export function chromiumInstalled(pw: PlaywrightModule): boolean {
-  try {
-    const p = pw.chromium.executablePath();
-    return typeof p === "string" && p.length > 0 && existsSync(p);
-  } catch {
-    return false;
-  }
-}
-
-/** Availability probe for the registration diagnostic: never throws. */
+/**
+ * #935: availability probe for the registration diagnostic: never throws.
+ * `ready` follows the mode the session will launch in — a headless launch
+ * needs the headless shell, a headful one the full Chromium build — so an
+ * enabled tool is registered only when it can actually run. Synchronous on
+ * purpose: the registration decision happens inside the sync session
+ * assembly, and the probe resolves the module once and hands it back.
+ */
 export function browserAvailability(
-  injected?: unknown,
+  options: BrowserToolchainOptions = {},
 ): { available: true; pw: PlaywrightModule } | { available: false; reason: string } {
-  const loaded = injected !== undefined ? injected : loadPlaywrightSync();
-  if (typeof loaded === "object" && loaded !== null && "missing" in (loaded as object)) {
-    return { available: false, reason: (loaded as { missing: string }).missing };
+  const { status, resolved } = probeBrowserToolchainWithModule(options);
+  if (!status.ready || !resolved) {
+    return { available: false, reason: status.reasons[0] ?? "browser toolchain unavailable" };
   }
-  const mod = (loaded as { pw: PlaywrightModule }).pw;
-  if (!chromiumInstalled(mod)) {
-    return { available: false, reason: "no Chromium build found" };
-  }
-  return { available: true, pw: mod };
+  return { available: true, pw: asPlaywrightModule(resolved) };
 }
 
 /**
@@ -383,13 +373,18 @@ export class BrowserSession {
   readonly #profileDir: string;
   readonly #headless: boolean;
   readonly #playwright: unknown;
+  /** #935: the project root whose `node_modules` wins resolution. */
+  readonly #cwd: string;
+  readonly #home: string;
   readonly #lookup: ((host: string) => Promise<{ address: string; family: number }[]>) | undefined;
   /** #777: download staging dir for this project. */
   readonly #downloadDir: string;
 
   constructor(options: BrowserOptions = {}) {
     const home = options.home ?? homedir();
-    const slug = projectSlug(options.cwd ?? process.cwd(), home);
+    this.#home = home;
+    this.#cwd = options.cwd ?? process.cwd();
+    const slug = projectSlug(this.#cwd, home);
     this.#profileDir = join(home, ".moh", "browser-profile", slug);
     this.#downloadDir = join(home, ".moh", "browser-downloads", slug);
     this.#headless = options.headless ?? true;
@@ -406,9 +401,15 @@ export class BrowserSession {
   async #ensurePage(): Promise<BrowserPageLike> {
     if (this.#disposed) throw new Error("browser: session disposed");
     if (this.#page) return this.#page;
-    const probe = browserAvailability(this.#playwright);
+    const probe = browserAvailability({
+      playwright: this.#playwright,
+      cwd: this.#cwd,
+      home: this.#home,
+      headless: this.#headless,
+    });
     if (!probe.available) {
-      throw new BrowserUnavailableError(`${probe.reason}. Install with: ${BROWSER_INSTALL_HINT}`);
+      // #935: the reason already carries the actionable setup sentence.
+      throw new BrowserUnavailableError(probe.reason);
     }
     const pw = probe.pw;
     mkdirSync(this.#profileDir, { recursive: true, mode: 0o700 });

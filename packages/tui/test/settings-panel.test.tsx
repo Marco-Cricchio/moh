@@ -658,6 +658,9 @@ describe("max iterations row (#498)", () => {
     }));
     const { i } = mount(cwd);
     await sleep(30);
+    // The row can sit below the visible window (the settings list scrolls):
+    // walk to it by label, as every other row test does, then read it.
+    await gotoRow(i, "Max iterations/turn");
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("unlimited");
     i.unmount();

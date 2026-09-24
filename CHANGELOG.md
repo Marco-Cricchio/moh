@@ -7,6 +7,60 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-09-24
+
+### Added
+
+- **The browser tool is turned on from Settings** (#934, ADR-0029
+  amendment): enabling the native `browser` tool used to mean hand-editing
+  `browser.enabled` in `moh.json`. Settings now carries a **Browser** row
+  that states both halves of the truth — `off (this project) · toolchain
+  ready` — and opens the guided setup: enable/disable **for that project**
+  (activation is per project, the toolchain is user-level), headless or
+  headful, the SSRF allowed-host list, and the install itself (headless
+  shell first; the full Chromium build and Playwright's system
+  dependencies stay explicit choices, and headful without the full build
+  says so before you start a 500 MB download). Everything the settings
+  write goes into that project's `moh.json` and preserves unrelated keys;
+  a file that is not valid JSON is reported, never rewritten blind. The
+  same modal is what the transcript warning's `install now`, `/browser`
+  and ctrl+b open — one setup flow, not two. Because the tool registers
+  when a session is assembled, a change re-assembles the open session for
+  you; a change made from Home applies to the next session.
+
+- **The browser tool installs itself** (#935, ADR-0029 amendment):
+  enabling `browser` used to require `npm i -g playwright-core` plus a
+  Chromium download — a contract that cannot hold for moh's prebuilt
+  binaries, where a globally installed npm package is not resolvable
+  unless the environment happens to expose it through `NODE_PATH`. The
+  core now owns one cross-client toolchain seam: it resolves
+  playwright-core through explicit, existence-gated paths (the project's
+  own `node_modules` first — a hoisted workspace install still counts —
+  then `~/.moh/browser-toolchain`), probes the package, the Chromium
+  headless shell and the full build with versions and actionable reasons,
+  and installs them with the Bun runtime embedded in moh: no npm, no
+  system Bun, no sudo. Setup is headless-first (the ~200 MB shell a
+  headless launch actually needs); the full build (~500 MB, headful) and
+  Playwright's system dependencies are explicit options, never implicit.
+  Installs are staged beside the root and promoted by a single atomic
+  rename behind a lock file, so a failed or interrupted download never
+  replaces a working toolchain and a second moh process is told to retry
+  instead of racing.
+
+- **The browser toolchain says what it needs** (#936, ADR-0029 amendment):
+  an enabled browser whose toolchain is missing used to be silent — the
+  TUI dropped the diagnostic and `moh run` printed nothing, so the tool
+  simply never ran. The TUI now renders it as a warning with an `install
+  now` action (the `install` chip, ctrl+b, `/browser`), stating the
+  present in the footer and keeping every past diagnostic in the log as
+  history; `moh run` prints one line on stderr (stdout stays pure JSONL,
+  the exit code unchanged). The action opens a guided setup modal — the
+  same surface Settings will open — that reports the toolchain truth and
+  installs it headless-first: the full Chromium build and Playwright's
+  system dependencies stay explicit choices. The new `moh browser
+  status|install` gives the headless user the same door the core's own
+  hint has been naming since #935.
+
 ## [0.48.0] - 2026-09-23
 
 ### Added
@@ -774,7 +828,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...develop
+[0.49.0]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0

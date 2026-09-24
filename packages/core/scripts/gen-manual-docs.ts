@@ -119,6 +119,7 @@ TUI manual (ctrl+h / /help) and docs/manual/.`,
     { heading: "moh sessions", body: extractUsage("SESSIONS_USAGE", "sessions.ts") },
     { heading: "moh usage", body: extractUsage("USAGE_USAGE", "usage.ts") },
     { heading: "moh jev", body: extractUsage("JEV_USAGE", "jev.ts") },
+    { heading: "moh browser", body: extractUsage("BROWSER_USAGE", "browser.ts") },
   ];
   const lines: string[] = [
     "# CLI reference",

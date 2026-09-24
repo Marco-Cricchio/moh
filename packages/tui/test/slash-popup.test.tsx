@@ -208,7 +208,9 @@ describe("slash popup at App level (Tab defers to the popup)", () => {
     await sleep(80);
     i.stdin.write("/");
     await sleep(80);
-    i.stdin.write("\x1b[B"); // select /commands
+    i.stdin.write("\x1b[B"); // ↓ once: /browser, twice: /commands (list order)
+    await sleep(40);
+    i.stdin.write("\x1b[B");
     await sleep(80);
     i.stdin.write("\t");
     await sleep(150);
