@@ -245,6 +245,33 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "tos"; provider: string }
     | { kind: "theme-pick"; options: ThemeRef[]; cursor: number }
     const [sub, setSub] = useState<Sub | null>(null);
+  /** Every level but `tos` carries a cursor row. */
+  const hasCursor = (s: Sub): s is Extract<Sub, { cursor: number }> => "cursor" in s;
+  /**
+   * #930: the cursor moves are functional, so a key burst that lands inside one
+   * commit window cannot be swallowed by a stale closure read. `null` in means
+   * the level closed inside the same burst (Esc, then an arrow): a no-op.
+   * A cursorless level reaching here is a programming error — the `tos` guard
+   * is above the callers — and must not pass for a swallowed key. `lastIndex`
+   * is the last valid row (`length - 1`): pointing the cursor past it paints no
+   * row marker at all, which reads as a swallowed key.
+   */
+  const moveSubCursor = (s: Sub | null, delta: -1 | 1, lastIndex = 0): Sub | null => {
+    if (!s) return null;
+    if (!hasCursor(s)) throw new Error(`sub-menu cursor move on a cursorless level: ${s.kind}`);
+    const next = delta < 0 ? Math.max(0, s.cursor + delta) : Math.min(Math.max(0, lastIndex), s.cursor + delta);
+    return next === s.cursor ? s : { ...s, cursor: next };
+  };
+  /**
+   * #930: same reasoning for the model level's filter. The `query` edits are
+   * functional so a typed burst keeps every character; a non-model level
+   * reaching here is a programming error, never a quiet no-op.
+   */
+  const editModelQuery = (s: Sub | null, edit: (query: string) => string): Sub | null => {
+    if (!s) return null;
+    if (s.kind !== "model") throw new Error(`model filter edited on a ${s.kind} level`);
+    return { ...s, query: edit(s.query), cursor: 0 };
+  };
   // "My themes…" opens the theme studio modal (variant-D redesign): a full
   // screen visual editor — global sliders + per-element picks + live previews.
   // Kept outside `sub` because it owns its own key handling end to end.
@@ -857,20 +884,25 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         const name = option.split(" · ")[0]!;
         return commitFallbackModel(name, null, !projectNames.has(name));
       }
+      // #930: the arrow updates are functional. A terminal can deliver a key
+      // auto-repeat burst inside one commit window (two presses before Ink
+      // repaints), and a closure read of `sub` makes the second press
+      // recompute from the same cursor — the key is swallowed. A stale
+      // read of the frame then shows a cursor that is genuinely one short.
       if (key.upArrow) {
         if (sub.kind === "tos") return;
-        return setSub({ ...sub, cursor: Math.max(0, sub.cursor - 1) });
+        return setSub((s) => moveSubCursor(s, -1));
       }
       if (key.downArrow) {
         if (sub.kind === "tos") return;
-        return setSub({ ...sub, cursor: Math.min(subOptions.length - 1, sub.cursor + 1) });
+        return setSub((s) => moveSubCursor(s, 1, subOptions.length - 1));
       }
       // Typing inside the model level filters incrementally (#181).
       if (sub.kind === "model" && input && !key.ctrl && !key.meta && !key.return && input !== "\n") {
-        return setSub({ ...sub, query: sub.query + input, cursor: 0 });
+        return setSub((s) => editModelQuery(s, (query) => query + input));
       }
       if (sub.kind === "model" && (key.backspace || key.delete)) {
-        return setSub({ ...sub, query: sub.query.slice(0, -1), cursor: 0 });
+        return setSub((s) => editModelQuery(s, (query) => query.slice(0, -1)));
       }
       if (key.return || input === "\n") {
         const index =

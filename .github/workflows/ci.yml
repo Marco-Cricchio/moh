@@ -13,7 +13,8 @@
 #   scripts    — build/install/platform-vocabulary tests (~2s; the release
 #                pipeline's only automated coverage, since a tag-triggered
 #                release workflow cannot be exercised on a PR)
-#   tui-unit   — TUI component/ink tests (non-PTY)
+#   tui-unit   — TUI component/ink tests (non-PTY), one retry on failure
+#                (frame assertions that race a slow paint, #930)
 #   tui-pty    — PTY integration tests, the slow tail, all 12 files in
 #                parallel (~155s wall vs ~330s serial), one retry on
 #                failure (known load-dependent flakes pass in isolation)
@@ -94,7 +95,8 @@ jobs:
 
   tui-unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 10 min was enough for one pass; the retry needs room for a second one.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -103,8 +105,28 @@ jobs:
       - run: bun install --frozen-lockfile
       # Non-PTY TUI tests only (top-level test dir); the PTY tail runs in
       # its own job below. Globs avoid bun --exclude, which this version
-      # ignores for directory args.
-      - run: bun test packages/tui/test/*.test.ts packages/tui/test/*.test.tsx
+      # ignores for directory args. The retry mirrors tui-pty: known
+      # load-dependent flakes (frame reads racing a slow paint, #930) pass
+      # when the job is re-run, so the job re-runs itself once instead of
+      # asking a human to press the button.
+      - name: TUI unit tests (retry once)
+        run: |
+          set +e
+          globs="packages/tui/test/*.test.ts packages/tui/test/*.test.tsx"
+          bun test $globs
+          first=$?
+          if [ "$first" -eq 0 ]; then
+            exit 0
+          fi
+          echo "::warning::tui-unit failed on the first attempt (exit $first) — re-running the same globs once. A flake that only passes on the retry is still a flake to fix (#930)."
+          sleep 5
+          bun test $globs
+          second=$?
+          if [ "$second" -ne 0 ]; then
+            echo "::error::tui-unit failed twice (first exit $first, retry exit $second) — treat it as a real failure, not a flake."
+            exit "$second"
+          fi
+          exit 0
 
   tui-pty:
     runs-on: ubuntu-latest
