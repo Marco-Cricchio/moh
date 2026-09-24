@@ -23,7 +23,7 @@ override region. "Declared, never deduced" is the vocabulary successor of
 "never inferred": every value in a catalog row comes from a named source or a
 named override — nothing is guessed.
 
-### Sources and precedence (provisional)
+### Sources and precedence (final)
 
 - `https://models.dev/api.json` is **primary**; `https://openrouter.ai/api/v1/models`
   fills holes only where models.dev has no matching record. Precedence is
