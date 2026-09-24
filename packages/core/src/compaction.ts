@@ -441,11 +441,13 @@ export class CompactionRunner {
     return call.inputTokens > limit;
   }
 
-  /** The most recent `model_call` measurement: index + measured input tokens. */
+  /** The most recent `model_call` measurement: index + measured input tokens.
+   * #947: a failed call's `{0,0}` is not a measurement — it would mask the
+   * real one (a 250k context read as 0 after a `context_length` failure). */
   static lastMeasuredCall(events: ReadonlyArray<AgentEvent>): { index: number; inputTokens: number } | undefined {
     for (let i = events.length - 1; i >= 0; i -= 1) {
       const e = events[i]!;
-      if (e.type === "model_call") {
+      if (e.type === "model_call" && !e.failed) {
         return { index: i, inputTokens: e.usage.inputTokens };
       }
     }
@@ -460,19 +462,30 @@ export class CompactionRunner {
    * `compaction_failed` chrome event the clients need for their sticky
    * warning. */
   maybeCompact(result: TurnResult, events: ReadonlyArray<AgentEvent>, disposed: boolean): void {
-    if (result.status !== "done" || this.#busy || disposed) return;
+    if (this.#busy || disposed) return;
+    // #947: a `context_length` error is the one error the producer can act
+    // on. The turn that overflowed arms it — the provider's own "does not
+    // fit" outranks our threshold arithmetic (which is exactly what fails
+    // on an unknown window), so the stale-measurement guard and the
+    // threshold check do not apply on this path. Still the post-turn
+    // producer (ADR-0022 §1): nothing compacts inline.
+    const overflow = result.status === "error" && result.reason === "context_length";
+    if (result.status !== "done" && !overflow) return;
     const call = CompactionRunner.lastMeasuredCall(events);
-    // Anti-loop guard: only a *new* measurement can arm the trigger.
-    if (!call || call.index <= this.#lastSeenCallIndex) return;
-    this.#lastSeenCallIndex = call.index;
-    if (!this.shouldAutoCompact(events)) {
-      // Below threshold again: the retry chain ends, backoff resets.
-      this.#consecutiveFailures = 0;
-      if (this.#retryTimer !== null) {
-        clearTimeout(this.#retryTimer);
-        this.#retryTimer = null;
+    if (!call) return;
+    if (!overflow) {
+      // Anti-loop guard: only a *new* measurement can arm the trigger.
+      if (call.index <= this.#lastSeenCallIndex) return;
+      this.#lastSeenCallIndex = call.index;
+      if (!this.shouldAutoCompact(events)) {
+        // Below threshold again: the retry chain ends, backoff resets.
+        this.#consecutiveFailures = 0;
+        if (this.#retryTimer !== null) {
+          clearTimeout(this.#retryTimer);
+          this.#retryTimer = null;
+        }
+        return;
       }
-      return;
     }
     this.#run(events, false);
   }

@@ -675,9 +675,15 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // The usage line is gone entirely.
         if (event.models?.length) blocks.push({ key, kind: "chrome", glyph: "─", type: "model", detail: event.models.join(", "), lines: [] });
         break;
-      case "error":
-        blocks.push({ key, kind: "error", glyph: "✗", type: "error", detail: event.reason, lines: [event.message], state: "fail" });
+      case "error": {
+        // #947: name the next action — a context_length error is recoverable.
+        const hint =
+          event.reason === "context_length"
+            ? ["Context is full for this model — /compact to summarize it, or /models to switch to a bigger window."]
+            : [];
+        blocks.push({ key, kind: "error", glyph: "✗", type: "error", detail: event.reason, lines: [event.message, ...hint], state: "fail" });
         break;
+      }
       case "cancelled":
         blocks.push({ key, kind: "chrome", glyph: "◌", type: "cancelled", detail: "steering · turn interrupted", lines: [] });
         break;
