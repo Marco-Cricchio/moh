@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-09-24
+
 ### Added
 
 - **The browser tool is turned on from Settings** (#934, ADR-0029
@@ -826,7 +828,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...develop
+[0.49.0]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/Marco-Cricchio/moh/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/Marco-Cricchio/moh/compare/v0.45.1...v0.46.0
