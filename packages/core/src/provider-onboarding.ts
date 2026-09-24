@@ -404,8 +404,8 @@ export async function minimalConnectionTest(
     if (openaiNative && nativeContext) {
       // ChatGPT backend only speaks the Responses API (codex's wire):
       // transport (URL + originator header) comes straight from the
-      // stream path's auth context. The body mirrors the codex client
-      // shape (pi-ai api/openai-codex-responses.js): the backend enforces
+      // stream path's auth context. The body mirrors the codex client's
+      // own shape: the backend enforces
       // several invariants with 400s — input must be a message-item
       // list, store must be false, stream must be true. The ping streams
       // and drains the SSE body (any 2xx passes).

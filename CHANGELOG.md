@@ -26,9 +26,11 @@ matching section here at tag time.
   declared **billing plan** (`billingPlan: "metered" | "subscription"` in an
   endpoint profile; absent = metered), which selects between a row's metered
   rate and its subscription-plan record — never inferred from a model name.
-  A weekly CI job (plus PRs touching the catalog) rebuilds and compares the
-  catalogs without committing; generation stays local and human-invoked, and
-  a release ships the last valid committed catalog.
+  A weekly CI job (plus PRs touching the catalog, plus the release pipeline at
+  every tag) rebuilds and compares the catalogs without committing; generation
+  stays local and human-invoked, and a release ships the last valid committed
+  catalog. The release-time check is the recorded trigger to revisit the
+  ownership decision (ADR-0046) — it never blocks a release.
 
 ## [0.49.0] - 2026-09-24
 

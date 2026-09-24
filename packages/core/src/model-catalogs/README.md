@@ -27,7 +27,11 @@ bun packages/core/scripts/build-model-catalogs.ts --version <x.y.z>
   valid committed catalog and never regenerates.
 - `--check` rebuilds and compares **without writing**, exiting non-zero on
   drift. It runs in CI (`.github/workflows/model-catalogs-check.yml`) on PRs
-  touching the catalog and weekly, so staleness is visible between releases.
+  touching the catalog and weekly, and in the release pipeline at every tag
+  (`.github/workflows/release.yml`), so staleness is visible between releases
+  and at the exact commit being shipped. A failing release check is the
+  recorded trigger to revisit the ownership decision (ADR-0046); it never
+  gates a release.
 - `--migrate-overrides` is the one-off migration that wrote the sidecars from
   the committed catalogs; it is kept for reproducibility, not for routine use.
 - `--models-dev <file>` / `--open-router <file>` read a local snapshot instead

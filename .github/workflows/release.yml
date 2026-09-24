@@ -9,6 +9,15 @@
 # only (invariant 4): no manual binary is ever attached.
 # The Homebrew tap (Marco-Cricchio/homebrew-moh) follows published releases
 # automatically via its own update-tap workflow — nothing to do here. (#270)
+#
+# `catalog-check` (ADR-0046) also runs here: at every release, rebuild the
+# model catalog from the declared aggregators and compare it with the
+# committed tree — the exact commit being shipped, not the last scheduled
+# run. It is deliberately NOT a dependency of `release`: a release ships the
+# last valid committed catalog, so a failure here is a data-quality signal
+# for the owner, never a release blocker. Either failure mode counts as the
+# recorded trigger to revisit the catalog-ownership decision: drift against
+# the committed tree, or a source that could not be fetched.
 name: release
 
 on:
@@ -65,6 +74,23 @@ jobs:
           path: dist/moh-${{ matrix.platform }}
           if-no-files-found: error
           retention-days: 7
+
+  # ADR-0046 revisit trigger: at every release, rebuild the catalog from the
+  # live aggregators and compare it with the committed tree at the tagged
+  # commit. Deliberately not a `needs` of `release`: the release ships the
+  # last valid committed catalog, so this job's failure is a signal to look,
+  # never a gate. The generator's own report is the diagnostic.
+  catalog-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Rebuild and compare (no write)
+        run: bun packages/core/scripts/build-model-catalogs.ts --check
 
   release:
     needs: build
