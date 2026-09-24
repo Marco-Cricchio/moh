@@ -27,7 +27,10 @@ Compaction is automatic: when a turn's measured input crosses 80% of
 the active model's context window (or 180k tokens when the window is
 unknown), a background summarizer distills the covered past — task
 state, decisions, next steps — into a marker, keeping the last 10 turns
-verbatim. The next turn starts against the rebuilt context.
+verbatim. The next turn starts against the rebuilt context. A turn that
+ends with a provider `context_length` error arms the same producer
+directly — the provider's "does not fit" outranks the threshold — and
+the error names the escape hatches (`/compact`, `/models`).
 
 You can also force it:
 
