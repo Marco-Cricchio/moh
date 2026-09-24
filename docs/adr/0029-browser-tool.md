@@ -155,3 +155,58 @@ decided here:
   (the full build and the system dependencies stay explicit) and calls the
   installer. #934 declared a separate CLI browser command out of its scope
   and left headless setup/status to #935+#936; this is that door.
+
+## Amendment — 2026-09-24, #934: activation is configured from Settings
+
+Decision 6 made the browser opt-in; #935 made the toolchain moh-owned; #936
+made the missing toolchain visible. What was still missing is the door the
+user actually walks through: turning the tool **on** meant editing
+`browser.enabled` in `moh.json` by hand, and the toolchain had one flow
+(the transcript warning) that only appeared *after* a session had already
+failed to register the tool. This amendment adds the Settings row and
+settles the three questions it forces.
+
+- **Activation stays per project; the toolchain stays user-level.** The
+  Settings row writes `browser.enabled` into *that project's* `moh.json` —
+  project A can have the tool while project B does not — while
+  `playwright-core` and the Chromium builds live once under
+  `~/.moh/browser-toolchain` (and Playwright's own cache). The row states
+  both halves (`off (this project) · toolchain ready`), because they answer
+  different questions and a single "browser: off" would hide which one is
+  the obstacle. The project file is written the way the rest of the panel
+  writes it (`loadMohConfig` + `writeMohConfig`, read-modify-write), so
+  unrelated keys survive; a file that does not validate is reported and
+  never rewritten blind — the row says `moh.json is invalid — fix the file`
+  rather than claiming the default it never managed to read. `enabled` is
+  always written (a deliberate off must be durable, not the absence of a
+  key); the two optional shapes follow the defaults: `headless: false` only
+  when headful is chosen, `allowedHosts` only when non-empty.
+- **One modal, three planes.** The Settings row opens the *same*
+  `BrowserSetupModal` that the transcript warning's `install now`,
+  `/browser` and ctrl+b already open (built in #936 with this row in
+  mind): the TUI does not grow a second installer path, nor a second place
+  that decides what the three keys mean. The modal separates what is
+  separate — the **project** setting, the **user-level** toolchain (with
+  the headless shell as the plan's floor, the full build and the system
+  dependencies explicit, and headful-without-the-full-build stated before
+  a 500 MB download starts), and the **effect** — and reports what it did
+  exactly once, through a single `onDone` outcome. Two exit behaviours,
+  deliberately different: a successful install closes the modal by itself
+  (the download is over; the next act is to use the browser), while a pure
+  setting change waits for esc, so several toggles cost one re-assembly
+  instead of one each.
+- **The effect is the session's, and the client's to apply.** The tool is
+  registered — and `headless` read — when a session is *assembled*, so no
+  setting change can matter to the running one on its own. A change made
+  with a session open re-assembles it (the same `/reload` path, carrying
+  the modal's own sentence in the toast); a change made from Home applies
+  to the next session, and the modal says which of the two it is showing.
+  Opened from Settings, the modal returns to Settings — remounted, so the
+  row states what was just written; opened from the warning, it returns to
+  the chat.
+
+Unchanged: `browser.enabled` defaults to false, decisions 3–5's security
+posture (the allowed-host list is the same exact-host escape hatch, now
+editable where the tool is turned on), the missing-toolchain rule, the
+per-project/per-user split of decision 6 and the #935 amendment, and the
+clients' rule that they render and ask while the core probes and installs.

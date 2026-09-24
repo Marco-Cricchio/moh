@@ -100,24 +100,35 @@ All keys are optional. Notes:
   storage bounds (`maxFiles`, `maxTotalBytes`), `exclude` adds
   gitignore-style workspace exclusion patterns.
 - `browser` — the native browser tool (#774, ADR-0029), **off by
-  default**: `enabled: true` registers the `browser` tool
+  default** and **per project**: `enabled: true` in *this* project's
+  moh.json registers the `browser` tool
   (`navigate`, `snapshot`, `read_text`, `close`, `screenshot`, plus the
   act tier: `click`, `fill`, `select`, `scroll`, `press_key`,
   `wait_for`, `upload`, `eval_js`) driving a headless
-  Chromium via playwright-core. moh owns the optional toolchain: a
+  Chromium via playwright-core. The toggle lives in the TUI Settings row
+  **Browser** (enter opens the guided setup: enable/disable, headless or
+  headful, allowed hosts, install) — no hand-editing required, and the
+  project it writes is the one whose sessions read it (a `moh.json` that
+  does not validate is reported there, never silently rewritten). moh owns the
+  optional toolchain, which is **user-level** — one install serves every
+  project: a
   `playwright-core` installed in the project's own `node_modules` is used
-  as-is, otherwise `moh browser install` (or the Browser row in Settings)
+  as-is, otherwise `moh browser install` (or the same Settings row)
   installs playwright-core into `~/.moh/browser-toolchain` and the
   Chromium headless shell (~200 MB) into Playwright's per-user cache — no
   npm, no system Bun, no sudo. The full Chromium build (~500 MB, for
   `headless: false`) and Playwright's system dependencies are explicit
-  options of that setup, never implicit. When the toolchain is missing, the
+  options of that setup, never implicit (the setup says so when headful is
+  selected without the full build). When the toolchain is missing, the
   tool is not registered and a visible `browser_unavailable` diagnostic is
   recorded at session start: the TUI renders it as a warning with an
   `install now` action (ctrl+b, or `/browser` — the same guided setup), and
   `moh run` prints one line on stderr naming the missing component and the
   setup command. Neither is a turn error: the session simply runs without
-  the optional tool.
+  the optional tool. Because the tool registers when a session is
+  assembled, enabling it, switching headless/headful or changing the
+  allowed hosts takes effect on the **next** session — the TUI re-assembles
+  the open one for you when the setup is what you were doing.
   `headless` (default `true`) runs a real Chrome window when `false`
   (same permission rules; the window is reaped when the session
   closes).

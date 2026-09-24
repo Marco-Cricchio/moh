@@ -9,6 +9,23 @@ matching section here at tag time.
 
 ### Added
 
+- **The browser tool is turned on from Settings** (#934, ADR-0029
+  amendment): enabling the native `browser` tool used to mean hand-editing
+  `browser.enabled` in `moh.json`. Settings now carries a **Browser** row
+  that states both halves of the truth — `off (this project) · toolchain
+  ready` — and opens the guided setup: enable/disable **for that project**
+  (activation is per project, the toolchain is user-level), headless or
+  headful, the SSRF allowed-host list, and the install itself (headless
+  shell first; the full Chromium build and Playwright's system
+  dependencies stay explicit choices, and headful without the full build
+  says so before you start a 500 MB download). Everything the settings
+  write goes into that project's `moh.json` and preserves unrelated keys;
+  a file that is not valid JSON is reported, never rewritten blind. The
+  same modal is what the transcript warning's `install now`, `/browser`
+  and ctrl+b open — one setup flow, not two. Because the tool registers
+  when a session is assembled, a change re-assembles the open session for
+  you; a change made from Home applies to the next session.
+
 - **The browser tool installs itself** (#935, ADR-0029 amendment):
   enabling `browser` used to require `npm i -g playwright-core` plus a
   Chromium download — a contract that cannot hold for moh's prebuilt
