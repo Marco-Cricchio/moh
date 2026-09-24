@@ -70,12 +70,14 @@ export { identitySlug };
  * (#591). Returns null when there is no origin or it cannot be parsed.
  */
 export function canonicalRemoteSlug(cwd: string): string | null {
-  // NOTE: deliberately NOT memoized (#595 flake investigation): a spawn here
-  // is safe as long as it never re-enters React's reconciler mid-commit —
-  // the TUI warms the first resolution before the first frame (renderTui)
-  // and the #591 pin keeps later resolutions off the startup paths. A
-  // process-lifetime cache would also leak stale slugs for temp dirs that
-  // appear/disappear under a repo (git searches upward).
+  // NOTE: deliberately NOT memoized (#595 flake investigation, #939): a
+  // process-lifetime cache would leak stale slugs for temp dirs that
+  // appear/disappear under a repo (git searches upward). Safety does not
+  // need one: this spawn is synchronous and runs the event loop inside the
+  // call under bun (ADR-0024), so callers that run inside a React window
+  // resolve through `prepareProjectIdentity` at their boot instead
+  // (`preparedIdentities` below); the TUI entry point warms before the
+  // first frame only to spare the first paint a `git` spawn.
   return canonicalRemoteSlugUncached(cwd);
 }
 
@@ -86,6 +88,29 @@ function canonicalRemoteSlugUncached(cwd: string): string | null {
   } catch {
     return null;
   }
+  return remoteSlugFromUrl(url);
+}
+
+/**
+ * Async twin of `canonicalRemoteSlugUncached` for the boot path (#939): a
+ * promise continuation is not a React execution window, so the spawn can
+ * never re-enter the reconciler whatever is pending. Same question, same
+ * normalization, same answer.
+ */
+async function canonicalRemoteSlugAsync(cwd: string): Promise<string | null> {
+  let stdout: string;
+  try {
+    const proc = Bun.spawn(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
+    const [out, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    if (exitCode !== 0) return null;
+    stdout = out;
+  } catch {
+    return null;
+  }
+  return remoteSlugFromUrl(stdout.trim());
+}
+
+function remoteSlugFromUrl(url: string): string | null {
   if (!url) return null;
   // scp-like spelling: git@host:owner/repo(.git)
   let rest = /^git@([^:/]+):(.+)$/.exec(url)?.slice(1) as [string, string] | undefined;
@@ -127,6 +152,65 @@ function normalizeRemoteHostRepo(host: string, repoPath: string): string | null 
 const pinnedSlugs = new Map<string, { slug: string; legacySlug: string; declared: boolean }>();
 
 /**
+ * Identities resolved *before* a React render ever asked for them (#939):
+ * `prepareProjectIdentity` fills this, and `resolveProjectIdentity` honours
+ * it unconditionally (no `anyOpenSessionInDir` release like the #591 pin
+ * above — the point is that no later React-phase call spawns, and a boot
+ * resolution is the client's own declared starting identity).
+ */
+const preparedIdentities = new Map<string, { slug: string; legacySlug: string; declared: boolean }>();
+
+function identityKey(cwd: string, home: string): string {
+  return `${pathResolve(cwd)}\u0000${pathResolve(home)}`;
+}
+
+/**
+ * Whether this project's identity was already resolved by a boot call, so
+ * every later resolution is served from memory and spawns nothing (#939).
+ */
+export function isProjectIdentityPrepared(cwd: string, home: string): boolean {
+  return preparedIdentities.has(identityKey(cwd, home));
+}
+
+/**
+ * Resolves the project identity **without touching the event loop's React
+ * window** (#939): the git probe is awaited instead of blocking, and the
+ * answer — plus the migration work `resolveProjectIdentityUncached` owns —
+ * lands in `preparedIdentities`, so a plain `render(<App/>)` can boot
+ * without any synchronous spawn reachable from its render phase.
+ *
+ * `warm: true` answers with the synchronous probe instead. Callers that run
+ * *outside* React (the TUI entry point, before the first frame) use it to
+ * keep the first frame free of a boot state.
+ */
+export async function prepareProjectIdentity(cwd: string, home: string, opts: { warm?: boolean } = {}): Promise<{ slug: string; legacySlug: string; declared: boolean }> {
+  const key = identityKey(cwd, home);
+  const known = preparedIdentities.get(key);
+  if (known) return known;
+  const legacySlug = legacyProjectSlug(cwd);
+  const result = opts.warm
+    ? resolveProjectIdentityUncached(cwd, home, legacySlug)
+    : resolveProjectIdentityUncached(cwd, home, legacySlug, await canonicalRemoteSlugAsync(cwd));
+  preparedIdentities.set(key, result);
+  pinnedSlugs.set(key, result);
+  return result;
+}
+
+/**
+ * Synchronous twin of `prepareProjectIdentity` for callers that are not
+ * inside a React window (the TUI entry point warms before the first frame).
+ */
+export function prepareProjectIdentityNow(cwd: string, home: string): { slug: string; legacySlug: string; declared: boolean } {
+  const key = identityKey(cwd, home);
+  const known = preparedIdentities.get(key);
+  if (known) return known;
+  const result = resolveProjectIdentityUncached(cwd, home, legacyProjectSlug(cwd));
+  preparedIdentities.set(key, result);
+  pinnedSlugs.set(key, result);
+  return result;
+}
+
+/**
  * Resolves the stable project identity and migrates pre-#398 data once.
  * An unreadable identity deliberately leaves the project on its legacy slug.
  * When the project has a git `origin` remote, the slug derives from its
@@ -135,7 +219,9 @@ const pinnedSlugs = new Map<string, { slug: string; legacySlug: string; declared
  */
 export function resolveProjectIdentity(cwd: string, home: string): { slug: string; legacySlug: string; declared: boolean } {
   const legacySlug = legacyProjectSlug(cwd);
-  const key = `${pathResolve(cwd)}\u0000${pathResolve(home)}`;
+  const key = identityKey(cwd, home);
+  const prepared = preparedIdentities.get(key);
+  if (prepared) return prepared;
   const pinned = pinnedSlugs.get(key);
   if (pinned) {
     // The pin binds only while a session file under the pinned slug is open:
@@ -150,8 +236,8 @@ export function resolveProjectIdentity(cwd: string, home: string): { slug: strin
   return result;
 }
 
-function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: string): { slug: string; legacySlug: string; declared: boolean } {
-  const remoteSlug = canonicalRemoteSlug(cwd);
+function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: string, remoteOverride?: string | null): { slug: string; legacySlug: string; declared: boolean } {
+  const remoteSlug = remoteOverride !== undefined ? remoteOverride : canonicalRemoteSlug(cwd);
   if (remoteSlug) {
     const projects = join(home, ".moh", "projects");
     const dir = join(projects, remoteSlug);

@@ -24,6 +24,10 @@ describe("mode switch repaints the transcript (#201)", () => {
     // so assertions read the accumulated frames (continuity.tui pattern).
     const seen = (text: string) => i.frames.some((f) => stripAnsi(f).includes(text));
 
+    // #939: the identity gate mounts the tree (and its input handlers) a
+    // beat after render(); wait for the settled chat before the first key.
+    await waitForFrame(frame, "type…");
+    await new Promise((r) => setTimeout(r, 120));
     i.stdin.write("one");
     await new Promise((r) => setTimeout(r, 20));
     i.stdin.write("\r");

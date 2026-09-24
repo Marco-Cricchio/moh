@@ -6,9 +6,8 @@
  * modal (never a second installer path beside the transcript warning's).
  *
  * These live in their own file because they drive a full `App` through
- * Settings into the modal — the describe above them mounts App instances
- * for the transcript surfaces, and one unmounted-on-failure instance would
- * take the next one down with it (`Should not already be working`).
+ * Settings into the modal — the heavier interactive flow, split from the
+ * transcript-surface describes above them.
  */
 import { describe, expect, test } from "bun:test";
 import React from "react";
@@ -16,7 +15,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { browserToolchainRoot, MockProvider, projectSlug } from "@moh/core";
+import { browserToolchainRoot, MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { readBrowserSetting, writeBrowserSetting } from "../src/browser-setup";
 import { stripAnsi, waitForFrame } from "./helpers";
@@ -29,12 +28,6 @@ describe("the Settings Browser row (#934)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-browser-set-"));
     const home = tempHome();
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", ...project }));
-    // The same warm-up `renderTui` performs before the first frame (#595):
-    // project identity spawns `git remote get-url` synchronously, and a
-    // spawn re-entering the reconciler mid-commit crashes Ink with "Should
-    // not already be working". Production warms it; a test mounting App
-    // must do the same — same cwd AND home.
-    projectSlug(cwd, home);
     const i = render(
       <App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding startInChat />,
     );
@@ -101,7 +94,6 @@ describe("a browser change and the session it affects (#934)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-browser-reload-"));
     const home = tempHome();
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", ...project }));
-    projectSlug(cwd, home);
     const i = render(
       <App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding startInChat />,
     );
@@ -145,13 +137,16 @@ describe("a browser change and the session it affects (#934)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-browser-home-"));
     const home = tempHome();
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
-    projectSlug(cwd, home);
     // No session: the App opens on Home, and Settings is reachable there.
     const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await waitForFrame(frame, "settings");
+    // #939: the identity gate mounts the Home tree a beat after render(),
+    // so the first key waits for the settled screen.
+    await waitForFrame(frame, "New session");
+    await sleep(120);
     i.stdin.write("\x13"); // ctrl+s from Home
     await waitForFrame(frame, "Browser");
+    i.stdin.write("\x13"); // ctrl+s from Home
     await sleep(150);
     const on = () => frame().split("\n").some((l) => l.includes("›") && l.includes("Browser"));
     for (let k = 0; k < 30 && !on(); k++) {

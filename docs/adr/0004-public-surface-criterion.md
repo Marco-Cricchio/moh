@@ -297,3 +297,24 @@ into the `planFor` seam `aggregateLocalUsage`, `aggregateTelemetry` and
 plan as an optional argument — absent = `metered`, so a row with a single
 price entry behaves exactly as before. `CatalogModel.planPricing` is the
 subscription entry of a catalog row, alongside the existing `pricing`.
+
+## Amendment — 2026-09-24, #939 identity boot seam
+
+**Re-opened doors**: `prepareProjectIdentity`, `prepareProjectIdentityNow`
+and `isProjectIdentityPrepared` (`core/src/project-identity.ts`), consumed by
+`@moh/tui` — `renderTui` calls the synchronous twin before the first frame
+(it runs outside React) and App's identity gate awaits the async one when
+nothing did. Same reason `projectSlug` is public (the #467 reopening): a
+client must resolve the canonical project identity the Core-resolved way
+instead of recomputing a slug, and #939 adds the *when* — the resolution has
+to happen before the tree that needs it mounts, because resolving it spawns
+`git` synchronously and a spawn inside a React commit kills Ink
+(ADR-0024). `prepareTrackerRemote` (`core/src/tracker.ts`) rides the same
+decision for the tracker probe, which the same startup path resolves.
+
+These are not a new capability: they resolve the identity the existing
+`projectSlug` already exposes, and they return the same values. The door is
+about *ordering*, which a client cannot achieve from outside without the
+seam (`prepareProjectIdentityNow` pins the answer so the later synchronous
+read is memory-served; `isProjectIdentityPrepared` is the same
+pin's synchronous test).

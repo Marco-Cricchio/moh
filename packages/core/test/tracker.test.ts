@@ -7,6 +7,7 @@ import {
   defaultRunner,
   ghTracker,
   localMarkdownTracker,
+  prepareTrackerRemote,
   projectFrontier,
   resolveTracker,
   resolveTrackerSync,
@@ -260,5 +261,36 @@ describe("tracker tools", () => {
     const out = await tools.tracker_claim!.execute({ id: "1" }, { signal: new AbortController().signal, cwd: "/tmp", onProgress: () => {} });
     expect(out).toBe("claimed #1");
     expect((await backend.list())[0]!.assignees).toEqual(["@me"]);
+  });
+});
+
+describe("prepareTrackerRemote (#939)", () => {
+  test("fills the sync twin's memo, so the startup path stops spawning", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-tracker-prep-"));
+    const repoDir = join(cwd, "repo");
+    mkdirSync(repoDir, { recursive: true });
+    // A local markdown tracker wins and never spawns; use a plain dir, so
+    // the git probe is what the sync twin would pay for.
+    const run = fakeRunner((cmd) => {
+      if (cmd[0] === "git" && cmd.includes("remote")) return { code: 0, stdout: "git@github.com:owner/repo.git" };
+      return { code: 1, stdout: "" };
+    });
+
+    await prepareTrackerRemote(repoDir, run);
+
+    const real = Bun.spawnSync;
+    let spawns = 0;
+    (Bun as { spawnSync: unknown }).spawnSync = ((...args: unknown[]) => {
+      spawns++;
+      return (real as (...a: unknown[]) => unknown)(...args);
+    }) as never;
+    try {
+      const backend = resolveTrackerSync({ cwd: repoDir });
+      expect(backend).not.toBeNull();
+      // Memory-served: the lazy useState inside App cannot spawn.
+      expect(spawns).toBe(0);
+    } finally {
+      (Bun as { spawnSync: unknown }).spawnSync = real;
+    }
   });
 });

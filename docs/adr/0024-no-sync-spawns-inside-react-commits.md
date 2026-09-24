@@ -84,3 +84,73 @@ a crash is never reported as a slow screen.
 - `SessionStore.listSpawnFree` exists as the filesystem-only twin of
   `SessionStore.list` for startup gates; it never resolves the remote
   identity by construction.
+
+## Amendment — 2026-09-24, #939: the invariant moves into the boot
+
+**What #939 found, measured.** The rule above held only as long as every
+caller remembered it, and two of its load-bearing claims were false:
+
+- **The warm-up is not a safety argument.** A mount in a process where
+  `projectSlug(cwd, home)` had *already* run still performed four
+  synchronous identity spawns (measured on the pre-fix tree): the #591 pin is
+  released whenever no session file is under it yet, so Home's listing, the
+  session assembly's `SessionStore.create`, the prompt composer and the
+  handoff artifact all re-resolved — and one of them is reached from `App`'s
+  render phase (`projectSessionsDir` ← `SessionStore.create` ←
+  `sessionFromConfig` ← `useState`). Production spawned on those paths all
+  along.
+- **The failure needs pending React work, not a specific call site.** Under
+  bun a synchronous spawn runs the event loop inside the call: with any
+  queued scheduler task (an earlier keystroke, another root's update) the
+  spawn that is *reached* crashes — from a render, from a layout effect, and
+  from a **passive** effect alike (`flushPassiveEffects` runs inside
+  `CommitContext`). Warming the identity in the same tick does not help
+  either: the drain itself yields and re-queues the task.
+
+**The decision.** The invariant is now carried by the *boot*, not by each
+call site:
+
+- `prepareProjectIdentity(cwd, home)` resolves the identity **past an
+  `await`** (an async `git` probe — a promise continuation is not a React
+  execution window) and pins it (`preparedIdentities`), so every later
+  resolution — render, effect, `useMemo`, tracker, handoff — is
+  memory-served and spawn-free. `isProjectIdentityPrepared` is the
+  synchronous test, and `prepareProjectIdentityNow` is the twin for entry
+  points that run outside React (`renderTui`, before the first frame).
+- `App` mounts its tree **only once the identity is prepared** (the
+  `IdentityGate` wrapper in `packages/tui/src/App.tsx`). A plain
+  `render(<App/>)` — a test, an embed, a future entry point — can no longer
+  make Ink die; a cold mount shows a boot frame for the duration of one
+  async `git` probe, a warmed one (the installed TUI) paints its real first
+  frame exactly as before.
+- `prepareTrackerRemote(cwd)` does the same for the tracker probe, whose
+  lazy `useState` was the other synchronous spawn on App's startup path.
+- `sessionFromConfig` passes its own `mohHome` to the `PromptComposer`: the
+  composer resolves the session-notes slug, and building it from the
+  *process* home would re-introduce an unpinned resolution on the render
+  path (and disagree with the identity the gate prepared for this session's
+  home).
+
+**What the rule now says.** "No synchronous spawn inside a React commit"
+remains the standard for new code, but the *safety* is structural: a
+resolver that must spawn is prepared at the boot, and a mount site never
+carries the invariant. The warm-up in `renderTui` stays as a latency
+pre-warm (the first frame does not pay a `git` spawn), not as the argument.
+
+**Documented evidence this closes** (each carried the same failure, or a
+workaround obliged by it):
+
+- `packages/core/src/tracker.ts` — the per-cwd memo whose comment cites the
+  #595 crash and the missing-executable throw (kept as plain economy).
+- `packages/core/src/project-identity.ts` — the "deliberately NOT memoized"
+  note that named the TUI warm-up as the safety argument.
+- `packages/core/src/handoff-coldstart.ts` — `isColdDirectory` is
+  filesystem-only *because* a spawn in a mount-time effect crashed Ink; the
+  rule stands, the reason is now the boot rather than the gate's fork.
+- `packages/tui/src/file-index.ts` and `packages/tui/src/Home.tsx` — the
+  async listing / "not in the render body" notes citing the same crash.
+- `packages/tui/test/browser-settings-row.test.tsx` — the hand-rolled
+  warm-up at every mount site (removed).
+- `packages/tui/test/cold-wizard.test.tsx` — the `projectSlug` mock the
+  #595 flake family had grown: nothing to drop, the component never
+  resolved an identity.

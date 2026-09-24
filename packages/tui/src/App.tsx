@@ -14,6 +14,9 @@ import {
   readUpdateCache,
   updateNoticeFor,
   MOH_VERSION,
+  isProjectIdentityPrepared,
+  prepareProjectIdentity,
+  prepareTrackerRemote,
   resolveTrackerSync,
   readUserProviderConfig,
   type AgentSession,
@@ -128,12 +131,58 @@ export const REASONING_PERSISTENCE_NOTICE =
   "note: provider-exposed reasoning and continuity metadata are saved in the session log — they travel with resume and fork and are included in session exports and backups";
 
 /**
+ * #939 identity gate. The session assembly, Home's session listing, the
+ * handoff startup offer and the workflow tracker all resolve the project
+ * identity — and a resolution spawns `git` synchronously, which under bun
+ * runs the event loop *inside* the spawn. Reached from React's render or
+ * commit window that re-enters the reconciler ("Should not already be
+ * working.", ADR-0024) and kills the Ink instance. The invariant used to
+ * live in the callers (only `renderTui` warmed it), so a plain
+ * `render(<App/>)` — tests, embeds, any future entry point — was one pending
+ * React update away from a crash whose stack points at `git`.
+ *
+ * The gate makes the invariant structural: the tree that needs the identity
+ * mounts only once the identity *is* resolved. The entry point that runs
+ * outside React (`renderTui`) prepares it synchronously before the first
+ * frame, so the first frame is unchanged there; every other mount resolves
+ * it here, past an await, where no React window is open. When the tree
+ * mounts, `resolveProjectIdentity` is memory-served, so nothing spawns.
+ */
+export function App(props: AppProps) {
+  const home = props.home ?? homedir();
+  const [ready, setReady] = useState(() => isProjectIdentityPrepared(props.cwd, home));
+  useEffect(() => {
+    if (ready) return;
+    let cancelled = false;
+    const prepare = async () => {
+      await prepareProjectIdentity(props.cwd, home);
+      // The tracker probe is the other synchronous spawn on App's startup
+      // path (a lazy `useState`); resolving it here fills the sync twin's
+      // memo so that initializer is memory-served too.
+      try {
+        if (loadUserConfig(userConfigFile(home)).workflow.enabled) await prepareTrackerRemote(props.cwd);
+      } catch {
+        // A broken user config is the session's problem to report, not the
+        // gate's: the tracker just resolves to none.
+      }
+      if (!cancelled) setReady(true);
+    };
+    void prepare();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.cwd, home, ready]);
+  if (!ready) return <Text> </Text>;
+  return <AppShell {...props} />;
+}
+
+/**
  * The moh TUI (#14, #33): vibe/dev views over the same event log,
  * filter-first home, 8 curated themes in React state (a switch remounts the tree
  * via `key`), the blocking permission modal, hybrid onboarding, the
  * settings panel, the all-commands panel, and toast notices.
  */
-export function App({
+function AppShell({
   cwd,
   home,
   startInChat,

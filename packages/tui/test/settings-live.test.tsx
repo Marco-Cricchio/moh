@@ -17,10 +17,13 @@ describe("settings changes apply live (#196)", () => {
     const home = tempHome();
     const i = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
+    // #939: the identity gate mounts the tree — and its input handlers — a
+    // beat after render(), so the first keystroke waits for the settled chat.
     await waitForFrame(frame, "○ vibe");
+    await new Promise((r) => setTimeout(r, 120));
     i.stdin.write("\x13"); // ctrl+s → settings
     await waitForFrame(frame, "settings");
-    await new Promise((r) => setTimeout(r, 60)); // let the panel's useInput attach
+    await new Promise((r) => setTimeout(r, 200)); // let the panel's useInput attach
     i.stdin.write("\r"); // activate the Mode row → dev
     await waitForFrame(frame, "│   › Mode                      dev ");
     i.stdin.write("\x1b"); // close
@@ -36,11 +39,13 @@ describe("settings changes apply live (#196)", () => {
     const i = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "type…");
+    await new Promise((r) => setTimeout(r, 120));
     i.stdin.write("draft"); // a draft in the input proves the remount below
     await waitForFrame(frame, "draft");
     i.stdin.write("\x13"); // ctrl+s → settings
     await waitForFrame(frame, "settings");
-    await new Promise((r) => setTimeout(r, 60)); // let the panel's useInput attach
+    await waitForFrame(frame, "settings");
+    await new Promise((r) => setTimeout(r, 200)); // let the panel's useInput attach
     i.stdin.write("\x1b[B"); // down → Theme row
     await new Promise((r) => setTimeout(r, 20));
     i.stdin.write("\r"); // activate → opens the theme picker

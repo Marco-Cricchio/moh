@@ -20,9 +20,17 @@ function mount() {
   );
 }
 
+/** #939: App resolves the project identity before the tree that owns stdin
+ * mounts, so a keystroke written earlier lands on nothing. */
+async function mountReady() {
+  const i = mount();
+  await waitForFrame(frame(i), "type…");
+  return i;
+}
+
 describe("exit is double ctrl+c (single ctrl+c disabled)", () => {
   test("first ctrl+c arms (toast), second within the window exits", async () => {
-    const i = mount();
+    const i = await mountReady();
     i.stdin.write("\x03"); // ctrl+c
     await waitForFrame(frame(i), "press ctrl+c again to exit");
     i.stdin.write("still-alive");
@@ -37,7 +45,7 @@ describe("exit is double ctrl+c (single ctrl+c disabled)", () => {
   });
 
   test("a lone ctrl+c does not exit", async () => {
-    const i = mount();
+    const i = await mountReady();
     i.stdin.write("\x03");
     await waitForFrame(frame(i), "press ctrl+c again to exit");
     // Wait past the 1.5s arm window (the toast itself lives 3.5s —
