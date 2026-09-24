@@ -27,6 +27,9 @@ describe("/tree panel in the App (#581)", () => {
     ]);
     const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding startInChat />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
+    // #939: the identity gate mounts the tree (and its stdin) a beat after
+    // render(), so the first keystroke has to wait for the settled chat.
+    await waitForFrame(frame, "type…");
     // The App assembles its own session: discover the actual log file in
     // the project slug directory rather than assuming `store`'.
     const slugDir = join(home, ".moh", "projects");

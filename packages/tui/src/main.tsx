@@ -2,7 +2,7 @@ import React from "react";
 import { render } from "ink";
 import { App, type AppProps } from "./App";
 import { installAiSdkWarningSink } from "./ai-sdk-warnings";
-import { projectSlug, resolveTrackerSync } from "@moh/core";
+import { prepareProjectIdentityNow, resolveTrackerSync } from "@moh/core";
 import { homedir } from "node:os";
 import { loadUserConfig, userConfigFile } from "./user-config";
 
@@ -33,18 +33,18 @@ export function kittyKeyboardOptions(env: Record<string, string | undefined> = p
  * input's shift+enter newline). On every other terminal nothing changes —
  * ctrl+j remains the newline fallback everywhere. */
 export function renderTui(options: AppProps) {
-  // #595 flake: project-identity and tracker resolution spawn `git remote
-  // get-url` synchronously; startup paths reach them from React renders and
-  // passive effects (cold-directory scan, handoff offer, Home's session
-  // list, the workflow tracker lazy useState). A spawn re-entering the
-  // reconciler scheduler mid-commit crashes Ink ("Should not already be
-  // working."). Warm both before the first frame so no spawn ever lands
-  // inside a commit. Failures fall through: both resolvers keep their own
-  // fallbacks.
+  // #939: project identity resolves through a synchronous `git remote
+  // get-url`, and under bun a synchronous spawn runs the event loop inside
+  // the call — from React's render/commit window that re-enters the
+  // reconciler and crashes Ink ("Should not already be working.", ADR-0024).
+  // This entry point runs outside React, so it prepares and pins the
+  // identity here: App's own gate then finds it ready and paints the real
+  // first frame instead of its boot state. Failure falls through — the
+  // resolver is fail-soft by design.
   try {
-    projectSlug(options.cwd, options.home ?? homedir());
+    prepareProjectIdentityNow(options.cwd, options.home ?? homedir());
   } catch {
-    // The resolver is fail-soft by design; nothing to do here.
+    // Nothing to do: identity resolution keeps its own fallbacks.
   }
   try {
     const cfgFile = userConfigFile(options.home ?? homedir());
