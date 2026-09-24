@@ -276,3 +276,12 @@ is deliberately narrow: probing returns a status with actionable reasons
 staging/symlink swap, the Playwright registry access, the embedded-Bun
 invocation — stays internal to the defining module (tests import it
 directly, per this ADR).
+
+## Amendment — 2026-09-24, #955 pricing snapshot provenance
+
+`PRICING_SNAPSHOT` (and `estimateModelCost`) stays on the public surface
+unchanged as exports. What changes is the **meaning of its content** per
+ADR-0046: `version` becomes the moh release containing the catalog,
+`updatedAt` stays the real generation date, and the false
+`source: "vendored pi-ai model catalog"` string is removed. Clients and user-
+facing surfaces keep reading the same export; no door is re-opened.
