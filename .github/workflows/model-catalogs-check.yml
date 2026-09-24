@@ -1,0 +1,43 @@
+# ADR-0046 (#959): the model catalog is owned by moh and generated from
+# declared aggregators (models.dev primary, OpenRouter hole-filling) plus a
+# hand-maintained `<provider>.overrides.json` sidecar per catalog.
+#
+# This job rebuilds the catalogs from the live sources and compares them with
+# the committed tree — it NEVER writes and NEVER regenerates at release time:
+# a release ships the last valid committed catalog. Generation stays local and
+# human-invoked, because a rebuild is a data change that deserves review.
+#
+# Drift here means one of two things, both worth a look:
+#   - an upstream change since the catalogs were generated (a regeneration is
+#     due), or
+#   - a committed catalog edited by hand instead of through its sidecar.
+#
+# A source outage makes the generator exit non-zero with "generation failed";
+# that is "did not regenerate", never "regenerated with less".
+name: model-catalogs-check
+
+on:
+  pull_request:
+    paths:
+      - "packages/core/src/model-catalogs/**"
+      - "packages/core/scripts/build-model-catalogs.ts"
+      - "packages/core/src/model-catalog-build.ts"
+      - ".github/workflows/model-catalogs-check.yml"
+  schedule:
+    # Weekly: the catalog is release-pinned, so staleness must be visible
+    # between releases rather than only when someone touches it.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Rebuild and compare (no write)
+        run: bun packages/core/scripts/build-model-catalogs.ts --check

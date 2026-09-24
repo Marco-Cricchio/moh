@@ -186,7 +186,7 @@ export async function runProviderAdd(
   let defaultModel: string;
   if (authKind === "subscription") {
     // #156: subscription onboarding never asks for a model id by hand —
-    // the vendored catalog is offered as a numbered list right after the
+    // the shipped catalog is offered as a numbered list right after the
     // successful login, free-text stays the advanced fallback. The grant
     // fixes the base URL (and there is no key), so neither is asked.
     defaultModel = await askSubscriptionModel(io, type);
@@ -268,7 +268,7 @@ async function askOneOf(io: OnboardingIo, prompt: string, options: readonly stri
 }
 
 /**
- * Post-login model choice (#156): print the provider's vendored catalog
+ * Post-login model choice (#156): print the provider's shipped catalog
  * as a numbered list and accept a number, or any non-empty free-text id
  * as the advanced fallback. Empty input aborts (#150 semantics: the
  * login's tokens and endpoint stub are already persisted, so a later
@@ -404,8 +404,8 @@ export async function minimalConnectionTest(
     if (openaiNative && nativeContext) {
       // ChatGPT backend only speaks the Responses API (codex's wire):
       // transport (URL + originator header) comes straight from the
-      // stream path's auth context. The body mirrors the codex client
-      // shape (pi-ai api/openai-codex-responses.js): the backend enforces
+      // stream path's auth context. The body mirrors the codex client's
+      // own shape: the backend enforces
       // several invariants with 400s — input must be a message-item
       // list, store must be false, stream must be true. The ping streams
       // and drains the SSE body (any 2xx passes).

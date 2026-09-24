@@ -70,14 +70,14 @@ an embedder you do nothing: no token plumbing, no refresh handling — the
 login flow itself is a CLI concern (`moh provider add` / `login`), driven
 through the `OnboardingIo` seam (which grew a best-effort `openUrl` for
 headless-safe OAuth). After a successful login the wizard offers the
-provider's model list from the vendored catalogs
-(`subscriptionModelCatalog` in `@moh/core` — verbatim pi-ai data, see
-`src/model-catalogs/README.md` for attribution and regeneration); free-text
-entry stays as the advanced fallback. Most openai-compat endpoints have no
+provider's model list from the shipped catalogs
+(`subscriptionModelCatalog` in `@moh/core` — generated data, see
+`src/model-catalogs/README.md` for the sources and the generation pipeline);
+free-text entry stays as the advanced fallback. Most openai-compat endpoints have no
 vendored catalog: `listOpenAiCompatModels(baseUrl, apiKey?)` fetches
 `GET <baseUrl>/models` live (used by the model pickers; a failure falls
 back to free-text entry). The recognized `api.z.ai` host is an exception:
-moh ships pi-ai's Z.ai GLM catalog, so its picker and context bar use the
+moh ships a Z.ai GLM catalog, so its picker and context bar use the
 published model metadata (including context windows) without a live fetch.
 Onboarding a Z.ai URL automatically records the corresponding explicit
 thinking capability declaration.
@@ -99,7 +99,7 @@ API. `fetchLiveCatalogs(endpoints, opts)` in `@moh/core` is the single
 orchestrator (startup and picker open), caching results in
 `~/.moh/live-models.json` (TTL from the `liveModels` user-config
 section, default 24h; `enabled: false` restores the fully static
-catalog) and merging additively — the vendored catalog always wins on
+catalog) and merging additively — the shipped catalog always wins on
 id collision, and fetched-only models carry conservative metadata (moh
 never invents capabilities). A well-formed but *empty* listing counts
 as a failure (a version gate or an account without access must not wipe
@@ -107,13 +107,13 @@ the picker), and every endpoint's outcome is reported rather than
 inferred from an entry count (ADR-0045): `fresh`, `cached` (the healthy
 steady state, not a degradation), `stale` (an expired cache kept while
 the refresh failed, carrying its age), `failed` (nothing to serve, with
-the reason) or `unsupported` (no verified contract — the vendored
+the reason) or `unsupported` (no verified contract — the shipped
 catalog *is* the answer). Clients choose the noise: the `r` refresh
 always reports, while startup and picker-open speak only when they would
 leave the user without a list. Both the `/model` modal and the Settings
 panel's model picker consume the same live projection. This is a
 picker/cache seam only: routing, `catalogEntryFor` and thinking
-resolution keep reading the vendored data.
+resolution keep reading the shipped data.
 
 **Thinking capability declarations (#256).** An endpoint profile may
 declare a thinking capability in `capabilities`: `thinking` (endpoint-
@@ -133,10 +133,11 @@ wire can express (e.g. `google-thinking-level` has no `xhigh`/`max`).
 
 **Catalog gaps and the declaration as escape hatch (#338).** Some
 catalog-backed models are flagged `reasoning` upstream without a thinking
-level map, so `/thinking` and Ctrl+Y offer no level control for them. The
-regeneration script (`packages/core/scripts/regen-model-catalogs.ts`)
-fills what it can by exact model-id match across pi-ai's catalogs; the
-residual is genuinely unlabelled upstream. For those models, an explicit
+level map, so `/thinking` and Ctrl+Y offer no level control for them. Since
+ADR-0046 (#959) a thinking level map is never aggregator-supplied: it is
+hand-maintained in the catalog's `<provider>.overrides.json` sidecar, so a
+gap is filled by declaring it there (or, without touching the catalog, on
+the endpoint profile — same mechanism as above). For those models, an explicit
 `capabilities.thinkingModels` declaration on the endpoint profile (same
 mechanism as above) enables level control without waiting for upstream
 data.
@@ -468,15 +469,30 @@ always-available fallback: per-model token totals summed from a session's
 
 ## Estimated model pricing (#719)
 
-`estimateModelCost(model, usage)` returns an approximate USD estimate from the
-release-pinned vendored catalog for measured input and output tokens, or
-`undefined` when the model has no unique maintained rate. `PRICING_SNAPSHOT`
-identifies the catalog source/version clients must display alongside estimates.
-The calculation excludes cache, image, request, subscription, tax, and other
+`estimateModelCost(model, usage, plan?)` returns an approximate USD estimate
+from the release-pinned generated catalog for measured input and output
+tokens, or `undefined` when the model has no unique maintained rate.
+`PRICING_SNAPSHOT` identifies the catalog source/version clients must display
+alongside estimates (it reads `model-catalogs/manifest.json`, the generation
+manifest). The calculation excludes cache, image, request, tax, and other
 billing dimensions; it never calls a provider and it does not write an amount
 to the event log. Rates may therefore be stale until the next catalog
 regeneration. `pricingForModel` and the typed pricing structures are exported
 only for clients needing the same projection (ADR-0004; ADR-0029).
+
+**Billing plan (ADR-0046, #959).** An endpoint profile may declare
+`billingPlan: "metered" | "subscription"` (absent = `metered`). A catalog row
+can carry both price entries (`cost` for the metered API rate, `planCost` for
+the subscription record); the declared plan selects which one the estimate
+uses, and a zero-only plan record means "included in the plan" — tokens only,
+never a free rate. The plan is user-owned and never inferred from a model
+name. `billingPlanResolver(endpoints)` maps `endpoint → plan` for the
+aggregation seams: pass it as `aggregateLocalUsage(events, { planFor })`,
+`aggregateTelemetry({ ..., planFor })` or `analyzeSession(file, { planFor })`
+so the rollups use the same entries the live quota modal does.
+`pricingForPlan(entry, plan)` is the selection on its own (it takes the
+`pricing`/`planPricing` pair), and `CatalogModel.planPricing` is the
+subscription entry a catalog row declares.
 
 ## Multi-session telemetry (#714)
 

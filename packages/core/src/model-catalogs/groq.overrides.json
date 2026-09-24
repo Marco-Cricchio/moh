@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "provider": "groq",
+  "source": {
+    "modelsDev": [
+      "groq"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "groq",
+    "baseUrl": "https://api.groq.com/openai/v1"
+  },
+  "rows": {
+    "llama-3.3-70b-versatile": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Llama 3.3 70B Versatile"
+    }
+  }
+}

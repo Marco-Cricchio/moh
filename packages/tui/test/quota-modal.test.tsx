@@ -79,7 +79,8 @@ describe("QuotaModal (#499)", () => {
     expect(frame).toContain("300");
     expect(frame).toContain("$0.0060");
     expect(frame).toContain("total");
-    expect(frame).toContain("estimated USD · pricing snapshot 0.85.0");
+    // The snapshot version is the moh release holding the catalog (#959).
+    expect(frame).toMatch(/estimated USD · pricing snapshot \d+\.\d+\.\d+/);
     expect(frame).toContain("—"); // local badge
     expect(probeCalls).toEqual(["alpha", "beta"]);
   });

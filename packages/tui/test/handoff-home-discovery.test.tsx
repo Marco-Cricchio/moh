@@ -72,8 +72,10 @@ describe("App → Home → handoff discovery (#675)", () => {
     discoveryResult.value = OFFER;
     const i = render(<App intro={false} cwd={cwd} home={home} env={{}} skipOnboarding />);
     try {
-      expect(discoveryCalls.map((c) => c.cwd)).toContain(cwd);
+      // #939: discovery runs from the Home tree, which mounts once the
+      // identity gate is ready — wait for the evidence, not for the call.
       await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "session handoff from another machine");
+      expect(discoveryCalls.map((c) => c.cwd)).toContain(cwd);
       await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "2026-09-02 18:00");
     } finally {
       i.unmount();

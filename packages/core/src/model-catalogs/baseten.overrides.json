@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "provider": "baseten",
+  "source": {
+    "modelsDev": [
+      "baseten"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "baseten",
+    "baseUrl": "https://inference.baseten.co/v1"
+  },
+  "rows": {
+    "deepseek-ai/DeepSeek-R1": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "no aggregator record: the row is fully hand-maintained",
+      "name": "DeepSeek R1",
+      "compat": {
+        "thinkingFormat": "openai"
+      },
+      "contextWindow": 163840,
+      "maxTokens": 8192,
+      "reasoning": true,
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      }
+    }
+  }
+}

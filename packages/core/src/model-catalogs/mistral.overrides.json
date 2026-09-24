@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "provider": "mistral",
+  "source": {
+    "modelsDev": [
+      "mistral"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "mistral",
+    "baseUrl": "https://api.mistral.ai/v1"
+  },
+  "rows": {
+    "mistral-large-latest": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Mistral Large"
+    }
+  }
+}

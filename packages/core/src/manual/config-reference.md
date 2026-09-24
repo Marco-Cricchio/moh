@@ -17,7 +17,7 @@ moh reads two files:
 ```json
 {
   "provider": "endpoint/model-id",
-  "endpoints": [ { "name": "...", "type": "anthropic", "apiKey": "...", "baseUrl": "...", "defaultModel": "...", "fallbackEligible": true, "auth": { "kind": "subscription" }, "capabilities": { "caching": true, "parallelToolCalls": true, "multimodal": true, "thinking": { "format": "anthropic-effort", "levels": ["high"] }, "thinkingModels": { "model-id": { "format": "anthropic-effort", "levels": ["off", "high"] } } } } ],
+  "endpoints": [ { "name": "...", "type": "anthropic", "apiKey": "...", "baseUrl": "...", "defaultModel": "...", "fallbackEligible": true, "billingPlan": "metered", "auth": { "kind": "subscription" }, "capabilities": { "caching": true, "parallelToolCalls": true, "multimodal": true, "thinking": { "format": "anthropic-effort", "levels": ["high"] }, "thinkingModels": { "model-id": { "format": "anthropic-effort", "levels": ["off", "high"] } } } } ],
   "permissions": {
     "overrides": {
       "tools": { "mcp__github__create_issue": "allow" },
@@ -67,6 +67,12 @@ All keys are optional. Notes:
   automatic fallback chain while keeping its preferred model (default
   `true`). Set it from Settings → *Fallback models* (`x`) or
   `moh provider fallback <endpoint> --exclude` / `--include`.
+- `endpoints[].billingPlan` — how this endpoint pays: `"metered"` (an API
+  key, the default) or `"subscription"` (a plan). It selects which catalog
+  price entry the USD estimates use — the metered rate or the
+  subscription-plan record — and a plan record of zeros means "included in
+  the plan", which shows tokens only, never a free rate. Never inferred
+  from a model name (ADR-0046).
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
   uses the plan's OAuth tokens.
 - `capabilities.multimodal` — declares image input for endpoints without

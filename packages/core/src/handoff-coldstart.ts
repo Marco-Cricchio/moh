@@ -53,8 +53,9 @@ export const spawnGit: GitRunner = async (call) => {
  * git-origin part of the identity is decided by `existsSync(<cwd>/.git)`
  * (or an ancestor), never by resolving the slug — a slug resolution spawns
  * `git remote get-url` synchronously, and this gate runs in a mount-time
- * passive effect where a spawn re-entering React's reconciler scheduler
- * crashes Ink ("Should not already be working.", the #595 flake). A
+ * passive effect where a spawn runs the event loop inside the call and
+ * re-enters React's reconciler ("Should not already be working.", the #595
+ * flake; why the fix is the boot rather than the gate: #939, ADR-0024). A
  * project with `.git` is never cold regardless of sessions, so the origin
  * detail cannot change the answer here. A `moh.json` in the directory does
  * NOT count against coldness (a cloned-repo-but-zero-sessions directory

@@ -10,7 +10,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
-import { aggregateLocalUsage, type LocalUsageRow } from "./quota/local";
+import { aggregateLocalUsage, type BillingPlanResolver, type LocalUsageRow } from "./quota/local";
 import { estimateModelCost } from "./pricing";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
@@ -126,7 +126,7 @@ function bumpCount(record: Record<string, number>, key: string): void {
 /** Aggregates one parsed session's events into its rollup, feeding the
  * cross-session accumulators. Runs on the active-path projection, like
  * every other read seam (#577). */
-function aggregateSession(events: readonly AgentEvent[]): TelemetrySessionRow {
+function aggregateSession(events: readonly AgentEvent[], planFor?: BillingPlanResolver): TelemetrySessionRow {
   const path = activePath([...events]);
   let firstMs: number | null = null;
   let lastMs: number | null = null;
@@ -146,7 +146,9 @@ function aggregateSession(events: readonly AgentEvent[]): TelemetrySessionRow {
       tokens.inputTokens += event.usage.inputTokens;
       tokens.outputTokens += event.usage.outputTokens;
       models.add(event.model);
-      const estimate = estimateModelCost(event.model, event.usage);
+      const slash = event.model.indexOf("/");
+      const endpoint = slash === -1 ? "" : event.model.slice(0, slash);
+      const estimate = estimateModelCost(event.model, event.usage, planFor?.(endpoint) ?? "metered");
       if (estimate) costs.set(event.model, (costs.get(event.model) ?? 0) + estimate.usd);
     }
     if (event.type === "subagent_result") {
@@ -195,6 +197,9 @@ export function aggregateTelemetry(options: {
    * read behind the TUI's "last N sessions" views; filtered before any
    * parsing, same policy as `sinceMs` (dropped files are not scanned). */
   maxSessions?: number;
+  /** ADR-0046 billing plan: the endpoints' declared plans, so per-model
+   * estimates use the same price entry the endpoint pays by. */
+  planFor?: BillingPlanResolver;
 }): TelemetryReport {
   const dir = projectSessionsDir(options.cwd, options.home, options.slug);
   const report: TelemetryReport = {
@@ -263,7 +268,7 @@ export function aggregateTelemetry(options: {
 
     // Per-model usage: the existing local rollup, then enriched with the
     // audited thinking levels. Same math, no fork.
-    for (const row of aggregateLocalUsage(events)) {
+    for (const row of aggregateLocalUsage(events, options.planFor ? { planFor: options.planFor } : {})) {
       const acc = modelRows.get(row.model) ?? { model: row.model, calls: 0, inputTokens: 0, outputTokens: 0, thinkingLevels: {} };
       acc.calls += row.calls;
       acc.inputTokens += row.inputTokens;
@@ -272,7 +277,7 @@ export function aggregateTelemetry(options: {
       modelRows.set(row.model, acc);
     }
 
-    const rollup = aggregateSession(events);
+    const rollup = aggregateSession(events, options.planFor);
     rollup.id = basename(name, ".jsonl");
     report.sessions.push(rollup);
 

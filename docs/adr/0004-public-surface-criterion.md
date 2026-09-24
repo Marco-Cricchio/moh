@@ -276,3 +276,45 @@ is deliberately narrow: probing returns a status with actionable reasons
 staging/symlink swap, the Playwright registry access, the embedded-Bun
 invocation — stays internal to the defining module (tests import it
 directly, per this ADR).
+
+## Amendment — 2026-09-24, #955 pricing snapshot provenance
+
+`PRICING_SNAPSHOT` (and `estimateModelCost`) stays on the public surface
+unchanged as exports. What changes is the **meaning of its content** per
+ADR-0046: `version` becomes the moh release containing the catalog,
+`updatedAt` stays the real generation date, and the false
+`source: "vendored pi-ai model catalog"` string is removed. Clients and user-
+facing surfaces keep reading the same export; no door is re-opened.
+
+The billing-plan seam (#959) adds three exports to the same surface, for the
+same reason the pricing seam is public: every client that renders a cost
+estimate must select the same entry, and a client that cannot would fork the
+selection. `pricingForPlan(entry, plan)` is the selection itself,
+`BillingPlan` is its two-value vocabulary (`metered` | `subscription`), and
+`billingPlanResolver(endpoints)` turns the endpoints a caller already has
+into the `planFor` seam `aggregateLocalUsage`, `aggregateTelemetry` and
+`analyzeSession` accept. `estimateModelCost` and `pricingForModel` take the
+plan as an optional argument — absent = `metered`, so a row with a single
+price entry behaves exactly as before. `CatalogModel.planPricing` is the
+subscription entry of a catalog row, alongside the existing `pricing`.
+
+## Amendment — 2026-09-24, #939 identity boot seam
+
+**Re-opened doors**: `prepareProjectIdentity`, `prepareProjectIdentityNow`
+and `isProjectIdentityPrepared` (`core/src/project-identity.ts`), consumed by
+`@moh/tui` — `renderTui` calls the synchronous twin before the first frame
+(it runs outside React) and App's identity gate awaits the async one when
+nothing did. Same reason `projectSlug` is public (the #467 reopening): a
+client must resolve the canonical project identity the Core-resolved way
+instead of recomputing a slug, and #939 adds the *when* — the resolution has
+to happen before the tree that needs it mounts, because resolving it spawns
+`git` synchronously and a spawn inside a React commit kills Ink
+(ADR-0024). `prepareTrackerRemote` (`core/src/tracker.ts`) rides the same
+decision for the tracker probe, which the same startup path resolves.
+
+These are not a new capability: they resolve the identity the existing
+`projectSlug` already exposes, and they return the same values. The door is
+about *ordering*, which a client cannot achieve from outside without the
+seam (`prepareProjectIdentityNow` pins the answer so the later synchronous
+read is memory-served; `isProjectIdentityPrepared` is the same
+pin's synchronous test).

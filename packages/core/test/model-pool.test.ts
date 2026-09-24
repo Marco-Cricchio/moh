@@ -93,7 +93,7 @@ describe("createModelPool (#787)", () => {
     expect(warnings[0]).toBe('endpoint "local": listing failed (HTTP 500)');
   });
 
-  test("a recognized compat host uses vendored metadata (no live listing)", async () => {
+  test("a recognized compat host uses shipped metadata (no live listing)", async () => {
     let calls = 0;
     const pool = createModelPool(
       [{ name: "z", type: "openai-compat", baseUrl: "https://api.z.ai/api/paas/v4" }],

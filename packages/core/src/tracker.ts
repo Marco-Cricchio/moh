@@ -298,12 +298,31 @@ export async function resolveTracker(options: ResolveTrackerOptions = {}): Promi
   if (existsSync(join(cwd, TRACKER_DIR))) return localMarkdownTracker(join(cwd, TRACKER_DIR));
   const res = await run(["git", "-C", cwd, "remote", "get-url", "origin"]);
   if (res.code !== 0) return null;
-  const url = res.stdout.trim();
+  return trackerFromRemoteUrl(res.stdout.trim(), run);
+}
+
+/** The backend a git `origin` implies, or null when the host is unknown. */
+function trackerFromRemoteUrl(url: string, run: ShellRunner): TrackerBackend | null {
   const m = /[:/]([^/:]+\/[^/.]+)(?:\.git)?$/.exec(url);
   if (!m) return null;
   const repo = m[1]!;
-  if (/gitlab/i.test(url)) return gitlabTracker(repo, run);
-  return ghTracker(repo, run);
+  return /gitlab/i.test(url) ? gitlabTracker(repo, run) : ghTracker(repo, run);
+}
+
+/**
+ * Fills the sync twin's memo from a promise continuation (#939): the TUI
+ * resolves the tracker at boot, where no React window is open, so the lazy
+ * `useState(() => resolveTrackerSync(...))` inside App is memory-served and
+ * never spawns during a commit. Same probe, same answer as the sync twin.
+ */
+export async function prepareTrackerRemote(cwd: string, run: ShellRunner = defaultRunner): Promise<void> {
+  const memoKey = resolve(cwd);
+  if (trackerRemoteMemo.has(memoKey)) return;
+  // A local markdown tracker wins and never spawns; the sync twin answers it
+  // from the filesystem, so there is nothing to prepare.
+  if (existsSync(join(cwd, TRACKER_DIR))) return;
+  const res = await run(["git", "-C", cwd, "remote", "get-url", "origin"]);
+  trackerRemoteMemo.set(memoKey, res.code === 0 ? trackerFromRemoteUrl(res.stdout.trim(), run) : null);
 }
 
 /** Sync twin of `resolveTracker` for session creation (spawnSync). */
@@ -311,13 +330,14 @@ export function resolveTrackerSync(options: ResolveTrackerOptions = {}): Tracker
   const cwd = options.cwd ?? process.cwd();
   const run = options.run ?? defaultRunner;
   if (existsSync(join(cwd, TRACKER_DIR))) return localMarkdownTracker(join(cwd, TRACKER_DIR));
-  // A local tracker directory always wins and never spawns; only the
-  // git-origin probe below is a synchronous spawn, so memoize the remote
-  // lookup per cwd: resolution runs on React startup paths (lazy useState
-  // in App, makeSession) and a spawn re-entering the reconciler scheduler
-  // mid-commit crashes Ink ("Should not already be working.", #595 flake).
-  // The origin remote is stable for a TUI process lifetime; test isolation
-  // uses per-test cwd temp dirs.
+  // A local tracker directory always wins and never spawns; the git-origin
+  // probe below is a synchronous spawn and this resolver runs on React
+  // startup paths (lazy useState in App, makeSession). It is safe there for
+  // one reason: `prepareTrackerRemote` (or renderTui's warm-up) fills this
+  // memo before the tree mounts, so the startup path is memory-served
+  // (#939; ADR-0024). The memo itself is plain economy — the origin remote
+  // is stable for a TUI process lifetime, and test isolation uses per-test
+  // cwd temp dirs.
   const memoKey = resolve(cwd);
   if (trackerRemoteMemo.has(memoKey)) return trackerRemoteMemo.get(memoKey)!;
   // A box without git (minimal server images): Bun.spawnSync throws on a

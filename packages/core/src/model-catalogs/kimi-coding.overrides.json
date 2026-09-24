@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "provider": "kimi-coding",
+  "source": {
+    "modelsDev": [
+      "kimi-code-plan-global",
+      "kimi-code-plan-cn"
+    ],
+    "plan": {
+      "modelsDev": [
+        "kimi-code-plan-global",
+        "kimi-code-plan-cn"
+      ]
+    }
+  },
+  "file": {
+    "api": "anthropic-messages",
+    "provider": "kimi-coding",
+    "baseUrl": "https://api.kimi.com/coding"
+  },
+  "rows": {
+    "k3": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained",
+      "name": "Kimi K3",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "allowEmptySignature": true,
+        "forceAdaptiveThinking": true
+      },
+      "cost": {
+        "input": 3,
+        "output": 15,
+        "cacheRead": 0.3,
+        "cacheWrite": 0
+      }
+    },
+    "k3-256k": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Kimi K3-256K",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true
+      }
+    },
+    "kimi-for-coding": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained",
+      "name": "Kimi K2.7 Code",
+      "compat": {
+        "allowEmptySignature": true,
+        "forceAdaptiveThinking": true
+      },
+      "cost": {
+        "input": 0.95,
+        "output": 4,
+        "cacheRead": 0.19,
+        "cacheWrite": 0
+      }
+    },
+    "kimi-for-coding-highspeed": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained",
+      "name": "Kimi For Coding HighSpeed",
+      "compat": {
+        "forceAdaptiveThinking": true
+      },
+      "cost": {
+        "input": 1.9,
+        "output": 8,
+        "cacheRead": 0.38,
+        "cacheWrite": 0
+      }
+    }
+  }
+}

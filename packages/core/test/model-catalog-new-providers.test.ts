@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { catalogEntryFor, PI_API_TO_WIRE, subscriptionModelCatalog, vendoredApiNames, vendoredBaseUrls } from "../src/model-catalog";
+import { catalogApiNames, catalogBaseUrls, catalogEntryFor, PI_API_TO_WIRE, subscriptionModelCatalog } from "../src/model-catalog";
 import { catalogTargetOverrides } from "../src/provider-registry";
 import { OAUTH_BUILTIN_BASE_URLS } from "../src/wire";
 import { COPILOT_EDITOR_HEADERS } from "../src/auth/github-copilot";
@@ -33,7 +33,8 @@ describe("new provider catalogs (#164)", () => {
   test("xai catalog: grok models, responses wire for grok models", () => {
     const ids = subscriptionModelCatalog("xai").map((m) => m.id);
     expect(ids.some((id) => id.startsWith("grok-"))).toBe(true);
-    // pi-ai >= 0.84.3 serves all grok models over the responses API.
+    // The wire is declared per model in the moh-owned catalog (ADR-0046):
+    // every grok row ships the responses API.
     expect(catalogEntryFor("xai", "grok-4.5")!.wire).toBe("openai-responses");
     expect(catalogEntryFor("xai", "grok-4.6")!.wire).toBe("openai-responses");
   });
@@ -84,16 +85,16 @@ describe("route targets pick up catalog metadata (#164)", () => {
   });
 });
 
-describe("vendored-data drift checks (#164)", () => {
-  test("every api name in the vendored files maps to a wire — unmapped means silent model loss", () => {
-    for (const api of vendoredApiNames()) {
+describe("catalog-data drift checks (#164)", () => {
+  test("every api name in the shipped files maps to a wire — unmapped means silent model loss", () => {
+    for (const api of catalogApiNames()) {
       expect(PI_API_TO_WIRE[api]).toBeDefined();
     }
   });
 
-  test("vendored baseUrls match the registry's builtin base URLs", () => {
+  test("shipped baseUrls match the registry's builtin base URLs", () => {
     for (const [kind, baseUrl] of Object.entries(OAUTH_BUILTIN_BASE_URLS)) {
-      expect(vendoredBaseUrls(kind)).toContain(baseUrl);
+      expect(catalogBaseUrls(kind)).toContain(baseUrl);
     }
   });
 });
@@ -114,9 +115,12 @@ describe("OpenCode packaged overlays (#794)", () => {
     expect(wireOf(go, "grok-4.6")).toBe("openai-responses");
     expect(wireOf(go, "minimax-m3")).toBe("anthropic-messages");
     expect(wireOf(go, "glm-5.3")).toBe("openai-chat");
-    // No invented metadata in either overlay.
+    // Since #959 the overlays are generated (models.dev, ADR-0046): their
+    // metadata is declared by the aggregator, never invented here — every
+    // row carries the same fields, and the ids it covers are priced.
     for (const list of [zen, go]) {
-      expect(list.every((model) => !model.reasoning && model.pricing === undefined)).toBe(true);
+      expect(list.every((model) => model.contextWindow > 0 && model.reasoning)).toBe(true);
+      expect(list.filter((model) => model.pricing !== undefined).length).toBeGreaterThan(0);
     }
   });
 
