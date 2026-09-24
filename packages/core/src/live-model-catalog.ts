@@ -1,9 +1,9 @@
 /**
  * Live model-list adapters for catalog-backed providers (#551, extended
  * by the #920 coverage audit): one verified contract per provider — no
- * guessing. The vendored subscription catalogs (#156/#164, regenerated
+ * guessing. The shipped subscription catalogs (#156/#164, generated
  * from pi-ai) stay the metadata source of truth; a live listing only
- * *adds* models the vendored file does not yet carry, so newly released
+ * *adds* models the shipped file does not yet carry, so newly released
  * models appear without a moh release.
  *
  * Every contract below was probed against the provider itself (#920):
@@ -11,7 +11,7 @@
  * `{object: "list", data: [{id}]}` unless the docblock says otherwise.
  * Coverage is the whole catalog moh ships, not a hand-picked subset —
  * the fifteen `openai-completions` profiles of #726 carry a single
- * vendored model each, so their listing IS their update story.
+ * shipped model each, so their listing IS their update story.
  *
  * Per-provider contracts:
  *  - openai (ChatGPT/Codex backend): `models[].slug`, `originator` +
@@ -198,7 +198,7 @@ const ACCEPT = { Accept: "application/json" };
 const bearer = (credential?: string) => ({ ...ACCEPT, ...(credential ? { Authorization: `Bearer ${credential}` } : {}) });
 const anthropicHeaders = (credential?: string) => ({ ...ACCEPT, "anthropic-version": "2023-06-01", ...(credential ? { "x-api-key": credential } : {}) });
 const googleHeaders = (credential?: string) => ({ ...ACCEPT, ...(credential ? { "x-goog-api-key": credential } : {}) });
-/** The Copilot client profile (same headers the vendored catalog attaches
+/** The Copilot client profile (same headers the shipped catalog attaches
  * per model). */
 const copilotHeaders = (credential?: string) => ({
   ...ACCEPT,
@@ -268,7 +268,7 @@ const CONTRACTS: Record<string, ListingContract> = {
 };
 for (const id of OPENAI_LISTING_PROFILES) CONTRACTS[id] = { parser: parseOpenAiData };
 
-/** True when the kind has a vendored catalog worth augmenting. */
+/** True when the kind has a shipped catalog worth augmenting. */
 export function hasVendoredCatalog(type: string): boolean {
   return subscriptionModelCatalog(type).length > 0;
 }
@@ -401,18 +401,18 @@ function nextToken(kind: string, body: unknown): string {
 
 /** Vendored entries win on id collision; fetched-only entries become
  * conservative picker rows, enriched where the listing offered data. */
-export function mergeLiveCatalog(vendored: CatalogModel[], live: LiveModelListing[]): CatalogModel[] {
+export function mergeLiveCatalog(shipped: CatalogModel[], live: LiveModelListing[]): CatalogModel[] {
   const extra = live
     .slice()
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
-    .filter((m) => !vendored.some((v) => v.id === m.id));
+    .filter((m) => !shipped.some((v) => v.id === m.id));
   const augmented: CatalogModel[] = extra.map((m) => ({
     id: m.id,
     name: m.name ?? m.id,
     contextWindow: m.contextWindow ?? 0,
     reasoning: false,
   }));
-  return [...vendored, ...augmented];
+  return [...shipped, ...augmented];
 }
 
 // ── user config (`~/.moh/config`, `liveModels` section) ─────────────────
@@ -525,17 +525,17 @@ export type LiveCatalogStatus =
   /** The refresh failed and there is nothing to serve; `reason` is kept
    * for the caller to explain it (never rendered verbatim). */
   | { kind: "failed"; reason: string }
-  /** This provider kind has no verified listing contract, so the vendored
+  /** This provider kind has no verified listing contract, so the shipped
    * catalog *is* its answer. Static by design, never a fault. */
   | { kind: "unsupported" };
 
 /** One endpoint's outcome: the status, plus the listing it is a status of. */
 export interface LiveCatalogResult {
-  /** Live-only models to overlay on the vendored catalog (empty for
+  /** Live-only models to overlay on the shipped catalog (empty for
    * `failed` and `unsupported`). */
   models: LiveModelListing[];
   status: LiveCatalogStatus;
-  /** The provider kind, carried so a client can ask whether a vendored
+  /** The provider kind, carried so a client can ask whether a shipped
    * catalog backstops this endpoint without a second config lookup. */
   type: string;
 }
@@ -590,10 +590,10 @@ export function liveCatalogFailureReasons(report: LiveCatalogReport): string[] {
  * Whether a report leaves the user with a usable list without outside
  * help (ADR-0045's context rule). The question is never "did a refresh
  * fail" — offline is normal — but "would the picker be empty". A failed
- * or stale endpoint whose provider ships a vendored catalog still has
+ * or stale endpoint whose provider ships a catalog still has
  * models to show, and a provider with no listing route is static by
  * design: neither interrupts. Only an endpoint that failed *and* has
- * nothing behind it (no live models, no vendored catalog) earns a notice.
+ * nothing behind it (no live models, no shipped catalog) earns a notice.
  */
 export function reportNeedsNotice(report: LiveCatalogReport): boolean {
   return Object.values(report).some(({ models, status, type }) =>
@@ -607,7 +607,7 @@ export function reportNeedsNotice(report: LiveCatalogReport): boolean {
  * The orchestrator the clients call at startup (fire-and-forget) and on
  * a forced picker refresh: for every configured endpoint, report what
  * happened to its listing (ADR-0045) alongside the live-only models. An
- * endpoint with a vendored catalog AND a verified live contract is served
+ * endpoint with a shipped catalog AND a verified live contract is served
  * from a fresh cache or fetched live; a failed refresh falls back to the
  * stale cached list when one exists (offline with an expired cache still
  * shows the last known live models); a kind with no verified contract

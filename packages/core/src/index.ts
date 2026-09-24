@@ -161,6 +161,7 @@ export {
   type QuotaOptions,
   type QuotaFetch,
   type LocalUsageRow,
+  type BillingPlanResolver,
 } from "./quota";
 // #714: the multi-session telemetry aggregator — the deep module the CLI/TUI
 // usage surfaces project. Read-only metadata projection over session event
@@ -234,8 +235,8 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
-export { catalogEntryFor, pricingForModel, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
-export { estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
+export { catalogEntryFor, pricingForModel, pricingForPlan, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 export {
   fetchLiveCatalogs,
   liveListings,

@@ -1,0 +1,6585 @@
+{
+  "schemaVersion": 1,
+  "version": "0.50.0",
+  "generatedAt": "2026-09-24T11:21:38.366Z",
+  "sources": [
+    {
+      "name": "models.dev",
+      "url": "https://models.dev/api.json",
+      "fetchedAt": "2026-09-24T11:21:38.321Z"
+    },
+    {
+      "name": "openrouter",
+      "url": "https://openrouter.ai/api/v1/models",
+      "fetchedAt": "2026-09-24T11:21:38.333Z"
+    }
+  ],
+  "totals": {
+    "files": 25,
+    "rows": 558,
+    "exact": 514,
+    "baseModel": 11,
+    "absent": 33,
+    "rowsWithOverrides": 104
+  },
+  "files": [
+    {
+      "provider": "anthropic",
+      "rows": 14,
+      "verdicts": {
+        "exact": 14,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 14,
+        "pricing": 14,
+        "contextWindow": 14,
+        "maxTokens": 14,
+        "reasoning": 14,
+        "input": 14
+      },
+      "previous": {
+        "rows": 14,
+        "pricing": 14,
+        "contextWindow": 14,
+        "maxTokens": 14,
+        "reasoning": 14,
+        "input": 14
+      }
+    },
+    {
+      "provider": "baseten",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "cerebras",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "deepseek",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 1,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "fireworks",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "github-copilot",
+      "rows": 27,
+      "verdicts": {
+        "exact": 27,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 27,
+        "pricing": 27,
+        "contextWindow": 27,
+        "maxTokens": 27,
+        "reasoning": 27,
+        "input": 27
+      },
+      "previous": {
+        "rows": 27,
+        "pricing": 27,
+        "contextWindow": 27,
+        "maxTokens": 27,
+        "reasoning": 27,
+        "input": 27
+      }
+    },
+    {
+      "provider": "google",
+      "rows": 22,
+      "verdicts": {
+        "exact": 22,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 22,
+        "pricing": 20,
+        "contextWindow": 22,
+        "maxTokens": 22,
+        "reasoning": 22,
+        "input": 22
+      },
+      "previous": {
+        "rows": 22,
+        "pricing": 20,
+        "contextWindow": 22,
+        "maxTokens": 22,
+        "reasoning": 22,
+        "input": 22
+      }
+    },
+    {
+      "provider": "groq",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "huggingface",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "kimi-coding",
+      "rows": 4,
+      "verdicts": {
+        "exact": 4,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 4,
+        "pricing": 3,
+        "contextWindow": 4,
+        "maxTokens": 4,
+        "reasoning": 4,
+        "input": 4
+      },
+      "previous": {
+        "rows": 4,
+        "pricing": 3,
+        "contextWindow": 4,
+        "maxTokens": 4,
+        "reasoning": 4,
+        "input": 4
+      }
+    },
+    {
+      "provider": "minimax",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "mistral",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "moonshot",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "nvidia-nim",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "openai-codex",
+      "rows": 7,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 6,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 7,
+        "pricing": 7,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      },
+      "previous": {
+        "rows": 7,
+        "pricing": 7,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      }
+    },
+    {
+      "provider": "opencode-go",
+      "rows": 28,
+      "verdicts": {
+        "exact": 28,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 28,
+        "pricing": 28,
+        "contextWindow": 28,
+        "maxTokens": 28,
+        "reasoning": 28,
+        "input": 28
+      },
+      "previous": {
+        "rows": 28,
+        "pricing": 0,
+        "contextWindow": 0,
+        "maxTokens": 0,
+        "reasoning": 0,
+        "input": 0
+      }
+    },
+    {
+      "provider": "opencode-zen",
+      "rows": 69,
+      "verdicts": {
+        "exact": 67,
+        "base-model": 2,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 69,
+        "pricing": 63,
+        "contextWindow": 69,
+        "maxTokens": 67,
+        "reasoning": 69,
+        "input": 69
+      },
+      "previous": {
+        "rows": 69,
+        "pricing": 0,
+        "contextWindow": 0,
+        "maxTokens": 0,
+        "reasoning": 0,
+        "input": 0
+      }
+    },
+    {
+      "provider": "openrouter",
+      "rows": 362,
+      "verdicts": {
+        "exact": 338,
+        "base-model": 1,
+        "absent": 23
+      },
+      "coverage": {
+        "rows": 362,
+        "pricing": 340,
+        "contextWindow": 362,
+        "maxTokens": 362,
+        "reasoning": 278,
+        "input": 362
+      },
+      "previous": {
+        "rows": 362,
+        "pricing": 340,
+        "contextWindow": 362,
+        "maxTokens": 362,
+        "reasoning": 279,
+        "input": 362
+      }
+    },
+    {
+      "provider": "qwen",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 1,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "together",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "vercel-ai-gateway",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "xai",
+      "rows": 3,
+      "verdicts": {
+        "exact": 3,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 3,
+        "pricing": 3,
+        "contextWindow": 3,
+        "maxTokens": 3,
+        "reasoning": 3,
+        "input": 3
+      },
+      "previous": {
+        "rows": 3,
+        "pricing": 3,
+        "contextWindow": 3,
+        "maxTokens": 3,
+        "reasoning": 3,
+        "input": 3
+      }
+    },
+    {
+      "provider": "xiaomi-mimo",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "zai",
+      "rows": 7,
+      "verdicts": {
+        "exact": 5,
+        "base-model": 0,
+        "absent": 2
+      },
+      "coverage": {
+        "rows": 7,
+        "pricing": 5,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      },
+      "previous": {
+        "rows": 7,
+        "pricing": 5,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      }
+    }
+  ],
+  "absentIds": [
+    "baseten/deepseek-ai/DeepSeek-R1",
+    "cerebras/llama-3.3-70b",
+    "cloudflare-ai-gateway/meta/llama-3.3-70b-instruct",
+    "fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct",
+    "minimax/MiniMax-Text-01",
+    "moonshot/moonshot-v1-128k",
+    "openai-codex/gpt-5.3-codex-spark",
+    "openrouter/anthropic/claude-opus-4",
+    "openrouter/deepseek/deepseek-v4-flash-0731:batch",
+    "openrouter/deepseek/deepseek-v4-pro-0813:batch",
+    "openrouter/google/gemini-2.5-pro-preview-05-06",
+    "openrouter/google/gemma-4-31b-it:batch",
+    "openrouter/ibm-granite/granite-4.1-8b",
+    "openrouter/inception/mercury-2.5-preview",
+    "openrouter/kwaipilot/kat-coder-pro-v2",
+    "openrouter/meta/muse-glimmer-30b:batch",
+    "openrouter/minimax/minimax-m2.7:free",
+    "openrouter/minimax/minimax-m3:batch",
+    "openrouter/minimax/minimax-m3:free",
+    "openrouter/mistralai/devstral-2512",
+    "openrouter/mistralai/mistral-large-2512",
+    "openrouter/nex-agi/nex-n2-mini",
+    "openrouter/nex-agi/nex-n2-pro",
+    "openrouter/openai/gpt-4-turbo-preview",
+    "openrouter/qwen/qwen3.5-9b:batch",
+    "openrouter/qwen/qwen3.8-2.4t-a95b:batch",
+    "openrouter/qwen/qwen3.8-max",
+    "openrouter/thinkingmachines/inkling-small:batch",
+    "openrouter/thinkingmachines/inkling:batch",
+    "openrouter/~openai/gpt-latest",
+    "together/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "zai/glm-5.2-highspeed",
+    "zai/glm-5.3-highspeed"
+  ],
+  "crossSourceContextDiffs": [
+    {
+      "provider": "github-copilot",
+      "id": "claude-opus-4.7",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "github-copilot",
+      "id": "claude-opus-4.8",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "github-copilot",
+      "id": "claude-sonnet-4.6",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.5-flash",
+      "modelsDev": 200000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.6-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.7-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.8-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "kimi-k2.7-code",
+      "modelsDev": 256000,
+      "openRouter": 262144
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gpt-5-mini",
+      "modelsDev": 264000,
+      "openRouter": 400000
+    },
+    {
+      "provider": "opencode-go",
+      "id": "minimax-m3",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-flash-vision-exp",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-pro",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4.1-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.1",
+      "modelsDev": 202752,
+      "openRouter": 204800
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.2",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.3",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.3-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-go",
+      "id": "hy3",
+      "modelsDev": 256000,
+      "openRouter": 262144
+    },
+    {
+      "provider": "opencode-go",
+      "id": "hy4-preview",
+      "modelsDev": 1024000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "longcat-2.0",
+      "modelsDev": 1000000,
+      "openRouter": 1048756
+    },
+    {
+      "provider": "opencode-go",
+      "id": "mimo-v2.5",
+      "modelsDev": 1000000,
+      "openRouter": 1050000
+    },
+    {
+      "provider": "opencode-go",
+      "id": "mimo-v2.5-pro",
+      "modelsDev": 1048576,
+      "openRouter": 1050000
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "qwen3.6-plus",
+      "modelsDev": 262144,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "deepseek-v4-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "deepseek-v4-flash-vision-exp",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "deepseek-v4-pro",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "glm-5.2",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "glm-5.3",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "glm-5.3-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "minimax-m3",
+      "modelsDev": 512000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5-turbo",
+      "modelsDev": 200000,
+      "openRouter": 202752
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5.2",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5.3",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5.3-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    }
+  ],
+  "contextWindowShrinks": [
+    {
+      "provider": "github-copilot",
+      "id": "claude-opus-4.7",
+      "from": 1000000,
+      "to": 200000,
+      "declared": true
+    },
+    {
+      "provider": "github-copilot",
+      "id": "claude-opus-4.8",
+      "from": 1000000,
+      "to": 200000,
+      "declared": true
+    },
+    {
+      "provider": "github-copilot",
+      "id": "claude-sonnet-4.6",
+      "from": 1000000,
+      "to": 200000,
+      "declared": true
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gpt-5.3-codex",
+      "from": 1000000,
+      "to": 400000,
+      "declared": true
+    },
+    {
+      "provider": "google",
+      "id": "gemini-2.5-computer-use-preview-10-2025",
+      "from": 131072,
+      "to": 128000,
+      "declared": true
+    },
+    {
+      "provider": "nvidia-nim",
+      "id": "meta/llama-3.3-70b-instruct",
+      "from": 131072,
+      "to": 128000,
+      "declared": true
+    },
+    {
+      "provider": "openrouter",
+      "id": "z-ai/glm-4.7-flash",
+      "from": 202752,
+      "to": 200000,
+      "declared": true
+    },
+    {
+      "provider": "openrouter",
+      "id": "z-ai/glm-5.2:free",
+      "from": 256000,
+      "to": 32768,
+      "declared": true
+    }
+  ],
+  "changes": {
+    "pricing": [
+      {
+        "provider": "github-copilot",
+        "id": "gemini-3.5-flash",
+        "from": {
+          "input": 1.5,
+          "output": 9,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.5,
+          "output": 9,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gemini-3.6-flash",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gemini-3.7-flash",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gemini-3.8-flash",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "kimi-k2.7-code",
+        "from": {
+          "input": 0.95,
+          "output": 4,
+          "cacheRead": 0.19,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.95,
+          "output": 4,
+          "cacheRead": 0.19
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "kimi-k3",
+        "from": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5-mini",
+        "from": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.3-codex",
+        "from": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.4",
+        "from": {
+          "input": 2.5,
+          "output": 15,
+          "cacheRead": 0.25,
+          "cacheWrite": 0,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 5,
+              "output": 22.5,
+              "cacheRead": 0.5,
+              "cacheWrite": 0
+            }
+          ]
+        },
+        "to": {
+          "input": 2.5,
+          "output": 15,
+          "cacheRead": 0.25,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 5,
+              "output": 22.5,
+              "cacheRead": 0.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.4-mini",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.4-nano",
+        "from": {
+          "input": 0.2,
+          "output": 1.25,
+          "cacheRead": 0.02,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 1.25,
+          "cacheRead": 0.02
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.5",
+        "from": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "cacheWrite": 0,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 10,
+              "output": 45,
+              "cacheRead": 1,
+              "cacheWrite": 0
+            }
+          ]
+        },
+        "to": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 10,
+              "output": 45,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.6-sol",
+        "from": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 4,
+              "output": 15,
+              "cacheRead": 0.4,
+              "cacheWrite": 5
+            }
+          ]
+        },
+        "to": {
+          "input": 4,
+          "output": 20,
+          "cacheRead": 0.4,
+          "cacheWrite": 5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 8,
+              "output": 30,
+              "cacheRead": 0.8,
+              "cacheWrite": 10
+            }
+          ]
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "grok-4.5",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "cacheWrite": 0,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 1,
+              "cacheWrite": 0
+            }
+          ]
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "grok-4.6",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "cacheWrite": 0,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 1,
+              "cacheWrite": 0
+            }
+          ]
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "mai-code-1-flash-picker",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "github-copilot",
+        "id": "mai-code-1.1-flash",
+        "from": {
+          "input": 0.2,
+          "output": 1.2,
+          "cacheRead": 0.02,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 1.2,
+          "cacheRead": 0.02
+        }
+      },
+      {
+        "provider": "google",
+        "id": "deep-research-max-preview-04-2026",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "google",
+        "id": "deep-research-preview-04-2026",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-2.5-computer-use-preview-10-2025",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 15
+            }
+          ]
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-2.5-flash",
+        "from": {
+          "input": 0.3,
+          "output": 2.5,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 2.5,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-2.5-flash-lite",
+        "from": {
+          "input": 0.1,
+          "output": 0.4,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.4,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-2.5-pro",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 15,
+              "cacheRead": 0.25
+            }
+          ]
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3-flash-preview",
+        "from": {
+          "input": 0.5,
+          "output": 3,
+          "cacheRead": 0.05,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.5,
+          "output": 3,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.1-flash-lite",
+        "from": {
+          "input": 0.25,
+          "output": 1.5,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 1.5,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.1-flash-lite-image",
+        "from": {
+          "input": 0.25,
+          "output": 30,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 30
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.1-flash-lite-preview",
+        "from": {
+          "input": 0.25,
+          "output": 1.5,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 1.5,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.1-flash-live-preview",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.1-pro-preview",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.1-pro-preview-customtools",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.5-flash",
+        "from": {
+          "input": 1.5,
+          "output": 9,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.5,
+          "output": 9,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.5-flash-lite",
+        "from": {
+          "input": 0.3,
+          "output": 2.5,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 2.5,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.6-flash",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.7-flash",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-3.8-flash",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-flash-latest",
+        "from": {
+          "input": 1.5,
+          "output": 9,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "google",
+        "id": "gemini-flash-lite-latest",
+        "from": {
+          "input": 0.25,
+          "output": 1.5,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 2.5,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.4-mini",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "anthropic/claude-opus-4.6",
+        "from": {
+          "input": 5,
+          "output": 25,
+          "cacheRead": 0.5,
+          "cacheWrite": 6.25
+        },
+        "to": {
+          "input": 5,
+          "output": 25,
+          "cacheRead": 0.5,
+          "cacheWrite": 6.25,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 10,
+              "output": 37.5,
+              "cacheRead": 1,
+              "cacheWrite": 12.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "anthropic/claude-opus-4.7",
+        "from": {
+          "input": 5,
+          "output": 25,
+          "cacheRead": 0.5,
+          "cacheWrite": 6.25
+        },
+        "to": {
+          "input": 5,
+          "output": 25,
+          "cacheRead": 0.5,
+          "cacheWrite": 6.25,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 10,
+              "output": 37.5,
+              "cacheRead": 1,
+              "cacheWrite": 12.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "anthropic/claude-sonnet-4",
+        "from": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 3.75
+        },
+        "to": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 3.75,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 6,
+              "output": 22.5,
+              "cacheRead": 0.6,
+              "cacheWrite": 7.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "anthropic/claude-sonnet-4.5",
+        "from": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 3.75
+        },
+        "to": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 3.75,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 6,
+              "output": 22.5,
+              "cacheRead": 0.6,
+              "cacheWrite": 7.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "anthropic/claude-sonnet-4.6",
+        "from": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 3.75
+        },
+        "to": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 3.75,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 6,
+              "output": 22.5,
+              "cacheRead": 0.6,
+              "cacheWrite": 7.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "aion-labs/aion-2.0",
+        "from": {
+          "input": 0.8,
+          "output": 1.6,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.8,
+          "output": 1.6,
+          "cacheRead": 0.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "aion-labs/aion-3.0",
+        "from": {
+          "input": 3,
+          "output": 6,
+          "cacheRead": 0.75,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 3,
+          "output": 6,
+          "cacheRead": 0.75
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "aion-labs/aion-3.0-mini",
+        "from": {
+          "input": 0.7,
+          "output": 1.4,
+          "cacheRead": 0.18,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.7,
+          "output": 1.4,
+          "cacheRead": 0.18
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "amazon/nova-2-lite-v1",
+        "from": {
+          "input": 0.3,
+          "output": 2.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 2.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "amazon/nova-lite-v1",
+        "from": {
+          "input": 0.06,
+          "output": 0.24,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.06,
+          "output": 0.24
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "amazon/nova-micro-v1",
+        "from": {
+          "input": 0.035,
+          "output": 0.14,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.035,
+          "output": 0.14
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "amazon/nova-premier-v1",
+        "from": {
+          "input": 2.5,
+          "output": 12.5,
+          "cacheRead": 0.625,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 12.5,
+          "cacheRead": 0.625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "amazon/nova-pro-v1",
+        "from": {
+          "input": 0.8,
+          "output": 3.2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.8,
+          "output": 3.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "arcee-ai/trinity-large-thinking",
+        "from": {
+          "input": 0.25,
+          "output": 0.8,
+          "cacheRead": 0.06,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 0.8,
+          "cacheRead": 0.06
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "bytedance-seed/seed-1.6",
+        "from": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 2,
+          "tiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 0.5,
+              "output": 4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "bytedance-seed/seed-1.6-flash",
+        "from": {
+          "input": 0.075,
+          "output": 0.3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.075,
+          "output": 0.3,
+          "tiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 0.1,
+              "output": 0.8
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "bytedance-seed/seed-2-1-turbo",
+        "from": {
+          "input": 0.5,
+          "output": 2.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.5,
+          "output": 2.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "bytedance-seed/seed-2.0-code",
+        "from": {
+          "input": 0.5,
+          "output": 3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.5,
+          "output": 3,
+          "tiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 1,
+              "output": 6
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "bytedance-seed/seed-2.0-lite",
+        "from": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 2,
+          "tiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 0.5,
+              "output": 4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "bytedance-seed/seed-2.0-mini",
+        "from": {
+          "input": 0.1,
+          "output": 0.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.4,
+          "tiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 0.2,
+              "output": 0.8
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "cohere/command-r-08-2024",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.6
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "cohere/command-r-plus-08-2024",
+        "from": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 10
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-chat",
+        "from": {
+          "input": 0.32,
+          "output": 0.89,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.32,
+          "output": 0.89
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-chat-v3-0324",
+        "from": {
+          "input": 0.25,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-chat-v3.1",
+        "from": {
+          "input": 0.55,
+          "output": 1.65,
+          "cacheRead": 0.55,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 0.95,
+          "cacheRead": 0.13
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-r1",
+        "from": {
+          "input": 0.7,
+          "output": 2.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.7,
+          "output": 2.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-r1-0528",
+        "from": {
+          "input": 0.5,
+          "output": 2.15,
+          "cacheRead": 0.35,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.5,
+          "output": 2.15,
+          "cacheRead": 0.35
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v3.1-terminus",
+        "from": {
+          "input": 0.27,
+          "output": 1,
+          "cacheRead": 0.135,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.27,
+          "output": 1,
+          "cacheRead": 0.135
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v3.2",
+        "from": {
+          "input": 0.269,
+          "output": 0.4,
+          "cacheRead": 0.1345,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.269,
+          "output": 0.4,
+          "cacheRead": 0.1345
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v3.2-exp",
+        "from": {
+          "input": 0.27,
+          "output": 0.41,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.27,
+          "output": 0.41
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash",
+        "from": {
+          "input": 0.088606,
+          "output": 0.177212,
+          "cacheRead": 0.017721,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.088606,
+          "output": 0.177212,
+          "cacheRead": 0.017721
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash-0731",
+        "from": {
+          "input": 0.065,
+          "output": 0.18,
+          "cacheRead": 0.016,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.03,
+          "output": 0.32,
+          "cacheRead": 0.016
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash-vision-exp",
+        "from": {
+          "input": 0.44,
+          "output": 1.32,
+          "cacheRead": 0.014,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.22,
+          "output": 0.66,
+          "cacheRead": 0.007
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro",
+        "from": {
+          "input": 1.04226,
+          "output": 2.08452,
+          "cacheRead": 0.086855,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.9396,
+          "output": 1.8792,
+          "cacheRead": 0.0783
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro-0813",
+        "from": {
+          "input": 1.1154,
+          "output": 3.3462,
+          "cacheRead": 0.03718,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.462,
+          "output": 1.386,
+          "cacheRead": 0.0154
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-2.5-flash-lite:batch",
+        "from": {
+          "input": 0.05,
+          "output": 0.2,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.2,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-2.5-flash:batch",
+        "from": {
+          "input": 0.15,
+          "output": 1.25,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 1.25,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-2.5-pro",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0.375
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0.375,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 15,
+              "cacheRead": 0.25
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-2.5-pro-preview",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0.375
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0.375,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 15,
+              "cacheRead": 0.25
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-2.5-pro:batch",
+        "from": {
+          "input": 0.625,
+          "output": 5,
+          "cacheRead": 0.125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.625,
+          "output": 5,
+          "cacheRead": 0.125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3-flash-preview:batch",
+        "from": {
+          "input": 0.25,
+          "output": 1.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 1.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.1-flash-lite:batch",
+        "from": {
+          "input": 0.125,
+          "output": 0.75,
+          "cacheRead": 0.0125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.125,
+          "output": 0.75,
+          "cacheRead": 0.0125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.1-pro-preview",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0.375
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0.375,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.1-pro-preview-customtools",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0.375
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0.375,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.1-pro-preview:batch",
+        "from": {
+          "input": 1,
+          "output": 6,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 6
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.5-flash-lite:batch",
+        "from": {
+          "input": 0.15,
+          "output": 1.25,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 1.25,
+          "cacheRead": 0.015
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3.5-flash:batch",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-3-12b-it",
+        "from": {
+          "input": 0.05,
+          "output": 0.15,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-3-27b-it",
+        "from": {
+          "input": 0.08,
+          "output": 0.45,
+          "cacheRead": 0.04,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.08,
+          "output": 0.45,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-4-26b-a4b-it",
+        "from": {
+          "input": 0.07,
+          "output": 0.34,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.09,
+          "output": 0.3,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-4-31b-it",
+        "from": {
+          "input": 0.09,
+          "output": 0.34,
+          "cacheRead": 0.05,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.09,
+          "output": 0.34,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "ibm-granite/granite-4.2-8b",
+        "from": {
+          "input": 0.1,
+          "output": 0.15,
+          "cacheRead": 0.05,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.06,
+          "output": 0.25,
+          "cacheRead": 0.015
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "inception/mercury-2",
+        "from": {
+          "input": 0.25,
+          "output": 0.75,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 0.75,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "inclusionai/ling-3.0-flash",
+        "from": {
+          "input": 0.021,
+          "output": 0.063,
+          "cacheRead": 0.0042,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.021,
+          "output": 0.063,
+          "cacheRead": 0.0042
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "inclusionai/ling-3.0-flash-fin",
+        "from": {
+          "input": 0.06,
+          "output": 0.18,
+          "cacheRead": 0.012,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.06,
+          "output": 0.18,
+          "cacheRead": 0.012
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "kwaipilot/kat-coder-pro-v2.5",
+        "from": {
+          "input": 0.74,
+          "output": 2.96,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.74,
+          "output": 2.96,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meituan/longcat-2.0",
+        "from": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.006,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.006
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-3.1-70b-instruct",
+        "from": {
+          "input": 0.4,
+          "output": 0.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 0.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-3.1-8b-instruct",
+        "from": {
+          "input": 0.05,
+          "output": 0.08,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.08,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-3.3-70b-instruct",
+        "from": {
+          "input": 0.1,
+          "output": 0.32,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.32
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-4-maverick",
+        "from": {
+          "input": 0.2,
+          "output": 0.696,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1875,
+          "output": 0.6525
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-4-scout",
+        "from": {
+          "input": 0.1,
+          "output": 0.3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta/muse-glimmer-30b",
+        "from": {
+          "input": 0.3,
+          "output": 1.1,
+          "cacheRead": 0.04,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta/muse-spark-1.1",
+        "from": {
+          "input": 1.25,
+          "output": 4.25,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 4.25,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta/muse-spark-1.2",
+        "from": {
+          "input": 1.25,
+          "output": 4.25,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 4.25,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta/muse-spark-1.2-contributor",
+        "from": {
+          "input": 0.1,
+          "output": 0.2,
+          "cacheRead": 0.002,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.2,
+          "cacheRead": 0.002
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta/muse-spark-1.3",
+        "from": {
+          "input": 1.25,
+          "output": 4.25,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 4.25,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta/muse-spark-1.3-contributor",
+        "from": {
+          "input": 0.1,
+          "output": 0.2,
+          "cacheRead": 0.002,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.2,
+          "cacheRead": 0.002
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m1",
+        "from": {
+          "input": 0.55,
+          "output": 2.2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 2.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2",
+        "from": {
+          "input": 0.255,
+          "output": 1.02,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.1",
+        "from": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.5",
+        "from": {
+          "input": 0.27,
+          "output": 1.08,
+          "cacheRead": 0.027,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.27,
+          "output": 1.08,
+          "cacheRead": 0.027
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.7",
+        "from": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.06,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.06
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m3",
+        "from": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.06,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.06
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/codestral-2508",
+        "from": {
+          "input": 0.3,
+          "output": 0.9,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 0.9,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/ministral-14b-2512",
+        "from": {
+          "input": 0.2,
+          "output": 0.2,
+          "cacheRead": 0.02,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 0.2,
+          "cacheRead": 0.02
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/ministral-3b-2512",
+        "from": {
+          "input": 0.1,
+          "output": 0.1,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.1,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/ministral-8b-2512",
+        "from": {
+          "input": 0.15,
+          "output": 0.15,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.15,
+          "cacheRead": 0.015
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-large",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-large-2407",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-medium-3",
+        "from": {
+          "input": 0.4,
+          "output": 2,
+          "cacheRead": 0.04,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 2,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-medium-3-5",
+        "from": {
+          "input": 1.5,
+          "output": 7.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.5,
+          "output": 7.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-medium-3-5:batch",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 3.75
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-medium-3.1",
+        "from": {
+          "input": 0.4,
+          "output": 2,
+          "cacheRead": 0.04,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 2,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-nemo",
+        "from": {
+          "input": 0.019,
+          "output": 0.03,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.019,
+          "output": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-saba",
+        "from": {
+          "input": 0.2,
+          "output": 0.6,
+          "cacheRead": 0.02,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 0.6,
+          "cacheRead": 0.02
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-small-2603",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.015
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-small-3.2-24b-instruct",
+        "from": {
+          "input": 0.075,
+          "output": 0.2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.09375,
+          "output": 0.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mixtral-8x22b-instruct",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/voxtral-small-24b-2507",
+        "from": {
+          "input": 0.1,
+          "output": 0.3,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.3,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2",
+        "from": {
+          "input": 0.57,
+          "output": 2.3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.57,
+          "output": 2.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2-0905",
+        "from": {
+          "input": 0.6,
+          "output": 2.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 2.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2-thinking",
+        "from": {
+          "input": 0.6,
+          "output": 2.5,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 2.5,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2.5",
+        "from": {
+          "input": 0.41,
+          "output": 2.06,
+          "cacheRead": 0.07,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.45,
+          "output": 2.25,
+          "cacheRead": 0.07
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2.6",
+        "from": {
+          "input": 0.95,
+          "output": 4,
+          "cacheRead": 0.16,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.95,
+          "output": 4,
+          "cacheRead": 0.16
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2.7-code",
+        "from": {
+          "input": 0.66,
+          "output": 3.4,
+          "cacheRead": 0.18,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6562,
+          "output": 3.3,
+          "cacheRead": 0.18
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k3",
+        "from": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k3:batch",
+        "from": {
+          "input": 3,
+          "output": 15,
+          "cacheRead": 0.3,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.28,
+          "output": 11.4,
+          "cacheRead": 0.228
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3-nano-30b-a3b",
+        "from": {
+          "input": 0.05,
+          "output": 0.2,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.2,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3-super-120b-a12b",
+        "from": {
+          "input": 0.085,
+          "output": 0.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.08,
+          "output": 0.45
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3-ultra-550b-a55b",
+        "from": {
+          "input": 0.625,
+          "output": 3.125,
+          "cacheRead": 0.1875,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 2.4,
+          "cacheRead": 0.12
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3.5-lightning",
+        "from": {
+          "input": 0.08,
+          "output": 0.2,
+          "cacheRead": 0.04,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.08,
+          "output": 0.2,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-3.5-turbo",
+        "from": {
+          "input": 0.5,
+          "output": 1.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.5,
+          "output": 1.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-3.5-turbo-0613",
+        "from": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-3.5-turbo-16k",
+        "from": {
+          "input": 3,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 3,
+          "output": 4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-3.5-turbo:batch",
+        "from": {
+          "input": 0.25,
+          "output": 0.75,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 0.75
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4",
+        "from": {
+          "input": 30,
+          "output": 60,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 30,
+          "output": 60
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4-turbo",
+        "from": {
+          "input": 10,
+          "output": 30,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 10,
+          "output": 30
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4-turbo:batch",
+        "from": {
+          "input": 5,
+          "output": 15,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 5,
+          "output": 15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4.1",
+        "from": {
+          "input": 2,
+          "output": 8,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 8,
+          "cacheRead": 0.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4.1-mini",
+        "from": {
+          "input": 0.4,
+          "output": 1.6,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 1.6,
+          "cacheRead": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4.1-mini:batch",
+        "from": {
+          "input": 0.2,
+          "output": 0.8,
+          "cacheRead": 0.05,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 0.8,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4.1-nano",
+        "from": {
+          "input": 0.1,
+          "output": 0.4,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.4,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4.1-nano:batch",
+        "from": {
+          "input": 0.05,
+          "output": 0.2,
+          "cacheRead": 0.0125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.2,
+          "cacheRead": 0.0125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4.1:batch",
+        "from": {
+          "input": 1,
+          "output": 4,
+          "cacheRead": 0.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 4,
+          "cacheRead": 0.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o",
+        "from": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 1.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 1.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o-2024-05-13",
+        "from": {
+          "input": 5,
+          "output": 15,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 5,
+          "output": 15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o-2024-08-06",
+        "from": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 1.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 1.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o-2024-11-20",
+        "from": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 1.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 1.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o-mini",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o-mini-2024-07-18",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o-mini:batch",
+        "from": {
+          "input": 0.075,
+          "output": 0.3,
+          "cacheRead": 0.0375,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.075,
+          "output": 0.3,
+          "cacheRead": 0.0375
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-4o:batch",
+        "from": {
+          "input": 1.25,
+          "output": 5,
+          "cacheRead": 0.625,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 5,
+          "cacheRead": 0.625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5-mini",
+        "from": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5-mini:batch",
+        "from": {
+          "input": 0.125,
+          "output": 1,
+          "cacheRead": 0.0125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.125,
+          "output": 1,
+          "cacheRead": 0.0125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5-nano",
+        "from": {
+          "input": 0.05,
+          "output": 0.4,
+          "cacheRead": 0.005,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.4,
+          "cacheRead": 0.005
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5-nano:batch",
+        "from": {
+          "input": 0.025,
+          "output": 0.2,
+          "cacheRead": 0.0025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.025,
+          "output": 0.2,
+          "cacheRead": 0.0025
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5-pro",
+        "from": {
+          "input": 15,
+          "output": 120,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 15,
+          "output": 120
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5-pro:batch",
+        "from": {
+          "input": 7.5,
+          "output": 60,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 7.5,
+          "output": 60
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.1",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.1-codex",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.13,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.13
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.1-codex-max",
+        "from": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 10,
+          "cacheRead": 0.125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.1-codex-mini",
+        "from": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.1:batch",
+        "from": {
+          "input": 0.625,
+          "output": 5,
+          "cacheRead": 0.0625,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.625,
+          "output": 5,
+          "cacheRead": 0.0625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.2",
+        "from": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.2-chat",
+        "from": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.2-codex",
+        "from": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.2-pro",
+        "from": {
+          "input": 21,
+          "output": 168,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 21,
+          "output": 168
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.2-pro:batch",
+        "from": {
+          "input": 10.5,
+          "output": 84,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 10.5,
+          "output": 84
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.2:batch",
+        "from": {
+          "input": 0.875,
+          "output": 7,
+          "cacheRead": 0.0875,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.875,
+          "output": 7,
+          "cacheRead": 0.0875
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.3-codex",
+        "from": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.75,
+          "output": 14,
+          "cacheRead": 0.175
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4",
+        "from": {
+          "input": 2.5,
+          "output": 15,
+          "cacheRead": 0.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 15,
+          "cacheRead": 0.25,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 5,
+              "output": 22.5,
+              "cacheRead": 0.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4-mini",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4-mini:batch",
+        "from": {
+          "input": 0.375,
+          "output": 2.25,
+          "cacheRead": 0.0375,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.375,
+          "output": 2.25,
+          "cacheRead": 0.0375
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4-nano",
+        "from": {
+          "input": 0.2,
+          "output": 1.25,
+          "cacheRead": 0.02,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 1.25,
+          "cacheRead": 0.02
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4-nano:batch",
+        "from": {
+          "input": 0.1,
+          "output": 0.625,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.625,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4-pro",
+        "from": {
+          "input": 30,
+          "output": 180,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 30,
+          "output": 180,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 60,
+              "output": 270
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4-pro:batch",
+        "from": {
+          "input": 15,
+          "output": 90,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 15,
+          "output": 90
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.4:batch",
+        "from": {
+          "input": 1.25,
+          "output": 7.5,
+          "cacheRead": 0.125,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 7.5,
+          "cacheRead": 0.125
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.5",
+        "from": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 10,
+              "output": 45,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.5-pro",
+        "from": {
+          "input": 30,
+          "output": 180,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 30,
+          "output": 180,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 60,
+              "output": 270
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.5-pro:batch",
+        "from": {
+          "input": 15,
+          "output": 90,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 15,
+          "output": 90
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.5:batch",
+        "from": {
+          "input": 2.5,
+          "output": 15,
+          "cacheRead": 0.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 15,
+          "cacheRead": 0.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-luna",
+        "from": {
+          "input": 0.2,
+          "output": 1.2,
+          "cacheRead": 0.02,
+          "cacheWrite": 0.25
+        },
+        "to": {
+          "input": 0.2,
+          "output": 1.2,
+          "cacheRead": 0.02,
+          "cacheWrite": 0.25,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 0.4,
+              "output": 1.8,
+              "cacheRead": 0.04,
+              "cacheWrite": 0.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-luna-pro",
+        "from": {
+          "input": 0.2,
+          "output": 1.2,
+          "cacheRead": 0.02,
+          "cacheWrite": 0.25
+        },
+        "to": {
+          "input": 0.2,
+          "output": 1.2,
+          "cacheRead": 0.02,
+          "cacheWrite": 0.25,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 0.4,
+              "output": 1.8,
+              "cacheRead": 0.04,
+              "cacheWrite": 0.5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-luna-pro:batch",
+        "from": {
+          "input": 0.1,
+          "output": 0.6,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.6,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-luna:batch",
+        "from": {
+          "input": 0.1,
+          "output": 0.6,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.6,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-sol",
+        "from": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5
+        },
+        "to": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 4,
+              "output": 15,
+              "cacheRead": 0.4,
+              "cacheWrite": 5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-sol-pro",
+        "from": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5
+        },
+        "to": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 4,
+              "output": 15,
+              "cacheRead": 0.4,
+              "cacheWrite": 5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-terra",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4,
+              "cacheWrite": 5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-terra-pro",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4,
+              "cacheWrite": 5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-terra-pro:batch",
+        "from": {
+          "input": 1,
+          "output": 6,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 6,
+          "cacheRead": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-terra:batch",
+        "from": {
+          "input": 1,
+          "output": 6,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 6,
+          "cacheRead": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5:batch",
+        "from": {
+          "input": 0.625,
+          "output": 5,
+          "cacheRead": 0.0625,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.625,
+          "output": 5,
+          "cacheRead": 0.0625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-audio",
+        "from": {
+          "input": 2.5,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2.5,
+          "output": 10
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-audio-mini",
+        "from": {
+          "input": 0.6,
+          "output": 2.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 2.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-chat-latest",
+        "from": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-oss-120b",
+        "from": {
+          "input": 0.037,
+          "output": 0.17,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-oss-120b:batch",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.0296,
+          "output": 0.136
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-oss-20b",
+        "from": {
+          "input": 0.03,
+          "output": 0.13,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.018,
+          "output": 0.09
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-oss-safeguard-20b",
+        "from": {
+          "input": 0.075,
+          "output": 0.3,
+          "cacheRead": 0.0375,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.075,
+          "output": 0.3,
+          "cacheRead": 0.0375
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o1",
+        "from": {
+          "input": 15,
+          "output": 60,
+          "cacheRead": 7.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 15,
+          "output": 60,
+          "cacheRead": 7.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o3",
+        "from": {
+          "input": 2,
+          "output": 8,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 8,
+          "cacheRead": 0.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o3-mini",
+        "from": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.55,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.55
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o3-mini-high",
+        "from": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.55,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.55
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o3-mini:batch",
+        "from": {
+          "input": 0.55,
+          "output": 2.2,
+          "cacheRead": 0.275,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.55,
+          "output": 2.2,
+          "cacheRead": 0.275
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o3-pro",
+        "from": {
+          "input": 20,
+          "output": 80,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 20,
+          "output": 80
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o3:batch",
+        "from": {
+          "input": 1,
+          "output": 4,
+          "cacheRead": 0.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 4,
+          "cacheRead": 0.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o4-mini",
+        "from": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.275,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.275
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o4-mini-high",
+        "from": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.275,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.1,
+          "output": 4.4,
+          "cacheRead": 0.275
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/o4-mini:batch",
+        "from": {
+          "input": 0.55,
+          "output": 2.2,
+          "cacheRead": 0.1375,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.55,
+          "output": 2.2,
+          "cacheRead": 0.1375
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "poolside/laguna-s-2.1",
+        "from": {
+          "input": 0.09,
+          "output": 0.18,
+          "cacheRead": 0.009,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.09,
+          "output": 0.18,
+          "cacheRead": 0.009
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "poolside/laguna-xs-2.1",
+        "from": {
+          "input": 0.06,
+          "output": 0.12,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.06,
+          "output": 0.12,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen-2.5-72b-instruct",
+        "from": {
+          "input": 0.36,
+          "output": 0.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.36,
+          "output": 0.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen-2.5-7b-instruct",
+        "from": {
+          "input": 0.1,
+          "output": 0.2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen-plus",
+        "from": {
+          "input": 0.26,
+          "output": 0.78,
+          "cacheRead": 0.052,
+          "cacheWrite": 0.325
+        },
+        "to": {
+          "input": 0.26,
+          "output": 0.78,
+          "cacheRead": 0.052,
+          "cacheWrite": 0.325,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.78,
+              "output": 2.34,
+              "cacheRead": 0.156,
+              "cacheWrite": 0.975
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen-plus-2025-07-28",
+        "from": {
+          "input": 0.26,
+          "output": 0.78,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.26,
+          "output": 0.78,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.78,
+              "output": 2.34
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-14b",
+        "from": {
+          "input": 0.12,
+          "output": 0.24,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.12,
+          "output": 0.24
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-235b-a22b",
+        "from": {
+          "input": 0.455,
+          "output": 1.82,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.455,
+          "output": 1.82
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-235b-a22b-2507",
+        "from": {
+          "input": 0.0875,
+          "output": 0.35,
+          "cacheRead": 0.0175,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.0875,
+          "output": 0.35,
+          "cacheRead": 0.0175
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-235b-a22b-thinking-2507",
+        "from": {
+          "input": 0.23,
+          "output": 2.3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.23,
+          "output": 2.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-30b-a3b",
+        "from": {
+          "input": 0.12,
+          "output": 0.5,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.12,
+          "output": 0.5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-30b-a3b-instruct-2507",
+        "from": {
+          "input": 0.04815,
+          "output": 0.19305,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-30b-a3b-thinking-2507",
+        "from": {
+          "input": 0.2,
+          "output": 2.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 2.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-32b",
+        "from": {
+          "input": 0.08,
+          "output": 0.28,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.08,
+          "output": 0.28
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-8b",
+        "from": {
+          "input": 0.117,
+          "output": 0.455,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.117,
+          "output": 0.455
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-coder",
+        "from": {
+          "input": 0.3,
+          "output": 1,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1,
+          "cacheRead": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-coder-30b-a3b-instruct",
+        "from": {
+          "input": 0.07,
+          "output": 0.28,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.07,
+          "output": 0.28
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-coder-flash",
+        "from": {
+          "input": 0.195,
+          "output": 0.975,
+          "cacheRead": 0.039,
+          "cacheWrite": 0.24375
+        },
+        "to": {
+          "input": 0.195,
+          "output": 0.975,
+          "cacheRead": 0.039,
+          "cacheWrite": 0.24375,
+          "tiers": [
+            {
+              "inputTokensAbove": 32000,
+              "input": 0.325,
+              "output": 1.625,
+              "cacheRead": 0.065,
+              "cacheWrite": 0.40625
+            },
+            {
+              "inputTokensAbove": 128000,
+              "input": 0.52,
+              "output": 2.6,
+              "cacheRead": 0.104,
+              "cacheWrite": 0.65
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-coder-next",
+        "from": {
+          "input": 0.12,
+          "output": 0.8,
+          "cacheRead": 0.07,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.12,
+          "output": 0.8,
+          "cacheRead": 0.07
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-coder-plus",
+        "from": {
+          "input": 0.65,
+          "output": 3.25,
+          "cacheRead": 0.13,
+          "cacheWrite": 0.8125
+        },
+        "to": {
+          "input": 0.65,
+          "output": 3.25,
+          "cacheRead": 0.13,
+          "cacheWrite": 0.8125,
+          "tiers": [
+            {
+              "inputTokensAbove": 32000,
+              "input": 1.17,
+              "output": 5.85,
+              "cacheRead": 0.234,
+              "cacheWrite": 1.4625
+            },
+            {
+              "inputTokensAbove": 128000,
+              "input": 1.95,
+              "output": 9.75,
+              "cacheRead": 0.39,
+              "cacheWrite": 2.4375
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-max",
+        "from": {
+          "input": 0.78,
+          "output": 3.9,
+          "cacheRead": 0.156,
+          "cacheWrite": 0.975
+        },
+        "to": {
+          "input": 0.78,
+          "output": 3.9,
+          "cacheRead": 0.156,
+          "cacheWrite": 0.975,
+          "tiers": [
+            {
+              "inputTokensAbove": 32000,
+              "input": 1.56,
+              "output": 7.8,
+              "cacheRead": 0.312,
+              "cacheWrite": 1.95
+            },
+            {
+              "inputTokensAbove": 128000,
+              "input": 1.95,
+              "output": 9.75,
+              "cacheRead": 0.39,
+              "cacheWrite": 2.4375
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-max-thinking",
+        "from": {
+          "input": 0.78,
+          "output": 3.9,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.78,
+          "output": 3.9,
+          "tiers": [
+            {
+              "inputTokensAbove": 32000,
+              "input": 1.56,
+              "output": 7.8
+            },
+            {
+              "inputTokensAbove": 128000,
+              "input": 1.95,
+              "output": 9.75
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-next-80b-a3b-instruct",
+        "from": {
+          "input": 0.1,
+          "output": 1.1,
+          "cacheRead": 0.07,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 1.1,
+          "cacheRead": 0.07
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-next-80b-a3b-thinking",
+        "from": {
+          "input": 0.15,
+          "output": 1.2,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 1.2
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-235b-a22b-instruct",
+        "from": {
+          "input": 0.21,
+          "output": 1.9,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.21,
+          "output": 1.9,
+          "cacheRead": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-235b-a22b-thinking",
+        "from": {
+          "input": 0.4,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-30b-a3b-instruct",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.13,
+          "output": 0.52
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-30b-a3b-thinking",
+        "from": {
+          "input": 0.2,
+          "output": 2.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 2.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-32b-instruct",
+        "from": {
+          "input": 0.104,
+          "output": 0.416,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.104,
+          "output": 0.416
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-8b-instruct",
+        "from": {
+          "input": 0.117,
+          "output": 0.455,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.117,
+          "output": 0.455
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-8b-thinking",
+        "from": {
+          "input": 0.18,
+          "output": 2.1,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.18,
+          "output": 2.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-122b-a10b",
+        "from": {
+          "input": 0.29,
+          "output": 2.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.26,
+          "output": 2.08
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-27b",
+        "from": {
+          "input": 0.195,
+          "output": 1.56,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.195,
+          "output": 1.56
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-35b-a3b",
+        "from": {
+          "input": 0.25,
+          "output": 1.25,
+          "cacheRead": 0.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3125,
+          "output": 1.25,
+          "cacheRead": 0.15625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-397b-a17b",
+        "from": {
+          "input": 0.55,
+          "output": 3.5,
+          "cacheRead": 0.225,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.55,
+          "output": 3.5,
+          "cacheRead": 0.225
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-9b",
+        "from": {
+          "input": 0.1,
+          "output": 0.15,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-flash-02-23",
+        "from": {
+          "input": 0.065,
+          "output": 0.26,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.065,
+          "output": 0.26
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-plus-02-15",
+        "from": {
+          "input": 0.26,
+          "output": 1.56,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.26,
+          "output": 1.56,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.325,
+              "output": 1.95
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-plus-20260420",
+        "from": {
+          "input": 0.3,
+          "output": 1.8,
+          "cacheRead": 0,
+          "cacheWrite": 0.375
+        },
+        "to": {
+          "input": 0.3,
+          "output": 1.8,
+          "cacheWrite": 0.375,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.375,
+              "output": 2.25,
+              "cacheWrite": 0.46875
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.6-27b",
+        "from": {
+          "input": 0.6,
+          "output": 3.6,
+          "cacheRead": 0.12,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.32,
+          "output": 2.7,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.6-35b-a3b",
+        "from": {
+          "input": 0.1,
+          "output": 0.9,
+          "cacheRead": 0.05,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 1,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.6-flash",
+        "from": {
+          "input": 0.1875,
+          "output": 1.125,
+          "cacheRead": 0,
+          "cacheWrite": 0.234375
+        },
+        "to": {
+          "input": 0.1875,
+          "output": 1.125,
+          "cacheWrite": 0.234375,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.75,
+              "output": 3,
+              "cacheWrite": 0.9375
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.6-max-preview",
+        "from": {
+          "input": 1.027,
+          "output": 6.162,
+          "cacheRead": 0,
+          "cacheWrite": 1.28375
+        },
+        "to": {
+          "input": 1.027,
+          "output": 6.162,
+          "cacheWrite": 1.28375,
+          "tiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 1.58,
+              "output": 9.48,
+              "cacheWrite": 1.975
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.6-plus",
+        "from": {
+          "input": 0.325,
+          "output": 1.95,
+          "cacheRead": 0,
+          "cacheWrite": 0.40625
+        },
+        "to": {
+          "input": 0.325,
+          "output": 1.95,
+          "cacheWrite": 0.40625,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 1.3,
+              "output": 3.9,
+              "cacheWrite": 1.625
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.7-flash",
+        "from": {
+          "input": 0.03,
+          "output": 0.13,
+          "cacheRead": 0.006,
+          "cacheWrite": 0.038
+        },
+        "to": {
+          "input": 0.03,
+          "output": 0.13,
+          "cacheRead": 0.006,
+          "cacheWrite": 0.038,
+          "tiers": [
+            {
+              "inputTokensAbove": 32000,
+              "input": 0.1,
+              "output": 0.4,
+              "cacheRead": 0.02,
+              "cacheWrite": 0.125
+            },
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.2,
+              "output": 0.8,
+              "cacheRead": 0.04,
+              "cacheWrite": 0.25
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.7-plus",
+        "from": {
+          "input": 0.32,
+          "output": 1.28,
+          "cacheRead": 0.064,
+          "cacheWrite": 0.4
+        },
+        "to": {
+          "input": 0.32,
+          "output": 1.28,
+          "cacheRead": 0.064,
+          "cacheWrite": 0.4,
+          "tiers": [
+            {
+              "inputTokensAbove": 256000,
+              "input": 0.96,
+              "output": 3.84,
+              "cacheRead": 0.192,
+              "cacheWrite": 1.2
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.8-2.4t-a95b",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.25,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.8-27b",
+        "from": {
+          "input": 0.42,
+          "output": 3,
+          "cacheRead": 0.085,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.42,
+          "output": 3,
+          "cacheRead": 0.085
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "rekaai/reka-edge",
+        "from": {
+          "input": 0.1,
+          "output": 0.1,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "relace/relace-search",
+        "from": {
+          "input": 1,
+          "output": 3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "sakana/fugu-ultra",
+        "from": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 5,
+          "output": 30,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 10,
+              "output": 45,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "sakana/sakana-namazu",
+        "from": {
+          "input": 0.95,
+          "output": 4,
+          "cacheRead": 0.15,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.95,
+          "output": 4,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "sao10k/l3.1-euryale-70b",
+        "from": {
+          "input": 0.85,
+          "output": 0.85,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.85,
+          "output": 0.85
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "stepfun/step-3.5-flash",
+        "from": {
+          "input": 0.1,
+          "output": 0.3,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.1,
+          "output": 0.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "stepfun/step-3.7-flash",
+        "from": {
+          "input": 0.2,
+          "output": 1.15,
+          "cacheRead": 0.04,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.2,
+          "output": 1.15,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy3",
+        "from": {
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy3-preview",
+        "from": {
+          "input": 0.18,
+          "output": 0.6,
+          "cacheRead": 0.06,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.18,
+          "output": 0.6,
+          "cacheRead": 0.06
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy4-preview",
+        "from": {
+          "input": 0.834,
+          "output": 2.501,
+          "cacheRead": 0.042,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.834,
+          "output": 2.501,
+          "cacheRead": 0.042
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "thedrummer/unslopnemo-12b",
+        "from": {
+          "input": 0.4,
+          "output": 0.4,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 0.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "thinkingmachines/inkling",
+        "from": {
+          "input": 1,
+          "output": 4.05,
+          "cacheRead": 0.17,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 4.05,
+          "cacheRead": 0.17
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "thinkingmachines/inkling-small",
+        "from": {
+          "input": 0.45,
+          "output": 1.2,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.45,
+          "output": 1.2,
+          "cacheRead": 0.1
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "upstage/solar-pro-3",
+        "from": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.6,
+          "cacheRead": 0.015
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "upstage/solar-pro4",
+        "from": {
+          "input": 0.03,
+          "output": 0.12,
+          "cacheRead": 0.006,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.09,
+          "output": 0.36,
+          "cacheRead": 0.018
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "x-ai/grok-4.20",
+        "from": {
+          "input": 1.25,
+          "output": 2.5,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 2.5,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 5,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "x-ai/grok-4.3",
+        "from": {
+          "input": 1.25,
+          "output": 2.5,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 2.5,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 5,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "x-ai/grok-4.3:batch",
+        "from": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.16,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.16
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "x-ai/grok-4.5",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.3,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.3,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 0.6
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "x-ai/grok-4.6",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "x-ai/grok-build-0.1",
+        "from": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2,
+              "output": 4,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "xiaomi/mimo-v2.5",
+        "from": {
+          "input": 0.14,
+          "output": 0.28,
+          "cacheRead": 0.0028,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.14,
+          "output": 0.28,
+          "cacheRead": 0.0028
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "xiaomi/mimo-v2.5-pro",
+        "from": {
+          "input": 0.435,
+          "output": 0.87,
+          "cacheRead": 0.0036,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.435,
+          "output": 0.87,
+          "cacheRead": 0.0036
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.5",
+        "from": {
+          "input": 0.6,
+          "output": 2.2,
+          "cacheRead": 0.11,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 2.2,
+          "cacheRead": 0.11
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.5-air",
+        "from": {
+          "input": 0.13,
+          "output": 0.85,
+          "cacheRead": 0.025,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.13,
+          "output": 0.85,
+          "cacheRead": 0.025
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.5v",
+        "from": {
+          "input": 0.6,
+          "output": 1.8,
+          "cacheRead": 0.11,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 1.8,
+          "cacheRead": 0.11
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.6",
+        "from": {
+          "input": 0.55,
+          "output": 2.2,
+          "cacheRead": 0.11,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.43,
+          "output": 1.75,
+          "cacheRead": 0.08
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.6v",
+        "from": {
+          "input": 0.3,
+          "output": 0.9,
+          "cacheRead": 0.055,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.3,
+          "output": 0.9,
+          "cacheRead": 0.055
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.7",
+        "from": {
+          "input": 0.4,
+          "output": 1.75,
+          "cacheRead": 0.08,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.4,
+          "output": 1.75,
+          "cacheRead": 0.08
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.7-flash",
+        "from": {
+          "input": 0.06,
+          "output": 0.4,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.0605,
+          "output": 0.4
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5",
+        "from": {
+          "input": 0.6,
+          "output": 1.9,
+          "cacheRead": 0.119,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6,
+          "output": 1.92,
+          "cacheRead": 0.12
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5-turbo",
+        "from": {
+          "input": 1.2,
+          "output": 4,
+          "cacheRead": 0.24,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.2,
+          "output": 4,
+          "cacheRead": 0.24
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.1",
+        "from": {
+          "input": 0.966,
+          "output": 3.036,
+          "cacheRead": 0.1794,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.966,
+          "output": 3.036,
+          "cacheRead": 0.1794
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.2",
+        "from": {
+          "input": 0.966,
+          "output": 3.036,
+          "cacheRead": 0.1932,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.6496,
+          "output": 2.0416,
+          "cacheRead": 0.12064
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3",
+        "from": {
+          "input": 1.4,
+          "output": 4.4,
+          "cacheRead": 0.14,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.84,
+          "output": 2.64,
+          "cacheRead": 0.156
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash",
+        "from": {
+          "input": 0.075,
+          "output": 0.25,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.5,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash:batch",
+        "from": {
+          "input": 0.15,
+          "output": 0.5,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.06,
+          "output": 0.2,
+          "cacheRead": 0.012
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5v-turbo",
+        "from": {
+          "input": 1.2,
+          "output": 4,
+          "cacheRead": 0.24,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.2,
+          "output": 4,
+          "cacheRead": 0.24
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~anthropic/claude-opus-latest",
+        "from": {
+          "input": 5,
+          "output": 25,
+          "cacheRead": 0.5,
+          "cacheWrite": 6.25
+        },
+        "to": {
+          "input": 4,
+          "output": 20,
+          "cacheRead": 0.2,
+          "cacheWrite": 5
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~deepseek/deepseek-v4-flash-latest",
+        "from": {
+          "input": 0.05,
+          "output": 0.16,
+          "cacheRead": 0.013,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.03,
+          "output": 0.32,
+          "cacheRead": 0.016
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~google/gemini-pro-latest",
+        "from": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0.375
+        },
+        "to": {
+          "input": 2,
+          "output": 12,
+          "cacheRead": 0.2,
+          "cacheWrite": 0.375,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 18,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~moonshotai/kimi-latest",
+        "from": {
+          "input": 2.5,
+          "output": 14,
+          "cacheRead": 0.29,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.4,
+          "output": 10.75,
+          "cacheRead": 0.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~openai/gpt-mini-latest",
+        "from": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.75,
+          "output": 4.5,
+          "cacheRead": 0.075
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~x-ai/grok-latest",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.6,
+          "output": 4.8,
+          "cacheRead": 0.4,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 3.2,
+              "output": 9.6,
+              "cacheRead": 0.8
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-flash-latest",
+        "from": {
+          "input": 0.075,
+          "output": 0.25,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.045,
+          "output": 0.14,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-latest",
+        "from": {
+          "input": 1.15,
+          "output": 3.5,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.5625,
+          "output": 2.5,
+          "cacheRead": 0.125
+        }
+      },
+      {
+        "provider": "xai",
+        "id": "grok-4.3",
+        "from": {
+          "input": 1.25,
+          "output": 2.5,
+          "cacheRead": 0.2,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 1.25,
+          "output": 2.5,
+          "cacheRead": 0.2,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 2.5,
+              "output": 5,
+              "cacheRead": 0.4
+            }
+          ]
+        }
+      },
+      {
+        "provider": "xai",
+        "id": "grok-4.5",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.3,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.3,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 0.6
+            }
+          ]
+        }
+      },
+      {
+        "provider": "xai",
+        "id": "grok-4.6",
+        "from": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 2,
+          "output": 6,
+          "cacheRead": 0.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 200000,
+              "input": 4,
+              "output": 12,
+              "cacheRead": 1
+            }
+          ]
+        }
+      },
+      {
+        "provider": "zai",
+        "id": "glm-5.3-flash",
+        "from": {
+          "input": 0.075,
+          "output": 0.25,
+          "cacheRead": 0.015,
+          "cacheWrite": 0
+        },
+        "to": {
+          "input": 0.15,
+          "output": 0.5,
+          "cacheRead": 0.03,
+          "cacheWrite": 0
+        }
+      }
+    ],
+    "contextWindow": [
+      {
+        "provider": "deepseek",
+        "id": "deepseek-chat",
+        "from": 64000,
+        "to": 163840
+      },
+      {
+        "provider": "github-copilot",
+        "id": "claude-opus-4.7",
+        "from": 1000000,
+        "to": 200000
+      },
+      {
+        "provider": "github-copilot",
+        "id": "claude-opus-4.8",
+        "from": 1000000,
+        "to": 200000
+      },
+      {
+        "provider": "github-copilot",
+        "id": "claude-sonnet-4.6",
+        "from": 1000000,
+        "to": 200000
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.3-codex",
+        "from": 1000000,
+        "to": 400000
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.4",
+        "from": 1000000,
+        "to": 1050000
+      },
+      {
+        "provider": "github-copilot",
+        "id": "gpt-5.5",
+        "from": 1000000,
+        "to": 1050000
+      },
+      {
+        "provider": "google",
+        "id": "gemini-2.5-computer-use-preview-10-2025",
+        "from": 131072,
+        "to": 128000
+      },
+      {
+        "provider": "kimi-coding",
+        "id": "kimi-for-coding",
+        "from": 262144,
+        "to": 1048576
+      },
+      {
+        "provider": "mistral",
+        "id": "mistral-large-latest",
+        "from": 128000,
+        "to": 262144
+      },
+      {
+        "provider": "nvidia-nim",
+        "id": "meta/llama-3.3-70b-instruct",
+        "from": 131072,
+        "to": 128000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.4",
+        "from": 272000,
+        "to": 1050000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.4-mini",
+        "from": 272000,
+        "to": 400000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.5",
+        "from": 272000,
+        "to": 1050000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-luna",
+        "from": 272000,
+        "to": 1050000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-sol",
+        "from": 272000,
+        "to": 1050000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-terra",
+        "from": 272000,
+        "to": 1050000
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-chat-v3.1",
+        "from": 161000,
+        "to": 163840
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v3.1-terminus",
+        "from": 131072,
+        "to": 163840
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash",
+        "from": 1024000,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash-0731",
+        "from": 1048576,
+        "to": 1310720
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro",
+        "from": 1024000,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro-0813",
+        "from": 1024000,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemini-3-pro-image",
+        "from": 65536,
+        "to": 131072
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-4-maverick",
+        "from": 128000,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "meta-llama/llama-4-scout",
+        "from": 327680,
+        "to": 1310720
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.5",
+        "from": 200000,
+        "to": 204800
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m3",
+        "from": 524288,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-medium-3-5:batch",
+        "from": 32768,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "mistralai/mistral-small-3.2-24b-instruct",
+        "from": 128000,
+        "to": 256000
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3-ultra-550b-a55b",
+        "from": 256000,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-14b",
+        "from": 40960,
+        "to": 131072
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-30b-a3b",
+        "from": 40960,
+        "to": 131072
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-30b-a3b-instruct-2507",
+        "from": 128000,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-32b",
+        "from": 40960,
+        "to": 131072
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-next-80b-a3b-thinking",
+        "from": 131072,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-235b-a22b-instruct",
+        "from": 131072,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-30b-a3b-thinking",
+        "from": 131072,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-vl-8b-instruct",
+        "from": 131072,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.8-2.4t-a95b",
+        "from": 1000000,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "stepfun/step-3.7-flash",
+        "from": 256000,
+        "to": 262144
+      },
+      {
+        "provider": "openrouter",
+        "id": "thedrummer/unslopnemo-12b",
+        "from": 32768,
+        "to": 1024000
+      },
+      {
+        "provider": "openrouter",
+        "id": "thinkingmachines/inkling",
+        "from": 524288,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "thinkingmachines/inkling-small",
+        "from": 524288,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "xiaomi/mimo-v2.5",
+        "from": 1048576,
+        "to": 1050000
+      },
+      {
+        "provider": "openrouter",
+        "id": "xiaomi/mimo-v2.5-pro",
+        "from": 1048576,
+        "to": 1050000
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.7",
+        "from": 202752,
+        "to": 204800
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-4.7-flash",
+        "from": 202752,
+        "to": 200000
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5",
+        "from": 198000,
+        "to": 204800
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.1",
+        "from": 200000,
+        "to": 204800
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.2:free",
+        "from": 256000,
+        "to": 32768
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3",
+        "from": 1048576,
+        "to": 1310720
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash",
+        "from": 1048576,
+        "to": 1310720
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash:batch",
+        "from": 1048575,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "~deepseek/deepseek-v4-flash-latest",
+        "from": 1048576,
+        "to": 1310720
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-flash-latest",
+        "from": 1048576,
+        "to": 1310720
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-latest",
+        "from": 262144,
+        "to": 1310720
+      },
+      {
+        "provider": "qwen",
+        "id": "qwen-plus",
+        "from": 131072,
+        "to": 1000000
+      }
+    ],
+    "reasoning": [
+      {
+        "provider": "openrouter",
+        "id": "openrouter/fusion",
+        "from": true,
+        "to": false
+      }
+    ]
+  },
+  "issues": []
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "provider": "deepseek",
+  "source": {
+    "modelsDev": [
+      "deepseek"
+    ],
+    "openRouter": [
+      "deepseek"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com"
+  },
+  "rows": {
+    "deepseek-chat": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens, reasoning",
+      "name": "DeepSeek Chat",
+      "maxTokens": 8192,
+      "reasoning": false
+    }
+  }
+}

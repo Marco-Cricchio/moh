@@ -7,6 +7,7 @@
  */
 import type { AgentEvent } from "../types";
 import { estimateModelCost } from "../pricing";
+import type { BillingPlan } from "../model-catalog";
 
 export interface LocalUsageRow {
   model: string;
@@ -20,8 +21,26 @@ export interface LocalUsageRow {
   estimatedCostUsd?: number;
 }
 
-/** Aggregates per-model usage from raw events (in-memory session). */
-export function aggregateLocalUsage(events: readonly AgentEvent[]): LocalUsageRow[] {
+/** ADR-0046 billing plan: resolves the plan of the endpoint a
+ * `endpoint/model-id` ref names. Absent resolver or absent declaration =
+ * `metered`, the default plan. */
+export type BillingPlanResolver = (endpoint: string) => BillingPlan | undefined;
+
+/** The endpoint segment of a `endpoint/model-id` ref (undefined for a bare
+ * model id). */
+function endpointOf(model: string): string | undefined {
+  const slash = model.indexOf("/");
+  return slash === -1 ? undefined : model.slice(0, slash);
+}
+
+/** Aggregates per-model usage from raw events (in-memory session).
+ * `planFor` supplies the endpoint billing plans (ADR-0046): the estimate
+ * then uses the endpoint's own price entry, exactly like the live quota
+ * modal. Absent = metered for every model. */
+export function aggregateLocalUsage(
+  events: readonly AgentEvent[],
+  options: { planFor?: BillingPlanResolver } = {},
+): LocalUsageRow[] {
   const byModel = new Map<string, LocalUsageRow>();
   for (const event of events) {
     if (event.type !== "model_call" || event.failed) continue;
@@ -33,7 +52,8 @@ export function aggregateLocalUsage(events: readonly AgentEvent[]): LocalUsageRo
     row.calls += 1;
     row.inputTokens += event.usage.inputTokens;
     row.outputTokens += event.usage.outputTokens;
-    const estimate = estimateModelCost(event.model, event.usage);
+    const plan = options.planFor?.(endpointOf(event.model) ?? "") ?? "metered";
+    const estimate = estimateModelCost(event.model, event.usage, plan);
     if (estimate) row.estimatedCostUsd = (row.estimatedCostUsd ?? 0) + estimate.usd;
   }
   return [...byModel.values()].sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));

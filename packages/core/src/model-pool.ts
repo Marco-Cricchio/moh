@@ -6,7 +6,7 @@
  * receives this pool as data; the core stays free of use-case logic.
  *
  * Rules (ratified for the routing use case):
- * - only real, configured models: an endpoint's vendored catalog, or the
+ * - only real, configured models: an endpoint's shipped catalog, or the
  *   live listing for an endpoint with no catalog (a catalog-less
  *   openai-compat/custom host). A failed listing contributes nothing.
  * - the ref is always `endpoint/model-id` — exactly what `switchModel`
@@ -86,7 +86,7 @@ export function createModelPool(
         for (const model of catalog) push(`${endpoint.name}/${model.id}`, blendedPrice(model.pricing));
         continue;
       }
-      // No vendored catalog: the live listing is the only source of truth
+      // No shipped catalog: the live listing is the only source of truth
       // for which models exist here. `openai-compat` (and a custom type
       // registered with a base URL) speaks `GET /models`.
       if (!endpoint.baseUrl) continue;

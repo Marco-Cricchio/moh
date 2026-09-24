@@ -105,7 +105,7 @@ describe("/model modal (#181)", () => {
     return { i, switched, toasts, closed: () => closed };
   }
 
-  test("#551: live listings are merged additively; vendored wins on collision", async () => {
+  test("#551: live listings are merged additively; the shipped catalog wins on collision", async () => {
     const { i } = mount({
       liveCatalog: {
         alpha: [

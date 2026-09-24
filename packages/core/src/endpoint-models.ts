@@ -2,9 +2,9 @@
  * Live model listing for OpenAI-compatible endpoints (#181 follow-up):
  * `GET <baseUrl>/models` — the standard listing route every
  * openai-compat backend (z.ai, lmstudio, ollama's compat layer, …)
- * speaks. Complements the vendored `subscriptionModelCatalog` (static,
+ * speaks. Complements the shipped `subscriptionModelCatalog` (static,
  * subscription providers) with a runtime fetch for endpoints that have
- * no vendored catalog. Failures throw — callers fall back to free-text
+ * no shipped catalog. Failures throw — callers fall back to free-text
  * entry, exactly like an unknown provider type.
  */
 export async function listOpenAiCompatModels(baseUrl: string, apiKey?: string): Promise<string[]> {

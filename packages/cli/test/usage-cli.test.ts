@@ -93,7 +93,11 @@ describe("moh usage (#715)", () => {
     const json = JSON.parse(h.spawn(["--json"]).stdout);
     expect(json.models.find((m: { model: string }) => m.model === "alpha/claude-haiku-4-5").estimatedCostUsd).toBe(6);
     expect(json.models.find((m: { model: string }) => m.model === "custom/unknown").estimatedCostUsd).toBeUndefined();
-    expect(json.pricing).toMatchObject({ estimate: true, version: "0.85.0" });
+    // The snapshot version is the moh release that contains the catalog,
+    // read from the committed generation manifest (#959/ADR-0046).
+    expect(json.pricing).toMatchObject({ estimate: true, source: "moh model catalog" });
+    expect(json.pricing.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(json.pricing.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test("--json emits the aggregate structure", () => {
