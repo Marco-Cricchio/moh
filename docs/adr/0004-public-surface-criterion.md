@@ -285,3 +285,15 @@ ADR-0046: `version` becomes the moh release containing the catalog,
 `updatedAt` stays the real generation date, and the false
 `source: "vendored pi-ai model catalog"` string is removed. Clients and user-
 facing surfaces keep reading the same export; no door is re-opened.
+
+The billing-plan seam (#959) adds three exports to the same surface, for the
+same reason the pricing seam is public: every client that renders a cost
+estimate must select the same entry, and a client that cannot would fork the
+selection. `pricingForPlan(entry, plan)` is the selection itself,
+`BillingPlan` is its two-value vocabulary (`metered` | `subscription`), and
+`billingPlanResolver(endpoints)` turns the endpoints a caller already has
+into the `planFor` seam `aggregateLocalUsage`, `aggregateTelemetry` and
+`analyzeSession` accept. `estimateModelCost` and `pricingForModel` take the
+plan as an optional argument — absent = `metered`, so a row with a single
+price entry behaves exactly as before. `CatalogModel.planPricing` is the
+subscription entry of a catalog row, alongside the existing `pricing`.

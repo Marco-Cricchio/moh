@@ -142,6 +142,42 @@ describe("#959 join precedence", () => {
     expect(built.file["openai-completions"]!["demo-1"]!.cost).toEqual({ input: 1, output: 2 });
   });
 
+  test("a row two records of ONE source price differently is reported ambiguous", () => {
+    // The census's ambiguity test (#953): the metered namespace and the plan
+    // namespace are both models.dev, and they disagree (the five zai rows).
+    // The declared precedence still decides the value (ADR-0046); the verdict
+    // says the choice came from the declaration, not from the data.
+    const built = buildCatalog(
+      sidecar({ source: { modelsDev: ["demo"], plan: { modelsDev: ["demo-plan"] } }, rows: { "demo-1": row() } }),
+      snapshots({
+        modelsDev: {
+          demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, limit: { context: 100 } } }),
+          "demo-plan": md({ "demo-1": { id: "demo-1", cost: { input: 9, output: 9 }, limit: { context: 100 } } }),
+        },
+      }),
+    );
+    expect(built.rows["demo-1"]!.verdict).toBe("ambiguous");
+    expect(built.rows["demo-1"]!.plan).toEqual({ source: "models.dev", namespace: "demo-plan" });
+    expect(built.file["openai-completions"]!["demo-1"]!.cost).toEqual({ input: 1, output: 2 });
+    expect(built.file["openai-completions"]!["demo-1"]!.planCost).toEqual({ input: 9, output: 9 });
+    expect(built.verdicts.ambiguous).toBe(1);
+  });
+
+  test("cross-source disagreement is a difference, not a conflict", () => {
+    // models.dev wins by declaration; the OpenRouter value is recorded, and
+    // the row is not called ambiguous (the census's own rule, #953).
+    const built = buildCatalog(
+      sidecar({ rows: { "demo-1": row() } }),
+      snapshots({
+        modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, limit: { context: 100 } } }) },
+        openRouter: [{ id: "demo/demo-1", pricing: { prompt: "0.00001", completion: "0.00002" }, context_length: 500 }],
+      }),
+    );
+    expect(built.rows["demo-1"]!.verdict).toBe("exact");
+    expect(built.verdicts.ambiguous).toBe(0);
+    expect(built.crossSourceContextDiffs).toEqual([{ id: "demo-1", modelsDev: 100, openRouter: 500 }]);
+  });
+
   test("namespaces are searched in declared order", () => {
     const built = buildCatalog(
       sidecar({ source: { modelsDev: ["plan", "api"] }, rows: { "demo-1": row() } }),
@@ -381,7 +417,7 @@ describe("#959 manifest and report", () => {
       catalogs: [built],
       hashes: { demo: "abc" },
     });
-    expect(manifest.files.demo).toEqual({ sha256: "abc", rows: 2, verdicts: { exact: 1, "base-model": 0, absent: 1 } });
+    expect(manifest.files.demo).toEqual({ sha256: "abc", rows: 2, verdicts: { exact: 1, "base-model": 0, ambiguous: 0, absent: 1 } });
     expect(manifest.rows["demo/demo-1"]).toMatchObject({ provider: "demo", id: "demo-1", verdict: "exact", supplied: ["cost", "contextWindow"], overrides: [] });
     expect(manifest.rows["demo/demo-2"]).toMatchObject({ verdict: "absent", supplied: [], overrides: ["cost"] });
   });
@@ -398,7 +434,7 @@ describe("#959 manifest and report", () => {
       catalogs: [built],
       previous: { demo: { "openai-completions": { "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, contextWindow: 100 } } } },
     });
-    expect(report.totals).toEqual({ files: 1, rows: 2, exact: 1, baseModel: 0, absent: 1, rowsWithOverrides: 0 });
+    expect(report.totals).toEqual({ files: 1, rows: 2, exact: 1, baseModel: 0, ambiguous: 0, absent: 1, rowsWithOverrides: 0 });
     expect(report.absentIds).toEqual(["demo/demo-2"]);
     expect(report.contextWindowShrinks).toEqual([{ provider: "demo", id: "demo-1", from: 100, to: 50, declared: true }]);
     expect(report.files[0]!.previous).toEqual({ rows: 1, pricing: 1, contextWindow: 1, maxTokens: 0, reasoning: 0, input: 0 });

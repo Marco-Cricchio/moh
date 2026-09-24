@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.50.0",
-  "generatedAt": "2026-09-24T11:21:38.366Z",
+  "generatedAt": "2026-09-24T11:45:26.869Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-24T11:21:38.321Z"
+      "fetchedAt": "2026-09-24T11:45:26.816Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-24T11:21:38.333Z"
+      "fetchedAt": "2026-09-24T11:45:26.831Z"
     }
   ],
   "files": {
@@ -21,6 +21,7 @@
       "verdicts": {
         "exact": 14,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -30,6 +31,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -39,6 +41,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -48,6 +51,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -57,6 +61,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 1,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -66,6 +71,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -75,6 +81,7 @@
       "verdicts": {
         "exact": 27,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -84,6 +91,7 @@
       "verdicts": {
         "exact": 22,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -93,6 +101,7 @@
       "verdicts": {
         "exact": 1,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -102,6 +111,7 @@
       "verdicts": {
         "exact": 1,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -111,6 +121,7 @@
       "verdicts": {
         "exact": 4,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -120,6 +131,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -129,6 +141,7 @@
       "verdicts": {
         "exact": 1,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -138,6 +151,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -147,6 +161,7 @@
       "verdicts": {
         "exact": 1,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -156,6 +171,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 6,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -165,6 +181,7 @@
       "verdicts": {
         "exact": 28,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -174,6 +191,7 @@
       "verdicts": {
         "exact": 67,
         "base-model": 2,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -183,6 +201,7 @@
       "verdicts": {
         "exact": 338,
         "base-model": 1,
+        "ambiguous": 0,
         "absent": 23
       }
     },
@@ -192,6 +211,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 1,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -201,6 +221,7 @@
       "verdicts": {
         "exact": 0,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 1
       }
     },
@@ -210,6 +231,7 @@
       "verdicts": {
         "exact": 1,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -219,6 +241,7 @@
       "verdicts": {
         "exact": 3,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -228,6 +251,7 @@
       "verdicts": {
         "exact": 1,
         "base-model": 0,
+        "ambiguous": 0,
         "absent": 0
       }
     },
@@ -235,8 +259,9 @@
       "sha256": "c7661e44c4d541752a317e70f04e4ef415f09a7e7f6151eb545fcb2830c32810",
       "rows": 7,
       "verdicts": {
-        "exact": 5,
+        "exact": 0,
         "base-model": 0,
+        "ambiguous": 5,
         "absent": 2
       }
     }
@@ -8535,7 +8560,7 @@
     "zai/glm-4.7": {
       "provider": "zai",
       "id": "glm-4.7",
-      "verdict": "exact",
+      "verdict": "ambiguous",
       "source": "models.dev",
       "namespace": "zai",
       "supplied": [
@@ -8554,7 +8579,7 @@
     "zai/glm-5-turbo": {
       "provider": "zai",
       "id": "glm-5-turbo",
-      "verdict": "exact",
+      "verdict": "ambiguous",
       "source": "models.dev",
       "namespace": "zai",
       "supplied": [
@@ -8573,7 +8598,7 @@
     "zai/glm-5.2": {
       "provider": "zai",
       "id": "glm-5.2",
-      "verdict": "exact",
+      "verdict": "ambiguous",
       "source": "models.dev",
       "namespace": "zai",
       "supplied": [
@@ -8609,7 +8634,7 @@
     "zai/glm-5.3": {
       "provider": "zai",
       "id": "glm-5.3",
-      "verdict": "exact",
+      "verdict": "ambiguous",
       "source": "models.dev",
       "namespace": "zai",
       "supplied": [
@@ -8628,7 +8653,7 @@
     "zai/glm-5.3-flash": {
       "provider": "zai",
       "id": "glm-5.3-flash",
-      "verdict": "exact",
+      "verdict": "ambiguous",
       "source": "models.dev",
       "namespace": "zai",
       "supplied": [

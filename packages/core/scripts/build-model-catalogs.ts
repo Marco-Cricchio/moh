@@ -15,8 +15,8 @@
  * (ADR-0029 amendment): generation is local and human-invoked, the release
  * ships the last valid committed catalog and never regenerates.
  *
- * Offline runs (tests, CI debugging): `--models-dev <file|url>` and
- * `--open-router <file|url>` accept a local snapshot instead of the fetch.
+ * Offline runs (tests, CI debugging): `--models-dev <file>` and
+ * `--open-router <file>` read a local snapshot instead of fetching.
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -99,7 +99,8 @@ async function loadSnapshot(name: string, url: string, override?: string): Promi
   // The recorded url is always the canonical source: a local snapshot
   // (tests, offline debugging) must not make the manifest lie about where
   // the committed data came from.
-  if (override && existsSync(override)) {
+  if (override !== undefined) {
+    if (!existsSync(override)) throw new Error(`${name}: ${override} does not exist`);
     return { json: JSON.parse(readFileSync(override, "utf8")), info: { name, url, fetchedAt } };
   }
   const response = await fetch(url);
@@ -152,12 +153,18 @@ async function main(): Promise<number> {
   // --- one-off migration: committed catalogs → hand-maintained sidecars ---
   if (hasFlag("--migrate-overrides")) {
     let written = 0;
-    for (const provider of Object.keys(MIGRATION_SOURCES).sort()) {
+    for (const provider of readdirSync(CATALOG_DIR).filter((name) => name.endsWith(".json")).map((name) => name.replace(/\.json$/, "")).sort()) {
       const previous = readCatalog(provider);
       if (!previous) continue;
       const source = MIGRATION_SOURCES[provider];
       if (!source) {
         console.error(`${provider}: no declared aggregator source in this script — add it before migrating`);
+        return 1;
+      }
+      if (existsSync(join(CATALOG_DIR, `${provider}.overrides.json`))) {
+        // The migration is one-off and would discard hand-authored rows: it
+        // refuses to overwrite a sidecar that already exists.
+        console.error(`${provider}: ${provider}.overrides.json exists — delete it first if you really mean to re-migrate`);
         return 1;
       }
       const { overrides, notes } = migrateOverrides({

@@ -203,18 +203,15 @@ export type CatalogProviderType = keyof typeof CATALOGS;
 
 /** Every api key present in the shipped files — a generation check: an
  * unmapped wire name must fail loudly here, not silently drop models from
- * the picker. */
+ * the picker. Every file is listed, not only the multi-wire ones. */
 export function catalogApiNames(): string[] {
-  return [
-    ...Object.keys(anthropicJson),
-    ...Object.keys(openaiCodexJson),
-    ...Object.keys(googleJson),
-    ...Object.keys(githubCopilotJson),
-    ...Object.keys(openrouterJson),
-    ...Object.keys(kimiCodingJson),
-    ...Object.keys(xaiJson),
-    ...Object.keys(zaiJson),
-  ].filter((api, i, all) => all.indexOf(api) === i);
+  const files: CatalogFile[] = [
+    anthropicJson, openaiCodexJson, googleJson, githubCopilotJson, openrouterJson, kimiCodingJson,
+    xaiJson, zaiJson, deepseekJson, groqJson, cerebrasJson, nvidiaNimJson, togetherJson, fireworksJson,
+    huggingfaceJson, mistralJson, moonshotJson, minimaxJson, qwenJson, xiaomiMimoJson,
+    vercelAiGatewayJson, cloudflareAiGatewayJson, basetenJson, opencodeZenJson, opencodeGoJson,
+  ];
+  return [...new Set(files.flatMap((file) => Object.keys(file)))];
 }
 
 /** The baseUrl values the shipped data declares, per provider — drift
@@ -299,7 +296,10 @@ export type BillingPlan = "metered" | "subscription";
 /** The price entry a billing plan selects on one catalog row. The metered
  * entry is the default; `subscription` uses the declared plan record when
  * the row has one, and falls back to the metered entry when it does not. */
-export function pricingForPlan(entry: CatalogModel, plan: BillingPlan = "metered"): ModelPricing | undefined {
+export function pricingForPlan(
+  entry: Pick<CatalogModel, "pricing" | "planPricing">,
+  plan: BillingPlan = "metered",
+): ModelPricing | undefined {
   if (plan === "subscription") return entry.planPricing ?? entry.pricing;
   return entry.pricing;
 }
@@ -330,7 +330,7 @@ export function pricingForModel(model: string, plan: BillingPlan = "metered"): M
   // coincidentally matching third-party record.
   const own = endpoint ? (CATALOGS as Record<string, CatalogModel[]>)[endpoint] : undefined;
   if (own) {
-    const pricing = pricingForPlan(own.find((entry) => entry.id === modelId) ?? { id: modelId, name: modelId, contextWindow: 0, reasoning: false }, plan);
+    const pricing = pricingForPlan(own.find((entry) => entry.id === modelId) ?? {}, plan);
     return pricing && (pricing.input > 0 || pricing.output > 0) ? pricing : undefined;
   }
 

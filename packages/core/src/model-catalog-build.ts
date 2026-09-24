@@ -63,6 +63,11 @@ export type AggregatorField = (typeof AGGREGATOR_FIELDS)[number];
 
 /** The fields an override may declare. Every one of them wins over the
  * aggregator value for the same row (ADR-0046: an override always wins). */
+/** The value fields a row carries, in declaration order: the ones the
+ * provenance and the coverage counts speak about (`AGGREGATOR_FIELDS` plus
+ * the plan entry). */
+export const ROW_VALUE_FIELDS = [...AGGREGATOR_FIELDS, "planCost"] as const;
+
 export const OVERRIDE_FIELDS = [
   "api",
   "provider",
@@ -200,7 +205,7 @@ export interface MigrationNote {
 
 /** Per-row provenance, recorded in the manifest (ADR-0046). */
 export interface RowProvenance {
-  verdict: "exact" | "base-model" | "absent";
+  verdict: "exact" | "base-model" | "ambiguous" | "absent";
   source?: "models.dev" | "openrouter";
   namespace?: string;
   /** Value fields the aggregator supplied. */
@@ -329,8 +334,11 @@ interface Match {
   record: ModelsDevRecord | OpenRouterRecord;
   /** "exact" when the record carries the row id itself; "base-model" when
    * it was reached through a join key (`base_model`, a vendor prefix or the
-   * namespaced id) — the census's own vocabulary (#953). */
-  verdict: "exact" | "base-model";
+   * namespaced id); "ambiguous" when another declared source matches the
+   * same row with different base rates (the census's fourth verdict, #953) —
+   * the declared precedence still decides the value, the verdict makes the
+   * conflict visible. */
+  verdict: "exact" | "base-model" | "ambiguous";
 }
 
 /** Finds the aggregator record for one row id: models.dev namespaces in
@@ -393,6 +401,32 @@ function openRouterCandidates(id: string, spec: CatalogSourceSpec, snapshots: Ag
     if (recordId === id || declaredVendor || modelPart === id) out.set(recordId, record);
   }
   return [...out.values()];
+}
+
+/** Whether two records of the SAME source match the row with different
+ * rates — the census's ambiguity test (#953): models.dev and OpenRouter
+ * disagreeing is a cross-source difference, resolved by the declared
+ * precedence and reported as such, while two records of one source
+ * disagreeing is a genuine conflict. */
+function sameSourceConflict(
+  id: string,
+  spec: CatalogSourceSpec,
+  snapshots: AggregatorSnapshots,
+  winner: Match,
+  winnerCost: ModelPricing | undefined,
+): boolean {
+  if (winner.source !== "models.dev") return false;
+  // The plan namespaces are models.dev too: the five ambiguous zai rows are
+  // exactly a `zai` record and a `zai-coding-plan` record that disagree.
+  const namespaces = [...(spec.modelsDev ?? []), ...(spec.plan?.modelsDev ?? [])];
+  for (const namespace of namespaces) {
+    if (namespace === winner.namespace) continue;
+    const record = snapshots.modelsDev[namespace]?.models?.[id];
+    const other = modelsDevPricing(record?.cost);
+    if (!other || !winnerCost) continue;
+    if (winnerCost.input !== other.input || winnerCost.output !== other.output) return true;
+  }
+  return false;
 }
 
 /** The aggregator-supplied value fields of one record. */
@@ -485,7 +519,7 @@ export function buildCatalog(
   const provider = overrides.provider;
   const file: CatalogFileJson = {};
   const rows: Record<string, RowProvenance> = {};
-  const verdicts: Record<string, number> = { exact: 0, "base-model": 0, absent: 0 };
+  const verdicts: Record<string, number> = { exact: 0, "base-model": 0, ambiguous: 0, absent: 0 };
   const shrinkAccepted: string[] = [];
   const crossSourceContextDiffs: BuiltCatalog["crossSourceContextDiffs"] = [];
 
@@ -496,7 +530,11 @@ export function buildCatalog(
     }
     const match = findRecord(id, overrides.source, snapshots, issues, provider);
     const supplied = match ? suppliedFields(match.record, match.source) : { fields: {}, supplied: [] };
-    const verdict: RowProvenance["verdict"] = match?.verdict ?? "absent";
+    // A row more than one declared source matches with different base rates
+    // is ambiguous: the declared precedence still picks the value, and the
+    // verdict says the choice was made for us, not by the data.
+    const conflicting = match ? sameSourceConflict(id, overrides.source, snapshots, match, supplied.fields.cost) : false;
+    const verdict: RowProvenance["verdict"] = match === undefined ? "absent" : conflicting ? "ambiguous" : match.verdict;
     verdicts[verdict] = (verdicts[verdict] ?? 0) + 1;
 
     // The subscription-plan entry: the same row in the plan namespace(s).
@@ -528,15 +566,16 @@ export function buildCatalog(
       ...(match ? { source: match.source, namespace: match.namespace } : {}),
       supplied: supplied.supplied,
       ...(plan ? { plan } : {}),
-      overrides: (["cost", "contextWindow", "maxTokens", "reasoning", "input", "planCost"] as const).filter(
-        (field) => override[field] !== undefined,
-      ),
+      overrides: ROW_VALUE_FIELDS.filter((field) => override[field] !== undefined),
     };
 
     // Cross-source context differences are reported, never merged: the
     // declared precedence decides, the report makes the difference visible.
     if (match?.source === "models.dev" && supplied.fields.contextWindow) {
-      const other = openRouterCandidates(id, overrides.source, snapshots)[0];
+      const candidates = openRouterCandidates(id, overrides.source, snapshots);
+      // One candidate only: with several the difference would be attributed
+      // to a record the join itself refused to pick.
+      const other = candidates.length === 1 ? candidates[0] : undefined;
       const otherContext = other?.context_length ?? other?.top_provider?.context_length;
       if (otherContext && otherContext !== supplied.fields.contextWindow) {
         crossSourceContextDiffs.push({ id, modelsDev: supplied.fields.contextWindow, openRouter: otherContext });
@@ -699,7 +738,15 @@ export interface GenerationReport {
   version: string;
   generatedAt: string;
   sources: SourceSnapshotInfo[];
-  totals: { files: number; rows: number; exact: number; baseModel: number; absent: number; rowsWithOverrides: number };
+  totals: {
+    files: number;
+    rows: number;
+    exact: number;
+    baseModel: number;
+    ambiguous: number;
+    absent: number;
+    rowsWithOverrides: number;
+  };
   files: Array<{
     provider: string;
     rows: number;
@@ -707,6 +754,8 @@ export interface GenerationReport {
     coverage: Record<string, number>;
     previous?: Record<string, number>;
   }>;
+  /** Rows no declared source matched: hand-maintained, visible here and in
+   * the sidecar's own `reason`. */
   absentIds: string[];
   crossSourceContextDiffs: Array<{ provider: string; id: string; modelsDev: number; openRouter: number }>;
   contextWindowShrinks: Array<{ provider: string; id: string; from: number; to: number; declared: boolean }>;
@@ -728,7 +777,7 @@ export function buildReport(options: {
   catalogs: BuiltCatalog[];
   previous: Record<string, CatalogFileJson>;
 }): GenerationReport {
-  const totals = { files: 0, rows: 0, exact: 0, baseModel: 0, absent: 0, rowsWithOverrides: 0 };
+  const totals = { files: 0, rows: 0, exact: 0, baseModel: 0, ambiguous: 0, absent: 0, rowsWithOverrides: 0 };
   const files: GenerationReport["files"] = [];
   const absentIds: string[] = [];
   const crossSourceContextDiffs: GenerationReport["crossSourceContextDiffs"] = [];
@@ -742,6 +791,7 @@ export function buildReport(options: {
     totals.rows += rows;
     totals.exact += catalog.verdicts.exact ?? 0;
     totals.baseModel += catalog.verdicts["base-model"] ?? 0;
+    totals.ambiguous += catalog.verdicts.ambiguous ?? 0;
     totals.absent += catalog.verdicts.absent ?? 0;
     totals.rowsWithOverrides += Object.values(catalog.rows).filter((row) => row.overrides.length > 0).length;
     for (const [id, row] of Object.entries(catalog.rows)) if (row.verdict === "absent") absentIds.push(`${catalog.provider}/${id}`);
@@ -914,7 +964,7 @@ export function migrateOverrides(options: {
       if (!match) {
         // No aggregator record at all: the whole row is hand-maintained.
         if (before.name === undefined) override.name = id;
-        for (const field of ["cost", "contextWindow", "maxTokens", "reasoning", "input"] as const) {
+        for (const field of AGGREGATOR_FIELDS) {
           if (field === "cost") {
             if (before.cost !== undefined && !isSentinelPricing(before.cost)) override.cost = before.cost;
             continue;

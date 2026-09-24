@@ -490,6 +490,9 @@ name. `billingPlanResolver(endpoints)` maps `endpoint → plan` for the
 aggregation seams: pass it as `aggregateLocalUsage(events, { planFor })`,
 `aggregateTelemetry({ ..., planFor })` or `analyzeSession(file, { planFor })`
 so the rollups use the same entries the live quota modal does.
+`pricingForPlan(entry, plan)` is the selection on its own (it takes the
+`pricing`/`planPricing` pair), and `CatalogModel.planPricing` is the
+subscription entry a catalog row declares.
 
 ## Multi-session telemetry (#714)
 
