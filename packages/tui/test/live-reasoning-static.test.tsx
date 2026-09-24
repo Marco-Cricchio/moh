@@ -88,7 +88,10 @@ describe("nextReasoningHead — incremental head promotion (#329)", () => {
     expect(rollover.reset).toBe(true);
     expect(rollover.chunks).toHaveLength(0);
     const moving = nextReasoningHead(rollover, "live-reasoning", `${capped} grows`.split("\n"), 20, 5);
-    expect(moving.reset).toBe(true);
+    // #950: the stored chain is already chunk-less, so the moving window
+    // must NOT re-assert reset — a per-frame reset repainted the whole
+    // transcript on every frame while the window was active.
+    expect(moving.reset).toBe(false);
     expect(moving.chunks).toHaveLength(0);
     const ended = nextReasoningHead(moving, "live-reasoning", `${capped} grows`.split("\n"), 20, 0);
     expect(ended.chunks.length).toBeGreaterThan(0);
