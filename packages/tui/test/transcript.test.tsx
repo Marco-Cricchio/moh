@@ -484,6 +484,15 @@ describe("provider reasoning projection (#242)", () => {
     expect(blocks[1]).toMatchObject({ kind: "error", state: "fail" });
   });
 
+  test("context_length error names the next action (#947)", () => {
+    const blocks = projectTranscript([{ type: "error", reason: "context_length", message: "maximum context length is 131072 tokens" }]);
+    const block = blocks.find((b) => b.kind === "error");
+    expect(block?.lines).toContain("Context is full for this model — /compact to summarize it, or /models to switch to a bigger window.");
+    // Other errors keep the raw provider text only.
+    const other = projectTranscript([{ type: "error", reason: "rate_limited", message: "429" }]).find((b) => b.kind === "error");
+    expect(other?.lines).toEqual(["429"]);
+  });
+
   test("fallback call failures still mark their reasoning block failed", () => {
     const blocks = projectTranscript([
       { type: "fallback", from: "primary/model", to: "backup/model", reason: "overloaded" },

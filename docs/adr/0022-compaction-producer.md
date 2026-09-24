@@ -22,6 +22,11 @@ Decisions closed in grilling (#462): automatic threshold trigger plus an explici
    compaction; `AgentSession` never compacts inline. Auto-trigger: the last
    `model_call`'s measured `inputTokens` crosses 80% of the active model's context
    window (catalog-derived; absolute-token fallback when the window is unknown).
+   Amended (#947): a failed call's `{0,0}` is never a measurement — the trigger
+   reads the last *non-failed* one — and a turn that ends with a provider
+   `context_length` error arms the same post-turn producer directly (guard and
+   threshold bypassed: the provider's "does not fit" outranks the arithmetic).
+   Still one producer, still post-turn; nothing compacts inline.
 2. **Tail policy: 10 turns AND ≤ 25% of the window.** The tail grows backwards
    until it spans at least `DEFAULT_TAIL_TURNS = 10` turns **and** at most ~25% of
    the context window (token-estimated). Both conditions hold; the bare

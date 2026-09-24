@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "provider": "minimax",
+  "source": {
+    "modelsDev": [
+      "minimax",
+      "minimax-cn"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "minimax",
+    "baseUrl": "https://api.minimax.io/v1"
+  },
+  "rows": {
+    "MiniMax-Text-01": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "no aggregator record: the row is fully hand-maintained",
+      "name": "MiniMax Text 01",
+      "compat": {
+        "thinkingFormat": "openai"
+      },
+      "contextWindow": 1000000,
+      "maxTokens": 8192,
+      "reasoning": true,
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      }
+    }
+  }
+}

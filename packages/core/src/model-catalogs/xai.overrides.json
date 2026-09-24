@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "provider": "xai",
+  "source": {
+    "modelsDev": [
+      "xai"
+    ]
+  },
+  "file": {
+    "api": "openai-responses",
+    "provider": "xai",
+    "baseUrl": "https://api.x.ai/v1"
+  },
+  "rows": {
+    "grok-4.3": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Grok 4.3",
+      "thinkingLevelMap": {
+        "off": "none",
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": null,
+        "max": null
+      },
+      "compat": {
+        "supportsLongCacheRetention": false
+      }
+    },
+    "grok-4.5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Grok 4.5",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": null,
+        "max": null
+      },
+      "compat": {
+        "supportsLongCacheRetention": false
+      }
+    },
+    "grok-4.6": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Grok 4.6",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": null
+      },
+      "compat": {
+        "supportsLongCacheRetention": false
+      }
+    }
+  }
+}

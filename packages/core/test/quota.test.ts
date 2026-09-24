@@ -7,7 +7,8 @@
 import { describe, expect, test } from "bun:test";
 import { getQuota } from "../src/quota";
 import { aggregateLocalUsage, type LocalUsageRow } from "../src/quota/local";
-import { estimateModelCost } from "../src/pricing";
+import { billingPlanResolver, estimateModelCost } from "../src/pricing";
+import { pricingForPlan } from "../src/model-catalog";
 import type { QuotaFetch } from "../src/quota/types";
 import type { AgentEvent } from "../src/types";
 import type { EndpointProfile } from "../src/config";
@@ -290,12 +291,17 @@ describe("estimated model pricing (#719)", () => {
     expect(estimateModelCost("gateway/any-model", { inputTokens: 100, outputTokens: 100 })).toBeUndefined();
   });
 
-  test("never borrows third-party prices for OpenCode Go or unpriced Zen models", () => {
-    // Both ids have prices elsewhere in the shipped catalogs. OpenCode's
-    // endpoint contract wins: Go is never USD-estimated; Zen needs its own
-    // official overlay rate (the current conservative overlay has none).
-    expect(estimateModelCost("opencode-go/gpt-5.6-luna", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeUndefined();
-    expect(estimateModelCost("opencode-zen/claude-haiku-4-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeUndefined();
+  test("an endpoint with its own catalog resolves only there — never a borrowed rate", () => {
+    // The endpoint prefix is material: these two products expose ids also
+    // sold by the upstream vendors, and both carry their own generated rates
+    // (#959).
+    expect(estimateModelCost("opencode-zen/claude-haiku-4-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })?.usd).toBe(6);
+    // 1M input tokens crosses the row's 272k tier: the tiered rates apply.
+    expect(estimateModelCost("opencode-go/gpt-5.6-luna", { inputTokens: 1_000_000, outputTokens: 1_000_000 })?.usd).toBe(2.2);
+    // An id that product's own list does not carry stays unpriced, even
+    // though other catalogs (zen, anthropic) sell the same id.
+    expect(estimateModelCost("opencode-go/claude-haiku-4-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeUndefined();
+    expect(estimateModelCost("opencode-zen/no-such-model", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeUndefined();
   });
 
   test("local rollups omit cost rather than inventing one", () => {
@@ -303,5 +309,47 @@ describe("estimated model pricing (#719)", () => {
       { id: "x", type: "model_call", model: "custom/unknown", usage: { inputTokens: 100, outputTokens: 100 } },
     ]);
     expect(rows[0]?.estimatedCostUsd).toBeUndefined();
+  });
+});
+
+/**
+ * ADR-0046 billing plan (#959): the endpoint declares how it pays, and the
+ * selection picks the matching price entry. The plan is user-owned — never
+ * inferred from a model name — and defaults to `metered`, so a row with a
+ * single entry is unaffected by the whole mechanism.
+ */
+describe("billing plan selection (#959)", () => {
+  const row = { id: "m", name: "M", contextWindow: 1, reasoning: false, pricing: { input: 1, output: 2 }, planPricing: { input: 0, output: 0 } };
+
+  test("a plan selects the matching entry, and falls back when the row has none", () => {
+    expect(pricingForPlan(row, "metered")).toEqual({ input: 1, output: 2 });
+    expect(pricingForPlan(row, "subscription")).toEqual({ input: 0, output: 0 });
+    const meteredOnly = { id: "m", name: "M", contextWindow: 1, reasoning: false, pricing: { input: 1, output: 2 } };
+    expect(pricingForPlan(meteredOnly, "subscription")).toEqual({ input: 1, output: 2 });
+  });
+
+  test("the resolver reads the endpoints' declared plans; absent = metered", () => {
+    const planFor = billingPlanResolver([{ name: "zai", billingPlan: "subscription" }, { name: "other" }]);
+    expect(planFor("zai")).toBe("subscription");
+    expect(planFor("other")).toBeUndefined();
+    expect(planFor("unknown")).toBeUndefined();
+  });
+
+  test("a subscription plan on a plan-included row yields no USD estimate (tokens only)", () => {
+    // zai's rows carry both entries: the metered API rate and the coding-plan
+    // record (all zeros = included in the subscription). ADR-0029's
+    // placeholder rule makes the zero-only entry tokens-only.
+    expect(estimateModelCost("zai/glm-5.3", { inputTokens: 1_000_000, outputTokens: 0 })?.usd).toBe(1.4);
+    expect(estimateModelCost("zai/glm-5.3", { inputTokens: 1_000_000, outputTokens: 0 }, "subscription")).toBeUndefined();
+  });
+
+  test("the local rollup uses the plan the endpoint declared", () => {
+    const events = [
+      { id: "x", type: "model_call", model: "zai/glm-5.3", usage: { inputTokens: 1_000_000, outputTokens: 0 } },
+    ] as AgentEvent[];
+    expect(aggregateLocalUsage(events)[0]?.estimatedCostUsd).toBe(1.4);
+    expect(
+      aggregateLocalUsage(events, { planFor: billingPlanResolver([{ name: "zai", billingPlan: "subscription" }]) })[0]?.estimatedCostUsd,
+    ).toBeUndefined();
   });
 });

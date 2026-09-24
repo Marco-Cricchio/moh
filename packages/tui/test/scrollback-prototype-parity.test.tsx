@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -20,6 +20,9 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
     Object.defineProperty(ink.stdout, "rows", { value: 40, configurable: true });
     ink.rerender(app);
 
+    // #939: App resolves the project identity before the tree that owns
+    // stdin mounts, so keystrokes written earlier land on nothing.
+    await waitForFrame(() => stripAnsi(ink.lastFrame() ?? ""), "type…");
     await sleep(30);
     ink.stdin.write("check the validated layout");
     await sleep(20);
@@ -44,6 +47,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
     const home = mkdtempSync(join(tmpdir(), "moh-scrollback-send-"));
     const provider = MockProvider.scripted([{ deltas: ["sent by chip"], finish: "stop" }]);
     const ink = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
+    await waitForFrame(() => stripAnsi(ink.lastFrame() ?? ""), "type…");
     await sleep(30);
     ink.stdin.write("chip draft");
     await sleep(20);
@@ -63,6 +67,7 @@ describe("scrollback session parity with the validated prototype (#183)", () => 
     const ink = render(app);
     Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
     ink.rerender(app);
+    await waitForFrame(() => stripAnsi(ink.lastFrame() ?? ""), "type…");
     await sleep(30);
     ink.stdin.write("\t"); // send
     ink.stdin.write("\t"); // stop

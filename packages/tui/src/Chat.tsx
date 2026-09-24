@@ -100,6 +100,11 @@ export interface ChatProps {
   showReasoning?: boolean;
   livePhase?: string;
   notice?: string;
+  /** #950: rows the client renders BELOW the chat frame (chat-position
+   * toasts). They share the terminal with the volatile region, so they must
+   * be budgeted out of the live tail or the frame reaches the terminal
+   * height and ink takes its fullscreen path. */
+  toastRows?: number;
   /** #328: active update notice, rendered left-aligned on status-bar row 2
    * (the cwd/branch/mode tail stays right-aligned on the same row). */
   updateMessage?: string;
@@ -178,6 +183,7 @@ export function Chat({
   showReasoning = false,
   livePhase,
   notice,
+  toastRows = 0,
   updateMessage,
   submitSignal = 0,
   prefill,
@@ -564,13 +570,19 @@ export function Chat({
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
   // Empty composer: separators (2) + composer (1) + spacer (1) + status
-  // (2) + bordered action row (3) = 9. The subagent row is itself a
-  // bordered three-row chip; the frameless running peek is header + five
-  // truncate-only previews (the settled peek is just its summary line).
+  // (2) + blank (1) + bordered action row (3) = 10. The blank row between
+  // the status and the action row was missing from this estimate (#950):
+  // with it at 9 the live tail filled rows - footerRows exactly and ink's
+  // `outputHeight >= rows` check pushed every full frame onto the
+  // fullscreen path (clearTerminal + scrollback wipe per frame).
   // This intentionally over-reserves at tiny sizes: a stable footer takes
   // precedence over one more volatile transcript row. #918 adds one plain
   // line while the project root sits on a Windows drive (`/mnt`).
-  const footerRows = 9 + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  const footerRows = 10 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  // #950: the volatile frame (live tail + footer) must stay strictly BELOW
+  // the terminal height — outputHeight == rows already pushes ink onto the
+  // fullscreen path (clearTerminal + full static reprint every frame).
+  const tailBudget = Math.max(1, viewport.rows - footerRows - 1);
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
@@ -978,17 +990,17 @@ export function Chat({
   // below uses the same number the block renders with, so the reservation
   // and the frame can never disagree.
   const askMaxRows = askOpen
-    ? Math.max(askBlockMinRows(askGate!.current!.questions, cols), viewport.rows - footerRows)
+    ? Math.max(askBlockMinRows(askGate!.current!.questions, cols), tailBudget)
     : 0;
   const askRows = askOpen ? askUserBlockRows(askGate!.current!.questions, cols, askMaxRows) : 0;
   // #413: the block's row height shrinks the volatile transcript budget so
   // the block can grow to compress the transcript (frameless, #183). A
   // 1-row floor keeps a scrolling tail visible at any size.
   const askBudget = askOpen
-    ? Math.max(1, viewport.rows - footerRows - askRows)
+    ? Math.max(1, tailBudget - askRows)
     : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, askBudget ?? Math.max(1, viewport.rows - footerRows)),
+    () => transcriptTail(liveBlocks, cols, askBudget ?? tailBudget),
     [liveBlocks, cols, viewport.rows, askBudget, footerRows],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
@@ -1367,9 +1379,10 @@ export function nextReasoningHead(
   // Remove previously printed chunks once, then keep that window volatile;
   // at reasoning_end it is fixed and can be promoted before the reply.
   if (windowed && tailLines > 0) {
-    return next.chunks.length > 0 || next.chars > 0
-      ? { key, chars: 0, source, chunks: [], startIndex: 0, reset: true }
-      : { ...next, chars: 0, source, chunks: [], reset: next.reset };
+    // Reset only on the frame that actually discards printed chunks: the
+    // stored chain is already chunk-less afterwards, so re-asserting reset
+    // here would repaint the whole transcript on every frame (#950).
+    return { key, chars: 0, source, chunks: [], startIndex: 0, reset: next.chunks.length > 0 };
   }
   if (windowed) next = { key, chars: 0, source: "", chunks: [], startIndex: 0 };
   else if (next.source && !source.startsWith(next.source)) {
@@ -1567,7 +1580,7 @@ export function transcriptTail(blocks: readonly TranscriptBlock[], width: number
   const bodyWidth = Math.max(1, width - 3);
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i]!;
-    const blockRows = 2 + block.lines.reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / bodyWidth)), 0);
+    const blockRows = blockRowsHeight(block, bodyWidth);
     // A streaming response is commonly one giant prose block (GLM-5.6
     // emitted 220+ deltas without a paragraph break, #201). Keeping that
     // one block whole bypasses the block-level budget and makes Ink rewrite
@@ -1581,16 +1594,34 @@ export function transcriptTail(blocks: readonly TranscriptBlock[], width: number
   return selected;
 }
 
+/** Real height of a block against the tail budget: rendered Markdown
+ * row-chunks (#950) carry their rows in `renderedMarkdownRows` with
+ * `lines: []`, so the line-wrap estimate would count them as 2 rows no
+ * matter how tall they are — that let the live tail bypass its budget and
+ * pushed Ink onto the fullscreen path (clearTerminal every frame). The
+ * block renders with a top margin, a head row and one trailing gap, so a
+ * body of N rows occupies N + 3. */
+function blockRowsHeight(block: TranscriptBlock, bodyWidth: number): number {
+  const rows = block.renderedMarkdownRows ?? block.lines;
+  return 3 + rows.reduce((sum, row) => sum + Math.max(1, Math.ceil(row.length / bodyWidth)), 0);
+}
+
 /** Makes one too-tall block fit its transcript-tail budget. The header and
  * trailing gap cost two rows; the body retains its newest lines (or the tail
  * of one wrapped line) so an active stream remains bounded even before it
  * reaches a semantic paragraph boundary. */
 function clipBlockTail(block: TranscriptBlock, bodyWidth: number, rowBudget: number): TranscriptBlock {
-  let remaining = Math.max(0, rowBudget - 2);
+  // Head + margins/gap cost three rows (see blockRowsHeight); the body
+  // retains its newest rows (or the tail of one wrapped line).
+  // The tightest budget must still leave a visible marker: an ellipsis-only
+  // body beats an empty block (#950 regression guard).
+  let remaining = Math.max(1, rowBudget - 3);
+  const renderedRows = block.renderedMarkdownRows;
+  const source = renderedRows ?? block.lines;
   const picked: Array<{ line: string; kind?: NonNullable<TranscriptBlock["lineKinds"]>[number] }> = [];
   let clipped = false;
-  for (let i = block.lines.length - 1; i >= 0 && remaining > 0; i--) {
-    const line = block.lines[i]!;
+  for (let i = source.length - 1; i >= 0 && remaining > 0; i--) {
+    const line = source[i]!;
     const lineRows = Math.max(1, Math.ceil(line.length / bodyWidth));
     const kind = block.lineKinds?.[i];
     if (lineRows <= remaining) {
@@ -1606,9 +1637,20 @@ function clipBlockTail(block: TranscriptBlock, bodyWidth: number, rowBudget: num
     remaining = 0;
     clipped = true;
   }
-  if (picked.length < block.lines.length) clipped = true;
+  if (picked.length < source.length) clipped = true;
   if (clipped && remaining > 0) picked.unshift({ line: "…", kind: "body" });
   const lines = picked.map((entry) => entry.line);
+  // A row-chunk block renders through `renderedMarkdownRows`, which
+  // TranscriptBlockView prefers over `lines` — clip the rows, not the empty
+  // line list, or the cap would not apply at all (#950).
+  if (renderedRows !== undefined) {
+    return {
+      ...block,
+      lines: [],
+      renderedMarkdownRows: lines,
+      ...(block.markdown ? { markdown: lines.join("\n") } : {}),
+    };
+  }
   return {
     ...block,
     lines,

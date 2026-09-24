@@ -13,7 +13,7 @@
 import { writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { homedir } from "node:os";
-import { aggregateTelemetry, PRICING_SNAPSHOT } from "@moh/core";
+import { aggregateTelemetry, billingPlanResolver, loadMergedConfig, PRICING_SNAPSHOT } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
 
 export const USAGE_USAGE = `usage: moh usage [tools|routes|export] [--format csv|jsonl] [--out <path>] [--project <slug>] [--days <N>] [--json] [--cwd <dir>]
@@ -106,13 +106,39 @@ function collect(
   }
   const window = resolveWindow(parsed, "moh usage", err);
   if (typeof window === "number") return window;
-  const report = aggregateTelemetry({
-    cwd: resolveCwd(parsed.strings["cwd"]),
-    home: home ?? homedir(),
+  const cwd = resolveCwd(parsed.strings["cwd"]);
+  const effectiveHome = home ?? homedir();
+  const report = readTelemetry(cwd, effectiveHome, parsed, window);
+  return { report, sub: positionals[0] as Collected["sub"], json: Boolean(parsed.booleans["json"]) };
+}
+
+/** The one telemetry read every `moh usage` sub-report projects: same slug
+ * resolution, same window, same billing-plan seam. */
+function readTelemetry(
+  cwd: string,
+  home: string,
+  parsed: ReturnType<typeof parseArgs>,
+  window: { sinceMs?: number },
+): Report {
+  return aggregateTelemetry({
+    cwd,
+    home,
     ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
     ...(window.sinceMs !== undefined ? { sinceMs: window.sinceMs } : {}),
+    // ADR-0046 billing plan: the estimates use the entry each endpoint pays
+    // by. A config that does not read is not an error here — the default
+    // plan (metered) is what every surface showed before the plan existed.
+    planFor: billingPlanResolver(readEndpoints(cwd, home)),
   });
-  return { report, sub: positionals[0] as Collected["sub"], json: Boolean(parsed.booleans["json"]) };
+}
+
+/** The configured endpoints, or none when the config cannot be read. */
+function readEndpoints(cwd: string, home: string): ReturnType<typeof loadMergedConfig>["endpoints"] {
+  try {
+    return loadMergedConfig(cwd, { home }).endpoints;
+  } catch {
+    return undefined;
+  }
 }
 
 function emptyState(report: Report, err: { write(s: string): void }): number {
@@ -536,12 +562,9 @@ function exportCommand(
   }
   const window = resolveWindow(parsed, "moh usage export", err);
   if (typeof window === "number") return window;
-  const report = aggregateTelemetry({
-    cwd: resolveCwd(parsed.strings["cwd"]),
-    home: home ?? homedir(),
-    ...(parsed.strings["project"] ? { slug: parsed.strings["project"] } : {}),
-    ...(window.sinceMs !== undefined ? { sinceMs: window.sinceMs } : {}),
-  });
+  const cwd = resolveCwd(parsed.strings["cwd"]);
+  const effectiveHome = home ?? homedir();
+  const report = readTelemetry(cwd, effectiveHome, parsed, window);
   if (report.sessionsScanned === 0) return emptyState(report, err);
 
   const body = renderExport(report, formatRaw);

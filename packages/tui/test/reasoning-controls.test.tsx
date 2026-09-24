@@ -9,7 +9,7 @@ import { App, REASONING_PERSISTENCE_NOTICE } from "../src/App";
 import { Chat, settledBoundary } from "../src/Chat";
 import { visibleChips } from "../src/BottomBar";
 import { loadUserConfig } from "../src/user-config";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -110,7 +110,11 @@ describe("reasoning display and controls (#242)", () => {
       },
     };
     const ui = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
-    await sleep(50);
+    // #930: the notice paints through the session-bridge coalescing window, so
+    // a fixed sleep is a bet on the runner's latency, not a readiness check.
+    // The 2 s budget is the helper default: bun's own per-test timeout is 5 s,
+    // so a longer wait would surface as a test timeout instead of a frame dump.
+    await waitForFrame(() => stripAnsi(ui.lastFrame() ?? ""), "provider-exposed reasoni");
     const frame = stripAnsi(ui.lastFrame() ?? "");
     expect(frame).toContain("provider-exposed reasoni"); // width-capped status projection
     expect(REASONING_PERSISTENCE_NOTICE).toContain("saved in the session log");

@@ -3,7 +3,7 @@
  * each supported provider's terms, written by a subagent from the official
  * sites and shipped as bundled JSON assets (binary-safe per ADR-0013 — the
  * JSON modules are imported statically, so `bun build --compile` embeds
- * them like the vendored model catalogs).
+ * them like the shipped model catalogs).
  *
  * No human reviews these syntheses: every card carries the fixed disclaimer
  * and a verification date. Refresh is passive only — update a card when

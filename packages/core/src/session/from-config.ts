@@ -28,6 +28,7 @@ import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config
 import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";
+import { PromptComposer } from "../prompt-composer";
 import type { PermissionOverrides } from "../permissions";
 import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool } from "../types";
 import { AgentSession } from "./session";
@@ -429,6 +430,13 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       provider,
       endpoints: config.endpoints ?? [],
       cwd: options.cwd,
+      // #939: the composer resolves the project identity for the
+      // session-notes path, and `AgentSession` would otherwise build it from
+      // the *process* home — the very resolution the App identity gate
+      // prepared for this session's home. Passing the assembly's own
+      // `mohHome` also keeps the two in agreement (the gate pins this
+      // home's identity; the composer reads the same one).
+      promptComposer: new PromptComposer({ projectDir: options.cwd, mohHome }),
       ...(mpm
         ? {
             mpm: {

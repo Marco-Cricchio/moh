@@ -357,7 +357,9 @@ export async function installBrowserToolchain(
 ): Promise<BrowserToolchainInstallResult> {
   const home = options.home ?? homedir();
   const paths = toolchainPaths(home);
-  const staging = join(paths.versions, `.staging-${process.pid}-${Date.now()}`);
+  // The staging name is unique for the same reason the stamp is: two installs
+  // inside one millisecond must not share (or delete) each other's directory.
+  const staging = join(paths.versions, `.staging-${process.pid}-${Date.now()}-${++stampSeq}`);
   const probe = (): BrowserToolchainStatus =>
     probeBrowserToolchain({
       cwd: options.cwd,
@@ -462,6 +464,9 @@ export async function installBrowserToolchain(
   }
 }
 
+/** Bumped per promotion: a millisecond alone is not a unique name. */
+let stampSeq = 0;
+
 /**
  * #935: the atomic promotion.
  *
@@ -472,7 +477,12 @@ export async function installBrowserToolchain(
  * renames — which is what makes an interrupted install harmless.
  */
 function promote(paths: { mohHome: string; root: string; versions: string }, staging: string): void {
-  const stamp = `v-${Date.now()}-${process.pid}`;
+  // A millisecond is not a unique name: two installs inside one millisecond
+  // (a fast runner, an immediate retry) computed the same stamp, and the
+  // rename onto the existing version directory died with ENOTEMPTY — the
+  // install reported a raw filesystem error instead of installing. The
+  // counter makes the name unique per process, the clock per instant.
+  const stamp = `v-${Date.now()}-${process.pid}-${++stampSeq}`;
   renameSync(staging, join(paths.versions, stamp));
   // A real directory at the root path: hand-made, or left by a pre-release
   // build. Move it into the versions directory once, then the symlink swap

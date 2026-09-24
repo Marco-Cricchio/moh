@@ -68,6 +68,11 @@ export const endpointProfileSchema = z.object({
   defaultModel: z.string().optional(),
   /** ADR-0012 (#234): opt out of being an automatic fallback stop. Default true. */
   fallbackEligible: z.boolean().optional(),
+  /** ADR-0046 billing plan: how this endpoint pays for its models — a
+   * metered API key (`"metered"`, the default) or a subscription plan
+   * (`"subscription"`). It selects which catalog price entry the cost
+   * estimates use; moh never infers it from a model name. */
+  billingPlan: z.enum(["metered", "subscription"]).optional(),
   /** Auth method (issue #132): absent = api-key, backward compatible. */
   auth: endpointAuthSchema.optional(),
   capabilities: capabilitiesSchema.optional(),

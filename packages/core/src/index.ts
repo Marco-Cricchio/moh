@@ -161,6 +161,7 @@ export {
   type QuotaOptions,
   type QuotaFetch,
   type LocalUsageRow,
+  type BillingPlanResolver,
 } from "./quota";
 // #714: the multi-session telemetry aggregator — the deep module the CLI/TUI
 // usage surfaces project. Read-only metadata projection over session event
@@ -234,8 +235,8 @@ import {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
-export { catalogEntryFor, pricingForModel, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
-export { estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
+export { catalogEntryFor, pricingForModel, pricingForPlan, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
+export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 export {
   fetchLiveCatalogs,
   liveListings,
@@ -388,9 +389,21 @@ import {
   projectFrontier,
   resolveTracker,
   resolveTrackerSync,
+  // #939: fills the sync twin's memo from a promise continuation, so the TUI
+  // boot (or renderTui's warm-up) leaves a spawn-free startup path behind it.
+  prepareTrackerRemote,
   type TrackerIssue,
   type TrackerBackend,
 } from "./tracker";
+// #939: the identity boot seam. A client resolves the project identity
+// before the first React window (renderTui, which runs outside the render)
+// and App's own gate awaits it when nothing did; afterwards every resolution
+// is memory-served, so no synchronous `git` spawn is reachable from a render.
+import {
+  prepareProjectIdentity,
+  prepareProjectIdentityNow,
+  isProjectIdentityPrepared,
+} from "./project-identity";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
 // #826: the bundled-extension seam. The core knows how to host first-party
 // code that ships inside the binary; it does not know which extension that
@@ -717,6 +730,11 @@ export {
   // clients resolve the canonical project directory without recomputing the slug.
   projectSlug,
   projectSessionsDir,
+  // #939: the identity boot seam — the client resolves the identity
+  // before the first React window, so nothing spawns on a render path.
+  prepareProjectIdentity,
+  prepareProjectIdentityNow,
+  isProjectIdentityPrepared,
   splitCommandSegments,
   formatRule,
   parseRule,
@@ -760,6 +778,8 @@ export {
   projectFrontier,
   resolveTracker,
   resolveTrackerSync,
+  // #939: fills the sync twin's memo from a promise continuation.
+  prepareTrackerRemote,
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,

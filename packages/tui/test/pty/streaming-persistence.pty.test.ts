@@ -136,6 +136,87 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 20_000);
 
+  test("a dense unbroken prose paragraph never pushes Ink onto the fullscreen path (#950)", async () => {
+    const { server, url } = startDenseParagraphStream();
+    const rawDump = "/tmp/moh-dense-paragraph-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        cols: 100,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: false,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low", "medium", "high"] } },
+          }],
+        },
+        steps: [
+          { wait: 5.0, until: "type…" },
+          { wait: 0.2, send: encodeBase64("dense") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 4.0, until: "DENSE-DONE" },
+          { wait: 0.4 },
+        ],
+        tail: 24,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const raw = readFileSync(rawDump, "utf8");
+      // The live tail must stay under the terminal height for the whole
+      // stream: one Ink clearTerminal (fullscreen path) would wipe the
+      // screen and the native scrollback on every frame.
+      expect(raw.split("\x1b[2J\x1b[3J\x1b[H").length - 1, "Ink clearTerminal in raw stream").toBe(0);
+      expect(raw).not.toContain("\x1b[3J");
+      // The settled reply survives intact in the transcript.
+      expect(raw.split("DENSE-DONE").length - 1).toBeGreaterThanOrEqual(1);
+      // Byte-volume envelope, mirroring the file's other turn guards.
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(750_000);
+    } finally {
+      server.stop(true);
+    }
+  }, 25_000);
+
+  test("reasoning past the display cap repaints once, not per frame (#950)", async () => {
+    const { server, url } = startCapRolloverStream();
+    const rawDump = "/tmp/moh-cap-rollover-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        cols: 120,
+        rows: 24,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low", "medium", "high"] } },
+          }],
+        },
+        steps: [
+          { wait: 5.0, until: "type…" },
+          { wait: 0.2, send: encodeBase64("cap rollover") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 5.0, until: "CAP-REPLY-DONE" },
+          { wait: 0.4 },
+        ],
+        tail: 24,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      const raw = readFileSync(rawDump, "utf8");
+      // The moving window must not re-assert a whole-transcript repaint on
+      // every frame: the early marker is printed once (+ at most one
+      // reset repaint), not re-emitted per frame.
+      const earlyReprints = raw.split("CAP-THINK-0000").length - 1;
+      expect(earlyReprints, `CAP-THINK-0000 reprinted ${earlyReprints}×`).toBeLessThanOrEqual(2);
+      // The promoted window must leave the volatile region: zero Ink
+      // fullscreen clears across the whole turn (toast chrome is now
+      // budgeted too) and a bounded byte volume.
+      expect(raw.split("\x1b[2J\x1b[3J\x1b[H").length - 1).toBe(0);
+      expect(readFileSync(rawDump).byteLength).toBeLessThan(1_500_000);
+    } finally {
+      server.stop(true);
+    }
+  }, 30_000);
+
   test("visible reasoning, a tool, and a long Markdown reply grow scrollback before done", async () => {
     const { server, url } = startRealisticReasoningStream();
     const rawDump = "/tmp/moh-streaming-realistic-raw.bin";
@@ -228,15 +309,21 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       // settled exactly-once check below is the promotion guard).
       expect(midText).toContain("MIDDLE-LINE-");
       expect(midText).not.toContain("LAST-LIVE-LINE");
-      // Dock geometry: composer stays in the lower half mid-stream.
+      // Dock geometry: composer stays in the lower half mid-stream. #950
+      // calibration reserves one safety row for the volatile tail (ink
+      // takes its fullscreen path at output == rows) and the one-shot
+      // reasoning toast adds a chrome row, so the dock may sit two rows
+      // above the midpoint on a 20-row screen.
       const screen = mid!.lines.map((l) => l.text);
       const input = screen.findIndex((line) => line.includes("type…"));
-      expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2));
+      expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2) - 2);
       const startInput = meta.checkpoints?.turnStart?.lines.findIndex((line) => line.text.includes("type…"));
-      // The dock may breathe by a row mid-stream: a partially-typed line
-      // wraps differently than a whole one (word-flow reveal). It must
-      // stay pinned to the bottom region, not drift.
-      expect(Math.abs((startInput ?? 0) - input)).toBeLessThanOrEqual(1);
+      // The dock may breathe by a row mid-stream (a partially-typed line
+      // wraps differently than a whole one — word-flow reveal) and by one
+      // more when the one-shot reasoning toast appears (#950): transient
+      // chrome is budgeted out of the tail, which moves the dock one row.
+      // It must stay pinned to the bottom region, not drift.
+      expect(Math.abs((startInput ?? 0) - input)).toBeLessThanOrEqual(2);
       // Bounded output (no O(n²) flood).
       expect(readFileSync(rawDump).byteLength).toBeLessThan(500_000);
     } finally {
@@ -897,6 +984,80 @@ function startUnbrokenStream(): { server: ReturnType<typeof Bun.serve>; url: str
           for (let i = 0; i < 120; i++) {
             send({ content: `${"x".repeat(120)} TAIL-${i} ` });
             await Bun.sleep(10);
+          }
+          send({}, "stop");
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
+
+// #950: one unbroken prose paragraph (no blank line) never promotes to
+// Static, so it stays volatile for the whole turn. A row-chunk block whose
+// real height is miscounted as 2 rows let the live output reach the
+// terminal height and pushed Ink onto its fullscreen path.
+function startDenseParagraphStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "dense-paragraph", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          for (let i = 0; i < 120; i++) {
+            send({ reasoning_content: `DENSE-THINK-${i} checking the promotion boundary\n` });
+            await Bun.sleep(8);
+          }
+          const sentence = "the core owns the agent loop and the clients display its events without ever talking to providers directly, so every client is a projection of one append-only log. ";
+          let body = "";
+          while (body.length < 8000) body += sentence;
+          body += " DENSE-DONE";
+          for (let at = 0; at < body.length; at += 900) {
+            send({ content: body.slice(at, at + 900) });
+            await Bun.sleep(350);
+          }
+          send({}, "stop");
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+}
+
+// #950 secondary defect: reasoning longer than REASONING_DISPLAY_CAP turns
+// into a moving "truncated" window that must repaint once, not per frame,
+// and must be promoted at reasoning_end instead of staying volatile.
+function startCapRolloverStream(): { server: ReturnType<typeof Bun.serve>; url: string } {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (delta: Record<string, unknown>, finishReason: string | null = null) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: "cap-rollover", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`));
+          send({ role: "assistant" });
+          // ~70 KiB of reasoning in ~1 KiB pieces: crosses the 64 KiB
+          // display cap mid-stream, keeping the moving window alive.
+          let bytes = 0;
+          let piece = 0;
+          while (bytes < 70 * 1024) {
+            const text = `${"reasoning through the window boundary. ".repeat(28)}PIECE-${String(++piece).padStart(4, "0")}\n`;
+            bytes += new TextEncoder().encode(text).byteLength;
+            send({ reasoning_content: text });
+            await Bun.sleep(12);
+          }
+          await Bun.sleep(300);
+          for (const word of "CAP-REPLY-DONE the capped reasoning turn has settled".split(/(?<=\s)/)) {
+            send({ content: word });
+            await Bun.sleep(8);
           }
           send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));

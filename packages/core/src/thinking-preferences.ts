@@ -4,7 +4,7 @@
  *
  * Two halves, both provider-neutral core data for the clients:
  *
- * - **Capability reporting** from the vendored catalog: the canonical
+ * - **Capability reporting** from the shipped catalog: the canonical
  *   level set, the per-model `thinkingLevelMap` states (supported /
  *   disabled / provider-default) and the medium-else-provider-default
  *   new-endpoint default. moh never silently remaps: an unavailable
@@ -251,7 +251,7 @@ export function clearThinkingPreference(file: string, endpoint: string, io: User
 /**
  * The per-call thinking request for the *active* provider ref (#242):
  * `endpoint/model-id` resolved against the session's merged endpoint
- * profiles and the vendored catalog, honoring the endpoint's stored
+ * profiles and the shipped catalog, honoring the endpoint's stored
  * preference. Re-read per call so a persisted preference change is
  * effective on the very next call. `undefined` = send nothing (custom
  * profiles and the unified capability calculation (#256: per-model

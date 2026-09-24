@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "provider": "huggingface",
+  "source": {
+    "modelsDev": [
+      "huggingface"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "huggingface",
+    "baseUrl": "https://router.huggingface.co/v1"
+  },
+  "rows": {
+    "meta-llama/Llama-3.3-70B-Instruct": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Llama 3.3 70B Instruct"
+    }
+  }
+}

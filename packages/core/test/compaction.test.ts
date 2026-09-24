@@ -173,6 +173,49 @@ describe("auto trigger", () => {
   });
 });
 
+describe("context_length recovery (#947)", () => {
+  test("lastMeasuredCall skips failed calls — a {0,0} is not a measurement", () => {
+    const events = turnEvents(1, 253_325);
+    events.push({ type: "model_call", model: "m", usage: { inputTokens: 0, outputTokens: 0 }, failed: true });
+    expect(CompactionRunner.lastMeasuredCall(events)?.inputTokens).toBe(253_325);
+  });
+
+  test("a context_length error turn arms the producer despite the stale guard", async () => {
+    // Real #947 shape: the last successful measurement is over threshold and
+    // already seen by a previous settle; the overflow turn only adds a failed call.
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 13; i++) events.push(...turnEvents(i, i === 12 ? 253_325 : 100));
+    events.push({ type: "model_call", model: "mock", usage: { inputTokens: 0, outputTokens: 0 }, failed: true });
+    const { r, appended } = runner(events);
+    r.maybeCompact({ status: "done" }, events, false); // the pre-overflow settle saw the 253k call
+    expect(appended).toHaveLength(0);
+    r.maybeCompact({ status: "error", reason: "context_length", message: "maximum context length" }, events, false);
+    await r.pending;
+    expect(appended).toHaveLength(1);
+    expect(appended[0]!.type).toBe("compaction");
+  });
+
+  test("the overflow producer runs below the threshold too — the provider error outranks the arithmetic", async () => {
+    // Unknown window + real 128k endpoint: measured 150k sits under the 180k
+    // fallback threshold (144k is crossed at 144k... 150k is above; use 130k).
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 13; i++) events.push(...turnEvents(i, i === 12 ? 130_000 : 100));
+    events.push({ type: "model_call", model: "mock", usage: { inputTokens: 0, outputTokens: 0 }, failed: true });
+    const { r, appended } = runner(events);
+    r.maybeCompact({ status: "error", reason: "context_length", message: "maximum context length" }, events, false);
+    await r.pending;
+    expect(appended).toHaveLength(1);
+  });
+
+  test("other error reasons still append nothing", () => {
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 13; i++) events.push(...turnEvents(i, 900_000));
+    const { r, appended } = runner(events);
+    r.maybeCompact({ status: "error", reason: "rate_limited", message: "429" }, events, false);
+    expect(appended).toHaveLength(0);
+  });
+});
+
 describe("forced compaction", () => {
   test("ignores the threshold and guard", async () => {
     const events: AgentEvent[] = [];

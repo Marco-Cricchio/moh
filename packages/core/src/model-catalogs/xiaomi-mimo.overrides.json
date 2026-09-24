@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "provider": "xiaomi-mimo",
+  "source": {
+    "modelsDev": [
+      "xiaomi"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "xiaomi-mimo",
+    "baseUrl": "https://api.xiaomimimo.com/v1"
+  },
+  "rows": {
+    "mimo-v2-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "MiMo v2 Flash",
+      "compat": {
+        "thinkingFormat": "openai"
+      }
+    }
+  }
+}
