@@ -1,7 +1,7 @@
 # ADR-0046 — moh owns its model catalog: sources, precedence, provenance, overrides
 
 Date: 2026-09-24 · Status: accepted · Refs: tickets #955, #951, #953 (census), map #952
-Supersedes (in part): ADR-0029 — see the amendment there
+Amends: ADR-0029 (by provenance, not liveness) — see the amendment there
 
 ## Context
 
@@ -89,7 +89,9 @@ catalog; `updatedAt` stays the real generation date; the
 is removed. Generation is local and human-invoked; a CI job rebuilds and
 compares **without committing**. A source outage means "did not regenerate"
 (last valid catalog stands); a coverage drop against the committed catalog
-fails generation. The manifest records: `schemaVersion`, `version`,
+fails generation. Generation guards: unit conversion (above), id presence and
+uniqueness within a catalog, and a non-regressive `contextWindow` against the
+committed catalog. The manifest records: `schemaVersion`, `version`,
 `generatedAt`, sources (url + fetch date), per-file hash and per-verdict row
 counts, and per-row provenance (source, namespace, supplied fields, applied
 override). The generation report additionally records unmatched ids, cross-
