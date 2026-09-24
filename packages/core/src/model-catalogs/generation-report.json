@@ -1,0 +1,932 @@
+{
+  "schemaVersion": 1,
+  "version": "0.50.0",
+  "generatedAt": "2026-09-24T11:45:26.869Z",
+  "sources": [
+    {
+      "name": "models.dev",
+      "url": "https://models.dev/api.json",
+      "fetchedAt": "2026-09-24T11:45:26.816Z"
+    },
+    {
+      "name": "openrouter",
+      "url": "https://openrouter.ai/api/v1/models",
+      "fetchedAt": "2026-09-24T11:45:26.831Z"
+    }
+  ],
+  "totals": {
+    "files": 25,
+    "rows": 558,
+    "exact": 509,
+    "baseModel": 11,
+    "ambiguous": 5,
+    "absent": 33,
+    "rowsWithOverrides": 104
+  },
+  "files": [
+    {
+      "provider": "anthropic",
+      "rows": 14,
+      "verdicts": {
+        "exact": 14,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 14,
+        "pricing": 14,
+        "contextWindow": 14,
+        "maxTokens": 14,
+        "reasoning": 14,
+        "input": 14
+      },
+      "previous": {
+        "rows": 14,
+        "pricing": 14,
+        "contextWindow": 14,
+        "maxTokens": 14,
+        "reasoning": 14,
+        "input": 14
+      }
+    },
+    {
+      "provider": "baseten",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "cerebras",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "deepseek",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 1,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "fireworks",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "github-copilot",
+      "rows": 27,
+      "verdicts": {
+        "exact": 27,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 27,
+        "pricing": 27,
+        "contextWindow": 27,
+        "maxTokens": 27,
+        "reasoning": 27,
+        "input": 27
+      },
+      "previous": {
+        "rows": 27,
+        "pricing": 27,
+        "contextWindow": 27,
+        "maxTokens": 27,
+        "reasoning": 27,
+        "input": 27
+      }
+    },
+    {
+      "provider": "google",
+      "rows": 22,
+      "verdicts": {
+        "exact": 22,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 22,
+        "pricing": 20,
+        "contextWindow": 22,
+        "maxTokens": 22,
+        "reasoning": 22,
+        "input": 22
+      },
+      "previous": {
+        "rows": 22,
+        "pricing": 20,
+        "contextWindow": 22,
+        "maxTokens": 22,
+        "reasoning": 22,
+        "input": 22
+      }
+    },
+    {
+      "provider": "groq",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "huggingface",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "kimi-coding",
+      "rows": 4,
+      "verdicts": {
+        "exact": 4,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 4,
+        "pricing": 3,
+        "contextWindow": 4,
+        "maxTokens": 4,
+        "reasoning": 4,
+        "input": 4
+      },
+      "previous": {
+        "rows": 4,
+        "pricing": 3,
+        "contextWindow": 4,
+        "maxTokens": 4,
+        "reasoning": 4,
+        "input": 4
+      }
+    },
+    {
+      "provider": "minimax",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "mistral",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "moonshot",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "nvidia-nim",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "openai-codex",
+      "rows": 7,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 6,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 7,
+        "pricing": 7,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      },
+      "previous": {
+        "rows": 7,
+        "pricing": 7,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      }
+    },
+    {
+      "provider": "opencode-go",
+      "rows": 28,
+      "verdicts": {
+        "exact": 28,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 28,
+        "pricing": 28,
+        "contextWindow": 28,
+        "maxTokens": 28,
+        "reasoning": 28,
+        "input": 28
+      },
+      "previous": {
+        "rows": 28,
+        "pricing": 28,
+        "contextWindow": 28,
+        "maxTokens": 28,
+        "reasoning": 28,
+        "input": 28
+      }
+    },
+    {
+      "provider": "opencode-zen",
+      "rows": 69,
+      "verdicts": {
+        "exact": 67,
+        "base-model": 2,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 69,
+        "pricing": 63,
+        "contextWindow": 69,
+        "maxTokens": 67,
+        "reasoning": 69,
+        "input": 69
+      },
+      "previous": {
+        "rows": 69,
+        "pricing": 63,
+        "contextWindow": 69,
+        "maxTokens": 67,
+        "reasoning": 69,
+        "input": 69
+      }
+    },
+    {
+      "provider": "openrouter",
+      "rows": 362,
+      "verdicts": {
+        "exact": 338,
+        "base-model": 1,
+        "ambiguous": 0,
+        "absent": 23
+      },
+      "coverage": {
+        "rows": 362,
+        "pricing": 340,
+        "contextWindow": 362,
+        "maxTokens": 362,
+        "reasoning": 278,
+        "input": 362
+      },
+      "previous": {
+        "rows": 362,
+        "pricing": 340,
+        "contextWindow": 362,
+        "maxTokens": 362,
+        "reasoning": 278,
+        "input": 362
+      }
+    },
+    {
+      "provider": "qwen",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 1,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "together",
+      "rows": 1,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 1
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 0,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "vercel-ai-gateway",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 0,
+        "input": 1
+      }
+    },
+    {
+      "provider": "xai",
+      "rows": 3,
+      "verdicts": {
+        "exact": 3,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 3,
+        "pricing": 3,
+        "contextWindow": 3,
+        "maxTokens": 3,
+        "reasoning": 3,
+        "input": 3
+      },
+      "previous": {
+        "rows": 3,
+        "pricing": 3,
+        "contextWindow": 3,
+        "maxTokens": 3,
+        "reasoning": 3,
+        "input": 3
+      }
+    },
+    {
+      "provider": "xiaomi-mimo",
+      "rows": 1,
+      "verdicts": {
+        "exact": 1,
+        "base-model": 0,
+        "ambiguous": 0,
+        "absent": 0
+      },
+      "coverage": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      },
+      "previous": {
+        "rows": 1,
+        "pricing": 1,
+        "contextWindow": 1,
+        "maxTokens": 1,
+        "reasoning": 1,
+        "input": 1
+      }
+    },
+    {
+      "provider": "zai",
+      "rows": 7,
+      "verdicts": {
+        "exact": 0,
+        "base-model": 0,
+        "ambiguous": 5,
+        "absent": 2
+      },
+      "coverage": {
+        "rows": 7,
+        "pricing": 5,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      },
+      "previous": {
+        "rows": 7,
+        "pricing": 5,
+        "contextWindow": 7,
+        "maxTokens": 7,
+        "reasoning": 7,
+        "input": 7
+      }
+    }
+  ],
+  "absentIds": [
+    "baseten/deepseek-ai/DeepSeek-R1",
+    "cerebras/llama-3.3-70b",
+    "cloudflare-ai-gateway/meta/llama-3.3-70b-instruct",
+    "fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct",
+    "minimax/MiniMax-Text-01",
+    "moonshot/moonshot-v1-128k",
+    "openai-codex/gpt-5.3-codex-spark",
+    "openrouter/anthropic/claude-opus-4",
+    "openrouter/deepseek/deepseek-v4-flash-0731:batch",
+    "openrouter/deepseek/deepseek-v4-pro-0813:batch",
+    "openrouter/google/gemini-2.5-pro-preview-05-06",
+    "openrouter/google/gemma-4-31b-it:batch",
+    "openrouter/ibm-granite/granite-4.1-8b",
+    "openrouter/inception/mercury-2.5-preview",
+    "openrouter/kwaipilot/kat-coder-pro-v2",
+    "openrouter/meta/muse-glimmer-30b:batch",
+    "openrouter/minimax/minimax-m2.7:free",
+    "openrouter/minimax/minimax-m3:batch",
+    "openrouter/minimax/minimax-m3:free",
+    "openrouter/mistralai/devstral-2512",
+    "openrouter/mistralai/mistral-large-2512",
+    "openrouter/nex-agi/nex-n2-mini",
+    "openrouter/nex-agi/nex-n2-pro",
+    "openrouter/openai/gpt-4-turbo-preview",
+    "openrouter/qwen/qwen3.5-9b:batch",
+    "openrouter/qwen/qwen3.8-2.4t-a95b:batch",
+    "openrouter/qwen/qwen3.8-max",
+    "openrouter/thinkingmachines/inkling-small:batch",
+    "openrouter/thinkingmachines/inkling:batch",
+    "openrouter/~openai/gpt-latest",
+    "together/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "zai/glm-5.2-highspeed",
+    "zai/glm-5.3-highspeed"
+  ],
+  "crossSourceContextDiffs": [
+    {
+      "provider": "github-copilot",
+      "id": "claude-opus-4.7",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "github-copilot",
+      "id": "claude-opus-4.8",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "github-copilot",
+      "id": "claude-sonnet-4.6",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.5-flash",
+      "modelsDev": 200000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.6-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.7-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gemini-3.8-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "github-copilot",
+      "id": "kimi-k2.7-code",
+      "modelsDev": 256000,
+      "openRouter": 262144
+    },
+    {
+      "provider": "github-copilot",
+      "id": "gpt-5-mini",
+      "modelsDev": 264000,
+      "openRouter": 400000
+    },
+    {
+      "provider": "opencode-go",
+      "id": "minimax-m3",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-flash-vision-exp",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-pro",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4.1-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.1",
+      "modelsDev": 202752,
+      "openRouter": 204800
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.2",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.3",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.3-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-go",
+      "id": "hy3",
+      "modelsDev": 256000,
+      "openRouter": 262144
+    },
+    {
+      "provider": "opencode-go",
+      "id": "hy4-preview",
+      "modelsDev": 1024000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-go",
+      "id": "longcat-2.0",
+      "modelsDev": 1000000,
+      "openRouter": 1048756
+    },
+    {
+      "provider": "opencode-go",
+      "id": "mimo-v2.5",
+      "modelsDev": 1000000,
+      "openRouter": 1050000
+    },
+    {
+      "provider": "opencode-go",
+      "id": "mimo-v2.5-pro",
+      "modelsDev": 1048576,
+      "openRouter": 1050000
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "qwen3.6-plus",
+      "modelsDev": 262144,
+      "openRouter": 1000000
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "deepseek-v4-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "deepseek-v4-flash-vision-exp",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "deepseek-v4-pro",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "glm-5.2",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "glm-5.3",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "glm-5.3-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "opencode-zen",
+      "id": "minimax-m3",
+      "modelsDev": 512000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5-turbo",
+      "modelsDev": 200000,
+      "openRouter": 202752
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5.2",
+      "modelsDev": 1000000,
+      "openRouter": 1048576
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5.3",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    },
+    {
+      "provider": "zai",
+      "id": "glm-5.3-flash",
+      "modelsDev": 1000000,
+      "openRouter": 1310720
+    }
+  ],
+  "contextWindowShrinks": [],
+  "changes": {
+    "pricing": [],
+    "contextWindow": [],
+    "reasoning": []
+  },
+  "issues": []
+}

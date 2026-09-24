@@ -60,7 +60,7 @@ import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
+import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
 import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
@@ -250,7 +250,13 @@ export function App({
     if (overlay !== "quota") return;
     setRecentUsage(() => {
       try {
-        const report = aggregateTelemetry({ cwd, home, maxSessions: 10 });
+        const report = aggregateTelemetry({
+          cwd,
+          home,
+          maxSessions: 10,
+          // ADR-0046 billing plan: same price entries the live rows use.
+          planFor: billingPlanResolver(session?.endpointProfiles),
+        });
         return report.models.length > 0
           ? { window: 10, models: report.models.map(({ thinkingLevels: _t, ...row }) => row) }
           : null;
@@ -267,7 +273,7 @@ export function App({
     setSessionReport(() => {
       try {
         if (!session?.sessionFile) return { error: "session file unknown" };
-        return analyzeSession(session.sessionFile);
+        return analyzeSession(session.sessionFile, { planFor: billingPlanResolver(session.endpointProfiles) });
       } catch {
         return { error: "session analysis failed" };
       }
@@ -1602,7 +1608,7 @@ export function App({
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
-            localUsage={aggregateLocalUsage(session.history())}
+            localUsage={aggregateLocalUsage(session.history(), { planFor: billingPlanResolver(session.endpointProfiles) })}
             recentUsage={recentUsage}
             onClose={() => setOverlay(null)}
           />

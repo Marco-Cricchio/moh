@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "provider": "google",
+  "source": {
+    "modelsDev": [
+      "google"
+    ]
+  },
+  "file": {
+    "api": "google-generative-ai",
+    "provider": "google",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta"
+  },
+  "rows": {
+    "deep-research-max-preview-04-2026": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Deep Research Max Preview (Apr-21-2026)"
+    },
+    "deep-research-preview-04-2026": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Deep Research Preview (Apr-21-2026)"
+    },
+    "gemini-2.5-computer-use-preview-10-2025": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "name": "Gemini 2.5 Computer Use Preview 10-2025",
+      "acceptContextShrink": true
+    },
+    "gemini-2.5-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 2.5 Flash"
+    },
+    "gemini-2.5-flash-lite": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 2.5 Flash-Lite"
+    },
+    "gemini-2.5-pro": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 2.5 Pro"
+    },
+    "gemini-3-flash-preview": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3 Flash Preview",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.1-flash-lite": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.1 Flash Lite",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.1-flash-lite-image": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Nano Banana 2 Lite",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.1-flash-lite-preview": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.1 Flash Lite Preview",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.1-flash-live-preview": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.1 Flash Live Preview",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.1-pro-preview": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.1 Pro Preview",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "LOW",
+        "medium": null,
+        "high": "HIGH"
+      }
+    },
+    "gemini-3.1-pro-preview-customtools": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.1 Pro Preview Custom Tools",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "LOW",
+        "medium": null,
+        "high": "HIGH"
+      }
+    },
+    "gemini-3.5-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.5 Flash",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.5-flash-lite": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.5 Flash Lite",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.6-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.6 Flash",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.7-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.7 Flash",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-3.8-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini 3.8 Flash",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-flash-latest": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini Flash Latest",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemini-flash-lite-latest": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemini Flash-Lite Latest",
+      "thinkingLevelMap": {
+        "off": null
+      }
+    },
+    "gemma-4-26b-a4b-it": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemma 4 26B A4B IT",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "MINIMAL",
+        "low": null,
+        "medium": null,
+        "high": "HIGH"
+      }
+    },
+    "gemma-4-31b-it": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Gemma 4 31B IT",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "MINIMAL",
+        "low": null,
+        "medium": null,
+        "high": "HIGH"
+      }
+    }
+  }
+}

@@ -83,9 +83,9 @@ re-probe it until the cooldown expires.
 ## Switching models
 
 - `/model` in the TUI opens the picker: every configured endpoint's
-  list (from the vendored catalog, or `GET /models` for openai-compat
+  list (from the shipped catalog, or `GET /models` for openai-compat
   endpoints). For every provider moh ships a catalog for **and** whose
-  `/models` route moh has verified, the vendored list is augmented in
+  `/models` route moh has verified, the shipped list is augmented in
   the background with the provider's own live model list (startup and
   picker open, cached in `~/.moh/live-models.json` with a 24h TTL; `r`
   in the picker forces a refresh), so newly released models appear
@@ -118,7 +118,7 @@ re-probe it until the cooldown expires.
 
 Thinking-capable models accept a reasoning-effort level: `off`, `low`,
 `medium`, `high`, `xhigh`, `max`. Cycle it with `ctrl+y` or set it in
-`/thinking`. The levels a model actually supports come from the vendored
+`/thinking`. The levels a model actually supports come from the shipped
 catalog (or an explicit `capabilities.thinking` declaration for
 openai-compat endpoints); unsupported levels are shown as unavailable
 rather than silently remapped. The effective level sent is recorded in
@@ -130,9 +130,10 @@ OpenCode has separate **Zen** and **Go** endpoints. Its usage quota is shown
 in the official OpenCode Console at `https://opencode.ai/console`; moh does
 not make a remote quota request for OpenCode. Press `ctrl+q` to see the
 session's local token measurement per model and follow the Console link for
-account usage. Zen USD estimates appear only when moh ships an official
-OpenCode Zen price; Go calls are always token-only because moh does not infer
-USD prices from a matching model sold by another provider.
+account usage. Both products' USD estimates come from
+their own generated catalog rows (models.dev publishes the OpenCode prices);
+an id their list does not carry stays token-only, never borrowing a matching
+model's rate from another provider.
 
 The model list is the endpoints' own `/models` listing, merged over the
 catalog moh ships: a model moh has no metadata for is served over the

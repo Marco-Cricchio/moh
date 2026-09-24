@@ -1,16 +1,17 @@
 /**
- * Vendored model catalogs for subscription providers (#156, extended to
- * the four new OAuth providers in #164): the post-login model list the
- * wizard shows. Data files are verbatim copies of pi-ai's
- * auto-generated catalogs (MIT — see model-catalogs/README.md for
- * attribution and the regeneration script); this module flattens them
+ * The model catalogs for subscription providers (#156, extended to the four
+ * new OAuth providers in #164): the post-login model list the wizard shows.
+ * Since ADR-0046 (#959) the data files are **generated** by moh's own
+ * pipeline from declared aggregators (models.dev primary, OpenRouter
+ * hole-filling) plus a hand-maintained `<provider>.overrides.json` sidecar —
+ * see model-catalogs/README.md and
+ * `packages/core/scripts/build-model-catalogs.ts`; this module flattens them
  * into a per-provider list.
  *
- * Deliberately read-only and static: no pi-ai runtime dependency, no
- * network fetch — the catalog ships with the package and is versioned
- * in the repo (issue #156 owner decision; #164 keeps one mechanism and
- * one regeneration story for all providers, openrouter's 346-model list
- * included).
+ * Deliberately read-only and static: no network fetch at runtime — the
+ * catalog ships with the package and is versioned in the repo (issue #156
+ * owner decision; #164 keeps one mechanism and one generation story for all
+ * providers).
  *
  * #164 also turns the catalog into the per-model metadata source for
  * the #159 wire seam: `catalogEntryFor` gives the wire (pi api name
@@ -53,8 +54,7 @@ export interface CatalogModel {
   name: string;
   contextWindow: number;
   reasoning: boolean;
-  /** #241: the model's thinking-level map, preserved verbatim from the
-   * vendored catalog. Keys are level names (canonical moh ones plus any
+  /** #241: the model's thinking-level map, as the catalog declares it. Keys are level names (canonical moh ones plus any
    * provider-specific extras like "minimal"); a non-null value is the
    * provider-native expression, `null` is an explicit provider-native
    * disable. Absent = the model declares no level map: level selection
@@ -72,9 +72,15 @@ export interface CatalogModel {
   /** Provider compat flags (e.g. kimi allowEmptySignature) — carried as
    * data; application is per-flag and lands with the flags that need it. */
   compat?: Record<string, unknown>;
-  /** Approximate USD prices per million tokens from the vendored catalog.
-   * Absent means pricing is unknown, never free. */
+  /** Approximate USD prices per million tokens for the endpoint's metered
+   * billing plan (ADR-0046). Absent means pricing is unknown, never free. */
   pricing?: ModelPricing;
+  /** ADR-0046 billing plan: the subscription-plan price record, when the
+   * catalog declares one (the same model, sold by plan rather than per
+   * token). Selected only when the endpoint declares `billingPlan:
+   * "subscription"`; a zero-only record is plan-included, which the pricing
+   * seam reads as "no marginal rate", never as free. */
+  planPricing?: ModelPricing;
 }
 
 /** Approximate USD prices per million tokens. Zero is an explicit free rate;
@@ -96,9 +102,11 @@ export interface ModelPricingTier {
   cacheWrite?: number;
 }
 
-/** The pi-ai catalog shape: `{ <api>: { <modelId>: entry } }`. */
-type PiAiCatalog = Record<string, Record<string, PiAiEntry>>;
-interface PiAiEntry {
+/** A catalog file's shape: `{ <api>: { <modelId>: row } }` — the wire is the
+ * outer key, which is how a provider that speaks several wires per model
+ * (copilot, OpenCode) files its rows. */
+type CatalogFile = Record<string, Record<string, CatalogRow>>;
+interface CatalogRow {
   id: string;
   baseUrl?: string;
   name?: string;
@@ -109,9 +117,12 @@ interface PiAiEntry {
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
   cost?: ModelPricing;
+  /** ADR-0046 billing plan: the subscription-plan price entry. */
+  planCost?: ModelPricing;
 }
 
-/** pi api names → moh wires. Unknown apis are skipped (not guessed). */
+/** The wire names the catalog files use → moh wires. Unknown apis are
+ * skipped (not guessed). */
 export const PI_API_TO_WIRE: Record<string, WireApi> = {
   "anthropic-messages": "anthropic-messages",
   "openai-completions": "openai-chat",
@@ -133,7 +144,7 @@ export function normalizeThinkingLevelMap(map: Record<string, string | null>): R
   return rest;
 }
 
-function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
+function toModel(entry: CatalogRow, api: string): CatalogModel | undefined {
   const wire = PI_API_TO_WIRE[api];
   if (!wire) return undefined;
   return {
@@ -147,13 +158,14 @@ function toModel(entry: PiAiEntry, api: string): CatalogModel | undefined {
     ...(entry.headers ? { headers: entry.headers } : {}),
     ...(entry.compat ? { compat: entry.compat } : {}),
     ...(entry.cost ? { pricing: entry.cost } : {}),
+    ...(entry.planCost ? { planPricing: entry.planCost } : {}),
   };
 }
 
 /** The picker list: deduped by id, first api wins (file order is the
  * provider's own preference — e.g. copilot lists anthropic-messages
  * first). */
-function collect(catalog: PiAiCatalog): CatalogModel[] {
+function collect(catalog: CatalogFile): CatalogModel[] {
   const out: CatalogModel[] = [];
   const seen = new Set<string>();
   for (const [api, models] of Object.entries(catalog)) {
@@ -186,29 +198,26 @@ const CATALOGS = {
   opencode: collect(opencodeZenJson),
 } as const satisfies Record<string, CatalogModel[]>;
 
-/** Providers that have a vendored subscription catalog. */
+/** Providers that have a shipped subscription catalog. */
 export type CatalogProviderType = keyof typeof CATALOGS;
 
-/** Every api key present in the vendored files — a regen check: an
- * unmapped pi api name must fail loudly here, not silently drop models
- * from the picker. */
-export function vendoredApiNames(): string[] {
-  return [
-    ...Object.keys(anthropicJson),
-    ...Object.keys(openaiCodexJson),
-    ...Object.keys(googleJson),
-    ...Object.keys(githubCopilotJson),
-    ...Object.keys(openrouterJson),
-    ...Object.keys(kimiCodingJson),
-    ...Object.keys(xaiJson),
-    ...Object.keys(zaiJson),
-  ].filter((api, i, all) => all.indexOf(api) === i);
+/** Every api key present in the shipped files — a generation check: an
+ * unmapped wire name must fail loudly here, not silently drop models from
+ * the picker. Every file is listed, not only the multi-wire ones. */
+export function catalogApiNames(): string[] {
+  const files: CatalogFile[] = [
+    anthropicJson, openaiCodexJson, googleJson, githubCopilotJson, openrouterJson, kimiCodingJson,
+    xaiJson, zaiJson, deepseekJson, groqJson, cerebrasJson, nvidiaNimJson, togetherJson, fireworksJson,
+    huggingfaceJson, mistralJson, moonshotJson, minimaxJson, qwenJson, xiaomiMimoJson,
+    vercelAiGatewayJson, cloudflareAiGatewayJson, basetenJson, opencodeZenJson, opencodeGoJson,
+  ];
+  return [...new Set(files.flatMap((file) => Object.keys(file)))];
 }
 
-/** The baseUrl values the vendored data declares, per provider — drift
+/** The baseUrl values the shipped data declares, per provider — drift
  * check against OAUTH_BUILTIN_BASE_URLS (the registry's own source). */
-export function vendoredBaseUrls(type: string): Set<string> {
-  const files: Record<string, PiAiCatalog> = {
+export function catalogBaseUrls(type: string): Set<string> {
+  const files: Record<string, CatalogFile> = {
     anthropic: anthropicJson,
     openai: openaiCodexJson,
     google: googleJson,
@@ -258,7 +267,7 @@ export function knownCompatEndpointMetadata(baseUrl?: string): KnownCompatEndpoi
 }
 
 /** Catalog for one configured endpoint. Most endpoints resolve directly by
- * type; recognized openai-compat hosts opt into vendored metadata without
+ * type; recognized openai-compat hosts opt into shipped metadata without
  * becoming provider implementations. */
 export function endpointModelCatalog(type: string, baseUrl?: string): CatalogModel[] {
   if (type === "opencode") return subscriptionModelCatalog(baseUrl?.replace(/\/$/, "") === "https://opencode.ai/zen/go/v1" ? "opencode-go" : "opencode-zen");
@@ -279,38 +288,66 @@ export function catalogEntryFor(type: string, modelId: string, baseUrl?: string)
   return subscriptionModelCatalog(type).find((m) => m.id === modelId);
 }
 
-/** Finds unambiguous pricing by model id across the shipped catalogs. Event
- * logs retain an endpoint name rather than its profile type, so a collision
- * with different prices is deliberately unavailable instead of guessed. */
-export function pricingForModel(model: string): ModelPricing | undefined {
-  // OpenCode's Zen and Go products can expose identifiers also sold by
-  // other providers. Their event-log endpoint prefix is therefore material:
-  // Go has no USD token pricing, and Zen may use only an official price in
-  // its own overlay — never a coincidentally matching third-party rate.
+/** The billing plan an endpoint pays by (ADR-0046): a metered API key or a
+ * subscription plan. The endpoint declares it; moh never infers it from a
+ * model name. */
+export type BillingPlan = "metered" | "subscription";
+
+/** The price entry a billing plan selects on one catalog row. The metered
+ * entry is the default; `subscription` uses the declared plan record when
+ * the row has one, and falls back to the metered entry when it does not. */
+export function pricingForPlan(
+  entry: Pick<CatalogModel, "pricing" | "planPricing">,
+  plan: BillingPlan = "metered",
+): ModelPricing | undefined {
+  if (plan === "subscription") return entry.planPricing ?? entry.pricing;
+  return entry.pricing;
+}
+
+/** Two price records describe the same rates. Cache rates absent and zero
+ * are the same price; a tier is a refinement of the same schedule, not a
+ * conflicting one — otherwise a catalog-less endpoint would lose every
+ * estimate for an id two catalogs both price, purely because one of them
+ * refines the rates past a context boundary. The base rates decide. */
+function sameRates(a: ModelPricing, b: ModelPricing): boolean {
+  const base = (pricing: ModelPricing) => [pricing.input, pricing.output, pricing.cacheRead ?? 0, pricing.cacheWrite ?? 0];
+  return JSON.stringify(base(a)) === JSON.stringify(base(b));
+}
+
+/** Finds unambiguous pricing by model id across the shipped catalogs, for
+ * the endpoint's billing plan. Event logs retain an endpoint name rather
+ * than its profile type, so a collision with different prices is
+ * deliberately unavailable instead of guessed. */
+export function pricingForModel(model: string, plan: BillingPlan = "metered"): ModelPricing | undefined {
   const slash = model.indexOf("/");
   const endpoint = slash === -1 ? undefined : model.slice(0, slash);
   const modelId = slash === -1 ? model : model.slice(slash + 1);
-  if (endpoint === "opencode-go") return undefined;
-  if (endpoint === "opencode-zen" || endpoint === "opencode") {
-    const pricing = subscriptionModelCatalog("opencode-zen").find((entry) => entry.id === modelId)?.pricing;
+
+  // An endpoint whose name is one moh ships a catalog for has its own
+  // authoritative list, and the endpoint prefix is material: the ids Zen and
+  // Go share with the upstream vendors must resolve to *their* rate, and an
+  // id their list does not carry stays unpriced rather than borrowing a
+  // coincidentally matching third-party record.
+  const own = endpoint ? (CATALOGS as Record<string, CatalogModel[]>)[endpoint] : undefined;
+  if (own) {
+    const pricing = pricingForPlan(own.find((entry) => entry.id === modelId) ?? {}, plan);
     return pricing && (pricing.input > 0 || pricing.output > 0) ? pricing : undefined;
   }
 
   // Event logs record `endpoint/model-id`; OpenRouter model ids themselves
   // contain `/`. Prefer an exact catalog id after removing one endpoint
   // segment, then fall back to a bare id only when catalog rates agree.
-  const afterEndpoint = modelId;
   const all = Object.values(CATALOGS).flat();
-  const exact = all.filter((entry) => entry.id === afterEndpoint);
-  const candidates = exact.length > 0 ? exact : all.filter((entry) => entry.id === model || entry.id === afterEndpoint);
+  const exact = all.filter((entry) => entry.id === modelId);
+  const candidates = exact.length > 0 ? exact : all.filter((entry) => entry.id === model || entry.id === modelId);
   const matches = candidates
-    .map((entry) => entry.pricing)
+    .map((entry) => pricingForPlan(entry, plan))
     // Zero-only records in minimal endpoint catalogs are placeholders, not
     // evidence of a free model. Conservatively leave them tokens-only.
     .filter((pricing): pricing is ModelPricing => pricing !== undefined && (pricing.input > 0 || pricing.output > 0));
   if (matches.length === 0) return undefined;
-  const distinct = new Map(matches.map((pricing) => [JSON.stringify(pricing), pricing]));
-  return distinct.size === 1 ? distinct.values().next().value : undefined;
+  const first = matches[0]!;
+  return matches.every((pricing) => sameRates(pricing, first)) ? first : undefined;
 }
 
 /**

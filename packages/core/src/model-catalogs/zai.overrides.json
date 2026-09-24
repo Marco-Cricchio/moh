@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "provider": "zai",
+  "source": {
+    "modelsDev": [
+      "zai"
+    ],
+    "openRouter": [
+      "z-ai"
+    ],
+    "plan": {
+      "modelsDev": [
+        "zai-coding-plan"
+      ]
+    }
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "zai",
+    "baseUrl": "https://api.z.ai/api/coding/paas/v4"
+  },
+  "rows": {
+    "glm-4.7": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "GLM-4.7",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      }
+    },
+    "glm-5-turbo": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "GLM-5-Turbo",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      }
+    },
+    "glm-5.2": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "GLM-5.2",
+      "thinkingLevelMap": {
+        "off": "none",
+        "minimal": null,
+        "low": null,
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      }
+    },
+    "glm-5.2-highspeed": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "no aggregator record: the row is fully hand-maintained",
+      "name": "GLM-5.2 Highspeed",
+      "thinkingLevelMap": {
+        "off": "none",
+        "minimal": null,
+        "low": null,
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      },
+      "contextWindow": 1000000,
+      "maxTokens": 131072,
+      "reasoning": true,
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      }
+    },
+    "glm-5.3": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "GLM-5.3",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      }
+    },
+    "glm-5.3-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "GLM-5.3-Flash",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      }
+    },
+    "glm-5.3-highspeed": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "no aggregator record: the row is fully hand-maintained",
+      "name": "GLM-5.3 Highspeed",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "zai",
+        "requiresReasoningContentOnAssistantMessages": true,
+        "zaiToolStream": true
+      },
+      "contextWindow": 1000000,
+      "maxTokens": 131072,
+      "reasoning": true,
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      }
+    }
+  }
+}

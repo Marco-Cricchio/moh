@@ -11,10 +11,12 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   analyzeSession,
+  billingPlanResolver,
   bookmarkNode,
   deleteSession,
   isSessionOpen,
   listSessionSummaries,
+  loadMergedConfig,
   parseLineRef,
   PRICING_SNAPSHOT,
   renameSession,
@@ -131,7 +133,7 @@ export async function sessionsCommand({
     return 2;
   }
   if (sub === "tree") return sessionsTree(file, err);
-  if (isAnalyze) return sessionsAnalyze(file, parsed.booleans["json"] === true, err);
+  if (isAnalyze) return sessionsAnalyze(file, parsed.booleans["json"] === true, cwd, effectiveHome, err);
   if (sub === "switch") {
     if (positional.length < 2) {
       err.write(`moh sessions switch: <node|bookmark-name> is required\n`);
@@ -324,8 +326,16 @@ export function renderAnalysis(report: SessionAnalysisReport): string {
 }
 
 /** `moh sessions analyze` — resolves, aggregates, renders (text or JSON). */
-function sessionsAnalyze(file: string, json: boolean, err: { write(s: string): void }): number {
-  const report = analyzeSession(file);
+function sessionsAnalyze(file: string, json: boolean, cwd: string, home: string, err: { write(s: string): void }): number {
+  // ADR-0046 billing plan: cost estimates follow the plan each endpoint
+  // declares; an unreadable config degrades to the metered default.
+  let endpoints: ReturnType<typeof loadMergedConfig>["endpoints"];
+  try {
+    endpoints = loadMergedConfig(cwd, { home }).endpoints;
+  } catch {
+    endpoints = undefined;
+  }
+  const report = analyzeSession(file, { planFor: billingPlanResolver(endpoints) });
   if ("error" in report) {
     err.write(`moh sessions analyze: ${report.error}\n`);
     return CLI_ERROR;

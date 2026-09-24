@@ -108,7 +108,7 @@ describe("#256 thinkingStatesForRef resolution chain", () => {
       },
     ];
     // No own format, no endpoint-level declaration → falls through to the
-    // vendored map (xhigh/max), not the unusable declared levels.
+    // catalog map (xhigh/max), not the unusable declared levels.
     const states = thinkingStatesForRef(luna, endpoints);
     expect(states?.xhigh).toBe("supported");
     expect(states?.low).toBe("supported");

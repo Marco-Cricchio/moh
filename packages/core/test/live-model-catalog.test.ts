@@ -24,7 +24,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const vendored: CatalogModel[] = [
+const shipped: CatalogModel[] = [
   { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", contextWindow: 200_000, reasoning: true, wire: "anthropic-messages" },
 ];
 
@@ -88,15 +88,15 @@ describe("parseModelsResponse", () => {
 });
 
 describe("mergeLiveCatalog", () => {
-  test("vendored wins on id collision; fetched-only are conservative rows", () => {
+  test("the shipped catalog wins on id collision; fetched-only are conservative rows", () => {
     const live: LiveModelListing[] = [
       { id: "claude-sonnet-4-5", name: "Impostor", contextWindow: 1 },
       { id: "claude-opus-5", name: "Claude Opus 5", contextWindow: 300_000 },
       { id: "claude-unknown" },
     ];
-    const merged = mergeLiveCatalog(vendored, live);
+    const merged = mergeLiveCatalog(shipped, live);
     expect(merged).toEqual([
-      ...vendored,
+      ...shipped,
       { id: "claude-opus-5", name: "Claude Opus 5", contextWindow: 300_000, reasoning: false },
       { id: "claude-unknown", name: "claude-unknown", contextWindow: 0, reasoning: false },
     ]);
@@ -379,7 +379,7 @@ describe("listProviderModels", () => {
 
   test("the #726 profiles list at their documented <baseUrl>/models (#920)", async () => {
     // Z.ai is the owner's own stale list: the coding endpoint answers 11
-    // models while the vendored catalog ships 7.
+    // models while the shipped catalog ships 7.
     const zai = await listProviderModels("zai", "zai", {
       apiKey: "k",
       fetchImpl: async (url, headers) => {
@@ -530,7 +530,7 @@ describe("OpenCode live-catalog cache and fallback (#794)", () => {
 describe("listing-contract coverage (#920 audit)", () => {
   test("every builtin provider kind has a verified contract, except the one the audit found no route for", () => {
     // Baseten's /v1/models is served by the marketing site (403 + a website
-    // CSP), not by an inference API: its vendored catalog stays the update
+    // CSP), not by an inference API: its shipped catalog stays the update
     // story. Any other kind going static must fail here, loudly.
     const staticByDesign = new Set(["baseten"]);
     for (const type of BUILTIN_PROVIDER_TYPES) {
@@ -567,7 +567,7 @@ describe("live-catalog status projection (ADR-0045)", () => {
   };
 
   test("the #551 listing projection is derived, not a second source of truth", () => {
-    // Only endpoints with live-only models overlay the vendored catalog:
+    // Only endpoints with live-only models overlay the shipped catalog:
     // a failure or a statically-unsupported provider contributes nothing.
     expect(liveListings(report)).toEqual({
       fresh: [{ id: "m1" }],
@@ -596,9 +596,9 @@ describe("live-catalog status projection (ADR-0045)", () => {
     expect(liveCatalogFailureReasons({})).toEqual([]);
   });
 
-  test("a stale entry with no models still has the vendored catalog behind it", () => {
+  test("a stale entry with no models still has the shipped catalog behind it", () => {
     // An expired cache whose entry was itself empty (a listing that once
-    // answered 200 with no models) leaves the vendored catalog to show:
+    // answered 200 with no models) leaves the shipped catalog to show:
     // a usable list, so no interruption.
     expect(reportNeedsNotice({ e: { models: [], status: { kind: "stale", ageHours: 40 }, type: "anthropic" } })).toBe(false);
     // The same shape without a catalog behind it earns the notice.
@@ -608,10 +608,10 @@ describe("live-catalog status projection (ADR-0045)", () => {
   test("the notice rule interrupts only when nothing would be left to show", () => {
     // A usable list behind the status — including a stale one — is enough.
     expect(reportNeedsNotice(report)).toBe(false);
-    // A failed refresh over a provider whose vendored catalog still shows
+    // A failed refresh over a provider whose shipped catalog still shows
     // models leaves the user a list: no notice.
     expect(reportNeedsNotice({ e: { models: [], status: { kind: "failed", reason: "offline" }, type: "anthropic" } })).toBe(false);
-    // Nothing behind it at all (no live models, no vendored catalog): notice.
+    // Nothing behind it at all (no live models, no shipped catalog): notice.
     expect(reportNeedsNotice({ e: { models: [], status: { kind: "failed", reason: "offline" }, type: "my-custom" } })).toBe(true);
     expect(reportNeedsNotice({ e: { models: [], status: { kind: "stale", ageHours: 40 }, type: "my-custom" } })).toBe(true);
     // Static-by-design and healthy outcomes never interrupt.

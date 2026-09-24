@@ -11,7 +11,7 @@
  */
 import type { AgentEvent } from "./types";
 import type { LocalUsageRow } from "./quota/local";
-import { aggregateLocalUsage } from "./quota/local";
+import { aggregateLocalUsage, type BillingPlanResolver } from "./quota/local";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
 import { SessionStore, sessionTree } from "./session-store";
@@ -94,7 +94,10 @@ function ulidTimeMs(id: string | undefined): number | null {
  * Read-only: opens through the same store seam as every other reader and
  * disposes immediately (the open registry must never record a view).
  */
-export function analyzeSession(file: string): SessionAnalysisReport | { error: string } {
+export function analyzeSession(
+  file: string,
+  options: { planFor?: BillingPlanResolver } = {},
+): SessionAnalysisReport | { error: string } {
   let events: AgentEvent[];
   try {
     const store = SessionStore.open(file);
@@ -111,7 +114,7 @@ export function analyzeSession(file: string): SessionAnalysisReport | { error: s
   const path = activePath(events);
 
   // Usage: the shared local rollup, restricted to the active path.
-  const models = aggregateLocalUsage(path);
+  const models = aggregateLocalUsage(path, options.planFor ? { planFor: options.planFor } : {});
 
   // Tool pairing on the active path: callId → tool name + call time.
   const callByCallId = new Map<string, { name: string; ms: number | null }>();

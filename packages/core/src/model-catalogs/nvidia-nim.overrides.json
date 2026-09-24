@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "provider": "nvidia-nim",
+  "source": {
+    "modelsDev": [
+      "nvidia"
+    ]
+  },
+  "file": {
+    "api": "openai-completions",
+    "provider": "nvidia-nim",
+    "baseUrl": "https://integrate.api.nvidia.com/v1"
+  },
+  "rows": {
+    "meta/llama-3.3-70b-instruct": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "name": "Llama 3.3 70B Instruct",
+      "acceptContextShrink": true
+    }
+  }
+}

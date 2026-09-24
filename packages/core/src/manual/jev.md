@@ -291,7 +291,7 @@ decision, not a side effect of having a key.
 **The three tiers.** Every routable model belongs to one of `economico`,
 `bilanciato`, `potente`. Jev answers with a tier name — never with a model
 id — and moh maps the tier to a model you have actually configured. The
-pool is your configured endpoints' own model lists: their vendored catalog,
+pool is your configured endpoints' own model lists: their shipped catalog,
 or the live listing for an endpoint moh has no catalog for. Nothing is ever
 invented, and if fewer than two tiers can be filled the router stays inert
 (the transcript says so once).

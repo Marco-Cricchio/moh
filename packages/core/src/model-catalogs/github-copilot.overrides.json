@@ -1,0 +1,605 @@
+{
+  "schemaVersion": 1,
+  "provider": "github-copilot",
+  "source": {
+    "modelsDev": [
+      "github-copilot"
+    ]
+  },
+  "file": {
+    "api": "anthropic-messages",
+    "provider": "github-copilot",
+    "baseUrl": "https://api.individual.githubcopilot.com"
+  },
+  "rows": {
+    "claude-fable-5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Claude Fable 5",
+      "thinkingLevelMap": {
+        "off": null,
+        "xhigh": "xhigh",
+        "max": "max"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "claude-fable-5.1": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Claude Fable 5.1",
+      "thinkingLevelMap": {
+        "off": null,
+        "xhigh": "xhigh",
+        "max": "max"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "claude-haiku-4.5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Claude Haiku 4.5 (latest)",
+      "compat": {
+        "supportsEagerToolInputStreaming": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "claude-opus-4.7": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "name": "Claude Opus 4.7",
+      "thinkingLevelMap": {
+        "xhigh": "xhigh",
+        "max": "max",
+        "minimal": "low"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true,
+        "supportsTemperature": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      },
+      "acceptContextShrink": true
+    },
+    "claude-opus-4.8": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "name": "Claude Opus 4.8",
+      "thinkingLevelMap": {
+        "xhigh": "xhigh",
+        "max": "max",
+        "minimal": "low"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true,
+        "supportsTemperature": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      },
+      "acceptContextShrink": true
+    },
+    "claude-opus-5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Claude Opus 5",
+      "thinkingLevelMap": {
+        "xhigh": "xhigh",
+        "max": "max",
+        "minimal": "low"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true,
+        "supportsTemperature": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "claude-sonnet-4.6": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "name": "Claude Sonnet 4.6",
+      "thinkingLevelMap": {
+        "max": "max",
+        "minimal": "low"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      },
+      "acceptContextShrink": true
+    },
+    "claude-sonnet-5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "name": "Claude Sonnet 5",
+      "thinkingLevelMap": {
+        "xhigh": "xhigh",
+        "max": "max"
+      },
+      "compat": {
+        "forceAdaptiveThinking": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gemini-3.5-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-completions",
+      "name": "Gemini 3.5 Flash",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gemini-3.6-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-completions",
+      "name": "Gemini 3.6 Flash",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gemini-3.7-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-completions",
+      "name": "Gemini 3.7 Flash",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gemini-3.8-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-completions",
+      "name": "Gemini 3.8 Flash",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "kimi-k2.7-code": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-completions",
+      "name": "Kimi K2.7 Code",
+      "thinkingLevelMap": {
+        "off": null
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "kimi-k3": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-completions",
+      "name": "Kimi K3",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": null,
+        "high": "high",
+        "xhigh": null,
+        "max": "max"
+      },
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5-mini": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5 Mini",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": null,
+        "max": null
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.3-codex": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "api": "openai-responses",
+      "name": "GPT-5.3 Codex",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": null
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      },
+      "acceptContextShrink": true
+    },
+    "gpt-5.4": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.4",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": null
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.4-mini": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.4 mini",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": null
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.4-nano": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.4 nano",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "xhigh": "xhigh"
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.5",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": null
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.6-luna": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.6 Luna",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.6-sol": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.6 Sol",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "gpt-5.6-terra": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "GPT-5.6 Terra",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      },
+      "compat": {
+        "supportsOpenAIGrammarTools": true
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "grok-4.5": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "Grok 4.5",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": null,
+        "max": null
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "grok-4.6": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "Grok 4.6",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": null
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "mai-code-1-flash-picker": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "MAI-Code-1-Flash",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": null,
+        "max": null
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    },
+    "mai-code-1.1-flash": {
+      "author": "moh migration (#959)",
+      "date": "2026-09-24",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "api": "openai-responses",
+      "name": "MAI-Code-1.1-Flash",
+      "thinkingLevelMap": {
+        "off": null,
+        "minimal": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": null,
+        "max": null
+      },
+      "headers": {
+        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "Editor-Version": "vscode/1.107.0",
+        "Editor-Plugin-Version": "copilot-chat/0.35.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      }
+    }
+  }
+}

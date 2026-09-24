@@ -26,7 +26,7 @@ describe("catalog thinkingLevelMap (#241, #256 normalization)", () => {
     // #256: provider-native "minimal" keys no longer ride the projection
     // verbatim — they normalize into the canonical scale (minimal → low
     // when low is absent; dropped when both are present). Raw data stays
-    // verbatim in the vendored JSON; the projection normalizes.
+    // verbatim in the catalog JSON; the projection normalizes.
     const noMinimal = ["openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai"].every((type) =>
       subscriptionModelCatalog(type).every(
         (m) => !m.thinkingLevelMap || !("minimal" in m.thinkingLevelMap),
