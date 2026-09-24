@@ -553,6 +553,33 @@ describe("#935 installBrowserToolchain", () => {
     expect(readdirSync(join(mohHome, VERSIONS_DIR))).toHaveLength(1);
   });
 
+  test("two installs inside one millisecond both promote (#965 CI)", async () => {
+    // The promotion stamp was `v-<clock>-<pid>`: two installs inside one
+    // millisecond computed the same name, and the rename landed on the version
+    // directory the first install had just created — ENOTEMPTY, reported to the
+    // user as a raw filesystem error instead of an installed toolchain. Seen on
+    // a CI runner fast enough to install twice within one millisecond; the
+    // clock is frozen here so the collision is deterministic.
+    const project = tempDir();
+    const home = tempDir();
+    const realNow = Date.now;
+    try {
+      Date.now = () => 1_700_000_000_000;
+      const first = await installBrowserToolchain({ cwd: project, home, run: fakeRunner().run });
+      const live = readlinkSync(browserToolchainRoot(home));
+      const second = await installBrowserToolchain({ cwd: project, home, run: fakeRunner().run });
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.status.ready).toBe(true);
+      expect(readlinkSync(browserToolchainRoot(home))).not.toBe(live);
+      // One live version: the second promotion pruned the first.
+      expect(readdirSync(join(home, ".moh", VERSIONS_DIR))).toHaveLength(1);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   test("an abandoned staging directory from a crashed install is pruned", async () => {
     const project = tempDir();
     const home = tempDir();

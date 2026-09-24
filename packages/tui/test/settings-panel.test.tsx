@@ -62,6 +62,14 @@ const down = async (i: ReturnType<typeof render>, n: number) => {
 };
 
 /**
+ * The row carrying the sub-menu cursor (the fallback list marks it with `›`).
+ * A missing row is reported as such instead of collapsing to empty string, so a
+ * timeout can tell "no sub-menu is open" from "the cursor is on the wrong row".
+ */
+const overline = (raw: string) =>
+  stripAnsi(raw).split("\n").find((l) => l.includes("›") && (l.includes("📌") || l.includes("· —"))) ?? "<no sub-menu cursor row — is the list open?>";
+
+/**
  * Moves the settings cursor onto the row whose label starts with `label`.
  * Navigating by label instead of by a fixed count keeps these tests honest
  * when a row is inserted: an off-by-one otherwise silently drives a
@@ -441,7 +449,10 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     await sleep(30);
     await down(i.i, 9); // Mode…Provider are 0..8; Fallback models is 9
     i.i.stdin.write("\r");
-    await sleep(40);
+    // #930: both reads below gate assertions. `down()` paces keystrokes with a
+    // 30 ms sleep, which is under the TUI's 33 ms coalescing window, so the
+    // frame read must wait for the row instead of for a fixed delay.
+    await waitForFrame(() => stripAnsi(i.i.lastFrame() ?? ""), "anthropic · 📌 claude-sonnet-4-5");
     let frame = stripAnsi(i.i.lastFrame() ?? "");
     expect(frame).toContain("anthropic · 📌 claude-sonnet-4-5");
     expect(frame).toContain("openai · 📌 gpt-5");
@@ -449,9 +460,40 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect(frame).toContain("mine · — no preferred model (provider type \"my-facto");
     expect(frame).toContain("c clear");
     // The user-level endpoint is in the same list (one screen, one chain).
-    await down(i.i, 3);
+    // Walk by label, not by a counted `down(3)`: a counted walk also folds in a
+    // second, separate race (a press delivered before the level has a committed
+    // frame can be lost), which this assertion is not about. The row still has
+    // to be the one under the cursor, not merely painted.
+    await gotoRow(i.i, "zai");
+    await waitForFrame(() => overline(i.i.lastFrame() ?? ""), "zai · 📌 glm-5.3-flash");
     frame = stripAnsi(i.i.lastFrame() ?? "");
     expect(frame).toContain("zai · 📌 glm-5.3-flash");
+    i.i.unmount();
+  });
+
+  test("a burst of arrow presses inside one commit window moves the cursor every time (#930)", async () => {
+    const { cwd, home } = fallbackSetup();
+    const i = mount(cwd, { home });
+    await sleep(30);
+    // Navigate by label, not by a counted walk: the subject here is the burst
+    // inside one commit window, not the separate lost-press race above.
+    await gotoRow(i.i, "Fallback models");
+    i.i.stdin.write("\r");
+    await waitForFrame(() => stripAnsi(i.i.lastFrame() ?? ""), "anthropic · 📌 claude-sonnet-4-5");
+    // Three presses before Ink paints once — what a loaded runner delivers when
+    // the keys pile up inside one commit window. Every press must move the
+    // cursor: read from a closure, each one recomputes from the same sub-menu
+    // cursor, the burst advances by one row and the last stop never reaches the
+    // viewport (the CI flake #930 — the frame was honest, the cursor really was
+    // one short).
+    await sleep(30); // let the opened level's first frame commit
+    i.i.stdin.write("\x1b[B");
+    i.i.stdin.write("\x1b[B");
+    i.i.stdin.write("\x1b[B");
+    await waitForCondition(
+      () => overline(i.i.lastFrame() ?? "").includes("zai · 📌 glm-5.3-flash"),
+      () => `for the burst to land on the zai stop — swallowed key; cursor is on: ${overline(i.i.lastFrame() ?? "")}`,
+    );
     i.i.unmount();
   });
 
