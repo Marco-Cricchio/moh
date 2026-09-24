@@ -1283,6 +1283,7 @@ export function App({
     <Chat
       session={session}
       cwd={cwd}
+      toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}
       blocked={blocked}
