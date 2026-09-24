@@ -55,8 +55,10 @@ describe("#256 thinkingStatesForRef resolution chain", () => {
     const endpoints = [{ name: "openrouter", type: "openrouter" }];
     const states = thinkingStatesForRef(luna, endpoints);
     expect(states?.xhigh).toBe("supported");
-    // pi-ai 0.84.4 maps low explicitly (0.84.3 left it unmapped);
-    // minimal is not a canonical level (normalized away upstream).
+    // The level map is moh-declared: never aggregator-supplied, it lives in
+    // the catalog's hand-maintained region (ADR-0046). `low` is mapped
+    // explicitly, and `minimal` is not a canonical level (normalized away at
+    // the catalog projection).
     expect(states?.low).toBe("supported");
   });
 

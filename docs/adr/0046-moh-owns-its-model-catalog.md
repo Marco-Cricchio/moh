@@ -26,10 +26,11 @@ named override — nothing is guessed.
 ### Sources and precedence (final)
 
 - `https://models.dev/api.json` is **primary**; `https://openrouter.ai/api/v1/models`
-  fills holes only where models.dev has no matching record. Precedence is
-  provisional: "who updates more often" is not measurable yet (api.json
-  carries no version or timestamp; a freshness measurement is its own future
-  ADR, explicitly out of scope here).
+  fills holes only where models.dev has no matching record. This precedence is
+  **final**: "who updates more often" is not measurable (api.json carries no
+  version or timestamp), so there is no observation period to wait out and no
+  freshness measurement planned. It is revisited only on a concrete problem
+  with a source — see the revisit trigger under Consequences.
 - Join key: exact id first, then models.dev `base_model`, then the OpenRouter
   namespaced id (`vendor/model`). No silent remapping: unmatched ids stay
   hand-maintained and visible in the generation report.
@@ -87,11 +88,17 @@ release. `PRICING_SNAPSHOT.version` becomes the moh release containing the
 catalog; `updatedAt` stays the real generation date; the
 `source: "vendored pi-ai model catalog"` provenance string becomes false and
 is removed. Generation is local and human-invoked; a CI job rebuilds and
-compares **without committing**. A source outage means "did not regenerate"
-(last valid catalog stands); a coverage drop against the committed catalog
-fails generation. Generation guards: unit conversion (above), id presence and
-uniqueness within a catalog, and a non-regressive `contextWindow` against the
-committed catalog. The manifest records: `schemaVersion`, `version`,
+compares **without committing** (PRs touching the catalog, plus a weekly
+schedule), and the **release pipeline runs the same check at every tag**:
+tagging a release rebuilds the catalog and compares it with the committed
+tree, so the exact commit being shipped is covered rather than the last
+scheduled run. That job never regenerates and never gates the release — a
+release ships the last valid committed catalog, so drift (or a source outage)
+is a data-quality signal, not a blocker. A source outage means "did not
+regenerate" (last valid catalog stands); a coverage drop against the
+committed catalog fails generation. Generation guards: unit conversion
+(above), id presence and uniqueness within a catalog, and a non-regressive
+`contextWindow` against the committed catalog. The manifest records: `schemaVersion`, `version`,
 `generatedAt`, sources (url + fetch date), per-file hash and per-verdict row
 counts, and per-row provenance (source, namespace, supplied fields, applied
 override). The generation report additionally records unmatched ids, cross-
@@ -106,3 +113,28 @@ stale or missing values become visible, attributable, and correctable in-repo.
 The cost is an owned pipeline (generator + CI compare job, chartered
 separately) and a hand-maintained region that must be curated honestly —
 provenance makes neglect observable instead of silent.
+
+### Revisit trigger
+
+Owning the pipeline means owning every shape change and outage of two
+third-party endpoints, for 25 catalogs. That cost is accepted, and the
+decision is revisited only on evidence:
+
+- the automatic catalog check **at every release** fails — either way it
+  fails: drift against the committed tree, or a source that could not be
+  fetched ("did not regenerate": the generator aborts before it compares
+  anything);
+- a source changes shape in a way that costs a hand-written adapter rather
+  than a mapping tweak;
+- the hand-maintained region (rows with no aggregator record, plus sidecar
+  overrides) grows release over release, i.e. owning the catalog stops
+  paying for itself.
+
+The release run is not a gate and creates nothing: `catalog-check` and
+`release` are independent jobs at the tagged commit, so a red check is a
+signal to look at — the workflow run's own result — not a gate that holds a
+release back.
+
+A revisit is a decision about *where the data comes from*, never an
+invitation to fetch prices at runtime: the runtime-live-pricing boundary
+stands (ADR-0029, map #952 out-of-scope entry).

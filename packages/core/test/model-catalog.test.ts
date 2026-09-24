@@ -30,7 +30,7 @@ describe("subscriptionModelCatalog (#156)", () => {
     expect(subscriptionModelCatalog("custom-thing")).toEqual([]);
   });
 
-  test("a Z.ai openai-compat endpoint gets pi-ai model metadata by host", () => {
+  test("a Z.ai openai-compat endpoint gets catalog model metadata by host", () => {
     for (const baseUrl of [
       "https://api.z.ai/api/paas/v4",
       "https://api.z.ai/api/coding/paas/v4",

@@ -11,7 +11,10 @@ Snapshots used (2026-09-24):
 - pi-ai 0.87.1 (`@earendil-works/pi-ai`, npm tarball) as comparison reference only
 
 Raw per-row data: [`951-coverage-census.json`](./951-coverage-census.json).
-Generator: `scripts/census-953.ts` (throwaway, lives on this branch only).
+Generator: a throwaway `census-953.ts` script, run once and **not kept in the
+tree** (it ran on local snapshots at fixed paths, including a pi-ai tarball
+install); the per-row data below is the record. pi-ai is a point-in-time
+comparison reference only — nothing in the pipeline depends on it (ADR-0046).
 
 ## Method and join key
 
