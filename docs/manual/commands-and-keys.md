@@ -23,7 +23,7 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+q | usage quota (provider + local, this session and recent) |
 | ctrl+r | rename the current session |
 | ctrl+g | keep my branch (while the external-growth warning is up): move the head back to your local tip |
-| ctrl+b | browser setup (while the browser-toolchain warning is up): install the toolchain |
+| ctrl+b | browser setup (while the browser-toolchain warning is up): enable, headless/headful, install |
 | ctrl+k / ? | this command list |
 | tab | focus chips: subagent chips first (when running), then action chips |
 | shift+tab | rotate permission mode: normal → auto-accept → yolo → normal (leaves yolo) |

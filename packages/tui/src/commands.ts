@@ -373,11 +373,12 @@ const jevCommand: SlashCommand = {
   },
 };
 
-/** #936: the browser toolchain — status and the guided setup. The TUI
- * modal is the door; headless callers get the CLI equivalent named. */
+/** #936/#934: the browser tool — status and the guided setup (the same
+ * modal Settings → Browser opens). The TUI modal is the door; headless
+ * callers get the CLI equivalent named. */
 const browserCommand: SlashCommand = {
   name: "browser",
-  description: "browser tool status and setup (install the toolchain)",
+  description: "browser tool status and setup (enable for this project, headless/headful, install)",
   usage: "/browser",
   run(ctx) {
     if (!ctx.onOpenBrowserSetup) {

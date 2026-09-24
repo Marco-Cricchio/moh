@@ -275,6 +275,11 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay]);
   const [handoffFromSettings, setHandoffFromSettings] = useState(false);
+  /** #934: the browser setup modal opened from the Settings Browser row.
+   * Remembered so leaving the modal can return to Settings — the panel is
+   * remounted on the way back, which is also what makes its row re-probe
+   * and show what the modal left behind. */
+  const [browserFromSettings, setBrowserFromSettings] = useState(false);
   const [alternateScreen, setAlternateScreen] = useState(false);
   // First-run workflow offer (#36): right after onboarding, once ever.
   const [offerWorkflow] = useState(
@@ -1534,6 +1539,10 @@ export function App({
               setHandoffFromSettings(true);
               setOverlay("handoff-onboarding");
             }}
+            onConfigureBrowser={() => {
+              setBrowserFromSettings(true);
+              setOverlay("browser");
+            }}
             onToast={push}
             onClose={() => setOverlay(null)}
           />
@@ -1668,16 +1677,36 @@ export function App({
           <BrowserSetupModal
             cwd={cwd}
             {...(home ? { home } : {})}
-            onInstalled={(result) => {
-              // The tool registers at assembly time: clear the alarm and
-              // re-assemble so the browser becomes usable right away. The
-              // reload carries the note — the generic "config reloaded"
-              // would hide what the reload was for.
-              setBrowserSetup(false);
-              setOverlay(null);
-              void reload(`✓ browser toolchain ready (playwright-core ${result.version}) — the browser tool is registered`);
+            hasSession={session !== null}
+            onDone={(outcome) => {
+              const backToSettings = browserFromSettings;
+              setBrowserFromSettings(false);
+              // The effect of a change reaches the session at assembly time
+              // (the tool registers, the launch mode is read, the toolchain
+              // module is resolved): a live session is re-assembled, a
+              // setting changed from Home applies to the next one.
+              if (outcome.kind === "installed") setBrowserSetup(false);
+              if (outcome.kind !== "none" && session) {
+                const note = applyBrowserOutcome(outcome).note;
+                setOverlay(null);
+                void reload(note).then((ok) => {
+                  if (!ok) {
+                    // The reload refused (a broken config, an unknown session
+                    // file): say what was done anyway rather than losing it.
+                    push(note);
+                  }
+                  // Opened from Settings, it returns there — remounted, so
+                  // the Browser row states what the modal just wrote. A
+                  // reconfigured session is still a settings session.
+                  if (backToSettings) setOverlay("settings");
+                });
+                return;
+              }
+              if (outcome.kind !== "none") push(applyBrowserOutcome(outcome).note);
+              // Nothing to apply: back to wherever it was opened from, with
+              // the panel remounted so its Browser row re-probes.
+              setOverlay(backToSettings || outcome.kind === "config" ? "settings" : null);
             }}
-            onClose={() => setOverlay(null)}
           />
         )}
         {overlay === "workflow-offer" && (
@@ -1761,6 +1790,13 @@ function assemblyErrorToast(error: AssemblyError): string {
       ? " · re-run onboarding (ctrl+k → onboarding) or fix the provider in moh.json"
       : " · fix moh.json and retry";
   return `session error (${error.kind}): ${error.message}${hint}`;
+}
+
+/** #934: the toast line for a browser setup outcome. The modal decides what
+ * happened (and says it in the user's words); this only prefixes the check
+ * that the app-level test — and the user — can search for. */
+function applyBrowserOutcome(outcome: { kind: "config" | "installed"; note: string }): { note: string } {
+  return { note: `✓ ${outcome.note}` };
 }
 
 /** #242: true when the active ref is a catalog model that can return
