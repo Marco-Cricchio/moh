@@ -3,7 +3,7 @@ import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type LiveModelListing, type MohConfig } from "@moh/core";
+import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -14,6 +14,7 @@ import { ThemeStudioModal } from "./ThemeStudioModal";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
 import { fetchedToCatalog, filterCatalog, freeTextRow, mergePickCatalog, modelRow } from "./model-picker";
+import { browserRowValue, readBrowserSettingWithState } from "./browser-setup";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
@@ -35,6 +36,9 @@ export interface SettingsPanelProps {
   onStartWizard: () => void;
   /** Opens the per-project session-handoff transport chooser. */
   onConfigureHandoff?: () => void;
+  /** #934: opens the browser setup modal — the same one flow the transcript
+   * warning and `/browser` open. The panel owns the row, not the modal. */
+  onConfigureBrowser?: () => void;
   onToast: (text: string) => void;
   /** Reports whether the theme studio modal is open, so the App-level
    * escape handler stands down while the studio owns the keyboard. */
@@ -138,7 +142,7 @@ const JEV_RERANK_DISCLOSURE =
 const JEV_SKILLS_DISCLOSURE =
   "skill suggestion sends your message (up to 4 KiB) plus the skill names and descriptions to TypeSafe, twice per turn while it runs.";
 
-export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onConfigureBrowser, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
@@ -165,6 +169,18 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     }
   };
   const [mpmSetting, setMpmSetting] = useState<MpmSetting>(readMpmSetting);
+  // #934: the Browser row's toolchain half. One probe per panel mount —
+  // reading the state is cheap when nothing is installed (existence checks
+  // only) and the row must not re-probe on every keypress. The panel is
+  // remounted when the setup modal closes, so the row shows what the modal
+  // left behind.
+  const [browserStatus] = useState<BrowserToolchainStatus>(() =>
+    probeBrowserToolchain({ cwd, ...(home ? { home } : {}) }),
+  );
+  // The row states the file's readability too: an invalid moh.json is
+  // "invalid", never a silent "off" it did not read.
+  const browserSetting = readBrowserSettingWithState(cwd);
+  const browserValue = browserRowValue(browserSetting, browserStatus, browserSetting.broken);
   const cycleMpmSetting = () => {
     const next: MpmSetting = mpmSetting === "inherit" ? "on" : mpmSetting === "on" ? "off" : "inherit";
     try {
@@ -316,12 +332,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "jev", label: "Jev (TypeSafe)", value: jevLabel },
       { key: "handoff", label: "Session handoff", value: handoffTransport === "gist" ? "GitHub Gist" : handoffTransport === "none" ? "Disabled" : "Not Set" },
       { key: "mpm", label: "Moh Project Map", value: mpmSettingLabel(mpmSetting) },
+      { key: "browser", label: "Browser", value: browserValue },
       { key: "maxIterations", label: "Max iterations/turn", value: maxIterationsLabel(moh.maxIterations ?? DEFAULT_MAX_ITERATIONS) },
       { key: "homeListMax", label: "Home list rows", value: String(config.homeListMax) },
       { key: "showReasoning", label: "Provider reasoning", value: config.showReasoning ? "show" : "hide" },
       { key: "updateCheck", label: "Update check", value: config.updateCheck ? "on" : "off" },
     ],
-    [config, modelLabel, moh, handoffTransport, mpmSetting, jevLabel, fallbackSummary],
+    [config, modelLabel, moh, handoffTransport, mpmSetting, jevLabel, fallbackSummary, browserValue],
   );
 
   // Endpoints defined in the project moh.json (editable defaultModel);
@@ -403,6 +420,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onChange({ telemetry: !config.telemetry });
       case "mpm":
         return cycleMpmSetting();
+      case "browser":
+        return onConfigureBrowser?.();
       case "updateCheck":
         return onChange({ updateCheck: !config.updateCheck });
       case "permissionMode":
@@ -1190,7 +1209,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             ? "enter/→ next · shift+tab back · iterations are send→tools→reply cycles, not tool calls"
             : rows[cursor]?.key === "jev"
               ? JEV_DISCLOSURE
-              : "enter change · esc close"}
+              : rows[cursor]?.key === "browser"
+                ? "enter opens the browser setup: enable it for this project, pick headless/headful, install the toolchain"
+                : "enter change · esc close"}
         </Dim>
       )}
     </Dialog>

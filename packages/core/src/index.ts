@@ -311,6 +311,25 @@ export {
 } from "./thinking-preferences";
 export { isThinkingLevel, type ThinkingFormat } from "./types";
 export { listOpenAiCompatModels } from "./endpoint-models";
+// #935: the browser-toolchain seam (ADR-0004 amendment) — status probing
+// and the guided installer for the optional browser tool, shared by the
+// TUI (Settings / warning action) and the CLI. Resolution, the lock, the
+// staging swap and the Playwright registry access stay internal.
+export {
+  browserToolchainRoot,
+  probeBrowserToolchain,
+  installBrowserToolchain,
+  BROWSER_SETUP_HINT,
+  BROWSER_WITH_DEPS_NOTE,
+  HEADLESS_SHELL_DOWNLOAD_SIZE,
+  FULL_CHROMIUM_DOWNLOAD_SIZE,
+  type BrowserBuildStatus,
+  type BrowserToolchainInstallOptions,
+  type BrowserToolchainInstallResult,
+  type BrowserToolchainOptions,
+  type BrowserToolchainStatus,
+  type BrowserToolchainProgress,
+} from "./browser-toolchain";
 import {
   isSubscriptionKind,
   providerLogin,

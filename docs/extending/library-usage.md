@@ -551,6 +551,63 @@ but a model query succeeded, diagnostics report the fallback reason
 only proposes candidates, the core remains the sole authority on what
 enters a result.
 
+## Browser toolchain status and setup (#935, ADR-0029 amendment)
+
+The native `browser` tool needs `playwright-core` plus a Chromium build,
+and moh owns both ends of that story so no client has to guess:
+
+```ts
+import { installBrowserToolchain, probeBrowserToolchain, browserToolchainRoot } from "@moh/core";
+
+const status = probeBrowserToolchain({ cwd, home, headless: true });
+// {
+//   root: "/home/you/.moh/browser-toolchain",
+//   package: { available: true, version: "1.63.0", packageDir, source: "project" | "moh" },
+//   chromium: { available, path?, version? },              // the full build (headful)
+//   chromiumHeadlessShell: { available, path?, version? }, // what a headless launch runs
+//   ready: true,                                           // for the probed mode
+//   reasons: [],                                           // actionable sentences when not ready
+// }
+```
+
+`ready` answers the mode you ask about: a headless launch needs the
+*shell*, a headful one the full build, so a status that is not ready tells
+you which build is missing. Probing never throws and never contacts the
+network — an absent toolchain is a status, not an error, and the core's own
+session assembly turns it into the visible `browser_unavailable`
+diagnostic rather than a session failure.
+
+Resolution is deliberately narrow and deterministic: the project's own
+`node_modules` first (the nearest one walking up from `cwd`, so a hoisted
+workspace install counts), then `browserToolchainRoot(home)`
+(`<home>/.moh/browser-toolchain`). Both are existence-gated absolute paths
+— moh never resolves through `NODE_PATH`, a global npm root, or a runtime
+lookup that could answer from Bun's global install cache.
+
+Setup is one call:
+
+```ts
+const result = await installBrowserToolchain({
+  cwd, home, headless: true,
+  withChromium: false,   // the ~500 MB full build, explicit only
+  withDeps: false,       // Playwright's system deps — may ask for the admin password
+  onProgress: (event) => render(event.phase, event.message, event.line),
+});
+if (!result.ok) show(result.message);   // kind: "busy" | "failed"
+```
+
+The installer uses the Bun runtime embedded in the moh binary
+(`BUN_BE_BUN`), so an embedder needs no npm and no system Bun; the browsers
+land in Playwright's own per-user cache (moh invents no cache path). It is
+headless-first: `chromium-headless-shell` unless you ask for the full
+build. Installs are staged beside the root and promoted by one atomic
+rename under a lock file — a failed or interrupted install leaves a
+working toolchain exactly as it was, and a concurrent install is refused
+with `kind: "busy"` instead of racing. `BROWSER_SETUP_HINT`,
+`BROWSER_WITH_DEPS_NOTE`, `HEADLESS_SHELL_DOWNLOAD_SIZE` and
+`FULL_CHROMIUM_DOWNLOAD_SIZE` are the copy clients render, so every surface
+says the same thing.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,
