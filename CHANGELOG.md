@@ -10,7 +10,7 @@ matching section here at tag time.
 ### Fixed
 
 - **The anti-injection check no longer runs out of its per-turn event
-  budget** (#980, PR to come): the check recorded one `jev_judgment` per
+  budget** (#980, PR #983): the check recorded one `jev_judgment` per
   judged item — one for the turn's input, one for *every* `fetch`/`browser`
   result — so an ordinary research turn reached the 50-events-per-turn cap
   on its own, and from there the transcript showed `✗ extension failed
