@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
+import React, { act } from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listSessionSummaries, loadMohConfig, MockProvider } from "@moh/core";
+import { listSessionSummaries, loadMohConfig, MockProvider, type Provider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi, waitForCondition } from "./helpers";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 import { installAiSdkWarningSink } from "../src/ai-sdk-warnings";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -270,24 +270,79 @@ describe("in-session rename modal (#534)", () => {
   test("saving while streaming does not interrupt the active turn", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
-    const provider = MockProvider.scripted([{ deltas: ["FIRST", "SECOND"], deltaDelayMs: 100, finish: "stop" }]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let aborted = false;
+    const provider: Provider = {
+      name: "gated-rename-test",
+      async *stream(_messages, signal) {
+        const onAbort = () => { aborted = true; release(); };
+        signal.addEventListener("abort", onAbort, { once: true });
+        try {
+          if (signal.aborted) onAbort();
+          if (aborted) return;
+          yield { type: "text_delta", text: "FIRST" };
+          await gate;
+          if (aborted) return;
+          yield { type: "text_delta", text: "SECOND" };
+          yield { type: "finish", reason: "stop" };
+        } finally {
+          signal.removeEventListener("abort", onAbort);
+        }
+      },
+    };
     const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
-    await sleep(50);
-    i.stdin.write("reply");
-    await sleep(30);
-    i.stdin.write("\r");
-    await sleep(130); // the first delta is live; the turn has not settled
-    i.stdin.write("\x12");
-    await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
-    i.stdin.write("Streaming name");
-    await sleep(30);
-    i.stdin.write("\r");
-    await sleep(180);
-    const summary = listSessionSummaries(cwd, home)[0];
-    expect(summary?.title).toBe("Streaming name");
-    expect(readFileSync(summary!.file, "utf8")).toContain('"text":"SECOND"');
-    i.unmount();
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    // A painted frame can precede useInput's passive effect. Flush the
+    // input update before the next key, without sleeping or replaying it.
+    const send = async (key: string) => {
+      const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      const previous = env.IS_REACT_ACT_ENVIRONMENT;
+      env.IS_REACT_ACT_ENVIRONMENT = true;
+      try {
+        await act(async () => { i.stdin.write(key); });
+      } finally {
+        if (previous === undefined) delete env.IS_REACT_ACT_ENVIRONMENT;
+        else env.IS_REACT_ACT_ENVIRONMENT = previous;
+      }
+    };
+    try {
+      await waitForFrame(frame, "type…");
+      await send("reply");
+      await waitForFrame(frame, "reply");
+      await send("\r");
+      await waitForFrame(frame, "FIRST");
+      await send("\x12");
+      await waitForFrame(frame, "rename session");
+      expect(frame()).toContain("rename session");
+      await send("Streaming name");
+      await waitForFrame(frame, "Streaming name");
+      await send("\r");
+      await waitForFrame(frame, "rename session", { absent: true });
+      await waitForCondition(
+        () => listSessionSummaries(cwd, home)[0]?.title === "Streaming name",
+        () => `streaming rename was not saved. Last frame:\n${frame()}`,
+      );
+      const summary = listSessionSummaries(cwd, home)[0];
+      expect(summary?.title).toBe("Streaming name");
+      const pendingLog = readFileSync(summary!.file, "utf8");
+      expect(pendingLog).toContain('"text":"FIRST"');
+      expect(pendingLog).not.toContain('"text":"SECOND"');
+      expect(pendingLog).not.toContain('"type":"done"');
+      expect(aborted).toBe(false);
+      release();
+      await waitForCondition(
+        () => readFileSync(summary!.file, "utf8").includes('"type":"done"'),
+        () => `the renamed turn did not finish. Last frame:\n${frame()}`,
+      );
+      const log = readFileSync(summary!.file, "utf8");
+      expect(log).toContain('"text":"SECOND"');
+      expect(log).not.toContain('"type":"cancelled"');
+      expect(aborted).toBe(false);
+    } finally {
+      release();
+      i.unmount();
+    }
   });
 
   test("esc cancels without changing the current display name", async () => {
