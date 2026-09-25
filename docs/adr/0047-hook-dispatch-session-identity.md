@@ -116,6 +116,6 @@ applies to it for free (its chrome now lands where the call happened).
 
   (The per-turn `extension_event` volume cap (#846) was one of these and is
   closed: #981 made its accounting per **session** — its own counter, its
-  own reset at its own turn start, its own warning naming it — see the
-  ADR-0032 deviation. A borrowed session's budget is released when the
-  child disposes.)
+  own reset at its own turn start, its own warning naming it. A borrowed
+  session's budget is released when the child disposes; a record made
+  outside a scoped dispatch is still the owner's.)

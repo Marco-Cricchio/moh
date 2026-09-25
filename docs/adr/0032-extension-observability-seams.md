@@ -78,14 +78,25 @@ Key decisions, each with its rationale:
    alone exhaust the cap loses it too (the existing `event_cap` report is the trace).
    *#981 deviation:* the budget is per **session**, not per runtime. A runtime is
    shared by its owner and every subagent child that borrows it (ADR-0047), and an
-   instance-wide counter let a child's records spend its parent's turn budget — the
-   parent was capped mid-turn with no `event_cap` line of its own, and a child's
-   budget never reset at all (only the owner called `beginTurn`). Each session now
-   has its own counter, its own one-warning-per-turn, and its own reset at its own
-   `user_message`; the warning names the session it belongs to. §3's #846 overlay
-   follows the same scope: the footer shows the owner's own degradation, and another
-   session's degradation says whose it is (it reaches a client through the status
-   seam, one stderr line headless).
+   instance-wide counter let a child's records spend its parent's turn budget: the
+   parent was capped mid-turn with no `event_cap` line of its own (the single
+   warning went to the child), and a child's budget never reset at all — only the
+   owner called `beginTurn`, so a child's whole run was one window. Each session now
+   has its own counter, its own one-warning-per-turn and its own reset at its own
+   `user_message`; the owner names itself at its first turn, and that id — the same
+   one an extension sees in `beforeTurn`'s `session.id` — is what the warning names
+   (a record made before any session owned the runtime, from `setup` say, is the
+   only one with no session to name or reset). A borrowed session's budget is
+   released when it disposes: the runtime outlives every child it hosts. A record
+   made *outside* a scoped dispatch still belongs to the owner — the reason
+   ADR-0047's "a future borrowed seam that forgets `withSession`" note stands. §3's
+   #846 overlay follows the same scope: the footer shows the owner's own
+   degradation, and another session's names itself where it *is* shown — the
+   child's own transcript and log, plus one stderr line headless — instead of
+   borrowing the owner's footer for a condition that is not the owner's. One
+   runtime has one owner (the session that registers it, ADR-0047): a client
+   that hands the same runtime to two owning sessions gives them one budget,
+   as before — the many are the borrowers.
 
 4. **Redaction heuristic on the payload.** Keys whose normalized form (lowercased, `_`
    and `-` stripped) is exactly `apikey`, `apitoken`, `accesstoken`, `refreshtoken`,

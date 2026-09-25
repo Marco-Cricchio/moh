@@ -489,7 +489,7 @@ export class ExtensionRuntime {
     return this.#instances
       .map((instance) => ({
         extension: instance.def.name,
-        text: this.#budgets.get(instance)?.get(ownerKey)?.overlay ?? instance.status,
+        text: this.#budgetOf(instance, ownerKey)?.overlay ?? instance.status,
       }))
       .filter((entry): entry is { extension: string; text: string } => entry.text !== null);
   }
@@ -516,15 +516,15 @@ export class ExtensionRuntime {
    */
   beginTurn(sessionId?: string): void {
     if (sessionId !== undefined && this.#ownerSessionId === null) {
-      // The pre-turn window counted into the unnamed owner budget: adopting
-      // the id must not leave a second counter behind for the same session.
+      // The pre-turn window was this same session's: its entry is dropped
+      // (a second, unreachable budget for one session is a trap), and an
+      // overlay published without a name goes with it. The turn that names
+      // the session resets the counter anyway.
       for (const instance of this.#instances) {
-        const budgets = this.#budgets.get(instance);
-        if (!budgets) continue;
-        const budget = budgets.get(OWNER_BUDGET);
+        const budget = this.#budgetOf(instance, OWNER_BUDGET);
         if (!budget) continue;
         this.#clearCapOverlay(instance, budget, true);
-        budgets.delete(OWNER_BUDGET);
+        this.#dropBudget(instance, OWNER_BUDGET);
       }
       this.#ownerSessionId = sessionId;
     }
@@ -549,12 +549,10 @@ export class ExtensionRuntime {
    */
   endBorrowedSession(sessionId: string): void {
     for (const instance of this.#instances) {
-      const budgets = this.#budgets.get(instance);
-      if (!budgets) continue;
-      const budget = budgets.get(sessionId);
+      const budget = this.#budgetOf(instance, sessionId);
       if (!budget) continue;
       this.#clearCapOverlay(instance, budget, false);
-      budgets.delete(sessionId);
+      this.#dropBudget(instance, sessionId);
     }
   }
 
@@ -563,9 +561,23 @@ export class ExtensionRuntime {
     return this.#ownerSessionId ?? OWNER_BUDGET;
   }
 
-  /** #981: the budget key the current dispatch runs for. */
+  /**
+   * #981: the budget key the current dispatch runs for. An append made
+   * outside any dispatch — a load-time record, a timer the extension kept —
+   * has no borrowing scope to read, and is the owner's by construction.
+   */
   #currentKey(): string {
     return this.#borrowedSessions.getStore()?.id ?? this.#ownerKey();
+  }
+
+  /** #981: this instance's budget for one session, if it has one. */
+  #budgetOf(instance: RuntimeExtension, key: string): EventBudget | undefined {
+    return this.#budgets.get(instance)?.get(key);
+  }
+
+  /** #981: drops one session's budget and everything it accounted for. */
+  #dropBudget(instance: RuntimeExtension, key: string): void {
+    this.#budgets.get(instance)?.delete(key);
   }
 
   /** #981: this instance's budget for one session, installed lazily. */
@@ -586,7 +598,7 @@ export class ExtensionRuntime {
   /** #981: one session's turn starts — its counter, never anyone else's. */
   #resetTurn(key: string): void {
     for (const instance of this.#instances) {
-      const budget = this.#budgets.get(instance)?.get(key);
+      const budget = this.#budgetOf(instance, key);
       if (!budget) continue;
       budget.eventsThisTurn = 0;
       budget.capWarned = false;
@@ -1078,9 +1090,9 @@ export class ExtensionRuntime {
       // cannot bury the log, and the extension is never silently speechless.
       if (!budget.capWarned) {
         budget.capWarned = true;
-        // #981: the warning names the session whose budget it exhausted —
-        // its own log is the one it lands in (the runtime's pre-turn window
-        // has no name to give).
+        // #981: the warning names the session whose budget it exhausted.
+        // Only the pre-session window (a record made before any session
+        // owned the runtime, e.g. from `setup`) has no name to give.
         const session = key === OWNER_BUDGET ? "" : ` (${key})`;
         this.#emit({
           type: "extension_failed",
@@ -1107,7 +1119,7 @@ export class ExtensionRuntime {
     // #846: the extension speaks for itself again — the cap overlay of the
     // session that dispatched this drops.
     const key = this.#currentKey();
-    const budget = this.#budgets.get(instance)?.get(key);
+    const budget = this.#budgetOf(instance, key);
     if (budget) this.#clearCapOverlay(instance, budget, key === this.#ownerKey());
     if (instance.status === next) return;
     instance.status = next;

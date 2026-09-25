@@ -426,7 +426,11 @@ ctx.appendEvent({ name: "judgment", payload: { decision: "ask", score: 0.42 } })
   turn, naming the session it belongs to. The budget is the *session's*: a
   subagent child that borrows the runtime (ADR-0047) records against its
   own turn and its own reset, so nothing a child judges can spend, or be
-  spent by, its parent's turn. Keys whose
+  spent by, its parent's turn. Two edges worth knowing: a record made
+  outside a hook dispatch of yours (a timer you kept) has no session to
+  attribute it to and is the owner session's, and a record made before any
+  session owned the runtime (from `setup`) is the only one with no session
+  to name. Keys whose
   normalized form is exactly `apikey`, `apitoken`, `accesstoken`,
   `refreshtoken`, `token`, `secret`, `clientsecret`, `password`, `passwd`,
   `authorization`, `credentials`, `privatekey` or `sessionkey` have their

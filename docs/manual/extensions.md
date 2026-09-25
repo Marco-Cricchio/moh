@@ -75,7 +75,7 @@ Every failure is visible and none of them aborts the session:
 | it throws during `setup()` | `extension_failed` with reason `setup_failed` |
 | you declined the prompt | `extension_failed` with reason `consent` |
 | a hook throws at runtime | `extension_failed` with reason `hook`, and the turn proceeds |
-| it records more than 50 events in one turn (per session) | one `extension_failed` with reason `event_cap` naming the session, and the rest of that turn's records are dropped |
+| it records more than 50 events in one turn | one `extension_failed` with reason `event_cap` naming the session it belongs to, and the rest of that turn's records are dropped — the budget is per session, so a subagent's records never spend its parent's turn |
 
 The failures land in the session log, so a resumed session still explains
 what was missing. An enabled extension that is gone from disk by the time

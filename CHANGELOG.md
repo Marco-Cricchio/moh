@@ -29,10 +29,13 @@ matching section here at tag time.
   cap-warning flag went to whichever session tripped it first: the parent
   could be disarmed for the rest of its turn with no `event_cap` line
   anywhere in its own log. Each session now has its own counter, its own
-  one-warning-per-turn and its own reset at its own turn start, the warning
-  names the session whose budget it exhausted, and the degraded footer
-  overlay is the owner's own — another session's names itself and reaches a
-  client on the status seam (one stderr line when headless).
+  one-warning-per-turn and its own reset at its own turn start, and the
+  warning names the session whose budget it exhausted. The degraded footer
+  overlay is the owner's own: another session's names itself where it is
+  shown — its own transcript and log, plus one stderr line headless —
+  instead of turning the owner's footer into a runtime-wide chip for a
+  condition that is not the owner's. A borrowed session's budget is released
+  when the child disposes.
 - **The compaction cut guide works on long sessions again** (#979, PR to
   come): the Jev cut guide made one call and wrote one `jev_judgment`
   record per offered section, so on a long session — exactly the case
