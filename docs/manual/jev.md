@@ -291,9 +291,12 @@ decision, not a side effect of having a key.
 **The three tiers.** Every routable model belongs to one of `economico`,
 `bilanciato`, `potente`. Jev answers with a tier name — never with a model
 id — and moh maps the tier to a model you have actually configured. The
-pool is your configured endpoints' own model lists: their shipped catalog,
-or the live listing for an endpoint moh has no catalog for. Nothing is ever
-invented, and if fewer than two tiers can be filled the router stays inert
+pool is the model lists of configured endpoints that remain eligible for
+automatic routing: endpoints with `fallbackEligible: false` are excluded,
+just as they are from automatic fallback chains. An endpoint need not have a
+`defaultModel` to contribute models to the pool. Models come from the shipped
+catalog, or the live listing for an endpoint moh has no catalog for. Nothing
+is ever invented, and if fewer than two tiers can be filled the router stays inert
 (the transcript says so once).
 
 **Which model belongs to which tier.** You can label them yourself in
