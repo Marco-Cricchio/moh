@@ -117,8 +117,10 @@ re-probe it until the cooldown expires.
   better-fitting model — declining both leaves the current model in
   effect with no error turn. The same rule keeps the automatic
   fallback chain off endpoints whose preferred model cannot serve the
-  session's context, so the Settings screen and the route never
-  disagree.
+  session's context. The chain knows the session's measured tokens;
+  the Settings screen, which reads only configuration, does not — so
+  the fit axis simply does not appear there (unknown is never
+  excluded).
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
   models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself

@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { MockProvider, createSession } from "../src/index";
 import { contextFitFor } from "../src/context-fit";
 import { fallbackIneligibleReason } from "../src/provider-registry";
-import type { EndpointProfile, AgentEvent, MohConfig } from "../src/index";
-import { writeFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type { EndpointProfile, AgentEvent, MohConfig, Provider } from "../src/index";
 
 function profile(fields: Partial<EndpointProfile> & { name: string; type: string }): EndpointProfile {
   return { ...fields } as EndpointProfile;
@@ -15,7 +12,6 @@ function profile(fields: Partial<EndpointProfile> & { name: string; type: string
 function measured(inputTokens: number, text = "ok"): Provider {
   return MockProvider.scripted([{ deltas: [text], finish: "stop", usage: { inputTokens, outputTokens: 1 } }]);
 }
-import type { Provider } from "../src/index";
 
 describe("contextFitFor (#948)", () => {
   test("fits when measured tokens leave the 8192 reserve inside the window", () => {
@@ -63,7 +59,6 @@ describe("switchModel context-fit guard (#948)", () => {
   }
 
   test("a switch to a model whose window cannot hold the measured context is refused, visibly", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "moh-fit-"));
     // Catalog-backed endpoint kinds carry windows; use a builtin kind for
     // the target so contextWindowFor can resolve its catalog window. The
     // openrouter catalog declares mistral models with real windows.
@@ -92,7 +87,6 @@ describe("switchModel context-fit guard (#948)", () => {
     expect(evt.measured).toBe(234_666);
     expect(evt.window).toBe(131_072);
     // The session continues on the current model.
-    void dir;
   });
 
   test("unknown window and no measurement both abstain — the switch proceeds", async () => {

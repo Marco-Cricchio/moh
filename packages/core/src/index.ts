@@ -808,11 +808,6 @@ export {
   resolveProviderRef,
   isFallbackEligible,
   fallbackIneligibleReason,
-  // #948: the one context-fit predicate — the switch guard's verdict,
-  // exported for clients that want to pre-check or render the numbers.
-  contextFitFor,
-  CONTEXT_FIT_RESERVE,
-  type ContextFitVerdict,
   sessionFromConfig,
   // Session handoff (#433, T2 #435): the transport seam and gist impl
   // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
