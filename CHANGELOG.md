@@ -9,6 +9,18 @@ matching section here at tag time.
 
 ### Fixed
 
+- **The anti-injection check no longer runs out of its per-turn event
+  budget** (#980, PR #983): the check recorded one `jev_judgment` per
+  judged item — one for the turn's input, one for *every* `fetch`/`browser`
+  result — so an ordinary research turn reached the 50-events-per-turn cap
+  on its own, and from there the transcript showed `✗ extension failed
+  jev-guard` while the judgments that matter (a warning, a withheld page)
+  were the first to be dropped. The passing tool-result judgments now land
+  as ONE aggregate record per turn (`useCase: "injection_passes"`, with the
+  call count and ids — "judged and passed" stays distinguishable from
+  "never judged"), while a warning and a withheld result keep one record
+  each, unsampled and now naming the call they judged. The input half is
+  unchanged: one judgment per turn you send.
 - **The compaction cut guide works on long sessions again** (#979, PR to
   come): the Jev cut guide made one call and wrote one `jev_judgment`
   record per offered section, so on a long session — exactly the case

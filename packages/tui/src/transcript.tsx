@@ -229,7 +229,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (name === "jev_usecase") return useCaseLine(record);
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
-  if (record.useCase === "injection") return injectionJudgmentLine(record);
+  if (record.useCase === "injection" || record.useCase === "injection_passes") return injectionJudgmentLine(record);
   if (record.useCase === "guardrail" || record.useCase === "guardrail_passes") return guardrailJudgmentLine(record);
   // #979: the cut guide's one aggregate record — the per-section verdicts
   // ride its payload (the log is the audit), so the line reads the cut.
@@ -323,6 +323,13 @@ function routingNoticeLine(record: Record<string, unknown>): string {
  * cancelled (nothing was sent), or refused in headless.
  */
 function injectionJudgmentLine(record: Record<string, unknown>): string {
+  // #980: the turn's aggregate — one line for all the passing tool-result
+  // judgments. The transcript drops it in both modes (nothing decided), so
+  // this line is only ever reached by a viewer that asks for it.
+  if (record.useCase === "injection_passes") {
+    const calls = typeof record.calls === "number" && Number.isFinite(record.calls) ? record.calls : undefined;
+    return calls === undefined ? "jev · injection · results passed" : `jev · injection · ${calls} results passed`;
+  }
   const decision = typeof record.decision === "string" ? record.decision : "judgment";
   const injection = typeof record.injection === "number" ? record.injection : 0;
   const sensitive = typeof record.sensitive === "number" ? record.sensitive : 0;
@@ -420,14 +427,17 @@ function compactionCutLine(record: Record<string, unknown>): string {
  * #791, #843: the judgments the transcript leaves out. The record is in the
  * log (every judgment is), the line is not: an injection pass below the
  * warn threshold and a guardrail `pass` changed nothing the user could act
- * on — a line each would be the noise the threshold exists to avoid. A
- * guardrail record with no `decision` (pre-#843 log) keeps its old line:
- * replay never rewrites history.
+ * on — a line each would be the noise the threshold exists to avoid. #980:
+ * the injection pass aggregate is silent for the same reason (it is the
+ * same pass, only counted once instead of once per page). A guardrail
+ * record with no `decision` (pre-#843 log) keeps its old line: replay
+ * never rewrites history.
  */
 function isSilentInjection(name: string, payload: unknown): boolean {
   if (name !== "jev_judgment") return false;
   const record = asRecord(payload);
   if (record === undefined) return false;
+  if (record.useCase === "injection_passes") return true;
   if (record.useCase === "injection") return record.decision === "silent" || record.decision === "pass";
   if (record.useCase === "guardrail") return record.decision === "pass";
   return false;
@@ -884,8 +894,6 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // `silent`/`pass` band (#791): the log keeps every judgment, but
         // the low band is *silent* — the whole point of the threshold is
         // that an unremarkable turn gains no line.
-        // is *silent* — the whole point of the threshold is that an
-        // unremarkable turn gains no line.
         //
         // #845: vibe mode keeps only the Jev lines that earn their keep —
         // the same audit trail stays whole in dev mode and in the log.
