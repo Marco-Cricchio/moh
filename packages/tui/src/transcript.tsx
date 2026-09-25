@@ -894,8 +894,6 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // `silent`/`pass` band (#791): the log keeps every judgment, but
         // the low band is *silent* — the whole point of the threshold is
         // that an unremarkable turn gains no line.
-        // is *silent* — the whole point of the threshold is that an
-        // unremarkable turn gains no line.
         //
         // #845: vibe mode keeps only the Jev lines that earn their keep —
         // the same audit trail stays whole in dev mode and in the log.

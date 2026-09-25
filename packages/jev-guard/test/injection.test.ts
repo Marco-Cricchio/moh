@@ -288,4 +288,35 @@ describe("tool-result pass aggregation (#980)", () => {
     // the 2 records = the 60 calls judged.
     expect((aggregate.calls as number) + withheld.length).toBe(60);
   });
+
+  test("a very large turn is chunked, never dropped whole or cut short (#980)", async () => {
+    // Real provider ids run ~40 bytes: a turn judging hundreds of results
+    // must not grow past ADR-0032's 8 KiB payload cap (which drops a record
+    // whole), and must not lose an id to fit.
+    const records: Record<string, unknown>[] = [];
+    const client: JevClient = {
+      async judge(input: JevJudgeInput): Promise<JevOutcome> {
+        const payload: Record<string, JevAnswer> = {
+          injection: { type: "noul", noul: 0.03 },
+          sensitive: { type: "noul", noul: 0.01 },
+        };
+        input.record(payload, { model: "jev-latest", latencyMs: 300, usage: { inputTokens: 400, outputTokens: 40 } });
+        return { ok: true, answers: payload, model: "jev-latest", latencyMs: 300, usage: { inputTokens: 400, outputTokens: 40 } };
+      },
+    };
+    const judge = createInjectionJudge({ client, append: (payload) => records.push(payload) });
+    const ids = Array.from({ length: 300 }, (_, i) => `call_${String(i).padStart(6, "0")}${"x".repeat(24)}`);
+    for (const callId of ids) await judge.judgeToolResult({ callId, name: "fetch", output: "a page" });
+    judge.flushPasses();
+
+    // More than one record, each inside the cap, and every judged result
+    // named exactly once across them.
+    expect(records.length).toBeGreaterThan(1);
+    for (const record of records) {
+      expect(Buffer.byteLength(JSON.stringify(record), "utf8")).toBeLessThan(8192);
+      expect(record.useCase).toBe("injection_passes");
+      expect(record.calls).toBe((record.callIds as string[]).length);
+    }
+    expect(records.flatMap((r) => r.callIds as string[])).toEqual(ids);
+  });
 });

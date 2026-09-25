@@ -433,16 +433,20 @@ that passed land together in one event at the end of the turn
 (`useCase: "injection_passes"`, carrying the count and the call ids). A
 research turn that judges dozens of pages therefore stays far below the
 per-turn event budget, and "judged and passed" stays distinguishable from
-"never judged". The input half above is unaffected: one judgment per turn
-you send, notable or not. Only the verdicts you can act on reach the
-transcript — the warning and the withheld result get one line each, the
-passes none; the aggregate lives in the log.
+"never judged" — the count and the ids name every page the check looked at.
+Only a turn judging hundreds of results gets a second record (the ids
+themselves would not fit in one), never a shortened list. The input half
+above is unaffected: one judgment per turn you send, notable or not. Only
+the verdicts you can act on reach the transcript — the warning and the
+withheld result get one line each, the passes none; the aggregate lives in
+the log.
 
 Nothing here is a wall: the check is one probability, and you keep the
 last word. **What it costs:** one Jev call per turn you send, plus one per
 `fetch`/`browser` result — about 0.8 s and a fraction of a cent each, on
-top of whatever the guardrail and the router call. Turn it off in the
-Settings entry and the next session makes no call at all.
+top of whatever the guardrail and the router call. Those calls are the
+cost; what they leave in the session log no longer grows with them. Turn
+it off in the Settings entry and the next session makes no call at all.
 
 ### Compaction cut guide
 

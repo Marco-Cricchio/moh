@@ -110,6 +110,49 @@ interface Judgment {
 }
 
 /**
+ * The turn's pass aggregate (#980): the count is derived from the ids, so
+ * the two can never disagree, and the ids are what keeps "judged and
+ * passed" distinguishable from "never judged".
+ */
+function passesRecord(callIds: readonly string[]): Record<string, unknown> {
+  return { useCase: "injection_passes", calls: callIds.length, callIds: [...callIds] };
+}
+
+/**
+ * ADR-0032 §2 drops an over-8-KiB payload whole rather than truncating it,
+ * so the aggregate is split instead of grown: one record per chunk of ids,
+ * each well inside the cap. Only a turn judging hundreds of results ever
+ * gets a second record — and it still names every one of them, which is the
+ * distinction the aggregate exists for.
+ */
+const PASSES_RECORD_MAX_BYTES = 4096;
+
+/** An aggregate's fixed fields minus the ids: the size a chunk's ids have
+ * to fit alongside. Taken from the builder itself, never re-estimated. */
+const PASSES_OVERHEAD_BYTES = Buffer.byteLength(JSON.stringify(passesRecord([])), "utf8");
+
+/** Splits the turn's passing call ids into per-record chunks (#980). A
+ * single id longer than the budget rides alone: an id is never cut. */
+function chunkPasses(callIds: readonly string[]): string[][] {
+  const chunks: string[][] = [];
+  let chunk: string[] = [];
+  let size = PASSES_OVERHEAD_BYTES;
+  for (const callId of callIds) {
+    // The quotes JSON adds, plus the separating comma.
+    const bytes = Buffer.byteLength(callId, "utf8") + 3;
+    if (chunk.length > 0 && size + bytes > PASSES_RECORD_MAX_BYTES) {
+      chunks.push(chunk);
+      chunk = [];
+      size = PASSES_OVERHEAD_BYTES;
+    }
+    chunk.push(callId);
+    size += bytes;
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  return chunks;
+}
+
+/**
  * The `jev_judgment` payload for one check. The judged text is **never**
  * copied here — neither the message (it is the `user_message` when the
  * turn runs, and a cancelled turn must leave no trace of it) nor the tool
@@ -155,19 +198,27 @@ export function createInjectionJudge(deps: InjectionJudgeDeps) {
   // as it would have without the check — so it needs no record of its own;
   // but it must stay distinguishable from "never judged", hence the ids.
   // The input half is untouched: one judgment per send, notable or not.
+  //
+  // The aggregate rides at the end of the turn, so a turn whose *notable*
+  // records alone exhaust ADR-0032's per-turn cap loses the count too — the
+  // existing `event_cap` report is the visible trace of that, and the
+  // notable records (the ones that changed what the model received) are
+  // already in the log. No reservation seam exists to spend earlier.
   const passCallIds = new Set<string>();
 
   return {
     /**
      * #980: flushes this turn's passing tool-result judgments as one
      * aggregate record (called at `afterTurn`); a turn whose judged
-     * results all decided something records nothing here. The set resets
-     * for the next turn.
+     * results all decided something records nothing here. A turn with more
+     * passing results than one record can name gets a record per chunk,
+     * never a dropped one; either way the set resets for the next turn.
      */
     flushPasses(): void {
       if (passCallIds.size === 0) return;
-      deps.append({ useCase: "injection_passes", calls: passCallIds.size, callIds: [...passCallIds] });
+      const callIds = [...passCallIds];
       passCallIds.clear();
+      for (const chunk of chunkPasses(callIds)) deps.append(passesRecord(chunk));
     },
     /**
      * Judges the user's turn input. `null` means "no judgment" (the Jev

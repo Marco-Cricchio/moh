@@ -71,8 +71,12 @@ Key decisions, each with its rationale:
    to the anti-injection use case, whose per-tool-result records reached the cap on an
    ordinary `fetch`-heavy turn — one warning, the judgments that mattered, first. Its
    passing tool-result judgments now land as one per-turn aggregate
-   (`useCase: "injection_passes"`, count and call ids), while `warn` and the withholding
-   `confirm` band keep one record each, unsampled.
+   (`useCase: "injection_passes"`, count and call ids, split into several records when
+   the ids alone would not fit §2's cap), while `warn` and the withholding `confirm`
+   band keep one record each, unsampled. Two limits stay, both visible rather than
+   silent: the aggregate is appended at the end of the turn, so a turn whose *notable*
+   records alone exhaust the cap loses it too (the existing `event_cap` report is the
+   trace), and the cap's accounting is still per runtime rather than per session (#981).
 
 4. **Redaction heuristic on the payload.** Keys whose normalized form (lowercased, `_`
    and `-` stripped) is exactly `apikey`, `apitoken`, `accesstoken`, `refreshtoken`,
