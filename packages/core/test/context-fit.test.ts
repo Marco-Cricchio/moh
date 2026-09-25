@@ -133,6 +133,23 @@ describe("switchModel context-fit guard (#948)", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("context_length");
   });
+
+  test("integration: a refused switch leaves the session serving on the current model", async () => {
+    const session = createSession({
+      provider: measured(234_666, "before"),
+      endpoints: [{ name: "openrouter", type: "openrouter", defaultModel: "mistralai/mistral-nemo" }] as MohConfig["endpoints"],
+    });
+    await session.send("merge");
+    expect(session.switchModel("openrouter/mistralai/mistral-nemo").ok).toBe(false);
+    // The next turn still runs, on the original model, with a real measurement.
+    await session.send("again");
+    const calls = session.history().filter((e) => e.type === "model_call") as Extract<AgentEvent, { type: "model_call" }>[];
+    expect(calls.length).toBe(2);
+    expect(calls[1]!.model).toBe("mock");
+    expect(calls[1]!.failed).toBeFalsy();
+    expect(session.history().filter((e) => e.type === "switch_refused").length).toBe(1);
+    expect(session.history().filter((e) => e.type === "model_switched").length).toBe(0);
+  });
 });
 
 describe("fallbackIneligibleReason context fit (#948)", () => {
