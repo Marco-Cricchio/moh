@@ -290,7 +290,14 @@ const modelCommand: SlashCommand = {
       return ctx.notify("usage: /model <endpoint/model-id | model-id> — free text works for models outside any catalog");
     }
     const result = ctx.session.switchModel(ref);
-    if (!result.ok) return ctx.notify(`✗ ${result.error}`);
+    if (!result.ok) {
+      ctx.notify(`✗ ${result.error}`);
+      // #948: a context-fit refusal names the escape hatches.
+      if (result.reason === "context_length") {
+        ctx.notify("  this model cannot hold the session's measured context — run /compact first, or pick a model with a larger window");
+      }
+      return;
+    }
     ctx.onModelSwitched?.(result.model);
     ctx.notify(`✓ model switched to ${result.model} — effective from the next turn`);
   },

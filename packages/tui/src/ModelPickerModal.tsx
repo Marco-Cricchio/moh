@@ -29,7 +29,7 @@ export interface ModelPickerModalProps {
    * `session.endpointProfiles`). Empty (pre-built providers) → free text. */
   endpoints: EndpointPick[];
   /** Performs the switch (AgentSession.switchModel). */
-  onSwitch: (ref: string) => { ok: true; model: string } | { ok: false; error: string };
+  onSwitch: (ref: string) => { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
   onSwitched: (model: string) => void;
   /** Live listings per endpoint name (#551), merged additively into
    * catalog-backed endpoints' lists (vendored wins on collision). */
@@ -38,6 +38,9 @@ export interface ModelPickerModalProps {
   onRefreshLive: () => void;
   /** True while a live refresh is in flight. */
   refreshingLive: boolean;
+  /** #948: runs forced compaction — offered when a picked model cannot
+   * hold the session's measured context. */
+  onCompact: () => void;
   onToast: (message: string) => void;
   onClose: () => void;
 }
@@ -53,10 +56,16 @@ export function ModelPickerModal({
   onRefreshLive,
   refreshingLive,
   onToast,
+  /** #948: runs forced compaction (/compact) — offered when a picked
+   * model cannot hold the session's measured context. */
+  onCompact,
   onClose,
 }: ModelPickerModalProps) {
   const theme = useTheme();
   const viewport = useViewport();
+  // #948: a context-fit refusal awaiting the user's choice — compact
+  // now, or keep browsing for a better-fitting model (stay = decline).
+  const [unfit, setUnfit] = useState<{ ref: string; error: string } | null>(null);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   // Live-fetched lists for endpoints without a vendored catalog (#181
@@ -145,7 +154,15 @@ export function ModelPickerModal({
           : `${activeEndpoint}/${row.free}`
         : `${row.endpoint}/${row.model!.id}`;
     const result = onSwitch(ref);
-    if (!result.ok) return onToast(`✗ ${result.error}`);
+    if (!result.ok) {
+      // #948: a context-fit refusal offers a way out before the wall
+      // stands — compact, or pick a better-fitting model (stay here).
+      if (result.reason === "context_length") {
+        setUnfit({ ref, error: result.error });
+        return;
+      }
+      return onToast(`✗ ${result.error}`);
+    }
     onSwitched(result.model);
     onToast(`✓ model switched to ${result.model} — effective from the next turn`);
     onClose();
@@ -160,6 +177,18 @@ export function ModelPickerModal({
   };
 
   useInput((input, key) => {
+    if (unfit) {
+      // #948: declining both ways leaves the current model in effect,
+      // no error turn — the picker stays open for a better-fitting pick.
+      if (input === "c") {
+        setUnfit(null);
+        onToast("compacting… try the switch again after it lands");
+        onCompact();
+        return;
+      }
+      setUnfit(null);
+      return;
+    }
     if (key.escape) return onClose();
     if (input === "r" && !query) return onRefreshLive();
     if (key.upArrow) return setCursor((c) => Math.max(0, c - 1));
@@ -209,6 +238,14 @@ export function ModelPickerModal({
       ) : null}
       {failed.length > 0 && (
         <Dim>{` no list from ${failed.map((e) => e.name).join(", ")} — free text works`}</Dim>
+      )}
+      {unfit && (
+        <>
+          <Text> </Text>
+          <Text bold>{" ✗ this model cannot hold this session's context"}</Text>
+          <Dim>{` ${unfit.error}`}</Dim>
+          <Text bold>{" c compact now, then pick again · any other key keeps browsing"}</Text>
+        </>
       )}
       <Text> </Text>
       <Dim>type to filter (endpoint or model) · r refresh live · ↑↓ select · enter switch · esc close</Dim>

@@ -1699,6 +1699,11 @@ function AppShell({
             refreshingLive={liveRefreshing}
             onSwitch={(ref) => session.switchModel(ref)}
             onSwitched={(model) => setModelLabel(model)}
+            onCompact={() => {
+              void session.compact().then((result) => {
+                if (!result.ok) push(`✗ compaction: ${result.error}`);
+              });
+            }}
             onToast={push}
             onClose={() => setOverlay(null)}
           />

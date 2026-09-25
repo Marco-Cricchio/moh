@@ -104,6 +104,21 @@ re-probe it until the cooldown expires.
   is its design. The Settings panel's endpoint → model picker shows the
   same live overlay and the same state. The switch takes effect from
   the next turn.
+- **Context fit (#948):** a switch into a model whose context window
+  cannot hold the session's measured context is refused — the switch
+  itself must not kill the session. The window must leave a fixed
+  8192-token reserve over the last measured input; a model with an
+  unknown window and a session without a measurement both pass (moh
+  never invents a window the catalog does not declare). The refusal is
+  visible: one `switch refused` line in the transcript naming the
+  target, the measured tokens and the window, and the current model
+  stays in effect. `/model` in the TUI asks first: on a refused pick it
+  offers to compact now (then pick again) or to keep browsing for a
+  better-fitting model — declining both leaves the current model in
+  effect with no error turn. The same rule keeps the automatic
+  fallback chain off endpoints whose preferred model cannot serve the
+  session's context, so the Settings screen and the route never
+  disagree.
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
   models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself
