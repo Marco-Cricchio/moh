@@ -426,6 +426,18 @@ saw. The middle band lets the page through with a visible warning. Only
 those two tools are inspected — reading a file or running a command is
 your own material, and a judgment on every read would be ruinous.
 
+The log stays a complete audit without one record per page: a warning and
+a withheld result each get their own `jev_judgment` event as they happen —
+they are the ones that change what the model receives — while the results
+that passed land together in one event at the end of the turn
+(`useCase: "injection_passes"`, carrying the count and the call ids). A
+research turn that judges dozens of pages therefore stays far below the
+per-turn event budget, and "judged and passed" stays distinguishable from
+"never judged". The input half above is unaffected: one judgment per turn
+you send, notable or not. Only the verdicts you can act on reach the
+transcript — the warning and the withheld result get one line each, the
+passes none; the aggregate lives in the log.
+
 Nothing here is a wall: the check is one probability, and you keep the
 last word. **What it costs:** one Jev call per turn you send, plus one per
 `fetch`/`browser` result — about 0.8 s and a fraction of a cent each, on

@@ -67,7 +67,12 @@ Key decisions, each with its rationale:
    looks, not only in the log. The audit-integrity clause is unchanged: nothing is
    sampled or truncated, and a producer whose volume legitimately reaches the cap
    (Jev's per-call guardrail records, before #846's turn aggregation) must reduce its
-   volume rather than accept routine degradation.
+   volume rather than accept routine degradation. *#980 deviation:* the same rule applied
+   to the anti-injection use case, whose per-tool-result records reached the cap on an
+   ordinary `fetch`-heavy turn — one warning, the judgments that mattered, first. Its
+   passing tool-result judgments now land as one per-turn aggregate
+   (`useCase: "injection_passes"`, count and call ids), while `warn` and the withholding
+   `confirm` band keep one record each, unsampled.
 
 4. **Redaction heuristic on the payload.** Keys whose normalized form (lowercased, `_`
    and `-` stripped) is exactly `apikey`, `apitoken`, `accesstoken`, `refreshtoken`,

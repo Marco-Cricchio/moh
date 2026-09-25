@@ -23,7 +23,7 @@ interface FakeCtx {
   eventHooks: Array<(e: { event: { type: string; [k: string]: unknown } }) => void>;
   compactionHooks: Array<(ctx: { sections: readonly { id: string }[]; hookTimeoutMs?: number; signal?: AbortSignal }) => unknown>;
   /** apiVersion 1.4: the post-tool seam the anti-injection's second half uses. */
-  toolResultHooks: Array<(input: { name: string; output: string }) => unknown>;
+  toolResultHooks: Array<(input: { callId: string; name: string; output: string }) => unknown>;
   mode: "normal" | "auto-accept" | "yolo";
   afterTurnHooks: Array<() => unknown>;
 }
@@ -42,7 +42,7 @@ function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & Fake
     onToolCall: (h: ToolCallHook) => (hooks as unknown as FakeCtx).toolHooks.push(h),
     onCompaction: (h: (ctx: { sections: readonly { id: string }[]; hookTimeoutMs?: number; signal?: AbortSignal }) => unknown) => (hooks as unknown as FakeCtx).compactionHooks.push(h),
     onEvent: (h: (e: { event: { type: string; [k: string]: unknown } }) => void) => (hooks as unknown as FakeCtx).eventHooks.push(h),
-    onToolResult: (_tools: readonly string[], h: (input: { name: string; output: string }) => unknown) =>
+    onToolResult: (_tools: readonly string[], h: (input: { callId: string; name: string; output: string }) => unknown) =>
       (hooks as unknown as FakeCtx).toolResultHooks.push(h),
     afterTurn: (h: () => unknown) => (hooks as unknown as FakeCtx).afterTurnHooks.push(h),
   };
@@ -996,7 +996,7 @@ describe("#832 warm control across a seam that is not a turn", () => {
     }) as unknown as typeof fetch;
     await createJevGuardExtension({ apiKey: "sk-test", fetchImpl, classification: false }).setup(ctx);
     expect(ctx.toolResultHooks).toHaveLength(1);
-    const inspect = () => ctx.toolResultHooks[0]!({ name: "fetch", output: "some page" });
+    const inspect = () => ctx.toolResultHooks[0]!({ callId: "t1", name: "fetch", output: "some page" });
 
     expect(await inspect()).toBeUndefined();
     expect(calls).toBe(0);
@@ -1008,5 +1008,34 @@ describe("#832 warm control across a seam that is not a turn", () => {
     emitControl(ctx, "injection", "off");
     expect(await inspect()).toBeUndefined();
     expect(calls).toBe(1);
+  });
+
+  test("a fetch-heavy turn records one aggregate, not one record per judged page (#980)", async () => {
+    const ctx = fakeCtx();
+    let n = 0;
+    // Every page passes but the third, which is withheld: the record shape
+    // of a real research turn (the evidence for #980).
+    const fetchImpl = (async () => {
+      const withhold = n === 2;
+      n += 1;
+      return okResponse({
+        injection: { type: "noul", noul: withhold ? 0.98 : 0.03 },
+        sensitive: { type: "noul", noul: 0.01 },
+      });
+    }) as unknown as typeof fetch;
+    await createJevGuardExtension({ apiKey: "sk-test", fetchImpl, classification: false, injection: true }).setup(ctx);
+    const inspect = (callId: string) => ctx.toolResultHooks[0]!({ callId, name: "fetch", output: "a page" });
+
+    for (let i = 0; i < 60; i++) await inspect(`t${i}`);
+    const before = ctx.events.filter((e) => e.name === "jev_judgment");
+    // The withheld page is the only per-call record: 60 judged results, one
+    // event for the whole passing rest.
+    expect(before).toHaveLength(1);
+    expect(before[0]!.payload).toMatchObject({ useCase: "injection", decision: "withheld", callId: "t2" });
+
+    for (const h of ctx.afterTurnHooks) await h();
+    const judgments = ctx.events.filter((e) => e.name === "jev_judgment");
+    expect(judgments).toHaveLength(2);
+    expect(judgments[1]!.payload).toMatchObject({ useCase: "injection_passes", calls: 59 });
   });
 });

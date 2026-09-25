@@ -8,10 +8,17 @@
  * behaves exactly as it does without Jev, with the client's single
  * `∅ jev offline` signal as the only trace.
  *
- * One record per judgment, always: `silent` and `warn` are recorded as
- * soon as the answers land; the `confirm` band is recorded when the user's
- * decision is known (through the `resolve` callback the hook hands to
- * `onResolved`), because "was this sent?" is part of what happened.
+ * The notable records land as soon as the answers land: `silent` and `warn`
+ * immediately, the `confirm` band when the user's decision is known
+ * (through the `resolve` callback the hook hands to `onResolved`), because
+ * "was this sent?" is part of what happened. A tool-result judgment that
+ * decided nothing is the exception (#980, the #846 precedent): a passing
+ * result changes neither what the user saw nor what the model received, and
+ * one record per fetched page reaches ADR-0032's per-turn event cap on its
+ * own, dropping the judgments that *did* matter. So the passes accumulate
+ * and land as one aggregate record per turn (`flushPasses`), which keeps
+ * "judged and passed" distinguishable from "never judged" — the count and
+ * the call ids — without spending the budget page by page.
  */
 import type { TurnConfirmOutcome } from "@moh/extension";
 import { noulProbability, type JevAnswer, type JevClient, type JevJudgmentMeta } from "./client";
@@ -36,7 +43,9 @@ export interface InjectionJudgeDeps {
   /**
    * The one log seam: the extension turns this into `ctx.appendEvent`
    * (`jev_judgment`). Required, not optional — a judgment nobody recorded
-   * is a judgment nobody can audit (ratified: no sampling).
+   * is a judgment nobody can audit (ratified: no sampling). A tool-result
+   * *pass* is not a record of its own: it is counted and flushed once per
+   * turn (#980).
    */
   append: (payload: Record<string, unknown>) => void;
 }
@@ -56,6 +65,14 @@ export interface InjectionInputVerdict {
    * the other bands are already recorded.
    */
   readonly resolve?: (outcome: TurnConfirmOutcome) => void;
+}
+
+/** The tool result to judge, as the `onToolResult` seam hands it over. */
+export interface InjectionToolCall {
+  /** Correlates the aggregate record with the `tool_call` it judged (#980). */
+  readonly callId: string;
+  readonly name: string;
+  readonly output: string;
 }
 
 /** What one tool-result check produced. */
@@ -88,6 +105,8 @@ interface Judgment {
   readonly decision: InjectionDecision;
   readonly answers: Record<string, JevAnswer>;
   readonly meta: JevJudgmentMeta;
+  /** The judged tool call, on the tool half only (#980). */
+  readonly callId?: string;
 }
 
 /**
@@ -110,6 +129,7 @@ function judgmentRecord(judgment: Judgment): Record<string, unknown> {
   return {
     useCase: "injection",
     source: judgment.source,
+    ...(judgment.callId !== undefined ? { callId: judgment.callId } : {}),
     band,
     decision: judgment.decision,
     injection: signals.injection,
@@ -130,7 +150,25 @@ function judgmentRecord(judgment: Judgment): Record<string, unknown> {
  * grow.
  */
 export function createInjectionJudge(deps: InjectionJudgeDeps) {
+  // #980: the turn's passing tool-result judgments, aggregated into one
+  // record. A pass decided nothing — the result reached the model exactly
+  // as it would have without the check — so it needs no record of its own;
+  // but it must stay distinguishable from "never judged", hence the ids.
+  // The input half is untouched: one judgment per send, notable or not.
+  const passCallIds = new Set<string>();
+
   return {
+    /**
+     * #980: flushes this turn's passing tool-result judgments as one
+     * aggregate record (called at `afterTurn`); a turn whose judged
+     * results all decided something records nothing here. The set resets
+     * for the next turn.
+     */
+    flushPasses(): void {
+      if (passCallIds.size === 0) return;
+      deps.append({ useCase: "injection_passes", calls: passCallIds.size, callIds: [...passCallIds] });
+      passCallIds.clear();
+    },
     /**
      * Judges the user's turn input. `null` means "no judgment" (the Jev
      * call failed): the turn proceeds untouched, exactly as without Jev.
@@ -186,10 +224,15 @@ export function createInjectionJudge(deps: InjectionJudgeDeps) {
      * Judges one external tool result. Returns the refusal reason when the
      * result must be withheld, `undefined` otherwise (pass or warn — the
      * middle band is visible in the log and changes nothing).
+     *
+     * A `pass` is not recorded here (#980): it joins the turn's aggregate
+     * (see `flushPasses`). `warn` and the withholding `confirm` band are
+     * safety-relevant — they change what will be sent — so each keeps its
+     * own record, unsampled.
      */
-    async judgeToolResult(name: string, output: string): Promise<InjectionToolVerdict | null> {
-      const source: InjectionSource = `tool:${name}`;
-      const text = sliceForJudgment(output, INJECTION_TOOL_MAX_BYTES);
+    async judgeToolResult(call: InjectionToolCall): Promise<InjectionToolVerdict | null> {
+      const source: InjectionSource = `tool:${call.name}`;
+      const text = sliceForJudgment(call.output, INJECTION_TOOL_MAX_BYTES);
       let verdict: InjectionToolVerdict | undefined;
       const outcome = await deps.client.judge({
         state: text,
@@ -197,15 +240,24 @@ export function createInjectionJudge(deps: InjectionJudgeDeps) {
         record: (answers, meta) => {
           const signals = signalsOf(answers);
           const band = injectionBand(signals);
-          const payload = judgmentRecord({
-            source,
-            signals,
-            band,
-            decision: decisionOf(band, source),
-            answers,
-            meta,
-          });
-          deps.append(payload);
+          const decision = decisionOf(band, source);
+          if (decision === "pass") {
+            // #980: a passing judgment lands as one aggregate record per
+            // turn, not one per fetched page.
+            passCallIds.add(call.callId);
+          } else {
+            deps.append(
+              judgmentRecord({
+                source,
+                callId: call.callId,
+                signals,
+                band,
+                decision,
+                answers,
+                meta,
+              }),
+            );
+          }
           verdict = {
             band,
             signals,

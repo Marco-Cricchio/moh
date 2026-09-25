@@ -129,6 +129,8 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     const events = [
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "silent", injection: 0.02, sensitive: 0.01 } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "pass", injection: 0.03, sensitive: 0.01, source: "tool:fetch" } },
+      // #980: the turn's pass aggregate is the same pass, counted once.
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection_passes", calls: 46, callIds: ["t1"] } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 } },
     ] as unknown as AgentEvent[];
     const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
@@ -173,6 +175,10 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(line({ useCase: "injection", decision: "pass", injection: 0.02, sensitive: 0.01, source: "tool:fetch" })).toBe(
       "jev · injection · pass (injection 0.02)",
     );
+    // #980: the turn's pass aggregate, when a viewer asks for its line — the
+    // transcript itself drops it (nothing decided, nothing to read).
+    expect(line({ useCase: "injection_passes", calls: 46, callIds: ["t1", "t2"] })).toBe("jev · injection · 46 results passed");
+    expect(line({ useCase: "injection_passes" })).toBe("jev · injection · results passed");
     // A payload this renderer does not recognize never throws.
     expect(line({ useCase: "injection" })).toBe("jev · injection · judgment (injection 0.00)");
   });

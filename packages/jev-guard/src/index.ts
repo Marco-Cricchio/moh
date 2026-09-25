@@ -366,13 +366,19 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // does not exist there (the versioning policy: fail-open, never an
       // error) — hence the guard, like `requestTurn` below.
       if (typeof ctx.onToolResult === "function") {
-        ctx.onToolResult(INJECTION_TOOLS, async ({ name, output }) => {
+        ctx.onToolResult(INJECTION_TOOLS, async ({ callId, name, output }) => {
           if (!control.isOn("injection")) return;
-          const verdict = await injection.judgeToolResult(name, output);
+          const verdict = await injection.judgeToolResult({ callId, name, output });
           if (!verdict?.withhold) return;
           return { withhold: { reason: verdict.withhold } };
         });
       }
+      // #980: the tool half's passing judgments land as one aggregate
+      // record per turn (`injection_passes`, the #846 shape): a fetch-heavy
+      // turn judges dozens of pages, and one record each reached ADR-0032's
+      // per-turn cap, dropping the withheld warnings first. The notable
+      // records (warn, withheld) are appended as they happen, above.
+      ctx.afterTurn(() => injection.flushPasses());
 
       // ---- #789 quality gate: the end-of-task semantic lint -----------
       // Opt-in and off by default (`typesafe.lint`): the one use case that
@@ -807,6 +813,7 @@ export {
   createInjectionJudge,
   type InjectionInputVerdict,
   type InjectionJudge,
+  type InjectionToolCall,
   type InjectionToolVerdict,
 } from "./injection-judge";
 export {
