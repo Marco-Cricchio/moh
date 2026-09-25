@@ -83,10 +83,35 @@ from outside the core.
   randomized, empties and unterminated parts included) asserts the parity,
   so a future change to either side fails in one test rather than in a user's
   scrollback.
-- The wire dialect's announcement rate is now explicitly **not** a contract
-  the core promises consumers to control. Whether `mergeReasoning` should
-  coalesce one reasoning run into one announced part is a separate decision
-  (noted on #993); it does not change what the log persists.
+- The announcement rate no longer varies with the model's chattiness: see
+  the amendment below.
+
+## Amendment — 2026-09-25, #993: the wire coalesces one run into one part
+
+The same session that produced 637 announced parts also showed where they
+come from: `openrouter-chat.ts`'s `mergeReasoning` closed its block before
+the first text/tool part and reopened it whenever reasoning resumed, so an
+interleaving model was one announced part per run. The owner decided the
+fold contract is not enough on its own — **`mergeReasoning` coalesces one
+reasoning run into one announced part**: one `reasoning-start` at the first
+delta, deltas as they are extracted (still live, #253), reply text and tool
+parts flowing through while the block stays open, and one `reasoning-end` at
+stream end carrying the complete continuation metadata.
+
+- The SSE stream never says "the reasoning is over"; the old code inferred
+  it from the first text part. The inference is gone, and with it the
+  announcement rate as consumer-visible variance: a client sees one part per
+  call, whatever the model does between thoughts.
+- The live channel is unaffected in shape (deltas still stream while the
+  model thinks) and the persisted log is unaffected in content: the loop
+  keeps one `reasoning` event per call either way, and the assistant message
+  still places reasoning before text (`agent-loop` prepends
+  `#iterationReasoning`). What changes is only how many lifecycle
+  announcements wrap the same text.
+- The fold contract above remains necessary and unchanged: it is what makes
+  every wire safe *regardless* of announcement shape (the anthropic wire can
+  still announce several thinking blocks per call — one per block — and a
+  custom provider anything).
 
 ## Alternatives rejected
 
@@ -95,11 +120,11 @@ from outside the core.
   rule duplicated in a client: the next consumer, or the next shape, re-opens
   the bug — and the shape is provider-determined, so "the next shape" is a
   routine release event.
-- **Coalesce announcements in the wire adapter** (never emit a `start`
-  without a following non-empty delta). It changes the event contract for
-  every provider to hide a consumer bug, and the announcement rate is
-  meaningful information for a client that wants to know the provider
-  restarted its reasoning block.
+- ~~**Coalesce announcements in the wire adapter.**~~ Superseded by the
+  amendment above: the owner decided the coalescing *is* the contract, and
+  it landed as a structural change to `mergeReasoning` (one block per
+  stream), not as a delta filter — so the announcement rate stops varying
+  with the model's interleaving instead of being filtered after the fact.
 - **Make the promotion drop blank rows.** The blank rows are real once the
   live text is right (paragraph breaks inside reasoning), and the promotion
   is not the layer that decides what the text is.

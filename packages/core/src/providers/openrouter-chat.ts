@@ -266,9 +266,15 @@ const REASONING_ID = "openrouter-reasoning";
  *    order without buffering.
  *
  * The pump below starts the inner part stream in the background and
- * forwards its parts, ending the open reasoning block (with its complete
- * continuation metadata) before the first text/tool part or, for
- * reasoning-only streams, at stream end. The inner `doStream` promise is
+ * forwards its parts, keeping ONE reasoning block open for the whole
+ * stream (#993, owner decision): the SSE stream never says "the reasoning
+ * is over" — the old code inferred it from the first text/tool part and
+ * reopened on every later reasoning chunk, so an interleaving model was
+ * one announced part per run and clients saw dozens of `reasoning_start`
+ * for one call. Coalescing means one start at the first reasoning delta,
+ * deltas as they are extracted (still live), text/tool parts flowing
+ * through while the block stays open, and one end at stream end carrying
+ * the complete continuation metadata. The inner `doStream` promise is
  * deliberately NOT awaited before the merged stream is handed back: the
  * stock adapter's early-error gate holds the call unresolved until the
  * first text-capable chunk, which would reintroduce the burst. */
@@ -276,15 +282,13 @@ function mergeReasoning(inner: Promise<{ stream: ReadableStream<Part> }>, buffer
   let emittedTexts = 0;
   let emittedDetails = 0;
   let open = false;
-  let ended = true;
   let closed = false;
   let emit: (part: Part) => void = () => {};
   const drain = (): void => {
     if (closed || emittedTexts >= buffer.texts.length) return;
-    if (ended) {
+    if (!open) {
       emit({ type: "reasoning-start", id: REASONING_ID });
       open = true;
-      ended = false;
     }
     for (; emittedTexts < buffer.texts.length; emittedTexts++) {
       emit({ type: "reasoning-delta", id: REASONING_ID, delta: buffer.texts[emittedTexts] });
@@ -300,7 +304,6 @@ function mergeReasoning(inner: Promise<{ stream: ReadableStream<Part> }>, buffer
       providerMetadata: { openrouter: { reasoningDetails: details } },
     });
     open = false;
-    ended = true;
   };
   return new ReadableStream<Part>({
     async start(controller) {
@@ -313,16 +316,15 @@ function mergeReasoning(inner: Promise<{ stream: ReadableStream<Part> }>, buffer
         // The inner call runs concurrently from doStream (see below); its
         // parts arrive only after the adapter's early-error gate releases
         // at the first text-capable chunk — reasoning emitted until then
-        // comes exclusively from the extraction hook above.
+        // comes exclusively from the extraction hook above. Text and tool
+        // parts flow through while the reasoning block stays open: the
+        // block is coalesced, never split by an interleaving reply.
         const { stream } = await inner;
         const reader = stream.getReader();
         for (;;) {
           const { value: part, done } = await reader.read();
           if (done) break;
           drain(); // ordering safety net (extraction precedes its parts)
-          if (part.type === "text-start" || part.type === "text-delta" || part.type === "tool-input-start") {
-            endBlock();
-          }
           emit(part);
         }
       } catch (err) {

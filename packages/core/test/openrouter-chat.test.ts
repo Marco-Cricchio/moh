@@ -100,7 +100,7 @@ describe("openrouter chat reasoning (#251)", () => {
     expect(h2.calls[0]!.body.reasoning_effort).toBeUndefined();
   });
 
-  it("translates multi-chunk reasoning_details into ordered neutral reasoning events before text", async () => {
+  it("coalesces the whole stream into one reasoning part, closed after the text (#993)", async () => {
     const h = harness([
       chunk({ role: "assistant" }, {}),
       chunk({ reasoning_details: [{ type: "reasoning.text", text: "step one. " }] }),
@@ -117,6 +117,7 @@ describe("openrouter chat reasoning (#251)", () => {
       { type: "reasoning_delta", text: "step one. " },
       { type: "reasoning_delta", text: "step two. " },
       { type: "reasoning_delta", text: "step three." },
+      { type: "text_delta", text: "the answer" },
       {
         type: "reasoning_end",
         continuation: {
@@ -130,7 +131,6 @@ describe("openrouter chat reasoning (#251)", () => {
           },
         },
       },
-      { type: "text_delta", text: "the answer" },
       { type: "usage", inputTokens: 3, outputTokens: 5 },
       { type: "finish", reason: "stop" },
     ]);
@@ -204,7 +204,7 @@ describe("openrouter live reasoning streaming (#253)", () => {
    * the text chunk is only enqueued after the consumer has seen the
    * matching reasoning delta. A burst implementation deadlocks here
    * and the race rejects. */
-  it("emits each reasoning delta as it is extracted, not in an end-of-stream burst", async () => {
+  it("emits each reasoning delta as it is extracted, coalesced into one block (#993)", async () => {
     const encoder = new TextEncoder();
     const seen: string[] = [];
     let releaseNext: (() => void) | null = null;
@@ -248,17 +248,18 @@ describe("openrouter live reasoning streaming (#253)", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
-    // Order: both deltas before the answer text, metadata complete at end.
+    // Order: both deltas before the answer text, the single coalesced end
+    // after it, metadata complete.
     expect(events).toEqual([
       { type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: "high" },
       { type: "reasoning_start" },
       { type: "reasoning_delta", text: "live one. " },
       { type: "reasoning_delta", text: "live two." },
+      { type: "text_delta", text: "the answer" },
       { type: "reasoning_end", continuation: { openrouter: { reasoningDetails: [
         { type: "reasoning.text", text: "live one. " },
         { type: "reasoning.text", text: "live two." },
       ] } } },
-      { type: "text_delta", text: "the answer" },
       { type: "usage", inputTokens: 3, outputTokens: 5 },
       { type: "finish", reason: "stop" },
     ]);

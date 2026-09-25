@@ -23,7 +23,12 @@ matching section here at tag time.
   contributes nothing, kept parts join with one blank line — and the log and
   the live channel both apply it, so a client's live text is the persisted
   text plus the part still open, whatever shape the provider streams.
-  Reasoning display was affected only with `showReasoning: true`.
+  Reasoning display was affected only with `showReasoning: true`. The wire
+  dialect now coalesces one reasoning run into one announced part (#993):
+  `mergeReasoning` keeps one open block across interleaved reply text and
+  closes it once at stream end with the complete continuation metadata, so
+  the announcement rate no longer varies with how chatty a model is — one
+  part per call, deltas still live.
 
 ## [0.50.2] - 2026-09-25
 
