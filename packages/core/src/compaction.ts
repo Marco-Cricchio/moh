@@ -18,7 +18,7 @@
  * with one retry, never reachable through `spawn`.
  */
 import type { AgentEvent, Provider, TurnResult } from "./types";
-import type { CompactionHookContext } from "@moh/extension";
+import type { AppliedCut, CompactionHookContext } from "@moh/extension";
 import { catalogEntryFor } from "./model-catalog";
 import { activePath } from "./session/event-log";
 import { PromptComposer } from "./prompt-composer";
@@ -288,8 +288,9 @@ export interface CompactionOptions {
    */
   sectionFilter?: (ctx: CompactionHookContext) => Promise<{
     drop: string[];
-    /** ADR-0035: callbacks the runner invokes once with the applied cut. */
-    onApplied?: ((applied: { keptByFloor: boolean; bytesAfter: number }) => void)[];
+    /** ADR-0035: callbacks the runner invokes once with the applied cut
+     * (`applied: false` marks a cut the core never applied — #979). */
+    onApplied?: ((applied: AppliedCut) => void)[];
     errors: AgentEvent[];
   } | void>;
 }
@@ -566,14 +567,17 @@ export class CompactionRunner {
         });
         if (result) {
           for (const error of result.errors) this.#append(error);
-          let applied = { keptByFloor: false, bytesAfter: 0 };
+          let applied: AppliedCut = { keptByFloor: false, bytesAfter: 0, droppedIds: [] };
           if (result.drop.length > 0 && turnCount > 0) {
             const { droppedIds, keptByFloor } = applySectionDrops(sections, result.drop);
             const bytesAfter = sections.reduce(
               (sum, s) => sum + (droppedIds.has(s.id) ? 0 : s.bytes),
               0,
             );
-            applied = { keptByFloor, bytesAfter };
+            // #979: the *applied* ids travel with the byte total — the
+            // floor restores the smallest claims, so an extension recording
+            // `drop` as if it were the outcome would overstate its cut.
+            applied = { keptByFloor, bytesAfter, droppedIds: [...droppedIds] };
             this.#floorApplied = keptByFloor;
             if (keptByFloor) {
               // One visible line: the cut was reduced, never silently.
@@ -587,7 +591,11 @@ export class CompactionRunner {
             const droppedSet = droppedIds;
             omit = (turnIndex) => droppedSet.has(`s${turnIndex}`);
           } else {
-            applied = { keptByFloor: false, bytesAfter: sections.reduce((sum, s) => sum + s.bytes, 0) };
+            applied = {
+              keptByFloor: false,
+              bytesAfter: sections.reduce((sum, s) => sum + s.bytes, 0),
+              droppedIds: [],
+            };
           }
           // The hook learns what was actually applied (post-floor), exactly
           // once, before the transcript renders. A throw is swallowed: the

@@ -253,27 +253,22 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // `compact-cut` record carries it. No opt-in beyond the key: the
       // judged state is section previews only (shape, never bodies), and
       // compaction itself is automatic.
+      //
+      // #979: the span is what grows until compaction runs, so the judge
+      // is given the hook's own window and its abandonment signal — it
+      // judges largest-first with bounded concurrency and stops inside the
+      // window, and whatever it judged lands in ONE aggregate record (the
+      // old per-section shape flooded the per-turn event cap by itself).
       const compactionJudge = createCompactionJudge({
         client,
         append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
       });
       ctx.onCompaction(async (ctxHook) => {
-        const verdict = await compactionJudge.judge(ctxHook.sections);
-        return {
-          drop: verdict.drop,
-          onApplied: (applied) => {
-            // One aggregate record per compaction (spec §5 §9): sections,
-            // drops, floor and the byte sizes the core actually applied.
-            ctx.appendEvent({
-              name: "jev_judgment",
-              payload: {
-                ...verdict.summary,
-                keptByFloor: applied.keptByFloor,
-                bytesAfter: applied.bytesAfter,
-              },
-            });
-          },
-        };
+        const run = await compactionJudge.judge(ctxHook.sections, {
+          ...(ctxHook.hookTimeoutMs !== undefined ? { hookTimeoutMs: ctxHook.hookTimeoutMs } : {}),
+          ...(ctxHook.signal !== undefined ? { signal: ctxHook.signal } : {}),
+        });
+        return run;
       });
 
       // ---- #786 guardrail: the first use case --------------------------
@@ -371,13 +366,19 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // does not exist there (the versioning policy: fail-open, never an
       // error) — hence the guard, like `requestTurn` below.
       if (typeof ctx.onToolResult === "function") {
-        ctx.onToolResult(INJECTION_TOOLS, async ({ name, output }) => {
+        ctx.onToolResult(INJECTION_TOOLS, async ({ callId, name, output }) => {
           if (!control.isOn("injection")) return;
-          const verdict = await injection.judgeToolResult(name, output);
+          const verdict = await injection.judgeToolResult({ callId, name, output });
           if (!verdict?.withhold) return;
           return { withhold: { reason: verdict.withhold } };
         });
       }
+      // #980: the tool half's passing judgments land as one aggregate
+      // record per turn (`injection_passes`, the #846 shape): a fetch-heavy
+      // turn judges dozens of pages, and one record each reached ADR-0032's
+      // per-turn cap, dropping the withheld warnings first. The notable
+      // records (warn, withheld) are appended as they happen, above.
+      ctx.afterTurn(() => injection.flushPasses());
 
       // ---- #789 quality gate: the end-of-task semantic lint -----------
       // Opt-in and off by default (`typesafe.lint`): the one use case that
@@ -595,6 +596,39 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             });
             return;
           }
+          // #948: a refused context-fit switch is the fit sibling of the
+          // invalid_model skip. The core already appended the visible
+          // `switch_refused` record — never duplicated here — so the
+          // router's own channel only drops the pending mark and notes
+          // why its target was not served.
+          if (event.type === "switch_refused") {
+            if (!judge.switchPending()) return;
+            judge.dropPendingSwitch();
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: {
+                kind: "switch-skipped",
+                reason: "context_length",
+                target: judge.snapshot().decidedModel,
+              },
+            });
+            return;
+          }
+          // #945: the core's immediate account of a fallback — the
+          // selected model could not serve. Name the divergence *now*
+          // (the next judged turn may never come: one-turn subagents)
+          // and release the expectation so the router is not frozen.
+          if (event.type === "route_serving") {
+            const serving = (event as { serving?: unknown }).serving;
+            if (typeof serving !== "string") return;
+            const divergence = judge.noteRouteServing(serving);
+            if (!divergence) return;
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: { kind: "fallback", serving: divergence.current, expected: divergence.expected },
+            });
+            return;
+          }
           if (event.type !== "model_switched" || typeof event.to !== "string") return;
           judge.clearPendingSwitch();
           if (!judge.noteModelSwitched(event.to)) return;
@@ -784,9 +818,12 @@ export {
   type CompactionCutSectionVerdict,
 } from "./compaction";
 export {
+  COMPACTION_JUDGE_CONCURRENCY,
+  COMPACTION_JUDGE_SECTION_BUDGET,
   createCompactionJudge,
-  type CompactionCutVerdict,
+  type CompactionCutRun,
   type CompactionJudge,
+  type CompactionUnjudgedReason,
   type JudgedSection,
 } from "./compaction-judge";
 export {
@@ -809,6 +846,7 @@ export {
   createInjectionJudge,
   type InjectionInputVerdict,
   type InjectionJudge,
+  type InjectionToolCall,
   type InjectionToolVerdict,
 } from "./injection-judge";
 export {

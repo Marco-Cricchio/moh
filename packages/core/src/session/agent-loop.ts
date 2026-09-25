@@ -32,7 +32,7 @@ export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
  */
 export interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
-  applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string };
+  applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
   /**
    * ADR-0033 §4: the pre-send confirmation. Asks the client whether the
    * turn may be sent, given the extension's reason. Absent = no client can
@@ -539,6 +539,10 @@ export class AgentLoop {
     if (outcome.model === undefined) return true;
     const applied = seam.applyModel(outcome.model);
     if (applied.ok) return true; // same ref = silent no-op; new ref = the session's chrome
+    // #948: a context-fit refusal already appended its own `switch_refused`
+    // chrome event (the session's guard) — exactly one visible record, so
+    // the extension skip channel stays silent for this case.
+    if (applied.reason === "context_length") return true;
     this.#append({
       type: "extension_failed",
       name: outcome.modelBy ?? "extension",

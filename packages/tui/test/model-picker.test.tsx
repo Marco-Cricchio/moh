@@ -96,6 +96,7 @@ describe("/model modal (#181)", () => {
           liveCatalog={{}}
           onRefreshLive={() => {}}
           refreshingLive={false}
+          onCompact={() => {}}
           onToast={(m) => toasts.push(m)}
           onClose={() => (closed += 1)}
           {...over}
@@ -273,6 +274,36 @@ describe("/model modal (#181)", () => {
     i.unmount();
   });
 
+  test("#948: a context-fit refusal offers compaction; declining keeps browsing with the modal open", async () => {
+    let compacted = 0;
+    const { i, switched, toasts, closed } = mount({
+      onSwitch: () => ({
+        ok: false,
+        error: "cannot switch: window too small for the measured context",
+        reason: "context_length" as const,
+      }),
+      onCompact: () => (compacted += 1),
+    });
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(30);
+    expect(switched).toEqual([]);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("cannot hold this session's context");
+    // Decline (any other key): modal stays open, nothing compacted, no error turn.
+    i.stdin.write("x");
+    await sleep(30);
+    expect(compacted).toBe(0);
+    expect(closed()).toBe(0);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("cannot hold this session's context");
+    // Accepting the offer runs compaction.
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("c");
+    await sleep(30);
+    expect(compacted).toBe(1);
+    i.unmount();
+  });
+
   test("esc closes without switching", async () => {
     const { i, switched, closed } = mount();
     await sleep(30);
@@ -311,6 +342,7 @@ describe("/model modal against a live session (#181 shared semantics)", () => {
           liveCatalog={{}}
           onRefreshLive={() => {}}
           refreshingLive={false}
+          onCompact={() => {}}
           onToast={() => {}}
           onClose={() => {}}
         />

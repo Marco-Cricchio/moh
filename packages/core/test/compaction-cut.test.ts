@@ -177,6 +177,110 @@ describe("dispatch through a runtime", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("#979: the hook is told its window and carries a signal that fires with it", async () => {
+    const dir = tempDir();
+    const rt = new ExtensionRuntime({ mohHome: dir });
+    let seen: { hookTimeoutMs?: number; signal?: AbortSignal } | undefined;
+    await rt.register(
+      defineExtension({
+        name: "watcher",
+        version: "0.0.1",
+        apiVersion: "1.4",
+        setup(ctx) {
+          ctx.onCompaction((c) => {
+            seen = c;
+            return { drop: [] };
+          });
+        },
+      }),
+      { bundled: true },
+    );
+    const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
+    await rt.dispatchCompaction({ sections }, 1_234);
+    expect(seen?.hookTimeoutMs).toBe(1_234);
+    expect(seen?.signal).toBeInstanceOf(AbortSignal);
+    expect(seen?.signal?.aborted).toBe(false);
+    rt.stopWatch();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("#979: an abandoned dispatch is aborted and reports `applied: false` to its author", async () => {
+    const dir = tempDir();
+    const rt = new ExtensionRuntime({ mohHome: dir });
+    let aborted: boolean | undefined;
+    const applied: { keptByFloor: boolean; bytesAfter: number; droppedIds?: readonly string[]; applied?: boolean }[] = [];
+    let settled: () => void = () => {};
+    const done = new Promise<void>((r) => {
+      settled = r;
+    });
+    await rt.register(
+      defineExtension({
+        name: "slow-but-honest",
+        version: "0.0.1",
+        apiVersion: "1.9",
+        setup(ctx) {
+          ctx.onCompaction(async (c) => {
+            await new Promise((r) => setTimeout(r, 60));
+            aborted = c.signal?.aborted === true;
+            settled();
+            return {
+              drop: ["s0"],
+              onApplied: (a) => applied.push(a),
+            };
+          });
+        },
+      }),
+      { bundled: true },
+    );
+    const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
+    const { drop, errors } = await rt.dispatchCompaction({ sections }, 20);
+    // The late drops never apply...
+    expect(drop).toEqual([]);
+    expect(errors.some((e) => e.type === "extension_failed" && e.reason === "hook")).toBe(true);
+    await done;
+    await Bun.sleep(5);
+    // ...the hook was told to stop...
+    expect(aborted).toBe(true);
+    // ...and its judgment reaches its author as "never applied" — with the
+    // offered bytes kept: nothing was dropped — not as a cut that happened
+    // to drop nothing. The two must not look alike.
+    const offeredBytes = sections.reduce((sum, s) => sum + s.bytes, 0);
+    expect(applied).toEqual([
+      { keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false },
+    ]);
+    rt.stopWatch();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("#979: a hook that answers in time is never handed the abandoned outcome", async () => {
+    const dir = tempDir();
+    const rt = new ExtensionRuntime({ mohHome: dir });
+    const applied: { keptByFloor: boolean; bytesAfter: number; droppedIds?: readonly string[]; applied?: boolean }[] = [];
+    await rt.register(
+      defineExtension({
+        name: "quick",
+        version: "0.0.1",
+        apiVersion: "1.9",
+        setup(ctx) {
+          ctx.onCompaction((c) => ({
+            drop: ["s0"],
+            onApplied: (a) => applied.push(a),
+          }));
+        },
+      }),
+      { bundled: true },
+    );
+    const { sections } = compactionSections(log(), 0, 8, (i) => `s${i}`);
+    const { drop, onApplied } = await rt.dispatchCompaction({ sections }, 200);
+    expect(drop).toEqual(["s0"]);
+    // The runner (here, the test) owns the callback: exactly once, applied.
+    for (const cb of onApplied) cb({ keptByFloor: false, bytesAfter: 1_000 });
+    await Bun.sleep(5);
+    expect(applied).toEqual([{ keptByFloor: false, bytesAfter: 1_000 }]);
+    rt.stopWatch();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("a throwing hook is fail-open: no drops, one hook error", async () => {
     const dir = tempDir();
     const rt = new ExtensionRuntime({ mohHome: dir });

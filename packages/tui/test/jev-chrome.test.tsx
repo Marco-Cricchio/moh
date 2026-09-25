@@ -114,6 +114,11 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "override", model: "a/handpicked" })).toBe(
       "jev · routing · suspended by your manual model switch (a/handpicked)",
     );
+    // #945: a fallback after an announced switch reads as what happened.
+    expect(extensionEventLine("jev_routing", { kind: "fallback", serving: "a/cheap", expected: "a/big" })).toBe(
+      "jev · routing · continuing with a/cheap — a/big could not serve",
+    );
+    expect(extensionEventLine("jev_routing", { kind: "fallback" })).toBe("jev · routing");
     // #847: a mismatch names both sides — what is serving and what the router picked.
     expect(extensionEventLine("jev_routing", { kind: "mismatch", current: "a/handpicked", expected: "a/big" })).toBe(
       "jev · routing · serving a/handpicked, router picked a/big",
@@ -129,6 +134,8 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     const events = [
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "silent", injection: 0.02, sensitive: 0.01 } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "pass", injection: 0.03, sensitive: 0.01, source: "tool:fetch" } },
+      // #980: the turn's pass aggregate is the same pass, counted once.
+      { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection_passes", calls: 46, callIds: ["t1"] } },
       { type: "extension_event", extension: "jev-guard", name: "jev_judgment", payload: { useCase: "injection", decision: "warn", injection: 0.63, sensitive: 0.02 } },
     ] as unknown as AgentEvent[];
     const rendered = projectTranscript(events, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
@@ -173,8 +180,45 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(line({ useCase: "injection", decision: "pass", injection: 0.02, sensitive: 0.01, source: "tool:fetch" })).toBe(
       "jev · injection · pass (injection 0.02)",
     );
+    // #980: the turn's pass aggregate, when a viewer asks for its line — the
+    // transcript itself drops it (nothing decided, nothing to read).
+    expect(line({ useCase: "injection_passes", calls: 46, callIds: ["t1", "t2"] })).toBe("jev · injection · 46 results passed");
+    expect(line({ useCase: "injection_passes" })).toBe("jev · injection · results passed");
     // A payload this renderer does not recognize never throws.
     expect(line({ useCase: "injection" })).toBe("jev · injection · judgment (injection 0.00)");
+  });
+
+  test("the cut guide's one aggregate reads as what happened to the cut (#979)", () => {
+    const line = (payload: Record<string, unknown>) => extensionEventLine("jev_judgment", payload);
+    expect(
+      line({
+        useCase: "compact-cut",
+        kind: "compaction",
+        outcome: "cut",
+        offered: 73,
+        judged: 60,
+        unjudged: 13,
+        unjudgedReason: "budget",
+        dropped: ["s0", "s1", "s2"],
+        bytesBefore: 4026531,
+        bytesAfter: 2_097_152,
+        keptByFloor: false,
+      }),
+    ).toBe("jev · compact-cut · dropped 3 of 73 section(s) (3.8 MB → 2.0 MB) · 13 not judged (budget)");
+    // A floor reduction and a clean cut are not the same event.
+    expect(
+      line({ useCase: "compact-cut", kind: "compaction", outcome: "floor", offered: 4, dropped: [1, 2, 3], bytesBefore: 2048, bytesAfter: 1500, keptByFloor: true }),
+    ).toBe("jev · compact-cut · dropped 3 of 4 section(s) (2.0 KB → 1.5 KB), reduced by the survival floor");
+    // Judged, nothing dropped…
+    expect(line({ useCase: "compact-cut", kind: "compaction", outcome: "empty", offered: 12, judged: 12 })).toBe(
+      "jev · compact-cut · judged 12 section(s), nothing dropped",
+    );
+    // …and a cut the window discarded must not read like it.
+    expect(line({ useCase: "compact-cut", kind: "compaction", outcome: "discarded", offered: 12, judged: 4 })).toBe(
+      "jev · compact-cut · discarded — the hook window expired, nothing was dropped",
+    );
+    // A shape this renderer does not know degrades to the bare name.
+    expect(line({ useCase: "compact-cut", kind: "compaction" })).toBe("jev · compact-cut");
   });
 
   test("a client command renders as one line naming the extension (#787, ADR-0038)", () => {
@@ -262,6 +306,22 @@ describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () =>
     for (const mode of [{}, { mode: "vibe" as const }]) {
       expect(projectTranscript(events, mode).length).toBe(1);
     }
+  });
+
+  test("a routine cut is vibe noise, but a reduced or discarded one is not (#979)", () => {
+    const events = [
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "cut", offered: 73, dropped: ["s0"] }),
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "empty", offered: 12, judged: 12 }),
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "floor", offered: 4, dropped: ["s0"], keptByFloor: true }),
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "discarded", offered: 40, judged: 12 }),
+    ];
+    const vibe = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(vibe).toEqual([
+      "jev · compact-cut · dropped 1 of 4 section(s), reduced by the survival floor",
+      "jev · compact-cut · discarded — the hook window expired, nothing was dropped",
+    ]);
+    // Dev mode reads all four: the log's own projection has no filter.
+    expect(projectTranscript(events, {}).length).toBe(4);
   });
 });
 
