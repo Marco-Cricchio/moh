@@ -788,6 +788,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "model switched", detail: `${event.from} → ${event.to} (next turn)`, lines: [] });
         break;
+      case "switch_refused":
+        // #948: the switch guard's visible record — the attempt is real
+        // history even though nothing was applied.
+        blocks.push({
+          key,
+          kind: "chrome",
+          glyph: "◈",
+          type: "switch refused",
+          detail: `${event.to}: ${event.reason}`,
+          lines: [`measured ${event.measured} tokens · window ${event.window} tokens · staying on ${event.from}`],
+        });
+        break;
       case "fallback":
         // ADR-0012: a fallback stop is turn chrome — the toast is the
         // timely notice; this block is the durable record for replay.
