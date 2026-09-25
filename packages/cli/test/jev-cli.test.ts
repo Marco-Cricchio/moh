@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { TYPESAFE_SETTINGS_HINT } from "@moh/jev-guard";
 import { JEV_SESSION_ONLY_NAMES, JEV_USAGE, JEV_USE_CASE_NAMES } from "../src/jev";
 
-const TMP_ROOT = join(tmpdir(), "moh-jev-cli");
+const TMP_ROOT = mkdtempSync(join(tmpdir(), "moh-jev-cli-"));
 const KEY = "ts_live_0000secret9f2a";
 
 /** `config` is written verbatim to `~/.moh/config`; `undefined` leaves the
@@ -104,22 +104,22 @@ describe("moh jev status (#784)", () => {
     expect(inactive.spawn(["jev", "status", "--json"]).code).toBe(0);
   });
 
-  test("unknown arguments: usage error, exit 2", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
-    for (const argv of [
+  for (const argv of [
       ["jev"],
       ["jev", "foo"],
       ["jev", "status", "extra"],
       ["jev", "status", "--nope"],
-    ]) {
+  ]) {
+    test(`unknown arguments ${argv.join(" ")}: usage error, exit 2`, () => {
+      const { spawn } = harness(ACTIVE_CONFIG);
       const { code, stdout, stderr } = spawn(argv);
       expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toContain("usage: moh jev status");
       // A usage error never reports state: no half answer before the error.
       expect(stderr).not.toContain("  jev          inactive");
-    }
-  });
+    });
+  }
 
   test("malformed typesafe section: loud error on stderr, exit 2", () => {
     const { spawn } = harness(JSON.stringify({ typesafe: { timeoutMs: "fast" } }));
@@ -154,15 +154,15 @@ describe("moh jev <use-case> on|off (#833)", () => {
     return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
   };
 
-  test("each persistable use case writes its flag, and only its flag", () => {
-    for (const [name, key] of [
+  for (const [name, key] of [
       ["routing", "routing"],
       ["injection", "injection"],
       ["classification", "classification"],
       ["lint", "lint"],
       ["rerank", "rerank"],
       ["skills", "skills"],
-    ] as const) {
+  ] as const) {
+    test(`${name} writes its flag without changing the key`, () => {
       const { home, spawn } = harness(ACTIVE_CONFIG);
       const { code, stdout, stderr } = spawn(["jev", name, "on"]);
       expect(stderr).toBe("");
@@ -172,8 +172,8 @@ describe("moh jev <use-case> on|off (#833)", () => {
       expect((config.typesafe as Record<string, unknown>)[key]).toBe(true);
       // The key is never touched by a flag write.
       expect((config.typesafe as Record<string, unknown>).apiKey).toBe(KEY);
-    }
-  });
+    });
+  }
 
   test("off writes false; the status report follows on the next read", () => {
     const { home, spawn } = harness(ACTIVE_CONFIG);
@@ -212,17 +212,21 @@ describe("moh jev <use-case> on|off (#833)", () => {
     expect(stderr).not.toContain("unknown use case");
   });
 
-  test("an unknown name lists nothing invented; a missing action is a usage error", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
-    for (const argv of [["jev", "bananas", "on"], ["jev", "routing"], ["jev", "routing", "maybe"], ["jev", "routing", "on", "extra"]]) {
-      const { code, stdout, stderr } = spawn(argv);
+  for (const [argv, detail] of [
+    [["jev", "bananas", "on"], 'unknown use case "bananas"'],
+    [["jev", "routing"], 'an action is required — "on" or "off"'],
+    [["jev", "routing", "maybe"], "usage: moh jev status"],
+    [["jev", "routing", "on", "extra"], "usage: moh jev status"],
+  ] as const) {
+    test(`invalid invocation ${argv.join(" ")} is a usage error`, () => {
+      const { spawn } = harness(ACTIVE_CONFIG);
+      const { code, stdout, stderr } = spawn([...argv]);
       expect(code).toBe(2);
       expect(stdout).toBe("");
       expect(stderr).toContain("usage: moh jev status");
-    }
-    expect(spawn(["jev", "bananas", "on"]).stderr).toContain('unknown use case "bananas"');
-    expect(spawn(["jev", "routing"]).stderr).toContain('an action is required — "on" or "off"');
-  });
+      expect(stderr).toContain(detail);
+    });
+  }
 
   test("--json belongs to status: a set form refuses it", () => {
     const { spawn } = harness(ACTIVE_CONFIG);

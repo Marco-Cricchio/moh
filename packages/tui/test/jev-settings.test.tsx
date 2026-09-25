@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { userConfigFile } from "@moh/core";
@@ -15,7 +15,7 @@ import { readTypesafeConfig, type JevKeyValidation } from "@moh/jev-guard";
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitForCondition } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -444,20 +444,47 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-me" }, telemetry: true }));
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
-    await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
-    await down(i, JEV_OPTION.classification);
-    i.stdin.write("\r");
-    await sleep(60);
-    expect(storedClassification(home)).toBe(false);
-    await down(i, JEV_OPTION.classification); // cursor reset to the entry top
-    i.stdin.write("\r");
-    await sleep(60);
-    expect(storedClassification(home)).toBe(true);
-    expect(readTypesafeConfig(file).apiKey).toBe("sk-keep-me");
-    i.unmount();
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    // The parent list keeps its marker while the submenu is open.
+    const selectedRow = () => frame().split("\n").filter((line) => line.includes("›")).at(-1)?.trim() ?? "";
+    const waitForSelection = (label: string) => waitForCondition(
+      () => selectedRow().includes(label),
+      () => `selected ${label}. Last frame:\n${frame()}`,
+    );
+    const selectRow = async (label: string) => {
+      await waitForCondition(() => selectedRow() !== "", () => `initial selection. Last frame:\n${frame()}`);
+      for (let step = 0; step < 24 && !selectedRow().includes(label); step++) {
+        const previous = selectedRow();
+        i.stdin.write("\x1b[B");
+        await waitForCondition(
+          () => selectedRow() !== "" && selectedRow() !== previous,
+          () => `selection to move from ${previous} toward ${label}. Last frame:\n${frame()}`,
+        );
+      }
+      expect(selectedRow()).toContain(label);
+    };
+    try {
+      await selectRow("Jev (TypeSafe)");
+      i.stdin.write("\r");
+      await waitForSelection("API key");
+      expect(frame().replace(/[\s│]+/g, " ")).toContain("Classification on");
+
+      for (const next of [false, true]) {
+        await selectRow("Classification");
+        i.stdin.write("\r");
+        await waitForCondition(
+          () => storedClassification(home) === next,
+          () => `persisted classification ${next}; got ${storedClassification(home)}. Last frame:\n${frame()}`,
+        );
+        // Persistence precedes the render that resets the submenu cursor.
+        await waitForSelection("API key");
+        expect(frame().replace(/[\s│]+/g, " ")).toContain(`Classification ${next ? "on" : "off"}`);
+      }
+      expect(readTypesafeConfig(file).apiKey).toBe("sk-keep-me");
+      expect(JSON.parse(readFileSync(file, "utf8")).telemetry).toBe(true);
+    } finally {
+      i.unmount();
+    }
   });
 
   test("the entry states the persistent-vs-session split", async () => {

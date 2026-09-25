@@ -54,7 +54,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const lines = await runPty({
         cols: 160,
         rows: 45,
-        steps: [...enterChat, { wait: 0.8, send: B("\x13") }, { wait: 10.0, until: B("Answer language") }],
+        steps: [...enterChat, { wait: 0.8, send: B("\x13") }, { wait: 10.0, until: "Answer language", untilOnScreen: true }],
         tail: 45,
       });
       const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("type…"));
@@ -66,15 +66,21 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const title = lines.find((l) => l.text.includes("settings"));
       expect(title).toBeDefined();
       // Horizontally: ~62% of 160 (99±2), with transparent chat on both sides.
-      const top = lines.findIndex((l) => l.text.indexOf("╭") >= 28);
-      expect(top).toBeGreaterThanOrEqual(10);
-      expect(top).toBeLessThanOrEqual(20);
+      // Match the dialog border, not the first corner: action chips can
+      // precede it on the same physical row. Height grows with settings.
+      const top = lines.findIndex((l) => /╭─{97}╮/.test(l.text));
+      expect(top).toBeGreaterThanOrEqual(0);
+      expect(top).toBeLessThan(lines.length);
       // The dialog's own bottom border measures its horizontal extent: the
       // top border row can also carry the action-chip row's glyphs (the
       // dialog grows with the settings list and floats over the chat), and
       // the chips' own width would pollute the measurement.
       const bottom = lines.findIndex((l) => l.text.indexOf("╰") >= 28);
       expect(bottom).toBeGreaterThan(top);
+      const dialogTitleRow = lines.findIndex((l) => l.text.includes("settings"));
+      expect(dialogTitleRow).toBe(top + 1);
+      expect(bottom).toBeLessThan(lines.length - 1);
+      expect(Math.abs(top - (lines.length - 1 - bottom))).toBeLessThanOrEqual(5);
       const border = lines[bottom]!;
       const dialogStart = border.text.indexOf("╰");
       expect(border.width - dialogStart).toBeGreaterThanOrEqual(97);
