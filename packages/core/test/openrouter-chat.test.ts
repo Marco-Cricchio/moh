@@ -136,6 +136,42 @@ describe("openrouter chat reasoning (#251)", () => {
     ]);
   });
 
+  it("empty content deltas between reasoning chunks no longer split the run (#993)", async () => {
+    // The shape that measured 637 announced parts for one call: backends
+    // streaming whitespace-only `content` deltas alongside every reasoning
+    // chunk during the thinking phase. Whitespace is noise, never a run
+    // boundary — one start, contiguous deltas, one end before the reply.
+    const h = harness([
+      chunk({ role: "assistant" }, {}),
+      chunk({ reasoning: "thought one " }),
+      chunk({ content: " " }),
+      chunk({ reasoning: "thought two " }),
+      chunk({ content: "\n" }),
+      chunk({ reasoning: "thought three." }),
+      chunk({ content: " " }),
+      chunk({ content: "the real reply" }),
+      chunk({}, { finish_reason: "stop", usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 } }),
+      doneEvent,
+    ]);
+    const events = await h.run(userMsg, { thinking: { level: "high" } });
+    expect(events.filter((e) => e.type === "reasoning_start")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "reasoning_end")).toHaveLength(1);
+    // Every reasoning delta reached the consumer, in wire order.
+    expect(events.filter((e) => e.type === "reasoning_delta").map((e) => e.text)).toEqual([
+      "thought one ",
+      "thought two ",
+      "thought three.",
+    ]);
+    // The run closes before real reply content (the transcript's ordering
+    // contract), and no content-bearing reply text preceded it — whitespace
+    // deltas are noise and ride inside the reasoning span.
+    const carriesText = (e: (typeof events)[number]) => e.type === "text_delta" && (e as { text: string }).text.trim().length > 0;
+    const firstReply = events.findIndex(carriesText);
+    const endAt = events.map((e) => e.type).lastIndexOf("reasoning_end");
+    expect(firstReply).toBeGreaterThan(endAt);
+    expect(events.slice(0, firstReply).filter(carriesText)).toEqual([]);
+  });
+
   it("supports the legacy delta.reasoning string field", async () => {
     const h = harness([
       chunk({ reasoning: "legacy thought" }),

@@ -88,6 +88,39 @@ from outside the core.
   coalesce one reasoning run into one announced part is a separate decision
   (noted on #993); it does not change what the log persists.
 
+## Amendment — 2026-09-25, #993: the wire coalesces one reasoning run into one part
+
+The same session that measured the flood also measured where the
+announcements came from: 637 `reasoning_start` for one call, each separated
+by a **whitespace-only text delta**. `mergeReasoning` closed its block
+before the first text/tool part and reopened on reasoning resume — correct
+per-run semantics — but it treated *any* text delta as the run boundary, and
+several backends stream whitespace `content` deltas alongside every
+reasoning chunk during the thinking phase. The result was one announced part
+per wire chunk.
+
+The owner decided the fold contract alone is not the whole fix —
+**`mergeReasoning` coalesces one reasoning run into one announced part**,
+with the run boundary now defined by content: a run opens at the first
+reasoning delta, streams deltas live as they are extracted (#253), and
+closes at the first **content-bearing** text delta or at a tool call.
+Whitespace-only text deltas are noise and never split a run. Reply text and
+tool parts still flow through the merged stream, and the closing
+`reasoning-end` carries the complete continuation metadata.
+
+- The transcript architecture depends on `reasoning_end` arriving before the
+  same call's reply text: the #326 hold keeps closed reply segments from
+  promoting below an unpersisted reasoning group, and the sealed-group seal
+  assumes reasoning first. A whole-stream block (reasoning_end after the
+  reply) inverts that ordering and fails the PTY suite — the run boundary
+  stays where the architecture needs it; only whitespace stops splitting.
+- Persisted log content is unchanged: one `reasoning` event per run either
+  way, and the assistant message still places reasoning before text.
+- The fold contract above remains necessary and unchanged: it is what makes
+  every wire safe *regardless* of announcement shape (the anthropic wire can
+  still announce several thinking blocks per call — one per block — and a
+  custom provider anything).
+
 ## Alternatives rejected
 
 - **Patch the TUI's separator rule only** (`if (prev.text && !prev.text.endsWith("\n\n"))`).
@@ -95,11 +128,12 @@ from outside the core.
   rule duplicated in a client: the next consumer, or the next shape, re-opens
   the bug — and the shape is provider-determined, so "the next shape" is a
   routine release event.
-- **Coalesce announcements in the wire adapter** (never emit a `start`
-  without a following non-empty delta). It changes the event contract for
-  every provider to hide a consumer bug, and the announcement rate is
-  meaningful information for a client that wants to know the provider
-  restarted its reasoning block.
+- ~~**Coalesce announcements in the wire adapter.**~~ Superseded by the
+  amendment above: the owner decided the coalescing *is* the contract. It
+  landed as a redefinition of the run boundary in `mergeReasoning` (content
+  or tool call, never whitespace), not as a delta filter — so the
+  announcement rate stops tracking the wire's padding instead of being
+  filtered after the fact.
 - **Make the promotion drop blank rows.** The blank rows are real once the
   live text is right (paragraph breaks inside reasoning), and the promotion
   is not the layer that decides what the text is.

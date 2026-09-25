@@ -320,9 +320,9 @@ function mergeReasoning(inner: Promise<{ stream: ReadableStream<Part> }>, buffer
           const { value: part, done } = await reader.read();
           if (done) break;
           drain(); // ordering safety net (extraction precedes its parts)
-          if (part.type === "text-start" || part.type === "text-delta" || part.type === "tool-input-start") {
-            endBlock();
-          }
+          const boundary = part.type === "tool-input-start"
+            || (part.type === "text-delta" && typeof part.delta === "string" && part.delta.trim().length > 0);
+          if (boundary) endBlock();
           emit(part);
         }
       } catch (err) {

@@ -23,7 +23,13 @@ matching section here at tag time.
   contributes nothing, kept parts join with one blank line — and the log and
   the live channel both apply it, so a client's live text is the persisted
   text plus the part still open, whatever shape the provider streams.
-  Reasoning display was affected only with `showReasoning: true`.
+  Reasoning display was affected only with `showReasoning: true`. The wire
+  dialect now coalesces one reasoning run into one announced part (#993):
+  `mergeReasoning` no longer treats whitespace-only `content` deltas as the
+  end of a run — several backends stream them alongside every reasoning
+  chunk — so a run closes at the first content-bearing reply delta or tool
+  call, with the complete continuation metadata, and the announcement rate
+  no longer tracks the wire's padding. Deltas still stream live.
 
 ## [0.50.2] - 2026-09-25
 
