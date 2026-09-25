@@ -12,7 +12,7 @@ matching section here at tag time.
 ### Added
 
 - **Context fit: a switch can no longer land on a model that cannot
-  hold the session** (#948): every switch door — a routing extension's
+  hold the session** (#948, PR #985): every switch door — a routing extension's
   decision, `/model`, the CLI — now passes one wall. A target whose
   catalog window cannot hold the session's last measured input (with a
   fixed 8192-token reserve) is refused: nothing is applied, the current
