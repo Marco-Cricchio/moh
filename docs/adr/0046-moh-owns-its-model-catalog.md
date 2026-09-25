@@ -5,7 +5,7 @@ Amends: ADR-0029 (by provenance, not liveness) — see the amendment there
 
 ## Context
 
-The model catalogs under `packages/core/src/model-catalogs/` (27 files, 558
+The model catalogs under `packages/core/src/model-catalogs/` (25 files, 558
 model rows) were vendored from pi-ai and regenerated only when a new pi-ai
 release was pinned. The hole turned out to be **coverage, not staleness**
 (#951): 97 rows carry ids only (no `cost` object), 40 more carry an all-zero

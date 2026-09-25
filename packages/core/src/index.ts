@@ -238,6 +238,9 @@ import {
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
 export { catalogEntryFor, pricingForModel, pricingForPlan, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
+// #993: the live reasoning channel's fold — the one rule shared by the log
+// (`session/agent-loop.ts`) and every client that renders reasoning live.
+export { EMPTY_REASONING_PARTS, foldReasoningParts, foldReasoningText, reasoningPartsText, type ReasoningParts } from "./reasoning-parts";
 export {
   fetchLiveCatalogs,
   liveListings,
