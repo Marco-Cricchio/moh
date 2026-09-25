@@ -856,19 +856,39 @@ export function Chat({
     // changes (late emphasis/setext) are handled by the plain->Markdown
     // repaint above; promoted rows are frozen by design.
     const markdownBlocks = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined);
+    // Rows are rendered once per block per render and shared by the closure
+    // test below (marked parses both times otherwise).
+    const rowCache = new Map<string, string[]>();
+    const rowsOf = (block: TranscriptBlock): string[] => {
+      const cached = rowCache.get(block.key);
+      if (cached) return cached;
+      const rendered = renderRows(block.markdown!);
+      rowCache.set(block.key, rendered);
+      return rendered;
+    };
+    // A block is CLOSED once a later live block has rows (#970). The projection
+    // splits the reply into never-mutating segments (#205), so every row of
+    // a closed segment is final — and Static is append-only, so a closed
+    // block left volatile while a later one promotes prints AFTER that later
+    // block (the reply's text arrives out of order, with a second head in
+    // the middle of it). Only the newest content-bearing block may still
+    // grow.
+    const lastContentKey = [...markdownBlocks].reverse().find((block) => rowsOf(block).length > 0)?.key;
     for (const block of markdownBlocks) {
       const key = block.key;
       const prior = markdownRowsRef.current.get(key) ?? 0;
       const source = block.markdown!;
-      const rows = renderRows(source);
-      // The source is already truncated to the revealed prefix. The open
-      // tail paragraph must stay ENTIRELY volatile: its rows re-wrap as
-      // it grows (promoting any of them would freeze a stale wrap). Only
-      // paragraphs closed by a blank line are wrap-stable.
+      const rows = rowsOf(block);
+      const closed = lastContentKey !== undefined && key !== lastContentKey;
+      // The open tail still grows: its source is already truncated to the
+      // revealed prefix, so only rows of paragraphs a blank line has already
+      // closed are wrap-stable — and even those withhold their last row,
+      // which may still absorb text. A closed block promotes in one chunk:
+      // its rows are frozen, and splitting it (head row first, rest later)
+      // left the remainder volatile behind a promoted later block.
       const lastParaStart = state.pending ? source.lastIndexOf("\n\n") + 1 : 0;
       const stablePrefix = state.pending ? source.slice(0, lastParaStart) : source;
-      const stableRows = renderRows(stablePrefix);
-      const stable = Math.max(0, stableRows.length - (state.pending ? 1 : 0));
+      const stable = closed ? rows.length : Math.max(0, renderRows(stablePrefix).length - (state.pending ? 1 : 0));
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");
@@ -881,12 +901,6 @@ export function Chat({
       const opened = prior === 0 && chain.chunks.length === 0;
       chain.chunks.push({ key: `${key}-rows-${prior}`, kind: "moh", glyph: "◆", type: "moh", lines: [], renderedMarkdownRows: fresh, continuation: opened ? block.continuation : true, tight: opened ? block.tight : true });
       markdownRowsRef.current.set(key, stable);
-      // A closed segment (a following segment already exists) promotes its
-      // last row too.
-      if (markdownBlocks[markdownBlocks.length - 1] !== block) {
-        chain.chunks.push({ key: `${key}-rows-${stable}`, kind: "moh", glyph: "◆", type: "moh", lines: [], renderedMarkdownRows: rows.slice(stable), continuation: true, tight: true });
-        markdownRowsRef.current.set(key, rows.length);
-      }
     }
   }
   const liveBlocks: readonly TranscriptBlock[] = rawLiveBlocks.flatMap((block) => {
@@ -952,7 +966,12 @@ export function Chat({
         const promoted = markdownRowsRef.current.get(block.key) ?? 0;
         const tail = rows.slice(promoted);
         if (promoted >= rows.length) {
-          return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: [], kind: "info", glyph: "", type: "placeholder", detail: undefined }];
+          // Fully-promoted segment: the slot must render ZERO rows. It keeps
+          // the Static ledger's forward-only cursor aligned, and `continuation`
+          // + `tight` are what make it a no-op — without them it printed its
+          // empty head as a bare " placeholder" line in the middle of the
+          // reader's prose.
+          return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: [], continuation: true, tight: true, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
         }
         return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: promoted > 0 ? true : block.continuation, tight: promoted > 0 ? true : block.tight }];
       }
