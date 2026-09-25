@@ -299,6 +299,11 @@ function routingNoticeLine(record: Record<string, unknown>): string {
   if (kind === "override" && typeof record.model === "string") {
     return `jev · routing · suspended by your manual model switch (${record.model})`;
   }
+  // #945: the switch could not be served — a fallback is serving. One
+  // line, phrased as what happened, at the moment it happened.
+  if (kind === "fallback" && typeof record.serving === "string" && typeof record.expected === "string") {
+    return `jev · routing · continuing with ${record.serving} — ${record.expected} could not serve`;
+  }
   // #847: the serving model is not the one the router picked — name both sides.
   if (kind === "mismatch" && typeof record.current === "string" && typeof record.expected === "string") {
     return `jev · routing · serving ${record.current}, router picked ${record.expected}`;

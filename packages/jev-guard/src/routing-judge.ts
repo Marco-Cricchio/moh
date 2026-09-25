@@ -459,6 +459,26 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     },
 
     /**
+     * #945: observes a `route_serving` record — the core's own, immediate
+     * account of "the selected model could not serve; a fallback did".
+     * When the serving ref stops matching the router's decided target the
+     * divergence is named *now* (the return says so) and the expectation
+     * is released: the router is not frozen for the rest of the session
+     * and the serving model is what the next turn judges from. Owner-
+     * scoped by construction: `route_serving` reaches these hooks from
+     * the log of the session that owns the runtime.
+     */
+    noteRouteServing(serving: string): { current: string; expected: string } | null {
+      const state = ownerState;
+      if (state.decidedModel === null || state.decidedModel === serving) return null;
+      const divergence = { current: serving, expected: state.decidedModel };
+      state.decidedModel = null;
+      state.mismatchAnnounced = false;
+      restartStreak(state);
+      return divergence;
+    },
+
+    /**
      * Observes a `model_switched`. Returns true when it was *not* the
      * router's own switch — i.e. the user picked a model by hand, which
      * suspends the router and resets the streak. `/routing auto` (or

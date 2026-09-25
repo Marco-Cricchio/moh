@@ -363,7 +363,12 @@ you are on, the next judged turns do. If the serving model is not the one
 the router picked (you edited the configuration, or chose an id outside
 the tier map), the router says so once — `jev · routing · serving
 (model), router picked (model)` in the transcript — and waits instead of
-overruling you on the next message.
+overruling you on the next message. If the switch the router picked could
+not be served at all (the endpoint fell back to another model), the
+divergence is named the moment it happens — `jev · routing · continuing
+with (model) — (model) could not serve` — and the router judges from the
+serving model on the next turn instead of waiting for a switch that
+already failed.
 
 `/routing on` works even when the Settings toggle is off — it enables
 routing for that session only, which is the quick way to try it. The state
