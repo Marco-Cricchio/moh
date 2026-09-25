@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.50.2",
-  "generatedAt": "2026-09-25T17:56:31.186Z",
+  "version": "0.50.3",
+  "generatedAt": "2026-09-25T22:02:23.839Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-25T17:56:30.688Z"
+      "fetchedAt": "2026-09-25T22:02:23.355Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-25T17:56:30.882Z"
+      "fetchedAt": "2026-09-25T22:02:23.640Z"
     }
   ],
   "files": {
@@ -196,13 +196,13 @@
       }
     },
     "openrouter": {
-      "sha256": "b75b4255565e8cc16c8bc7deec1178ecc22cd520e0b272014a3d6fb6ff02a780",
+      "sha256": "501e2e528a57cb0ddbe8a7a2ece87b11226f66e30b0371b0520250602dca46a0",
       "rows": 362,
       "verdicts": {
-        "exact": 340,
+        "exact": 339,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 21
+        "absent": 22
       }
     },
     "qwen": {
@@ -8202,17 +8202,11 @@
     "openrouter/z-ai/glm-5.2:free": {
       "provider": "openrouter",
       "id": "z-ai/glm-5.2:free",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
+      "verdict": "absent",
+      "supplied": [],
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/z-ai/glm-5.3": {
       "provider": "openrouter",
