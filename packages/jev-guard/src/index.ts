@@ -614,6 +614,21 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             });
             return;
           }
+          // #945: the core's immediate account of a fallback — the
+          // selected model could not serve. Name the divergence *now*
+          // (the next judged turn may never come: one-turn subagents)
+          // and release the expectation so the router is not frozen.
+          if (event.type === "route_serving") {
+            const serving = (event as { serving?: unknown }).serving;
+            if (typeof serving !== "string") return;
+            const divergence = judge.noteRouteServing(serving);
+            if (!divergence) return;
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: { kind: "fallback", serving: divergence.current, expected: divergence.expected },
+            });
+            return;
+          }
           if (event.type !== "model_switched" || typeof event.to !== "string") return;
           judge.clearPendingSwitch();
           if (!judge.noteModelSwitched(event.to)) return;

@@ -114,6 +114,11 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(extensionEventLine("jev_routing", { kind: "override", model: "a/handpicked" })).toBe(
       "jev · routing · suspended by your manual model switch (a/handpicked)",
     );
+    // #945: a fallback after an announced switch reads as what happened.
+    expect(extensionEventLine("jev_routing", { kind: "fallback", serving: "a/cheap", expected: "a/big" })).toBe(
+      "jev · routing · continuing with a/cheap — a/big could not serve",
+    );
+    expect(extensionEventLine("jev_routing", { kind: "fallback" })).toBe("jev · routing");
     // #847: a mismatch names both sides — what is serving and what the router picked.
     expect(extensionEventLine("jev_routing", { kind: "mismatch", current: "a/handpicked", expected: "a/big" })).toBe(
       "jev · routing · serving a/handpicked, router picked a/big",
