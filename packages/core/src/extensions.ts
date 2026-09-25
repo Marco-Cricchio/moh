@@ -33,6 +33,7 @@ import {
   type ToolResultHook,
   type ToolResultHookResult,
   type TurnConfirmOutcome,
+  type AppliedCut,
   type CompactionHook,
   type CompactionHookContext,
   type CompactionHookResult,
@@ -1156,6 +1157,14 @@ export class ExtensionRuntime {
    * `extension_failed { reason: "unknown_section" }`. The caller (the
    * compaction runner) applies the survival floor and renders — this
    * dispatch only collects.
+   *
+   * #979: each hook gets its own window (`hookTimeoutMs`, from the call),
+   * told to it in the context and materialized as an abort signal, so a
+   * hook whose work scales with the span can fit itself inside it and stop
+   * when the runtime gives up. A hook that answered *after* the window
+   * closed is abandoned — no drops — but its `onApplied` still runs, once,
+   * with `applied: false`: a judgment that reached nothing must be able to
+   * say so instead of looking like one that found nothing.
    */
   async dispatchCompaction(
     ctx: CompactionHookContext,
@@ -1164,22 +1173,54 @@ export class ExtensionRuntime {
     drop: string[];
     errors: AgentEvent[];
     /** ADR-0035: the one callback the runner invokes with the applied cut. */
-    onApplied: ((applied: { keptByFloor: boolean; bytesAfter: number }) => void)[];
+    onApplied: ((applied: AppliedCut) => void)[];
   }> {
     const offered = new Set(ctx.sections.map((s) => s.id));
+    const offeredBytes = ctx.sections.reduce((sum, s) => sum + s.bytes, 0);
     const drop: string[] = [];
-    const onApplied: ((applied: { keptByFloor: boolean; bytesAfter: number }) => void)[] = [];
+    const onApplied: ((applied: AppliedCut) => void)[] = [];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.onCompaction) {
         let timedOut = false;
         let out: CompactionHookResult | void;
+        // #979: the hook's own budget — the window it is told about, and
+        // the signal that fires when the runtime stops waiting.
+        const abandoned = new AbortController();
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        const pending = (async () =>
+          hook({
+            ...ctx,
+            hookTimeoutMs,
+            signal: abandoned.signal,
+          }))();
+        // A late answer is not worthless: it still tells its own author the
+        // cut never landed. Registered before the race so no resolution can
+        // slip past it, and only acted on when the window actually won.
+        void pending
+          .then((late) => {
+            if (!timedOut || !late || typeof late.onApplied !== "function") return;
+            try {
+              late.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
+            } catch {
+              /* observability only */
+            }
+          })
+          .catch(() => {
+            /* already recorded as a hook error by the race below */
+          });
         try {
           // The one ADR-0035 fail-open leg the throw does not cover: a hook
           // that never answers must not stall a background compaction.
-          // (The whole dispatch — every section — shares one window.)
+          // (The window is per hook; every section of this hook shares it.)
           out = await Promise.race([
-            hook(ctx),
-            new Promise<undefined>((resolve) => setTimeout(() => { timedOut = true; resolve(undefined); }, hookTimeoutMs)),
+            pending,
+            new Promise<undefined>((resolve) => {
+              deadline = setTimeout(() => {
+                timedOut = true;
+                abandoned.abort();
+                resolve(undefined);
+              }, hookTimeoutMs);
+            }),
           ]);
         } catch (err) {
           this.#recordHookError({
@@ -1189,6 +1230,10 @@ export class ExtensionRuntime {
             message: errMessage(err),
           });
           continue;
+        } finally {
+          // A settled hook leaves no timer behind — and the flag stays
+          // false, so the late-answer path above never fires for it.
+          if (deadline !== undefined) clearTimeout(deadline);
         }
         if (timedOut) {
           this.#recordHookError({

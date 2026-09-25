@@ -7,6 +7,27 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The compaction cut guide works on long sessions again** (#979, PR to
+  come): the Jev cut guide made one call and wrote one `jev_judgment`
+  record per offered section, so on a long session — exactly the case
+  compaction exists for — it failed twice over: the calls blew the 5 s
+  hook window (the cut was discarded while the judge kept calling, ~13 s of
+  judgments thrown away) and the per-section records exhausted the
+  per-turn event cap, dropping the aggregate record that says what the cut
+  did. The cut is now bounded on both axes: sections are judged
+  largest-first, a few calls at a time, inside the window the hook is told
+  about (`hookTimeoutMs`, plus the abort `signal` the runtime fires when
+  it gives up — extension apiVersion 1.9), and everything judged lands in
+  ONE aggregate record carrying every verdict, the ids actually dropped
+  after the survival floor, and the outcome — `cut`, `floor`, `empty` or
+  `discarded`, so a cut the window killed can no longer look like a
+  judgment that found nothing. Sections left out (the judging budget, or
+  the window) are declared in the record, never silently sampled. The
+  transcript shows one line per compaction, and vibe mode keeps the two
+  endings that need reading: a floor-reduced cut and a discarded one.
+
 ## [0.50.1] - 2026-09-25
 
 ### Fixed

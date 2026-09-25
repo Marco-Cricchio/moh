@@ -253,27 +253,22 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // `compact-cut` record carries it. No opt-in beyond the key: the
       // judged state is section previews only (shape, never bodies), and
       // compaction itself is automatic.
+      //
+      // #979: the span is what grows until compaction runs, so the judge
+      // is given the hook's own window and its abandonment signal — it
+      // judges largest-first with bounded concurrency and stops inside the
+      // window, and whatever it judged lands in ONE aggregate record (the
+      // old per-section shape flooded the per-turn event cap by itself).
       const compactionJudge = createCompactionJudge({
         client,
         append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
       });
       ctx.onCompaction(async (ctxHook) => {
-        const verdict = await compactionJudge.judge(ctxHook.sections);
-        return {
-          drop: verdict.drop,
-          onApplied: (applied) => {
-            // One aggregate record per compaction (spec §5 §9): sections,
-            // drops, floor and the byte sizes the core actually applied.
-            ctx.appendEvent({
-              name: "jev_judgment",
-              payload: {
-                ...verdict.summary,
-                keptByFloor: applied.keptByFloor,
-                bytesAfter: applied.bytesAfter,
-              },
-            });
-          },
-        };
+        const run = await compactionJudge.judge(ctxHook.sections, {
+          ...(ctxHook.hookTimeoutMs !== undefined ? { hookTimeoutMs: ctxHook.hookTimeoutMs } : {}),
+          ...(ctxHook.signal !== undefined ? { signal: ctxHook.signal } : {}),
+        });
+        return run;
       });
 
       // ---- #786 guardrail: the first use case --------------------------
@@ -784,9 +779,12 @@ export {
   type CompactionCutSectionVerdict,
 } from "./compaction";
 export {
+  COMPACTION_JUDGE_CONCURRENCY,
+  COMPACTION_JUDGE_SECTION_BUDGET,
   createCompactionJudge,
-  type CompactionCutVerdict,
+  type CompactionCutRun,
   type CompactionJudge,
+  type CompactionUnjudgedReason,
   type JudgedSection,
 } from "./compaction-judge";
 export {

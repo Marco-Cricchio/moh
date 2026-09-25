@@ -457,10 +457,38 @@ guarantees ride with it:
   would without Jev. The cut is an optimization, never a gate.
 
 Nothing is deleted from the session: the log stays integral, and the tail
-of recent turns is verbatim as always. One judgment per section is
-recorded as a `jev_judgment` event, plus one aggregate record per
-compaction carrying the offered sections, the dropped ids, whether the
-floor was applied, and the byte sizes before and after.
+of recent turns is verbatim as always. One `jev_judgment` event per
+compaction carries the whole cut: the sections offered and judged, every
+judged section's verdict (its id, kind, size, decision and probability),
+the ids actually dropped after the floor, whether the floor was applied,
+and the byte sizes before and after — one record, not one per section, so
+a long span can never flood the per-turn event budget on its own (that is
+why an older moh wrote one line per section, and why it went quiet on
+long sessions).
+
+Two things bound the work, because the covered span is exactly what grows
+until compaction runs:
+
+- **A judging budget.** The largest sections are judged first, up to 60
+  per compaction — where the droppable bytes are, and what keeps the one
+  aggregate record small enough to be recorded at all. Sections left out
+  are declared (`unjudged`, with `unjudgedReason: "budget"`), never
+  sampled away silently.
+- **The hook's own window.** Calls run a few at a time inside the window
+  the core grants the hook, and stop when it closes: the cut applies to
+  what was judged, and the record says how many sections were left
+  unjudged (`unjudgedReason: "deadline"`). A cut that never reached the
+  summary at all — the window expired while Jev was still answering — is
+  recorded as `outcome: "discarded"`, so it can never be mistaken for a
+  compaction where Jev looked and chose to drop nothing.
+
+The transcript shows one line per compaction, phrased as what happened:
+`◈ jev · compact-cut · dropped 41 of 73 section(s) (3.8 MB → 2.1 MB)`,
+`… judged 12 section(s), nothing dropped`, or `… discarded — the hook
+window expired, nothing was dropped`. Vibe mode keeps only the two
+endings that need reading — a cut the floor reduced, and one the window
+discarded (nothing else would mention it) — while the log holds every
+record either way.
 
 ### Prompt classification
 

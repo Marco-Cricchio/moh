@@ -177,6 +177,39 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     expect(line({ useCase: "injection" })).toBe("jev · injection · judgment (injection 0.00)");
   });
 
+  test("the cut guide's one aggregate reads as what happened to the cut (#979)", () => {
+    const line = (payload: Record<string, unknown>) => extensionEventLine("jev_judgment", payload);
+    expect(
+      line({
+        useCase: "compact-cut",
+        kind: "compaction",
+        outcome: "cut",
+        offered: 73,
+        judged: 60,
+        unjudged: 13,
+        unjudgedReason: "budget",
+        dropped: ["s0", "s1", "s2"],
+        bytesBefore: 4026531,
+        bytesAfter: 2_097_152,
+        keptByFloor: false,
+      }),
+    ).toBe("jev · compact-cut · dropped 3 of 73 section(s) (3.8 MB → 2.0 MB) · 13 not judged (budget)");
+    // A floor reduction and a clean cut are not the same event.
+    expect(
+      line({ useCase: "compact-cut", kind: "compaction", outcome: "floor", offered: 4, dropped: [1, 2, 3], bytesBefore: 2048, bytesAfter: 1500, keptByFloor: true }),
+    ).toBe("jev · compact-cut · dropped 3 of 4 section(s) (2.0 KB → 1.5 KB), reduced by the survival floor");
+    // Judged, nothing dropped…
+    expect(line({ useCase: "compact-cut", kind: "compaction", outcome: "empty", offered: 12, judged: 12 })).toBe(
+      "jev · compact-cut · judged 12 section(s), nothing dropped",
+    );
+    // …and a cut the window discarded must not read like it.
+    expect(line({ useCase: "compact-cut", kind: "compaction", outcome: "discarded", offered: 12, judged: 4 })).toBe(
+      "jev · compact-cut · discarded — the hook window expired, nothing was dropped",
+    );
+    // A shape this renderer does not know degrades to the bare name.
+    expect(line({ useCase: "compact-cut", kind: "compaction" })).toBe("jev · compact-cut");
+  });
+
   test("a client command renders as one line naming the extension (#787, ADR-0038)", () => {
     const events = [
       { type: "extension_control", extension: "jev-guard", payload: { cmd: "off" } },
@@ -262,6 +295,22 @@ describe("vibe mode keeps only the Jev lines that earn their keep (#845)", () =>
     for (const mode of [{}, { mode: "vibe" as const }]) {
       expect(projectTranscript(events, mode).length).toBe(1);
     }
+  });
+
+  test("a routine cut is vibe noise, but a reduced or discarded one is not (#979)", () => {
+    const events = [
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "cut", offered: 73, dropped: ["s0"] }),
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "empty", offered: 12, judged: 12 }),
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "floor", offered: 4, dropped: ["s0"], keptByFloor: true }),
+      ev("jev_judgment", { useCase: "compact-cut", kind: "compaction", outcome: "discarded", offered: 40, judged: 12 }),
+    ];
+    const vibe = projectTranscript(events, { mode: "vibe" }).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(vibe).toEqual([
+      "jev · compact-cut · dropped 1 of 4 section(s), reduced by the survival floor",
+      "jev · compact-cut · discarded — the hook window expired, nothing was dropped",
+    ]);
+    // Dev mode reads all four: the log's own projection has no filter.
+    expect(projectTranscript(events, {}).length).toBe(4);
   });
 });
 
