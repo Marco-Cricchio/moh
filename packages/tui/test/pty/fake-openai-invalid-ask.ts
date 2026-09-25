@@ -1,9 +1,9 @@
 /** A fake openai-compat SSE server for the ask_user invalid-then-valid
- * regression: call 1 emits an ask_user with a 15-char header (validation
- * error), call 2 (after the error result) re-emits a valid 4-question set,
+ * regression: call 1 emits an ask_user with only one option (validation
+ * error), call 2 (after the error result) re-emits a valid two-question set,
  * call 3 wraps up.
  */
-const INVALID_ASK = { questions: [{ question: "Q1 — which way?", header: "Logica/visiva", options: [{ label: "alpha", description: "first" }, { label: "beta", description: "second" }] }] };
+const INVALID_ASK = { questions: [{ question: "Invalid request", header: "Route", options: [{ label: "alpha", description: "first" }] }] };
 const VALID_ASK = {
   questions: [
     { question: "Q1 — which way?", header: "Route", options: [{ label: "alpha", description: "first" }, { label: "beta", description: "second" }, { label: "gamma", description: "third" }], suggested: "alpha" },
@@ -11,8 +11,9 @@ const VALID_ASK = {
   ],
 };
 
-export function startFakeOpenAi(port = 0): { server: ReturnType<typeof Bun.serve>; url: string } {
+export function startFakeOpenAi(port = 0): { server: ReturnType<typeof Bun.serve>; url: string; validationError: () => string | undefined } {
   let call = 0;
+  let validationError: string | undefined;
   const server = Bun.serve({
     port,
     async fetch(req) {
@@ -23,6 +24,12 @@ export function startFakeOpenAi(port = 0): { server: ReturnType<typeof Bun.serve
         toolCalls.push({ name: "ask_user", args: INVALID_ASK });
         finish = "tool_calls";
       } else if (call === 2) {
+        const body = await req.json() as { messages?: Array<{ role?: string; tool_call_id?: string; content?: unknown }> };
+        const result = body.messages?.find(message => message.role === "tool" && message.tool_call_id === "call_1_0");
+        if (typeof result?.content !== "string" || !result.content.includes("invalid arguments for ask_user:") || !result.content.includes("questions.0.options")) {
+          return new Response("Expected the first ask_user validation error before retry", { status: 400 });
+        }
+        validationError = result.content;
         toolCalls.push({ name: "ask_user", args: VALID_ASK });
         finish = "tool_calls";
       }
@@ -56,7 +63,7 @@ export function startFakeOpenAi(port = 0): { server: ReturnType<typeof Bun.serve
       return new Response(stream, { headers: { "content-type": "text/event-stream" } });
     },
   });
-  return { server, url: `http://127.0.0.1:${server.port}/v1` };
+  return { server, url: `http://127.0.0.1:${server.port}/v1`, validationError: () => validationError };
 }
 
 if (import.meta.main) {

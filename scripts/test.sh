@@ -1,60 +1,57 @@
 #!/usr/bin/env bash
-# bun test with a persistent log (test-flow convention, see AGENTS.md).
-#
-# On failure, grep the log for the error — NEVER rerun the suite just to
-# see it again. The digest below prints every failure block (source,
-# expected/received, stack) so the first run is usually all you need.
-#
-# Usage:
-#   scripts/test.sh                      # full suite
-#   scripts/test.sh packages/tui/test/x.test.ts   # focused run
-#
-# Log path override: MOH_TEST_LOG=/tmp/my.log scripts/test.sh
-# PTY parallelism: ON by default — the 13 PTY files run as parallel bun
-# processes (scripts/test-pty-parallel.sh) instead of inside the main
-# invocation, roughly halving the serial PTY block (~330s -> ~130s wall).
-# MOH_PTY_PARALLEL=0 opts out (serial PTY, the old behavior). Focused
-# runs (arguments) always bypass the split.
+# Logged test entry point. Whole-suite and TUI-directory runs separate
+# component tests from PTY processes, without overlapping their workloads.
+# Focused file invocations remain direct. MOH_PTY_PARALLEL=0 opts out.
+# Usage: scripts/test.sh [packages/tui/test | path/to/file.test.ts]
+# MOH_TEST_LOG overrides the otherwise unique main log path.
 set -uo pipefail
 
-LOG=${MOH_TEST_LOG:-/tmp/moh-bun-test.log}
+LOG=${MOH_TEST_LOG:-$(mktemp "${TMPDIR:-/tmp}/moh-bun-test.XXXXXX")}
 status=0
+split=0
+tui_only=0
+if [ "$#" -eq 1 ]; then
+  case "${1%/}" in packages/tui/test|./packages/tui/test) tui_only=1 ;; esac
+fi
+if [ "${MOH_PTY_PARALLEL:-1}" = "1" ]; then
+  if [ "$#" -eq 0 ] || [ "$tui_only" -eq 1 ]; then split=1; fi
+fi
 
-if [ "${MOH_PTY_PARALLEL:-1}" = "1" ] && [ "$#" -eq 0 ]; then
-  # Main invocation: everything except the pty dir (explicit positive
-  # paths — bun's `!` negation is a name filter, not a file exclusion).
+if [ "$split" -eq 1 ]; then
   MAIN_PATHS=()
   for dir in packages/*/test; do
     [ -d "$dir" ] || continue
     if [ "$dir" = "packages/tui/test" ]; then
-      # top-level tui tests only; pty/ goes to the parallel runner
-      for f in "$dir"/*.test.*; do MAIN_PATHS+=("$f"); done
-    else
+      for f in "$dir"/*.test.*; do
+        [ -f "$f" ] && MAIN_PATHS+=("$f")
+      done
+    elif [ "$tui_only" -eq 0 ]; then
       MAIN_PATHS+=("$dir")
     fi
   done
-  echo "--- PTY files run in parallel via scripts/test-pty-parallel.sh"
-  bash scripts/test-pty-parallel.sh &
-  pty_pid=$!
+  if [ "$tui_only" -eq 0 ]; then MAIN_PATHS+=(scripts); fi
+  echo '--- Component/non-PTY tests first; PTY batches follow without overlap'
   bun test "${MAIN_PATHS[@]}" 2>&1 | tee "$LOG"
-  main=${PIPESTATUS[0]}
-  wait "$pty_pid"
-  pty=$?
-  [ "$main" -ne 0 ] && status=$main
-  [ "$pty" -ne 0 ] && status=$pty
+  pipeline=("${PIPESTATUS[@]}")
+  status=${pipeline[0]}
+  if [ "${pipeline[1]}" -ne 0 ]; then status=1; fi
+  bash scripts/test-pty-parallel.sh 2>&1 | tee -a "$LOG"
+  pipeline=("${PIPESTATUS[@]}")
+  pty=${pipeline[0]}
+  if [ "${pipeline[1]}" -ne 0 ]; then pty=1; fi
+  if [ "$status" -eq 0 ]; then status=$pty; fi
 else
   bun test "$@" 2>&1 | tee "$LOG"
-  status=${PIPESTATUS[0]}
+  pipeline=("${PIPESTATUS[@]}")
+  status=${pipeline[0]}
+  if [ "${pipeline[1]}" -ne 0 ]; then status=1; fi
 fi
 
 echo
-echo "--- test log saved: $LOG"
+echo "--- test log path: $LOG"
 if [ "$status" -ne 0 ]; then
-  echo "--- failure digest:"
-  # Each failure block ends with a "(fail)" line; show the ~14 lines of
-  # context before it (source excerpt + expected/received + stack) and the
-  # summary block at the end. Drop pass noise.
-  { grep -B14 '(fail)' "$LOG"; grep -E '^ [0-9]+ (pass|fail|skip)|^Ran [0-9]+ tests'; } \
+  echo '--- main-log failure digest (PTY failures have separate log paths above):'
+  { grep -B14 '(fail)' "$LOG"; grep -E '^ [0-9]+ (pass|fail|skip)|^Ran [0-9]+ tests' "$LOG"; } \
     | grep -v '(pass)' | tail -120
 fi
 exit "$status"

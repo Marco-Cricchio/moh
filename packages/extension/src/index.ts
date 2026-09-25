@@ -48,6 +48,18 @@
  * enforces a hard cap of 2 consecutive synthetic turns. An older runtime
  * leaves the method absent: a caller that checks resolves `false` (the
  * same answer as a refusal), never an error.
+ *
+ * 1.7 (#852): `endpointCooldowns` on the `beforeTurn` context — the route
+ * chain stops the serving provider knows it cannot use right now. An
+ * older runtime simply does not send it (an empty list, the safe default).
+ *
+ * 1.8 (#944, ADR-0047): `session` on the `beforeTurn` context — the
+ * identity of the session whose turn this is. A subagent child runs its
+ * turns through its parent's runtime, so an extension that keeps
+ * per-session state (a streak, an expectation, a manual override) MUST
+ * key it by this identity: a single shared bag would let a child's turns
+ * advance the parent's state. An older runtime does not send it, which
+ * reads as "one session" — the pre-#944 behavior.
  */
 
 /**
@@ -55,7 +67,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.7";
+export const MOH_EXTENSION_API_VERSION = "1.8";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -102,6 +114,25 @@ export interface BeforeTurnContext {
    * models must never name one of these.
    */
   readonly endpointCooldowns?: readonly { ref: string; kind: string }[];
+  /**
+   * #944: which session this turn belongs to. Opaque and stable for the
+   * lifetime of the session instance; `owner` is true for the session
+   * that registered these hooks, false for a session that borrowed the
+   * runtime — a subagent child, whose turns run through its parent's
+   * runtime.
+   *
+   * **Key per-session state by `id`.** The runtime is one object shared
+   * by the parent and every child it spawns, so state parked in the
+   * extension's own `ctx.state` bag (or in a closure created at setup) is
+   * shared too: a child's turns would advance the parent's streak, set
+   * the parent's expectation and announce switches the parent never made
+   * (#944). Absent on a runtime older than apiVersion 1.8: read that as
+   * "one session" — the behavior before #944.
+   */
+  readonly session?: {
+    readonly id: string;
+    readonly owner: boolean;
+  };
 }
 
 /**

@@ -87,7 +87,13 @@ describe("beforeTurn (ADR-0033)", () => {
   });
 
   test("the hook sees the typed text, the 1-based turn index and the active model", async () => {
-    const seen: { text: string; turnIndex: number; model: string; endpointCooldowns?: unknown }[] = [];
+    const seen: {
+      text: string;
+      turnIndex: number;
+      model: string;
+      endpointCooldowns?: unknown;
+      session?: { id: string; owner: boolean };
+    }[] = [];
     const rt = await runtime((ctx) => ctx.beforeTurn((c) => void seen.push({ ...c })));
     const session = createSession({ provider: "mock", extensions: rt });
 
@@ -96,10 +102,20 @@ describe("beforeTurn (ADR-0033)", () => {
 
     // #852: the route's cooldown report rides along. The mock provider is
     // not a route, so the list is empty — but the field is present.
-    expect(seen).toEqual([
+    // #944: so does the session identity (opaque, hence matched by shape).
+    const ids = new Set<string>();
+    for (const call of seen) {
+      expect(call.session).toBeDefined();
+      ids.add(call.session!.id);
+      expect(call.session!.owner).toBe(true);
+    }
+    const rest = seen.map(({ text, turnIndex, model, endpointCooldowns }) => ({ text, turnIndex, model, endpointCooldowns }));
+    expect(rest).toEqual([
       { text: "first", turnIndex: 1, model: "mock", endpointCooldowns: [] },
       { text: "second", turnIndex: 2, model: "mock", endpointCooldowns: [] },
     ]);
+    // One session, one identity, for every turn of it.
+    expect(ids.size).toBe(1);
   });
 
   test("an unresolvable ref is ignored: visible failure, turn proceeds on the active model", async () => {

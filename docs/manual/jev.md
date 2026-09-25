@@ -291,9 +291,12 @@ decision, not a side effect of having a key.
 **The three tiers.** Every routable model belongs to one of `economico`,
 `bilanciato`, `potente`. Jev answers with a tier name — never with a model
 id — and moh maps the tier to a model you have actually configured. The
-pool is your configured endpoints' own model lists: their shipped catalog,
-or the live listing for an endpoint moh has no catalog for. Nothing is ever
-invented, and if fewer than two tiers can be filled the router stays inert
+pool is the model lists of configured endpoints that remain eligible for
+automatic routing: endpoints with `fallbackEligible: false` are excluded,
+just as they are from automatic fallback chains. An endpoint need not have a
+`defaultModel` to contribute models to the pool. Models come from the shipped
+catalog, or the live listing for an endpoint moh has no catalog for. Nothing
+is ever invented, and if fewer than two tiers can be filled the router stays inert
 (the transcript says so once).
 
 **Which model belongs to which tier.** You can label them yourself in
@@ -372,10 +375,17 @@ Every command leaves one line in the transcript (`jev-guard · off`), so a
 session you resume still shows why its model stopped moving.
 
 Subagents are routed too: their first message is exactly the kind of task a
-router should judge, and a child's switch lands in the child's own session
-log. Every judgment is recorded as one `jev_judgment` event — and only
-turns that were actually judged get one, so a paused or overridden router
-costs nothing.
+router should judge, and their state is their own — a child cannot build
+your two-turn streak, cannot move your model, and cannot leave you
+expecting a model you never switched to. Its judgments belong to its own
+session, so `jev · routing · …` lines you see are lines about *your*
+session, while the child's live in the child's transcript. Two consequences
+worth knowing: with routing paused (`/routing off`) the subagents you spawn
+from then on do not route either — the pause is about the work at hand —
+and a child never inherits a manual `/model` override, which is your own
+choice in your own session. Every judgment is recorded as one
+`jev_judgment` event — and only turns that were actually judged get one, so
+a paused or overridden router costs nothing.
 
 ### Anti-injection
 

@@ -4,25 +4,22 @@ import { hasPython, runPtyRaw } from "./pty-runner";
 import { startFakeOpenAi } from "./fake-openai-invalid-ask";
 
 /**
- * Regression (session 20260902T020857899Z): an ask_user call with an
- * invalid payload (header > 12 chars) failed validation with a visible
- * error result; the model retried with a valid 4-question set; while the
- * user pressed ↑/↓/tab through the block, the whole TUI froze (no arrow
- * response, no typing). Suspect: the block's useInput has no active flag,
- * so both the textarea and the block consume the same keys — the textarea
- * inserts text and re-renders per keystroke under the block.
+ * Regression from session 20260902T020857899Z: navigation froze after
+ * an invalid ask_user was retried. The historical case used an oversized
+ * header; headers are now normalized, so this fixture uses one option
+ * (still invalid) followed by a valid two-question set.
  */
 const B = (s: string) => btoa(s);
-const UP = B("\x1b[A");
-const DOWN = B("\x1b[B");
-const TAB = B("\t");
+const UP = "\x1b[A";
+const DOWN = "\x1b[B";
+const TAB = "\t";
 const RAW = "/tmp/moh-pty-ask-invalid-raw.bin";
 
 describe.skipIf(!hasPython)("ask_user invalid-then-valid (PTY regression)", () => {
   test(
     "arrows and typing stay responsive after a failed ask_user retry",
     async () => {
-      const { server, url } = startFakeOpenAi();
+      const { server, url, validationError } = startFakeOpenAi();
       try {
         const meta = await runPtyRaw({
           cols: 120,
@@ -43,35 +40,38 @@ describe.skipIf(!hasPython)("ask_user invalid-then-valid (PTY regression)", () =
             // ask_user block is open — the freeze scenario.
             { wait: 0.3, send: B("una domanda molto lunga che quando viene richiamata dallo storico occupa piu di una riga visiva del composer e spinge in alto il layout della chat") },
             { wait: 0.4, send: B("\r") },
-            // First ask_user: invalid (header > 12) → error result; the fake
-            // model then sends the valid 4-question set.
+            // First ask_user: invalid (one option) → error result; the fake
+            // model then sends the valid two-question set.
             // The CI PTY batch runs two full TUI processes on a 2-vCPU
             // runner. Leave enough wall time for the fake-provider retry to
             // reach this readiness signal under that contention.
-            { wait: 30.0, until: "Q1 — which way?" },
+            { wait: 30.0, until: "Q1 — which way?", untilOnScreen: true },
             // Stress: rapid arrows (the first ↑ loads the long history
             // draft into the composer while the block is open) + typed chars.
-            { wait: 0.5, send: UP },
-            { wait: 0.2, send: DOWN },
-            { wait: 0.1, send: UP },
-            { wait: 0.1, send: DOWN },
-            { wait: 0.1, send: UP + UP },
-            { wait: 0.1, send: DOWN + DOWN },
+            { wait: 0.5, send: B(UP) },
+            { wait: 0.2, send: B(DOWN) },
+            { wait: 0.1, send: B(UP) },
+            { wait: 0.1, send: B(DOWN) },
+            { wait: 0.1, send: B(UP + UP) },
+            { wait: 0.1, send: B(DOWN + DOWN) },
             { wait: 0.3, send: B("x") },
             { wait: 0.1, send: B("y") },
-            { wait: 0.3, send: TAB },
-            { wait: 0.3, send: UP },
-            { wait: 0.1, send: DOWN },
-            { wait: 0.1, send: DOWN + DOWN },
+            { wait: 0.3, send: B(TAB) },
+            { wait: 0.3, send: B(UP) },
+            { wait: 0.1, send: B(DOWN) },
+            { wait: 0.1, send: B(DOWN + DOWN) },
             { wait: 2.0, send: B("z") },
             { wait: 2.0 },
           ],
           tail: 40,
           rawDump: RAW,
         });
+        expect(validationError()).toContain("invalid arguments for ask_user:");
+        expect(validationError()).toContain("questions.0.options");
         expect(meta.aliveAtEnd).toBe(true);
         const raw = readFileSync(RAW, "utf8");
         expect(raw).toContain("Q1 — which way?");
+        expect(raw).toContain("Q2 — how fast?");
         // Responsiveness: a typed char after the stress burst must reach the
         // screen (the last frame contains it) — freeze = nothing changes.
         expect(meta.lines.map((l) => l.text).join("\n")).toContain("z");

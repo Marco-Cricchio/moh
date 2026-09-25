@@ -7,6 +7,59 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-09-25
+
+### Fixed
+
+- **An opted-out endpoint stays out of the routing model pool** (#943, PR
+  #968): an endpoint the user excluded from the fallback chain with
+  `fallbackEligible: false` was still offered to the Jev router's model pool,
+  so a switch could target a provider the user had explicitly taken out of
+  automatic selection. The pool now applies the same exclusion the fallback
+  chain does, through the shared eligibility predicate. `defaultModel` is not
+  required for routability.
+
+- **Router state is per session, and extension events follow their session**
+  (#944, PR #969): a subagent child owns no runtime — it borrows its parent's
+  — so the routing judge was one object for the parent and every child. Two
+  children spawned in one parent turn supplied the two consecutive turns the
+  hysteresis waits for, the router switched inside a child on turns that were
+  never the parent's, wrote that switch into the parent's expectation, and the
+  parent then reported an invented `mismatch` — after which routing was dead
+  for the rest of the session. The child's `jev_judgment` line also landed in
+  the parent's transcript. The extension contract gains an additive
+  `apiVersion` 1.8: `beforeTurn`'s context carries `session: { id, owner }`,
+  and the core scopes dispatches per session through an async-context store
+  (not a mutable field — a parent turn runs its children concurrently). The
+  judge keeps its state per session: the owner's in the durable store
+  (hot-reload keeps streak and override), a borrower's in bounded memory. A
+  child is born with the owner's pause in force and never inherits a manual
+  override. On an older runtime the absent field reads as "one session", i.e.
+  the previous behavior.
+
+- **A streamed reply prints its blocks in reply order** (#970, PR #971): long
+  replies arrived split across blocks, out of order, with a second `◆ moh`
+  head in the middle of the text and sometimes a literal ` placeholder` line
+  between two paragraphs. Two independent defects in the live prose
+  promotion: a one-row markdown segment (a heading, a tight list item) was
+  never eligible for Static promotion while the turn streamed, so a later
+  segment promoted first and — `<Static>` being append-only — printed before
+  it; and the fully-promoted slot placeholder kept the block's
+  continuation/tight flags, rendering its own empty head. A live block now
+  closes as soon as a later live block has rows and promotes all of its rows
+  in one chunk.
+
+- **An open paragraph stays reachable while it streams** (#972, PR #973): the
+  closing paragraph of a reply was invisible while it formed — the open-tail
+  branch only promoted rows of paragraphs a blank line had already closed in
+  the block's own source, so a paragraph without one computed zero stable rows
+  for its whole life. With the volatile area viewport-capped (#950, which
+  keeps the newest rows), once the paragraph outgrew the budget its beginning
+  was neither on screen nor in scrollback, and the whole paragraph printed in
+  one burst at closure. The rule now lives next to the other row predicates
+  and promotes the rows of an open block's inert prefix, minus the boundary
+  row, and only where the prefix already renders that row identically.
+
 ## [0.50.0] - 2026-09-24
 
 ### Changed
@@ -910,7 +963,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...develop
+[0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/Marco-Cricchio/moh/compare/v0.47.0...v0.48.0
