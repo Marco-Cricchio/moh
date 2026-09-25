@@ -65,8 +65,10 @@ shared by the projection and the promotion:
 
 The dead plain-prose path (`proseChainRef`, `nextProseHead`) carried a repaint
 seam for the moment a source stops being plain text after a physical head was
-printed: `if (chars > 0) repaintRef.current = true`. **It is deliberately not
-re-armed.** A repaint remounts `<Static>`, clears the ledgers, and re-derives
+printed: `if (chars > 0) repaintRef.current = true`. Both the seam and the path
+are **deleted in this change**: the arm could not fire (`proseChainRef` was only
+ever assigned `null`), and re-arming it would be a regression. A repaint
+remounts `<Static>`, clears the ledgers, and re-derives
 the open block from a source that is no longer inert — under this rule it would
 reprint *fewer* rows than the reader already had, losing the head of the
 paragraph mid-turn. That is worse than the residue it would fix, which is
@@ -90,10 +92,15 @@ invariant across six kinds of appended text, and pins this case explicitly.
   that is the price of append-only output, not a bug.
 - `isPlainStreamingProse` and the inert scan share one character class
   (`INLINE_SIGNIFICANT`), so the "cannot re-read" vocabulary has one home.
-- The retired plain-prose promotion path (`nextProseHead`,
-  `promotablePlainPrefix`, `embedProseHeads`, `proseChainRef`, `proseHeadsRef`)
-  is now fully dead code kept only by its tests; removing it is a follow-up
-  cleanup, out of scope here.
+- The retired plain-prose promotion path is **deleted** in the same change
+  (`ProseHeadChain`/`SealedProseHead`, `nextProseHead`,
+  `promotablePlainPrefix`, `trimProseHead`, `embedProseHeads`,
+  `isPlainStreamingProse`, the `proseChainRef`/`proseHeadsRef` state and its
+  two clear sites, `markdownHeadsRef` — a per-block cursor nothing ever
+  wrote — and the plain→Markdown repaint arm that could not fire). It was
+  224 lines of GFM-blind wrapping maintained against no call site; its only
+  consumer was its own unit test, which goes with it. The rule that replaced
+  it reads the same markdown pipeline the settled view renders with.
 
 ## Alternatives rejected
 
