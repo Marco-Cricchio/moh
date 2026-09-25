@@ -1377,11 +1377,14 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
-    // ADR-0032: a turn begins with its user_message — the per-extension
+    // ADR-0032: a turn begins with its user_message — the per-session
     // `extension_event` cap counts per turn, so the counter resets here
-    // (steering sends are turns too).
+    // (steering sends are turns too). #981: the budget belongs to the
+    // session whose turn started: its own when it owns the runtime, the
+    // borrowed one's when it runs through the parent's.
     if (event.type === "user_message") {
-      this.#extensions?.beginTurn();
+      if (this.#extensions) this.#extensions.beginTurn(this.#sessionId);
+      else this.#borrowedHooks?.beginBorrowedTurn(this.#sessionId);
       // ADR-0037: a real (non-synthetic) user turn refills every
       // extension's synthetic-turn budget.
       if (event.synthetic !== true) this.#extensions?.noteRealTurn();
@@ -1527,6 +1530,9 @@ export class AgentSession {
     try {
       await this.#onDispose?.();
     } catch { /* reaping is best-effort at shutdown */ }
+    // #981: a borrowing session's per-session event budgets die with it —
+    // the runtime that hosted them outlives every child.
+    this.#borrowedHooks?.endBorrowedSession(this.#sessionId);
     if (!this.#extensions) return;
     // ADR-0032: statuses are ephemeral — nothing survives the session.
     this.#extensions.clearStatuses();

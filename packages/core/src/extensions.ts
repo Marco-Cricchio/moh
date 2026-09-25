@@ -185,17 +185,28 @@ export interface RuntimeExtension {
   readonly file?: string;
   /** ADR-0032: the extension's published footer status; null = none. Ephemeral. */
   status: string | null;
-  /** ADR-0032: `extension_event`s appended in the current turn (50/turn cap). */
+}
+
+/**
+ * #981: one session's ADR-0032 §3 accounting. It is keyed by *session*, not
+ * by runtime: the runtime is shared by its owner and every subagent child
+ * that borrows it (ADR-0047), and the pre-#981 instance-wide counters made a
+ * child's `appendEvent`s spend its parent's turn budget — a flooding child
+ * could disarm the parent for the rest of the parent's turn, and the child's
+ * own budget was never reset at all (only the owner calls `beginTurn`).
+ */
+interface EventBudget {
+  /** ADR-0032: this session's `extension_event`s in its current turn. */
   eventsThisTurn: number;
-  /** ADR-0032: the per-turn cap warning was already emitted (one per turn). */
+  /** ADR-0032: this session's per-turn cap warning was already emitted. */
   capWarned: boolean;
   /**
-   * #846: the extension's own published status at the moment the cap
-   * tripped. On cap, the runtime overlays the cap-degraded status; on the
-   * next `setStatus` the overlay clears and the extension's own text
-   * re-emerges. Null when no overlay is active.
+   * #846: this session's published status at the moment the cap tripped.
+   * On cap, the runtime overlays the cap-degraded status; on the next
+   * `setStatus` the overlay clears and the extension's own text re-emerges.
+   * Null when no overlay is active for this session.
    */
-  capStatusOverlay: string | null;
+  overlay: string | null;
 }
 
 interface ExtensionStore {
@@ -283,8 +294,15 @@ const REDACTED_KEYS = new Set([
 /** Nesting depth the redaction walks (deeper values pass through). */
 const REDACT_DEPTH = 6;
 
-/** ADR-0032 cap: extension events per extension, per turn. */
+/** ADR-0032 cap: extension events per extension, per session, per turn. */
 const MAX_EVENTS_PER_TURN = 50;
+
+/**
+ * #981: the budget key of a runtime owner that has not named itself yet
+ * (events appended before its first turn). Never a session id — those come
+ * from `SessionScope.id` / `AgentSession`'s own opaque id.
+ */
+const OWNER_BUDGET = "\u0000owner";
 
 /** ADR-0032 cap: serialized payload size. */
 const MAX_PAYLOAD_BYTES = 8 * 1024;
@@ -363,6 +381,20 @@ export class ExtensionRuntime {
    * owner's channel.
    */
   readonly #borrowedSessions = new AsyncLocalStorage<SessionScope>();
+  /**
+   * #981: per-instance, per-session turn accounting. Installed lazily for
+   * the instances that actually append, dropped with the session that owns
+   * the entry (`endBorrowedSession`) — never a per-session counter for an
+   * extension that never records anything.
+   */
+  readonly #budgets = new WeakMap<RuntimeExtension, Map<string, EventBudget>>();
+  /**
+   * #981: the identity of the session that owns this runtime, learned at its
+   * first turn (`beginTurn`). Null until then — the runtime's pre-turn
+   * window is the owner's too, so it is counted under `OWNER_BUDGET` and
+   * adopted (not duplicated) when the id arrives.
+   */
+  #ownerSessionId: string | null = null;
   /** ADR-0032: subscribers of status publishes (extension name + text|null). */
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
   readonly #watchers = new Map<string, FSWatcher>();
@@ -450,51 +482,158 @@ export class ExtensionRuntime {
 
   /** ADR-0032: the currently published statuses, in registration order. */
   statuses(): ExtensionStatus[] {
+    // #981: the client's status row is the *owner's* — a session borrowing
+    // this runtime has no footer of its own, and its degradation names
+    // itself in the log and on the status seam instead.
+    const ownerKey = this.#ownerKey();
     return this.#instances
-      .filter((i) => i.status !== null || i.capStatusOverlay !== null)
-      .map((i) => ({ extension: i.def.name, text: i.capStatusOverlay ?? i.status ?? "" }));
+      .map((instance) => ({
+        extension: instance.def.name,
+        text: this.#budgetOf(instance, ownerKey)?.overlay ?? instance.status,
+      }))
+      .filter((entry): entry is { extension: string; text: string } => entry.text !== null);
   }
 
   /** Clears every published status (session end, extension reload). */
   clearStatuses(): void {
     for (const instance of this.#instances) {
-      if (instance.status === null && instance.capStatusOverlay === null) continue;
+      const budgets = this.#budgets.get(instance);
+      const overlay = budgets ? [...budgets.values()].some((b) => b.overlay !== null) : false;
+      if (instance.status === null && !overlay) continue;
       instance.status = null;
-      instance.capStatusOverlay = null;
+      if (budgets) for (const budget of budgets.values()) budget.overlay = null;
       for (const listener of this.#statusListeners) listener(instance.def.name, null);
     }
   }
 
   /**
-   * ADR-0032: starts a new turn — the per-extension `extension_event` cap
-   * counts per turn, so the session calls this when a turn begins.
+   * ADR-0032: starts a new turn for this runtime's **owner** — the
+   * per-session `extension_event` cap counts per turn, so the owning session
+   * calls this when one of its turns begins. `sessionId` is that session's
+   * opaque identity (#981): it keys its budget and names it in the cap
+   * warning. Omitted, the owner's budget is still one budget, reported
+   * without a name.
    */
-  beginTurn(): void {
+  beginTurn(sessionId?: string): void {
+    if (sessionId !== undefined && this.#ownerSessionId === null) {
+      // The pre-turn window was this same session's: its entry is dropped
+      // (a second, unreachable budget for one session is a trap), and an
+      // overlay published without a name goes with it. The turn that names
+      // the session resets the counter anyway.
+      for (const instance of this.#instances) {
+        const budget = this.#budgetOf(instance, OWNER_BUDGET);
+        if (!budget) continue;
+        this.#clearCapOverlay(instance, budget, true);
+        this.#dropBudget(instance, OWNER_BUDGET);
+      }
+      this.#ownerSessionId = sessionId;
+    }
+    this.#resetTurn(this.#ownerKey());
+  }
+
+  /**
+   * #981 (ADR-0047): starts a turn for a session that *borrows* this
+   * runtime — a subagent child. Each session's budget resets on its own
+   * turn start: a child's flood never disarms its parent, and the parent's
+   * next turn never refills a child's.
+   */
+  beginBorrowedTurn(sessionId: string): void {
+    this.#resetTurn(sessionId);
+  }
+
+  /**
+   * #981: a borrowing session is gone (a subagent child disposed) — its
+   * budgets and any cap overlay still published for it are dropped with it.
+   * The runtime outlives every child it hosts, so nothing else would ever
+   * collect them.
+   */
+  endBorrowedSession(sessionId: string): void {
     for (const instance of this.#instances) {
-      instance.eventsThisTurn = 0;
-      instance.capWarned = false;
-      // #846: the degraded state is scoped to the turn that tripped it.
-      this.#clearCapOverlay(instance);
+      const budget = this.#budgetOf(instance, sessionId);
+      if (!budget) continue;
+      this.#clearCapOverlay(instance, budget, false);
+      this.#dropBudget(instance, sessionId);
+    }
+  }
+
+  /** #981: the budget key of the owner's own dispatches. */
+  #ownerKey(): string {
+    return this.#ownerSessionId ?? OWNER_BUDGET;
+  }
+
+  /**
+   * #981: the budget key the current dispatch runs for. An append made
+   * outside any dispatch — a load-time record, a timer the extension kept —
+   * has no borrowing scope to read, and is the owner's by construction.
+   */
+  #currentKey(): string {
+    return this.#borrowedSessions.getStore()?.id ?? this.#ownerKey();
+  }
+
+  /** #981: this instance's budget for one session, if it has one. */
+  #budgetOf(instance: RuntimeExtension, key: string): EventBudget | undefined {
+    return this.#budgets.get(instance)?.get(key);
+  }
+
+  /** #981: drops one session's budget and everything it accounted for. */
+  #dropBudget(instance: RuntimeExtension, key: string): void {
+    this.#budgets.get(instance)?.delete(key);
+  }
+
+  /** #981: this instance's budget for one session, installed lazily. */
+  #budget(instance: RuntimeExtension, key: string): EventBudget {
+    let budgets = this.#budgets.get(instance);
+    if (!budgets) {
+      budgets = new Map();
+      this.#budgets.set(instance, budgets);
+    }
+    let budget = budgets.get(key);
+    if (!budget) {
+      budget = { eventsThisTurn: 0, capWarned: false, overlay: null };
+      budgets.set(key, budget);
+    }
+    return budget;
+  }
+
+  /** #981: one session's turn starts — its counter, never anyone else's. */
+  #resetTurn(key: string): void {
+    for (const instance of this.#instances) {
+      const budget = this.#budgetOf(instance, key);
+      if (!budget) continue;
+      budget.eventsThisTurn = 0;
+      budget.capWarned = false;
+      this.#clearCapOverlay(instance, budget, key === this.#ownerKey());
     }
   }
 
   /**
-   * #846: overlays this extension's footer status with the cap-degraded
-   * text (TUI footer, one stderr line headless) for the remainder of the
-   * turn. `beginTurn` clears the overlay; a `setStatus` from the extension
-   * drops it and publishes the extension's own text instead.
+   * #846: overlays this extension's status with the cap-degraded text (TUI
+   * footer, one stderr line headless) for the remainder of *that session's*
+   * turn. The owner's own degradation keeps the plain text — it belongs to
+   * the footer that shows it; another session's names itself, because a
+   * runtime-wide chip for a per-session condition is the same confusion one
+   * level up (#981). `beginTurn`/`beginBorrowedTurn` clear it; a `setStatus`
+   * from the extension drops it.
    */
-  #capOverlay(instance: RuntimeExtension): void {
-    if (instance.capStatusOverlay !== null) return;
-    instance.capStatusOverlay = `event cap reached (${MAX_EVENTS_PER_TURN}/turn) — further events dropped until next turn`;
-    for (const listener of this.#statusListeners) listener(instance.def.name, instance.capStatusOverlay);
+  #capOverlay(instance: RuntimeExtension, budget: EventBudget, key: string): void {
+    if (budget.overlay !== null) return;
+    budget.overlay = key === this.#ownerKey()
+      ? `event cap reached (${MAX_EVENTS_PER_TURN}/turn) — further events dropped until next turn`
+      : `event cap reached (${MAX_EVENTS_PER_TURN}/turn) in ${key} — further events dropped until next turn`;
+    for (const listener of this.#statusListeners) listener(instance.def.name, budget.overlay);
   }
 
-  /** #846: removes the cap overlay and restores the extension's own status. */
-  #clearCapOverlay(instance: RuntimeExtension): void {
-    if (instance.capStatusOverlay === null) return;
-    instance.capStatusOverlay = null;
-    for (const listener of this.#statusListeners) listener(instance.def.name, instance.status);
+  /**
+   * #846: removes the cap overlay. The owner's clear restores the
+   * extension's own status; a borrowing session's restores nothing — the
+   * extension's status is the owner's chrome, and a child's ending says
+   * nothing about it.
+   */
+  #clearCapOverlay(instance: RuntimeExtension, budget: EventBudget, owner: boolean): void {
+    if (budget.overlay === null) return;
+    budget.overlay = null;
+    const restored = owner ? instance.status : null;
+    for (const listener of this.#statusListeners) listener(instance.def.name, restored);
   }
 
   /**
@@ -860,9 +999,6 @@ export class ExtensionRuntime {
       hooks: EMPTY_HOOKS(),
       file,
       status: null,
-      eventsThisTurn: 0,
-      capWarned: false,
-      capStatusOverlay: null,
     };
     const ctx: ExtensionSetupContext = {
       state: instance.state,
@@ -944,21 +1080,29 @@ export class ExtensionRuntime {
         return;
       }
     }
-    instance.eventsThisTurn += 1;
-    if (instance.eventsThisTurn > MAX_EVENTS_PER_TURN) {
-      // One warning per extension per turn: a runaway loop cannot bury the
-      // log, and the extension is never silently speechless.
-      if (!instance.capWarned) {
-        instance.capWarned = true;
+    // #981: the budget is this dispatch's session's — the owner's, or the
+    // borrowing child's that the dispatch runs for.
+    const key = this.#currentKey();
+    const budget = this.#budget(instance, key);
+    budget.eventsThisTurn += 1;
+    if (budget.eventsThisTurn > MAX_EVENTS_PER_TURN) {
+      // One warning per extension per session per turn: a runaway loop
+      // cannot bury the log, and the extension is never silently speechless.
+      if (!budget.capWarned) {
+        budget.capWarned = true;
+        // #981: the warning names the session whose budget it exhausted.
+        // Only the pre-session window (a record made before any session
+        // owned the runtime, e.g. from `setup`) has no name to give.
+        const session = key === OWNER_BUDGET ? "" : ` (${key})`;
         this.#emit({
           type: "extension_failed",
           name,
           reason: "event_cap",
-          message: `more than ${MAX_EVENTS_PER_TURN} events in one turn; further events were dropped`,
+          message: `more than ${MAX_EVENTS_PER_TURN} events in one turn${session}; further events were dropped`,
         });
         // #846: the degraded state is visible, not only logged — the
         // footer status (headless: one stderr line) for the rest of the turn.
-        this.#capOverlay(instance);
+        this.#capOverlay(instance, budget, key);
       }
       return;
     }
@@ -972,8 +1116,11 @@ export class ExtensionRuntime {
   /** ADR-0032 `setStatus`: one ephemeral status per extension, replaced. */
   #setStatus(instance: RuntimeExtension, text: string | null): void {
     const next = typeof text === "string" && text.length > 0 ? text : null;
-    // #846: the extension speaks for itself again — the cap overlay drops.
-    if (instance.capStatusOverlay !== null) this.#clearCapOverlay(instance);
+    // #846: the extension speaks for itself again — the cap overlay of the
+    // session that dispatched this drops.
+    const key = this.#currentKey();
+    const budget = this.#budgetOf(instance, key);
+    if (budget) this.#clearCapOverlay(instance, budget, key === this.#ownerKey());
     if (instance.status === next) return;
     instance.status = next;
     for (const listener of this.#statusListeners) listener(instance.def.name, next);

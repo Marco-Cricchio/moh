@@ -21,6 +21,21 @@ matching section here at tag time.
   "never judged"), while a warning and a withheld result keep one record
   each, unsampled and now naming the call they judged. The input half is
   unchanged: one judgment per turn you send.
+- **The event budget is the session's** (#981, PR to come): the ADR-0032
+  per-turn cap (50 `appendEvent`s per extension per turn) was counted on the
+  runtime, and a subagent child borrows its parent's runtime — so a child's
+  judgments spent its parent's turn budget, the parent's own next `beginTurn`
+  was the only thing that ever reset the child's counter, and the single
+  cap-warning flag went to whichever session tripped it first: the parent
+  could be disarmed for the rest of its turn with no `event_cap` line
+  anywhere in its own log. Each session now has its own counter, its own
+  one-warning-per-turn and its own reset at its own turn start, and the
+  warning names the session whose budget it exhausted. The degraded footer
+  overlay is the owner's own: another session's names itself where it is
+  shown — its own transcript and log, plus one stderr line headless —
+  instead of turning the owner's footer into a runtime-wide chip for a
+  condition that is not the owner's. A borrowed session's budget is released
+  when the child disposes.
 - **The compaction cut guide works on long sessions again** (#979, PR to
   come): the Jev cut guide made one call and wrote one `jev_judgment`
   record per offered section, so on a long session — exactly the case
