@@ -7,6 +7,24 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Live reasoning no longer floods native scrollback with blank rows**
+  (#993): a provider may announce a reasoning part per stream chunk —
+  measured live: 637 `reasoning_start` for one call, most of them carrying
+  nothing — and the TUI's live buffer appended a paragraph break on every
+  announcement. One empty part per chunk became one phantom blank row, and
+  because the reasoning rows are promoted into native scrollback one per
+  frame, a long thinking phase printed hundreds of empty rows: the reply was
+  shoved out of the visible area and the finished reply sat in scrollback
+  separated by large gaps (1303 of 1452 pushed rows blank at 100×24; 1270 of
+  1389 in tmux at 149×40). The lifecycle's fold is now one rule in the core
+  (`reasoning-parts.ts`, ADR-0048) — an announced part without text
+  contributes nothing, kept parts join with one blank line — and the log and
+  the live channel both apply it, so a client's live text is the persisted
+  text plus the part still open, whatever shape the provider streams.
+  Reasoning display was affected only with `showReasoning: true`.
+
 ## [0.50.2] - 2026-09-25
 
 ### Added
