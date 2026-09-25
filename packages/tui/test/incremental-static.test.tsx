@@ -202,3 +202,66 @@ describe("open-turn scrollback is scrollable mid-turn (#194)", () => {
     ink.unmount();
   }, 15000);
 });
+
+describe("live prose rows reach scrollback in reply order (#970)", () => {
+  /** A reply shaped like the owner-reported failure: a heading, a wrapped
+   * paragraph, two wrapped list items (tight, so each closes its own
+   * segment) and a closing paragraph. Markers sit at the start of each
+   * block, so a frame reveals where each one was printed. */
+  const REPLY = [
+    "H1HEADING overview of the design",
+    "",
+    "P1START the first section explains the shape of the system and keeps going for a while so that it wraps P1END",
+    "",
+    "- B1FIRST first bullet item, long enough to wrap over two terminal rows of text B1END",
+    "- B2SECOND second bullet item, likewise long enough to wrap onto another terminal row B2END",
+    "",
+    "P2START a closing paragraph after the bullets with more words here P2END",
+  ].join("\n");
+  const MARKERS = ["H1HEADING", "P1START", "B1FIRST", "B2SECOND", "P2START"];
+
+  test("every markdown block prints in reply order, never twice, with no placeholder chrome", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-prose-order-"));
+    const deltas: string[] = [];
+    // Real providers cut deltas mid-sentence: 45-char slices keep the live
+    // partial-paragraph path under the test.
+    for (let at = 0; at < REPLY.length; at += 45) deltas.push(REPLY.slice(at, at + 45));
+    const provider = MockProvider.scripted([{ deltas, deltaDelayMs: 25, finish: "stop" }]);
+    const app = <App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />;
+    const ink = render(app);
+    Object.defineProperty(ink.stdout, "columns", { value: 100, configurable: true });
+    Object.defineProperty(ink.stdout, "rows", { value: 30, configurable: true });
+    ink.rerender(app);
+    await sleep(40);
+    ink.stdin.write("explain the architecture");
+    await sleep(20);
+    ink.stdin.write("\r");
+    // Poll: the turn ends a beat after the last delta lands.
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && !stripAnsi(ink.lastFrame() ?? "").includes("done")) await sleep(50);
+    await sleep(500);
+    // Every frame is `fullStaticOutput + volatile output` (ink's debug
+    // path): the static prefix is the physical transcript, in print order,
+    // and the volatile tail is everything not yet printed — together, the
+    // rows the reader has actually seen. Static is append-only, so an
+    // out-of-order print stays out of order for the rest of the turn.
+    const frames = ink.frames.map((frame) => stripAnsi(frame));
+    for (const frame of frames) {
+      const positions = MARKERS.map((marker) => frame.indexOf(marker)).filter((at) => at >= 0);
+      const ordered = [...positions].sort((a, b) => a - b);
+      // In every frame the reply's blocks read in reply order: whatever the
+      // projection printed is already above whatever it still holds volatile.
+      expect(positions).toEqual(ordered);
+      // No internal projection artifact may reach the reader (an empty head
+      // printed a bare " placeholder" line in the middle of the reply).
+      expect(frame).not.toContain("placeholder");
+    }
+    const settled = frames.at(-1) ?? "";
+    for (const marker of MARKERS) {
+      // Printed exactly once: the row left the volatile area for scrollback
+      // and never printed or rendered again.
+      expect(settled.split(marker).length - 1).toBe(1);
+    }
+    ink.unmount();
+  }, 20000);
+});
