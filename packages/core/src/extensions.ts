@@ -11,6 +11,7 @@
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import {
@@ -130,6 +131,26 @@ export interface RegisterOptions {
   /** The host shipped these bytes (bundled first-party code): consent and
    * dependency authorization are skipped. Never for a path-loaded module. */
   bundled?: boolean;
+}
+
+/**
+ * #944 (ADR-0047): one session's hook dispatch through a runtime it does
+ * not own — a subagent child running its turns through its parent's
+ * runtime. `write` is where the events an extension appends during those
+ * dispatches go: the child's own log, never the parent's channel.
+ */
+export interface SessionScope {
+  /** The borrowing session's opaque identity (diagnostics, tests). */
+  readonly id: string;
+  /** Append one extension-produced event to the borrowing session's log. */
+  write: (event: AgentEvent) => void;
+  /**
+   * Hook failures collected during this session's dispatches. Per dispatch
+   * rather than per runtime for the same reason as `write`: two children
+   * can be mid-dispatch at once, and a drain must never hand one child the
+   * other's `extension_failed`.
+   */
+  errors: AgentEvent[];
 }
 
 interface HookSet {
@@ -334,6 +355,13 @@ export class ExtensionRuntime {
   readonly #instances: RuntimeExtension[] = [];
   readonly #pending: AgentEvent[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
+  /**
+   * #944: the session a hook dispatch runs on behalf of, when that session
+   * is *not* the one that owns this runtime (a subagent child). Set for the
+   * duration of its dispatches; absent everywhere else, which is the
+   * owner's channel.
+   */
+  readonly #borrowedSessions = new AsyncLocalStorage<SessionScope>();
   /** ADR-0032: subscribers of status publishes (extension name + text|null). */
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
   readonly #watchers = new Map<string, FSWatcher>();
@@ -393,6 +421,24 @@ export class ExtensionRuntime {
   onLoadEvent(listener: (event: AgentEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * #944 (ADR-0047): runs `fn` as one *borrowed* session's hook dispatch —
+   * a session that does not own this runtime but runs its turns through it
+   * (a subagent child). Every event an extension appends inside `fn` lands
+   * in that session's log (`scope.write`) instead of the owner's channel,
+   * which is what makes a child's `appendEvent` chrome attributable: the
+   * child's judgments belong in the child's own transcript, not in the
+   * parent's.
+   *
+   * An async-context store rather than a field, deliberately: a parent turn
+   * can run two children at once, so "the current session" cannot be one
+   * mutable slot — each dispatch keeps its own writer across every await it
+   * makes.
+   */
+  withSession<T>(scope: SessionScope, fn: () => T): T {
+    return this.#borrowedSessions.run(scope, fn);
   }
 
   /** ADR-0032: subscribe to status publishes; returns an unsubscribe fn. */
@@ -933,8 +979,17 @@ export class ExtensionRuntime {
   }
 
   #emit(event: AgentEvent): void {
-    // Delivered live when a session listens; buffered otherwise (pre-session
-    // loads, tests) so exactly one channel ever delivers each event.
+    // #944: a dispatch on behalf of a borrowed session writes straight to
+    // that session's log — a child's chrome is the child's. Every other
+    // emitter is the runtime owner's (load results, reload outcomes, the
+    // session's own dispatch): delivered live when that session listens,
+    // buffered otherwise (pre-session loads, tests) so exactly one channel
+    // ever delivers each event.
+    const borrowed = this.#borrowedSessions.getStore();
+    if (borrowed) {
+      borrowed.write(event);
+      return;
+    }
     if (this.#listeners.size > 0) {
       for (const listener of this.#listeners) listener(event);
     } else {
@@ -965,8 +1020,19 @@ export class ExtensionRuntime {
 
   // ---- Hook dispatch (used by AgentSession) ----
 
-  /** Errors from one dispatch round, as extension_failed events to append. */
+  /**
+   * Errors from one dispatch round, as extension_failed events to append.
+   * The owner's own bucket: a borrowed session's dispatches collect into
+   * its `SessionScope` instead (#944), so two concurrent children never
+   * drain each other's failures.
+   */
   readonly #hookErrors: AgentEvent[] = [];
+
+  /** #944: one hook failure, into the borrowing session's bucket when there
+   * is one, the runtime's otherwise. */
+  #recordHookError(event: AgentEvent): void {
+    (this.#borrowedSessions.getStore()?.errors ?? this.#hookErrors).push(event);
+  }
 
   async dispatchSessionStart(): Promise<AgentEvent[]> {
     await this.#each("sessionStart", (h) => h({ startedAt: new Date() }));
@@ -998,7 +1064,7 @@ export class ExtensionRuntime {
         try {
           out = await hook(ctx);
         } catch (err) {
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
@@ -1050,7 +1116,7 @@ export class ExtensionRuntime {
         try {
           out = await entry.hook(call);
         } catch (err) {
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
@@ -1063,7 +1129,7 @@ export class ExtensionRuntime {
         if (typeof reason !== "string" || reason.trim() === "") {
           // A withhold with no reason would replace the result with an
           // unexplained refusal the model cannot act on: refused, visibly.
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "invalid_withhold",
@@ -1116,7 +1182,7 @@ export class ExtensionRuntime {
             new Promise<undefined>((resolve) => setTimeout(() => { timedOut = true; resolve(undefined); }, hookTimeoutMs)),
           ]);
         } catch (err) {
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
@@ -1125,7 +1191,7 @@ export class ExtensionRuntime {
           continue;
         }
         if (timedOut) {
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
@@ -1135,7 +1201,7 @@ export class ExtensionRuntime {
         if (!out || !Array.isArray(out.drop)) continue;
         for (const id of out.drop) {
           if (typeof id === "string" && !offered.has(id)) {
-            this.#hookErrors.push({
+            this.#recordHookError({
               type: "extension_failed",
               name: instance.def.name,
               reason: "unknown_section",
@@ -1193,7 +1259,7 @@ export class ExtensionRuntime {
         try {
           out = await hook(call);
         } catch (err) {
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
@@ -1225,7 +1291,7 @@ export class ExtensionRuntime {
         try {
           await (invoke(hook) as Promise<void> | void);
         } catch (err) {
-          this.#hookErrors.push({
+          this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
@@ -1237,6 +1303,8 @@ export class ExtensionRuntime {
   }
 
   #drainErrors(): AgentEvent[] {
+    const borrowed = this.#borrowedSessions.getStore();
+    if (borrowed) return borrowed.errors.splice(0, borrowed.errors.length);
     return this.#hookErrors.splice(0, this.#hookErrors.length);
   }
 }

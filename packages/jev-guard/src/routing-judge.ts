@@ -129,6 +129,25 @@ export interface RoutingJudgeState {
   expected: string | null;
 }
 
+export interface RoutingSession {
+  /** Opaque session identity (the hook context's `session.id`). */
+  readonly id: string;
+  /**
+   * True for the session that registered the extension — the one whose
+   * model, streak and `/routing` state the client reads. False for a
+   * session that borrowed the runtime: a subagent child.
+   */
+  readonly owner: boolean;
+}
+
+/**
+ * #944: the identity a dispatch that arrives without one is attributed to —
+ * the owner session. An older runtime (apiVersion < 1.8) sends no
+ * `session` at all, which reads exactly as "one session": the behavior
+ * before this issue.
+ */
+export const OWNER_SESSION: RoutingSession = { id: "owner", owner: true };
+
 const INITIAL: RoutingJudgeState = {
   streak: 0,
   streakTier: null,
@@ -141,22 +160,55 @@ const INITIAL: RoutingJudgeState = {
 };
 
 /**
- * Builds the per-session routing judge. State lives in the extension's
- * durable store so a hot-reload keeps the streak and the override.
+ * #944: how many borrowed sessions (subagent children) keep their own
+ * router state. A session with more live children than this is not a
+ * realistic turn shape; drop-all keeps the invariant trivially bounded —
+ * the same bound the guardrail's verdict cache uses.
+ */
+const MAX_BORROWED_SESSIONS = 64;
+
+/**
+ * Builds the routing judge. State is **per session**, not per runtime: the
+ * owner session's state lives in the extension's durable store so a
+ * hot-reload keeps its streak and override; a session that borrows the
+ * runtime (a subagent child, whose turns run `beforeTurn` through its
+ * parent's runtime) gets its own bucket, so a child's turns can never
+ * advance the parent's hysteresis nor set the parent's expectation (#944).
  */
 export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHost) {
-  const state = (deps.state.routing as RoutingJudgeState | undefined) ?? { ...INITIAL };
-  deps.state.routing = state;
+  const ownerState = (deps.state.routing as RoutingJudgeState | undefined) ?? { ...INITIAL };
+  deps.state.routing = ownerState;
+  /** Borrowed sessions' states, in memory: a child's streak dies with it. */
+  const borrowedStates = new Map<string, RoutingJudgeState>();
   /** In-session memo of the resolution: one pool look-up, one listing. */
   let resolution: Promise<RoutingResolution> | undefined;
   /** The resolved value, once it landed (see `peekResolution`). */
   let resolved: RoutingResolution | null = null;
-  /** #868: the ref of a decided switch awaiting application, if any. */
-  let pendingApply: string | null = null;
+  /** #868: the ref of a decided switch awaiting application, if any — per
+   * session, like the state it belongs to: a child's pending switch must
+   * never be consumed by the owner's next `extension_failed`. */
+  const pendingApplies = new WeakMap<RoutingJudgeState, string>();
+
+  /** The state of the session this dispatch belongs to, created on first
+   * sight for a borrowed one. */
+  const stateFor = (session: RoutingSession): RoutingJudgeState => {
+    if (session.owner) return ownerState;
+    const known = borrowedStates.get(session.id);
+    if (known) return known;
+    if (borrowedStates.size >= MAX_BORROWED_SESSIONS) borrowedStates.clear();
+    // A child is born from the template plus the pause in force in the
+    // owner session right now: `/routing off` is the user's intent for the
+    // work at hand, and it covers the subagents that work spawns. A manual
+    // override is *not* inherited — that is the user's own model choice in
+    // their own session, and a child's switches are its own.
+    const seeded: RoutingJudgeState = { ...INITIAL, paused: ownerState.paused };
+    borrowedStates.set(session.id, seeded);
+    return seeded;
+  };
 
   /** One place owns "a fresh start": five call sites need it, and a missed
    * one is a hysteresis bug that only shows up turns later. */
-  const restartStreak = (): void => {
+  const restartStreak = (state: RoutingJudgeState): void => {
     state.streak = 0;
     state.streakTier = null;
   };
@@ -201,12 +253,19 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * targeting a cooled-down endpoint is refused with the
      * `cooled-down` stay reason — the router never moves the session
      * onto a model it already knows cannot serve it.
+     *
+     * #944: `session` is whose turn this is (the hook context's identity,
+     * `OWNER_SESSION` when the host does not send one). Only that
+     * session's state is read and written — the streak, the expectation
+     * and the mismatch notice are per session.
      */
     async decide(
       text: string,
       currentModel: string,
       cooldowns: readonly { ref: string; kind: string }[] = [],
+      session: RoutingSession = OWNER_SESSION,
     ): Promise<RoutingVerdict | null> {
+      const state = stateFor(session);
       if (state.override || state.paused) return null;
       // #852: a bare continuation message is not a task to route. Before
       // any judgment is spent: no call, no streak accrual, no switch —
@@ -365,16 +424,17 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * also resets the streak (ratified) and becomes what the next turn
      * expects to see serving.
      */
-    noteSwitch(ref: string, current?: string): void {
+    noteSwitch(ref: string, current?: string, session: RoutingSession = OWNER_SESSION): void {
+      const state = stateFor(session);
       state.expected = ref;
       state.decidedModel = ref;
       // #868: the model serving when the switch was decided — the skip
       // event's "staying <current>" names it (the attempted target does
       // not: that is the model that failed).
       if (current !== undefined) state.servingAtDecision = current;
-      restartStreak();
+      restartStreak(state);
       state.mismatchAnnounced = false;
-      pendingApply = ref;
+      pendingApplies.set(state, ref);
     },
 
     /**
@@ -383,18 +443,18 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * or `extension_failed { invalid_model }` (skipped).
      */
     switchPending(): boolean {
-      return pendingApply !== null;
+      return pendingApplies.has(ownerState);
     },
 
     /** #868: the decided switch failed to apply — drop the pending mark;
      * the skip event carries the reason and the attempted target. */
     dropPendingSwitch(): void {
-      pendingApply = null;
+      pendingApplies.delete(ownerState);
     },
 
     /** #868: the decided switch applied — clear the pending mark. */
     clearPendingSwitch(): void {
-      pendingApply = null;
+      pendingApplies.delete(ownerState);
     },
 
     /**
@@ -404,9 +464,13 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * `/model auto`) releases it (ADR-0038).
      */
     noteModelSwitched(to: string): boolean {
+      const state = ownerState;
+      // Owner-scoped by construction: `model_switched` reaches these hooks
+      // from the log of the session that owns the runtime (a child owns no
+      // event dispatch), so this is the owner's own model, never a child's.
       state.expected = null;
       if (state.decidedModel === to) return false; // the router's own pick
-      restartStreak();
+      restartStreak(state);
       state.override = true;
       return true;
     },
@@ -420,18 +484,24 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
      * clears the override too (the user asked for routing, explicitly);
      * `auto` releases a manual override only, and restarts the hysteresis
      * from zero (ratified: releasing does not re-route the current model).
+     *
+     * Owner-scoped by construction: a client command arrives through the
+     * `onEvent` dispatch of the session that owns the runtime, so `/routing
+     * off` pauses the session the user typed it in — never a subagent's,
+     * which was born with that pause already in force (#944).
      */
     control(cmd: string): { paused: boolean; override: boolean } | null {
+      const state = ownerState;
       if (cmd === "off") {
         state.paused = true;
-        restartStreak();
+        restartStreak(state);
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
       }
       if (cmd === "on") {
         state.paused = false;
         state.override = false;
-        restartStreak();
+        restartStreak(state);
         state.decidedModel = null;
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
@@ -441,7 +511,7 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
         // last picked, so the very next turn judges again (it does not
         // re-route the model the user chose — the ratification).
         state.override = false;
-        restartStreak();
+        restartStreak(state);
         state.decidedModel = null;
         state.mismatchAnnounced = false;
         return { paused: state.paused, override: state.override };
@@ -449,9 +519,9 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       return null;
     },
 
-    /** The session state (diagnostics and tests). */
-    snapshot(): RoutingJudgeState {
-      return { ...state };
+    /** One session's state (diagnostics and tests); the owner's by default. */
+    snapshot(session: RoutingSession = OWNER_SESSION): RoutingJudgeState {
+      return { ...stateFor(session) };
     },
   };
 }
