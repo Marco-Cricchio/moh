@@ -7,10 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.50.3] - 2026-09-26
+
 ### Fixed
 
 - **Live reasoning no longer floods native scrollback with blank rows**
-  (#993): a provider may announce a reasoning part per stream chunk —
+  (#993, PRs #994, #1001): a provider may announce a reasoning part per stream chunk —
   measured live: 637 `reasoning_start` for one call, most of them carrying
   nothing — and the TUI's live buffer appended a paragraph break on every
   announcement. One empty part per chunk became one phantom blank row, and
@@ -30,6 +32,24 @@ matching section here at tag time.
   chunk — so a run closes at the first content-bearing reply delta or tool
   call, with the complete continuation metadata, and the announcement rate
   no longer tracks the wire's padding. Deltas still stream live.
+
+### Changed
+
+- **The model catalog was regenerated before the tag, and one row was
+  declared by hand**: the release-time catalog check flagged
+  `openrouter.json` as drifted again, and the rebuild surfaced a real loss
+  behind the drift. OpenRouter retired the free GLM 5.2 variant from its
+  listing, so the row lost the aggregator record it carried three hours
+  earlier and would have shipped with no context window at all — and the
+  guard stayed silent, because that row's sidecar entry carried
+  `acceptContextShrink`, which mutes the guard for the row it declares.
+  `z-ai/glm-5.2:free` is now declared fully hand-maintained, pinning its
+  window to the last value the aggregator gave (131072) instead of letting
+  it disappear from the catalog. 4 prices changed, all on openrouter
+  (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-pro-0813`,
+  `~deepseek/deepseek-v4-flash-latest`), 0 context windows and 0 reasoning
+  flags; no issue and no shrink in the generation report.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.50.3.
 
 ## [0.50.2] - 2026-09-25
 
@@ -1081,7 +1101,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...develop
+[0.50.3]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...v0.50.3
 [0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...v0.50.0
