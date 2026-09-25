@@ -12,6 +12,8 @@ import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
 import { catalogEntryFor } from "./model-catalog";
+import { contextFitFor } from "./context-fit";
+import { contextWindowFor } from "./compaction";
 import { getStoredApiKey } from "./auth/store";
 import { userConfigFile } from "./user-config";
 
@@ -193,6 +195,11 @@ export interface RouteResolutionOptions {
   health?: ProviderHealthEstimator;
   /** Endpoint preference seam resolved per target, including fallbacks. */
   thinkingForTarget?: (target: RouteTarget) => StreamOptions["thinking"] | undefined;
+  /** #948: the session's last measured model-call input tokens. When
+   * supplied, a fallback stop whose preferred model's catalog window
+   * cannot hold it is skipped by the same predicate the switch guard
+   * enforces. Undefined (no measurement) abstains. */
+  measuredTokens?: number;
 }
 
 function isRouteCapable(profile: EndpointProfile): boolean {
@@ -204,10 +211,17 @@ function isRouteCapable(profile: EndpointProfile): boolean {
  * can. The chain builder filters on this and the settings screen explains
  * the same verdict to the user, so the rule has exactly one definition
  * (ADR-0012: route-capable, eligible, and carrying a preferred model).
+ *
+ * #948: with the session's measured context supplied (`measuredTokens`),
+ * an endpoint whose preferred model's catalog window cannot hold it is
+ * also ineligible — a cannot-serve stop is the same class of exclusion.
+ * No measurement (or an unknown window) abstains: the endpoint stays
+ * eligible, exactly as the switch guard does.
  */
 export function fallbackIneligibleReason(
   profile: EndpointProfile,
   active?: EndpointProfile,
+  fit?: { measuredTokens?: number },
 ): string | null {
   if (!isRouteCapable(profile)) {
     return `provider type "${profile.type}" cannot be a fallback stop (only built-in and openai-compat endpoints can)`;
@@ -218,6 +232,13 @@ export function fallbackIneligibleReason(
     // Zen and Go are separate products: an entitlement failure on one must
     // remain visible, never silently cross-product fall back.
     return "Zen and Go are separate products — no cross-product fallback";
+  }
+  if (fit?.measuredTokens !== undefined) {
+    const window = contextWindowFor(`${profile.name}/${profile.defaultModel}`, profile.type);
+    const verdict = contextFitFor({ measured: fit.measuredTokens, window });
+    if (!verdict.fits) {
+      return `context window too small: ${profile.defaultModel} (${window} tokens) cannot hold this session's measured context (${fit.measuredTokens} tokens)`;
+    }
   }
   return null;
 }
@@ -239,11 +260,12 @@ function fallbackStopsFor(
   active: EndpointProfile,
   endpoints: EndpointProfile[],
   health: ProviderHealthEstimator | undefined,
+  measuredTokens?: number,
 ): RouteTarget[] {
   // One rule, one definition: the same predicate the settings screen shows
   // the user, so the chain can never disagree with what the screen claims.
   const candidates = endpoints.filter(
-    (e) => e.name !== active.name && fallbackIneligibleReason(e, active) === null,
+    (e) => e.name !== active.name && fallbackIneligibleReason(e, active, { measuredTokens }) === null,
   );
   const ranked = candidates
     .map((e, index) => ({ e, index, h: health?.(e) }))
@@ -295,7 +317,9 @@ export function resolveProviderRef(
     registry,
     // Custom-factory providers cannot be route stops: skip the (discarded)
     // chain construction for them.
-    isRouteCapable(profile) ? fallbackStopsFor(profile, endpoints, options.health) : [],
+    isRouteCapable(profile)
+      ? fallbackStopsFor(profile, endpoints, options.health, options.measuredTokens)
+      : [],
     options.thinkingForTarget,
   );
 }

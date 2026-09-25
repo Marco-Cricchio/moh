@@ -440,7 +440,8 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     /**
      * #868: true while a decided switch is awaiting its application — the
      * window between `noteSwitch` and the next `model_switched` (applied)
-     * or `extension_failed { invalid_model }` (skipped).
+     * or `extension_failed { invalid_model }` (skipped). #948: a
+     * `switch_refused` (context fit) drops the mark the same way.
      */
     switchPending(): boolean {
       return pendingApplies.has(ownerState);
@@ -455,6 +456,26 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     /** #868: the decided switch applied — clear the pending mark. */
     clearPendingSwitch(): void {
       pendingApplies.delete(ownerState);
+    },
+
+    /**
+     * #945: observes a `route_serving` record — the core's own, immediate
+     * account of "the selected model could not serve; a fallback did".
+     * When the serving ref stops matching the router's decided target the
+     * divergence is named *now* (the return says so) and the expectation
+     * is released: the router is not frozen for the rest of the session
+     * and the serving model is what the next turn judges from. Owner-
+     * scoped by construction: `route_serving` reaches these hooks from
+     * the log of the session that owns the runtime.
+     */
+    noteRouteServing(serving: string): { current: string; expected: string } | null {
+      const state = ownerState;
+      if (state.decidedModel === null || state.decidedModel === serving) return null;
+      const divergence = { current: serving, expected: state.decidedModel };
+      state.decidedModel = null;
+      state.mismatchAnnounced = false;
+      restartStreak(state);
+      return divergence;
     },
 
     /**

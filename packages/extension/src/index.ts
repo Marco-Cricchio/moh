@@ -60,6 +60,18 @@
  * key it by this identity: a single shared bag would let a child's turns
  * advance the parent's state. An older runtime does not send it, which
  * reads as "one session" — the pre-#944 behavior.
+ *
+ * 1.9 (#979, ADR-0035 amendment): `hookTimeoutMs` and `signal` on the
+ * `onCompaction` context, and the `applied: false` outcome on the
+ * `onApplied` callback. The window and the signal are the hook's own
+ * budget: work that scales with the covered span (one call per section,
+ * for instance) must fit inside the window, and the signal fires when the
+ * runtime gives up waiting so the hook can stop working instead of
+ * burning calls nobody will read. `onApplied` is then still called — with
+ * `applied: false` — so the extension can record the honest outcome
+ * ("the cut was never applied") instead of staying silent about a
+ * judgment it made. An older runtime neither sends the window nor the
+ * signal, and only ever calls `onApplied` for a cut it really applied.
  */
 
 /**
@@ -67,7 +79,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.8";
+export const MOH_EXTENSION_API_VERSION = "1.9";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -261,6 +273,49 @@ export interface CompactionHookContext {
   readonly sections: readonly CompactionSection[];
   /** Token estimate of the covered span, when known. */
   readonly approxTokens?: number;
+  /**
+   * #979, apiVersion 1.9: the millisecond window the runtime waits for this
+   * hook's answer, starting at the call. A hook whose work scales with the
+   * span (one call per section, say) must fit its own deadline inside it:
+   * a hook still running when the window closes is abandoned — its drops
+   * are discarded and its `signal` is aborted. Absent on a runtime older
+   * than 1.9: budget yourself conservatively (the runtime's default is
+   * 5 s).
+   */
+  readonly hookTimeoutMs?: number;
+  /**
+   * #979, apiVersion 1.9: aborted when the runtime stops waiting for this
+   * hook — the same instant, one event later, as the abandoned dispatch.
+   * Pass it to whatever you call per section so an abandoned hook *stops
+   * working* instead of spending calls nobody will read; sections it never
+   * got to are simply unjudged. Absent on a runtime older than 1.9 (the
+   * hook cannot be cancelled: keep the work inside `hookTimeoutMs`).
+   */
+  readonly signal?: AbortSignal;
+}
+
+/** ADR-0035: how the core reports a hook's cut back to its author. */
+export interface AppliedCut {
+  /** True when the survival floor reduced the requested drops. */
+  readonly keptByFloor: boolean;
+  /** Serialized bytes of the offered text that survive the cut. */
+  readonly bytesAfter: number;
+  /**
+   * The ids actually left out of the transcript, after the floor — the
+   * truth to record, as opposed to the `drop` the hook requested (the floor
+   * restores the smallest claims, so the two differ whenever it bites).
+   * Empty when the dispatch was abandoned: nothing was dropped at all.
+   * apiVersion 1.9 (#979); absent on a runtime older than 1.9, where `drop`
+   * is the only answer available.
+   */
+  readonly droppedIds?: readonly string[];
+  /**
+   * #979, apiVersion 1.9: `false` when the core did not apply this cut at
+   * all — the hook answered too late and the dispatch had already given up.
+   * Absent (and `true`) mean the core did apply the cut; only the fields
+   * above describe how.
+   */
+  readonly applied?: boolean;
 }
 
 /**
@@ -272,12 +327,15 @@ export interface CompactionHookContext {
  * `onApplied`, when present, is called back exactly once with the cut as
  * actually applied — after the floor, before the transcript renders — so
  * the extension can record what really happened, not just what it asked
- * for. A throwing `onApplied` is swallowed: observability never breaks
- * the compaction it describes.
+ * for. apiVersion 1.9 (#979): it is *also* called when the dispatch was
+ * abandoned (the hook answered after the window closed), with
+ * `applied: false` — the cut reached nothing, and the honest record says
+ * so. A throwing `onApplied` is swallowed: observability never breaks the
+ * compaction it describes.
  */
 export interface CompactionHookResult {
   readonly drop: readonly string[];
-  readonly onApplied?: (applied: { keptByFloor: boolean; bytesAfter: number }) => void;
+  readonly onApplied?: (applied: AppliedCut) => void;
 }
 
 export type CompactionHook = (

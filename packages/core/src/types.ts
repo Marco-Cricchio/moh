@@ -322,6 +322,11 @@ type AgentEventBase =
   /** #166: the active model ref changed mid-session (no new session;
    * takes effect from the next turn). Chrome — replay shows the switch. */
   | { type: "model_switched"; from: string; to: string }
+  /** #948: a switch was refused because the target's catalog window
+   * cannot hold the session's measured context. Chrome — the attempt is
+   * recorded, nothing is applied, the current model stays in effect. */
+  | { type: "switch_refused"; from: string; to: string; reason: "context_length";
+      measured: number; window: number }
   /** ADR-0012: a fallback stop fired mid-call (route engine). Chrome —
    * replay shows the switch; the TUI toasts it (visible, not silent). */
   | { type: "fallback"; from: string; to: string; reason: string }

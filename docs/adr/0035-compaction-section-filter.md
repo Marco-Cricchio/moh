@@ -137,3 +137,57 @@ Key decisions, each with its rationale:
   ignore, absence is not); no floor (one bad judgment could empty the droppable context);
   fail-closed (an extension could stall compaction); rewriting the summarizer's output
   (nothing about that is an extension's business).
+
+## Amendment — 2026-09-25, #979: the hook's window and the cut's record volume
+
+The seam above is unchanged in what it may do — restrict only, floor kept by
+the core — but two of its costs scale with the covered span, which is exactly
+what grows until compaction runs. Both are now bounded, and §5's fail-open leg
+gained the honest ending it was missing.
+
+1. **The hook is told its window, and can be stopped.** `CompactionHookContext`
+   gains `hookTimeoutMs` (the window the runtime will wait for this hook) and
+   `signal` (aborted the moment it stops waiting) — apiVersion **1.9**. A hook
+   whose work is per-section can budget itself (largest sections first, bounded
+   concurrency, stop before the window closes) and pass the signal down so an
+   abandoned dispatch *stops working* instead of spending calls nobody will
+   read. An older runtime sends neither: the hook assumes 5 s and keeps its work
+   inside it. The window itself is unchanged (5 s, `dispatchCompaction`'s
+   `hookTimeoutMs`), and a hook that ignores it is still abandoned with no drops.
+
+2. **The abandoned dispatch reports itself.** `onApplied` is now also called
+   when the hook answers *after* the window closed, with `applied: false`: the
+   judgment happened and reached nothing, which must not look like a judgment
+   that found nothing to drop. Without this, a timed-out dispatch recorded no
+   outcome at all (the runtime discarded the late resolution), and the
+   extension's own record — the thing that makes the cut auditable — was the
+   first casualty. A hook that *throws* late has no cut to report; the one
+   `extension_failed` the race already wrote is its record.
+
+3. **One record per compaction, and a declared judging budget.** ADR-0032's
+   per-turn event cap (50 events per extension per turn) is not a limit to
+   raise: a producer whose volume legitimately reaches it must reduce its volume
+   (#846's precedent). The per-section records the cut guide used to write are
+   gone; the verdicts ride ONE aggregate record, which also carries what was
+   offered, what was judged and why the rest was not. Because that one record
+   must still fit the runtime's 8 KiB payload cap, the judged set is capped
+   (the cut guide's own budget, largest sections first) — a *declared* budget,
+   not a silent sample: `unjudged` + `unjudgedReason` name every section the
+   budget or the window left out, and no judgment that was made is dropped. A
+   compaction whose calls all failed produces no judgment and so no record:
+   that is the pre-existing fail-open rule, whose trace is the `∅ jev offline`
+   status. The producer's own volume is now one event; a turn whose budget
+   another producer has already spent is #980/#981's problem, not this one's.
+
+4. **The record carries the cut that happened, not the cut that was asked
+   for.** `drop` next to a post-floor `bytesAfter` described two different
+   cuts. `AppliedCut` gains `droppedIds` (the ids actually left out, empty
+   when the dispatch was abandoned), and the aggregate records those.
+
+Rejected: applying a late cut after the window closed (the transcript
+accounting has moved on — a cut that arrives late is a cut that corrupts what
+it describes); keeping a per-section record and raising the cap (ADR-0032's cap
+is what keeps a runaway producer from burying the log); judging every section
+and truncating the record (ADR-0032's audit-integrity clause: nothing sampled,
+nothing truncated); aborting the window's in-flight calls at the deadline
+without reporting them (silent work loss — the record says `unjudged`).

@@ -369,9 +369,31 @@ ctx.onCompaction(({ sections, approxTokens }) => {
   event, not an emptied conversation.
 - **You learn what was actually applied.** Return an `onApplied` callback
   and the core calls it exactly once with the post-floor cut
-  (`{ keptByFloor, bytesAfter }`) before the transcript renders — the
-  place to record your judgment's outcome. A throwing `onApplied` is
-  swallowed: observability never breaks the compaction it describes.
+  (`{ keptByFloor, bytesAfter, droppedIds }`) before the transcript renders
+  — the place to record your judgment's outcome. `droppedIds` (apiVersion
+  1.9) is the cut that *happened*, after the floor restored whatever it
+  restored: record that, not your `drop`, or your record will describe two
+  different cuts. A throwing `onApplied` is swallowed: observability never
+  breaks the compaction it describes. apiVersion 1.9 (#979): it is *also*
+  called when the dispatch was abandoned — your hook answered after the
+  window closed — with `applied: false`, so a cut that reached nothing can
+  say so instead of looking like one that found nothing to drop. It is
+  still called exactly once, either way.
+- **The window is yours to fit.** `hookTimeoutMs` (apiVersion 1.9) is how
+  long the runtime will wait for this hook, starting at the call, and
+  `signal` is aborted the moment it gives up. If your work scales with the
+  covered span — one call per section, say — budget it against that
+  window (judge the largest sections first, run a few calls at a time,
+  and stop when the window is nearly out) and pass `signal` down so an
+  abandoned hook stops working instead of spending calls nobody will
+  read. On a runtime older than 1.9 neither field is sent: assume a 5 s
+  window and keep the work inside it.
+- **Record volume is your problem too.** The per-turn event cap (50
+  events per extension per *session* per turn) is a fixed property of the
+  runtime, and a compaction's records are charged to the turn that just
+  finished. An extension whose record count grows with the span — one
+  record per section, per call, per item — must aggregate instead: the
+  runtime reduces the volume, never the cap (#846 is the precedent).
 - **Fail-open, always.** A hook that throws, or that does not answer
   within the hook timeout (5 s for the whole dispatch), contributes no
   drops: compaction proceeds exactly as it would without you, with one
@@ -399,8 +421,16 @@ ctx.appendEvent({ name: "judgment", payload: { decision: "ask", score: 0.42 } })
   serialized. An oversized, cyclic or otherwise unserializable payload is
   dropped — never truncated — and reported as a visible
   `extension_failed { reason: "invalid_event" }`. Volume is capped at **50
-  events per extension per turn**: the 51st and later are dropped, with one
-  `extension_failed { reason: "event_cap" }` for that turn. Keys whose
+  events per extension per session per turn**: the 51st and later are
+  dropped, with one `extension_failed { reason: "event_cap" }` for that
+  turn, naming the session it belongs to. The budget is the *session's*: a
+  subagent child that borrows the runtime (ADR-0047) records against its
+  own turn and its own reset, so nothing a child judges can spend, or be
+  spent by, its parent's turn. Two edges worth knowing: a record made
+  outside a hook dispatch of yours (a timer you kept) has no session to
+  attribute it to and is the owner session's, and a record made before any
+  session owned the runtime (from `setup`) is the only one with no session
+  to name. Keys whose
   normalized form is exactly `apikey`, `apitoken`, `accesstoken`,
   `refreshtoken`, `token`, `secret`, `clientsecret`, `password`, `passwd`,
   `authorization`, `credentials`, `privatekey` or `sessionkey` have their
@@ -474,12 +504,14 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.8** (1.1 added `ask` and the two observation
+  current version is **1.9** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
   1.7 added `endpointCooldowns` on the `beforeTurn` context; 1.8 added
-  `session` on the `beforeTurn` context and session-attributed events).
+  `session` on the `beforeTurn` context and session-attributed events;
+  1.9 added `hookTimeoutMs` and `signal` on the `onCompaction` context
+  and the `applied: false` outcome on its `onApplied` callback).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

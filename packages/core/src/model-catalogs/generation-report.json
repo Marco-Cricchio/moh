@@ -1,26 +1,26 @@
 {
   "schemaVersion": 1,
-  "version": "0.50.0",
-  "generatedAt": "2026-09-24T11:45:26.869Z",
+  "version": "0.50.2",
+  "generatedAt": "2026-09-25T17:56:31.186Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-24T11:45:26.816Z"
+      "fetchedAt": "2026-09-25T17:56:30.688Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-24T11:45:26.831Z"
+      "fetchedAt": "2026-09-25T17:56:30.882Z"
     }
   ],
   "totals": {
     "files": 25,
     "rows": 558,
-    "exact": 509,
+    "exact": 511,
     "baseModel": 11,
     "ambiguous": 5,
-    "absent": 33,
+    "absent": 31,
     "rowsWithOverrides": 104
   },
   "files": [
@@ -496,10 +496,10 @@
       "provider": "openrouter",
       "rows": 362,
       "verdicts": {
-        "exact": 338,
+        "exact": 340,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 23
+        "absent": 21
       },
       "coverage": {
         "rows": 362,
@@ -695,8 +695,6 @@
     "openrouter/minimax/minimax-m2.7:free",
     "openrouter/minimax/minimax-m3:batch",
     "openrouter/minimax/minimax-m3:free",
-    "openrouter/mistralai/devstral-2512",
-    "openrouter/mistralai/mistral-large-2512",
     "openrouter/nex-agi/nex-n2-mini",
     "openrouter/nex-agi/nex-n2-pro",
     "openrouter/openai/gpt-4-turbo-preview",
@@ -924,8 +922,120 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [],
-    "contextWindow": [],
+    "pricing": [
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash",
+        "from": {
+          "input": 0.049,
+          "output": 0.098,
+          "cacheRead": 0.0098
+        },
+        "to": {
+          "input": 0.0476,
+          "output": 0.0952,
+          "cacheRead": 0.00952
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro",
+        "from": {
+          "input": 0.783,
+          "output": 1.566,
+          "cacheRead": 0.06525
+        },
+        "to": {
+          "input": 0.692694,
+          "output": 1.385388,
+          "cacheRead": 0.057725
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro-0813",
+        "from": {
+          "input": 0.462,
+          "output": 1.386,
+          "cacheRead": 0.0154
+        },
+        "to": {
+          "input": 0.34584,
+          "output": 1.03752,
+          "cacheRead": 0.011528
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-4-26b-a4b-it",
+        "from": {
+          "input": 0.09,
+          "output": 0.3,
+          "cacheRead": 0.05
+        },
+        "to": {
+          "input": 0.0675,
+          "output": 0.225,
+          "cacheRead": 0.0375
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3.5-lightning",
+        "from": {
+          "input": 0.08,
+          "output": 0.2,
+          "cacheRead": 0.04
+        },
+        "to": {
+          "input": 0.07,
+          "output": 0.2,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy3",
+        "from": {
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033
+        },
+        "to": {
+          "input": 0.0825,
+          "output": 0.33,
+          "cacheRead": 0.020625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~moonshotai/kimi-latest",
+        "from": {
+          "input": 0.8845,
+          "output": 10.5346,
+          "cacheRead": 0.33
+        },
+        "to": {
+          "input": 1.2,
+          "output": 10.5346,
+          "cacheRead": 0.3
+        }
+      }
+    ],
+    "contextWindow": [
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3.5-lightning",
+        "from": 262144,
+        "to": 1000000
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.2:free",
+        "from": 32768,
+        "to": 131072
+      }
+    ],
     "reasoning": []
   },
   "issues": []

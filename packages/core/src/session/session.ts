@@ -8,6 +8,8 @@ import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
+import { contextFitFor } from "../context-fit";
+import { contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
@@ -911,25 +913,88 @@ export class AgentSession {
    * (read once per turn, never mid-stream). A route with a declared
    * fallback chain is not silently rewritten — switching replaces the
    * active provider ref wholesale; re-declare chains in config.
+   *
+   * #948 context-fit guard: a target whose catalog window cannot hold
+   * the session's measured context (`contextFit(ref)`) is refused for
+   * every caller — one guard, one answer. The refusal is loud: an
+   * `{ ok: false, reason: "context_length" }` result plus exactly one
+   * `switch_refused` chrome event naming the target and the numbers;
+   * nothing is applied, no `model_switched` is appended. Unknown window
+   * and no measurement abstain (the switch proceeds).
    */
-  switchModel(ref: string): { ok: true; model: string } | { ok: false; error: string } {
+  switchModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" } {
     const trimmed = ref.trim();
     if (!trimmed) return { ok: false, error: "empty model reference" };
+    // Resolve first (an unresolvable ref stays an unresolvable-ref
+    // error, not a fit refusal — the extension skip channel already
+    // names that case)…
+    let next: Provider;
     try {
-      const next = resolveProviderRef(
+      next = resolveProviderRef(
         trimmed,
         this.#registry ?? defaultRegistry.freeze(),
         this.#endpoints,
-        this.#routeResolutionOptions,
+        // #948: the rebuilt chain (a switch replaces the active provider
+        // wholesale) skips stops that cannot hold the measured context —
+        // the same verdict the guard below enforces.
+        { ...this.#routeResolutionOptions, measuredTokens: this.lastMeasuredTokens() },
       );
-      const from = this.#provider.name;
-      if (next.name === from) return { ok: true, model: from }; // no-op: same ref, no chrome
-      this.#provider = next;
-      this.#append({ type: "model_switched", from, to: next.name });
-      return { ok: true, model: next.name };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+    const from = this.#provider.name;
+    if (next.name === from) return { ok: true, model: from }; // no-op: same ref, no chrome
+    // …then the fit wall (#948): universal, and never silent. The context
+    // that must fit is the one measured *before* the switch (a switch
+    // applies from the next turn), which is exactly what the last
+    // measured call carries at decision time.
+    const fit = this.contextFit(next.name);
+    if (!fit.fits) {
+      this.#append({
+        type: "switch_refused",
+        from,
+        to: next.name,
+        reason: "context_length",
+        measured: fit.measured!,
+        window: fit.window,
+      });
+      return {
+        ok: false,
+        reason: "context_length",
+        error: `cannot switch to ${next.name}: its context window (${fit.window} tokens) is too small for this session's measured context (${fit.measured} tokens) — /compact or pick a model with a larger window`,
+      };
+    }
+    this.#provider = next;
+    this.#append({ type: "model_switched", from, to: next.name });
+    return { ok: true, model: next.name };
+  }
+
+  /**
+   * #948: the preventive context-fit check for one target ref — the same
+   * predicate the switch guard enforces, exported so a client that can
+   * ask first does (`/model` offers auto-compact or a better-fitting
+   * model before the wall stands). Unresolvable refs read as fitting:
+   * they fail later with their own error.
+   */
+  contextFit(ref: string): import("../context-fit").ContextFitVerdict {
+    const trimmed = ref.trim();
+    const slash = trimmed.indexOf("/");
+    const name = slash > 0 ? trimmed.slice(0, slash) : trimmed;
+    const modelId = slash > 0 ? trimmed.slice(slash + 1) : undefined;
+    const profile = this.#endpoints.find((e) => e.name === name);
+    const endpointType = profile?.type ?? (this.#registry?.has(name) ? name : undefined);
+    const model = modelId ?? profile?.defaultModel;
+    const window = name && model ? contextWindowFor(`${name}/${model}`, endpointType) : 0;
+    return contextFitFor({ measured: this.lastMeasuredTokens(), window });
+  }
+
+  /** #948: the session's last measured model-call input tokens (the
+   * `#947` rule — a failed call's `{0,0}` is not a measurement), or
+   * undefined when the log holds none. The switch guard's decision-time
+   * fact: a switch applies from the next turn, so this is the context
+   * the target must hold. */
+  lastMeasuredTokens(): number | undefined {
+    return CompactionRunner.lastMeasuredCall(this.#eventLog.history())?.inputTokens;
   }
 
   /** Tools registered on this session, including connected MCP tools. */
@@ -1377,11 +1442,14 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
-    // ADR-0032: a turn begins with its user_message — the per-extension
+    // ADR-0032: a turn begins with its user_message — the per-session
     // `extension_event` cap counts per turn, so the counter resets here
-    // (steering sends are turns too).
+    // (steering sends are turns too). #981: the budget belongs to the
+    // session whose turn started: its own when it owns the runtime, the
+    // borrowed one's when it runs through the parent's.
     if (event.type === "user_message") {
-      this.#extensions?.beginTurn();
+      if (this.#extensions) this.#extensions.beginTurn(this.#sessionId);
+      else this.#borrowedHooks?.beginBorrowedTurn(this.#sessionId);
       // ADR-0037: a real (non-synthetic) user turn refills every
       // extension's synthetic-turn budget.
       if (event.synthetic !== true) this.#extensions?.noteRealTurn();
@@ -1527,6 +1595,9 @@ export class AgentSession {
     try {
       await this.#onDispose?.();
     } catch { /* reaping is best-effort at shutdown */ }
+    // #981: a borrowing session's per-session event budgets die with it —
+    // the runtime that hosted them outlives every child.
+    this.#borrowedHooks?.endBorrowedSession(this.#sessionId);
     if (!this.#extensions) return;
     // ADR-0032: statuses are ephemeral — nothing survives the session.
     this.#extensions.clearStatuses();

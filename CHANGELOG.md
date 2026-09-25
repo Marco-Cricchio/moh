@@ -7,6 +7,100 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-09-25
+
+### Added
+
+- **Context fit: a switch can no longer land on a model that cannot
+  hold the session** (#948, PR #985): every switch door — a routing extension's
+  decision, `/model`, the CLI — now passes one wall. A target whose
+  catalog window cannot hold the session's last measured input (with a
+  fixed 8192-token reserve) is refused: nothing is applied, the current
+  model stays in effect, and one visible `switch refused` line names
+  the target, the measured tokens and the window — never a silent
+  skip. The TUI `/model` picker asks first: a refused pick offers to
+  compact now and pick again, or to keep browsing for a better-fitting
+  model. The same predicate keeps the automatic fallback chain off
+  endpoints whose preferred model cannot serve the session's context.
+
+### Fixed
+
+- **The anti-injection check no longer runs out of its per-turn event
+  budget** (#980, PR #983): the check recorded one `jev_judgment` per
+  judged item — one for the turn's input, one for *every* `fetch`/`browser`
+  result — so an ordinary research turn reached the 50-events-per-turn cap
+  on its own, and from there the transcript showed `✗ extension failed
+  jev-guard` while the judgments that matter (a warning, a withheld page)
+  were the first to be dropped. The passing tool-result judgments now land
+  as ONE aggregate record per turn (`useCase: "injection_passes"`, with the
+  call count and ids — "judged and passed" stays distinguishable from
+  "never judged"), while a warning and a withheld result keep one record
+  each, unsampled and now naming the call they judged. The input half is
+  unchanged: one judgment per turn you send.
+- **The event budget is the session's** (#981, PR #984): the ADR-0032
+  per-turn cap (50 `appendEvent`s per extension per turn) was counted on the
+  runtime, and a subagent child borrows its parent's runtime — so a child's
+  judgments spent its parent's turn budget, the parent's own next `beginTurn`
+  was the only thing that ever reset the child's counter, and the single
+  cap-warning flag went to whichever session tripped it first: the parent
+  could be disarmed for the rest of its turn with no `event_cap` line
+  anywhere in its own log. Each session now has its own counter, its own
+  one-warning-per-turn and its own reset at its own turn start, and the
+  warning names the session whose budget it exhausted. The degraded footer
+  overlay is the owner's own: another session's names itself where it is
+  shown — its own transcript and log, plus one stderr line headless —
+  instead of turning the owner's footer into a runtime-wide chip for a
+  condition that is not the owner's. A borrowed session's budget is released
+  when the child disposes.
+- **The compaction cut guide works on long sessions again** (#979, PR
+  #982): the Jev cut guide made one call and wrote one `jev_judgment`
+  record per offered section, so on a long session — exactly the case
+  compaction exists for — it failed twice over: the calls blew the 5 s
+  hook window (the cut was discarded while the judge kept calling, ~13 s of
+  judgments thrown away) and the per-section records exhausted the
+  per-turn event cap, dropping the aggregate record that says what the cut
+  did. The cut is now bounded on both axes: sections are judged
+  largest-first, a few calls at a time, inside the window the hook is told
+  about (`hookTimeoutMs`, plus the abort `signal` the runtime fires when
+  it gives up — extension apiVersion 1.9), and everything judged lands in
+  ONE aggregate record carrying every verdict, the ids actually dropped
+  after the survival floor, and the outcome — `cut`, `floor`, `empty` or
+  `discarded`, so a cut the window killed can no longer look like a
+  judgment that found nothing. Sections left out (the judging budget, or
+  the window) are declared in the record, never silently sampled. The
+  transcript shows one line per compaction, and vibe mode keeps the two
+  endings that need reading: a floor-reduced cut and a discarded one.
+
+- **An announced router switch that could not be served is named at once**
+  (#945, PR #987): the router decided a switch, the endpoint's fallback
+  served a different model, and the session was told later — or never. The
+  notice was emitted lazily at the next judged turn, a path that an
+  override, a continuation message or a one-turn subagent never reaches. The
+  core already recorded both sides at the moment it happened; nothing read
+  it. The extension now reacts to that event in its hook: when the serving
+  ref stops matching the decided target it emits one visible line
+  (`jev · routing · continuing with X — Y could not serve`) and releases the
+  expectation, so the router judges from the serving model on the next turn
+  instead of freezing for the rest of the session. The lazy mismatch notice
+  stays for the other cases it covers (a changed config, an id outside the
+  tier map).
+
+### Changed
+
+- **The model catalog was regenerated from the aggregators** (#978, plus
+  a second pass before the tag): the release-time catalog check flagged
+  `openrouter.json` as drifted — the committed file no longer matched a
+  rebuild, nor the hash recorded in `manifest.json`. Regenerated with the
+  generator (ADR-0046: local and human-invoked; the release never
+  regenerates). 7 prices changed in the final pass, all on openrouter
+  (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-pro-0813`,
+  `google/gemma-4-26b-a4b-it`, `nvidia/nemotron-3.5-lightning`,
+  `tencent/hy3`, `~moonshotai/kimi-latest`) plus two context windows that
+  grew (`nvidia/nemotron-3.5-lightning` 262144 → 1000000, `z-ai/glm-5.2:free`
+  32768 → 131072) and 0 reasoning flags. No shrunk context window and no
+  issue in the generation report. `PRICING_SNAPSHOT.version` follows the
+  manifest, which declares 0.50.2.
+
 ## [0.50.1] - 2026-09-25
 
 ### Fixed
@@ -963,7 +1057,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...develop
+[0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...v0.49.0
