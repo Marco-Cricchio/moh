@@ -860,3 +860,148 @@ describe("consent precedes execution (#834 security)", () => {
     expect(existsSync(marker)).toBe(false);
   });
 });
+
+/**
+ * #981: the ADR-0032 per-turn event cap is accounted per *session*. Two
+ * sessions share one runtime (a parent and the subagent child that borrows
+ * its hooks, ADR-0047), so an instance-wide counter made a child's records
+ * spend the parent's turn budget — the pre-#981 measurement: a child judged
+ * 59 fetches, the 46 records landed in the parent's turn window, and the
+ * parent was capped at 50 with no `event_cap` line of its own.
+ */
+describe("#981: the event budget is per session", () => {
+  const echoTurn = (text: string) => [
+    { deltas: [], finish: "tool_calls" as const, toolCalls: [{ name: "echo", args: { text } }] },
+    { deltas: ["ok"], finish: "stop" as const },
+  ];
+
+  /** A runtime whose `onToolCall` records `flood` events for every judged
+   * call; `flood` is read at dispatch time so one test can change it between
+   * turns. */
+  async function workload(flood: () => number) {
+    const rt = runtime(tempDir());
+    let ctx!: ExtensionSetupContext;
+    await rt.register(
+      defineExtension({
+        name: "noisy",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (c: ExtensionSetupContext) => {
+          ctx = c;
+          c.onToolCall(() => {
+            for (let i = 0; i < flood(); i++) ctx.appendEvent({ name: "judgment", payload: { i } });
+          });
+        },
+      }),
+    );
+    return { rt, ctx };
+  }
+
+  /** `count` turns, each one tool call then a stop. */
+  const turnsOf = (count: number, label: string) =>
+    Array.from({ length: count }, (_, i) => echoTurn(`${label}${i}`)).flat();
+
+  const sessionOf = (rt: ExtensionRuntime, turns: any[], borrowed: boolean) =>
+    createSession({
+      provider: MockProvider.scripted(turns),
+      tools: { echo: echoTool },
+      ...(borrowed ? { toolHooks: rt } : { extensions: rt }),
+    });
+
+  const records = (session: ReturnType<typeof sessionOf>) =>
+    session.history().filter((e) => e.type === "extension_event") as Extract<AgentEvent, { type: "extension_event" }>[];
+  const caps = (session: ReturnType<typeof sessionOf>) =>
+    session.history().filter((e) => e.type === "extension_failed" && e.reason === "event_cap") as Extract<
+      AgentEvent,
+      { type: "extension_failed" }
+    >[];
+
+  test("a child's flood spends the child's budget: the parent's events all land, uncapped", async () => {
+    let flood = 60;
+    const { rt } = await workload(() => flood);
+    const parent = sessionOf(rt, echoTurn("p"), false);
+    const child = sessionOf(rt, echoTurn("c"), true);
+
+    await child.send("child turn");
+    // The child's whole turn is one budget: 50 records land, the rest are
+    // dropped with one visible warning naming the child's session.
+    expect(records(child)).toHaveLength(50);
+    expect(caps(child)).toHaveLength(1);
+    expect(parent.history().filter((e) => e.type === "extension_event")).toHaveLength(0);
+    expect(caps(parent)).toHaveLength(0);
+
+    // The same runtime, the same extension, a fresh budget: the parent's
+    // record lands even though the child is over its cap right now.
+    flood = 1;
+    await parent.send("parent turn");
+    expect(records(parent).map((e) => e.payload)).toEqual([{ i: 0 }]);
+    expect(caps(parent)).toHaveLength(0);
+
+    await parent.dispose();
+    await child.dispose();
+  });
+
+  test("each session's counter resets on its own turn start, and only its own", async () => {
+    const { rt, ctx } = await workload(() => 60);
+    const parent = sessionOf(rt, turnsOf(4, "p"), false);
+    const child = sessionOf(rt, turnsOf(4, "c"), true);
+
+    await parent.send("parent turn 1");
+    expect(records(parent)).toHaveLength(50);
+    expect(caps(parent)).toHaveLength(1);
+
+    // A child's turn is not the parent's next turn: the parent's budget is
+    // where its own turn left it — an append in that same window is still
+    // dropped, and its one warning for the turn is already spent.
+    await child.send("child turn 1");
+    expect(caps(child)).toHaveLength(1);
+    ctx.appendEvent({ name: "owner-post" });
+    expect(records(parent)).toHaveLength(50);
+    expect(caps(parent)).toHaveLength(1);
+
+    // …while the child's own next turn refills the child's budget, and its
+    // third warns again.
+    await child.send("child turn 2");
+    expect(caps(child)).toHaveLength(2);
+    await child.send("child turn 3");
+    expect(caps(child)).toHaveLength(3);
+
+    // The parent's own next turn refills the parent's — its records land
+    // again, and it warns again.
+    await parent.send("parent turn 2");
+    expect(records(parent)).toHaveLength(100);
+    expect(caps(parent)).toHaveLength(2);
+
+    await parent.dispose();
+    await child.dispose();
+  });
+
+  test("the footer overlay is the owner's; another session's degradation names itself", async () => {
+    const { rt } = await workload(() => 60);
+    const statuses: (string | null)[] = [];
+    rt.onStatusChange((_extension, text) => statuses.push(text));
+    const parent = sessionOf(rt, echoTurn("p"), false);
+    const child = sessionOf(rt, echoTurn("c"), true);
+
+    await child.send("child turn");
+    // The child's degradation is published (headless rides this same seam)
+    // and names the session it belongs to; the owner's footer is untouched.
+    const childOverlay = statuses.at(-1)!;
+    expect(childOverlay).toContain("event cap reached");
+    expect(childOverlay).toContain("session-");
+    expect(rt.statuses()).toEqual([]);
+
+    // The child is gone: its budget, and the overlay published for it, go
+    // with it (the runtime outlives every child it hosts).
+    await child.dispose();
+    expect(statuses.at(-1)).toBeNull();
+
+    // The owner's own degradation is the one the footer shows — unnamed,
+    // because it belongs to the session reading it.
+    await parent.send("parent turn");
+    expect(rt.statuses()).toEqual([{ extension: "noisy", text: expect.stringContaining("event cap reached") }]);
+
+    await parent.dispose();
+    expect(rt.statuses()).toEqual([]);
+  })
+});

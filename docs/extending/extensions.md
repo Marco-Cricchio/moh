@@ -389,11 +389,11 @@ ctx.onCompaction(({ sections, approxTokens }) => {
   read. On a runtime older than 1.9 neither field is sent: assume a 5 s
   window and keep the work inside it.
 - **Record volume is your problem too.** The per-turn event cap (50
-  events per extension per turn) is a fixed property of the runtime, and
-  a compaction's records are charged to the turn that just finished. An
-  extension whose record count grows with the span — one record per
-  section, per call, per item — must aggregate instead: the runtime
-  reduces the volume, never the cap (#846 is the precedent).
+  events per extension per *session* per turn) is a fixed property of the
+  runtime, and a compaction's records are charged to the turn that just
+  finished. An extension whose record count grows with the span — one
+  record per section, per call, per item — must aggregate instead: the
+  runtime reduces the volume, never the cap (#846 is the precedent).
 - **Fail-open, always.** A hook that throws, or that does not answer
   within the hook timeout (5 s for the whole dispatch), contributes no
   drops: compaction proceeds exactly as it would without you, with one
@@ -421,8 +421,12 @@ ctx.appendEvent({ name: "judgment", payload: { decision: "ask", score: 0.42 } })
   serialized. An oversized, cyclic or otherwise unserializable payload is
   dropped — never truncated — and reported as a visible
   `extension_failed { reason: "invalid_event" }`. Volume is capped at **50
-  events per extension per turn**: the 51st and later are dropped, with one
-  `extension_failed { reason: "event_cap" }` for that turn. Keys whose
+  events per extension per session per turn**: the 51st and later are
+  dropped, with one `extension_failed { reason: "event_cap" }` for that
+  turn, naming the session it belongs to. The budget is the *session's*: a
+  subagent child that borrows the runtime (ADR-0047) records against its
+  own turn and its own reset, so nothing a child judges can spend, or be
+  spent by, its parent's turn. Keys whose
   normalized form is exactly `apikey`, `apitoken`, `accesstoken`,
   `refreshtoken`, `token`, `secret`, `clientsecret`, `password`, `passwd`,
   `authorization`, `credentials`, `privatekey` or `sessionkey` have their

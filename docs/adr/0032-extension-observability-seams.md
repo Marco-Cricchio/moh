@@ -73,10 +73,19 @@ Key decisions, each with its rationale:
    passing tool-result judgments now land as one per-turn aggregate
    (`useCase: "injection_passes"`, count and call ids, split into several records when
    the ids alone would not fit §2's cap), while `warn` and the withholding `confirm`
-   band keep one record each, unsampled. Two limits stay, both visible rather than
-   silent: the aggregate is appended at the end of the turn, so a turn whose *notable*
-   records alone exhaust the cap loses it too (the existing `event_cap` report is the
-   trace), and the cap's accounting is still per runtime rather than per session (#981).
+   band keep one record each, unsampled. One limit stays, visible rather than silent:
+   the aggregate is appended at the end of the turn, so a turn whose *notable* records
+   alone exhaust the cap loses it too (the existing `event_cap` report is the trace).
+   *#981 deviation:* the budget is per **session**, not per runtime. A runtime is
+   shared by its owner and every subagent child that borrows it (ADR-0047), and an
+   instance-wide counter let a child's records spend its parent's turn budget — the
+   parent was capped mid-turn with no `event_cap` line of its own, and a child's
+   budget never reset at all (only the owner called `beginTurn`). Each session now
+   has its own counter, its own one-warning-per-turn, and its own reset at its own
+   `user_message`; the warning names the session it belongs to. §3's #846 overlay
+   follows the same scope: the footer shows the owner's own degradation, and another
+   session's degradation says whose it is (it reaches a client through the status
+   seam, one stderr line headless).
 
 4. **Redaction heuristic on the payload.** Keys whose normalized form (lowercased, `_`
    and `-` stripped) is exactly `apikey`, `apitoken`, `accesstoken`, `refreshtoken`,

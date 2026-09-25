@@ -108,11 +108,14 @@ applies to it for free (its chrome now lands where the call happened).
 - `MOH_EXTENSION_API_VERSION` is `1.8`. An extension that ignores the field
   keeps working exactly as before.
 - Known limits, left to their own tickets:
-  - The per-turn `extension_event` volume cap (#846) stays runtime-level: a
-    child's events count against the current turn's budget. Conservative
-    (drops are visible), not a leak.
   - A borrowed session's dispatch must be scoped by the core. A *future*
     borrowed seam that forgets `withSession` degrades to today's behavior
     (the owner's channel), never to a wrong log.
   - `setStatus` stays runtime-level: a status is a claim about the
     extension, and it is the owner's footer that shows it.
+
+  (The per-turn `extension_event` volume cap (#846) was one of these and is
+  closed: #981 made its accounting per **session** — its own counter, its
+  own reset at its own turn start, its own warning naming it — see the
+  ADR-0032 deviation. A borrowed session's budget is released when the
+  child disposes.)
