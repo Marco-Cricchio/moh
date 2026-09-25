@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-09-25
+
 ### Added
 
 - **Context fit: a switch can no longer land on a model that cannot
@@ -35,7 +37,7 @@ matching section here at tag time.
   "never judged"), while a warning and a withheld result keep one record
   each, unsampled and now naming the call they judged. The input half is
   unchanged: one judgment per turn you send.
-- **The event budget is the session's** (#981, PR to come): the ADR-0032
+- **The event budget is the session's** (#981, PR #984): the ADR-0032
   per-turn cap (50 `appendEvent`s per extension per turn) was counted on the
   runtime, and a subagent child borrows its parent's runtime — so a child's
   judgments spent its parent's turn budget, the parent's own next `beginTurn`
@@ -50,8 +52,8 @@ matching section here at tag time.
   instead of turning the owner's footer into a runtime-wide chip for a
   condition that is not the owner's. A borrowed session's budget is released
   when the child disposes.
-- **The compaction cut guide works on long sessions again** (#979, PR to
-  come): the Jev cut guide made one call and wrote one `jev_judgment`
+- **The compaction cut guide works on long sessions again** (#979, PR
+  #982): the Jev cut guide made one call and wrote one `jev_judgment`
   record per offered section, so on a long session — exactly the case
   compaction exists for — it failed twice over: the calls blew the 5 s
   hook window (the cut was discarded while the judge kept calling, ~13 s of
@@ -68,6 +70,35 @@ matching section here at tag time.
   the window) are declared in the record, never silently sampled. The
   transcript shows one line per compaction, and vibe mode keeps the two
   endings that need reading: a floor-reduced cut and a discarded one.
+
+- **An announced router switch that could not be served is named at once**
+  (#945, PR #987): the router decided a switch, the endpoint's fallback
+  served a different model, and the session was told later — or never. The
+  notice was emitted lazily at the next judged turn, a path that an
+  override, a continuation message or a one-turn subagent never reaches. The
+  core already recorded both sides at the moment it happened; nothing read
+  it. The extension now reacts to that event in its hook: when the serving
+  ref stops matching the decided target it emits one visible line
+  (`jev · routing · continuing with X — Y could not serve`) and releases the
+  expectation, so the router judges from the serving model on the next turn
+  instead of freezing for the rest of the session. The lazy mismatch notice
+  stays for the other cases it covers (a changed config, an id outside the
+  tier map).
+
+### Changed
+
+- **The model catalog was regenerated from the aggregators** (#978): the
+  release-time catalog check flagged `openrouter.json` as drifted — the
+  committed file no longer matched a rebuild, nor the hash recorded in
+  `manifest.json`. Regenerated with the generator (ADR-0046: local and
+  human-invoked; the release never regenerates). 9 prices changed, all on
+  openrouter (`deepseek-v4-flash`, `deepseek-v4-pro`,
+  `qwen3-vl-30b-a3b-instruct`, `glm-4.7`, `glm-5.1`, `glm-5.3`,
+  `glm-5.3-flash`, `~moonshotai/kimi-latest`, `~z-ai/glm-latest`), 0 context
+  windows and 0 reasoning flags moved, and two rows moved from
+  hand-maintained to aggregator-supplied. No shrunk context window and no
+  issue in the generation report. `PRICING_SNAPSHOT.version` follows the
+  manifest, which declares 0.50.2.
 
 ## [0.50.1] - 2026-09-25
 
@@ -1025,7 +1056,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...develop
+[0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/Marco-Cricchio/moh/compare/v0.48.0...v0.49.0
