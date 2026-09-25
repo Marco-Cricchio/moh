@@ -19,6 +19,7 @@ import type { AssembledPrompt } from "../prompt-composer";
 import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
+import { EMPTY_REASONING_PARTS, foldReasoningParts, type ReasoningParts } from "../reasoning-parts";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
@@ -173,11 +174,13 @@ export class AgentLoop {
     this.#onTurnSettled = options.onTurnSettled;
   }
 
-  /** #240: one open reasoning block of the active stream (reasoning_start
-   * … reasoning_end), plus the completed blocks of the current iteration —
+  /** #240: the open reasoning part of the active stream (`reasoning_start`
+   * … `reasoning_end`), plus the completed blocks of the current iteration —
    * they ride the iteration's assistant message parts so later calls in
-   * the same turn carry the provider's continuation artifacts. */
-  #reasoningText = "";
+   * the same turn carry the provider's continuation artifacts. The lifecycle
+   * folds through the shared `foldReasoningParts` rule (#993): the live
+   * channel of every client applies the very same fold. */
+  #reasoning: ReasoningParts = EMPTY_REASONING_PARTS;
   #iterationReasoning: ReasoningPart[] = [];
 
   /** #240: opens the model-call buffer for a new stream announcement
@@ -197,25 +200,23 @@ export class AgentLoop {
   /** #240: neutral reasoning stream bookkeeping, shared by the main and
    * wrap-up consumption loops. A call may emit several reasoning blocks;
    * each completed block is kept (never overwritten). #253: the lifecycle
-   * is also relayed to the live channel as it arrives. */
+   * is also relayed to the live channel as it arrives. The fold is the
+   * channel's one rule (#993, `reasoning-parts.ts`) — an empty part is
+   * dropped, which is what keeps a client's live buffer identical to the
+   * text this method persists. */
   #consumeReasoningEvent(event: StreamEvent): void {
     // Type guard, not a blind cast: the live channel carries exactly the
     // reasoning lifecycle, and this keeps the invariant checked if
     // StreamEvent ever grows other text-bearing variants.
     if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
       this.#emitLive?.(event);
-    }
-    if (event.type === "reasoning_start") {
-      this.#reasoningText = "";
-    } else if (event.type === "reasoning_delta") {
-      this.#reasoningText += event.text;
-    } else if (event.type === "reasoning_end") {
-      if (this.#reasoningText) {
-        const block = { text: this.#reasoningText, ...(event.continuation ? { continuation: event.continuation } : {}) };
+      const open = this.#reasoning.open;
+      this.#reasoning = foldReasoningParts(this.#reasoning, event);
+      if (event.type === "reasoning_end" && open) {
+        const block = { text: open, ...(event.continuation ? { continuation: event.continuation } : {}) };
         this.#iterationReasoning.push({ kind: "reasoning", ...block });
         this.#pendingCall?.reasoning.push(block);
       }
-      this.#reasoningText = "";
     }
   }
 
@@ -561,7 +562,7 @@ export class AgentLoop {
   #discardPendingCall(): void {
     const call = this.#pendingCall;
     this.#pendingCall = null;
-    this.#reasoningText = "";
+    this.#reasoning = EMPTY_REASONING_PARTS;
     if (!call) return;
     this.#settleReasoning(call.reasoning, false, true);
     this.#append({ type: "model_call", model: call.model, usage: { ...call.usage }, failed: true });
@@ -590,7 +591,7 @@ export class AgentLoop {
     const call = this.#pendingCall;
     if (!call) return;
     this.#pendingCall = null;
-    this.#reasoningText = "";
+    this.#reasoning = EMPTY_REASONING_PARTS;
     this.#settleReasoning(call.reasoning, outcome === "ok", outcome === "failed");
     this.#turnModels.push(call.model);
     this.#append({
