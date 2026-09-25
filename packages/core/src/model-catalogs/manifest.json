@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.50.0",
-  "generatedAt": "2026-09-24T11:45:26.869Z",
+  "version": "0.50.2",
+  "generatedAt": "2026-09-25T12:15:22.418Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-24T11:45:26.816Z"
+      "fetchedAt": "2026-09-25T12:15:21.982Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-24T11:45:26.831Z"
+      "fetchedAt": "2026-09-25T12:15:22.271Z"
     }
   ],
   "files": {
@@ -196,13 +196,13 @@
       }
     },
     "openrouter": {
-      "sha256": "696763e0e329347c88cef80e309368d86afdc43a66c8ceaa7ec27e6e14026e2f",
+      "sha256": "5ec1221d94f3487dd996df87fcba0560f6d1d2c797958a29d208a317bfaab30d",
       "rows": 362,
       "verdicts": {
-        "exact": 338,
+        "exact": 340,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 23
+        "absent": 21
       }
     },
     "qwen": {
@@ -4950,8 +4950,16 @@
     "openrouter/mistralai/devstral-2512": {
       "provider": "openrouter",
       "id": "mistralai/devstral-2512",
-      "verdict": "absent",
-      "supplied": [],
+      "verdict": "exact",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "supplied": [
+        "cost",
+        "contextWindow",
+        "maxTokens",
+        "reasoning",
+        "input"
+      ],
       "overrides": [
         "cost",
         "contextWindow",
@@ -5038,8 +5046,16 @@
     "openrouter/mistralai/mistral-large-2512": {
       "provider": "openrouter",
       "id": "mistralai/mistral-large-2512",
-      "verdict": "absent",
-      "supplied": [],
+      "verdict": "exact",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "supplied": [
+        "cost",
+        "contextWindow",
+        "maxTokens",
+        "reasoning",
+        "input"
+      ],
       "overrides": [
         "cost",
         "contextWindow",
