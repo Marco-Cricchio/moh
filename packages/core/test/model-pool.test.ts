@@ -23,6 +23,50 @@ describe("createModelPool (#787)", () => {
     expect(models.every((m) => m.ref.startsWith("a/"))).toBe(true);
   });
 
+  test("excludes endpoints explicitly opted out of automatic routing", async () => {
+    const pool = createModelPool([
+      anthropic,
+      { name: "excluded", type: "anthropic", defaultModel: "claude-sonnet-4-5", fallbackEligible: false },
+    ]);
+
+    const { models } = await pool();
+
+    expect(models.some((model) => model.ref.startsWith("excluded/"))).toBe(false);
+    expect(models.some((model) => model.ref.startsWith("a/"))).toBe(true);
+  });
+
+  test("does not live-list an excluded catalog-less endpoint", async () => {
+    let calls = 0;
+    const pool = createModelPool(
+      [{
+        name: "excluded-local",
+        type: "openai-compat",
+        baseUrl: "http://localhost:1234/v1",
+        fallbackEligible: false,
+      }],
+      {
+        listModels: async () => {
+          calls += 1;
+          return ["model"];
+        },
+      },
+    );
+
+    const { models } = await pool();
+
+    expect(calls).toBe(0);
+    expect(models).toEqual([]);
+  });
+
+  test("does not require a default model for automatic routing eligibility", async () => {
+    const pool = createModelPool([{ name: "no-default", type: "anthropic" }]);
+
+    const { models } = await pool();
+
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.every((model) => model.ref.startsWith("no-default/"))).toBe(true);
+  });
+
   test("price is the blended input+output rate; a zero-only record counts as unknown", () => {
     expect(blendedPrice({ input: 3, output: 15 })).toBe(18);
     expect(blendedPrice({ input: 0, output: 0 })).toBeUndefined();

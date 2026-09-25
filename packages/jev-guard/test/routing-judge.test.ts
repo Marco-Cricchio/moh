@@ -464,6 +464,83 @@ describe("routing judge (#787)", () => {
     expect(judge.control("banana")).toBeNull();
   });
 
+  test("#944: two interleaved sessions do not share a streak", async () => {
+    // One runtime (hence one judge) serves the owner session and every
+    // subagent child it spawns: the child's turns run `beforeTurn` through
+    // it. Their state must stay separate — the parent's hysteresis is the
+    // parent's turns only, and a child's switch is the child's.
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    const { judge } = judgeFor(fake);
+    const owner = { id: "s-owner", owner: true };
+    const child = { id: "s-child", owner: false };
+
+    // Two children, one turn each — the shape that used to complete the
+    // hysteresis between two different children.
+    expect(await judge.decide("child task one", "a/cheap", [], child)).toMatchObject({
+      decision: "stay",
+      reason: "streak",
+      streak: 1,
+    });
+    const second = await judge.decide("child task two", "a/cheap", [], { id: "s-child-2", owner: false });
+    expect(second).toMatchObject({ decision: "stay", reason: "streak", streak: 1 });
+
+    // The owner has judged nothing: no streak, no expectation, no switch.
+    expect(judge.snapshot(owner)).toMatchObject({ streak: 0, streakTier: null, decidedModel: null, expected: null });
+    expect(judge.snapshot(child)).toMatchObject({ streak: 1, streakTier: "potente" });
+
+    // The owner's own first turn is a first turn, whatever its children did.
+    const ownerFirst = await judge.decide("owner task one", "a/cheap", [], owner);
+    expect(ownerFirst).toMatchObject({ decision: "stay", reason: "streak", streak: 1 });
+    const ownerSecond = await judge.decide("owner task two", "a/cheap", [], owner);
+    expect(ownerSecond).toMatchObject({ decision: "switch", reason: "hysteresis", streak: 2, ref: "a/big" });
+  });
+
+  test("#944: a child's switch never sets or clears the owner's expectation", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    const { judge } = judgeFor(fake);
+    const owner = { id: "s-owner", owner: true };
+    const child = { id: "s-child", owner: false };
+
+    await judge.decide("child task one", "a/cheap", [], child);
+    const switched = await judge.decide("child task two", "a/cheap", [], child);
+    expect(switched).toMatchObject({ decision: "switch", ref: "a/big" });
+    judge.noteSwitch(switched!.ref!, "a/cheap", child);
+
+    // The child expects a/big — the owner expects nothing, so its serving
+    // model (never a/big) is not a mismatch it invented.
+    expect(judge.snapshot(child).expected).toBe("a/big");
+    expect(judge.snapshot(owner)).toMatchObject({ decidedModel: null, expected: null, servingAtDecision: null });
+    const mismatches: string[] = [];
+    expect(await judge.decide("owner task one", "a/cheap", [], owner)).toMatchObject({ decision: "stay", reason: "streak" });
+    expect(mismatches).toEqual([]);
+
+    // A switch that fails to apply is the child's pending one, never the
+    // owner's: the owner's own skip bookkeeping is untouched.
+    expect(judge.switchPending()).toBe(false);
+  });
+
+  test("#944: a child is born with the pause in force, never the override", async () => {
+    const fake = fakeClient({ choice: "potente", confidence: 0.9 });
+    const { judge } = judgeFor(fake);
+
+    // `/routing off` in the owner session: the work at hand is paused, and
+    // the subagents that work spawns inherit exactly that.
+    judge.control("off");
+    expect(await judge.decide("child task one", "a/cheap", [], { id: "s-child", owner: false })).toBeNull();
+    expect(fake.inputs).toHaveLength(0);
+
+    // A manual override is the user's own choice in their own session: a
+    // child is routed normally.
+    judge.control("on");
+    judge.noteModelSwitched("a/handpicked");
+    expect(judge.snapshot().override).toBe(true);
+    expect(await judge.decide("child task one", "a/cheap", [], { id: "s-child-2", owner: false })).toMatchObject({
+      decision: "stay",
+      reason: "streak",
+      streak: 1,
+    });
+  });
+
   test("the assignment is resolved once and reported once", async () => {
     const fake = fakeClient({ choice: "bilanciato" });
     const reported: unknown[] = [];

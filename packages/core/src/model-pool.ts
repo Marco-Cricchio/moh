@@ -6,6 +6,11 @@
  * receives this pool as data; the core stays free of use-case logic.
  *
  * Rules (ratified for the routing use case):
+ * - an endpoint the user opted out of automatic selection
+ *   (`fallbackEligible: false`, ADR-0012) contributes nothing: the router
+ *   is an automatic selection, so the flag means the same here as it does
+ *   for the fallback chain. `defaultModel` is *not* required — a model can
+ *   be routable without being a chain stop, so the two rules never merge.
  * - only real, configured models: an endpoint's shipped catalog, or the
  *   live listing for an endpoint with no catalog (a catalog-less
  *   openai-compat/custom host). A failed listing contributes nothing.
@@ -81,6 +86,7 @@ export function createModelPool(
       out.push(price !== undefined ? { ref, price } : { ref });
     };
     for (const endpoint of endpoints) {
+      if (endpoint.fallbackEligible === false) continue;
       const catalog = endpointModelCatalog(endpoint.type, endpoint.baseUrl);
       if (catalog.length > 0) {
         for (const model of catalog) push(`${endpoint.name}/${model.id}`, blendedPrice(model.pricing));

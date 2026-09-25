@@ -29,7 +29,7 @@ import type {
 import { createJevClient, type JevClientOptions } from "./client";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
 import { createCompactionJudge } from "./compaction-judge";
-import { createRoutingJudge, type RoutingPool } from "./routing-judge";
+import { createRoutingJudge, OWNER_SESSION, type RoutingPool } from "./routing-judge";
 import { createInjectionJudge } from "./injection-judge";
 import { INJECTION_TOOLS } from "./injection";
 import { createLintGate } from "./lint-gate";
@@ -557,13 +557,20 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         router = judge;
         ctx.beforeTurn(async (call) => {
           if (!control.isOn("routing")) return;
+          // #944: whose turn this is. A subagent child runs its turns
+          // through the parent's runtime, so the router keys its state by
+          // this identity — a child's turns can never advance the parent's
+          // streak, set the parent's expectation, or make the parent's
+          // model move. An older host (apiVersion < 1.8) sends no session:
+          // that reads as the owner, i.e. the pre-#944 behavior.
+          const session = call.session ?? OWNER_SESSION;
           // #852: the route's cooled-down chain stops ride the context —
           // the judge refuses a switch targeting a known-unhealthy model.
-          const verdict = await judge.decide(call.text, call.model, call.endpointCooldowns ?? []);
+          const verdict = await judge.decide(call.text, call.model, call.endpointCooldowns ?? [], session);
           if (!verdict || verdict.decision !== "switch" || verdict.ref === undefined) return;
           // Arm the switch before returning: the `model_switched` it causes
           // is the router's, not the user taking the wheel.
-          judge.noteSwitch(verdict.ref, call.model);
+          judge.noteSwitch(verdict.ref, call.model, session);
           return { model: verdict.ref };
         });
         // #832: routing's own notices (a mismatch, a manual override, a

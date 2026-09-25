@@ -15,7 +15,7 @@ import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../p
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime } from "../extensions";
 import { EventLog } from "./event-log";
-import { PermissionGate } from "./permission-gate";
+import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
@@ -69,6 +69,13 @@ export class AgentSession {
   /** Same-turn tool execution (#91): parallel run + gated execution. */
   readonly #toolRunner: ToolRunner;
   readonly #extensions: ExtensionRuntime | undefined;
+  /**
+   * #944 (ADR-0047): the runtime this session borrows hooks from when it
+   * owns none (a subagent child) — the object whose dispatches are scoped
+   * to *this* session, so an extension's `appendEvent` lands in this
+   * session's log and not in the owner's.
+   */
+  readonly #borrowedHooks: ExtensionRuntime | undefined;
   /** #834: are load events still held until the session's start chrome is in? */
   #extensionsHeld = false;
   /** #834: the load events held, in delivery order (= the load order). */
@@ -229,11 +236,19 @@ export class AgentSession {
     if (this.#resumeProjection) this.#eventLog.seed(this.#resumeProjection);
     this.#sessionFile = config.sessionFile;
     this.#externalGrowth = config.externalGrowth;
+    const toolHookSource = config.extensions ?? config.toolHooks;
+    const toolHookChecker: ToolHookChecker | undefined =
+      typeof toolHookSource?.checkToolHooks === "function"
+        ? {
+            checkToolHooks: (call) => this.#scopedDispatch(() => toolHookSource.checkToolHooks(call)),
+          }
+        : undefined;
     this.#gate = new PermissionGate({
       permissions: this.#permissions,
       // #784 spec §5: a subagent child owns no runtime but still judges its
-      // tool calls through the parent's (shared) hook checker.
-      extensions: config.extensions ?? config.toolHooks,
+      // tool calls through the parent's (shared) hook checker. #944: the
+      // dispatch is scoped, so the chrome it produces is the child's.
+      extensions: toolHookChecker,
       onPermissionRequest: config.onPermissionRequest,
       cwd: this.#cwd,
       append: (event) => this.#append(event),
@@ -241,12 +256,17 @@ export class AgentSession {
     // ADR-0034: the post-tool inspection seam, resolved like the gate's
     // hook checker — a subagent child owns no runtime but shares the
     // parent's, so a fetched page is judged in the child exactly as in the
-    // parent. Absent runtime = no seam: every result proceeds untouched.
-    const toolResultRuntime = config.extensions ?? config.toolHooks;
-    const toolResultHooks: ToolResultHookChecker | undefined =
-      typeof toolResultRuntime?.checkToolResultHooks === "function"
-        ? (toolResultRuntime as ToolResultHookChecker)
+    // parent (#944: scoped, so the chrome it produces is the child's).
+    // Absent runtime = no seam: every result proceeds untouched.
+    const toolResultSource: Pick<ExtensionRuntime, "checkToolResultHooks"> | undefined =
+      typeof toolHookSource?.checkToolResultHooks === "function"
+        ? (toolHookSource as Pick<ExtensionRuntime, "checkToolResultHooks">)
         : undefined;
+    const toolResultHooks: ToolResultHookChecker | undefined = toolResultSource
+      ? {
+          checkToolResultHooks: (call) => this.#scopedDispatch(() => toolResultSource.checkToolResultHooks(call)),
+        }
+      : undefined;
     this.#toolRunner = new ToolRunner({
       ...(toolResultHooks ? { toolResultHooks } : {}),
       tools: () => this.#allTools(),
@@ -329,6 +349,12 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
+    // #944: a session that owns no runtime but borrows one (`toolHooks`) is
+    // a subagent child. Its dispatches run scoped: extension chrome belongs
+    // to the child's log, and an extension's per-session state must not be
+    // the parent's.
+    const borrowedRuntime = config.extensions ? undefined : (config.toolHooks as ExtensionRuntime | undefined);
+    this.#borrowedHooks = typeof borrowedRuntime?.withSession === "function" ? borrowedRuntime : undefined;
     // ADR-0037: the session is the runtime's turn entry — an extension's
     // `ctx.requestTurn` lands here, through the queue.
     if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
@@ -494,7 +520,15 @@ export class AgentSession {
       typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn"> : undefined;
     const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
     const dispatchBeforeTurn = beforeTurnSeam
-      ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) => beforeTurnSeam.dispatchBeforeTurn(ctx)
+      ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) =>
+          this.#scopedDispatch(() =>
+            beforeTurnSeam.dispatchBeforeTurn({
+              ...ctx,
+              // #944: the hook knows which session it is judging for. Constant
+              // per session instance — children never inherit the parent's.
+              session: { id: this.#sessionId, owner: this.#extensions !== undefined },
+            }),
+          )
       : undefined;
     this.#loop = new AgentLoop({
       provider: () => this.#provider,
@@ -1325,6 +1359,21 @@ export class AgentSession {
       // Malformed user config: diagnostics degrade to defaults, per #618.
       return resolveMpmConfig({ enabled: true });
     }
+  }
+
+  /**
+   * #944 (ADR-0047): runs one hook dispatch, scoped to this session when it
+   * is a borrower of the runtime (a subagent child) — the extension events
+   * and hook failures produced inside `fn` belong to this session.
+   *
+   * The owner's own dispatches run unscoped: its channel is the runtime's
+   * single one (`onLoadEvent`), which is what keeps the load-order chrome
+   * in the log it opens.
+   */
+  #scopedDispatch<T>(fn: () => T): T {
+    const runtime = this.#borrowedHooks;
+    if (!runtime) return fn();
+    return runtime.withSession({ id: this.#sessionId, write: (event) => this.#append(event), errors: [] }, fn);
   }
 
   #append(event: AgentEvent): void {
