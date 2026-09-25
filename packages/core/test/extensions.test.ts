@@ -56,11 +56,12 @@ describe("@moh/extension contract", () => {
   test("defineExtension is an identity tag; apiVersion parses", () => {
     const def = defineExtension({ name: "x", version: "1.0.0", apiVersion: "1.0", setup: () => {} });
     expect(def.name).toBe("x");
-    // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034/ADR-0047: the ask
+    // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034/ADR-0047/#979: the ask
     // outcome, the two observability seams, the beforeTurn hook, the
-    // control channel, the post-tool inspection seam, `confirm.onResolved`
-    // and the session identity on the beforeTurn context.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 8 });
+    // control channel, the post-tool inspection seam, `confirm.onResolved`,
+    // the session identity on the beforeTurn context, and the compaction
+    // hook's own window/signal.
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 9 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });

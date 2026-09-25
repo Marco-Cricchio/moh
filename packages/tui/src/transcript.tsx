@@ -231,6 +231,9 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (record.useCase === "routing") return routingJudgmentLine(record);
   if (record.useCase === "injection") return injectionJudgmentLine(record);
   if (record.useCase === "guardrail" || record.useCase === "guardrail_passes") return guardrailJudgmentLine(record);
+  // #979: the cut guide's one aggregate record — the per-section verdicts
+  // ride its payload (the log is the audit), so the line reads the cut.
+  if (record.useCase === "compact-cut" && record.kind === "compaction") return compactionCutLine(record);
   const parts = [name.slice(0, -"_judgment".length)];
   if (typeof record.useCase === "string" && record.useCase !== "") parts.push(record.useCase);
   if (typeof record.decision === "string" && record.decision !== "") parts.push(record.decision);
@@ -369,6 +372,50 @@ function routingJudgmentLine(record: Record<string, unknown>): string {
   return `jev · routing · stay (${reason})`;
 }
 
+/** Byte counts on one chrome line: exact bytes would be noise, and the
+ * order of magnitude is what the cut is worth reading for. */
+function humanBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * #979: one compaction's cut, as one line. The four endings are
+ * deliberately distinct, because they are the difference the user needs:
+ * `discarded` never reached the summary at all, `empty` looked and found
+ * nothing to drop, and a `cut`/`floor` names how much left the input — with
+ * the sections that were not judged declared, never silently implied.
+ */
+function compactionCutLine(record: Record<string, unknown>): string {
+  const num = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const offered = num(record.offered);
+  const judged = num(record.judged);
+  const dropped = Array.isArray(record.dropped) ? record.dropped.length : undefined;
+  const unjudged = num(record.unjudged);
+  const partial =
+    unjudged !== undefined && unjudged > 0
+      ? ` · ${unjudged} not judged (${typeof record.unjudgedReason === "string" ? record.unjudgedReason : "unknown"})`
+      : "";
+  if (record.outcome === "discarded") {
+    return `jev · compact-cut · discarded — the hook window expired, nothing was dropped${partial}`;
+  }
+  if (record.outcome === "empty") {
+    return `jev · compact-cut · judged ${judged ?? 0} section(s), nothing dropped${partial}`;
+  }
+  const before = num(record.bytesBefore);
+  const after = num(record.bytesAfter);
+  const sizes = before !== undefined && after !== undefined ? ` (${humanBytes(before)} → ${humanBytes(after)})` : "";
+  const floor = record.keptByFloor === true ? ", reduced by the survival floor" : "";
+  if (record.outcome === "floor" || record.outcome === "cut") {
+    return `jev · compact-cut · dropped ${dropped ?? 0} of ${offered ?? 0} section(s)${sizes}${floor}${partial}`;
+  }
+  // A record from a shape this renderer does not know: name it, never guess.
+  return `jev · compact-cut`;
+}
+
 /**
  * #791, #843: the judgments the transcript leaves out. The record is in the
  * log (every judgment is), the line is not: an injection pass below the
@@ -433,6 +480,12 @@ function survivesVibe(name: string, payload: unknown): boolean {
       return decision === "switch" || record.reason === "no-viable-candidate";
     case "lint":
       return decision === "correct";
+    case "compact-cut":
+      // #979: a routine cut (and a judged-nothing one) is measured, not
+      // read — but the two endings the user must not miss survive: the cut
+      // the survival floor reduced, and the one the hook window discarded
+      // altogether (nothing else would mention it).
+      return record.outcome === "floor" || record.outcome === "discarded";
     default:
       // classification, rerank and any future judgment: measured, not read.
       return false;
