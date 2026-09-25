@@ -12,7 +12,7 @@ import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
-import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, INLINE_SIGNIFICANT, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import type { JevStatusSummary } from "./jev-control";
@@ -880,15 +880,12 @@ export function Chat({
       const source = block.markdown!;
       const rows = rowsOf(block);
       const closed = lastContentKey !== undefined && key !== lastContentKey;
-      // The open tail still grows: its source is already truncated to the
-      // revealed prefix, so only rows of paragraphs a blank line has already
-      // closed are wrap-stable — and even those withhold their last row,
-      // which may still absorb text. A closed block promotes in one chunk:
-      // its rows are frozen, and splitting it (head row first, rest later)
-      // left the remainder volatile behind a promoted later block.
-      const lastParaStart = state.pending ? source.lastIndexOf("\n\n") + 1 : 0;
-      const stablePrefix = state.pending ? source.slice(0, lastParaStart) : source;
-      const stable = closed ? rows.length : Math.max(0, renderRows(stablePrefix).length - (state.pending ? 1 : 0));
+      // What may print is one rule, owned by the transcript module
+      // (`openBlockStableRows`): a closed block is frozen (#970) and promotes
+      // whole; an open one promotes the rows of its inert prefix minus the
+      // last one, so a long paragraph stops being invisible while it forms
+      // (#972) without freezing a row later text can still re-read.
+      const stable = openBlockStableRows(source, rows, renderRows, closed, state.pending);
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");
@@ -1260,7 +1257,7 @@ interface MarkdownReplyChain { key: string; startIndex: number; chunks: Transcri
  * promotion path. The fast path is only for ordinary model prose. */
 export function isPlainStreamingProse(source: string | undefined): source is string {
   if (!source) return false;
-  return !/[`*_[\]<>|&\\]/.test(source)
+  return !INLINE_SIGNIFICANT.test(source)
     && !/ {2}\n/.test(source)
     && !/^\s{0,3}(?:#{1,6}\s|>|[-+=]{3,}\s*$|[-+]\s|\d+[.)]\s|~{3,})/m.test(source);
 }
