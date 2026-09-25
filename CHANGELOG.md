@@ -7,6 +7,50 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.50.3] - 2026-09-26
+
+### Fixed
+
+- **Live reasoning no longer floods native scrollback with blank rows**
+  (#993, PRs #994, #1001): a provider may announce a reasoning part per stream chunk —
+  measured live: 637 `reasoning_start` for one call, most of them carrying
+  nothing — and the TUI's live buffer appended a paragraph break on every
+  announcement. One empty part per chunk became one phantom blank row, and
+  because the reasoning rows are promoted into native scrollback one per
+  frame, a long thinking phase printed hundreds of empty rows: the reply was
+  shoved out of the visible area and the finished reply sat in scrollback
+  separated by large gaps (1303 of 1452 pushed rows blank at 100×24; 1270 of
+  1389 in tmux at 149×40). The lifecycle's fold is now one rule in the core
+  (`reasoning-parts.ts`, ADR-0048) — an announced part without text
+  contributes nothing, kept parts join with one blank line — and the log and
+  the live channel both apply it, so a client's live text is the persisted
+  text plus the part still open, whatever shape the provider streams.
+  Reasoning display was affected only with `showReasoning: true`. The wire
+  dialect now coalesces one reasoning run into one announced part (#993):
+  `mergeReasoning` no longer treats whitespace-only `content` deltas as the
+  end of a run — several backends stream them alongside every reasoning
+  chunk — so a run closes at the first content-bearing reply delta or tool
+  call, with the complete continuation metadata, and the announcement rate
+  no longer tracks the wire's padding. Deltas still stream live.
+
+### Changed
+
+- **The model catalog was regenerated before the tag, and one row was
+  declared by hand**: the release-time catalog check flagged
+  `openrouter.json` as drifted again, and the rebuild surfaced a real loss
+  behind the drift. OpenRouter retired the free GLM 5.2 variant from its
+  listing, so the row lost the aggregator record it carried three hours
+  earlier and would have shipped with no context window at all — and the
+  guard stayed silent, because that row's sidecar entry carried
+  `acceptContextShrink`, which mutes the guard for the row it declares.
+  `z-ai/glm-5.2:free` is now declared fully hand-maintained, pinning its
+  window to the last value the aggregator gave (131072) instead of letting
+  it disappear from the catalog. 4 prices changed, all on openrouter
+  (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-pro-0813`,
+  `~deepseek/deepseek-v4-flash-latest`), 0 context windows and 0 reasoning
+  flags; no issue and no shrink in the generation report.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.50.3.
+
 ## [0.50.2] - 2026-09-25
 
 ### Added
@@ -1057,7 +1101,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...develop
+[0.50.3]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...v0.50.3
 [0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/Marco-Cricchio/moh/compare/v0.49.0...v0.50.0

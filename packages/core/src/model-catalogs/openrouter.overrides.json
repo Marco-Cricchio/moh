@@ -5653,12 +5653,13 @@
       }
     },
     "z-ai/glm-5.2:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (v0.50.3)",
+      "date": "2026-09-26",
+      "reason": "no aggregator record: the row is fully hand-maintained; OpenRouter retired the free variant from its listing, so the window is pinned to the last value it declared instead of silently disappearing",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Z.ai: GLM 5.2 (free)",
+      "contextWindow": 131072,
       "thinkingLevelMap": {
         "off": "none",
         "minimal": null,
@@ -5671,8 +5672,7 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      },
-      "acceptContextShrink": true
+      }
     },
     "z-ai/glm-5.3": {
       "author": "moh migration (#959)",

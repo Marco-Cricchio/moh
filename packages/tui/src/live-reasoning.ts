@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentSession } from "@moh/core";
+import { EMPTY_REASONING_PARTS, foldReasoningParts, reasoningPartsText, type AgentSession, type ReasoningParts } from "@moh/core";
 import { capReasoningText } from "./transcript";
 
 /**
@@ -9,6 +9,14 @@ import { capReasoningText } from "./transcript";
  * update per ~33ms frame (docs/tui-style-guide.md §1 Q3) and the display
  * buffer is capped exactly like settled reasoning blocks (64 KiB, the
  * full text always lands in the session log instead).
+ *
+ * The lifecycle folds through the core's `foldReasoningParts` — the same
+ * rule the log applies (#993). It used to append a paragraph break on every
+ * `reasoning_start`, but a provider may announce one part per stream chunk
+ * (measured: 637 per call), so the live buffer grew hundreds of empty rows
+ * the settled transcript never has, and Chat printed them one per frame as
+ * blank rows in native scrollback. Folding here keeps the live text a
+ * prefix of what the log will hold, whatever shape the provider streams.
  *
  * The block stays visible (frozen) after `reasoning_end` until the
  * completed `reasoning` AgentEvent — or the call/turn boundary — lands in
@@ -24,12 +32,14 @@ export interface LiveReasoningState {
 export function useLiveReasoning(session: AgentSession | null, pending: boolean): LiveReasoningState | null {
   const [state, setState] = useState<LiveReasoningState | null>(null);
   const current = useRef<LiveReasoningState | null>(null);
+  const parts = useRef<ReasoningParts>(EMPTY_REASONING_PARTS);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!session) return;
     setState(null);
     current.current = null;
+    parts.current = EMPTY_REASONING_PARTS;
     let stopped = false;
 
     const flush = () => {
@@ -42,6 +52,7 @@ export function useLiveReasoning(session: AgentSession | null, pending: boolean)
     };
     const clear = () => {
       current.current = null;
+      parts.current = EMPTY_REASONING_PARTS;
       if (timer.current !== null) {
         clearTimeout(timer.current);
         timer.current = null;
@@ -50,26 +61,19 @@ export function useLiveReasoning(session: AgentSession | null, pending: boolean)
     };
 
     const off = session.onLiveEvent((event) => {
-      const prev = current.current ?? { text: "", active: true };
-      if (event.type === "reasoning_start") {
-        // One provider call may emit multiple reasoning parts. Keep one
-        // cumulative live display buffer, matching the settled projection's
-        // `texts.join("\n\n")`, so Static promotion remains monotonic.
-        current.current = { text: prev.text ? `${prev.text}\n\n` : "", active: true };
-        // Lifecycle edges are ordering barriers for Chat's append-only
-        // promotion: publish them immediately; only text deltas coalesce.
-        flush();
-      } else if (event.type === "reasoning_delta") {
-        current.current = { text: capReasoningText(prev.text + event.text), active: true };
-        schedule();
+      if (event.type === "reasoning_start" || event.type === "reasoning_delta") {
+        parts.current = foldReasoningParts(parts.current, event);
+        current.current = { text: capReasoningText(reasoningPartsText(parts.current)), active: true };
       } else if (event.type === "reasoning_end") {
-        current.current = { text: prev.text, active: false };
-        if (timer.current !== null) {
-          clearTimeout(timer.current);
-          timer.current = null;
-        }
-        flush();
+        parts.current = foldReasoningParts(parts.current, event);
+        current.current = { text: capReasoningText(reasoningPartsText(parts.current)), active: false };
+      } else {
+        return; // tool progress rides the same channel; not reasoning
       }
+      // Lifecycle edges are ordering barriers for Chat's append-only
+      // promotion: publish them immediately; only text deltas coalesce.
+      if (event.type === "reasoning_delta") schedule();
+      else flush();
     });
     // The volatile block ends its life when the settled block (or the
     // call/turn boundary) reaches the persisted log. This is a second
