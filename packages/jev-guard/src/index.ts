@@ -596,6 +596,24 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             });
             return;
           }
+          // #948: a refused context-fit switch is the fit sibling of the
+          // invalid_model skip. The core already appended the visible
+          // `switch_refused` record — never duplicated here — so the
+          // router's own channel only drops the pending mark and notes
+          // why its target was not served.
+          if (event.type === "switch_refused") {
+            if (!judge.switchPending()) return;
+            judge.dropPendingSwitch();
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: {
+                kind: "switch-skipped",
+                reason: "context_length",
+                target: judge.snapshot().decidedModel,
+              },
+            });
+            return;
+          }
           if (event.type !== "model_switched" || typeof event.to !== "string") return;
           judge.clearPendingSwitch();
           if (!judge.noteModelSwitched(event.to)) return;
