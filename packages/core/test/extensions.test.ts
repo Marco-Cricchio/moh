@@ -56,10 +56,11 @@ describe("@moh/extension contract", () => {
   test("defineExtension is an identity tag; apiVersion parses", () => {
     const def = defineExtension({ name: "x", version: "1.0.0", apiVersion: "1.0", setup: () => {} });
     expect(def.name).toBe("x");
-    // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034: the ask outcome, the
-    // two observability seams, the beforeTurn hook, the control channel,
-    // the post-tool inspection seam and `confirm.onResolved`.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 7 });
+    // ADR-0031/ADR-0032/ADR-0033/ADR-0038/ADR-0034/ADR-0047: the ask
+    // outcome, the two observability seams, the beforeTurn hook, the
+    // control channel, the post-tool inspection seam, `confirm.onResolved`
+    // and the session identity on the beforeTurn context.
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 8 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
@@ -236,6 +237,121 @@ describe("apiVersion policy (additive-only)", () => {
     expect(await rt.register(defineExtension({ name: "a", version: "1", apiVersion: "1.2", setup: () => {} }))).toBe(true);
     expect(await rt.register(defineExtension({ name: "b", version: "1", apiVersion: "1.0", setup: () => {} }))).toBe(true);
     expect(rt.instances.map((i) => i.def.name)).toEqual(["a", "b"]);
+  });
+
+  test("#944: a hook dispatch names the session it runs for", async () => {
+    const seen: { id: string; owner: boolean }[] = [];
+    const { session } = await setup(
+      defineExtension({
+        name: "ctx",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.beforeTurn((call) => {
+            if (call.session) seen.push({ id: call.session.id, owner: call.session.owner });
+          });
+        },
+      }),
+    );
+    await session.send("hi");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.owner).toBe(true);
+    expect(typeof seen[0]!.id).toBe("string");
+  });
+
+  test("#944: a borrowed session's dispatch carries its identity, not the owner's", async () => {
+    // The subagent wiring: a session with no runtime of its own borrows the
+    // parent's through `toolHooks`, and its `beforeTurn` dispatch must say
+    // which of the two sessions it is judging.
+    const seen: { id: string; owner: boolean }[] = [];
+    const rt = runtime(tempDir());
+    await rt.register(
+      defineExtension({
+        name: "ctx",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.beforeTurn((call) => {
+            if (call.session) seen.push({ id: call.session.id, owner: call.session.owner });
+          });
+        },
+      }),
+    );
+    const parent = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), extensions: rt });
+    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), toolHooks: rt });
+    await child.send("child turn");
+    await parent.send("parent turn");
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]!.owner).toBe(false);
+    expect(seen[1]!.owner).toBe(true);
+    expect(seen[0]!.id).not.toBe(seen[1]!.id);
+    await parent.dispose();
+    await child.dispose();
+  });
+
+  test("#944: an extension event appended by a borrowed session lands in that session's log", async () => {
+    const rt = runtime(tempDir());
+    await rt.register(
+      defineExtension({
+        name: "noisy",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.beforeTurn((call) => {
+            ctx.appendEvent({ name: "judgment", payload: { owner: call.session?.owner ?? null } });
+          });
+        },
+      }),
+    );
+    const parent = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), extensions: rt });
+    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), toolHooks: rt });
+
+    await child.send("child turn");
+    // The child's chrome is the child's: the parent's transcript — the one
+    // the user reads — carries none of it.
+    const events = (s: typeof parent) =>
+      s.history().filter((e) => e.type === "extension_event" && e.name === "judgment") as Extract<
+        AgentEvent,
+        { type: "extension_event" }
+      >[];
+    expect(events(child)).toHaveLength(1);
+    expect(events(child)[0]!.payload).toEqual({ owner: false });
+    expect(events(parent)).toEqual([]);
+
+    await parent.send("parent turn");
+    expect(events(parent)).toHaveLength(1);
+    expect(events(parent)[0]!.payload).toEqual({ owner: true });
+    await parent.dispose();
+    await child.dispose();
+  });
+
+  test("#944: a hook failure of a borrowed session is the borrower's event", async () => {
+    const rt = runtime(tempDir());
+    await rt.register(
+      defineExtension({
+        name: "throws",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.beforeTurn(() => {
+            throw new Error("boom in the child");
+          });
+        },
+      }),
+    );
+    const parent = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), extensions: rt });
+    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), toolHooks: rt });
+
+    await child.send("child turn");
+    const failures = (s: typeof parent) => s.history().filter((e) => e.type === "extension_failed");
+    expect(failures(child).length).toBeGreaterThan(0);
+    expect(failures(child)[0]).toMatchObject({ name: "throws", reason: "hook" });
+    expect(failures(parent)).toEqual([]);
+    // Fail-open: the child's turn ran anyway.
+    expect(child.history().some((e) => e.type === "done")).toBe(true);
+    await parent.dispose();
+    await child.dispose();
   });
 
   test("failed setup: warning, session continues", async () => {

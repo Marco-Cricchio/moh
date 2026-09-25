@@ -356,18 +356,15 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         tail: 20,
         rawDump,
       });
-      // 888 regression signature: settled rows re-printed wholesale at
-      // settle (a second "◆ moh" header + reply block). Deterministic
-      // over the raw byte stream: after the reply's LAST row paint there
-      // must be no re-printed reply header and the final rows paint
-      // exactly once each.
-      const raw = readFileSync(rawDump, "utf8");
-      const lastFirst = raw.lastIndexOf("FIRST-COMPLETED-LINE");
-      expect(lastFirst).toBeGreaterThan(0);
-      const tail = raw.slice(lastFirst);
-      expect(tail.split("◆ moh").length - 1, "reply header re-printed").toBeLessThanOrEqual(1);
-      for (const marker of ["MIDDLE-LINE-15", "LAST-LIVE-LINE"]) {
-        expect(tail.split(marker).length - 1, marker).toBeLessThanOrEqual(1);
+      // Repaint bytes are not terminal history: a volatile row may paint
+      // repeatedly before promotion. Assert the actual settled transcript,
+      // combining native scrollback and the visible screen exactly once.
+      const settled = meta.checkpoints!.settled!;
+      const transcript = [...settled.scrollback, ...settled.lines.map(line => line.text)].join("\n");
+      expect(meta.aliveAtEnd).toBe(true);
+      expect(transcript).toContain("✓ done");
+      for (const marker of ["◆ moh", "FIRST-COMPLETED-LINE", "MIDDLE-LINE-15", "LAST-LIVE-LINE", "STREAM-FINISHED"]) {
+        expect(transcript.split(marker).length - 1, `${marker} in terminal history`).toBe(1);
       }
     } finally {
       server.stop(true);

@@ -46,7 +46,8 @@ eligible endpoint, and the transcript shows a notice naming both.
 Every endpoint that can serve as a stop is in the chain, in declaration
 order, each using **its own preferred model** (`defaultModel`). An
 endpoint is not a stop when it has no preferred model, when it is
-excluded from the chain (`fallbackEligible: false`), or when its
+excluded from the chain (`fallbackEligible: false` — the same exclusion
+keeps its models out of the Jev router's pool), or when its
 provider type cannot be a stop (only built-in types and `openai-compat`
 can). *Settings → Fallback models* lists every endpoint with the model
 it would serve and, for one that cannot be a stop, the reason — so the

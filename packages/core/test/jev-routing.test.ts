@@ -176,6 +176,118 @@ describe("Jev routing in a session (#787)", () => {
     await session.dispose();
   });
 
+  test("#944: a child's turns never advance the parent's router state", async () => {
+    // A subagent child runs its turns through the parent's runtime
+    // (`toolHooks`), which is what makes this the real seam: same judge,
+    // same pool, same client — and two sessions' state that must not mix.
+    const served: string[] = [];
+    const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
+    await rt.register(
+      createJevGuardExtension({
+        apiKey: "sk-test",
+        fetchImpl: choice("potente", 0.9),
+        routing: { pool: async () => ({ models }) },
+        enabled: true,
+        classification: false,
+      }),
+    );
+    const registry = new ProviderRegistry()
+      .registerProvider("pa", () => recording(served, "pa/m"))
+      .registerProvider("pb", () => recording(served, "pb/m"));
+    const parent = createSession({ provider: "pa", registry, extensions: rt });
+    // Two children, one turn each, in the same parent turn (the shape #944
+    // reports): two sandwiched judgments that used to complete the
+    // hysteresis *between children*.
+    const childA = createSession({ provider: "pa", registry, toolHooks: rt });
+    const childB = createSession({ provider: "pa", registry, toolHooks: rt });
+
+    await childA.send("hard task one");
+    await childB.send("hard task two");
+
+    // Neither child moved: a first turn is a first turn, whatever its
+    // siblings judged.
+    expect(childA.activeModel).toBe("pa/m");
+    expect(childB.activeModel).toBe("pa/m");
+    expect(childA.history().some((e) => e.type === "model_switched")).toBe(false);
+    expect(childB.history().some((e) => e.type === "model_switched")).toBe(false);
+
+    // The parent's state is untouched: no streak, no expectation, no
+    // mismatch it invented — and its own following turn is a first turn.
+    const parentState = (parent.extensionState("jev-guard", "routingState") as () => Record<string, unknown>)();
+    expect(parentState).toMatchObject({ streak: 0, streakTier: null, decidedModel: null, expected: null });
+
+    // #944 §3: the children's judgments are the children's — the parent's
+    // transcript carries none of them.
+    const parentJudgments = (s: typeof parent) =>
+      s
+        .history()
+        .filter((e): e is Extract<typeof e, { type: "extension_event" }> => e.type === "extension_event" && e.name === "jev_judgment");
+    expect(parentJudgments(parent)).toEqual([]);
+    for (const child of [childA, childB]) expect(parentJudgments(child)).toHaveLength(1);
+
+    // ...and the parent's own next turn is judged once, in its own log.
+    await parent.send("hard task three");
+    expect(parent.activeModel).toBe("pa/m");
+    expect(parentJudgments(parent)).toHaveLength(1);
+    expect(parentJudgments(parent)[0]!.payload).toMatchObject({ useCase: "routing", reason: "streak", streak: 1 });
+
+    await parent.dispose();
+    await childA.dispose();
+    await childB.dispose();
+  });
+
+  test("#944: a paused parent pauses the subagents it spawns, not the reverse", async () => {
+    const served: string[] = [];
+    const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({
+          model: "jev-latest",
+          answers: {
+            difficulty: { type: "choice", choice: "potente", probabilities: { potente: 0.9 }, confidence: 0.9 },
+            needs_context: { type: "noul", noul: 0 },
+          },
+          usage: { input_tokens: 40, output_tokens: 4 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    await rt.register(
+      createJevGuardExtension({
+        apiKey: "sk-test",
+        fetchImpl,
+        routing: { pool: async () => ({ models }) },
+        enabled: true,
+        classification: false,
+      }),
+    );
+    const registry = new ProviderRegistry()
+      .registerProvider("pa", () => recording(served, "pa/m"))
+      .registerProvider("pb", () => recording(served, "pb/m"));
+    const parent = createSession({ provider: "pa", registry, extensions: rt });
+
+    // `/routing off` after the first judged turn: the pause is the user's
+    // statement about the work at hand, so a child spawned afterwards does
+    // not route either — while the parent's own earlier turn did.
+    await parent.send("hard task one");
+    expect(calls).toBe(1);
+    parent.setExtensionState("jev-guard", { cmd: "off" });
+    await Bun.sleep(5);
+
+    const child = createSession({ provider: "pa", registry, toolHooks: rt });
+    await child.send("hard task two");
+    expect(calls).toBe(1);
+    expect(child.activeModel).toBe("pa/m");
+
+    // The pause is a command in the parent's session: the child never
+    // received it, and never wrote one of its own.
+    expect(child.history().some((e) => e.type === "extension_control")).toBe(false);
+    await parent.dispose();
+    await child.dispose();
+  });
+
   test("low confidence keeps the current model and still records the turn", async () => {
     const served: string[] = [];
     const session = await routingSession(choice("potente", 0.4), models, served);

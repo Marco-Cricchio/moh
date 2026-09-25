@@ -65,7 +65,10 @@ All keys are optional. Notes:
   preferred model is never a fallback stop.
 - `endpoints[].fallbackEligible` — `false` keeps the endpoint out of the
   automatic fallback chain while keeping its preferred model (default
-  `true`). Set it from Settings → *Fallback models* (`x`) or
+  `true`). It also keeps the endpoint's models out of the Jev router's
+  pool, so automatic routing (Jev's *Model routing* use case) never picks a
+  model on an endpoint you excluded. Set it from Settings → *Fallback
+  models* (`x`) or
   `moh provider fallback <endpoint> --exclude` / `--include`.
 - `endpoints[].billingPlan` — how this endpoint pays: `"metered"` (an API
   key, the default) or `"subscription"` (a plan). It selects which catalog

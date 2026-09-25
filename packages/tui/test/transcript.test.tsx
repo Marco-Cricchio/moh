@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
-import { blockTint, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
+import { blockTint, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, inertPrefixLength, openBlockStableRows, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
+import { createMarkdownRenderer, renderMarkdownRows } from "../src/markdown";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -618,5 +619,103 @@ describe("synthetic user_message (ADR-0037)", () => {
     const human = blocks.find((b) => b.type === "you")!;
     expect(human.glyph).toBe("›");
     expect(human.lines[0]).not.toContain("[automatic correction]");
+  });
+});
+
+// The open-tail rule of the live promotion (#972): rows of an OPEN assistant
+// block may print only where later text cannot re-read them.
+describe("open-block stability — what may print while a reply streams (#972)", () => {
+  const WIDTH = 40;
+  const md = createMarkdownRenderer(THEMES["tokyo-night"], WIDTH);
+  const rowsOf = (text: string) => renderMarkdownRows(text, md, WIDTH);
+  const stable = (source: string, closed = false, pending = true) => openBlockStableRows(source, rowsOf(source), rowsOf, closed, pending);
+  const PARAGRAPH = `PSTART ${Array.from({ length: 12 }, (_, i) => `word-${i} the core owns the agent loop`).join(" ")} PEND`;
+
+  test("inert prose promotes every row but the last — a paragraph with no blank line is not invisible (the #972 shape)", () => {
+    const rows = rowsOf(PARAGRAPH);
+    expect(rows.length).toBeGreaterThan(4);
+    expect(inertPrefixLength(PARAGRAPH)).toBe(PARAGRAPH.length);
+    expect(stable(PARAGRAPH)).toBe(rows.length - 1);
+  });
+
+  test("the inert prefix ends at the first character later text can pair with", () => {
+    expect(inertPrefixLength("plain text here, nothing to re-read")).toBe("plain text here, nothing to re-read".length);
+    expect(inertPrefixLength("plain *emphasis")).toBe("plain ".length);
+    expect(inertPrefixLength("plain `code")).toBe("plain ".length);
+    expect(inertPrefixLength("see [a link")).toBe("see ".length);
+    expect(inertPrefixLength("a hard  \nbreak")).toBe("a hard".length);
+    // A setext underline in progress re-reads the line above: one dash is
+    // enough for CommonMark, so the in-progress line counts too.
+    expect(inertPrefixLength("heading\n---")).toBe("heading\n".length);
+    expect(inertPrefixLength("heading\n-")).toBe("heading\n".length);
+    expect(inertPrefixLength("heading\n===")).toBe("heading\n".length);
+    expect(inertPrefixLength("heading\n- list item later")).toBe("heading\n".length);
+  });
+
+  test("a row the prefix does not render identically is never promoted", () => {
+    // The setext underline turns the line above into a heading: the row is
+    // still volatile, so Static cannot freeze the paragraph styling.
+    expect(stable("a paragraph that becomes a heading\n---")).toBe(0);
+    // Table header row: the delimiter row re-reads the row above it.
+    expect(stable("| a | b |\n|---|---|")).toBe(0);
+    expect(stable("| a | b |\n|---|---|\n| 1 | 2 |")).toBe(0);
+    // Emphasis and code spans pairing across a soft break change the rows
+    // above them — nothing prints.
+    expect(stable("plain lead-in then *emphasis\nacross a soft break*")).toBe(0);
+    expect(stable("plain lead-in then `code\nacross a soft break`")).toBe(0);
+  });
+
+  test("no promoted row's TEXT ever changes when more text arrives: the append-only property", () => {
+    const appends = [" more words", "\n---", "\n| x |", " **bold**", "`code", "\n\nnext paragraph"];
+    const sources = [
+      PARAGRAPH,
+      `para one\n\n${PARAGRAPH}`,
+      "intro line\nsecond line of the same paragraph keeps going here",
+      "closes later\n- list item",
+    ];
+    const text = (rows: readonly string[]) => rows.map((row) => stripAnsi(row));
+    for (const source of sources) {
+      for (const append of appends) {
+        const printed = stable(source);
+        // What printed for `source` is still what `source + append` renders
+        // at those indices — the row's text is final, as promised. Static is
+        // append-only, so a row that could be re-read would be lost forever.
+        expect(text(rowsOf(source + append)).slice(0, printed)).toEqual(text(rowsOf(source)).slice(0, printed));
+      }
+    }
+  });
+
+  test("a setext underline over an already-printed row can only restyle it (the documented residue)", () => {
+    const printed = rowsOf(PARAGRAPH);
+    // While the paragraph is open nothing promotes past the boundary row.
+    expect(stable(PARAGRAPH)).toBe(printed.length - 1);
+    // The underline re-reads the line above as a heading: its rows stop
+    // being promotable from that render on, and the text is unchanged, so
+    // the already printed row keeps the paragraph styling (no repaint, no
+    // lost text — the residue ADR-0047 accepts).
+    expect(stable(`${PARAGRAPH}\n---`)).toBe(0);
+    expect(stripAnsi(rowsOf(`${PARAGRAPH}\n---`)[0]!)).toBe(stripAnsi(printed[0]!));
+  });
+
+  test("a closed block promotes whole, and a settled block is not cut", () => {
+    expect(stable(PARAGRAPH, true)).toBe(rowsOf(PARAGRAPH).length);
+    expect(stable(PARAGRAPH, false, false)).toBe(rowsOf(PARAGRAPH).length);
+  });
+
+  test("inert prose is not stopped by a blank line; a markdown paragraph behind one still promotes", () => {
+    const inert = "first paragraph of the reply, long enough to wrap a few times over here\n\nsecond paragraph still streaming";
+    const inertRows = rowsOf(inert);
+    // Nothing in the source can re-read it, so the whole block is inert and
+    // wrap stability governs: every row but the last may print, blank line
+    // and all.
+    expect(inertPrefixLength(inert)).toBe(inert.length);
+    expect(stable(inert)).toBe(inertRows.length - 1);
+    // With markdown in the tail the inert prefix stops at it; the blank line
+    // is still a boundary, but the row withheld is the prefix's tail (the
+    // half-written second paragraph), not the closed paragraph's last row —
+    // a blank line has already frozen that one (#970).
+    const mixed = "first paragraph of the reply, long enough to wrap a few times over here\n\nsecond paragraph with **bold** in it";
+    const firstParagraph = "first paragraph of the reply, long enough to wrap a few times over here\n\n";
+    expect(stable(mixed)).toBe(rowsOf(firstParagraph).length);
   });
 });

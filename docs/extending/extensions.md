@@ -100,7 +100,7 @@ permissions. Within one turn, the ordering is:
 
 1. `onSessionStart` — once, at session start.
 2. Per user send: `beforeTurn` — read-only context
-   (`{ text, turnIndex, model }`), and the only hook that can influence
+   (`{ text, turnIndex, model, session }`), and the only hook that can influence
    *which model serves the turn*: return `{ model: "<endpoint>/<model-id>" }`
    and that model serves the turn the hook was called for. Return
    `{ confirm: { reason, onResolved? } }` to ask the user before the turn is
@@ -154,6 +154,44 @@ ctx.beforeTurn(({ text, turnIndex, model }) => {
   `extension_failed { reason: "hook" }` and the turn proceeds.
 - Subagent children get the hook too (a child's switch lands in the child's
   own log), and never for their in-turn follow-up calls.
+- `session` (apiVersion 1.8) names **whose turn this is** — see
+  "One runtime, many sessions" below.
+
+## One runtime, many sessions
+
+A subagent child owns no runtime: it runs its turns through its parent's, so
+your hooks fire for the child too (that is what makes a child's tool calls
+guarded and its prompts routed). Two things follow, and both are yours to
+respect:
+
+- **`ctx.state` is per runtime, not per session.** Whatever you park there —
+  or in a closure created during `setup` — is shared by the parent session
+  and every child it spawns. State that describes a *conversation* (a streak,
+  an expectation, a manual override, a judgment history) must be keyed by
+  session, and the key comes from the hook context:
+
+```ts
+const perSession = new Map<string, MyState>();
+const sessionOf = (call: BeforeTurnContext) => call.session?.id ?? "owner";
+
+ctx.beforeTurn((call) => {
+  const state = perSession.get(sessionOf(call)) ?? newState();
+  perSession.set(sessionOf(call), state);
+  // ...judge with `state`, never with one shared bag
+});
+```
+
+  `session.id` is opaque and stable for the session instance; `session.owner`
+  is true for the session that registered you — the one whose client reads
+  your published state — and false for a borrower. On a runtime older than
+  1.8 the field is absent: read that as "one session" (the pre-#944 behavior)
+  and degrade rather than crash.
+- **Your events are attributed to the dispatching session.** `appendEvent`
+  during a child's dispatch lands in **the child's** log and renders in the
+  child's transcript; the parent's transcript stays the parent's. The same
+  holds for a hook failure. `setStatus`, by contrast, is one per extension
+  and shows in the owner's footer — a status is a claim about your extension,
+  not about a conversation.
 
 ## Receiving commands from the client
 
@@ -436,10 +474,12 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.6** (1.1 added `ask` and the two observation
+  current version is **1.8** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
-  `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`).
+  `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
+  1.7 added `endpointCooldowns` on the `beforeTurn` context; 1.8 added
+  `session` on the `beforeTurn` context and session-attributed events).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
