@@ -87,16 +87,17 @@ matching section here at tag time.
 
 ### Changed
 
-- **The model catalog was regenerated from the aggregators** (#978): the
-  release-time catalog check flagged `openrouter.json` as drifted — the
-  committed file no longer matched a rebuild, nor the hash recorded in
-  `manifest.json`. Regenerated with the generator (ADR-0046: local and
-  human-invoked; the release never regenerates). 9 prices changed, all on
-  openrouter (`deepseek-v4-flash`, `deepseek-v4-pro`,
-  `qwen3-vl-30b-a3b-instruct`, `glm-4.7`, `glm-5.1`, `glm-5.3`,
-  `glm-5.3-flash`, `~moonshotai/kimi-latest`, `~z-ai/glm-latest`), 0 context
-  windows and 0 reasoning flags moved, and two rows moved from
-  hand-maintained to aggregator-supplied. No shrunk context window and no
+- **The model catalog was regenerated from the aggregators** (#978, plus
+  a second pass before the tag): the release-time catalog check flagged
+  `openrouter.json` as drifted — the committed file no longer matched a
+  rebuild, nor the hash recorded in `manifest.json`. Regenerated with the
+  generator (ADR-0046: local and human-invoked; the release never
+  regenerates). 7 prices changed in the final pass, all on openrouter
+  (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4-pro-0813`,
+  `google/gemma-4-26b-a4b-it`, `nvidia/nemotron-3.5-lightning`,
+  `tencent/hy3`, `~moonshotai/kimi-latest`) plus two context windows that
+  grew (`nvidia/nemotron-3.5-lightning` 262144 → 1000000, `z-ai/glm-5.2:free`
+  32768 → 131072) and 0 reasoning flags. No shrunk context window and no
   issue in the generation report. `PRICING_SNAPSHOT.version` follows the
   manifest, which declares 0.50.2.
 
