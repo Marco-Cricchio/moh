@@ -440,7 +440,8 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
     /**
      * #868: true while a decided switch is awaiting its application — the
      * window between `noteSwitch` and the next `model_switched` (applied)
-     * or `extension_failed { invalid_model }` (skipped).
+     * or `extension_failed { invalid_model }` (skipped). #948: a
+     * `switch_refused` (context fit) drops the mark the same way.
      */
     switchPending(): boolean {
       return pendingApplies.has(ownerState);

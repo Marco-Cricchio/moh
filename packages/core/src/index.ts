@@ -113,6 +113,7 @@ import {
 // client rotating the mode needs the same union the core judges with.
 export type { SessionMode } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
+import { contextFitFor, CONTEXT_FIT_RESERVE, type ContextFitVerdict } from "./context-fit";
 import { type MemoryOptions } from "./memory";
 import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand

@@ -64,3 +64,18 @@ declaration adds config surface for the same outcome.
 - `/model` switching rebuilds the chain around the newly selected provider automatically.
 - The TUI must distinguish a fallback stop from a normal model_call in its notification
   layer (the route `chain` is already exposed on the `Route` interface).
+
+## Scope note (implementation) — context fit (#948)
+
+The eligibility rule gains a session-scoped axis: when the caller supplies the
+session's last measured model-call input tokens, an endpoint whose preferred
+model's catalog window cannot hold them (fixed 8192-token reserve) is also an
+ineligible stop — a cannot-serve stop is the same class of exclusion as a
+non-route-capable one. The verdict comes from the one shared `contextFitFor`
+predicate, the same one `AgentSession.switchModel` enforces as the switch
+guard, so the chain and every switch door give one answer. The predicate
+abstains — the endpoint stays eligible — when the window is unknown (`0`) or
+no measurement exists; moh never invents a window the catalog does not
+declare. No measurement is available at the config-level Settings screen, so
+there the fit axis simply does not appear (abstain posture); the rule, not
+the screen, is the single definition.
