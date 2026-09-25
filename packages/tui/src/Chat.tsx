@@ -12,7 +12,7 @@ import { widthClass, useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
-import { projectTranscript, assistantRunOrigin, closedPrefixLength, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import type { JevStatusSummary } from "./jev-control";
@@ -336,17 +336,11 @@ export function Chat({
   const reasoningChainSeq = useRef(0);
   const lastLiveChainRef = useRef<{ source: string; chars: number; chunks: TranscriptBlock[]; startIndex: number } | null>(null);
   const reasoningHeadsRef = useRef(new Map<string, SealedReasoningHead>());
-  // Vision note 33: completed visual rows of plain assistant prose move to
-  // Static immediately. Only the newest mutable row remains volatile, so
-  // streamed output grows native terminal scrollback exactly once.
-  const proseChainRef = useRef<ProseHeadChain | null>(null);
-  const proseHeadsRef = useRef(new Map<string, SealedProseHead>());
   // Closed structured-Markdown segments have distinct projection keys but
   // must enter Ink Static as one append-only reply chain. Per-block cursors
   // dedup the canonical/live projections; only the chain owns the chunks.
   const markdownChainRef = useRef<MarkdownReplyChain | null>(null);
   const markdownChainsRef = useRef<MarkdownReplyChain[]>([]);
-  const markdownHeadsRef = useRef(new Map<string, number>());
   // 777.mov: per-segment count of promoted rendered Markdown rows.
   const markdownRowsRef = useRef(new Map<string, number>());
   const failedCallsRef = useRef(0);
@@ -360,11 +354,8 @@ export function Chat({
     // `${index}-reasoning` keys would collide with the new projection.
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
-    proseChainRef.current = null;
-    proseHeadsRef.current.clear();
     markdownChainRef.current = null;
     markdownChainsRef.current = [];
-    markdownHeadsRef.current.clear();
     failedCallsRef.current = 0;
   }
   // #326: the hold shrinks settledEnd while paragraphs already promoted
@@ -510,11 +501,8 @@ export function Chat({
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     reasoningChainRef.current = null;
     reasoningHeadsRef.current.clear();
-    proseChainRef.current = null;
-    proseHeadsRef.current.clear();
     markdownChainRef.current = null;
     markdownChainsRef.current = [];
-    markdownHeadsRef.current.clear();
     markdownRowsRef.current.clear();
     // The Static tree REMOUNTS on repaint (`key={repaint}`): ink's
     // forward-only cursor restarts at zero and its layout effect swallows
@@ -831,30 +819,20 @@ export function Chat({
   // render identically.
   const markdownRenderer = useMemo(() => createMarkdownRenderer(theme, Math.max(20, cols - 6)), [theme, cols]);
   const renderRows = (source: string) => renderMarkdownRows(source, markdownRenderer, Math.max(20, cols - 6));
-  // Prose head promotion (vision note 33). Assistant block keys are stable
-  // across live and settled projections, unlike the separate reasoning
-  // channel, so sealing can dedup directly against the same key.
+  // Live prose promotion (vision note 33, ADR-0047). Assistant block keys are
+  // stable across live and settled projections, unlike the separate reasoning
+  // channel, so the promoted-row ledger can dedup directly against the same
+  // key.
   {
-    // Provider reasoning that arrives before prose is already rendered above
-    // it by log order. Late persisted reasoning stays after emitted prose,
-    // so both plain and structured replies keep #526's append-only policy.
-    const latestProse = [...rawLiveBlocks].reverse().find((block) => block.kind === "moh" && block.markdown !== undefined) ?? null;
-    if (latestProse && proseChainRef.current?.key === latestProse.key && !isPlainStreamingProse(latestProse.markdown)) {
-      // A later delta can turn previously plain text into Markdown whose
-      // meaning reaches backwards (setext/table/list). No physical head
-      // means nothing immutable was emitted: repaint in place instead.
-      if (proseChainRef.current.chars > 0) repaintRef.current = true;
-      else proseChainRef.current = null;
-    }
     // Visual-row promotion of assistant Markdown (777.mov): a streamed
     // reply must scroll like the reasoning block — rows that will not
     // change again leave the volatile area for native scrollback while
     // the reply is still open, and only a small tail stays editable.
     // Coverage is keyed by canonical segment identity; rows are rendered
     // once (same pipeline as the settled view) and never re-parsed.
-    // Coverage state: promotedRows per segment key. Retroactive GFM
-    // changes (late emphasis/setext) are handled by the plain->Markdown
-    // repaint above; promoted rows are frozen by design.
+    // Coverage state: promotedRows per segment key. Rows are frozen where
+    // later text cannot re-read them (#972), so no repaint is needed: a
+    // row a later delta re-reads is never promoted in the first place.
     const markdownBlocks = rawLiveBlocks.filter((block) => block.kind === "moh" && block.markdown !== undefined);
     // Rows are rendered once per block per render and shared by the closure
     // test below (marked parses both times otherwise).
@@ -880,15 +858,12 @@ export function Chat({
       const source = block.markdown!;
       const rows = rowsOf(block);
       const closed = lastContentKey !== undefined && key !== lastContentKey;
-      // The open tail still grows: its source is already truncated to the
-      // revealed prefix, so only rows of paragraphs a blank line has already
-      // closed are wrap-stable — and even those withhold their last row,
-      // which may still absorb text. A closed block promotes in one chunk:
-      // its rows are frozen, and splitting it (head row first, rest later)
-      // left the remainder volatile behind a promoted later block.
-      const lastParaStart = state.pending ? source.lastIndexOf("\n\n") + 1 : 0;
-      const stablePrefix = state.pending ? source.slice(0, lastParaStart) : source;
-      const stable = closed ? rows.length : Math.max(0, renderRows(stablePrefix).length - (state.pending ? 1 : 0));
+      // What may print is one rule, owned by the transcript module
+      // (`openBlockStableRows`): a closed block is frozen (#970) and promotes
+      // whole; an open one promotes the rows of its inert prefix minus the
+      // last one, so a long paragraph stops being invisible while it forms
+      // (#972) without freezing a row later text can still re-read.
+      const stable = openBlockStableRows(source, rows, renderRows, closed, state.pending);
       if (stable <= prior) continue;
       const fresh = rows.slice(prior, stable);
       const replyKey = key.replace(/-p\d+$/, "");
@@ -975,12 +950,7 @@ export function Chat({
         }
         return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: promoted > 0 ? true : block.continuation, tight: promoted > 0 ? true : block.tight }];
       }
-      const chars = markdownHeadsRef.current.get(block.key) ?? 0;
-      if (chars === 0) return [block];
-      const remainder = trimProseHead(block, chars);
-      return remainder.markdown?.trim()
-        ? [remainder]
-        : [{ ...block, lines: [], markdown: undefined, kind: "info", glyph: "", type: "placeholder", detail: undefined }];
+      return [block];
     });
   }, [state.events, settledEnd, filePreview, mode, showReasoning, repaint, toolTimings]);
   const replayBlocks = useMemo(
@@ -1242,105 +1212,10 @@ export function Chat({
   );
 }
 
-/** One live plain-prose promotion chain (vision note 33). `chars` is
- * the source prefix already printed through Static; one wrapped row remains
- * volatile so later text can still change its wrapping. */
-export interface ProseHeadChain {
-  key: string;
-  chars: number;
-  chunks: TranscriptBlock[];
-  startIndex: number;
-}
-
-export type SealedProseHead = Omit<ProseHeadChain, "key">;
+/** Closed structured-Markdown segments have distinct projection keys but must
+ * enter Ink Static as one append-only reply chain; only the chain owns the
+ * chunks. */
 interface MarkdownReplyChain { key: string; startIndex: number; chunks: TranscriptBlock[] }
-
-/** Conservative gate: Markdown constructs can change the interpretation of
- * preceding lines, so they stay on the existing semantic paragraph/fence
- * promotion path. The fast path is only for ordinary model prose. */
-export function isPlainStreamingProse(source: string | undefined): source is string {
-  if (!source) return false;
-  return !/[`*_[\]<>|&\\]/.test(source)
-    && !/ {2}\n/.test(source)
-    && !/^\s{0,3}(?:#{1,6}\s|>|[-+=]{3,}\s*$|[-+]\s|\d+[.)]\s|~{3,})/m.test(source);
-}
-
-/** Returns complete visual rows and their source boundary, retaining the
- * newest row as the only mutable tail. It wraps at source whitespace, so a
- * promoted prefix never cuts a word and remains valid as text is appended. */
-export function promotablePlainPrefix(source: string, width: number): { chars: number; lines: string[] } {
-  const rows: Array<{ end: number; text: string }> = [];
-  let base = 0;
-  for (const sourceLine of source.split("\n")) {
-    const tokens = [...sourceLine.matchAll(/\S+\s*/g)];
-    let text = "";
-    let end = base;
-    for (const token of tokens) {
-      const word = token[0].trimEnd();
-      if (!word) continue;
-      if (text && text.length + 1 + word.length > width) {
-        rows.push({ end, text });
-        text = word;
-      } else {
-        text = text ? `${text} ${word}` : word;
-      }
-      end = base + token.index + token[0].length;
-    }
-    if (text) rows.push({ end, text });
-    base += sourceLine.length + 1;
-  }
-  const stable = rows.slice(0, -1);
-  return { chars: stable.at(-1)?.end ?? 0, lines: stable.map((row) => row.text) };
-}
-
-/** Advances plain prose promotion in bounded batches. Chunks render as
- * already-wrapped body rows (not independent Markdown documents), while the
- * exact source-character boundary drives live and settled deduplication. */
-export function nextProseHead(chain: ProseHeadChain | null, block: TranscriptBlock, width: number): ProseHeadChain {
-  const next = chain?.key === block.key ? chain : { key: block.key, chars: 0, chunks: [], startIndex: 0 };
-  const source = block.markdown;
-  if (!isPlainStreamingProse(source)) return next;
-  const promoted = promotablePlainPrefix(source, Math.max(8, width));
-  if (promoted.chars <= next.chars) return next;
-  const prior = next.chunks.reduce((sum, chunk) => sum + chunk.lines.length, 0);
-  const lines = promoted.lines.slice(prior);
-  if (lines.length === 0) return next;
-  const first = next.chunks.length === 0;
-  const chunk: TranscriptBlock = {
-    key: `${block.key}-head-${next.chunks.length}`,
-    kind: "moh",
-    glyph: "◆",
-    type: "moh",
-    lines,
-    continuation: first ? block.continuation : true,
-  };
-  return { ...next, chars: promoted.chars, chunks: [...next.chunks, chunk] };
-}
-
-/** Removes an already-printed source prefix. Once a head exists the
- * remainder always continues it; an empty remainder emits no body row. */
-export function trimProseHead(block: TranscriptBlock, chars: number): TranscriptBlock {
-  if (chars <= 0 || block.markdown === undefined) return block;
-  const markdown = block.markdown.slice(chars).trimStart();
-  return {
-    ...block,
-    lines: markdown ? markdown.split("\n") : [],
-    markdown,
-    ...(block.lineKinds ? { lineKinds: markdown ? block.lineKinds.slice(-markdown.split("\n").length) : [] } : {}),
-    continuation: true,
-  };
-}
-
-export function embedProseHeads(
-  blocks: readonly TranscriptBlock[],
-  heads: ReadonlyMap<string, SealedProseHead>,
-): TranscriptBlock[] {
-  if (heads.size === 0) return [...blocks];
-  return blocks.map((block) => {
-    const head = heads.get(block.key);
-    return head ? trimProseHead(block, head.chars) : block;
-  });
-}
 
 /** Lines of live reasoning kept volatile below the promoted head (#329). */
 export const REASONING_TAIL_LINES = 1;

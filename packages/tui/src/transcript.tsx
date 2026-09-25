@@ -1055,6 +1055,89 @@ export function assistantSegments(text: string): Array<{ start: number; end: num
   return segments.filter((segment) => segment.text.trim().length > 0 || segments.length === 1);
 }
 
+/** Characters that let LATER text re-read what came before them: inline
+ * delimiters pair across everything already written, and these entities
+ * change how the text around them is read. One definition, shared by the
+ * plain-prose promotion and the open-tail stability rule (#972). */
+export const INLINE_SIGNIFICANT = /[`*_[\]<>|&\\]/;
+
+/** A line start that turns what PRECEDES it into another block. A setext
+ * underline (any run of `-`/`=`, one is enough) re-reads the line above it as
+ * a heading — hence the in-progress form matters: a line that is still only
+ * dashes may become one with the next character. The other block starts
+ * (heading, quote, fence, list) cannot reach backwards, but a line carrying
+ * one is not plain text either, so the region stops there. */
+function lineStartIsSignificant(line: string): boolean {
+  const body = line.replace(/^ {0,3}/, "");
+  const first = body[0];
+  if (first === undefined) return false;
+  if (/^[-=]+[ \t]*$/.test(body)) return true; // setext underline (or thematic break) in progress
+  if (/^#{1,6}(?:\s|$)/.test(body)) return true; // heading
+  if (/^~{3,}/.test(body)) return true; // fence
+  if (/^[-+](?:\s|$)/.test(body)) return true; // bullet item
+  if (/^\d+[.)](?:\s|$)/.test(body)) return true; // ordered item
+  if (first === ">") return true; // quote
+  return false;
+}
+
+/** Length of the prefix of an OPEN assistant block whose Markdown meaning is
+ * already final (#972). Streaming only ever APPENDS, so a character cannot be
+ * reinterpreted by text written before it: everything before the first
+ * significant character (inline delimiter, hard break, or a block-start line
+ * that reads back) is inert, and its rendered rows are final as soon as one
+ * later row exists. A greedy wrap only appends too, so a row's content
+ * depends on the text before it. Returns `source.length` for inert prose. */
+export function inertPrefixLength(source: string): number {
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!;
+    if (INLINE_SIGNIFICANT.test(char)) return index;
+    if (char === "\n") {
+      // A hard break belongs to the line it ends.
+      if (index >= 2 && source[index - 1] === " " && source[index - 2] === " ") return index - 2;
+      continue;
+    }
+    if (index > 0 && source[index - 1] !== "\n") continue;
+    const lineEnd = source.indexOf("\n", index);
+    if (lineStartIsSignificant(source.slice(index, lineEnd === -1 ? source.length : lineEnd))) return index;
+  }
+  return source.length;
+}
+
+/** Rows of an OPEN assistant block that may leave the volatile area (#972).
+ * A closed block is frozen (#970) and promotes whole. An open one promotes
+ * the rows of its inert prefix — minus the last one, which can still absorb
+ * text the cursor has not revealed — and only where the prefix already
+ * renders that row unchanged: a row the prefix does not agree on is one later
+ * text has re-read (a setext underline over the line above), so it stays
+ * volatile rather than print a stale row that Static can never revise. */
+export function openBlockStableRows(
+  source: string,
+  rows: readonly string[],
+  renderRows: (source: string) => readonly string[],
+  closed: boolean,
+  pending: boolean,
+): number {
+  if (closed) return rows.length;
+  // A turn that is no longer pending has finished streaming: nothing can grow,
+  // so every row of the (still live) block is final — the pre-#972 behaviour,
+  // kept identical so settled frames are untouched.
+  if (!pending) return rows.length;
+  // A blank line inside the block is a semantic boundary in its own right
+  // (#205/#970): paragraphs before it are final, and the paragraph-close rule
+  // applies wherever the inert prefix is shorter than it.
+  const blankStart = source.lastIndexOf("\n\n") + 1;
+  const inert = inertPrefixLength(source);
+  // The prefix is cut where nothing more can be read back, or at the blank
+  // line, whichever keeps more rows — the deeper of the two boundaries.
+  const cut = Math.max(inert, blankStart);
+  const prefixRows = renderRows(source.slice(0, cut));
+  let agreed = 0;
+  while (agreed < prefixRows.length && agreed < rows.length && prefixRows[agreed] === rows[agreed]) agreed += 1;
+  // Both cuts leave a boundary row that can still take text; never promote it.
+  const stable = Math.min(prefixRows.length, rows.length, agreed);
+  return Math.max(0, stable - 1);
+}
+
 /** Length of the reply prefix that is semantically final (last closed
  * segment). The settled/live boundary may promote up to here and no
  * further: everything after it can still grow (#205). */

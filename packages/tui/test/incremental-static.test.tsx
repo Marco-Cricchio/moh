@@ -265,3 +265,69 @@ describe("live prose rows reach scrollback in reply order (#970)", () => {
     ink.unmount();
   }, 20000);
 });
+
+describe("the open tail paragraph reaches scrollback while it streams (#972)", () => {
+  /** One ~5 KB paragraph with no blank line anywhere: the projected segment
+   * never closes while the reply streams, so the open-tail rule alone decides
+   * what the reader may see. `PSTART`/`PEND` mark its two ends. */
+  const paragraph = (tail = "") =>
+    `PSTART ${Array.from({ length: 40 }, (_, i) => `word-${String(i).padStart(2, "0")} the core owns the agent loop and the clients display its events`).join(" ")} PEND${tail}`;
+
+  /** Drives the App with one paragraph streamed in 40-char deltas, sampling
+   * `ink.frames.at(-1)` (in debug mode ink writes `fullStaticOutput +
+   * volatile output` per render, so a frame IS the physical transcript:
+   * scrollback plus the viewport). Returns every sampled frame. */
+  async function streamParagraph(tail = ""): Promise<string[]> {
+    const home = mkdtempSync(join(tmpdir(), "moh-open-tail-"));
+    const text = paragraph(tail);
+    const deltas: string[] = [];
+    for (let at = 0; at < text.length; at += 40) deltas.push(text.slice(at, at + 40));
+    const provider = MockProvider.scripted([{ deltas, deltaDelayMs: 20, finish: "stop" }]);
+    const app = <App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />;
+    const ink = render(app);
+    Object.defineProperty(ink.stdout, "columns", { value: 100, configurable: true });
+    Object.defineProperty(ink.stdout, "rows", { value: 24, configurable: true });
+    ink.rerender(app);
+    await sleep(40);
+    ink.stdin.write("explain");
+    await sleep(20);
+    ink.stdin.write("\r");
+    const frames: string[] = [];
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && !(stripAnsi(ink.frames.at(-1) ?? "").includes("PEND"))) {
+      frames.push(stripAnsi(ink.frames.at(-1) ?? ""));
+      await sleep(100);
+    }
+    frames.push(stripAnsi(ink.frames.at(-1) ?? ""));
+    ink.unmount();
+    return frames;
+  }
+
+  test("the beginning of a paragraph taller than the volatile budget never leaves the screen", async () => {
+    const frames = await streamParagraph();
+    const firstStart = frames.findIndex((frame) => frame.includes("PSTART"));
+    // The paragraph did become visible while it streamed — not only at closure.
+    expect(firstStart).toBeGreaterThanOrEqual(0);
+    // The symptom: once its first rows are on the screen they stay there (in
+    // the volatile frame or in scrollback). They used to vanish for as long as
+    // the paragraph stayed open, because the volatile tail is viewport-capped
+    // and no row had reached Static.
+    const lost = frames.filter((frame, index) => index > firstStart && !frame.includes("PSTART") && !frame.includes("PEND"));
+    expect(lost).toEqual([]);
+    // Printed once, in one piece: the rows left the volatile area and never
+    // printed again.
+    const settled = frames.at(-1) ?? "";
+    expect(settled.split("PSTART").length - 1).toBe(1);
+    expect(settled.split("PEND").length - 1).toBe(1);
+  }, 30_000);
+
+  test("a markdown-free paragraph that turns into markdown mid-stream still prints once", async () => {
+    // `**BOLDTAIL**` arrives at the very end: everything before it promoted as
+    // inert prose, and a later delta may not re-read it.
+    const frames = await streamParagraph(" **BOLDTAIL**");
+    const settled = frames.at(-1) ?? "";
+    expect(settled).toContain("BOLDTAIL");
+    expect(settled.split("PSTART").length - 1).toBe(1);
+    expect(settled.split("PEND").length - 1).toBe(1);
+  }, 30_000);
+});
