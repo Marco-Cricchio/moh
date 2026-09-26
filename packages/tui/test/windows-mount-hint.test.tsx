@@ -42,8 +42,9 @@ function frameOf(props: Record<string, unknown>, width?: number): string {
 }
 
 /** The hint's own row, isolated: the frame's other rows legitimately contain
- * elision markers (`type…`) and slashes, so a whole-frame substring check
- * cannot tell "fits untruncated" from "cut by the terminal". */
+ * elision markers (the short composer placeholder) and slashes, so a
+ * whole-frame substring check cannot tell "fits untruncated" from "cut by the
+ * terminal". */
 function hintLineOf(frame: string): string {
   return frame.split("\n").find((line) => line.includes("/mnt")) ?? "";
 }

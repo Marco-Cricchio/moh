@@ -8,7 +8,7 @@ import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
-import { widthClass, useViewport } from "./viewport";
+import { useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
 import { MultilineInput, pasteAsPath } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
@@ -32,6 +32,26 @@ import type { SidebarTokens } from "./sidebar";
 
 export type Mode = "vibe" | "dev";
 const ESC_WINDOW_MS = 1500;
+/** The empty composer's hint: it names the door for "I don't know what to ask"
+ * (`/ask-moh`) and both newline keys. It only stands where it fits one row —
+ * a hint that wraps would make the empty composer two rows tall and snap back
+ * on the first keystroke — so this is the exact-width floor for the long form
+ * (the composer holds a 2-col gutter inside its 2-col padding, and the column
+ * leaves 1 col to the terminal edge); narrower columns get the short form. */
+const COMPOSER_HINT = "/ask-moh - for everything you need (shift+enter || ctrl+j newline)";
+const COMPOSER_HINT_MIN_COLS = COMPOSER_HINT.length + 5;
+
+/**
+ * Does the long composer hint fit one row at this terminal width? A width
+ * that is not a usable number answers "no": a tty whose size could not be
+ * read reports 0 columns (the PTY harness documents that on Linux) or NaN,
+ * and a fallback that failed open there would widen the very composer it
+ * exists to protect. Split out from the render so the degenerate widths are
+ * testable without laying out a frame.
+ */
+export function composerHintFits(columns: number): boolean {
+  return Number.isFinite(columns) && columns >= COMPOSER_HINT_MIN_COLS;
+}
 /** #329: debounce for the width-change transcript rebuild. */
 const RESIZE_REBUILD_DELAY_MS = 150;
 const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
@@ -307,7 +327,11 @@ export function Chat({
   const gitBranch = useGitBranch(cwd);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
-  const compact = widthClass(viewport) === "compact";
+  // The composer hint — one expression for both policies: the compact width
+  // class and any column narrower than the hint, which subsumes it
+  // (COMPOSER_HINT_MIN_COLS sits above the compact threshold; see
+  // composerHintFits for what an unusable width answers).
+  const composerHint = composerHintFits(cols) ? COMPOSER_HINT : "type…";
   const [tick, setTick] = useState(0);
   // #liveness (variant C): animated glyph frames for running blocks — an
   // independent 120ms clock gated on the turn, never on stream events, so
@@ -1138,7 +1162,7 @@ export function Chat({
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
-        placeholder={compact ? "type…" : "type… (shift+enter newline · ctrl+a/e line start/end)"}
+        placeholder={composerHint}
         disabled={blocked}
         focused={inputFocused}
         onAskCommands={onOpenCommands}

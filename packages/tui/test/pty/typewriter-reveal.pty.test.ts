@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { hasPython, runPtyRaw } from "./pty-runner";
+import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
 
 // Owner 777.mov follow-up: replies must form horizontally (typewriter),
 // not land in provider-sized blocks. A burst delta must be revealed
@@ -67,7 +68,7 @@ test.skipIf(!hasPython)("a burst reply is revealed progressively, not in one blo
       const text = [...snapshot.scrollback, ...snapshot.lines.map((line) => line.text)].join(" ").replace(/\s+/g, " ");
       const from = text.indexOf("BURST-START");
       if (from < 0) return 0;
-      const stop = ["BURST-END", "type…", "⏎ send"].map((marker) => text.indexOf(marker, from + 1)).filter((index) => index > 0).sort((a, b) => a - b)[0];
+      const stop = ["BURST-END", COMPOSER_READY, "⏎ send"].map((marker) => text.indexOf(marker, from + 1)).filter((index) => index > 0).sort((a, b) => a - b)[0];
       return (stop ?? text.length) - from;
     };
     const progressed = meta.checkpoints!.progressed!;

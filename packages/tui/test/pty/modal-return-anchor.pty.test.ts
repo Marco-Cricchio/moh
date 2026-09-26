@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { hasPython, runPtyRaw } from "./pty-runner";
+import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
 
 /**
  * Modal-return anchor regression (live session 2026-08-27): after a modal
@@ -50,7 +51,7 @@ describe.skipIf(!hasPython)("modal open/close keeps the session frame anchored (
       steps: [
         { wait: 2.0 },
         { wait: 0.3, send: B("\r") }, // home → new session (mock provider)
-        { wait: 5.0, until: "type…" }, // chat input rendered
+        { wait: 5.0, until: COMPOSER_READY }, // chat input rendered
         // Three settled turns: enough transcript to fill the screen and pin
         // the frame to the bottom rows before the modal cycle. The readiness
         // needle is the mock reply itself; `pump_until` matches only past the

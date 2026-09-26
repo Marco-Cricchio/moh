@@ -18,6 +18,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { hasPython, runPtyRaw } from "./pty-runner";
+import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
 
 /**
  * Every way a color can reach the terminal: truecolor (38/48), the 16-color
@@ -70,7 +71,7 @@ const scenario = (env: Record<string, string>, url: string, rawPath: string) => 
   },
   env,
   steps: [
-    { wait: 4.0, until: "type…" },
+    { wait: 4.0, until: COMPOSER_READY },
     { wait: 0.3, send: B("hi") },
     { wait: 0.4, send: B("\r") },
     { wait: 6.0, until: "Hello from moh" },

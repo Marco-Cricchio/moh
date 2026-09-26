@@ -9,6 +9,14 @@ matching section here at tag time.
 
 ### Changed
 
+- **The empty composer's hint now points at the door** (#1010): it read
+  `type… (shift+enter newline · ctrl+a/e line start/end)` — the line-editing
+  keys — and now reads `/ask-moh - for everything you need (shift+enter ||
+  ctrl+j newline)`, which is what a user staring at an empty prompt actually
+  needs: the router over the workflow skills and the manual.
+  `ctrl+a/e` still moves the cursor to the line start/end and stays in the
+  `?` panel and the manual; it only leaves the hint. The hint stands where it
+  fits one row, the narrower columns keep the short `type…` form.
 - **The model catalog was regenerated** (#1005): 11 prices moved (mostly down
   on OpenRouter: `z-ai/glm-5.3` 1.4/4.4 → 0.38/1.19, `~moonshotai/kimi-latest`
   1.2/10.53 → 1.03/9.04, `deepseek/deepseek-v4-pro` 0.56/1.12 → 0.37/0.74),
