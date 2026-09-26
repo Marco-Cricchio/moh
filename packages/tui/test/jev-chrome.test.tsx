@@ -435,8 +435,8 @@ describe("footer status chip (ADR-0032)", () => {
     const i = render(
       <ThemeProvider value={theme}>
         <Box flexDirection="column">
-          <ExtensionStatusChip status={{ extension: "a-ext", text: "first" }} wide theme={theme} />
-          <ExtensionStatusChip status={{ extension: "b-ext", text: "second" }} wide theme={theme} />
+          <ExtensionStatusChip status={{ extension: "a-ext", text: "first" }} wide theme={theme} maxWidth={80} />
+          <ExtensionStatusChip status={{ extension: "b-ext", text: "second" }} wide theme={theme} maxWidth={80} />
         </Box>
       </ThemeProvider>,
     );

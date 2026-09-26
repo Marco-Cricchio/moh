@@ -124,7 +124,10 @@ Key decisions, each with its rationale:
    at session end and on hot-reload (a reloaded extension re-publishes from `setup`).
    Rationale: a status is a statement about *now*, and replaying a stale "offline" chip
    from last week would be actively misleading. Anything durable belongs in
-   `appendEvent`.
+   `appendEvent`. The seam has no turn scope by design: a status that is a *turn* fact
+   (e.g. the guardrail's softened-pass note, #867) is cleared by the publishing
+   extension itself in `afterTurn` (#1013) — and only when it still owns the slot, so
+   an outage text published after the note is never erased by the note's cleanup.
 
 8. **Headless: the first publish of a status writes one stderr line.** A repeat of the
    same text prints nothing, a clear prints nothing. This gives `moh run` the outage
