@@ -48,14 +48,15 @@ The order matters:
 
 1. **Propose the version** — patch, minor or major from the unreleased
    changelog, confirmed by the owner — and cut `release/vX.Y.Z` from `develop`.
+   Do steps 2 and 3 on that branch, in the same release PR.
 2. **Finalize the changelog**: move the `## [Unreleased]` entries into a dated
    `## [X.Y.Z]` section. The tag-time pipeline extracts that section as the
    Release body and fails without it.
 3. **Regenerate the model catalog declaring that version**:
    `bun packages/core/scripts/build-model-catalogs.ts --version X.Y.Z`, review
    the data diff in `packages/core/src/model-catalogs/generation-report.json`,
-   and commit the catalog files in the release PR. This is the only moment the
-   catalog is written — no pipeline regenerates it (ADR-0046) — and the release
+   and commit the catalog files. This is the only moment the catalog is written
+   in a release cycle — no pipeline regenerates it (ADR-0046) — and the release
    PR is where a human reviews the prices the release ships.
 4. **Open the release PR to `develop`**, wait for green, merge.
 5. **Promote `develop` to `main`** (the production branch) at the merged commit.
