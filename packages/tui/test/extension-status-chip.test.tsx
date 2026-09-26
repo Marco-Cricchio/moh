@@ -96,7 +96,9 @@ describe("row 1 with a long extension status", () => {
 
   test("width 40: the row still renders as one physical line", () => {
     const lines = renderRow1(40, LONG_NOTE);
-    const gaugeLine = lines.find((line) => line.includes("[█"));
+    // #1012's compact tier: the gauge degrades to a percentage, never a
+    // fragment — it stays one bracketed token on one physical line.
+    const gaugeLine = lines.find((line) => /\[\d{2}%\]/.test(line) || line.includes("[█"));
     expect(gaugeLine).toBeDefined();
     expect(gaugeLine!.includes("]")).toBe(true);
   });

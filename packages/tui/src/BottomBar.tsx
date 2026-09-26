@@ -320,6 +320,44 @@ function StatusRow(props: StatusProps) {
     { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
   ].filter((item) => item.text);
   const budget = Math.max(1, props.width - left.length - contextReserve - leftClusterWidth - 5);
+  const gaugeSegment = props.tokens.contextIn > 0 ? (compact ? { text: compactGauge, optional: true } : null) : null;
+  const attempt = (modelText: string) =>
+    fitStatusSegments(
+      [
+        ...(gaugeSegment ? [gaugeSegment] : []),
+        ...devSegments,
+        { text: modelText },
+        props.unsupportedLevel ? { text: `✗⚙ ${props.unsupportedLevel}`, optional: true } : null,
+        props.workflowOn ? { text: "◈ wf", optional: true } : null,
+      ].filter((item): item is { text: string; optional?: boolean } => item != null && item.text !== ""),
+      budget,
+    );
+  // Tier ladder, widest → narrowest: full model, endpoint stripped, elided,
+  // elided tighter, dropped. The first tier whose model segment survives
+  // un-fragmented (no mid-word ellipsis inside a word) wins; the model is
+  // required in every tier except the last, so the row can always fit.
+  let row1: string[];
+  let row1Model: string;
+  if (compact) {
+    const marked = (text: string) => (text ? `◆ ${text}` : "");
+    const ladder = [marked(shortModel), marked(middleElide(shortModel, Math.max(4, Math.min(16, budget - 2)))), marked(middleElide(shortModel, 6)), ""];
+    let chosen = ladder[ladder.length - 1]!;
+    let fitted = attempt(chosen);
+    for (const candidate of ladder) {
+      const candidateFit = attempt(candidate);
+      if (candidate === "" || candidateFit.includes(candidate)) {
+        chosen = candidate;
+        fitted = candidateFit;
+        break;
+      }
+    }
+    row1 = fitted;
+    row1Model = chosen;
+  } else {
+    row1Model = model;
+    row1 = attempt(model);
+  }
+  const row1Gauge: string | null = compact && props.tokens.contextIn > 0 ? compactGauge : null;
   const row1Color = (text: string): string | undefined => {
     if (/^\[\d{2}%\]$/.test(text)) return tokenColor;
     if (text.startsWith("⊣")) return tokenColor;
