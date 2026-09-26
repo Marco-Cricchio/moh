@@ -7,6 +7,27 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **The release-time catalog check reports instead of failing, and the version
+  contract is now enforced** (#1005, ADR-0046 amendment): the `catalog-check`
+  job that runs at every tag was red by default — three of the last four tags
+  failed it, and the two green ones were green only because someone
+  regenerated the catalog minutes before tagging (measured upstream drift
+  windows of ~4–5 hours). A signal that is red as a steady state distinguishes
+  nothing, so at the tag the job now reports: the committed catalog's age
+  against the tagged commit, how many of the 25 files moved upstream, and one
+  line per changed row (price, context window, reasoning flag). It still never
+  gates, and it still fails when it cannot measure at all. The drift compare
+  that exits non-zero is untouched and moves from a weekly to a **daily**
+  schedule, so staleness surfaces between releases instead of at the tag.
+  Regenerating the catalog declaring the release being cut is now a documented
+  step of the release flow, before the tag (`CONTRIBUTING.md`), and a new
+  `version-check` job **does** gate publication: a release shipping a manifest
+  that declares another version never becomes a draft Release, because
+  `PRICING_SNAPSHOT.version` is a public export read from that manifest —
+  v0.50.1 shipped a manifest declaring 0.50.0.
+
 ## [0.50.3] - 2026-09-26
 
 ### Fixed

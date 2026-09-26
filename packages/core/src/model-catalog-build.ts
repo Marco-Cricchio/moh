@@ -914,10 +914,6 @@ export interface FreshnessReport {
   /** Files whose content or recorded hash differs from the rebuild, in the
    * order the compare found them. */
   driftedFiles: string[];
-  /** Guard findings the rebuild produced, counted here and enumerated by
-   * the caller. A rebuild that would lose rows or prices is upstream moving
-   * too — which is why the tag-time job reports it instead of failing. */
-  guardFindings: number;
 }
 
 /** "1d 7h", "5h 20m", "12m" — a staleness window read at a glance. A
@@ -939,7 +935,6 @@ export function freshnessReport(options: {
   reference: string;
   drift: CatalogDriftEntry[];
   totalFiles: number;
-  guardFindings?: number;
 }): FreshnessReport {
   const generatedAt = options.manifest?.generatedAt;
   const generated = generatedAt ? Date.parse(generatedAt) : Number.NaN;
@@ -954,22 +949,29 @@ export function freshnessReport(options: {
     age: formatAge(ageMs),
     totalFiles: options.totalFiles,
     driftedFiles: [...new Set(options.drift.map((entry) => entry.file))],
-    guardFindings: options.guardFindings ?? 0,
   };
 }
 
 /** The tag-time report: what is being shipped, how old it is, and how far
- * upstream has moved. Informational by construction — nothing here decides
- * anything. */
-export function formatFreshness(report: FreshnessReport, moved: UpstreamMoves, drift: CatalogDriftEntry[]): string {
+ * upstream has moved: the file-level summary first, then one line per
+ * committed file, then one line per row that actually moved (a price, a
+ * context window, a reasoning flag). Informational by construction —
+ * nothing here decides anything. */
+export function formatFreshness(
+  report: FreshnessReport,
+  moved: UpstreamMoves,
+  drift: CatalogDriftEntry[],
+  rowMoves: string[] = [],
+): string {
   const lines: string[] = [];
   lines.push(
     `catalog freshness — the committed catalog declares moh ${report.version ?? "(no version)"}, generated ${report.generatedAt ?? "(no date)"} — ${report.age} old against ${report.reference}`,
   );
   lines.push(
-    `upstream moved since: ${report.driftedFiles.length} of ${report.totalFiles} file(s) differ — ${moved.pricing} price(s), ${moved.contextWindow} context window(s), ${moved.reasoning} reasoning flag(s); ${report.guardFindings} guard finding(s)`,
+    `upstream moved since: ${report.driftedFiles.length} of ${report.totalFiles} file(s) differ — ${moved.pricing} price(s), ${moved.contextWindow} context window(s), ${moved.reasoning} reasoning flag(s)`,
   );
   for (const entry of drift) lines.push(`  ${entry.file}: ${entry.message}`);
+  for (const line of rowMoves) lines.push(`  ${line}`);
   return lines.join("\n");
 }
 

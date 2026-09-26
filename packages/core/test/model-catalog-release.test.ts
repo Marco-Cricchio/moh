@@ -1,23 +1,28 @@
 /**
- * #1005: the release-time half of the catalog pipeline. The tag-time job
- * must report freshness (the committed catalog's age against the tagged
- * commit, and how far upstream has moved) without failing, while the drift
- * compare with a non-zero exit stays the one the daily schedule and
- * catalog PRs run. Offline throughout, through the generator's documented
- * local-snapshot seam (`--models-dev` / `--open-router`).
+ * #1005: the release-time half of the catalog pipeline. Two properties of
+ * the generator's CLI, both offline through its documented local-snapshot
+ * seam (`--models-dev` / `--open-router`) and neither touching the network
+ * or writing a file:
+ *
+ * - the drift compare that exits non-zero stays reachable — the daily
+ *   schedule and catalog PRs run it (`--check`);
+ * - the tag-time job reports rather than judges: it refuses to print a
+ *   freshness report it could not measure (a source outage), instead of a
+ *   false "up to date".
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import manifest from "../src/model-catalogs/manifest.json";
+import { releaseVersionProblem } from "../src/model-catalog-build";
 
 const SCRIPT = join(import.meta.dir, "../scripts/build-model-catalogs.ts");
+const REFERENCE = "2026-09-25T18:06:00.000Z";
 
-/** Empty aggregator snapshots: every row becomes hand-maintained, which is
- * the largest possible upstream move. A run that still reports instead of
- * failing is the property under test — and nothing here touches the network
- * or writes a file. */
+/** Empty aggregator snapshots: every committed row loses its aggregator
+ * data, which is the largest possible upstream move. Nothing here touches
+ * the network or writes a file. */
 function snapshots(): { modelsDev: string; openRouter: string } {
   const dir = mkdtempSync(join(tmpdir(), "moh-catalog-"));
   const modelsDev = join(dir, "models-dev.json");
@@ -36,8 +41,6 @@ function run(args: string[]): { code: number; out: string; err: string } {
   return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
 }
 
-const REFERENCE = "2026-09-25T18:06:00.000Z";
-
 describe("#1005 release-time catalog freshness", () => {
   test("the version contract holds offline and names both versions when it does not", () => {
     const ok = run(["--verify-version", manifest.version]);
@@ -49,18 +52,23 @@ describe("#1005 release-time catalog freshness", () => {
     expect(mismatch.err).toContain(`manifest.json declares moh ${manifest.version}, but the release is 0.50.0`);
   });
 
-  test("freshness reports the age against the tagged commit and how far upstream moved, without failing", () => {
-    const { code, out } = run(["--freshness", "--at", REFERENCE]);
-    expect(code).toBe(0);
-    const lines = out.split("\n");
-    expect(lines[0]).toMatch(
-      new RegExp(`^catalog freshness — the committed catalog declares moh ${manifest.version.replace(/\./g, "\\.")}, generated .+ — .+ old against ${REFERENCE}$`),
+  test("a manifest with no version at all breaks the contract too, and says so", () => {
+    // The branch a hand-edited or pre-manifest tree would hit: the release
+    // must not proceed on a catalog that declares nothing.
+    expect(releaseVersionProblem(undefined, "0.51.0")).toBe(
+      "manifest.json declares moh (no version), but the release is 0.51.0 — regenerate with --version 0.51.0 and commit the result",
     );
-    expect(lines[1]).toMatch(/^upstream moved since: \d+ of \d+ file\(s\) differ — \d+ price\(s\), \d+ context window\(s\), \d+ reasoning flag\(s\); \d+ guard finding\(s\)$/);
-    expect(out).toContain("differs from the rebuild");
-    expect(out).toMatch(/advisory: nothing here gates the release/);
-    // A rebuild the guards reject is upstream moving, not a reason to fail.
-    expect(out).not.toContain("generation failed");
+    expect(releaseVersionProblem("0.51.0", "0.51.0")).toBeUndefined();
+  });
+
+  test("empty snapshots fail the rebuild, so the tag-time job reports nothing rather than a false zero", () => {
+    // With nothing to compare against, the guards reject the rebuild: there
+    // is no honest freshness report, so the job fails instead of printing
+    // "up to date" from data nobody could read.
+    const { code, err } = run(["--freshness", "--at", REFERENCE]);
+    expect(code).toBe(1);
+    expect(err).toContain("generation failed");
+    expect(err).toContain("so there is nothing to report");
   });
 
   test("the drift compare keeps its non-zero exit for the scheduled and PR runs", () => {

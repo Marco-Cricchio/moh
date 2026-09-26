@@ -2,6 +2,8 @@
 
 Date: 2026-09-24 · Status: accepted · Refs: tickets #955, #951, #953 (census), map #952
 Amends: ADR-0029 (by provenance, not liveness) — see the amendment there
+Amended: #1005 (2026-09-26) — the release-time check reports, the version
+contract is enforced, regeneration before the tag is a release step
 
 ## Context
 
@@ -138,3 +140,97 @@ release back.
 A revisit is a decision about *where the data comes from*, never an
 invitation to fetch prices at runtime: the runtime-live-pricing boundary
 stands (ADR-0029, map #952 out-of-scope entry).
+
+## Amendment (2026-09-26, #1005): the release-time check reports, and the version contract is enforced
+
+This ADR named the release-time catalog check as its own revisit trigger. The
+trigger fired three times in four tags, and the evidence says the trigger's
+assumption was wrong rather than the decision:
+
+| tag | `catalog-check` at the tag | why |
+| --- | --- | --- |
+| v0.50.0 | failure | shipped red |
+| v0.50.1 | failure | shipped red; its catalog was generated the previous day (2026-09-24T11:45) |
+| v0.50.2 | success | regenerated ~10 minutes before the tag, after a first regeneration had already drifted |
+| v0.50.3 | success | regenerated ~11 minutes before the tag |
+
+Measured staleness windows on one day: generated 12:15 → drifted by 17:53
+(~5h20m); regenerated 17:56 → drifted again by 21:56 (~4h). Upstream moves
+prices several times a day and retires listings; against that, a weekly
+schedule accumulates a week of staleness and the tag-time compare is
+essentially guaranteed red. A signal that is red by default distinguishes
+nothing, and each release cycle had grown an unplanned regeneration step whose
+data the release notes could not describe (v0.50.2's entry was rewritten
+because the catalog it had described was replaced before the tag).
+
+### What a red catalog check now means, and where it can appear
+
+- **Daily schedule, catalog PRs, manual dispatch**
+  (`model-catalogs-check.yml`) — unchanged semantics: rebuild, compare, exit
+  non-zero on drift. Drift is a red here, and the cron moves from weekly to
+  **daily** (`0 6 * * *`) so it surfaces between releases instead of at every
+  tag.
+- **The release pipeline at every tag** (`release.yml` `catalog-check`) — the
+  same compare in **reporting mode** (`--freshness`): the committed catalog's
+  `generatedAt` against the tagged commit's date, how many files differ, and
+  the row-level moves (prices, context windows, reasoning flags, with one
+  line per changed row), written to the run summary. It **exits 0 on drift**
+  and is still not a `needs` of `release`. It fails only when it cannot
+  measure at all: a source that could not be fetched, or a rebuild the guards
+  reject (a row the aggregators no longer cover, a price the build would drop)
+  — both mean the same thing, "did not regenerate", and a freshness report is
+  never invented from data nobody could read. The guards keep their failing
+  semantics everywhere generation or `--check` runs.
+
+### Regenerating before the tag is a step of the release flow
+
+Generation stays **local and human-invoked**: no pipeline writes the catalog
+(the "never regenerates" half of this ADR stands, and no job is a writer). What
+changes is that the release flow regenerates *deliberately, before the tag*:
+cut the release branch from the integration branch, write the changelog section,
+regenerate with `--version <the version being released>`, commit the catalog in
+the release PR, merge it, then promote and tag. The exact commit being shipped
+then carries a catalog generated for it, and the tag-time report says how old
+that data is. The ordered steps live in `CONTRIBUTING.md` (the repo-side
+contract the release flow reads) and in the catalog README.
+
+### The version contract, enforced
+
+`manifest.version` keeps its meaning — "the moh release that will contain the
+catalog" (ADR-0029 amendment) — and `PRICING_SNAPSHOT.version`, a public export
+(ADR-0004 keep-list), reads it. A release shipping a manifest that declares
+another release therefore makes that export name a release that does not contain
+the data. Nothing checked it; the practice was to regenerate per release anyway.
+The coupling is now stated as a contract instead of tolerated:
+
+- `--verify-version <x.y.z>` reads the committed manifest and fails naming both
+  versions when they disagree (`manifest.json declares moh 0.50.0, but the
+  release is 0.50.1 — regenerate with --version 0.50.1 and commit the result`);
+- `release.yml`'s `version-check` job runs it against the tag and **is** a
+  `needs` of `release`: a mismatched manifest never becomes a draft Release.
+
+**The `v0.50.1` precedent.** That release shipped a manifest declaring `0.50.0`
+(generated the previous day), so `PRICING_SNAPSHOT.version` named `0.50.0` for a
+release published as 0.50.1. The rule exists to prevent exactly that: the
+release flow regenerates declaring the release being cut, and the pipeline
+refuses to publish a catalog that declares a different one.
+
+### Superseded points
+
+1. "the **release pipeline runs the same check at every tag** … That job never
+   regenerates and never gates the release" — the tag-time job no longer runs
+   the failing compare; it reports freshness. Nothing regenerates in the
+   pipeline (unchanged), and the tag-time job still does not gate.
+2. The revisit trigger "the automatic catalog check **at every release** fails"
+   is **retired**: it named a surface that is red as a steady state, so its
+   firing carried no information. The other two triggers (a source shape change
+   costing a hand-written adapter; the hand-maintained region growing release
+   over release) stand.
+3. "a weekly schedule" — the schedule is daily.
+
+Everything else here — sources and precedence, per-field supply, the
+hand-maintained region, the guards, the manifest and report contents, the
+runtime-live-pricing boundary — is unaffected. Option 4 of #1005 (decoupling
+`manifest.version` from the shipped release) was rejected: it would make
+`PRICING_SNAPSHOT.version` informational, and the coupling is what keeps that
+public export honest.

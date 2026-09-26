@@ -23,15 +23,24 @@ bun packages/core/scripts/build-model-catalogs.ts --version <x.y.z>
 ```
 
 - `--version` declares **the moh release that will contain the catalog** (ADR-0029
-  amendment). Generation is local and human-invoked; a release ships the last
-  valid committed catalog and never regenerates.
+  amendment). Generation is local and human-invoked: no pipeline writes these
+  files. Regenerating with the version being released, before the tag, is a step
+  of the release flow (`CONTRIBUTING.md`), so the commit being shipped carries a
+  catalog generated for it.
 - `--check` rebuilds and compares **without writing**, exiting non-zero on
   drift. It runs in CI (`.github/workflows/model-catalogs-check.yml`) on PRs
-  touching the catalog and weekly, and in the release pipeline at every tag
-  (`.github/workflows/release.yml`), so staleness is visible between releases
-  and at the exact commit being shipped. A failing release check is the
-  recorded trigger to revisit the ownership decision (ADR-0046); it never
-  gates a release.
+  touching the catalog and **daily**, so staleness surfaces between releases
+  rather than at the tag.
+- `--freshness [--at <iso>]` runs the same compare and **reports instead of
+  failing**: the committed catalog's age (its `generatedAt` against the
+  reference instant, the tagged commit's date in CI), how many files differ,
+  and the row-level moves and guard findings. The release pipeline runs it at
+  every tag (`.github/workflows/release.yml`) and never gates on it (ADR-0046
+  amendment, #1005).
+- `--verify-version <x.y.z>` enforces the version contract offline: the
+  committed manifest must declare the release being tagged, because
+  `PRICING_SNAPSHOT.version` is a public export read from it. The release
+  pipeline gates on this one — a mismatched manifest never becomes a Release.
 - `--migrate-overrides` is the one-off migration that wrote the sidecars from
   the committed catalogs; it is kept for reproducibility, not for routine use.
 - `--models-dev <file>` / `--open-router <file>` read a local snapshot instead
@@ -130,3 +139,17 @@ subscription-plan record (`planCost`); the endpoint's declared
 "included in the plan", which reads as tokens-only, never as free
 (ADR-0029, ADR-0046). Live model discovery never changes prices; models
 without a catalog rate remain tokens-only.
+
+## Freshness
+
+The catalog is release-pinned: its prices are the ones fetched at
+`generatedAt`, and nothing at runtime updates them. `PRICING_SNAPSHOT.version`
+and `updatedAt` expose the release and that date, which is how a client says how
+old the numbers are.
+
+Upstream moves within hours (measured: ~4–5h on OpenRouter), so freshness has
+two surfaces rather than one: the **daily** check is where drift turns red
+between releases, and the **release flow** regenerates declaring the version
+being cut, before the tag — so a release normally ships a catalog generated
+during its own cycle, and the tag-time report says how old the data it ships is
+(ADR-0046 amendment, #1005).

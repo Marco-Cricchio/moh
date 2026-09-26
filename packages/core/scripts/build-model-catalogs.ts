@@ -288,13 +288,16 @@ async function main(): Promise<number> {
   // judged (#1005). The release pipeline runs this: at a 4-5 hour drift
   // window a red at every tag says nothing, so the tag-time job states the
   // facts — which release the data declares, how old it is against the
-  // tagged commit, how far upstream has moved — and never gates. Guard
-  // findings are facts about upstream too (a row the rebuild no longer
-  // covers, a price it would drop), so they are counted and listed rather
-  // than fatal. What still fails is not measuring at all: a source that
-  // could not be fetched aborts above, and a freshness report is never
-  // invented from data nobody could read.
+  // tagged commit, how far upstream has moved — and never gates. What still
+  // fails is not measuring at all: a source that could not be fetched
+  // (caught above) or a rebuild the guards reject leave no report to write,
+  // and a freshness report is never invented from data nobody could read.
   if (hasFlag("--freshness")) {
+    if (failures.length > 0) {
+      console.error(`generation failed — ${failures.length} guard violation(s), so there is nothing to report:`);
+      for (const failure of failures) console.error(`  ${failure}`);
+      return 1;
+    }
     const reference = argValue("--at") ?? new Date().toISOString();
     const drift = collectDrift(catalogs, committedManifest);
     const report = buildReport({
@@ -309,7 +312,6 @@ async function main(): Promise<number> {
       reference,
       drift,
       totalFiles: committedCatalogFiles().length,
-      guardFindings: failures.length,
     });
     console.log(
       formatFreshness(
@@ -320,13 +322,23 @@ async function main(): Promise<number> {
           reasoning: report.changes.reasoning.length,
         },
         drift,
+        [
+          ...report.changes.pricing.map(
+            (change) =>
+              `price: ${change.provider}/${change.id} ${change.from.input}/${change.from.output} → ${change.to.input}/${change.to.output} USD per 1M`,
+          ),
+          ...report.changes.contextWindow.map((change) => `context: ${change.provider}/${change.id} ${change.from} → ${change.to}`),
+          ...report.changes.reasoning.map((change) => `reasoning: ${change.provider}/${change.id} ${change.from} → ${change.to}`),
+          ...report.contextWindowShrinks.map(
+            (shrink) => `context-shrink: ${shrink.provider}/${shrink.id} ${shrink.from} → ${shrink.to} (declared in the sidecar: ${shrink.declared})`,
+          ),
+        ],
       ),
     );
-    for (const failure of failures) console.log(`  guard: ${failure}`);
     console.log(
-      freshness.driftedFiles.length === 0 && failures.length === 0
+      drift.length === 0
         ? "advisory: the committed catalog matches the rebuild — nothing here gates the release"
-        : `advisory: nothing here gates the release; regenerate and commit before the tag if ${freshness.driftedFiles.length} drifted file(s) and ${failures.length} guard finding(s) matter for this release`,
+        : `advisory: ${drift.length} file(s) moved upstream — regenerate and commit before the tag if it matters for this release (the release ships the committed catalog); nothing here gates`,
     );
     return 0;
   }

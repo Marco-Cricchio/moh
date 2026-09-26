@@ -38,6 +38,43 @@ No API keys are required to develop or test: the mock and echo providers cover t
 4. Commit messages: conventional commits (`feat(core): ...`, `fix(cli): ...`, `docs: ...`).
 5. Changelog: a PR that closes a user-facing ticket adds a bullet under `## [Unreleased]` in `CHANGELOG.md`. At tag time the release pipeline extracts the matching `## [x.y.z]` section as the GitHub Release body; a tag without its section fails CI.
 
+## Releases
+
+Releases are cut from `develop`: a release PR finalizes the changelog and the
+model catalog, the integration branch is then promoted to `main` and tagged
+`vX.Y.Z`, and pushing the tag runs `.github/workflows/release.yml` (platform
+binaries, smoke tests, and a draft GitHub Release that the owner publishes).
+The order matters:
+
+1. **Propose the version** — patch, minor or major from the unreleased
+   changelog, confirmed by the owner — and cut `release/vX.Y.Z` from `develop`.
+2. **Finalize the changelog**: move the `## [Unreleased]` entries into a dated
+   `## [X.Y.Z]` section. The tag-time pipeline extracts that section as the
+   Release body and fails without it.
+3. **Regenerate the model catalog declaring that version**:
+   `bun packages/core/scripts/build-model-catalogs.ts --version X.Y.Z`, review
+   the data diff in `packages/core/src/model-catalogs/generation-report.json`,
+   and commit the catalog files in the release PR. This is the only moment the
+   catalog is written — no pipeline regenerates it (ADR-0046) — and the release
+   PR is where a human reviews the prices the release ships.
+4. **Open the release PR to `develop`**, wait for green, merge.
+5. **Promote `develop` to `main`** (the production branch) at the merged commit.
+6. **Tag `vX.Y.Z`** there and push the tag.
+7. **Watch the tag run**: `build` (binaries + native smoke tests),
+   `catalog-check` (reports the shipped catalog's age and how far upstream has
+   moved — it never fails on drift) and `version-check` (fails if
+   `manifest.json` declares a version other than the tag). The version check
+   gates the draft Release, because `PRICING_SNAPSHOT.version` is a public
+   export read from that manifest: a release must not ship a manifest naming
+   another release — v0.50.1 did. This is also why step 3 is not optional.
+8. **Verify the draft Release** — assets, checksums, notes matching the
+   finalized changelog — and publish it.
+
+Between releases, the daily `model-catalogs-check` workflow is where catalog
+drift turns red; a red there means an upstream change is due to be regenerated
+(or a catalog was hand-edited instead of going through its sidecar), not that a
+release is blocked.
+
 ## Extending moh
 
 Writing an extension or a skill? See [docs/extending/](docs/extending/index.md).

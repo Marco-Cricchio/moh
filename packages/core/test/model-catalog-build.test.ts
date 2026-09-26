@@ -474,25 +474,29 @@ describe("#959 manifest and report", () => {
       reference: "2026-09-25T12:02:00.000Z",
       drift,
       totalFiles: 25,
-      guardFindings: 3,
     });
     expect(report.version).toBe("0.50.1");
     expect(report.ageMs).toBe(87_420_000);
     expect(report.age).toBe("1d 0h");
     expect(report.totalFiles).toBe(25);
-    expect(report.guardFindings).toBe(3);
     expect(report.driftedFiles).toEqual(["anthropic.json", "zai.json"]);
-    const text = formatFreshness(report, { pricing: 4, contextWindow: 1, reasoning: 0 }, drift);
+    const text = formatFreshness(
+      report,
+      { pricing: 4, contextWindow: 1, reasoning: 0 },
+      drift,
+      ["price: demo/demo-1 1/2 → 1.5/3 USD per 1M", "context: demo/demo-1 100 → 200"],
+    );
     expect(text.split("\n")[0]).toBe(
       "catalog freshness — the committed catalog declares moh 0.50.1, generated 2026-09-24T11:45:00.000Z — 1d 0h old against 2026-09-25T12:02:00.000Z",
     );
-    expect(text).toContain("upstream moved since: 2 of 25 file(s) differ — 4 price(s), 1 context window(s), 0 reasoning flag(s); 3 guard finding(s)");
-    expect(text.split("\n")).toHaveLength(5);
+    expect(text).toContain("upstream moved since: 2 of 25 file(s) differ — 4 price(s), 1 context window(s), 0 reasoning flag(s)");
+    expect(text.split("\n")).toHaveLength(7);
+    expect(text.split("\n")[6]).toBe("  context: demo/demo-1 100 → 200");
   });
 
   test("a manifest without a date reports an unknown age rather than an empty one", () => {
     const report = freshnessReport({ manifest: {}, reference: "2026-09-25T12:02:00.000Z", drift: [], totalFiles: 25 });
-    expect(report).toMatchObject({ age: "unknown", driftedFiles: [], totalFiles: 25, guardFindings: 0 });
+    expect(report).toMatchObject({ age: "unknown", driftedFiles: [], totalFiles: 25 });
     expect(report.ageMs).toBeUndefined();
     expect(formatFreshness(report, { pricing: 0, contextWindow: 0, reasoning: 0 }, [])).toContain(
       "declares moh (no version), generated (no date) — unknown old",

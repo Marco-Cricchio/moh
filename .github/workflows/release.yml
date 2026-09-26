@@ -10,14 +10,22 @@
 # The Homebrew tap (Marco-Cricchio/homebrew-moh) follows published releases
 # automatically via its own update-tap workflow — nothing to do here. (#270)
 #
-# `catalog-check` (ADR-0046) also runs here: at every release, rebuild the
-# model catalog from the declared aggregators and compare it with the
-# committed tree — the exact commit being shipped, not the last scheduled
-# run. It is deliberately NOT a dependency of `release`: a release ships the
-# last valid committed catalog, so a failure here is a data-quality signal
-# for the owner, never a release blocker. Either failure mode counts as the
-# recorded trigger to revisit the catalog-ownership decision: drift against
-# the committed tree, or a source that could not be fetched.
+# `catalog-check` (ADR-0046, amended by #1005) also runs here: at every tag it
+# rebuilds the catalog from the declared aggregators, compares it with the
+# committed tree, and REPORTS — the committed catalog's age against the tagged
+# commit, how many files moved upstream, how many guard findings — into the run
+# summary. It never fails on drift and is deliberately not a `needs` of
+# `release`: a release ships the last valid committed catalog, and at a ~4-5
+# hour drift window a red at every tag was the steady state, which is a signal
+# that distinguishes nothing. The drift compare that fails still runs daily and
+# on catalog PRs (model-catalogs-check.yml).
+#
+# `version-check` IS a `needs` of `release`: it enforces the version contract
+# (ADR-0029 + ADR-0046, #1005). Regenerating the catalog declaring the release
+# being cut is a step of the release flow before the tag (CONTRIBUTING.md); a
+# manifest that declares a different release than the tag must not become a
+# Release, because `PRICING_SNAPSHOT.version` is a public export read from it —
+# v0.50.1 shipped a manifest declaring 0.50.0.
 name: release
 
 on:
@@ -75,25 +83,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # ADR-0046 revisit trigger: at every release, rebuild the catalog from the
-  # live aggregators and compare it with the committed tree at the tagged
-  # commit. Deliberately not a `needs` of `release`: the release ships the
-  # last valid committed catalog, so this job's failure is a signal to look,
-  # never a gate. The generator's own report is the diagnostic.
+  # ADR-0046 amendment (#1005): at every release, rebuild the catalog from the
+  # live aggregators, compare it with the committed tree at the tagged commit,
+  # and report — the age of the data being shipped, how far upstream has moved,
+  # and which rows moved. Deliberately not a `needs` of `release` and
+  # deliberately never failing on drift: the release ships the last valid
+  # committed catalog, so this is the diagnostic a human reads before tagging
+  # the next one. It fails only when it cannot measure at all — a source that
+  # could not be fetched, or a rebuild the guards reject — because a freshness
+  # report is never invented from data nobody could read.
   catalog-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7 # at the tagged commit
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Report catalog freshness (never fails on drift)
+        run: |
+          set -o pipefail
+          bun packages/core/scripts/build-model-catalogs.ts --freshness --at "$(git log -1 --format=%cI)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The version contract (ADR-0029 + ADR-0046 amendment, #1005): the catalog a
+  # release ships must declare that release, because PRICING_SNAPSHOT.version
+  # (a public export) reads it from the manifest. Read-only and offline: it
+  # loads the committed manifest and nothing else, and it gates publication —
+  # a mismatch never becomes a draft Release.
+  version-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install --frozen-lockfile
-      - name: Rebuild and compare (no write)
-        run: bun packages/core/scripts/build-model-catalogs.ts --check
+      - name: The catalog declares the release being tagged
+        run: bun packages/core/scripts/build-model-catalogs.ts --verify-version "${GITHUB_REF_NAME#v}"
 
   release:
-    needs: build
+    needs: [build, version-check]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
