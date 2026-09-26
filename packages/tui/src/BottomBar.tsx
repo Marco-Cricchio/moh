@@ -172,7 +172,10 @@ export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSu
  * one. Compact terminals drop the name — the texts carry their own marker
  * (e.g. `∅ jev offline`) and the row must stay a row. */
 export function ExtensionStatusChip({ status, wide, theme, maxWidth }: { status: ExtensionStatus; wide: boolean; theme: PaintableTheme; maxWidth: number }) {
-  return <Text color={theme.dim} wrap="truncate">{extensionStatusText(status, wide, maxWidth)}</Text>;
+  // #1013: flexShrink lets yoga elide the chip below its cap rather than
+  // wrap the row when the residual width cannot honour the cap (the very
+  // narrow classes, where #1012's degradation ladder owns the rest).
+  return <Box flexShrink={1}><Text color={theme.dim} wrap="truncate">{extensionStatusText(status, wide, maxWidth)}</Text></Box>;
 }
 
 /** #1013: a client-supplied status text must never be able to grow the

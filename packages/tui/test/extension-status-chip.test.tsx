@@ -85,8 +85,21 @@ describe("row 1 with a long extension status", () => {
       // The model segment never fragments mid-word.
       const modelLine = lines.find((line) => line.includes("deepseek-v4.1-flash"));
       expect(modelLine).toBeDefined();
+      if (width >= 160) {
+        // With room to spare the full right cluster renders on the gauge's
+        // line; at 120/90 the optional counters legitimately drop.
+        expect(gaugeLine!.includes("⊣ 41.2k")).toBe(true);
+        expect(gaugeLine!.includes("↻ 3")).toBe(true);
+      }
     });
   }
+
+  test("width 40: the row still renders as one physical line", () => {
+    const lines = renderRow1(40, LONG_NOTE);
+    const gaugeLine = lines.find((line) => line.includes("[█"));
+    expect(gaugeLine).toBeDefined();
+    expect(gaugeLine!.includes("]")).toBe(true);
+  });
 
   test("a short status renders whole, unelided", () => {
     const lines = renderRow1(160, "∅ jev offline");
