@@ -163,9 +163,11 @@ export interface CatalogRowOverride {
   thinkingLevelMap?: Record<string, string | null>;
   compat?: Record<string, unknown>;
   headers?: Record<string, string>;
-  /** The declared escape hatch of the contextWindow guard: the aggregator's
-   * smaller window is accepted for this row instead of frozen at the
-   * committed value. */
+  /** The declared escape hatch of the contextWindow guard: a *smaller*
+   * window the aggregator reports is accepted for this row instead of
+   * frozen at the committed value. It accepts a number, never an absence —
+   * a row whose aggregator record disappears must declare `contextWindow`
+   * (ADR-0046 amendment, #1004). */
   acceptContextShrink?: true;
 }
 
@@ -638,13 +640,25 @@ export function guardCatalog(
         error("row-lost", id, `the row was not written by the build (committed api ${api})`);
         continue;
       }
+      // The guard's subject is the NUMBER the build produces: a window the
+      // committed catalog had either comes back smaller (a correction a human
+      // reviewed, and the escape hatch accepts it) or does not come back at
+      // all — and "no number" is not a smaller one, so there is nothing for
+      // the hatch to accept. A row that declares the value is not guarded:
+      // the declaration is the decision.
       if ((before.contextWindow ?? 0) > 0 && declared.contextWindow === undefined) {
         const next = after.contextWindow ?? 0;
-        if (next < (before.contextWindow ?? 0) && declared.acceptContextShrink !== true) {
+        if (next <= 0) {
+          error(
+            "context-window-lost",
+            id,
+            `contextWindow ${before.contextWindow} → absent; declare it in the sidecar`,
+          );
+        } else if (next < (before.contextWindow ?? 0) && declared.acceptContextShrink !== true) {
           error(
             "context-window-regression",
             id,
-            `contextWindow ${before.contextWindow} → ${next || "absent"}; declare it in the sidecar (or acceptContextShrink) to accept the correction`,
+            `contextWindow ${before.contextWindow} → ${next}; declare it in the sidecar (or acceptContextShrink) to accept the correction`,
           );
         }
       }

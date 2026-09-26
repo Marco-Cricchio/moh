@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A catalog row can no longer ship without its context window** (#1004,
+  ADR-0046 amendment): the `acceptContextShrink` escape hatch was tested
+  against a value the build *derives*, so a row whose aggregator record
+  disappeared produced `0` — which is exactly the "smaller window" test the
+  hatch accepts. The loss passed with `issues: []`, and a model with no
+  catalog window makes the context-fit guard abstain, so it would have been
+  offered for a session of any size. The hatch now accepts a smaller number
+  only; a window the build no longer produces fails generation as
+  `context-window-lost`, and the seven rows that carried the hatch declare the
+  window they already had.
+
 ## [0.50.3] - 2026-09-26
 
 ### Fixed

@@ -25,11 +25,11 @@
       "name": "Deep Research Preview (Apr-21-2026)"
     },
     "gemini-2.5-computer-use-preview-10-2025": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (#1004)",
+      "date": "2026-09-26",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
       "name": "Gemini 2.5 Computer Use Preview 10-2025",
-      "acceptContextShrink": true
+      "contextWindow": 128000
     },
     "gemini-2.5-flash": {
       "author": "moh migration (#959)",

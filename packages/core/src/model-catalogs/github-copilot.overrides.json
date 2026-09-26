@@ -68,9 +68,9 @@
       }
     },
     "claude-opus-4.7": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (#1004)",
+      "date": "2026-09-26",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
       "name": "Claude Opus 4.7",
       "thinkingLevelMap": {
         "xhigh": "xhigh",
@@ -87,12 +87,12 @@
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
       },
-      "acceptContextShrink": true
+      "contextWindow": 200000
     },
     "claude-opus-4.8": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (#1004)",
+      "date": "2026-09-26",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
       "name": "Claude Opus 4.8",
       "thinkingLevelMap": {
         "xhigh": "xhigh",
@@ -109,7 +109,7 @@
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
       },
-      "acceptContextShrink": true
+      "contextWindow": 200000
     },
     "claude-opus-5": {
       "author": "moh migration (#959)",
@@ -133,9 +133,9 @@
       }
     },
     "claude-sonnet-4.6": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (#1004)",
+      "date": "2026-09-26",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
       "name": "Claude Sonnet 4.6",
       "thinkingLevelMap": {
         "max": "max",
@@ -150,7 +150,7 @@
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
       },
-      "acceptContextShrink": true
+      "contextWindow": 200000
     },
     "claude-sonnet-5": {
       "author": "moh migration (#959)",
@@ -317,9 +317,9 @@
       }
     },
     "gpt-5.3-codex": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (#1004)",
+      "date": "2026-09-26",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
       "api": "openai-responses",
       "name": "GPT-5.3 Codex",
       "thinkingLevelMap": {
@@ -340,7 +340,7 @@
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
       },
-      "acceptContextShrink": true
+      "contextWindow": 400000
     },
     "gpt-5.4": {
       "author": "moh migration (#959)",
