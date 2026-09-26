@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { MultilineInput } from "../src/Input";
+import { MultilineInput, type ComposerHandle } from "../src/Input";
 import type { CommandEntry } from "../src/commands";
 import { stripAnsi } from "./helpers";
 
@@ -304,6 +304,64 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     expect(submitted).toBe(0);
     expect(frame).toContain("one");
     expect(frame).toContain("two");
+    i.unmount();
+  });
+});
+
+describe("composer handle (#1009)", () => {
+  /** The handle App's ctrl+c handler reads. It answers for the whole
+   * precondition, so a blocked (a turn, a modal) or unfocused (a chip holds
+   * the keys) composer never swallows a press meant to arm the exit. */
+  test("clears a draft only while focused and enabled, and publishes nothing once unmounted", async () => {
+    const handle = React.createRef<ComposerHandle>();
+    const submitted: string[] = [];
+    const view = (props: { focused?: boolean; disabled?: boolean } = {}) => (
+      <MultilineInput
+        placeholder="p"
+        composerHandle={handle}
+        onSubmit={(text) => submitted.push(text)}
+        {...props}
+      />
+    );
+    const i = render(view({ focused: true, disabled: false }));
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("p"));
+    expect(handle.current?.canClear()).toBe(false); // empty: ctrl+c stays an exit press
+    i.stdin.write("abc");
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("abc"));
+    expect(handle.current?.canClear()).toBe(true);
+    for (const blocked of [{ focused: true, disabled: true }, { focused: false, disabled: false }]) {
+      i.rerender(view(blocked));
+      await sleep(20);
+      expect(handle.current?.canClear()).toBe(false);
+    }
+    i.rerender(view({ focused: true, disabled: false }));
+    await sleep(20);
+    handle.current!.clear();
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => !f.includes("abc"));
+    expect(submitted).toEqual([]); // a clear is not a send
+    i.unmount();
+    expect(handle.current).toBeNull();
+  });
+
+  test("a clear ends the history walk: ↓ cannot resurrect the pre-recall draft", async () => {
+    const handle = React.createRef<ComposerHandle>();
+    const i = render(<MultilineInput placeholder="p" composerHandle={handle} onSubmit={() => {}} />);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("p"));
+    i.stdin.write("one");
+    await sleep(20);
+    i.stdin.write("\r"); // submit: "one" enters the history
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => !f.includes("one"));
+    i.stdin.write("keep");
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("keep"));
+    i.stdin.write("\x1b[A"); // ↑ at the end of the line: cursor to column 0
+    await sleep(20);
+    i.stdin.write("\x1b[A"); // ↑ again: recall "one"; "keep" is now the walk's draft
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("one"));
+    handle.current!.clear();
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => !f.includes("one"));
+    i.stdin.write("\x1b[B"); // ↓ — a still-open walk would hand the cleared draft back
+    await sleep(60);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("keep");
     i.unmount();
   });
 });

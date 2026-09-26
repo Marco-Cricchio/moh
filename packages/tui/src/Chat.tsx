@@ -10,7 +10,7 @@ import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
 import { useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
-import { MultilineInput, pasteAsPath } from "./Input";
+import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
@@ -76,6 +76,9 @@ export interface ChatProps {
   /** Vision note 4 (#490): paste seam — an existing path pastes as an
    * `@path` mention (drag-and-drop). Optional; absent disables conversion. */
   onPastePath?: (paste: string) => string | null;
+  /** #1009: the composer's handle, passed straight through to the input —
+   * App's ctrl+c handler reads it to clear a draft instead of arming exit. */
+  composerHandle?: React.RefObject<ComposerHandle | null>;
   /** Vision note 4 (#490): the resolved preview protocol (caller computes
    * once from the `images.preview` setting + environment). */
   previewMode?: ImagePreviewMode;
@@ -180,6 +183,7 @@ export function Chat({
   onSuggestionsOpen,
   mentionCandidates,
   onPastePath,
+  composerHandle,
   previewMode = { protocol: "none" },
   onCommand,
   width,
@@ -1165,6 +1169,7 @@ export function Chat({
         placeholder={composerHint}
         disabled={blocked}
         focused={inputFocused}
+        composerHandle={composerHandle}
         onAskCommands={onOpenCommands}
         commands={commands}
         onSuggestionsOpen={onSuggestionsOpen}

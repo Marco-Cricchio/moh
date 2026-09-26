@@ -7,6 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **`ctrl+c` clears the composer** (#1009): a draft — pasted, multi-line, or
+  recalled from history — could only be deleted by hand, because a single
+  `ctrl+c` merely armed the exit toast. Over a non-empty composer the press
+  now empties it as one undoable edit (`ctrl+z` brings the draft back) and
+  resets the exit sequence, so clear → clear can never quit by accident. On
+  an empty composer, and over a modal, a running turn or a focused chip,
+  `ctrl+c` still means "press twice to exit".
+
 ### Changed
 
 - **The empty composer's hint now points at the door** (#1010): it read
