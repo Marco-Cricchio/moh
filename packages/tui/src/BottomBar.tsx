@@ -171,8 +171,27 @@ export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSu
  * the extension's name leads it so two extensions' statuses never read as
  * one. Compact terminals drop the name — the texts carry their own marker
  * (e.g. `∅ jev offline`) and the row must stay a row. */
-export function ExtensionStatusChip({ status, wide, theme }: { status: ExtensionStatus; wide: boolean; theme: PaintableTheme }) {
-  return <Text color={theme.dim} wrap="truncate">{wide ? `${status.extension} ${status.text}` : status.text}</Text>;
+export function ExtensionStatusChip({ status, wide, theme, maxWidth }: { status: ExtensionStatus; wide: boolean; theme: PaintableTheme; maxWidth: number }) {
+  return <Text color={theme.dim} wrap="truncate">{extensionStatusText(status, wide, maxWidth)}</Text>;
+}
+
+/** #1013: a client-supplied status text must never be able to grow the
+ * footer — the chip's `wrap="truncate"` elides only *after* yoga has let it
+ * take the width it wants, so an uncapped note (a 94-char guardrail
+ * explanation) starves row 1 and the right cluster wraps at every width.
+ * The extension status is therefore a bounded share of the row: a third of
+ * the terminal, floored so even the narrowest class keeps a readable
+ * fragment instead of a lone ellipsis. */
+export const extensionStatusCap = (columns: number): number => Math.max(16, Math.floor((columns - 8) / 3));
+
+/** #1013: the text an extension-status chip actually renders — the name
+ * prefix only when the extension's own text does not already lead with it
+ * (`jev-guard jev-guard: …` said the name twice), then elided to the cap.
+ * Middle elision keeps both ends: the extension's marker opens the note and
+ * its conclusion closes it. */
+export function extensionStatusText(status: ExtensionStatus, wide: boolean, cap: number): string {
+  const full = wide && !status.text.startsWith(status.extension) ? `${status.extension} ${status.text}` : status.text;
+  return middleElide(full, cap);
 }
 
 function ContextBar({ tokens, limit, width, theme }: { tokens: number; limit: number; width: number; theme: PaintableTheme }) {
@@ -262,6 +281,12 @@ function StatusRow(props: StatusProps) {
   // (#193), but the context bar renders in both modes (#229) — a wordless
   // fill gauge needs no numbers to be read.
   const vibe = props.mode === "vibe";
+  // #1013: the extension-status chips render at a bounded width (see
+  // extensionStatusCap) — yoga's `wrap="truncate"` elides only after the
+  // chip has taken the width it wants, so an uncapped client-supplied note
+  // starves row 1 and wraps the right cluster at every width. #1012's
+  // leftClusterWidth reserve consumes the *capped* text below.
+  const statusCap = extensionStatusCap(props.width);
   // ── Row 1: the turn/model state. Spinner or notice on the left, context
   // gauge plus dev-only numbers and the model on the right.
   //
@@ -274,7 +299,7 @@ function StatusRow(props: StatusProps) {
   const leftClusterWidth =
     (props.memoryFresh ? (cls === "wide" ? "◍ memory".length : "◍".length) + 1 : 0) +
     (props.mpmStatus != null ? ("✓".length + (cls === "wide" ? 1 : 0)) + 1 : 0) +
-    (props.extensionStatuses ?? []).reduce((sum, status) => sum + (cls === "wide" ? `${status.extension} ${status.text}`.length : status.text.length) + 1, 0) +
+    (props.extensionStatuses ?? []).reduce((sum, status) => sum + extensionStatusText(status, cls === "wide", statusCap).length + 1, 0) +
     (props.jevStatus != null ? (cls === "compact" ? "◈".length : `◈ jev ${{ active: "active", off: "off", inert: "inert" }[props.jevStatus]}`.length) + 1 : 0) +
     (props.compactionFailed ? (cls === "wide" ? "⚠ compaction failed — retrying".length : "⚠".length) + 1 : 0) +
     (props.growthWarning != null ? (cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork`.length : "⚡ keep my branch".length) + 1 : 0) +
@@ -292,44 +317,6 @@ function StatusRow(props: StatusProps) {
     { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
   ].filter((item) => item.text);
   const budget = Math.max(1, props.width - left.length - contextReserve - leftClusterWidth - 5);
-  const gaugeSegment = props.tokens.contextIn > 0 ? (compact ? { text: compactGauge, optional: true } : null) : null;
-  const attempt = (modelText: string) =>
-    fitStatusSegments(
-      [
-        ...(gaugeSegment ? [gaugeSegment] : []),
-        ...devSegments,
-        { text: modelText },
-        props.unsupportedLevel ? { text: `✗⚙ ${props.unsupportedLevel}`, optional: true } : null,
-        props.workflowOn ? { text: "◈ wf", optional: true } : null,
-      ].filter((item): item is { text: string; optional?: boolean } => item != null && item.text !== ""),
-      budget,
-    );
-  // Tier ladder, widest → narrowest: full model, endpoint stripped, elided,
-  // elided tighter, dropped. The first tier whose model segment survives
-  // un-fragmented (no mid-word ellipsis inside a word) wins; the model is
-  // required in every tier except the last, so the row can always fit.
-  let row1: string[];
-  let row1Model: string;
-  if (compact) {
-    const marked = (text: string) => (text ? `◆ ${text}` : "");
-    const ladder = [marked(shortModel), marked(middleElide(shortModel, Math.max(4, Math.min(16, budget - 2)))), marked(middleElide(shortModel, 6)), ""];
-    let chosen = ladder[ladder.length - 1]!;
-    let fitted = attempt(chosen);
-    for (const candidate of ladder) {
-      const candidateFit = attempt(candidate);
-      if (candidate === "" || candidateFit.includes(candidate)) {
-        chosen = candidate;
-        fitted = candidateFit;
-        break;
-      }
-    }
-    row1 = fitted;
-    row1Model = chosen;
-  } else {
-    row1Model = model;
-    row1 = attempt(model);
-  }
-  const row1Gauge: string | null = compact && props.tokens.contextIn > 0 ? compactGauge : null;
   const row1Color = (text: string): string | undefined => {
     if (/^\[\d{2}%\]$/.test(text)) return tokenColor;
     if (text.startsWith("⊣")) return tokenColor;
@@ -404,7 +391,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}{props.browserSetup && <Text color={theme.warn}>{cls === "wide" ? "⚠ browser tool unavailable — ^b install" : "⚠ browser"}</Text>}</Box>
+        <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} maxWidth={statusCap} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}{props.browserSetup && <Text color={theme.warn}>{cls === "wide" ? "⚠ browser tool unavailable — ^b install" : "⚠ browser"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{row1Gauge != null ? <Text color={tokenColor} wrap="truncate">{row1Gauge}</Text> : props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (

@@ -159,10 +159,19 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
     version: JEV_GUARD_VERSION,
     apiVersion: MOH_EXTENSION_API_VERSION,
     setup(ctx: ExtensionSetupContext) {
+      // #1013: what this extension last published through the status seam —
+      // the guardrail's turn note or the client's outage text. The seam is
+      // single-writer, so a clear may only erase a status we still own.
+      let lastPublished: string | null = null;
+      /** #867: the softened-pass note published during the current turn. */
+      let noteThisTurn: string | null = null;
       const client = createJevClient({
         ...clientOptions,
         onJudgment: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }),
-        onStatus: (text) => ctx.setStatus(text),
+        onStatus: (text) => {
+          lastPublished = text;
+          ctx.setStatus(text);
+        },
       });
 
       // ---- #832: the uniform control surface ---------------------------
@@ -306,6 +315,16 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         // tool-heavy turn far below the per-turn event cap.
         judge.flushPasses();
         judge.invalidateOnGitChange();
+        // #1013/ADR-0032 §7: the guardrail note is a *turn* fact published
+        // on a session-scoped seam. Cleared at turn end — but only when
+        // nothing else (this extension's own outage text, or another
+        // extension) has replaced it since: a clear may only erase a
+        // status we still own.
+        if (noteThisTurn !== null && lastPublished === noteThisTurn) {
+          lastPublished = null;
+          ctx.setStatus(null);
+        }
+        noteThisTurn = null;
       });
       ctx.onSessionEnd(() => judge.reset());
       ctx.onToolCall(async (call) => {
@@ -326,6 +345,8 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
         // one-line ephemeral status — the lethal check fired and was waived;
         // the user must see that even where asking is impossible.
         if (v === "pass" && result.verdict.note) {
+          lastPublished = result.verdict.note;
+          noteThisTurn = result.verdict.note;
           ctx.setStatus(result.verdict.note);
         }
         return;
