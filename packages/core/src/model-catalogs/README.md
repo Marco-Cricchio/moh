@@ -94,6 +94,10 @@ declaring its own value).
 - a `contextWindow` that shrinks against the committed catalog, unless the row
   declares the value or `acceptContextShrink` (the aggregator's correction is
   accepted, not frozen);
+- a `contextWindow` the committed catalog had that the build no longer
+  produces: no smaller number exists to accept, so the row must declare the
+  window itself — `acceptContextShrink` does not cover it (ADR-0046
+  amendment, #1004);
 - a metered price or a set of tiered rates that the build would drop.
 
 A source outage is "did not regenerate" — the last valid catalog stands.
