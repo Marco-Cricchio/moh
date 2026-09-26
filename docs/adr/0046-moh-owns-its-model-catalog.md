@@ -201,19 +201,17 @@ catalog" (ADR-0029 amendment) — and `PRICING_SNAPSHOT.version`, a public expor
 (ADR-0004 keep-list), reads it. A release shipping a manifest that declares
 another release therefore makes that export name a release that does not contain
 the data. Nothing checked it; the practice was to regenerate per release anyway.
-The coupling is now stated as a contract instead of tolerated:
+The coupling is now stated as a contract instead of tolerated — the rule the
+**`v0.50.1`** release made necessary: that release shipped a manifest declaring
+`0.50.0` (generated the previous day), so `PRICING_SNAPSHOT`, shipped inside
+0.50.1, named 0.50.0 as the release containing its prices. Two doors enforce it:
 
 - `--verify-version <x.y.z>` reads the committed manifest and fails naming both
   versions when they disagree (`manifest.json declares moh 0.50.0, but the
   release is 0.50.1 — regenerate with --version 0.50.1 and commit the result`);
 - `release.yml`'s `version-check` job runs it against the tag and **is** a
-  `needs` of `release`: a mismatched manifest never becomes a draft Release.
-
-**The `v0.50.1` precedent.** That release shipped a manifest declaring `0.50.0`
-(generated the previous day), so `PRICING_SNAPSHOT.version` named `0.50.0` for a
-release published as 0.50.1. The rule exists to prevent exactly that: the
-release flow regenerates declaring the release being cut, and the pipeline
-refuses to publish a catalog that declares a different one.
+  `needs` of `release`, so the mismatch fails **before publication**: a
+  mismatched manifest never becomes a draft Release.
 
 ### Superseded points
 
