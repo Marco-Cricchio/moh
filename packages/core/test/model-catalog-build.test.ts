@@ -288,6 +288,35 @@ describe("#959 guards", () => {
     expect(declared.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(50);
   });
 
+  test("a window the committed catalog had cannot disappear (#1004), with or without the shrink accepted", () => {
+    // The aggregator record is gone: the build produces no window at all.
+    const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 } } }) } });
+    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }), upstream, { previous });
+    const lost = hatched.issues.find((i) => i.code === "context-window-lost");
+    expect(lost?.level).toBe("error");
+    // The remedy is the declaration: the hatch has no number to accept.
+    expect(lost?.message).not.toContain("acceptContextShrink");
+    expect(hatched.file["openai-completions"]!["demo-1"]!.contextWindow).toBeUndefined();
+
+    const bare = buildCatalog(sidecar({ rows: { "demo-1": row() } }), upstream, { previous });
+    expect(bare.issues.find((i) => i.code === "context-window-lost")?.level).toBe("error");
+    expect(bare.issues.some((i) => i.code === "context-window-regression")).toBe(false);
+  });
+
+  test("the shrink escape hatch accepts a smaller number, and only a number (#1004)", () => {
+    const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, limit: { context: 50 } } }) } });
+    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }), upstream, { previous });
+    expect(hatched.issues).toEqual([]);
+    expect(hatched.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(50);
+  });
+
+  test("a row that declares its window is not guarded at all", () => {
+    const declared = row({ contextWindow: 100, cost: { input: 1, output: 2 } });
+    const gone = buildCatalog(sidecar({ rows: { "demo-1": declared } }), snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1" } }) } }), { previous });
+    expect(gone.issues).toEqual([]);
+    expect(gone.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(100);
+  });
+
   test("losing a metered price fails generation unless the sidecar declares it", () => {
     const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 0, output: 0 }, limit: { context: 100 } } }) } });
     const silent = buildCatalog(sidecar({ rows: { "demo-1": row() } }), upstream, { previous });
@@ -345,6 +374,9 @@ describe("#959 migration (committed catalog → sidecar)", () => {
     const row = overrides.rows["demo-x"]!;
     expect(row).toMatchObject({ name: "Demo X", cost: { input: 1, output: 2 }, contextWindow: 100 });
     expect(row.reason).toContain("no aggregator record");
+    // Nothing to accept: the record is missing, so the window is declared
+    // (and the guard is moot for the row) rather than a shrink accepted.
+    expect(row.acceptContextShrink).toBeUndefined();
     expect(notes.map((n) => n.code)).toEqual(["absent-row"]);
   });
 
@@ -520,6 +552,39 @@ describe("#959 manifest and report", () => {
     const measured = freshnessReport({ manifest: { version: "0.50.1" }, reference: "2026-09-25T12:02:00.000Z", drift: [], totalFiles: 25, rebuiltFiles: 25 });
     expect(measured.rebuiltFiles).toBe(25);
     expect(formatFreshness(measured, { pricing: 0, contextWindow: 0, reasoning: 0 }, [], [])).toContain("upstream moved since: 0 of 25 file(s) differ — 0 price(s)");
+  });
+
+  test("the report tells a lost window apart from an accepted correction (#1004)", () => {
+    const previous = { demo: { "openai-completions": { "demo-1": { id: "demo-1", contextWindow: 100 } } } };
+    const gone = buildReport({
+      version: "0.50.0",
+      generatedAt: "2026-09-24T00:00:00.000Z",
+      sources: [],
+      catalogs: [buildCatalog(sidecar({ rows: { "demo-1": row() } }), snapshots({}), { previous: previous.demo })],
+      previous,
+    });
+    // The loss is the guard's fact, and the report carries it as a finding:
+    // a generation that reaches the row-level arrays wrote something, so a
+    // window the build no longer produces never looks like a move here.
+    expect(gone.issues.map((i) => i.code)).toContain("context-window-lost");
+    expect(gone.contextWindowShrinks).toEqual([]);
+    expect(gone.changes.contextWindow).toEqual([]);
+
+    const shrunk = buildReport({
+      version: "0.50.0",
+      generatedAt: "2026-09-24T00:00:00.000Z",
+      sources: [],
+      catalogs: [
+        buildCatalog(
+          sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }),
+          snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", limit: { context: 50 } } }) } }),
+          { previous: previous.demo },
+        ),
+      ],
+      previous,
+    });
+    expect(shrunk.issues.map((i) => i.code)).not.toContain("context-window-lost");
+    expect(shrunk.contextWindowShrinks).toEqual([{ provider: "demo", id: "demo-1", from: 100, to: 50, declared: true }]);
   });
 
   test("coverage counts a plan entry as pricing, zero-only entries as none", () => {

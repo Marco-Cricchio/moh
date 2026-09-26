@@ -2,8 +2,10 @@
 
 Date: 2026-09-24 · Status: accepted · Refs: tickets #955, #951, #953 (census), map #952
 Amends: ADR-0029 (by provenance, not liveness) — see the amendment there
-Amended: #1005 (2026-09-26) — the release-time check reports, the version
-contract is enforced, regeneration before the tag is a release step
+Amended: #1004 (2026-09-26) — the `contextWindow` shrink hatch accepts a
+number, never an absence; #1005 (2026-09-26) — the release-time check
+reports, the version contract is enforced, regeneration before the tag is a
+release step
 
 ## Context
 
@@ -141,6 +143,68 @@ A revisit is a decision about *where the data comes from*, never an
 invitation to fetch prices at runtime: the runtime-live-pricing boundary
 stands (ADR-0029, map #952 out-of-scope entry).
 
+## Amendment (2026-09-26, #1004): the shrink escape hatch accepts a number, never an absence
+
+The decision above describes the guard as "a non-regressive `contextWindow`
+against the committed catalog". It is not: it is non-regressive for the rows
+that have not opted out, because the escape hatch was tested against a value
+the build *derives* (`after.contextWindow ?? 0`) rather than against the field
+the aggregator supplied. A row whose record disappeared produced `0`, `0 <
+before` is exactly the shrink test, and `acceptContextShrink` therefore
+accepted the loss of the field itself.
+
+The cost was real. On 2026-09-25 OpenRouter retired the free GLM 5.2 variant;
+the rebuild wrote `z-ai/glm-5.2:free` with no `contextWindow` at all, the
+generation succeeded with `issues: []` (the row carried the hatch, set by the
+#959 migration to accept a shrink it had observed then), and only the
+catalog-wide assertion that every row has a positive window caught it. Had it
+shipped, `contextWindowFor` would have returned `0` — the documented "unknown
+window" — so the context-fit guard (#948) would have abstained and offered the
+model for a session of any size.
+
+### The narrowed hatch
+
+- `acceptContextShrink` accepts a **smaller number** and nothing else.
+- A window the committed catalog had that the build no longer produces is
+  `context-window-lost`, fails generation, and its message names the only
+  remedy that applies (declare it in the sidecar). The hatch is not offered
+  there, because there is no number to accept.
+- The loss is a guard finding (`context-window-lost`), named per row and
+  printed with the other violations, and it is not a row-level entry in the
+  report: a generation that loses a window is refused, so no report is written
+  and the finding is the record a human actually reads. `contextWindowShrinks`
+  therefore keeps one meaning — a smaller number somebody accepted.
+- A row that declares `contextWindow` is not guarded at all — unchanged, and
+  it is what makes declaring the field the honest way to freeze it.
+- The seven rows carrying the hatch (four `github-copilot`, one `google`, one
+  `nvidia-nim`, one `openrouter`) now declare the window they already had.
+
+### What this costs
+
+Declaring the field freezes it: an override always wins, so a later upstream
+correction to a declared window produces no drift and no report entry. That is
+the deliberate trade — for a row whose aggregator record can vanish (or whose
+plan listing has retired), a pinned window that the context-fit guard can trust
+is worth more than a correction nobody would have noticed. It is the same
+reasoning the v0.50.3 fix applied to `z-ai/glm-5.2:free` alone; this amendment
+generalises it to every row that had opted out.
+
+Everything else here — sources and precedence, per-field supply, the
+hand-maintained region, the width of the guard for rows that have not opted
+out, the manifest and report contents, the runtime-live-pricing boundary — is
+unaffected.
+
+### Superseded points
+
+1. "a non-regressive `contextWindow` against the committed catalog" — the
+   guard is non-regressive for the rows that have **not** opted out;
+   `acceptContextShrink` covers a smaller number only, and a window the build
+   no longer produces is refused whatever the row declares (other than the
+   window itself).
+2. "The generation report additionally records unmatched ids, cross-source
+   context differences, and coverage deltas" — unchanged; what this amendment
+   adds is the refusal, above, not another row-level list.
+
 ## Amendment (2026-09-26, #1005): the release-time check reports, and the version contract is enforced
 
 This ADR named the release-time catalog check as its own revisit trigger. The
@@ -233,8 +297,9 @@ The coupling is now stated as a contract instead of tolerated — the rule the
 3. "a weekly schedule" — the schedule is daily.
 
 Everything else here — sources and precedence, per-field supply, the
-hand-maintained region, the guards, the manifest and report contents, the
-runtime-live-pricing boundary — is unaffected. Option 4 of #1005 (decoupling
-`manifest.version` from the shipped release) was rejected: it would make
-`PRICING_SNAPSHOT.version` informational, and the coupling is what keeps that
-public export honest.
+hand-maintained region, the manifest and report contents, the
+runtime-live-pricing boundary — is unaffected. The width of the guards is
+#1004's amendment above, which narrows one of them. Option 4 of #1005
+(decoupling `manifest.version` from the shipped release) was rejected: it
+would make `PRICING_SNAPSHOT.version` informational, and the coupling is what
+keeps that public export honest.
