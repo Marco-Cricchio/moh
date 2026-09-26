@@ -904,10 +904,10 @@ export interface FreshnessReport {
   /** The instant the age is measured against (the tagged commit's date at
    * the tag; now, elsewhere). */
   reference: string;
-  /** Whole milliseconds between `generatedAt` and `reference`; undefined
-   * when the manifest carries no usable date — an unknown age is reported
-   * as unknown, never as zero. */
-  ageMs?: number;
+  /** The staleness window, already rendered: "1d 7h", "5h 20m", "12m", or
+   * "unknown" when the manifest carries no usable date — an unknown age is
+   * reported as unknown, never as zero. One rendered field, not a duration
+   * and its formatter both: every reader of this report is a human line. */
   age: string;
   /** Committed catalog files the rebuild covers. */
   totalFiles: number;
@@ -919,8 +919,8 @@ export interface FreshnessReport {
 /** "1d 7h", "5h 20m", "12m" — a staleness window read at a glance. A
  * missing or unusable date is "unknown", and a date in the future (a clock
  * skew, never a real age) degrades to "0m". */
-export function formatAge(ageMs: number | undefined): string {
-  if (ageMs === undefined || !Number.isFinite(ageMs)) return "unknown";
+export function formatAge(ageMs: number): string {
+  if (!Number.isFinite(ageMs)) return "unknown";
   const ms = Math.max(0, ageMs);
   const days = Math.floor(ms / 86_400_000);
   const hours = Math.floor((ms % 86_400_000) / 3_600_000);
@@ -939,30 +939,25 @@ export function freshnessReport(options: {
   const generatedAt = options.manifest?.generatedAt;
   const generated = generatedAt ? Date.parse(generatedAt) : Number.NaN;
   const reference = Date.parse(options.reference);
-  const measurable = Number.isFinite(generated) && Number.isFinite(reference);
-  const ageMs = measurable ? Math.max(0, reference - generated) : undefined;
+  const age = Number.isFinite(generated) && Number.isFinite(reference) ? formatAge(reference - generated) : "unknown";
   return {
     ...(options.manifest?.version ? { version: options.manifest.version } : {}),
     ...(generatedAt ? { generatedAt } : {}),
     reference: options.reference,
-    ...(ageMs === undefined ? {} : { ageMs }),
-    age: formatAge(ageMs),
+    age,
     totalFiles: options.totalFiles,
     driftedFiles: [...new Set(options.drift.map((entry) => entry.file))],
   };
 }
 
 /** The tag-time report: what is being shipped, how old it is, and how far
- * upstream has moved: the file-level summary first, then one line per
- * committed file, then one line per row that actually moved (a price, a
- * context window, a reasoning flag). Informational by construction —
- * nothing here decides anything. */
-export function formatFreshness(
-  report: FreshnessReport,
-  moved: UpstreamMoves,
-  drift: CatalogDriftEntry[],
-  rowMoves: string[] = [],
-): string {
+ * upstream has moved. `drift` is the same list `report.driftedFiles` counts,
+ * so one entry per reason — two findings on one file are two lines and one
+ * file. `moved` holds the row-level counts, `rowMoves` their already
+ * rendered lines (a price, a context window, a reasoning flag). The report
+ * is a human-read transcript; no caller parses it, so it stays one shape.
+ * Informational by construction — nothing here decides anything. */
+export function formatFreshness(report: FreshnessReport, moved: UpstreamMoves, drift: CatalogDriftEntry[], rowMoves: string[]): string {
   const lines: string[] = [];
   lines.push(
     `catalog freshness — the committed catalog declares moh ${report.version ?? "(no version)"}, generated ${report.generatedAt ?? "(no date)"} — ${report.age} old against ${report.reference}`,

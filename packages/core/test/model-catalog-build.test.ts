@@ -460,7 +460,7 @@ describe("#959 manifest and report", () => {
     expect(formatAge(31 * 3_600_000)).toBe("1d 7h");
     // a future date is clock skew, not a negative age
     expect(formatAge(-60_000)).toBe("0m");
-    expect(formatAge(undefined)).toBe("unknown");
+    expect(formatAge(Number.NaN)).toBe("unknown");
   });
 
   test("freshness reports the age against the tagged commit, deduplicated by file", () => {
@@ -476,7 +476,6 @@ describe("#959 manifest and report", () => {
       totalFiles: 25,
     });
     expect(report.version).toBe("0.50.1");
-    expect(report.ageMs).toBe(87_420_000);
     expect(report.age).toBe("1d 0h");
     expect(report.totalFiles).toBe(25);
     expect(report.driftedFiles).toEqual(["anthropic.json", "zai.json"]);
@@ -497,8 +496,9 @@ describe("#959 manifest and report", () => {
   test("a manifest without a date reports an unknown age rather than an empty one", () => {
     const report = freshnessReport({ manifest: {}, reference: "2026-09-25T12:02:00.000Z", drift: [], totalFiles: 25 });
     expect(report).toMatchObject({ age: "unknown", driftedFiles: [], totalFiles: 25 });
-    expect(report.ageMs).toBeUndefined();
-    expect(formatFreshness(report, { pricing: 0, contextWindow: 0, reasoning: 0 }, [])).toContain(
+    expect(report.version).toBeUndefined();
+    expect(report.generatedAt).toBeUndefined();
+    expect(formatFreshness(report, { pricing: 0, contextWindow: 0, reasoning: 0 }, [], [])).toContain(
       "declares moh (no version), generated (no date) — unknown old",
     );
   });
