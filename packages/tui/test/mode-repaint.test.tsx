@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 /** #201: the mode switch repaints the visible transcript in the new
  * grammar instead of only affecting future turns. */
@@ -26,7 +26,7 @@ describe("mode switch repaints the transcript (#201)", () => {
 
     // #939: the identity gate mounts the tree (and its input handlers) a
     // beat after render(); wait for the settled chat before the first key.
-    await waitForFrame(frame, "type…");
+    await waitForFrame(frame, COMPOSER_READY);
     await new Promise((r) => setTimeout(r, 120));
     i.stdin.write("one");
     await new Promise((r) => setTimeout(r, 20));

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider, SessionStore, createSession } from "@moh/core";
-import { actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const dir = () => `/tmp/moh-tui-continuity-${process.pid}-${Date.now()}`;
 
@@ -49,7 +49,7 @@ describe("cross-machine continuity, TUI surface (#402)", () => {
       await waitForFrame(frameText, "continue work on tickets 12 and 15");
 
       // Enter on the session row resumes: history visible in the chat.
-      await actUntilFrame(() => i.stdin.write("\r"), frameText, "type…");
+      await actUntilFrame(() => i.stdin.write("\r"), frameText, COMPOSER_READY);
       // Resumed history is promoted through Static (written once, then out
       // of the volatile frame): assert on the accumulated frames.
       await waitForCondition(

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { loadUserConfig } from "../src/user-config";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-settings-live-"));
 
@@ -52,7 +52,7 @@ describe("settings changes apply live (#196)", () => {
       }
     };
     try {
-      await waitForFrame(frame, "type…");
+      await waitForFrame(frame, COMPOSER_READY);
       await send("draft"); // a draft in the input proves the remount below
       await waitForFrame(frame, "draft");
       await send("\x13"); // ctrl+s → settings
@@ -76,7 +76,7 @@ describe("settings changes apply live (#196)", () => {
       // The remount clears the volatile input draft — with the bug
       // (persist-only) the draft survives and no color changes.
       await waitForFrame(frame, "Default permission mode", { absent: true });
-      await waitForFrame(frame, "type…");
+      await waitForFrame(frame, COMPOSER_READY);
       expect(frame()).not.toContain("draft");
       expect(loadUserConfig(join(home, ".moh", "config")).theme).toBe("catppuccin");
     } finally {

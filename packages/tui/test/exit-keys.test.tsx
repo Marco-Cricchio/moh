@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider } from "@moh/core";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-exit-"));
 
@@ -24,7 +24,7 @@ function mount() {
  * mounts, so a keystroke written earlier lands on nothing. */
 async function mountReady() {
   const i = mount();
-  await waitForFrame(frame(i), "type…");
+  await waitForFrame(frame(i), COMPOSER_READY);
   return i;
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { hasPython, runPty } from "./pty-runner";
+import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
 
 /**
  * Layout verification in a real PTY (issues #64/#65 acceptance criteria).
@@ -31,7 +32,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
         steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 1.0 }, { wait: 10.0, until: B("^k commands") }],
         tail: 45,
       });
-      const input = lines.find((l) => l.text.includes("type…"));
+      const input = lines.find((l) => l.text.includes(COMPOSER_READY));
       expect(input).toBeDefined();
       const gutter = input!.text.indexOf("›");
       expect(gutter).toBeLessThanOrEqual(3);
@@ -57,7 +58,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
         steps: [...enterChat, { wait: 0.8, send: B("\x13") }, { wait: 10.0, until: "Answer language", untilOnScreen: true }],
         tail: 45,
       });
-      const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("type…"));
+      const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes(COMPOSER_READY));
       const chipsRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("⏎ send"));
       expect(inputRow(baseline)).toBeGreaterThanOrEqual(0);
       expect(chipsRow(baseline)).toBeGreaterThanOrEqual(0);
@@ -153,7 +154,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       });
       // The cumulative pty buffer still contains pre-resize frames:
       // assert on the final frame only (from the last input line on).
-      const inputIdx = lines.reduce<number>((acc, l, i) => (l.text.includes("type…") ? i : acc), -1);
+      const inputIdx = lines.reduce<number>((acc, l, i) => (l.text.includes(COMPOSER_READY) ? i : acc), -1);
       expect(inputIdx).toBeGreaterThanOrEqual(0);
       const input = lines[inputIdx]!;
       expect(input.lead).toBeLessThanOrEqual(2);

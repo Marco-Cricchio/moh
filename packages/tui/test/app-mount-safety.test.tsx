@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-mount-safety-home-"));
@@ -41,15 +41,15 @@ const frameOf = (i: { lastFrame(): string | undefined }) => () => stripAnsi(i.la
 describe("mounting App outside renderTui (#939)", () => {
   test("a queued update on a live root cannot turn the next mount into a reconciler crash", async () => {
     const first = mount();
-    await waitForFrame(frameOf(first), "type…");
+    await waitForFrame(frameOf(first), COMPOSER_READY);
     // An update scheduled from outside React: a scheduler task, queued and
     // not yet flushed. This is the pending work the identity spawn used to
     // run from inside its own call.
     first.stdin.write("hello");
     const second = mount();
     const third = mount();
-    await waitForFrame(frameOf(second), "type…");
-    await waitForFrame(frameOf(third), "type…");
+    await waitForFrame(frameOf(second), COMPOSER_READY);
+    await waitForFrame(frameOf(third), COMPOSER_READY);
     // The first instance is still alive and still owns its typed text: a
     // crash inside the second mount would have taken it — and the rest of
     // the file — down with it.
@@ -61,11 +61,11 @@ describe("mounting App outside renderTui (#939)", () => {
 
   test("two mounts in sequence, the first disposed, both render", async () => {
     const first = mount();
-    await waitForFrame(frameOf(first), "type…");
+    await waitForFrame(frameOf(first), COMPOSER_READY);
     first.unmount();
     const second = mount();
-    await waitForFrame(frameOf(second), "type…");
-    expect(frameOf(second)()).toContain("type…");
+    await waitForFrame(frameOf(second), COMPOSER_READY);
+    expect(frameOf(second)()).toContain(COMPOSER_READY);
     second.unmount();
     await sleep(20);
   }, 20000);
@@ -87,7 +87,7 @@ describe("mounting App outside renderTui (#939)", () => {
     let i: ReturnType<typeof render> | null = null;
     try {
       i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
-      await waitForFrame(frameOf(i), "type…");
+      await waitForFrame(frameOf(i), COMPOSER_READY);
     } finally {
       (Bun as { spawnSync: unknown }).spawnSync = real;
     }

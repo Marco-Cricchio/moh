@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { hasPython, runPty, DEV_CONFIG } from "./pty-runner";
+import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
 
 const encodeBase64 = (text: string) => btoa(text);
 
@@ -31,7 +32,7 @@ describe.skipIf(!hasPython)("reasoning controls PTY (#242)", () => {
     // where-you-are row (2A status layout).
     expect(lines.every((line) => line.width <= 64)).toBe(true);
     // The command is non-blocking: the input remains available.
-    expect(frame).toContain("type…");
+    expect(frame).toContain(COMPOSER_COMPACT);
   }, 15_000);
 
   test("bottom-bar ctrl+y explains models with no level map", async () => {
