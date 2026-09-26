@@ -285,8 +285,6 @@ function StatusRow(props: StatusProps) {
   // no tier fragments a segment mid-word.
   const compact = cls === "compact";
   const compactGauge = `[${String(Math.min(99, Math.round(fraction * 100))).padStart(2, "0")}%]`;
-  const gaugeWidth = compact ? Math.min(10, compactGauge.length) : contextReserve;
-  void gaugeWidth;
   const slash = props.model.lastIndexOf("/");
   const shortModel = compact && slash > 0 && slash < props.model.length - 1 ? props.model.slice(slash + 1) : props.model;
   const devSegments = [
