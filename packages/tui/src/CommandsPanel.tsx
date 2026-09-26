@@ -40,6 +40,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["/mpm", "project map status and diagnostics (MPM)"],
       ["@ (type it)", "file mention popup: fuzzy path picker, attaches a snapshot/listing"],
       ["paste a file path", "drag-and-drop: pasted path inserts as an @mention; images preview inline where supported (images.preview)"],
+      ["ctrl+c", "clear the composer (ctrl+z restores it); on an empty composer, press twice to quit"],
       ["q", "quit (home)"],
     ],
   },

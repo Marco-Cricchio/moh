@@ -6,11 +6,29 @@ import { useViewport, windowing } from "./viewport";
 import { fuzzyRank } from "./file-index";
 import type { CommandEntry } from "./commands";
 
+/**
+ * #1009: ctrl+c is handled in App's `useInput` (it is the exit key) while the
+ * draft lives here, so the composer publishes this handle and App asks it
+ * before treating a press as an exit. The precondition lives on this side of
+ * the seam because the composer is the only place that knows it.
+ */
+export interface ComposerHandle {
+  /** Focused, enabled and holding a draft: this press may be swallowed as a
+   * clear. False in every other state — there, ctrl+c is the double-press
+   * exit it has always been. */
+  canClear(): boolean;
+  /** Empties the draft as one undoable edit: ctrl+z restores it. */
+  clear(): void;
+}
+
 export interface InputProps {
   placeholder?: string;
   disabled?: boolean;
   onAskCommands?: () => void;
   focused?: boolean;
+  /** #1009: receives the handle above while this composer is mounted, null
+   * again once it unmounts (a gone draft must never answer a keypress). */
+  composerHandle?: React.RefObject<ComposerHandle | null>;
   /** Incremented by the focused send chip to submit the current draft. */
   submitSignal?: number;
   /** An external, unsent composer prefill (for example a claimed-issue route). */
@@ -47,6 +65,15 @@ const HISTORY_LIMIT = 100;
  * `visible` toggle so on/off each last BLINK_MS. Slightly slower than a
  * classic terminal (~530ms full cycle) per owner preference. */
 const BLINK_MS = 400;
+
+/** The composer's one notion of "empty" (#1009): the placeholder is rendered
+ * exactly when this holds, and a ctrl+c on an empty draft stays an exit
+ * press — so the render and the key handler must never drift apart. A
+ * whitespace-only draft is *not* empty here: it is visible text the user can
+ * clear. */
+function isEmptyDraft(lines: readonly string[]): boolean {
+  return lines.length === 1 && lines[0] === "";
+}
 
 function graphemes(value: string): Intl.SegmentData[] {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
@@ -133,6 +160,7 @@ export function MultilineInput({
   disabled,
   onAskCommands,
   focused = true,
+  composerHandle,
   submitSignal = 0,
   prefill,
   commands = [],
@@ -278,15 +306,38 @@ export function MultilineInput({
     setPreferredColumn(null);
   };
 
+  /** Empties the editor, the walk state around it and the completion popup —
+   * one definition of "the composer is empty now". `undoable` records the
+   * outgoing draft first: a clear can be undone, a send cannot (that text went
+   * to the model). */
+  const emptyDraft = (undoable: boolean) => {
+    if (undoable) record();
+    setEditor({ lines: [""], line: 0, column: 0 });
+    setHistoryIndex(-1);
+    setHistoryDraft(null);
+    setScrollOffset(0);
+    setSuggestionIndex(0);
+    if (!undoable) { setUndo([]); setRedo([]); }
+  };
+
+  // #1009: the handle App's ctrl+c handler reads. Republished after every
+  // render (its closures read current state) and nulled both on re-publish and
+  // on unmount: the Home screen mounts no composer, and a stale handle must
+  // never answer for a draft that is gone.
+  useEffect(() => {
+    if (!composerHandle) return;
+    composerHandle.current = {
+      canClear: () => !disabled && focused && !isEmptyDraft(lines),
+      clear: () => emptyDraft(true),
+    };
+    return () => { composerHandle.current = null; };
+  });
+
   const submit = () => {
     const text = lines.join("\n").trim();
     if (!text) return;
     setHistory((items) => [text, ...items.filter((item) => item !== text)].slice(0, HISTORY_LIMIT));
-    setHistoryIndex(-1);
-    setHistoryDraft(null);
-    setLines([""]); setCursorLine(0); setCursorColumn(0); setScrollOffset(0);
-    setUndo([]); setRedo([]);
-    setSuggestionIndex(0);
+    emptyDraft(false);
     // The composer is empty again: the next prefill applies even when it is
     // the very text just sent (a cancelled confirmation hands it back).
     previousPrefill.current = undefined;
@@ -560,13 +611,13 @@ export function MultilineInput({
   return (
     <Box flexDirection="column" width="100%" paddingX={1}>
       <Box flexDirection="column">
-        {!(lines.length === 1 && lines[0] === "") && shown.map((item, index) => {
+        {!isEmptyDraft(lines) && shown.map((item, index) => {
           const active = focused && index === visualLineIndexAtCursor();
           const column = active ? cursorColumn - item.start : -1;
           const cursor = active && cursorVisible && !disabled;
           return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{column >= 0 ? <>{item.text.slice(0, column)}{cursor ? <Text inverse bold>{item.text[column] ?? " "}</Text> : <Text color={focused ? theme.accent : theme.dim}>{item.text[column] ?? " "}</Text>}{item.text.slice(column + 1)}</> : item.text}</> : <>{"  "}{item.text}</>}</Text>;
         })}
-        {lines.length === 1 && lines[0] === "" && (
+        {isEmptyDraft(lines) && (
           <Text>
             <Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text>
             {focused && !disabled && cursorVisible

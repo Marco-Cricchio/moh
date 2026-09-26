@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useApp, useInput, useStdout } from "ink";
-import { pasteAsPath } from "./Input";
+import { pasteAsPath, type ComposerHandle } from "./Input";
 import { Box } from "ink";
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
@@ -202,8 +202,11 @@ function AppShell({
   // guardian owns the config-file path constant itself).
   const mohHome = join(home ?? homedir(), ".moh");
   // Double ctrl+c is the only way out (see useInput; exitOnCtrlC is off in
-  // main.tsx): the first press arms, the second within the window exits.
+  // main.tsx): the first press arms, the second within the window exits. A
+  // press over a non-empty composer clears it instead (#1009) — the draft
+  // itself lives in MultilineInput, which publishes this handle.
   const exitArmRef = useRef(0);
+  const composerRef = useRef<ComposerHandle | null>(null);
   const viewport = useViewport();
 
   const cfgFile = useMemo(() => userConfigFile(home), [home]);
@@ -1179,8 +1182,16 @@ function AppShell({
   useInput((input, key) => {
     // Exit: two ctrl+c presses within 1.5s (exitOnCtrlC is off in main.tsx,
     // so the keypress reaches us as input "c" + key.ctrl). Runs first so it
-    // works over overlays and chip focus alike. A lone ctrl+c only arms.
+    // works over overlays and chip focus alike. A lone ctrl+c only arms —
+    // except over a live draft, where it clears it (#1009) and disarms, so
+    // clear → clear can never exit: the composer answers for its own
+    // precondition (focused, enabled, non-empty).
     if (key.ctrl && input === "c") {
+      if (composerRef.current?.canClear()) {
+        composerRef.current.clear();
+        exitArmRef.current = 0;
+        return;
+      }
       const now = Date.now();
       if (now - exitArmRef.current < 1500) return exit();
       exitArmRef.current = now;
@@ -1338,6 +1349,7 @@ function AppShell({
       blocked={blocked}
       filePreview={config.filePreview}
       inputFocused={focusedChip === null}
+      composerHandle={composerRef}
       focusedChip={focusedChip}
       focusedSubagent={focusedChip === -1 ? focusedSubagent : null}
       panelSubagent={panelSubagent}
