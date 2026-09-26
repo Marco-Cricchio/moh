@@ -23,9 +23,11 @@
  * touching the catalog, and manual dispatch. `--freshness` runs the same
  * compare and reports instead of failing — the release pipeline's job, which
  * states the committed catalog's age against the tagged commit and how far
- * upstream has moved, and never gates. `--verify-version` enforces the
- * version contract offline: the catalog a release ships must declare that
- * release, because `PRICING_SNAPSHOT.version` reads it.
+ * upstream has moved, and never gates on drift — a rebuild the guards reject
+ * reports less (age and drifted files, with the row-level counts as `--`)
+ * instead of failing. `--verify-version` enforces the version contract
+ * offline: the catalog a release ships must declare that release, because
+ * `PRICING_SNAPSHOT.version` reads it.
  *
  * Offline runs (tests, CI debugging): `--models-dev <file>` and
  * `--open-router <file>` read a local snapshot instead of fetching.
@@ -267,78 +269,101 @@ async function main(): Promise<number> {
   // --- build ---
   const catalogs = [];
   const previousByProvider: Record<string, CatalogFileJson> = {};
+  /** A guard error is a rebuild that still happened; a thrown fetch is not.
+   * `--freshness` tolerates the first and reports it, and must not pretend
+   * to report the second. */
   const failures: string[] = [];
-  for (const provider of providers) {
-    const overrides = readOverrides(provider);
-    if (!overrides) continue;
-    if (!overrides.source || Object.keys(overrides.source).length === 0) {
-      failures.push(`${provider}: the sidecar declares no aggregator source`);
-      continue;
+  const guardFailures: string[] = [];
+  let rebuilt = true;
+  try {
+    for (const provider of providers) {
+      const overrides = readOverrides(provider);
+      if (!overrides) continue;
+      if (!overrides.source || Object.keys(overrides.source).length === 0) {
+        guardFailures.push(`${provider}: the sidecar declares no aggregator source`);
+        continue;
+      }
+      const previous = readCatalog(provider);
+      if (previous) previousByProvider[provider] = previous;
+      const built = buildCatalog(overrides, snapshots, previous ? { previous } : {});
+      catalogs.push(built);
+      for (const issue of built.issues) {
+        if (issue.level === "error") guardFailures.push(`${provider}${issue.id ? `/${issue.id}` : ""}: ${issue.code}: ${issue.message}`);
+      }
     }
-    const previous = readCatalog(provider);
-    if (previous) previousByProvider[provider] = previous;
-    const built = buildCatalog(overrides, snapshots, previous ? { previous } : {});
-    catalogs.push(built);
-    for (const issue of built.issues) {
-      if (issue.level === "error") failures.push(`${provider}${issue.id ? `/${issue.id}` : ""}: ${issue.code}: ${issue.message}`);
-    }
+    failures.push(...guardFailures);
+  } catch (error) {
+    // An aggregator that does not answer in the shape the builder expects:
+    // "did not regenerate", and no compare to report.
+    rebuilt = false;
+    failures.push(`the rebuild aborted before it could compare: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   // --- freshness mode: the same compare as --check, reported instead of
   // judged (#1005). The release pipeline runs this: at a 4-5 hour drift
   // window a red at every tag says nothing, so the tag-time job states the
   // facts — which release the data declares, how old it is against the
-  // tagged commit, how far upstream has moved — and never gates. What still
-  // fails is not measuring at all: a source that could not be fetched
-  // (caught above) or a rebuild the guards reject leave no report to write,
-  // and a freshness report is never invented from data nobody could read.
+  // tagged commit, how far upstream has moved — and nothing it can report
+  // makes it fail.
+  //
+  // A rebuild the guards reject shrinks the report, it does not kill it: the
+  // age and the drifted-file count come from the committed manifest and the
+  // compare, which need no accepted rebuild, while the row-level moves need
+  // one. So the row counts read `--`, the file count is a lower bound, and
+  // the guard findings are listed — because the release whose catalog no
+  // longer reproduces is exactly the release whose freshness is worth
+  // reading. That is what "never fails on drift" has to mean in practice:
+  // there is no flavour of drift that turns this job red.
+  //
+  // The one failure left is not measuring at all — a source that could not
+  // be fetched (thrown above), where there is nothing to compare and no
+  // honest report to print.
   if (hasFlag("--freshness")) {
-    if (failures.length > 0) {
-      console.error(`generation failed — ${failures.length} guard violation(s), so there is nothing to report:`);
-      for (const failure of failures) console.error(`  ${failure}`);
+    if (!rebuilt) {
+      console.error("the catalog could not be fetched, so there is nothing to report — this is 'did not regenerate', not 'up to date'");
       return 1;
     }
     const reference = argValue("--at") ?? new Date().toISOString();
     const drift = collectDrift(catalogs, committedManifest);
-    const report = buildReport({
-      version,
-      generatedAt: committedManifest?.generatedAt ?? reference,
-      sources,
-      catalogs,
-      previous: previousByProvider,
-    });
     const freshness = freshnessReport({
       manifest: committedManifest,
       reference,
       drift,
       totalFiles: committedCatalogFiles().length,
+      rebuiltFiles: catalogs.length,
     });
+    const rejected = guardFailures.length > 0;
+    const changes = rejected
+      ? undefined
+      : buildReport({
+          version,
+          generatedAt: committedManifest?.generatedAt ?? reference,
+          sources,
+          catalogs,
+          previous: previousByProvider,
+        }).changes;
     console.log(
       formatFreshness(
         freshness,
-        {
-          pricing: report.changes.pricing.length,
-          contextWindow: report.changes.contextWindow.length,
-          reasoning: report.changes.reasoning.length,
-        },
+        changes === undefined ? undefined : { pricing: changes.pricing.length, contextWindow: changes.contextWindow.length, reasoning: changes.reasoning.length },
         drift,
-        [
-          ...report.changes.pricing.map(
-            (change) =>
-              `price: ${change.provider}/${change.id} ${change.from.input}/${change.from.output} → ${change.to.input}/${change.to.output} USD per 1M`,
-          ),
-          ...report.changes.contextWindow.map((change) => `context: ${change.provider}/${change.id} ${change.from} → ${change.to}`),
-          ...report.changes.reasoning.map((change) => `reasoning: ${change.provider}/${change.id} ${change.from} → ${change.to}`),
-          ...report.contextWindowShrinks.map(
-            (shrink) => `context-shrink: ${shrink.provider}/${shrink.id} ${shrink.from} → ${shrink.to} (declared in the sidecar: ${shrink.declared})`,
-          ),
-        ],
+        changes === undefined
+          ? []
+          : [
+              ...changes.pricing.map(
+                (change) =>
+                  `price: ${change.provider}/${change.id} ${change.from.input}/${change.from.output} → ${change.to.input}/${change.to.output} USD per 1M`,
+              ),
+              ...changes.contextWindow.map((change) => `context: ${change.provider}/${change.id} ${change.from} → ${change.to}`),
+              ...changes.reasoning.map((change) => `reasoning: ${change.provider}/${change.id} ${change.from} → ${change.to}`),
+            ],
       ),
     );
+    for (const failure of guardFailures) console.log(`  guard: ${failure}`);
     console.log(
-      drift.length === 0
+      drift.length === 0 && guardFailures.length === 0
         ? "advisory: the committed catalog matches the rebuild — nothing here gates the release"
-        : `advisory: ${drift.length} file(s) moved upstream — regenerate and commit before the tag if it matters for this release (the release ships the committed catalog); nothing here gates`,
+        : `advisory: ${drift.length} committed file(s) differ and ${guardFailures.length} guard finding(s) — regenerate and commit before the tag if it matters for this release (the release ships the committed catalog); nothing here gates`,
     );
     return 0;
   }
@@ -346,7 +371,7 @@ async function main(): Promise<number> {
   // --- check mode: rebuild and compare, never write ---
   if (hasFlag("--check")) {
     if (failures.length > 0) {
-      console.error(`generation failed — ${failures.length} guard violation(s); nothing was written:`);
+      console.error(`generation failed — ${failures.length} failure(s); nothing was written:`);
       for (const failure of failures) console.error(`  ${failure}`);
       return 1;
     }

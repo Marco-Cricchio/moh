@@ -18,9 +18,11 @@ matching section here at tag time.
   nothing, so at the tag the job now reports: the committed catalog's age
   against the tagged commit, how many of the 25 files moved upstream, and one
   line per changed row (price, context window, reasoning flag). It still never
-  gates, and it still fails when it cannot measure at all. The drift compare
-  that exits non-zero is untouched and moves from a weekly to a **daily**
-  schedule, so staleness surfaces between releases instead of at the tag.
+  gates, and no flavour of drift turns it red: a rebuild its guards reject
+  reports less — the age and the drifted files, with the row-level counts
+  reading `--` — instead of failing. The drift compare that exits non-zero is
+  untouched and moves from a weekly to a **daily** schedule, so staleness
+  surfaces between releases instead of at the tag.
   Regenerating the catalog declaring the release being cut is now a documented
   step of the release flow, before the tag (`CONTRIBUTING.md`), and a new
   `version-check` job **does** gate publication: a release shipping a manifest

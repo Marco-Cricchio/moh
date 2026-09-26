@@ -34,9 +34,12 @@ bun packages/core/scripts/build-model-catalogs.ts --version <x.y.z>
 - `--freshness [--at <iso>]` runs the same compare and **reports instead of
   failing**: the committed catalog's age (its `generatedAt` against the
   reference instant, the tagged commit's date in CI), how many files differ,
-  and the row-level moves and guard findings. The release pipeline runs it at
-  every tag (`.github/workflows/release.yml`) and never gates on it (ADR-0046
-  amendment, #1005).
+  and the row-level moves. The release pipeline runs it at every tag
+  (`.github/workflows/release.yml`) and **no flavour of drift turns it red**:
+  a rebuild the guards reject reports less (age and drifted files, with the
+  row-level counts as `--`) instead of failing. Only a source that cannot be
+  fetched fails it, because then there is no honest report to print
+  (ADR-0046 amendment, #1005).
 - `--verify-version <x.y.z>` enforces the version contract offline: the
   committed manifest must declare the release being tagged, because
   `PRICING_SNAPSHOT.version` is a public export read from it. The release

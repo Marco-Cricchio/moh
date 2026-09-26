@@ -6,9 +6,10 @@
  *
  * - the drift compare that exits non-zero stays reachable — the daily
  *   schedule and catalog PRs run it (`--check`);
- * - the tag-time job reports rather than judges: it refuses to print a
- *   freshness report it could not measure (a source outage), instead of a
- *   false "up to date".
+ * - the tag-time job (`--freshness`) reports instead of judging, and no
+ *   flavour of drift turns it red: what it can measure it states, what it
+ *   cannot reads `--`, and the only failure left is a source that could not
+ *   be fetched at all.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -61,14 +62,26 @@ describe("#1005 release-time catalog freshness", () => {
     expect(releaseVersionProblem("0.51.0", "0.51.0")).toBeUndefined();
   });
 
-  test("empty snapshots fail the rebuild, so the tag-time job reports nothing rather than a false zero", () => {
-    // With nothing to compare against, the guards reject the rebuild: there
-    // is no honest freshness report, so the job fails instead of printing
-    // "up to date" from data nobody could read.
-    const { code, err } = run(["--freshness", "--at", REFERENCE]);
-    expect(code).toBe(1);
-    expect(err).toContain("generation failed");
-    expect(err).toContain("so there is nothing to report");
+  test("a rebuild the guards refuse still reports — age and drifted files, with no row counts", () => {
+    // Empty snapshots: every committed row loses its aggregator data, so the
+    // guards reject the rebuild. That is the release whose freshness is worth
+    // reading most, and there is no flavour of drift that makes this job red.
+    const { code, out } = run(["--freshness", "--at", REFERENCE]);
+    expect(code).toBe(0);
+    const lines = out.split("\n");
+    expect(lines[0]).toMatch(
+      new RegExp(`^catalog freshness — the committed catalog declares moh ${manifest.version.replace(/\./g, "\\.")}, generated 2026-09-25T22:02:23\\.839Z`),
+    );
+    expect(lines[0]).toContain(`old against ${REFERENCE}`);
+    // The drifted-file count survives; the row counts cannot be measured and
+    // say so instead of reading as zero.
+    expect(lines[1]).toBe(
+      "upstream moved since: 18 of 25 file(s) differ — the rebuild was refused by the guards, so no row-level move could be counted",
+    );
+    expect(out).toContain("  anthropic.json: differs from the rebuild");
+    expect(out).toMatch(/^  guard: .+/m);
+    expect(out).toMatch(/advisory: \d+ committed file\(s\) differ and \d+ guard finding\(s\)/);
+    expect(out).not.toContain("0 price(s)");
   });
 
   test("the drift compare keeps its non-zero exit for the scheduled and PR runs", () => {

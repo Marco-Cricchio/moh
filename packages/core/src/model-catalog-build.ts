@@ -870,6 +870,14 @@ function samePricing(a: ModelPricing, b: ModelPricing): boolean {
  * job states the facts (age, how many files differ, what moved) and lets
  * the human decide. Everything decidable lives here, so the wording is
  * testable without network or disk.
+ *
+ * The report states what it could measure and says `--` for what it could
+ * not, because the two halves come from different places: the age and the
+ * drifted-file count need only the committed manifest and the compare, while
+ * the row-level moves need a rebuild the guards accept. A release that ships
+ * a catalog the rebuild can no longer reproduce is exactly the release whose
+ * freshness is worth reading — so a rejected rebuild reports less, never
+ * nothing, and never a red (see `UpstreamMoves`).
  */
 
 /** The provenance a freshness report reads from `manifest.json`: which
@@ -890,7 +898,9 @@ export interface CatalogDriftEntry {
 }
 
 /** What one catalog rebuild changed against the committed tree — the row
- * counts `buildReport` computes, without the report's own plumbing. */
+ * counts `buildReport` computes, without the report's own plumbing. Absent
+ * when the guards rejected the rebuild: a count nobody could measure reads
+ * as `--`, never as zero. */
 export interface UpstreamMoves {
   pricing: number;
   contextWindow: number;
@@ -914,6 +924,10 @@ export interface FreshnessReport {
   /** Files whose content or recorded hash differs from the rebuild, in the
    * order the compare found them. */
   driftedFiles: string[];
+  /** How many files the REBUILD covers — the completeness of `driftedFiles`.
+   * Undefined when the guards rejected the rebuild: it never got that far,
+   * so the file count is reported as a lower bound rather than as a total. */
+  rebuiltFiles?: number;
 }
 
 /** "1d 7h", "5h 20m", "12m" — a staleness window read at a glance. A
@@ -935,6 +949,7 @@ export function freshnessReport(options: {
   reference: string;
   drift: CatalogDriftEntry[];
   totalFiles: number;
+  rebuiltFiles?: number;
 }): FreshnessReport {
   const generatedAt = options.manifest?.generatedAt;
   const generated = generatedAt ? Date.parse(generatedAt) : Number.NaN;
@@ -947,24 +962,35 @@ export function freshnessReport(options: {
     age,
     totalFiles: options.totalFiles,
     driftedFiles: [...new Set(options.drift.map((entry) => entry.file))],
+    ...(options.rebuiltFiles === undefined ? {} : { rebuiltFiles: options.rebuiltFiles }),
   };
 }
 
 /** The tag-time report: what is being shipped, how old it is, and how far
  * upstream has moved. `drift` is the same list `report.driftedFiles` counts,
  * so one entry per reason — two findings on one file are two lines and one
- * file. `moved` holds the row-level counts, `rowMoves` their already
- * rendered lines (a price, a context window, a reasoning flag). The report
- * is a human-read transcript; no caller parses it, so it stays one shape.
- * Informational by construction — nothing here decides anything. */
-export function formatFreshness(report: FreshnessReport, moved: UpstreamMoves, drift: CatalogDriftEntry[], rowMoves: string[]): string {
+ * file. `moved` is the row-level counts (absent when the rebuild was
+ * rejected, rendered as `--`), `rowMoves` their already rendered lines (a
+ * price, a context window, a reasoning flag). The report is a human-read
+ * transcript; no caller parses it, so it stays one shape — and that shape is
+ * constant, which is what makes "could not measure" legible as `--` instead
+ * of as a missing section. Informational by construction — nothing here
+ * decides anything. */
+export function formatFreshness(report: FreshnessReport, moved: UpstreamMoves | undefined, drift: CatalogDriftEntry[], rowMoves: string[]): string {
   const lines: string[] = [];
   lines.push(
     `catalog freshness — the committed catalog declares moh ${report.version ?? "(no version)"}, generated ${report.generatedAt ?? "(no date)"} — ${report.age} old against ${report.reference}`,
   );
-  lines.push(
-    `upstream moved since: ${report.driftedFiles.length} of ${report.totalFiles} file(s) differ — ${moved.pricing} price(s), ${moved.contextWindow} context window(s), ${moved.reasoning} reasoning flag(s)`,
-  );
+  const drifted = report.driftedFiles.length;
+  const coverage =
+    report.rebuiltFiles === undefined
+      ? `${drifted} or more of ${report.totalFiles} file(s) differ, and the rebuild stopped before it could compare them all`
+      : `${drifted} of ${report.totalFiles} file(s) differ`;
+  const moves =
+    moved === undefined
+      ? "the rebuild was refused by the guards, so no row-level move could be counted"
+      : `${moved.pricing} price(s), ${moved.contextWindow} context window(s), ${moved.reasoning} reasoning flag(s)`;
+  lines.push(`upstream moved since: ${coverage} — ${moves}`);
   for (const entry of drift) lines.push(`  ${entry.file}: ${entry.message}`);
   for (const line of rowMoves) lines.push(`  ${line}`);
   return lines.join("\n");

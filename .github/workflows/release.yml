@@ -89,9 +89,10 @@ jobs:
   # and which rows moved. Deliberately not a `needs` of `release` and
   # deliberately never failing on drift: the release ships the last valid
   # committed catalog, so this is the diagnostic a human reads before tagging
-  # the next one. It fails only when it cannot measure at all — a source that
-  # could not be fetched, or a rebuild the guards reject — because a freshness
-  # report is never invented from data nobody could read.
+  # the next one. No flavour of drift turns it red — a rebuild the guards
+  # reject reports less (age and drifted files; the row-level counts read `--`)
+  # rather than failing. It fails only when it cannot measure at all: a source
+  # that could not be fetched, where there is no honest report to print.
   catalog-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10

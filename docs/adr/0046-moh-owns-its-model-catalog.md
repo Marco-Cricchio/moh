@@ -172,15 +172,21 @@ because the catalog it had described was replaced before the tag).
   tag.
 - **The release pipeline at every tag** (`release.yml` `catalog-check`) — the
   same compare in **reporting mode** (`--freshness`): the committed catalog's
-  `generatedAt` against the tagged commit's date, how many files differ, and
-  the row-level moves (prices, context windows, reasoning flags, with one
-  line per changed row), written to the run summary. It **exits 0 on drift**
-  and is still not a `needs` of `release`. It fails only when it cannot
-  measure at all: a source that could not be fetched, or a rebuild the guards
-  reject (a row the aggregators no longer cover, a price the build would drop)
-  — both mean the same thing, "did not regenerate", and a freshness report is
-  never invented from data nobody could read. The guards keep their failing
-  semantics everywhere generation or `--check` runs.
+  `generatedAt` against the tagged commit's date, how many of its 25 files
+  differ, and the row-level moves (prices, context windows, reasoning flags,
+  with one line per changed row), written to the run summary. It **exits 0**
+  and is still not a `needs` of `release`. **No flavour of drift turns it
+  red** — including the one that made the old job red at the tag: a rebuild
+  the guards reject (a row the aggregators no longer cover, a price the build
+  would drop) reports less instead of failing. The age and the drifted-file
+  count come from the committed manifest and the compare and need no accepted
+  rebuild; the row-level counts need one, so they read `--`, the file count
+  reads as a lower bound, and the guard findings are listed. The release whose
+  catalog no longer reproduces is exactly the release whose freshness is worth
+  reading. What still fails is not measuring at all: a source that could not
+  be fetched, where there is nothing to compare and no honest report to print.
+  The guards keep their failing semantics everywhere generation or `--check`
+  runs.
 
 ### Regenerating before the tag is a step of the release flow
 

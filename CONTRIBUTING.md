@@ -63,11 +63,12 @@ The order matters:
 6. **Tag `vX.Y.Z`** there and push the tag.
 7. **Watch the tag run**: `build` (binaries + native smoke tests),
    `catalog-check` (reports the shipped catalog's age and how far upstream has
-   moved — it never fails on drift) and `version-check` (fails if
-   `manifest.json` declares a version other than the tag). The version check
-   gates the draft Release, because `PRICING_SNAPSHOT.version` is a public
-   export read from that manifest: a release must not ship a manifest naming
-   another release — v0.50.1 did. This is also why step 3 is not optional.
+   moved — no flavour of drift fails it, not even a rebuild its guards reject)
+   and `version-check` (fails if `manifest.json` declares a version other than
+   the tag). The version check gates the draft Release, because
+   `PRICING_SNAPSHOT.version` is a public export read from that manifest: a
+   release must not ship a manifest naming another release — v0.50.1 did. This
+   is also why step 3 is not optional.
 8. **Verify the draft Release** — assets, checksums, notes matching the
    finalized changelog — and publish it.
 

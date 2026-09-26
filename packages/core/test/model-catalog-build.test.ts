@@ -474,6 +474,7 @@ describe("#959 manifest and report", () => {
       reference: "2026-09-25T12:02:00.000Z",
       drift,
       totalFiles: 25,
+      rebuiltFiles: 25,
     });
     expect(report.version).toBe("0.50.1");
     expect(report.age).toBe("1d 0h");
@@ -501,6 +502,24 @@ describe("#959 manifest and report", () => {
     expect(formatFreshness(report, { pricing: 0, contextWindow: 0, reasoning: 0 }, [], [])).toContain(
       "declares moh (no version), generated (no date) — unknown old",
     );
+  });
+
+  test("a rebuild the guards refused reports a lower-bound file count and no row counts", () => {
+    const report = freshnessReport({
+      manifest: { version: "0.50.1", generatedAt: "2026-09-24T11:45:00.000Z" },
+      reference: "2026-09-25T12:02:00.000Z",
+      drift: [{ file: "anthropic.json", message: "differs from the rebuild" }],
+      totalFiles: 25,
+    });
+    expect(report.rebuiltFiles).toBeUndefined();
+    const text = formatFreshness(report, undefined, [{ file: "anthropic.json", message: "differs from the rebuild" }], []);
+    expect(text).toContain(
+      "upstream moved since: 1 or more of 25 file(s) differ, and the rebuild stopped before it could compare them all — the rebuild was refused by the guards, so no row-level move could be counted",
+    );
+    // With a rebuild that went through, both halves are measured.
+    const measured = freshnessReport({ manifest: { version: "0.50.1" }, reference: "2026-09-25T12:02:00.000Z", drift: [], totalFiles: 25, rebuiltFiles: 25 });
+    expect(measured.rebuiltFiles).toBe(25);
+    expect(formatFreshness(measured, { pricing: 0, contextWindow: 0, reasoning: 0 }, [], [])).toContain("upstream moved since: 0 of 25 file(s) differ — 0 price(s)");
   });
 
   test("coverage counts a plan entry as pricing, zero-only entries as none", () => {
