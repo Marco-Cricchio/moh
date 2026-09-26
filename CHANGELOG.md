@@ -9,6 +9,17 @@ matching section here at tag time.
 
 ### Changed
 
+- **The model catalog was regenerated** (#1005): 11 prices moved (mostly down
+  on OpenRouter: `z-ai/glm-5.3` 1.4/4.4 → 0.38/1.19, `~moonshotai/kimi-latest`
+  1.2/10.53 → 1.03/9.04, `deepseek/deepseek-v4-pro` 0.56/1.12 → 0.37/0.74),
+  `thinkingmachines/inkling` and `inkling-small` are listed at half the window
+  they had (1048576 → 524288, now declared in the sidecar so the catalog says
+  what the listing says), and `anthropic/claude-3-haiku` **left the catalog**:
+  OpenRouter retired it and no declared source covers the row. That last one
+  needed a new sidecar clause — `"retired": true`, with its reason — because a
+  row whose listing disappears has nothing left to declare: retirement is a
+  declaration with an audit trail, never a silent removal by the build
+  (ADR-0046 amendment). The drift compare is green again.
 - **The release-time catalog check reports instead of failing, and the version
   contract is now enforced** (#1005, ADR-0046 amendment): the `catalog-check`
   job that runs at every tag was red by default — three of the last four tags

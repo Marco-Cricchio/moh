@@ -169,6 +169,14 @@ export interface CatalogRowOverride {
    * a row whose aggregator record disappears must declare `contextWindow`
    * (ADR-0046 amendment, #1004). */
   acceptContextShrink?: true;
+  /** The row is retired: the aggregator no longer lists it, so the build
+   * writes nothing for it and the row leaves the catalog — the committed
+   * row is dropped, not frozen by hand. Retirement is a declaration, never a
+   * deduction (a row that disappears from a snapshot is a guard finding,
+   * not a silent removal), and the row keeps its audit trail here so the
+   * decision that removed it stays readable next to the ones that added it
+   * (ADR-0046 amendment, #1005). */
+  retired?: true;
 }
 
 /** `<provider>.overrides.json` — the whole hand-maintained region of one
@@ -530,6 +538,11 @@ export function buildCatalog(
       issues.push({ level: "error", code: "row-without-id", provider, message: "a sidecar row has an empty id" });
       continue;
     }
+    // A retired row is declared, not deduced: the sidecar says the listing
+    // is gone, so nothing is written for it. The declaration is what makes
+    // the removal reviewable — a row that simply stops matching would be a
+    // guard finding instead (ADR-0046 amendment, #1005).
+    if (override.retired === true) continue;
     const match = findRecord(id, overrides.source, snapshots, issues, provider);
     const supplied = match ? suppliedFields(match.record, match.source) : { fields: {}, supplied: [] };
     // A row more than one declared source matches with different base rates
@@ -635,6 +648,10 @@ export function guardCatalog(
         error("row-not-declared", id, `the committed catalog has this row but ${provider}.overrides.json does not declare it`);
         continue;
       }
+      // A retired row is the one declaration that authorizes a removal: the
+      // presence guards below all ask "did the build keep what was
+      // committed?", and for a retired row the answer is meant to be no.
+      if (declared.retired === true) continue;
       const after = findRow(built.file, id);
       if (!after) {
         error("row-lost", id, `the row was not written by the build (committed api ${api})`);

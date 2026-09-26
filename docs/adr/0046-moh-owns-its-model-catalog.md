@@ -5,7 +5,7 @@ Amends: ADR-0029 (by provenance, not liveness) — see the amendment there
 Amended: #1004 (2026-09-26) — the `contextWindow` shrink hatch accepts a
 number, never an absence; #1005 (2026-09-26) — the release-time check
 reports, the version contract is enforced, regeneration before the tag is a
-release step
+release step, and a row leaves the catalog by declaration (`retired`)
 
 ## Context
 
@@ -303,3 +303,45 @@ runtime-live-pricing boundary — is unaffected. The width of the guards is
 (decoupling `manifest.version` from the shipped release) was rejected: it
 would make `PRICING_SNAPSHOT.version` informational, and the coupling is what
 keeps that public export honest.
+
+## Amendment (2026-09-26, #1005, part 2): a row leaves the catalog by declaration — the `retired` clause
+
+Regenerating for a release surfaced the gap #1004 deliberately left open: the
+guards can refuse a rebuild, and refusing is right, but a rebuild that keeps
+being refused never becomes shippable. OpenRouter retired
+`anthropic/claude-3-haiku` outright (no window, no rate), and the two
+`thinkingmachines/inkling` rows lost half their window. The window cases had a
+door already — declare the value — but a row whose listing is *gone* has no
+row to declare, and freezing a retired model's rate by hand is exactly the
+"hand-maintained region grows until owning the catalog stops paying" cost this
+ADR's revisit trigger watches for.
+
+So the sidecar gains one clause:
+
+```jsonc
+"anthropic/claude-3-haiku": {
+  "author": "moh (#1005)", "date": "2026-09-26",
+  "reason": "OpenRouter retired the listing: …",
+  "retired": true
+}
+```
+
+- A retired row is **written nowhere**: the build skips it, so the row leaves
+  the catalog at the next regeneration.
+- The presence guards (`row-lost`, `context-window-lost`,
+  `pricing-coverage-drop`) do not apply to it — they ask "did the build keep
+  what was committed?", and for a retired row the answer is meant to be no.
+  Every other guard still does.
+- **Retirement is a declaration, never a deduction.** A row that stops matching
+  an aggregator record without the clause is precisely the `row-lost` /
+  `context-window-lost` finding above, so a listing that disappears cannot
+  quietly delete a model: a human writes the clause, with a reason, or the
+  rebuild stays red.
+- The row keeps its `author`/`date`/`reason` in the sidecar, which is the
+  audit trail the hand-maintained region exists to carry — the decision that
+  removed a row stays readable next to the ones that added it. It stays there
+  until someone prunes it deliberately; the build no longer reads it.
+
+The clause is what keeps the guards publishable: without it, a crowd of
+retirements pins the drift compare red forever, and a signal that cannot go
+green is the "red by default" failure the rest of this amendment removes.

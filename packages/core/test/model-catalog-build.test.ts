@@ -327,6 +327,21 @@ describe("#959 guards", () => {
     expect(declared.file["openai-completions"]!["demo-1"]!.cost).toEqual({ input: 1, output: 2 });
   });
 
+  test("a retired row leaves the catalog, and only a declaration removes one (#1005)", () => {
+    // The declaration is what authorizes the removal: with it, the row is
+    // written nowhere and none of the presence guards fire against it.
+    const retired = buildCatalog(sidecar({ rows: { "demo-1": row({ retired: true }), "demo-2": row() } }), snapshots({}), { previous });
+    expect(retired.issues).toEqual([]);
+    expect(retired.file["openai-completions"]!["demo-1"]).toBeUndefined();
+    expect(retired.file["openai-completions"]!["demo-2"]).toBeDefined();
+
+    // Without it, the same upstream change is a guard finding: a row that
+    // stops matching is never a silent removal.
+    const silent = buildCatalog(sidecar({ rows: { "demo-1": row() } }), snapshots({}), { previous });
+    expect(silent.issues.map((i) => i.code)).toContain("context-window-lost");
+    expect(silent.issues.map((i) => i.code)).toContain("pricing-coverage-drop");
+  });
+
   test("row ids stay unique across the api groups of one catalog", () => {
     const built = buildCatalog(
       sidecar({ rows: { "demo-1": row({ api: "anthropic-messages" }), "demo-2": row({ api: "openai-completions" }) } }),

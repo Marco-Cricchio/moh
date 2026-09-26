@@ -69,15 +69,15 @@ describe("#1005 release-time catalog freshness", () => {
     const { code, out } = run(["--freshness", "--at", REFERENCE]);
     expect(code).toBe(0);
     const lines = out.split("\n");
+    // The age is the committed manifest's, not the rebuild's: it is readable
+    // whatever the guards decide about the rebuild itself.
     expect(lines[0]).toMatch(
-      new RegExp(`^catalog freshness — the committed catalog declares moh ${manifest.version.replace(/\./g, "\\.")}, generated 2026-09-25T22:02:23\\.839Z`),
+      new RegExp(`^catalog freshness — the committed catalog declares moh ${manifest.version.replace(/\./g, "\\.")}, generated ${manifest.generatedAt}`),
     );
     expect(lines[0]).toContain(`old against ${REFERENCE}`);
     // The drifted-file count survives; the row counts cannot be measured and
     // say so instead of reading as zero.
-    expect(lines[1]).toBe(
-      "upstream moved since: 18 of 25 file(s) differ — the rebuild was refused by the guards, so no row-level move could be counted",
-    );
+    expect(lines[1]).toMatch(/^upstream moved since: \d+ of 25 file\(s\) differ — the rebuild was refused by the guards, so no row-level move could be counted$/);
     expect(out).toContain("  anthropic.json: differs from the rebuild");
     expect(out).toMatch(/^  guard: .+/m);
     expect(out).toMatch(/advisory: \d+ committed file\(s\) differ and \d+ guard finding\(s\)/);

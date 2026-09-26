@@ -99,6 +99,12 @@ Every row carries `author`, `date` and `reason` — who declared it, when, and
 why. `file` holds the defaults the whole file repeats (a row overrides them by
 declaring its own value).
 
+A row the aggregator has retired is **declared**, not dropped: the clause
+`"retired": true` (with its reason) is what authorizes the removal, and the
+build then writes nothing for it. A row that merely stops matching is a guard
+finding, so a listing that disappears upstream can never quietly delete a model
+(ADR-0046 amendment, #1005).
+
 ## Guards (all of them fail generation)
 
 - id presence and uniqueness within a catalog;
