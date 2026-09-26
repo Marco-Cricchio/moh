@@ -502,8 +502,15 @@ export function MultilineInput({
       const atLastVisualLine = visualIndex === visualLines.length - 1;
       // Readline walking recall: once entered (historyIndex >= 0), ↑/↓ keep
       // walking the history until a horizontal move or edit breaks the walk.
+      // Slash commands stay stored (#1008) but are skipped during the walk:
+      // they are command noise for recall, not prompts.
+      const recallableFrom = (from: number, dir: number): number => {
+        let i = from + dir;
+        while (i >= 0 && i < history.length && history[i]!.startsWith("/")) i += dir;
+        return i;
+      };
       if (history.length && historyIndex >= 0) {
-        const next = historyIndex + (direction < 0 ? 1 : -1);
+        const next = recallableFrom(historyIndex, direction < 0 ? 1 : -1);
         if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); }
         else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); }
         return;
@@ -513,7 +520,10 @@ export function MultilineInput({
       // further press at that edge recalls the history (fish-style readline).
       if (direction < 0 && atFirstVisualLine) {
         if (cursorColumn > 0) { setCursorColumn(0); setPreferredColumn(null); return; }
-        if (history.length) { setHistoryDraft(snapshot()); setHistoryIndex(0); replaceText(history[0]!, "end"); }
+        if (history.length) {
+          const first = recallableFrom(-1, 1); // entering the walk upward: scan from the newest entry (index 0) toward older ones
+          if (first >= 0 && first < history.length) { setHistoryDraft(snapshot()); setHistoryIndex(first); replaceText(history[first]!, "end"); }
+        }
         return;
       }
       if (direction > 0 && atLastVisualLine) {
