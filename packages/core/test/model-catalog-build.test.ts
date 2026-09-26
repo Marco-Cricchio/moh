@@ -490,8 +490,8 @@ describe("#959 manifest and report", () => {
       "catalog freshness — the committed catalog declares moh 0.50.1, generated 2026-09-24T11:45:00.000Z — 1d 0h old against 2026-09-25T12:02:00.000Z",
     );
     expect(text).toContain("upstream moved since: 2 of 25 file(s) differ — 4 price(s), 1 context window(s), 0 reasoning flag(s)");
-    expect(text.split("\n")).toHaveLength(7);
-    expect(text.split("\n")[6]).toBe("  context: demo/demo-1 100 → 200");
+    expect(text.split("\n")[3]).toBe("  anthropic.json: does not match the hash recorded in manifest.json");
+    expect(text.endsWith("  context: demo/demo-1 100 → 200")).toBe(true);
   });
 
   test("a manifest without a date reports an unknown age rather than an empty one", () => {
