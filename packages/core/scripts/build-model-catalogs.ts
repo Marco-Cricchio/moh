@@ -9,11 +9,23 @@
  * Usage:
  *   bun packages/core/scripts/build-model-catalogs.ts --version 0.50.0
  *   bun packages/core/scripts/build-model-catalogs.ts --check
+ *   bun packages/core/scripts/build-model-catalogs.ts --freshness [--at <iso>]
+ *   bun packages/core/scripts/build-model-catalogs.ts --verify-version 0.50.0
  *   bun packages/core/scripts/build-model-catalogs.ts --migrate-overrides --version 0.50.0
  *
  * `--version` declares the moh release that will contain the catalog
- * (ADR-0029 amendment): generation is local and human-invoked, the release
- * ships the last valid committed catalog and never regenerates.
+ * (ADR-0029 amendment): generation is local and human-invoked. Regenerating
+ * declaring the release being cut is a step of the release flow, before the
+ * tag — the release PR carries the regenerated catalog (ADR-0046 amendment,
+ * #1005).
+ *
+ * `--check` rebuilds and compares, failing on drift: the daily schedule, PRs
+ * touching the catalog, and manual dispatch. `--freshness` runs the same
+ * compare and reports instead of failing — the release pipeline's job, which
+ * states the committed catalog's age against the tagged commit and how far
+ * upstream has moved, and never gates. `--verify-version` enforces the
+ * version contract offline: the catalog a release ships must declare that
+ * release, because `PRICING_SNAPSHOT.version` reads it.
  *
  * Offline runs (tests, CI debugging): `--models-dev <file>` and
  * `--open-router <file>` read a local snapshot instead of fetching.
@@ -25,12 +37,18 @@ import {
   buildCatalog,
   buildManifest,
   buildReport,
+  formatFreshness,
+  freshnessReport,
   migrateOverrides,
+  releaseVersionProblem,
   serializeJson,
   type AggregatorSnapshots,
+  type BuiltCatalog,
+  type CatalogDriftEntry,
   type CatalogFileJson,
   type CatalogOverrides,
   type CatalogSourceSpec,
+  type CommittedManifest,
   type ModelsDevSnapshot,
   type OpenRouterSnapshot,
   type SourceSnapshotInfo,
@@ -127,11 +145,73 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/** The committed catalog files a rebuild covers — `manifest.json` and
+ * `generation-report.json` are artifacts, not catalogs. */
+function committedCatalogFiles(): string[] {
+  return readdirSync(CATALOG_DIR).filter(
+    (file) => file.endsWith(".json") && !file.endsWith(".overrides.json") && file !== "manifest.json" && file !== "generation-report.json",
+  );
+}
+
+/** The rebuild-and-compare findings: a catalog the rebuild would not write,
+ * or one whose bytes do not match the hash the manifest recorded. `--check`
+ * fails on them, `--freshness` reports them — one function, so the failing
+ * door and the reporting door cannot drift apart. */
+function collectDrift(catalogs: BuiltCatalog[], committedManifest: CommittedManifest | undefined): CatalogDriftEntry[] {
+  const drift: CatalogDriftEntry[] = [];
+  const withSidecar = new Set(catalogs.map((catalog) => catalog.provider));
+  for (const name of committedCatalogFiles()) {
+    const provider = name.replace(/\.json$/, "");
+    if (!withSidecar.has(provider)) {
+      drift.push({ file: name, message: "committed catalog without a sidecar — every catalog is generated" });
+    }
+  }
+  for (const catalog of catalogs) {
+    const committed = readCatalog(catalog.provider);
+    if (!committed) {
+      drift.push({ file: `${catalog.provider}.json`, message: "not committed yet" });
+      continue;
+    }
+    if (JSON.stringify(committed) !== catalog.json) {
+      drift.push({ file: `${catalog.provider}.json`, message: "differs from the rebuild (run the generator and commit the result)" });
+    }
+  }
+  // The manifest's own hashes: a hand-edited catalog is drift too.
+  for (const catalog of catalogs) {
+    const recorded = committedManifest?.files?.[catalog.provider]?.sha256;
+    if (recorded && recorded !== sha256(catalog.json)) {
+      drift.push({ file: `${catalog.provider}.json`, message: "does not match the hash recorded in manifest.json" });
+    }
+  }
+  return drift;
+}
+
 async function main(): Promise<number> {
   const providers = readdirSync(CATALOG_DIR)
     .filter((name) => name.endsWith(".overrides.json"))
     .map((name) => name.replace(/\.overrides\.json$/, ""))
     .sort();
+
+  const committedManifest = existsSync(MANIFEST_FILE)
+    ? (JSON.parse(readFileSync(MANIFEST_FILE, "utf8")) as CommittedManifest)
+    : undefined;
+
+  // --- the version contract: offline, before anything is fetched ---
+  const release = argValue("--verify-version");
+  if (release !== undefined) {
+    const problem = releaseVersionProblem(committedManifest?.version, release);
+    if (problem) {
+      console.error(problem);
+      return 1;
+    }
+    console.log(`manifest.json declares moh ${release} — this catalog belongs to the release being tagged`);
+    return 0;
+  }
+
+  if (hasFlag("--check") && hasFlag("--freshness")) {
+    console.error("--check fails on drift and --freshness reports it: pass one of the two");
+    return 2;
+  }
 
   const modelsDev = await loadSnapshot("models.dev", MODELS_DEV_URL, argValue("--models-dev"));
   const openRouter = await loadSnapshot("openrouter", OPENROUTER_URL, argValue("--open-router"));
@@ -141,9 +221,6 @@ async function main(): Promise<number> {
   };
   const sources = [modelsDev.info, openRouter.info];
 
-  const committedManifest = existsSync(MANIFEST_FILE)
-    ? (JSON.parse(readFileSync(MANIFEST_FILE, "utf8")) as { version?: string })
-    : undefined;
   const version = argValue("--version") ?? committedManifest?.version;
   if (!version) {
     console.error("--version <x.y.z> is required: it declares the moh release that will contain the catalog");
@@ -207,46 +284,64 @@ async function main(): Promise<number> {
     }
   }
 
-  if (failures.length > 0) {
-    console.error(`generation failed — ${failures.length} guard violation(s); nothing was written:`);
-    for (const failure of failures) console.error(`  ${failure}`);
-    return 1;
+  // --- freshness mode: the same compare as --check, reported instead of
+  // judged (#1005). The release pipeline runs this: at a 4-5 hour drift
+  // window a red at every tag says nothing, so the tag-time job states the
+  // facts — which release the data declares, how old it is against the
+  // tagged commit, how far upstream has moved — and never gates. Guard
+  // findings are facts about upstream too (a row the rebuild no longer
+  // covers, a price it would drop), so they are counted and listed rather
+  // than fatal. What still fails is not measuring at all: a source that
+  // could not be fetched aborts above, and a freshness report is never
+  // invented from data nobody could read.
+  if (hasFlag("--freshness")) {
+    const reference = argValue("--at") ?? new Date().toISOString();
+    const drift = collectDrift(catalogs, committedManifest);
+    const report = buildReport({
+      version,
+      generatedAt: committedManifest?.generatedAt ?? reference,
+      sources,
+      catalogs,
+      previous: previousByProvider,
+    });
+    const freshness = freshnessReport({
+      manifest: committedManifest,
+      reference,
+      drift,
+      totalFiles: committedCatalogFiles().length,
+      guardFindings: failures.length,
+    });
+    console.log(
+      formatFreshness(
+        freshness,
+        {
+          pricing: report.changes.pricing.length,
+          contextWindow: report.changes.contextWindow.length,
+          reasoning: report.changes.reasoning.length,
+        },
+        drift,
+      ),
+    );
+    for (const failure of failures) console.log(`  guard: ${failure}`);
+    console.log(
+      freshness.driftedFiles.length === 0 && failures.length === 0
+        ? "advisory: the committed catalog matches the rebuild — nothing here gates the release"
+        : `advisory: nothing here gates the release; regenerate and commit before the tag if ${freshness.driftedFiles.length} drifted file(s) and ${failures.length} guard finding(s) matter for this release`,
+    );
+    return 0;
   }
 
   // --- check mode: rebuild and compare, never write ---
   if (hasFlag("--check")) {
-    const drift: string[] = [];
-    const withSidecar = new Set(catalogs.map((catalog) => catalog.provider));
-    for (const name of readdirSync(CATALOG_DIR).filter((file) => file.endsWith(".json") && !file.endsWith(".overrides.json"))) {
-      const provider = name.replace(/\.json$/, "");
-      if (provider === "manifest" || provider === "generation-report") continue;
-      if (!withSidecar.has(provider)) drift.push(`${name}: committed catalog without a sidecar — every catalog is generated`);
+    if (failures.length > 0) {
+      console.error(`generation failed — ${failures.length} guard violation(s); nothing was written:`);
+      for (const failure of failures) console.error(`  ${failure}`);
+      return 1;
     }
-    for (const catalog of catalogs) {
-      const committed = readCatalog(catalog.provider);
-      if (!committed) {
-        drift.push(`${catalog.provider}.json: not committed yet`);
-        continue;
-      }
-      if (JSON.stringify(committed) !== catalog.json) {
-        drift.push(`${catalog.provider}.json: differs from the rebuild (run the generator and commit the result)`);
-      }
-    }
-    // The manifest's own hashes: a hand-edited catalog is drift too.
-    if (committedManifest && existsSync(MANIFEST_FILE)) {
-      const manifest = JSON.parse(readFileSync(MANIFEST_FILE, "utf8")) as {
-        files?: Record<string, { sha256?: string }>;
-      };
-      for (const catalog of catalogs) {
-        const recorded = manifest.files?.[catalog.provider]?.sha256;
-        if (recorded && recorded !== sha256(catalog.json)) {
-          drift.push(`${catalog.provider}.json: does not match the hash recorded in manifest.json`);
-        }
-      }
-    }
+    const drift = collectDrift(catalogs, committedManifest);
     if (drift.length > 0) {
       console.error(`catalog drift — ${drift.length} file(s):`);
-      for (const entry of drift) console.error(`  ${entry}`);
+      for (const entry of drift) console.error(`  ${entry.file}: ${entry.message}`);
       return 1;
     }
     console.log(`catalogs match the rebuild from ${sources.map((source) => source.url).join(" + ")} (${catalogs.length} files)`);

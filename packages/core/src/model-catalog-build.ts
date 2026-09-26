@@ -859,6 +859,133 @@ function samePricing(a: ModelPricing, b: ModelPricing): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/**
+ * Release freshness (#1005, ADR-0046 amendment).
+ *
+ * The catalog is release-pinned, so the two questions a release asks are
+ * "which release does the data declare?" and "how far has upstream moved
+ * since it was generated?". The second is answered by the same compare the
+ * scheduled check fails on; here it is a report, never a verdict: at a 4–5
+ * hour drift window a red at the tag is the steady state, so the tag-time
+ * job states the facts (age, how many files differ, what moved) and lets
+ * the human decide. Everything decidable lives here, so the wording is
+ * testable without network or disk.
+ */
+
+/** The provenance a freshness report reads from `manifest.json`: which
+ * release the catalog belongs to, when it was generated, and the hashes it
+ * recorded (the compare uses them as a third drift source). */
+export interface CommittedManifest {
+  version?: string;
+  generatedAt?: string;
+  files?: Record<string, { sha256?: string }>;
+}
+
+/** One committed file that moved upstream, as the rebuild-and-compare found
+ * it. `file` is the name on disk (`anthropic.json`), so several findings on
+ * one file count once. */
+export interface CatalogDriftEntry {
+  file: string;
+  message: string;
+}
+
+/** What one catalog rebuild changed against the committed tree — the row
+ * counts `buildReport` computes, without the report's own plumbing. */
+export interface UpstreamMoves {
+  pricing: number;
+  contextWindow: number;
+  reasoning: number;
+}
+
+export interface FreshnessReport {
+  /** The release the committed catalog declares, when the manifest has one. */
+  version?: string;
+  generatedAt?: string;
+  /** The instant the age is measured against (the tagged commit's date at
+   * the tag; now, elsewhere). */
+  reference: string;
+  /** Whole milliseconds between `generatedAt` and `reference`; undefined
+   * when the manifest carries no usable date — an unknown age is reported
+   * as unknown, never as zero. */
+  ageMs?: number;
+  age: string;
+  /** Committed catalog files the rebuild covers. */
+  totalFiles: number;
+  /** Files whose content or recorded hash differs from the rebuild, in the
+   * order the compare found them. */
+  driftedFiles: string[];
+  /** Guard findings the rebuild produced, counted here and enumerated by
+   * the caller. A rebuild that would lose rows or prices is upstream moving
+   * too — which is why the tag-time job reports it instead of failing. */
+  guardFindings: number;
+}
+
+/** "1d 7h", "5h 20m", "12m" — a staleness window read at a glance. A
+ * missing or unusable date is "unknown", and a date in the future (a clock
+ * skew, never a real age) degrades to "0m". */
+export function formatAge(ageMs: number | undefined): string {
+  if (ageMs === undefined || !Number.isFinite(ageMs)) return "unknown";
+  const ms = Math.max(0, ageMs);
+  const days = Math.floor(ms / 86_400_000);
+  const hours = Math.floor((ms % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((ms % 3_600_000) / 60_000);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+export function freshnessReport(options: {
+  manifest: CommittedManifest | undefined;
+  reference: string;
+  drift: CatalogDriftEntry[];
+  totalFiles: number;
+  guardFindings?: number;
+}): FreshnessReport {
+  const generatedAt = options.manifest?.generatedAt;
+  const generated = generatedAt ? Date.parse(generatedAt) : Number.NaN;
+  const reference = Date.parse(options.reference);
+  const measurable = Number.isFinite(generated) && Number.isFinite(reference);
+  const ageMs = measurable ? Math.max(0, reference - generated) : undefined;
+  return {
+    ...(options.manifest?.version ? { version: options.manifest.version } : {}),
+    ...(generatedAt ? { generatedAt } : {}),
+    reference: options.reference,
+    ...(ageMs === undefined ? {} : { ageMs }),
+    age: formatAge(ageMs),
+    totalFiles: options.totalFiles,
+    driftedFiles: [...new Set(options.drift.map((entry) => entry.file))],
+    guardFindings: options.guardFindings ?? 0,
+  };
+}
+
+/** The tag-time report: what is being shipped, how old it is, and how far
+ * upstream has moved. Informational by construction — nothing here decides
+ * anything. */
+export function formatFreshness(report: FreshnessReport, moved: UpstreamMoves, drift: CatalogDriftEntry[]): string {
+  const lines: string[] = [];
+  lines.push(
+    `catalog freshness — the committed catalog declares moh ${report.version ?? "(no version)"}, generated ${report.generatedAt ?? "(no date)"} — ${report.age} old against ${report.reference}`,
+  );
+  lines.push(
+    `upstream moved since: ${report.driftedFiles.length} of ${report.totalFiles} file(s) differ — ${moved.pricing} price(s), ${moved.contextWindow} context window(s), ${moved.reasoning} reasoning flag(s); ${report.guardFindings} guard finding(s)`,
+  );
+  for (const entry of drift) lines.push(`  ${entry.file}: ${entry.message}`);
+  return lines.join("\n");
+}
+
+/** The version contract (ADR-0029 + ADR-0046): the catalog a release ships
+ * must declare that release, because `PRICING_SNAPSHOT.version` is a public
+ * export read from the manifest. Returns the message naming both versions
+ * when they disagree, undefined when they agree.
+ *
+ * The `v0.50.1` release is the precedent: it shipped a manifest declaring
+ * `0.50.0`, so `PRICING_SNAPSHOT.version` named a release that did not
+ * contain the data. Nothing checked it; this does. */
+export function releaseVersionProblem(declared: string | undefined, release: string): string | undefined {
+  if (declared === release) return undefined;
+  return `manifest.json declares moh ${declared ?? "(no version)"}, but the release is ${release} — regenerate with --version ${release} and commit the result`;
+}
+
 /** The audit trail every migrated row carries. */
 export interface MigrationStamp {
   author: string;
