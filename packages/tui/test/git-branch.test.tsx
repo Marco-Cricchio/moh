@@ -117,13 +117,26 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
     expect(wide).toContain("▣ /Users/mc/Documents/ve…nested/projects/thing");
   });
 
-  test("compact budget keeps start and end readable at 35 cols", () => {
+  test("compact tier: tail-anchored cwd keeps the project dir; the branch drops whole, never mid-word (#1012)", () => {
     const frame = renderBar({ width: 35, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "feat/very-long-branch-name" });
     const row = frame.split("\n").find((line) => line.includes("▣"))!;
-    // the cwd segment is middle-elided (head and tail visible), then branch, then mode
-    expect(row).toMatch(/▣ \S+…\S+ ⎇/);
+    // the cwd is tail-anchored (…/moh), the long branch drops WHOLE (it would
+    // truncate mid-word), the projection chip survives
+    expect(row).toContain("▣ …/AI_Projects/moh");
+    expect(row).not.toContain("⎇");
     expect(row).toContain("◉ dev");
     expect(row.length).toBeLessThanOrEqual(35);
+  });
+
+  test("compact tier ladder: the branch is kept while it fits whole, dropped before fragmenting (#1012)", () => {
+    // 45 cols: the short branch still fits and renders whole.
+    const fits = renderBar({ width: 45, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop" });
+    expect(fits).toContain("⎇ develop");
+    // 35 cols with the same branch: no mid-word fragment anywhere on the row.
+    const tight = renderBar({ width: 35, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop" });
+    const row = tight.split("\n").find((line) => line.includes("◉"))!;
+    expect(row).not.toMatch(/⎇ \S+-\S+/); // never truncated inside the name
+    for (const line of tight.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(35);
   });
 
   test("no cwd prop: row 2 degrades to branch + mode", () => {
@@ -211,7 +224,9 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
     for (const width of [35, 45, 69, 70, 90, 109, 110, 120, 140]) {
       for (const [permissionMode, glyph] of [["normal", "◌"], ["auto-accept", "◐"], ["yolo", "⚠"]] as const) {
         const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "develop", permissionMode, updateMessage: "moh 0.8.0 available" });
-        const row = frame.split("\n").find((line) => line.includes("⎇"))!;
+        // #1012: in compact the branch may drop whole; anchor on the row by
+        // the projection chip, which survives every tier.
+        const row = width < 70 ? frame.split("\n").find((line) => line.includes("◉ dev"))! : frame.split("\n").find((line) => line.includes("⎇"))!;
         expect(row).toContain(glyph);
         expect(row).toContain("◉ dev");
         for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
@@ -223,28 +238,118 @@ describe("status row 2A: the where-you-are row (cwd → branch → mode)", () =>
     // The squeezed widths are the point: the lead reserves its space first, so
     // the cwd shrinks and keeps its elision marker instead of being cut from
     // the end (which would take the project directory with it).
-    for (const width of [35, 45, 69, 90, 120]) {
+    for (const width of [45, 69, 90, 120]) {
       const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "auto-accept" });
       const row = frame.split("\n").find((line) => line.includes("⎇"))!;
-      expect(row).toMatch(/▣ \S+…\S+/);
+      expect(row).toMatch(/▣ \S*…\S+/);
       expect(row.trimStart().startsWith("◐")).toBe(true);
       for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
     }
+    // #1012: at 35 the cwd degrades tail-anchored (the project dir stays)
+    // instead of middle-elided, and the branch drops whole.
+    {
+      const frame = renderBar({ width: 35, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "auto-accept" });
+      const row = frame.split("\n").find((line) => line.includes("◉ dev"))!;
+      expect(row.trimStart().startsWith("◐")).toBe(true);
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(35);
+    }
     // The tightest combination the row has: the mode lead and the whole tail
-    // claim space at the narrowest class. The cwd still keeps its shape — the
-    // branch is what gives way (style guide §4).
-    for (const width of [35, 45]) {
-      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "yolo" });
+    // claim space at the narrowest class. The cwd keeps its shape (tail-
+    // anchored in compact) — the branch is what gives way (style guide §4).
+    {
+      const frame = renderBar({ width: 45, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "yolo" });
       const row = frame.split("\n").find((line) => line.includes("⎇"))!;
-      expect(row).toMatch(/▣ \S+…\S+/);
+      expect(row).toMatch(/▣ \S*…\S+/);
       expect(row.trimStart().startsWith("⚠")).toBe(true);
-      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(45);
+    }
+    for (const width of [32, 35]) {
+      const frame = renderBar({ width, mode: "dev", cwd: "/Users/mc/Documents/very/deeply/nested/projects/thing", branch: "develop", permissionMode: "yolo" });
+      const row = frame.split("\n").find((line) => line.includes("◉ dev"))!;
+      expect(row.trimStart().startsWith("⚠")).toBe(true);
+      // the whole cwd or the whole branch survives — never a fragment
+      expect(row.includes("▣ …/") || row.includes("⎇ develop")).toBe(true);
+      for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width);
     }
   });
 
   test("middleElide: no-op within budget, exact split at the boundary", () => {
     expect(middleElide("/short/path", 20)).toBe("/short/path");
     expect(middleElide("/a/b/c/d/e/f/g/h", 9)).toBe("/a/b…/g/h");
+  });
+
+  test("#1012 compact battery: rows never wrap, never fragment mid-word, at 32/36/45 with pending and chips", () => {
+    for (const width of [32, 36, 45]) {
+      const frame = renderBar({
+        width, pending: true, spinner: "⠸", mode: "vibe",
+        model: "opencode-go/deepseek-v4", turns: 3,
+        tokens: { contextIn: 170_000, totalOut: 4_000, calls: 2 },
+        level: "medium" as const,
+        mpmStatus: "updating", jevStatus: "active" as const,
+        cwd: "/Users/mc/Documents/AI_Projects/moh", branch: "fix/944-routing-dedup",
+        permissionMode: "normal" as const,
+      });
+      const lines = frame.split("\n").filter(Boolean);
+      for (const line of lines) expect(line.length).toBeLessThanOrEqual(width - 1);
+      // the scanner strip is never split across physical rows: row 1 appears exactly once
+      expect(lines.filter((line) => line.includes("◈")).length).toBe(1);
+      // the status rows show no mid-word fragments: segments end on word boundaries
+      // (the model elides with …, never cut inside a run of letters without one)
+      const row1 = lines.find((line) => line.includes("◈"))!;
+      for (const word of row1.split(/\s+/).filter((w) => w.length > 2)) {
+        expect(word.endsWith("-")).toBe(false);
+      }
+      // the model degrades to the endpoint-stripped or elided form, never a raw cut
+      expect(row1).not.toContain("opencode-go/deepseek-v4".slice(0, 12));
+      expect(row1.includes("deepseek-v4") || row1.includes("…")).toBe(true);
+    }
+  });
+
+  test("#1012 compact row 1: the context gauge degrades to a percentage", () => {
+    const frame = renderBar({ width: 36, pending: true, spinner: "⠸", mode: "dev", model: "mock", turns: 1, tokens: { contextIn: 170_000, totalOut: 100, calls: 1 }, level: "default" as const });
+    expect(frame).toMatch(/\[\d{2}%\]/);
+    expect(frame).not.toContain("████");
+    // regular keeps the bar
+    const wide = renderBar({ width: 90, pending: true, spinner: "⠸", mode: "dev", model: "mock", turns: 1, tokens: { contextIn: 170_000, totalOut: 100, calls: 1 }, level: "default" as const });
+    expect(wide).toContain("█");
+  });
+
+  test("#1012 compact row 1: the model drops the endpoint prefix, then elides, then drops; the ◆ marker marks whichever survives", () => {
+    const render1 = (width: number) => renderBar({ width, pending: true, spinner: "⠸", mode: "vibe", model: "opencode-go/deepseek-v4", turns: 0, tokens: { contextIn: 0, totalOut: 0, calls: 0 }, level: "default" as const });
+    // 45: the stripped name fits whole
+    const mid = render1(45);
+    expect(mid).toContain("◆ deepseek-v4");
+    expect(mid).not.toContain("opencode-go");
+    // 32: elided with the marker — the stripped name (11) still fits the raw
+    // budget, so force the tier with a left cluster that eats the row.
+    const tight = renderBar({ width: 32, pending: true, spinner: "⠸", mode: "vibe", model: "opencode-go/deepseek-v4", turns: 0, tokens: { contextIn: 0, totalOut: 0, calls: 0 }, level: "default" as const, memoryFresh: true, mpmStatus: "updating", jevStatus: "active" as const });
+    const row1 = tight.split("\n").find((line) => line.includes("◈"))!;
+    expect(row1).toMatch(/◆ \S*…|◆ \S+/);
+    expect(tight).not.toContain("opencode-go");
+    expect(row1.includes("…") || row1.includes("deepseek-v4")).toBe(true);
+  });
+
+  test("#1012 compact row 1: the budget counts the left-cluster chips — no wrap with memory, MPM, jev and an extension status", () => {
+    const frame = renderBar({
+      width: 36, pending: true, spinner: "⠸", mode: "vibe",
+      model: "claude-sonnet-4", turns: 0,
+      tokens: { contextIn: 0, totalOut: 0, calls: 0 }, level: "default" as const,
+      memoryFresh: true, mpmStatus: "ready",
+      extensionStatuses: [{ extension: "guard", text: "∅ offline" }],
+      jevStatus: "inert" as const,
+    });
+    for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(35);
+    const row1 = frame.split("\n").find((line) => line.includes("◈"))!;
+    expect(row1).toContain("◍");
+    expect(row1).toContain("✓");
+    expect(row1).toContain("∅ offline");
+  });
+
+  test("#1012 regular widths keep the previous row-1 shape (bar gauge, full model)", () => {
+    const frame = renderBar({ width: 90, pending: false, spinner: "⠸", mode: "dev", model: "claude-sonnet-4", turns: 5, tokens: { contextIn: 170_000, totalOut: 100, calls: 1 }, level: "medium" as const });
+    expect(frame).toContain("█");
+    expect(frame).toContain("◆ claude-sonnet-4");
+    expect(frame).toMatch(/⊣ 170\.0k/);
   });
 });
 

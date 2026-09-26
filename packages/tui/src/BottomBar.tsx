@@ -236,6 +236,17 @@ export function middleElide(value: string, max: number): string {
   return `${value.slice(0, head)}…${value.slice(value.length - tail)}`;
 }
 
+/** #1012: tail-anchored elision for the compact cwd — the head goes first,
+ * the project directory stays (`…/moh`). The anchor snaps forward to the
+ * next path separator so the fragment starts on a boundary, never mid-word. */
+export function tailElidePath(value: string, max: number): string {
+  if (value.length <= max) return value;
+  let start = value.length - (max - 1);
+  const slash = value.indexOf("/", Math.max(1, start));
+  if (slash > 0 && slash < value.length - 1) start = slash;
+  return `…${value.slice(start)}`;
+}
+
 function StatusRow(props: StatusProps) {
   const theme = useTheme();
   const cls = widthClass183(props.width);
@@ -253,21 +264,80 @@ function StatusRow(props: StatusProps) {
   const vibe = props.mode === "vibe";
   // ── Row 1: the turn/model state. Spinner or notice on the left, context
   // gauge plus dev-only numbers and the model on the right.
-  const row1 = fitStatusSegments([
+  //
+  // #1012 (budget fix): the budget must reserve the width that actually
+  // renders — the context gauge in BOTH modes (#229) and the left-cluster
+  // chips (memory, MPM, extension statuses, jev, alarms), which sit outside
+  // the fitted segments. Ignoring them is what let the row wrap and split
+  // the scanner strip at ~36 columns.
+  const contextReserve = props.tokens.contextIn > 0 ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0;
+  const leftClusterWidth =
+    (props.memoryFresh ? (cls === "wide" ? "◍ memory".length : "◍".length) + 1 : 0) +
+    (props.mpmStatus != null ? ("✓".length + (cls === "wide" ? 1 : 0)) + 1 : 0) +
+    (props.extensionStatuses ?? []).reduce((sum, status) => sum + (cls === "wide" ? `${status.extension} ${status.text}`.length : status.text.length) + 1, 0) +
+    (props.jevStatus != null ? (cls === "compact" ? "◈".length : `◈ jev ${{ active: "active", off: "off", inert: "inert" }[props.jevStatus]}`.length) + 1 : 0) +
+    (props.compactionFailed ? (cls === "wide" ? "⚠ compaction failed — retrying".length : "⚠".length) + 1 : 0) +
+    (props.growthWarning != null ? (cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork`.length : "⚡ keep my branch".length) + 1 : 0) +
+    (props.browserSetup ? (cls === "wide" ? "⚠ browser tool unavailable — ^b install".length : "⚠ browser".length) + 1 : 0);
+  // #1012 (compact tiers): the gauge collapses to a percentage and the model
+  // degrades — endpoint prefix stripped, then middle-elided, then dropped —
+  // before the row would ever wrap. Each tier drops or shortens one thing;
+  // no tier fragments a segment mid-word.
+  const compact = cls === "compact";
+  const compactGauge = `[${String(Math.min(99, Math.round(fraction * 100))).padStart(2, "0")}%]`;
+  const gaugeWidth = compact ? Math.min(10, compactGauge.length) : contextReserve;
+  void gaugeWidth;
+  const slash = props.model.lastIndexOf("/");
+  const shortModel = compact && slash > 0 && slash < props.model.length - 1 ? props.model.slice(slash + 1) : props.model;
+  const devSegments = [
     { text: !vibe && props.tokens.contextIn > 0 ? `⊣ ${(props.tokens.contextIn / 1000).toFixed(1)}k` : "", optional: true },
     { text: !vibe ? `↻ ${props.turns}` : "", optional: true },
-    { text: model },
-    // #256: unsupported stored preference — kept intact, resolved to the
-    // provider default; shown as a dim marker so the mismatch is visible
-    // (the full wording lives in /thinking; segments stay short).
-    { text: props.unsupportedLevel ? `default·✗⚙ ${props.unsupportedLevel}` : "", optional: true },
-    { text: props.workflowOn ? "◈ wf" : "", optional: true },
-  ].filter((item) => item.text), Math.max(1, props.width - left.length - (!vibe && props.tokens.contextIn ? (cls === "compact" ? 12 : cls === "wide" ? 20 : 16) : 0) - 5));
+  ].filter((item) => item.text);
+  const budget = Math.max(1, props.width - left.length - contextReserve - leftClusterWidth - 5);
+  const gaugeSegment = props.tokens.contextIn > 0 ? (compact ? { text: compactGauge, optional: true } : null) : null;
+  const attempt = (modelText: string) =>
+    fitStatusSegments(
+      [
+        ...(gaugeSegment ? [gaugeSegment] : []),
+        ...devSegments,
+        { text: modelText },
+        props.unsupportedLevel ? { text: `✗⚙ ${props.unsupportedLevel}`, optional: true } : null,
+        props.workflowOn ? { text: "◈ wf", optional: true } : null,
+      ].filter((item): item is { text: string; optional?: boolean } => item != null && item.text !== ""),
+      budget,
+    );
+  // Tier ladder, widest → narrowest: full model, endpoint stripped, elided,
+  // elided tighter, dropped. The first tier whose model segment survives
+  // un-fragmented (no mid-word ellipsis inside a word) wins; the model is
+  // required in every tier except the last, so the row can always fit.
+  let row1: string[];
+  let row1Model: string;
+  if (compact) {
+    const marked = (text: string) => (text ? `◆ ${text}` : "");
+    const ladder = [marked(shortModel), marked(middleElide(shortModel, Math.max(4, Math.min(16, budget - 2)))), marked(middleElide(shortModel, 6)), ""];
+    let chosen = ladder[ladder.length - 1]!;
+    let fitted = attempt(chosen);
+    for (const candidate of ladder) {
+      const candidateFit = attempt(candidate);
+      if (candidate === "" || candidateFit.includes(candidate)) {
+        chosen = candidate;
+        fitted = candidateFit;
+        break;
+      }
+    }
+    row1 = fitted;
+    row1Model = chosen;
+  } else {
+    row1Model = model;
+    row1 = attempt(model);
+  }
+  const row1Gauge: string | null = compact && props.tokens.contextIn > 0 ? compactGauge : null;
   const row1Color = (text: string): string | undefined => {
+    if (/^\[\d{2}%\]$/.test(text)) return tokenColor;
     if (text.startsWith("⊣")) return tokenColor;
     if (text === "◈ wf" || (text.startsWith("◆") && (props.level === "high" || props.level === "xhigh"))) return theme.purple;
     if (text.startsWith("◆")) return theme.fg;
-    if (text.startsWith("default·✗⚙")) return theme.warn;
+    if (text.startsWith("default·✗⚙") || text.startsWith("✗⚙")) return theme.warn;
     return theme.dim;
   };
   // ── Row 2: where you are — the permission mode on the left (the slot the
@@ -275,27 +345,47 @@ function StatusRow(props: StatusProps) {
   // projection chip (`◉ dev` / `○ vibe`). Segments are space-joined
   // explicitly: ink's `gap` is unreliable on a right-aligned nested row
   // (segments render glued).
-  const projectionChip = props.mode === "dev" ? "◉ dev" : "○ vibe";
   const modeLead = props.permissionMode ? permissionModeLead(props.permissionMode, cls) : null;
-  // #876: the mode lead is never dropped, so it reserves its space first and
-  // the cwd — the only middle-elidable segment — is fitted to what remains:
-  // its head and (above all) the project directory stay readable instead of
-  // being truncated from the end. The branch keeps truncating in the rare
-  // overflow that is left over.
+  // #876: the mode lead is never dropped, so it reserves its space first.
+  // #1012 (compact tiers): the branch drops whole before it would truncate
+  // mid-word, and the cwd degrades tail-anchored (`…/moh` — the project dir
+  // stays) before dropping entirely. The mode glyph survives every tier.
   const tailBudget = Math.max(1, props.width - 4 - (modeLead ? modeLead.text.length + 1 : 0));
-  const fixedTail = [
-    props.branch ? `⎇ ${props.branch}` : "",
-    projectionChip,
-  ].filter((text) => text !== "");
-  const fixedTailWidth = fixedTail.reduce((sum, text) => sum + text.length + 1, 0);
-  // The floor keeps the cwd's elision marker alive ("▣ he…ail"); when the
-  // residual is under it the longest remaining segment is the branch, so the
-  // overflow costs the branch characters, never the cwd's shape.
-  const cwdBudget = Math.min(cls === "compact" ? 18 : cls === "wide" ? 44 : 30, Math.max(4, tailBudget - fixedTailWidth - 2));
-  const row2 = fitStatusSegments([
-    { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
-    ...fixedTail.map((text) => ({ text })),
-  ].filter((item) => item.text), tailBudget);
+  const projectionChip = props.mode === "dev" ? "◉ dev" : "○ vibe";
+  const branchSegment = props.branch ? `⎇ ${props.branch}` : "";
+  const cwdSegment = props.cwd ? `▣ ${props.cwd}` : "";
+  const joinedWidth = (parts: string[]) => parts.reduce((sum, text) => sum + text.length + 1, -1);
+  let row2: string[];
+  if (!compact) {
+    // Regular/wide: the cwd middle-elides to the class-aware budget, as before.
+    const cwdBudget = Math.min(cls === "wide" ? 44 : 30, Math.max(4, tailBudget - (branchSegment ? branchSegment.length + projectionChip.length + 2 : projectionChip.length + 1) - 2));
+    row2 = fitStatusSegments([
+      { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
+      ...(branchSegment ? [{ text: branchSegment }] : []),
+      { text: projectionChip },
+    ].filter((item) => item.text), tailBudget);
+  } else {
+    // Tier ladder, widest → narrowest: cwd + branch, cwd (tail-anchored) +
+    // branch, cwd (tail-anchored) + no branch, branch only, projection chip
+    // only. The first tier that fits the physical row wins; nothing ever
+    // truncates mid-word and the mode lead always keeps its glyph.
+    const tailElided = props.cwd ? `▣ ${tailElidePath(props.cwd, Math.max(4, Math.min(24, props.cwd.length)))}` : "";
+    const ladder = [
+      [cwdSegment, branchSegment],
+      [tailElided, branchSegment],
+      [tailElided],
+      [branchSegment],
+      [],
+    ].filter((parts) => parts.every((text) => text !== ""));
+    const lead = modeLead ? modeLead.text.length + 1 : 0;
+    row2 = [projectionChip];
+    for (const parts of ladder) {
+      if (joinedWidth(parts) + lead <= tailBudget) {
+        row2 = [...parts, projectionChip];
+        break;
+      }
+    }
+  }
   const row2Color = (text: string): string | undefined => {
     if (text.startsWith("▣")) return theme.dim;
     if (text.startsWith("⎇")) return theme.ok;
@@ -317,7 +407,7 @@ function StatusRow(props: StatusProps) {
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
         <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}{props.browserSetup && <Text color={theme.warn}>{cls === "wide" ? "⚠ browser tool unavailable — ^b install" : "⚠ browser"}</Text>}</Box>
-        <Box gap={1} flexWrap="nowrap">{props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
+        <Box gap={1} flexWrap="nowrap">{row1Gauge != null ? <Text color={tokenColor} wrap="truncate">{row1Gauge}</Text> : props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
         <Box justifyContent={modeLead !== null || noticeText !== null ? "space-between" : "flex-end"} flexWrap="nowrap" paddingX={1}>
