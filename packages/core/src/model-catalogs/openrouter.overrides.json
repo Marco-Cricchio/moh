@@ -13,10 +13,10 @@
   },
   "rows": {
     "anthropic/claude-3-haiku": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "name": "Anthropic: Claude 3 Haiku"
+      "author": "moh (#1005)",
+      "date": "2026-09-26",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate, and no declared source covers the row (models.dev has it only under the vercel and helicone gateways, which this catalog does not mirror) — so it is dropped rather than frozen by hand (#1005)",
+      "retired": true
     },
     "anthropic/claude-fable-5": {
       "author": "moh migration (#959)",
@@ -5183,9 +5183,9 @@
       }
     },
     "thinkingmachines/inkling": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (#1005)",
+      "date": "2026-09-26",
+      "reason": "the aggregator halved the window (1048576 -> 524288) and the correction is accepted: the row is listed at the smaller size, so the catalog must say so (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Thinking Machines: Inkling",
@@ -5201,12 +5201,13 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 524288
     },
     "thinkingmachines/inkling-small": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (#1005)",
+      "date": "2026-09-26",
+      "reason": "the aggregator halved the window (1048576 -> 524288) and the correction is accepted: the row is listed at the smaller size, so the catalog must say so (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Thinking Machines: Inkling Small",
@@ -5222,7 +5223,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 524288
     },
     "thinkingmachines/inkling-small:batch": {
       "author": "moh migration (#959)",

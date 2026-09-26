@@ -3,7 +3,9 @@
 Date: 2026-09-24 · Status: accepted · Refs: tickets #955, #951, #953 (census), map #952
 Amends: ADR-0029 (by provenance, not liveness) — see the amendment there
 Amended: #1004 (2026-09-26) — the `contextWindow` shrink hatch accepts a
-number, never an absence
+number, never an absence; #1005 (2026-09-26) — the release-time check
+reports, the version contract is enforced, regeneration before the tag is a
+release step, and a row leaves the catalog by declaration (`retired`)
 
 ## Context
 
@@ -202,3 +204,144 @@ unaffected.
 2. "The generation report additionally records unmatched ids, cross-source
    context differences, and coverage deltas" — unchanged; what this amendment
    adds is the refusal, above, not another row-level list.
+
+## Amendment (2026-09-26, #1005): the release-time check reports, and the version contract is enforced
+
+This ADR named the release-time catalog check as its own revisit trigger. The
+trigger fired three times in four tags, and the evidence says the trigger's
+assumption was wrong rather than the decision:
+
+| tag | `catalog-check` at the tag | why |
+| --- | --- | --- |
+| v0.50.0 | failure | shipped red |
+| v0.50.1 | failure | shipped red; its catalog was generated the previous day (2026-09-24T11:45) |
+| v0.50.2 | success | regenerated ~10 minutes before the tag, after a first regeneration had already drifted |
+| v0.50.3 | success | regenerated ~11 minutes before the tag |
+
+Measured staleness windows on one day: generated 12:15 → drifted by 17:53
+(~5h20m); regenerated 17:56 → drifted again by 21:56 (~4h). Upstream moves
+prices several times a day and retires listings; against that, a weekly
+schedule accumulates a week of staleness and the tag-time compare is
+essentially guaranteed red. A signal that is red by default distinguishes
+nothing, and each release cycle had grown an unplanned regeneration step whose
+data the release notes could not describe (v0.50.2's entry was rewritten
+because the catalog it had described was replaced before the tag).
+
+### What a red catalog check now means, and where it can appear
+
+- **Daily schedule, catalog PRs, manual dispatch**
+  (`model-catalogs-check.yml`) — unchanged semantics: rebuild, compare, exit
+  non-zero on drift. Drift is a red here, and the cron moves from weekly to
+  **daily** (`0 6 * * *`) so it surfaces between releases instead of at every
+  tag.
+- **The release pipeline at every tag** (`release.yml` `catalog-check`) — the
+  same compare in **reporting mode** (`--freshness`): the committed catalog's
+  `generatedAt` against the tagged commit's date, how many of its 25 files
+  differ, and the row-level moves (prices, context windows, reasoning flags,
+  with one line per changed row), written to the run summary. It **exits 0**
+  and is still not a `needs` of `release`. **No flavour of drift turns it
+  red** — including the one that made the old job red at the tag: a rebuild
+  the guards reject (a row the aggregators no longer cover, a price the build
+  would drop) reports less instead of failing. The age and the drifted-file
+  count come from the committed manifest and the compare and need no accepted
+  rebuild; the row-level counts need one, so they read `--`, the file count
+  reads as a lower bound, and the guard findings are listed. The release whose
+  catalog no longer reproduces is exactly the release whose freshness is worth
+  reading. What still fails is not measuring at all: a source that could not
+  be fetched, where there is nothing to compare and no honest report to print.
+  The guards keep their failing semantics everywhere generation or `--check`
+  runs.
+
+### Regenerating before the tag is a step of the release flow
+
+Generation stays **local and human-invoked**: no pipeline writes the catalog
+(the "never regenerates" half of this ADR stands, and no job is a writer). What
+changes is that the release flow regenerates *deliberately, before the tag*:
+cut the release branch from the integration branch, write the changelog section,
+regenerate with `--version <the version being released>`, commit the catalog in
+the release PR, merge it, then promote and tag. The exact commit being shipped
+then carries a catalog generated for it, and the tag-time report says how old
+that data is. The ordered steps live in `CONTRIBUTING.md` (the repo-side
+contract the release flow reads) and in the catalog README.
+
+### The version contract, enforced
+
+`manifest.version` keeps its meaning — "the moh release that will contain the
+catalog" (ADR-0029 amendment) — and `PRICING_SNAPSHOT.version`, a public export
+(ADR-0004 keep-list), reads it. A release shipping a manifest that declares
+another release therefore makes that export name a release that does not contain
+the data. Nothing checked it; the practice was to regenerate per release anyway.
+The coupling is now stated as a contract instead of tolerated — the rule the
+**`v0.50.1`** release made necessary: that release shipped a manifest declaring
+`0.50.0` (generated the previous day), so `PRICING_SNAPSHOT`, shipped inside
+0.50.1, named 0.50.0 as the release containing its prices. Two doors enforce it:
+
+- `--verify-version <x.y.z>` reads the committed manifest and fails naming both
+  versions when they disagree (`manifest.json declares moh 0.50.0, but the
+  release is 0.50.1 — regenerate with --version 0.50.1 and commit the result`);
+- `release.yml`'s `version-check` job runs it against the tag and **is** a
+  `needs` of `release`, so the mismatch fails **before publication**: a
+  mismatched manifest never becomes a draft Release.
+
+### Superseded points
+
+1. "the **release pipeline runs the same check at every tag** … That job never
+   regenerates and never gates the release" — the tag-time job no longer runs
+   the failing compare; it reports freshness. Nothing regenerates in the
+   pipeline (unchanged), and the tag-time job still does not gate.
+2. The revisit trigger "the automatic catalog check **at every release** fails"
+   is **retired**: it named a surface that is red as a steady state, so its
+   firing carried no information. The other two triggers (a source shape change
+   costing a hand-written adapter; the hand-maintained region growing release
+   over release) stand.
+3. "a weekly schedule" — the schedule is daily.
+
+Everything else here — sources and precedence, per-field supply, the
+hand-maintained region, the manifest and report contents, the
+runtime-live-pricing boundary — is unaffected. The width of the guards is
+#1004's amendment above, which narrows one of them. Option 4 of #1005
+(decoupling `manifest.version` from the shipped release) was rejected: it
+would make `PRICING_SNAPSHOT.version` informational, and the coupling is what
+keeps that public export honest.
+
+## Amendment (2026-09-26, #1005, part 2): a row leaves the catalog by declaration — the `retired` clause
+
+Regenerating for a release surfaced the gap #1004 deliberately left open: the
+guards can refuse a rebuild, and refusing is right, but a rebuild that keeps
+being refused never becomes shippable. OpenRouter retired
+`anthropic/claude-3-haiku` outright (no window, no rate), and the two
+`thinkingmachines/inkling` rows lost half their window. The window cases had a
+door already — declare the value — but a row whose listing is *gone* has no
+row to declare, and freezing a retired model's rate by hand is exactly the
+"hand-maintained region grows until owning the catalog stops paying" cost this
+ADR's revisit trigger watches for.
+
+So the sidecar gains one clause:
+
+```jsonc
+"anthropic/claude-3-haiku": {
+  "author": "moh (#1005)", "date": "2026-09-26",
+  "reason": "OpenRouter retired the listing: …",
+  "retired": true
+}
+```
+
+- A retired row is **written nowhere**: the build skips it, so the row leaves
+  the catalog at the next regeneration.
+- The presence guards (`row-lost`, `context-window-lost`,
+  `pricing-coverage-drop`) do not apply to it — they ask "did the build keep
+  what was committed?", and for a retired row the answer is meant to be no.
+  Every other guard still does.
+- **Retirement is a declaration, never a deduction.** A row that stops matching
+  an aggregator record without the clause is precisely the `row-lost` /
+  `context-window-lost` finding above, so a listing that disappears cannot
+  quietly delete a model: a human writes the clause, with a reason, or the
+  rebuild stays red.
+- The row keeps its `author`/`date`/`reason` in the sidecar, which is the
+  audit trail the hand-maintained region exists to carry — the decision that
+  removed a row stays readable next to the ones that added it. It stays there
+  until someone prunes it deliberately; the build no longer reads it.
+
+The clause is what keeps the guards publishable: without it, a crowd of
+retirements pins the drift compare red forever, and a signal that cannot go
+green is the "red by default" failure the rest of this amendment removes.

@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.50.3",
-  "generatedAt": "2026-09-25T22:02:23.839Z",
+  "generatedAt": "2026-09-26T10:35:59.931Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-25T22:02:23.355Z"
+      "fetchedAt": "2026-09-26T10:35:59.464Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-25T22:02:23.640Z"
+      "fetchedAt": "2026-09-26T10:35:59.728Z"
     }
   ],
   "files": {
@@ -196,10 +196,10 @@
       }
     },
     "openrouter": {
-      "sha256": "501e2e528a57cb0ddbe8a7a2ece87b11226f66e30b0371b0520250602dca46a0",
-      "rows": 362,
+      "sha256": "24af691f7b170c5867f5f19b741b4e6acc4e15b23b110e945b7a6ada946ed8b6",
+      "rows": 361,
       "verdicts": {
-        "exact": 339,
+        "exact": 338,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 22
@@ -603,7 +603,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "github-copilot/claude-opus-4.8": {
       "provider": "github-copilot",
@@ -618,7 +620,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "github-copilot/claude-opus-5": {
       "provider": "github-copilot",
@@ -648,7 +652,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "github-copilot/claude-sonnet-5": {
       "provider": "github-copilot",
@@ -783,7 +789,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "github-copilot/gpt-5.4": {
       "provider": "github-copilot",
@@ -993,7 +1001,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "google/gemini-2.5-flash": {
       "provider": "google",
@@ -1444,7 +1454,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openai-codex/gpt-5.3-codex-spark": {
       "provider": "openai-codex",
@@ -3004,21 +3016,6 @@
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "opencode",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/anthropic/claude-3-haiku": {
-      "provider": "openrouter",
-      "id": "anthropic/claude-3-haiku",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
       "supplied": [
         "cost",
         "contextWindow",
@@ -7810,7 +7807,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/thinkingmachines/inkling-small": {
       "provider": "openrouter",
@@ -7825,7 +7824,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/thinkingmachines/inkling-small:batch": {
       "provider": "openrouter",
@@ -8137,7 +8138,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/z-ai/glm-5": {
       "provider": "openrouter",

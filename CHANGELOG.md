@@ -7,6 +7,40 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **The model catalog was regenerated** (#1005): 11 prices moved (mostly down
+  on OpenRouter: `z-ai/glm-5.3` 1.4/4.4 → 0.38/1.19, `~moonshotai/kimi-latest`
+  1.2/10.53 → 1.03/9.04, `deepseek/deepseek-v4-pro` 0.56/1.12 → 0.37/0.74),
+  `thinkingmachines/inkling` and `inkling-small` are listed at half the window
+  they had (1048576 → 524288, now declared in the sidecar so the catalog says
+  what the listing says), and `anthropic/claude-3-haiku` **left the catalog**:
+  OpenRouter retired it and no declared source covers the row. That last one
+  needed a new sidecar clause — `"retired": true`, with its reason — because a
+  row whose listing disappears has nothing left to declare: retirement is a
+  declaration with an audit trail, never a silent removal by the build
+  (ADR-0046 amendment). The drift compare is green again.
+- **The release-time catalog check reports instead of failing, and the version
+  contract is now enforced** (#1005, ADR-0046 amendment): the `catalog-check`
+  job that runs at every tag was red by default — three of the last four tags
+  failed it, and the two green ones were green only because someone
+  regenerated the catalog minutes before tagging (measured upstream drift
+  windows of ~4–5 hours). A signal that is red as a steady state distinguishes
+  nothing, so at the tag the job now reports: the committed catalog's age
+  against the tagged commit, how many of the 25 files moved upstream, and one
+  line per changed row (price, context window, reasoning flag). It still never
+  gates, and no flavour of drift turns it red: a rebuild its guards reject
+  reports less — the age and the drifted files, with the row-level counts
+  reading `--` — instead of failing. The drift compare that exits non-zero is
+  untouched and moves from a weekly to a **daily** schedule, so staleness
+  surfaces between releases instead of at the tag.
+  Regenerating the catalog declaring the release being cut is now a documented
+  step of the release flow, before the tag (`CONTRIBUTING.md`), and a new
+  `version-check` job **does** gate publication: a release shipping a manifest
+  that declares another version never becomes a draft Release, because
+  `PRICING_SNAPSHOT.version` is a public export read from that manifest —
+  v0.50.1 shipped a manifest declaring 0.50.0.
+
 ### Fixed
 
 - **A catalog row can no longer ship without its context window** (#1004,
