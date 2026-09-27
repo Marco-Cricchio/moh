@@ -572,7 +572,10 @@ describe("#949: the window wins — reachability", () => {
       expect(result.partial).toBe(true);
       expect(result.upTo).toBeGreaterThan(0);
     }
-    expect(appended.filter((e) => e.type === "compaction")).toHaveLength(1);
+    const marker = appended.find((e) => e.type === "compaction") as Extract<AgentEvent, { type: "compaction" }>;
+    // #949: the intra-turn cut is an audit flag ON the marker (keptByFloor
+    // precedent), never a skip warning.
+    expect(marker.partialTail).toBe(true);
   });
 
   test("session: the auto producer compacts a gigantic log during turns (was: silent)", async () => {

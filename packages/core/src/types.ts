@@ -347,7 +347,11 @@ type AgentEventBase =
   | { type: "compaction"; summary: string; upTo?: number; upToId?: string;
       /** ADR-0035: an extension's section cut was reduced to the survival
        * floor before rendering (chrome — audit only, replay ignores it). */
-      keptByFloor?: true }
+      keptByFloor?: true;
+      /** #949: the verbatim tail begins inside the oldest kept turn — the
+       * tail policy's intra-turn cut fired (chrome — audit only; replay
+       * reads the pointer normally, this only explains the marker). */
+      partialTail?: true }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**

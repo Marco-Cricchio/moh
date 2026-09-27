@@ -29,10 +29,6 @@ import { lastAssistantText } from "./session-store";
  * #949 (ADR-0022 §2 amendment): a *preference*, never a floor — the
  * window wins when the two conflict. */
 export const DEFAULT_TAIL_TURNS = 10;
-/** The fitting reserve (#949): the last turn stays whole only while it
- * fits `window − CONTEXT_FIT_RESERVE` (shared with the context-fit
- * guard); beyond it the cut goes inside the last turn. */
-export { CONTEXT_FIT_RESERVE as TAIL_FIT_RESERVE } from "./context-fit";
 /** Fraction of the model context window that arms auto compaction. */
 export const DEFAULT_COMPACTION_THRESHOLD = 0.8;
 /** Absolute inputTokens fallback when the window is unknown (0). */
@@ -478,12 +474,17 @@ export class CompactionRunner {
       bytes += s;
     }
     const total = Math.max(CompactionRunner.turnTokens(events, from, to), 0);
-    // Walk boundaries oldest→newest keeping the largest suffix ≤ ceiling.
+    // Walk boundaries oldest→newest keeping the largest suffix ≤ ceiling
+    // (a running suffix sum from the newest boundary keeps this O(N)).
     let best = legal[0]!;
-    for (const boundary of legal) {
-      let suffix = 0;
-      for (let i = boundary; i < to; i++) suffix += (sizes[i - from]! / Math.max(bytes, 1)) * total;
-      if (suffix <= ceiling) best = boundary;
+    let suffixAfter = 0; // estimated tokens strictly after the boundary
+    for (let i = to - 1; i >= from; i--) {
+      if (events[i]!.type === "tool_result") {
+        suffixAfter += (sizes[i - from]! / Math.max(bytes, 1)) * total;
+        continue;
+      }
+      if (suffixAfter <= ceiling) best = i;
+      suffixAfter += (sizes[i - from]! / Math.max(bytes, 1)) * total;
     }
     return best;
   }
@@ -499,10 +500,10 @@ export class CompactionRunner {
     for (let i = from; i < to; i++) {
       const e = events[i]!;
       if (e.type === "tool_result") continue; // never a head
-      // A `tool_call` boundary keeps its pair intact: the result (if any
-      // lives inside the span) stays after the call in the tail. A
-      // boundary can never fall strictly between call and result — both
-      // are event starts.
+      // A `tool_call` boundary keeps its pair intact only while its
+      // result lies inside `[from, to)` (the producer always cuts at
+      // `to = events.length`, where this holds); a boundary can never
+      // fall strictly between call and result — both are event starts.
       if (e.type === "user_message" || e.type === "assistant_delta" || e.type === "reasoning" || e.type === "tool_call") {
         legal.push(i);
       }
@@ -645,6 +646,15 @@ export class CompactionRunner {
       return;
     }
     if (!markerSpanNonEmpty(path, from, newUpTo.upTo)) {
+      // #949: visible on the auto path too — a single-turn log with a
+      // known window folds nothing whole (`upTo` = its only turn).
+      this.#append({
+        type: "compaction_skipped",
+        reason: "no_covered_turns",
+        turns: path.filter((e) => e.type === "user_message").length,
+        measuredTokens: CompactionRunner.lastMeasuredCall(path)?.inputTokens ?? 0,
+        window,
+      });
       resolve?.({ ok: false, error: "nothing to compact: the covered span has no turns" });
       return;
     }
@@ -746,6 +756,11 @@ export class CompactionRunner {
             // ADR-0035 §4: the marker itself records that the extension's
             // cut was reduced to the survival floor (chrome, audit only).
             ...(this.#floorApplied ? { keptByFloor: true as const } : {}),
+            // #949: the tail begins inside the oldest kept turn — the
+            // "minimal cut cannot reach window − reserve" reading is an
+            // audit flag on the marker (keptByFloor precedent), never a
+            // skip warning.
+            ...(newUpTo.partial ? { partialTail: true as const } : {}),
           });
           this.#onCompacted();
           this.#consecutiveFailures = 0;
