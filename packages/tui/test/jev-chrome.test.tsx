@@ -424,6 +424,20 @@ describe("footer status chip (ADR-0032)", () => {
     i.unmount();
   });
 
+  test("#1019: a self-identifying note renders its one name, not two", async () => {
+    // #867's note leads with the extension's own name: the chip's prefix
+    // exists so two extensions' statuses never read as one, and a text that
+    // already identifies itself makes it redundant.
+    const i = mount([{ extension: "jev-guard", text: "jev-guard: exfiltration 0.88 contradicted by in_scope 0.92 — passed" }]);
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    // The name appears once: the chip carries the note's own head, never its
+    // prefix in front of a text that already says the name.
+    expect(frame.match(/jev-guard/g)).toHaveLength(1);
+    expect(frame).toContain("jev-guard: exfiltr");
+    i.unmount();
+  });
+
   test("cleared (no statuses) renders no chip at all", async () => {
     const i = mount([]);
     await sleep(30);

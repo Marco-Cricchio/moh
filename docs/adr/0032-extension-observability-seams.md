@@ -127,7 +127,11 @@ Key decisions, each with its rationale:
    `appendEvent`. The seam has no turn scope by design: a status that is a *turn* fact
    (e.g. the guardrail's softened-pass note, #867) is cleared by the publishing
    extension itself in `afterTurn` (#1013) — and only when it still owns the slot, so
-   an outage text published after the note is never erased by the note's cleanup.
+   a status published after the note is never erased by the note's cleanup. The clear
+   reverts the slot to empty, which is exact rather than lucky (#1019): a status the
+   publisher meant to outlive the turn (the guardrail's `∅ jev offline`) is retracted by
+   the client's own success signal before a note is ever published over it, so the note
+   never covers a state that would have to come back.
 
 8. **Headless: the first publish of a status writes one stderr line.** A repeat of the
    same text prints nothing, a clear prints nothing. This gives `moh run` the outage
