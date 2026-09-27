@@ -7,6 +7,7 @@ import { LogoIntro } from "./LogoIntro";
 import {
   HOME_LIST_DEFAULT,
   homeBannerFits,
+  homeVertical,
   visibleListHeight,
   windowing,
   widthClass,
@@ -141,6 +142,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
+  // #1023 vertical degradation: on short terminals the home sheds padding,
+  // blank spacers and hint lines so the frame stays under `rows` and ink
+  // keeps the log-update path (no per-frame clearTerminal + scrollback wipe).
+  const vertical = homeVertical(viewport.rows);
   // Big ASCII banner only on tall non-compact terminals (#292); the version
   // moves from under the acronym into the footer in fallback mode.
   const banner = homeBannerFits(viewport);
@@ -344,14 +349,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   }, [onIntroEnd]);
 
   return (
-    <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={2}>
+    <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={vertical.paddingY}>
       {intro ? (
         <LogoIntro onSkip={skipIntro} />
       ) : (
         <>
           <Logo banner={banner} version={banner ? version : undefined} />
-          <Text> </Text>
-      <Text> </Text>
+          {vertical.spacers >= 3 ? <Text> </Text> : null}
+      {vertical.spacers >= 4 ? <Text> </Text> : null}
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>
         {renaming ? (
           <>
@@ -371,7 +376,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
           </>
         )}
       </Box>
-      <Text> </Text>
+      {vertical.spacers >= 2 ? <Text> </Text> : null}
       <Box flexDirection="column" width={boxW}>
         <Text color={cursorRow === 0 ? theme.bg : theme.accent} backgroundColor={cursorRow === 0 ? theme.accent : undefined}>
           {` ${cursorRow === 0 ? ic("›", ">") : " "} ${query.trim() ? `start “${truncate(query.trim(), boxW - 16)}”` : "New session"}` + (cursorRow === 0 ? " " : "")}
@@ -418,15 +423,15 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         {win.below > 0 ? <Dim>{` ↓ ${win.below} more`}</Dim> : null}
         {!sessionsLoaded ? <Dim>{` loading sessions…`}</Dim> : null}
         {sessionsLoaded && hits.length === 0 ? <Dim>{` (no sessions yet — type to start one)`}</Dim> : null}
-        {onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
-        {!compact && sessionsList.length > 0 ? <Dim>{` pin ctrl+p · rename ctrl+r · delete ctrl+d`}</Dim> : null}
-        <Text> </Text>
+        {vertical.hints && onOpenColdWizard ? <Dim>{` resume from another machine (o)`}</Dim> : null}
+        {vertical.hints && !compact && sessionsList.length > 0 ? <Dim>{` pin ctrl+p · rename ctrl+r · delete ctrl+d`}</Dim> : null}
+        {vertical.spacers >= 1 ? <Text> </Text> : null}
       </Box>
       {renaming ? <Dim>{"enter confirm (empty = reset) · esc cancel"}</Dim> : null}
       {deleting ? <Dim>{"y confirm · enter/n/esc cancel"}</Dim> : null}
       {deleteError ? <Text color={theme.warn}>{deleteError}</Text> : null}
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
-      <Text> </Text>
+      {vertical.spacers >= 1 ? <Text> </Text> : null}
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       {skillUpdateCount > 0 ? <Text color={theme.warn}>{skillUpdateNoticeText(skillUpdateCount)}</Text> : null}
       <Footer

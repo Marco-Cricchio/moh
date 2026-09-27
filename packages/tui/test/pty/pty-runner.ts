@@ -24,6 +24,9 @@ export interface PtySpec {
   /** Files written into the child's cwd (base64 name → content), so
    * mentions can attach real project files. */
   files?: Record<string, string>;
+  /** #1023: number of seeded existing sessions in the temp project's
+   * session directory, so the Home list has rows. */
+  seedSessions?: number;
   /** `checkpoint` snapshots physical screen + native scrollback after this
    * step, letting one script assert a mid-stream viewport and final settle. */
   steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; checkpoint?: string; mark?: boolean; markEnd?: boolean }>;

@@ -23,6 +23,7 @@ Each reported line: {"lead": <leading spaces>, "width": <rstripped length>,
 import codecs
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import pty
@@ -36,6 +37,7 @@ import sys
 import tempfile
 import termios
 import time
+import uuid
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 CLI = os.path.join(REPO_ROOT, "packages", "cli", "src", "cli.ts")
@@ -397,6 +399,23 @@ def main() -> None:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "wb") as f:
                 f.write(base64.b64decode(content))
+    # #1023: seeded existing sessions so the Home list has rows. One JSONL
+    # line per event; a single `user_message` gives each session a title
+    # and an unconsumed state (no `session_resumed` in the log). The legacy
+    # path-derived slug matches what the child's `SessionStore.list` reads.
+    if isinstance(spec.get("seedSessions"), int) and spec["seedSessions"] > 0:
+        slug_base = os.path.basename(cwd.rstrip("/")).lower()
+        slug_base = "".join(c if c.isalnum() or c in "._-" else "-" for c in slug_base).strip("-") or "project"
+        slug = f"{slug_base}-" + hashlib.sha256(os.path.realpath(cwd).encode()).hexdigest()[:8]
+        sess_dir = os.path.join(home, ".moh", "projects", slug)
+        os.makedirs(sess_dir, exist_ok=True)
+        stamp = int(time.time() * 1000)
+        for i in range(spec["seedSessions"]):
+            sid = time.strftime("%Y%m%dT%H%M%S", time.gmtime(stamp / 1000)) + ("%03dZ" % (stamp % 1000)) + "-" + uuid.uuid4().hex[:8]
+            event = {"type": "user_message", "text": f"seeded session number {i + 1}"}
+            with open(os.path.join(sess_dir, sid + ".jsonl"), "w") as f:
+                f.write(json.dumps(event) + "\n")
+            stamp += 1
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     # CI=true silences Ink entirely (it detects CI environments and skips

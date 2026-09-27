@@ -37,6 +37,38 @@ const HOME_CHROME_ROWS = 14;
 /** Minimum terminal height for the big ASCII banner (#292); below it the
  * home falls back to the one-line `moh > — My Own Harness` logo. */
 export const HOME_BANNER_MIN_ROWS = 30;
+/** Below this many rows the home drops every filler row and hint line (#1023). */
+export const HOME_TIGHT_ROWS = 15;
+/** Below this many rows the home starts degrading padding and fillers (#1023). */
+export const HOME_COMPACT_ROWS = 20;
+
+/** #1023 vertical degradation tiers for the settled home frame. At small
+ * terminal heights the home's own chrome (padding, blank spacers, hint
+ * lines) pushed the frame past `rows`, so ink took the fullscreen path on
+ * EVERY frame (clearTerminal + scrollback wipe + full reprint). The tiers
+ * shed filler rows before content: the list shrinks first, then the
+ * spacers, then the padding — the logo, the search box, the "New session"
+ * row and the footer hint are the floor that always survives. */
+export interface HomeVertical {
+  /** Vertical padding around the whole home frame. */
+  paddingY: number;
+  /** Blank filler rows: one after the logo, two after the logo, one after
+   * the search box, one before the footer (slots in that order). */
+  spacers: number;
+  /** Whether the low-value hint lines ("resume from another machine",
+   * pin/rename/delete) render at all. */
+  hints: boolean;
+  /** Minimum visible list rows — 1 on degraded tiers (the cursor row must
+   * stay visible), the usual floor 3 on roomy terminals. */
+  listFloor: number;
+}
+
+/** Picks the home vertical tier for a terminal height. Pure, tested. */
+export function homeVertical(rows: number): HomeVertical {
+  if (rows < HOME_TIGHT_ROWS) return { paddingY: 0, spacers: 0, hints: false, listFloor: 1 };
+  if (rows < HOME_COMPACT_ROWS) return { paddingY: 1, spacers: 1, hints: false, listFloor: 1 };
+  return { paddingY: 2, spacers: 4, hints: true, listFloor: HOME_LIST_MIN_VISIBLE };
+}
 
 /** Whether the home shows the big ASCII banner (tall, non-compact terminals). */
 export function homeBannerFits(v: Viewport): boolean {
@@ -55,9 +87,14 @@ export function homeListCycleValues(): number[] {
   return Array.from({ length: HOME_LIST_MAX - HOME_LIST_MIN_VISIBLE + 1 }, (_, i) => HOME_LIST_MIN_VISIBLE + i);
 }
 
-/** Effective home-list height: configured cap, shrunk by the terminal, floored at 3. */
+/**
+ * Effective home-list height (#1023): the tier's floor first, then the
+ * configured cap, shrunk by the terminal's remaining budget — never below
+ * the floor, so the cursor row always stays visible.
+ */
 export function visibleListHeight(configured: number, rows: number): number {
-  return Math.max(HOME_LIST_MIN_VISIBLE, Math.min(configured, rows - HOME_CHROME_ROWS));
+  const floor = homeVertical(rows).listFloor;
+  return Math.max(floor, Math.min(configured, rows - HOME_CHROME_ROWS));
 }
 
 // Session geometry is deliberately single-column (#183). Dashboard/sidebar

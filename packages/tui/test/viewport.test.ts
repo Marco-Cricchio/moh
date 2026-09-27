@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   COMPACT_COLS,
   HOME_LIST_DEFAULT,
+  HOME_LIST_MIN_VISIBLE,
   MEASURE,
   clampHomeListMax,
   dialogWidth,
   homeListCycleValues,
+  homeVertical,
   visibleListHeight,
   widthClass,
   windowing,
@@ -74,7 +76,6 @@ describe("home session-list geometry (#112)", () => {
   test("visibleListHeight: configured cap on normal terminals, floor 3 on small ones", () => {
     expect(visibleListHeight(5, 24)).toBe(5);
     expect(visibleListHeight(10, 40)).toBe(10);
-    expect(visibleListHeight(5, 10)).toBe(3);
     const shrunk = visibleListHeight(10, 20);
     expect(shrunk).toBeLessThan(10);
     expect(shrunk).toBeGreaterThanOrEqual(3);
@@ -82,5 +83,28 @@ describe("home session-list geometry (#112)", () => {
 
   test("homeListCycleValues covers exactly 3..10", () => {
     expect(homeListCycleValues()).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+});
+
+describe("home vertical degradation (#1023)", () => {
+  test("roomy terminals keep the full frame: padding 2, all spacers, hints, list floor 3", () => {
+    expect(homeVertical(24)).toEqual({ paddingY: 2, spacers: 4, hints: true, listFloor: HOME_LIST_MIN_VISIBLE });
+    expect(homeVertical(40)).toEqual(homeVertical(24));
+  });
+
+  test("compact tier (15..19 rows): padding 1, spacers only at the ends, no hints, list floor 1", () => {
+    expect(homeVertical(19)).toEqual({ paddingY: 1, spacers: 1, hints: false, listFloor: 1 });
+    expect(homeVertical(15)).toEqual(homeVertical(19));
+  });
+
+  test("tight tier (<15 rows): no padding, no spacers, no hints, list floor 1", () => {
+    expect(homeVertical(14)).toEqual({ paddingY: 0, spacers: 0, hints: false, listFloor: 1 });
+    expect(homeVertical(6)).toEqual(homeVertical(14));
+  });
+
+  test("visibleListHeight never drops below the tier's list floor", () => {
+    expect(visibleListHeight(10, 14)).toBe(1);
+    expect(visibleListHeight(10, 10)).toBe(1);
+    expect(visibleListHeight(5, 24)).toBe(5);
   });
 });
