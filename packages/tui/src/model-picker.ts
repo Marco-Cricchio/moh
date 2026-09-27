@@ -42,19 +42,25 @@ export function contextLabel(contextWindow: number): string {
   return contextWindow > 0 ? `${Math.round(contextWindow / 1000)}k` : "—";
 }
 
-/** The context-window text of one row. ADR-0049: a model whose provider
- * declared a window this session shows **both** numbers — the declared
- * one first (it is the one every context decision uses) and the catalog
- * figure it replaced. A model that declared nothing, or one whose
- * declared number agrees with the catalog, renders exactly as before. */
-export function windowText(catalogWindow: number, declared?: number): string {
-  if (declared === undefined || declared <= 0 || declared === catalogWindow) return contextLabel(catalogWindow);
-  return `${contextLabel(declared)} declared · ${contextLabel(catalogWindow)} catalog`;
+/** The context-window text of one row. ADR-0049, both doors: a model
+ * whose window was declared — by a refusal this session (`declared`)
+ * or by the endpoint's own listing (the row carries the overlay and
+ * `shippedContextWindow` the figure it replaced) — shows **both**
+ * numbers: the declared one first (it is the one every context decision
+ * uses) and the catalog figure it replaced. A model that declared
+ * nothing, or one whose declared number agrees with the catalog,
+ * renders exactly as before. */
+export function windowText(catalogWindow: number, declared?: number, shipped?: number): string {
+  const effective = declared !== undefined && declared > 0 ? declared : catalogWindow;
+  const replaced = declared !== undefined && declared > 0 && declared !== catalogWindow ? catalogWindow : shipped;
+  if (replaced === undefined || replaced <= 0 || replaced === effective) return contextLabel(effective);
+  return `${contextLabel(effective)} declared · ${contextLabel(replaced)} catalog`;
 }
 
 /** One list row: `name (id) · ctx Nk`, with the current-model marker. */
 export function modelRow(m: CatalogModel, current?: boolean, declared?: number): string {
-  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared)}${current ? " ‹current›" : ""}`;
+  const shipped = (m as PickerModel).shippedContextWindow;
+  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared, shipped)}${current ? " ‹current›" : ""}`;
 }
 
 /** The free-text fallback row shown when the query misses the catalog
@@ -77,19 +83,38 @@ export interface EndpointPick {
   catalog: CatalogModel[];
 }
 
+/** One catalog row as the picker shows it: the entry plus, when the
+ * endpoint's own listing declared a different window (#1032), the
+ * shipped value it replaced — both numbers, wherever a window is shown
+ * (ADR-0049). */
+export interface PickerModel extends CatalogModel {
+  /** The shipped catalog window this row's `contextWindow` replaced
+   * (absent when the two agree or no listing declared one). */
+  shippedContextWindow?: number;
+}
+
 /** Fetched model ids → picker rows (name = id, no metadata available). */
 export function fetchedToCatalog(ids: string[]): CatalogModel[] {
   return ids.map((id) => ({ id, name: id, contextWindow: 0, reasoning: false }));
 }
 
-/** Merges a live listing (#551) into an endpoint's picker list,
- * additively: existing entries win on id collision, fetched-only models
- * are appended with the enrichment the listing carried. */
-export function mergePickCatalog(base: CatalogModel[], live: LiveModelListing[]): CatalogModel[] {
-  if (live.length === 0) return base;
+/** Merges a live listing (#551) into an endpoint's picker list.
+ * Additive on identity: fetched-only models are appended. But where the
+ * listing carries a window for an id moh ships (#1032), the endpoint's
+ * own number wins on the row and the shipped value is kept aside — the
+ * display then shows both (ADR-0049 door two). */
+export function mergePickCatalog(base: CatalogModel[], live: LiveModelListing[]): PickerModel[] {
+  const declared = new Map(live.filter((m) => typeof m.contextWindow === "number").map((m) => [m.id, m.contextWindow!]));
+  const rows: PickerModel[] = base.map((m) => {
+    const window = declared.get(m.id);
+    if (window !== undefined && window !== m.contextWindow) {
+      return { ...m, contextWindow: window, shippedContextWindow: m.contextWindow };
+    }
+    return { ...m };
+  });
   const seen = new Set(base.map((m) => m.id));
   return [
-    ...base,
+    ...rows,
     ...live
       .filter((m) => !seen.has(m.id))
       .map((m) => ({ id: m.id, name: m.name ?? m.id, contextWindow: m.contextWindow ?? 0, reasoning: false })),
@@ -98,15 +123,19 @@ export function mergePickCatalog(base: CatalogModel[], live: LiveModelListing[])
 
 /** Context window for an active-model label (`endpointName/modelId`,
  * the `session.activeModel` / `model_call_start.model` shape) from the
- * endpoints' catalogs. 0 when the endpoint or model is unknown —
- * openai-compat backends have no vendored catalog, so callers treat 0
- * as "use the default". */
+/** Context window for an active-model label (`endpointName/modelId`,
+ * the `session.activeModel` / `model_call_start.model` shape) from the
+ * endpoints' catalogs — the merged rows carry the declared window where
+ * the endpoint's listing declared one (#1032). 0 when the endpoint or
+ * model is unknown — openai-compat backends have no vendored catalog,
+ * so callers treat 0 as "use the default". */
 export function contextWindowForLabel(
   picks: EndpointPick[],
   modelLabel: string,
-  /** ADR-0049: the session's declared windows — the number a provider
-   * itself stated outranks the row it corrected, for every window-derived
-   * figure on screen (the footer's gauge denominator included). */
+  /** ADR-0049 door one: the session's declared windows — the number a
+   * refusal taught outranks even the listing overlay, for every
+   * window-derived figure on screen (the footer's gauge denominator
+   * included). */
   declaredFor?: (ref: string) => number | undefined,
 ): number {
   const slash = modelLabel.indexOf("/");

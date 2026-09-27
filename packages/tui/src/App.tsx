@@ -73,7 +73,7 @@ import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
-import { contextWindowForLabel } from "./model-picker";
+import { contextWindowForLabel, mergePickCatalog } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
@@ -1095,12 +1095,14 @@ function AppShell({
       defaultModel: e.defaultModel,
       baseUrl: e.baseUrl,
       apiKey: e.apiKey,
-      catalog: endpointModelCatalog(e.type, e.baseUrl),
+      catalog: mergePickCatalog(endpointModelCatalog(e.type, e.baseUrl), liveCatalog[e.name] ?? []),
     }));
-    // ADR-0049: the gauge's denominator is the same lookup the core uses —
-    // a declared window corrects it too, never contradicting the engine.
+    // ADR-0049, both doors: the gauge's denominator is the same lookup the
+    // core uses — the rows carry the endpoint's listing overlay (door two)
+    // and the session's refusal-learned window corrects it too (door one),
+    // never contradicting the engine.
     return contextWindowForLabel(picks, session.activeModel, declaredWindowFor) || undefined;
-  }, [session, modelLabel, declaredWindowFor]);
+  }, [session, modelLabel, declaredWindowFor, liveCatalog]);
 
   // #242/#256: cycles among the levels the active model actually offers
   // (config declaration or catalog map) and persists immediately. Never

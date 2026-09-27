@@ -107,7 +107,7 @@ export function ModelPickerModal({
   interface Row {
     endpoint: string;
     type: string;
-    model?: CatalogModel;
+    model?: CatalogModel & { shippedContextWindow?: number };
     free?: string;
     current?: boolean;
   }
@@ -175,10 +175,18 @@ export function ModelPickerModal({
   };
 
   const line = (row: Row, selected: boolean): string => {
+    // ADR-0049, both doors: where a window was declared — by a refusal
+    // this session, or by the endpoint's listing (the merged row carries
+    // the shipped figure it replaced) — both numbers appear; a row whose
+    // values agree is unchanged.
     const body =
       row.free !== undefined
         ? freeTextRow(row.free)
-        : `${row.endpoint} · ${row.model!.name} · ${windowText(row.model!.contextWindow, declaredWindow?.(`${row.endpoint}/${row.model!.id}`))}`;
+        : `${row.endpoint} · ${row.model!.name} · ${windowText(
+            row.model!.contextWindow,
+            declaredWindow?.(`${row.endpoint}/${row.model!.id}`),
+            row.model!.shippedContextWindow,
+          )}`;
     return ` ${selected ? "›" : " "} ${body}${row.current ? " ‹current›" : ""}${selected ? " " : ""}`;
   };
 
