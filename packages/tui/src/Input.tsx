@@ -51,6 +51,19 @@ export interface InputProps {
    * bracketed paste; returning a path inserts it as an `@path` mention
    * (terminal drag-and-drop), null inserts verbatim. */
   onPastePath?: (paste: string) => string | null;
+  /** #1022: the composer's rendered row count (draft window + completion
+   * popup), republished whenever it changes. The volatile-transcript budget
+   * is computed against the footer that is actually rendered, so the chrome
+   * holding the composer must be measured, never assumed: a multi-row
+   * steering draft adds rows no fixed estimate can see. */
+  onRowsChange?: (rows: number) => void;
+  /** #1022: the most rows this composer may occupy. The frame it belongs to
+   * must stay strictly below the terminal height or ink takes its fullscreen
+   * path (clearTerminal + scrollback wipe per frame); on a small terminal
+   * that is only possible by capping the composer, so the owner of the
+   * budget computes the cap and the composer clamps its draft window and
+   * popup to it — the draft scrolls, nothing is lost. */
+  maxRows?: number;
   onSubmit(text: string): void;
 }
 
@@ -167,6 +180,8 @@ export function MultilineInput({
   onSuggestionsOpen,
   mentionCandidates = [],
   onPastePath,
+  onRowsChange,
+  maxRows,
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -602,11 +617,28 @@ export function MultilineInput({
   const popupOpen = (suggestions.length > 0 || mentionEntries.length > 0) && focused && !disabled;
   useEffect(() => { onSuggestionsOpen?.(popupOpen); }, [popupOpen, onSuggestionsOpen]);
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
-  const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
-  // The popup scrolls with the selection instead of capping the list.
+  // #1022: the owner of the volatile budget may cap the whole composer. The
+  // draft window gives up rows before the popup (a completion list the user
+  // is choosing from must stay readable), and never below one row.
+  const draftCap = maxRows === undefined ? maxVisible : Math.max(1, Math.min(maxVisible, maxRows));
+  const shown = visualLines.slice(scrollOffset, scrollOffset + draftCap);
   const popupRows = Math.min(5, Math.max(suggestions.length, mentionEntries.length));
   const win = windowing(suggestions.length, Math.min(suggestionIndex, Math.max(0, suggestions.length - 1)), popupRows);
   const mentionWin = windowing(mentionEntries.length, Math.min(suggestionIndex, Math.max(0, mentionEntries.length - 1)), popupRows);
+  // #1022: what this composer will paint — the draft's visible window (the
+  // empty draft renders its one placeholder row) plus whichever completion
+  // popup is open. Reported to the owner of the volatile budget, which
+  // subtracts it from the transcript tail: the frame's height has to hold
+  // below the terminal or ink switches to its fullscreen path.
+  const popupVisibleRows = suggestions.length > 0
+    ? win.count + (win.above > 0 ? 1 : 0) + (win.below > 0 ? 1 : 0)
+    : mentionEntries.length > 0
+      ? mentionWin.count + (mentionWin.above > 0 ? 1 : 0) + (mentionWin.below > 0 ? 1 : 0)
+      : 0;
+  const renderedRows = (isEmptyDraft(lines) ? 1 : shown.length) + popupVisibleRows;
+  useEffect(() => {
+    onRowsChange?.(renderedRows);
+  }, [renderedRows, onRowsChange]);
 
   return (
     <Box flexDirection="column" width="100%" paddingX={1}>

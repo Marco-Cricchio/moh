@@ -100,8 +100,71 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 15_000);
 
-  test("a long unbroken reasoning paragraph grows scrollback before reasoning_end", async () => {
+  // #1022: the volatile frame's height was budgeted against an ASSUMED
+  // footer (a one-row composer), so a multi-row steering draft typed during
+  // the reasoning stream grew the frame past the terminal for as long as the
+  // stream ran: ink answered every frame with clearTerminal + a full static
+  // reprint (scrollback wipe). Measured on the physical screen: the frame
+  // follows the footer that is actually rendered, and the composer is capped
+  // so `frame < rows` holds by construction — the draft scrolls instead.
+  test("a multi-row steering draft during a reasoning stream never clears the screen (#1022)", async () => {
     const { server, url } = startLongReasoningStream();
+    const rawDump = "/tmp/moh-steering-draft-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        // 14 rows: the smallest height where a 4-row draft plus the fixed
+        // footer would have overflowed the old estimate (measured: 292
+        // fullscreen frames before the fix, 0 during the stream after).
+        cols: 120,
+        rows: 14,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        steps: [
+          { wait: 5.0, until: COMPOSER_READY },
+          { wait: 0.2, send: encodeBase64("long reasoning") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          // Type the draft WHILE the reasoning streams — the production
+          // shape of the report (steering mid-stream), and what makes the
+          // frame grow under a running stream. The stream holds on
+          // `thought-20` so the keystrokes always land mid-stream.
+          { wait: 8.0, until: "thought-20" },
+          { wait: 0.2, send: encodeBase64("draftword ".repeat(80)) },
+          // Opens the measurement window at the first steady frame with the
+          // draft on screen: the startup ramp (Home → chat) may blip
+          // fullscreen on its own and is not what this guard is about.
+          { wait: 1.0, mark: true },
+          { wait: 10.0, until: "LAST-LIVE-REASONING" },
+          // The stream is still held after its last word; the window closes
+          // here so the settle frame (handler chain, status rows) is not
+          // attributed to the streaming window this guard is about.
+          { wait: 0.5, markEnd: true },
+        ],
+        tail: 14,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      expect(meta.framesAfterMark ?? 0).toBeGreaterThan(10);
+      // The invariant: no frame of the streaming window may take ink's
+      // fullscreen path (clearTerminal + full static reprint + scrollback
+      // wipe), and the widest rendered frame must stay strictly below the
+      // terminal — the measured height, not an estimate of it.
+      expect(meta.fullscreenAfterMark ?? 0, "fullscreen frames during the streaming window").toBe(0);
+      expect(meta.maxFrameRowsAfterMark ?? 0, "widest volatile frame").toBeLessThan(14);
+      expect(readFileSync(rawDump, "utf8").split("\x1b[2J\x1b[3J\x1b[H").length - 1, "clearTerminal across the whole run").toBeLessThanOrEqual(4);
+      // The draft is still the user's text: capping the composer's window
+      // scrolls it, it never drops the keystrokes.
+      expect(readFileSync(rawDump, "utf8")).toContain("draftword");
+    } finally {
+      server.stop(true);
+    }
+  }, 40_000);
+
+  test("a long unbroken reasoning paragraph grows scrollback before reasoning_end", async () => {    const { server, url } = startLongReasoningStream();
     const rawDump = "/tmp/moh-streaming-long-reasoning-raw.bin";
     try {
       const meta = await runPtyRaw({
