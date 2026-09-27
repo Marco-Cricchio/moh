@@ -223,8 +223,38 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * no numeric question to inline. `jev_routing` (the router's own notices:
  * a misconfigured label, an unpriced model, a manual override) gets one
  * short line per kind. */
-export function extensionEventLine(name: string, payload: unknown): string {
-  const record = asRecord(payload);
+/** #949: one human sentence for a `compaction_skipped` — the reason plus
+ * the numbers that justify it, so the user never has to recompute. */
+export function skipExplanation(event: Extract<AgentEvent, { type: "compaction_skipped" }>): string {
+  const window = event.window > 0 ? `window ~${(event.window / 1000).toFixed(0)}k` : "unknown window";
+  if (event.reason === "too_few_turns") {
+    return `${event.turns} turn${event.turns === 1 ? "" : "s"} in the log (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}) — nothing foldable yet; a new turn makes older work compactable.`;
+  }
+  if (event.reason === "no_covered_turns") {
+    return `the covered span has no turns (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}).`;
+  }
+  return `the last turn alone exceeds the window (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}).`;
+}
+
+/** #949: deterministic projection for the context_length hint — true when
+ * a `compaction_skipped` follows the newest compaction marker (or no
+ * marker exists and any skip is present): /compact cannot help right now,
+ * so clients must not promise it. */
+export function compactionCannotHelpNow(events: ReadonlyArray<AgentEvent>): boolean {
+  let markerIndex = -1;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]!.type === "compaction") {
+      markerIndex = i;
+      break;
+    }
+  }
+  for (let i = events.length - 1; i > markerIndex; i -= 1) {
+    if (events[i]!.type === "compaction_skipped") return true;
+  }
+  return markerIndex === -1 && events.some((e) => e.type === "compaction_skipped");
+}
+
+export function extensionEventLine(name: string, payload: unknown): string {  const record = asRecord(payload);
   if (record === undefined) return name;
   if (name === "jev_routing") return routingNoticeLine(record);
   if (name === "jev_usecase") return useCaseLine(record);
@@ -765,7 +795,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #947: name the next action — a context_length error is recoverable.
         const hint =
           event.reason === "context_length"
-            ? ["Context is full for this model — /compact to summarize it, or /models to switch to a bigger window."]
+            ? compactionCannotHelpNow(events)
+              ? ["Context is full for this model and nothing is foldable yet — /models to switch to a bigger window, or keep working: a new turn makes older context compactable."]
+              : ["Context is full for this model — /compact to summarize it, or /models to switch to a bigger window."]
             : [];
         blocks.push({ key, kind: "error", glyph: "✗", type: "error", detail: event.reason, lines: [event.message, ...hint], state: "fail" });
         break;
@@ -892,6 +924,20 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #466/ADR-0022: chrome on replay too — why no marker exists yet.
         if (vibe) break;
         blocks.push({ key, kind: "error", glyph: "⚠", type: "compaction failed", detail: event.reason, lines: ["The producer retries on later turns; /compact forces one now."] });
+        break;
+      case "compaction_skipped":
+        // #949: a structural refusal (nothing foldable) is visible, one
+        // warn line with the numbers — never a sticky chip, one event
+        // per new measurement.
+        if (vibe) break;
+        blocks.push({
+          key,
+          kind: "error",
+          glyph: "⚠",
+          type: "compaction skipped",
+          detail: event.reason,
+          lines: [skipExplanation(event)],
+        });
         break;
       case "compaction_dangling":
         // #578 (d6): the newest on-path marker's pointer does not resolve —

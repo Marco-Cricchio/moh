@@ -41,8 +41,25 @@ function turnEvents(i: number, inputTokens: number): AgentEvent[] {
 const scriptedSummarizer: CompactionSummarizer = async ({ previous, transcript }) =>
   `SUMMARY of ${transcript.length} chars${previous ? ` (after: ${previous})` : ""}`;
 
-function runner(events: AgentEvent[], summarizer: CompactionSummarizer = scriptedSummarizer, window?: number) {
-  const appended: AgentEvent[] = [];
+/** Indices of `user_message` events. */
+function indicesFor(events: AgentEvent[], turn: number): number {
+  let seen = -1;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i]!.type === "user_message") {
+      seen += 1;
+      if (seen === turn) return i;
+    }
+  }
+  throw new Error(`turn ${turn} not found`);
+}
+
+/** True when the tail beginning at `start` would not open on a `tool_result`. */
+function legalBoundariesOk(events: AgentEvent[], start: number): boolean {
+  const first = events[start]!.type;
+  return first === "user_message" || first === "assistant_delta" || first === "reasoning" || first === "tool_call";
+}
+
+function runner(events: AgentEvent[], summarizer: CompactionSummarizer = scriptedSummarizer, window?: number) {  const appended: AgentEvent[] = [];
   const r = new CompactionRunner({
     sessionId: "session-test",
     provider: () => MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
@@ -60,7 +77,7 @@ describe("upToFor / tail", () => {
     const events: AgentEvent[] = [{ type: "session_start", schemaVersion: 1, promptVersion: "p" }];
     for (let i = 0; i < 13; i++) events.push({ type: "user_message", text: `t${i}` });
     // 13 turns; tail of 10 → upTo = index of turn #3 (the 4th turn).
-    expect(CompactionRunner.upToFor(events, 10)).toBe(4);
+    expect(CompactionRunner.upToFor(events, 10)).toEqual({ upTo: 4, partial: false });
   });
 
   test("undefined when the log has too few turns", () => {
@@ -74,15 +91,18 @@ describe("upToFor / tail", () => {
     // when tail=5 and total turns = 9).
     const events: AgentEvent[] = [];
     for (let i = 0; i < 9; i++) events.push({ type: "user_message", text: `t${i}` });
-    expect(CompactionRunner.upToFor(events, 5)).toBe(4);
+    expect(CompactionRunner.upToFor(events, 5)).toEqual({ upTo: 4, partial: false });
   });
 
-  test("tail never exceeds ~25% of the window when turn tokens are measured (#466)", () => {
+  test("tail never exceeds ~25% of the window when turn tokens are measured (#949: the window wins)", () => {
     // 30 turns × 40k tokens each; window 1M → 25% cap = 250k. The 10-turn
-    // tail would span 400k > cap, but 10 turns is the floor: it stays.
+    // tail would span 400k > cap: the shrink continues past the old floor
+    // down to the largest whole-turn count under the cap (6 turns = 240k).
     const events: AgentEvent[] = [];
     for (let i = 0; i < 30; i++) events.push(...turnEvents(i, 40_000));
-    expect(CompactionRunner.upToFor(events, 10, 1_000_000)).toBe(CompactionRunner.upToFor(events, 10));
+    const indices40: number[] = [];
+    for (let i = 0; i < events.length; i++) if (events[i]!.type === "user_message") indices40.push(i);
+    expect(CompactionRunner.upToFor(events, 10, 1_000_000)).toEqual({ upTo: indices40[24], partial: false });
     // Smaller turns: 30 × 20k, window 1M → cap 250k fits 12 turns → the
     // tail spans 12 turns, upTo = the 18th user_message (index 1 + 17*5).
     const small: AgentEvent[] = [];
@@ -90,12 +110,22 @@ describe("upToFor / tail", () => {
     // tail=12: user_messages 17..29 span 12×20k = 240k ≤ 250k.
     const indices: number[] = [];
     for (let i = 0; i < small.length; i++) if (small[i]!.type === "user_message") indices.push(i);
-    expect(CompactionRunner.upToFor(small, 12, 1_000_000)).toBe(indices[18]);
-    // The floor holds: even when one turn alone busts the cap, shrinking
-    // stops at DEFAULT_TAIL_TURNS (here 12 → 10).
+    expect(CompactionRunner.upToFor(small, 12, 1_000_000)?.upTo).toBe(indices[18]);
+    // The protected last turn: even when it alone busts the cap, it stays
+    // whole while it fits window − 8k (here 900k ≤ 1M − 8192).
     const huge: AgentEvent[] = [];
     for (let i = 0; i < 15; i++) huge.push(...turnEvents(i, i === 14 ? 900_000 : 100));
-    expect(CompactionRunner.upToFor(huge, 12, 1_000_000)).toBe(CompactionRunner.upToFor(huge, 10));
+    const hugeCut = CompactionRunner.upToFor(huge, 12, 1_000_000)!;
+    expect(hugeCut.partial).toBe(false);
+    expect(hugeCut.upTo).toBe(indicesFor(huge, 14)); // the whole tail folds; only turn 14 remains
+    // When the last turn alone exceeds window − 8k, the cut goes INSIDE
+    // it (partial tail): the largest legal suffix under the ceiling.
+    const giant: AgentEvent[] = [];
+    for (let i = 0; i < 15; i++) giant.push(...turnEvents(i, i === 14 ? 1_100_000 : 100));
+    const giantCut = CompactionRunner.upToFor(giant, 10, 1_000_000)!;
+    expect(giantCut.partial).toBe(true);
+    expect(giantCut.upTo).toBeGreaterThan(indicesFor(giant, 13)); // inside turn 14, not at its user_message
+    expect(legalBoundariesOk(giant, giantCut.upTo)).toBe(true);
   });
 });
 
@@ -226,7 +256,7 @@ describe("forced compaction", () => {
     expect(result.ok).toBe(true);
     expect(appended).toHaveLength(1);
     const marker = appended[0] as Extract<AgentEvent, { type: "compaction" }>;
-    const upTo = CompactionRunner.upToFor(events, 10)!;
+    const upTo = CompactionRunner.upToFor(events, 10)!.upTo;
     // #578: the marker carries `upToId` — the id (or legacy bridge) of
     // the last covered event on the path.
     expect(marker.upToId).toBe(events[upTo - 1]!.id ?? `line:${upTo}`);
@@ -409,5 +439,176 @@ describe("subagent summarizer (integration)", () => {
     expect(contextSize).toBeLessThan(beforeSize);
     expect(contextSize).toBeGreaterThan(0);
     await session.dispose();
+  });
+});
+
+describe("#949: the window wins — reachability", () => {
+  /** The reported #949 shape, synthetic: 3 gigantic turns (one long
+   * agentic turn with tool traffic), measured 253_325 input tokens. */
+  function giganticFixture(): AgentEvent[] {
+    const events: AgentEvent[] = [{ type: "session_start", schemaVersion: 1, promptVersion: "p" }];
+    for (let i = 0; i < 3; i++) {
+      events.push({ type: "user_message", text: `please run the suite, turn ${i}` });
+      for (let c = 0; c < 20; c++) {
+        events.push({ type: "tool_call", callId: `c${i}-${c}`, name: "bash", args: { command: `bun test file-${c}` } });
+        events.push({ type: "tool_result", callId: `c${i}-${c}`, ok: true, output: `x`.repeat(40_000) });
+      }
+      events.push({ type: "assistant_delta", text: `suite is green for round ${i}` });
+      events.push({ type: "model_call", model: "mock", usage: { inputTokens: i === 2 ? 253_325 : 80_000, outputTokens: 500 } });
+    }
+    return events;
+  }
+
+  test("upToFor compacts a 3-turn gigantic log with a window (today: undefined)", () => {
+    const events = giganticFixture();
+    // Old policy: 3 turns ≤ 10 → undefined. New policy: the cut lands
+    // inside the last turn (it alone exceeds 200k − 8k).
+    const cut = CompactionRunner.upToFor(events, 10, 200_000)!;
+    expect(cut.partial).toBe(true);
+    // The tail never opens on a tool_result.
+    expect(legalBoundariesOk(events, cut.upTo)).toBe(true);
+    // The covered prefix is non-empty: there is something to compact.
+    expect(cut.upTo).toBeGreaterThan(0);
+  });
+
+  test("legalBoundaries: no tool_result head, no split pair", () => {
+    const events: AgentEvent[] = [
+      { type: "user_message", text: "go" },
+      { type: "tool_call", callId: "a", name: "bash", args: {} },
+      { type: "tool_result", callId: "a", ok: true, output: "out" },
+      { type: "assistant_delta", text: "done" },
+    ];
+    const legal = CompactionRunner.legalBoundaries(events, 0, events.length);
+    expect(legal).toEqual([0, 1, 3]); // the tool_result at index 2 is never a boundary
+  });
+
+  test("intraTurnCut picks the largest legal suffix under the ceiling", () => {
+    const events = giganticFixture();
+    const cut = CompactionRunner.intraTurnCut(events, 2, events.length, 150_000);
+    expect(cut).toBeGreaterThan(2);
+    expect(legalBoundariesOk(events, cut)).toBe(true);
+  });
+
+  test("the auto path appends compaction_skipped instead of failing silently", async () => {
+    // Unknown window (no endpointType): 1 small turn cannot fold, but the
+    // orphan over-threshold measurement arms the trigger — the refusal is
+    // now VISIBLE.
+    const events = turnEvents(1, 100);
+    events.push({ type: "model_call", model: "mock", usage: { inputTokens: 900_000, outputTokens: 1 } });
+    const appended: AgentEvent[] = [];
+    const r = new CompactionRunner({
+      sessionId: "session-test",
+      provider: () => MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
+      append: (e) => appended.push(e),
+      onCompacted: () => {},
+      summarizer: scriptedSummarizer,
+    });
+    r.maybeCompact({ status: "done" }, events, false);
+    await r.pending;
+    expect(appended).toHaveLength(1);
+    expect(appended[0]!.type).toBe("compaction_skipped");
+    // With a real catalog window the same #949 log compacts (reachability restored).
+    const gigantic = giganticFixture();
+    const r2 = new CompactionRunner({
+      sessionId: "session-test",
+      provider: () => ({ name: "anthropic/claude-haiku-4-5" }) as never,
+      endpointType: () => "anthropic",
+      append: (e) => appended.push(e),
+      onCompacted: () => {},
+      summarizer: scriptedSummarizer,
+    });
+    r2.maybeCompact({ status: "done" }, gigantic, false);
+    await r2.pending;
+    expect(appended.filter((e) => e.type === "compaction")).toHaveLength(1);
+  });
+
+  test("compaction_skipped carries the numbers that justify the skip", async () => {
+    // Small turns fully inside the tail preference, but over the
+    // fallback threshold (orphan measurement): the auto path skips.
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 3; i++) events.push(...turnEvents(i, 900));
+    events.push({ type: "model_call", model: "mock", usage: { inputTokens: 900_000, outputTokens: 1 } });
+    const { r, appended } = runner(events, scriptedSummarizer, FALLBACK_CONTEXT_WINDOW);
+    r.maybeCompact({ status: "done" }, events, false);
+    await r.pending;
+    const skips = appended.filter((e) => e.type === "compaction_skipped") as Extract<AgentEvent, { type: "compaction_skipped" }>[];
+    expect(skips).toHaveLength(1);
+    expect(skips[0]!.reason).toBe("too_few_turns");
+    expect(skips[0]!.turns).toBe(3);
+    expect(skips[0]!.measuredTokens).toBe(900_000);
+    expect(skips[0]!.window).toBe(0); // unknown window: the honest number
+  });
+
+  test("compaction_skipped is appended once per new measurement, not per settle", async () => {
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 3; i++) events.push(...turnEvents(i, 900));
+    events.push({ type: "model_call", model: "mock", usage: { inputTokens: 900_000, outputTokens: 1 } });
+    const { r, appended } = runner(events, scriptedSummarizer, FALLBACK_CONTEXT_WINDOW);
+    r.maybeCompact({ status: "done" }, events, false);
+    await r.pending;
+    r.maybeCompact({ status: "done" }, events, false); // stale measurement: nothing
+    await r.pending;
+    events.push({ type: "model_call", model: "mock", usage: { inputTokens: 950_000, outputTokens: 1 } });
+    r.maybeCompact({ status: "done" }, events, false); // new measurement: one more skip
+    await r.pending;
+    expect(appended.filter((e) => e.type === "compaction_skipped")).toHaveLength(2);
+  });
+
+  test("forced path on a gigantic log now compacts (was: nothing to compact)", async () => {
+    const events = giganticFixture();
+    const appended: AgentEvent[] = [];
+    const r = new CompactionRunner({
+      sessionId: "session-test",
+      provider: () => ({ name: "anthropic/claude-haiku-4-5" }) as never,
+      endpointType: () => "anthropic",
+      append: (e) => appended.push(e),
+      onCompacted: () => {},
+      summarizer: scriptedSummarizer,
+    });
+    const result = await r.compactNow(events);
+    await r.pending;
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.partial).toBe(true);
+      expect(result.upTo).toBeGreaterThan(0);
+    }
+    expect(appended.filter((e) => e.type === "compaction")).toHaveLength(1);
+  });
+
+  test("session: the auto producer compacts a gigantic log during turns (was: silent)", async () => {
+    mkdirSync(TMP, { recursive: true });
+    const session = createSession({
+      // Emits a real (huge) measurement per call — three turns above the
+      // 200k fallback window, the #949 shape.
+      provider: {
+        // Named "<endpointType>/<model>" (catalog-backed) so the
+        // session resolves a real 200k window for the tail policy.
+        name: "anthropic/claude-haiku-4-5",
+        async *stream() {
+          yield { type: "model_call_start", model: "anthropic/claude-haiku-4-5" };
+          yield { type: "usage", inputTokens: 900_000, outputTokens: 10 };
+          yield { type: "text_delta", text: "ack" };
+          yield { type: "finish", reason: "stop" };
+        },
+      } as never,
+      cwd: TMP,
+      compaction: { summarizer: async () => "SUMMARY", fallbackWindowTokens: 200_000 },
+    });
+    // Few turns, huge measurements — the auto producer folds mid-turn
+    // where today's answer is `nothing to compact`.
+    await session.send("run the suite");
+    await session.send("and again");
+    await session.send("once more");
+    const markers = session.history().filter((e) => e.type === "compaction");
+    expect(markers.length).toBeGreaterThanOrEqual(1);
+    await session.dispose();
+  });
+
+  test("replay coherence after an intra-turn cut: the tail has no orphan tool_result at the head", () => {
+    const events = giganticFixture();
+    const cut = CompactionRunner.upToFor(events, 10, 200_000)!.upTo;
+    // The producer anchors at `path[cut - 1]`; the replayed tail starts
+    // at `cut`. Assert the protocol constraint directly.
+    expect(legalBoundariesOk(events, cut)).toBe(true);
   });
 });
