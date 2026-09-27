@@ -38,9 +38,8 @@ import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
-import { DeclaredWindows } from "../declared-window";
+import { DeclaredWindows, declaredWindowOf } from "../declared-window";
 import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
-import { ProviderError } from "../types";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -471,17 +470,9 @@ export class AgentSession {
       this.#compaction = new CompactionRunner({
         sessionId: this.#sessionId,
         provider: () => this.#provider,
-        endpointType: () => {
-          const profiled = this.activeEndpointType;
-          if (profiled !== undefined) return profiled;
-          // #949 test/dev convenience: a bare provider named
-          // "<endpointType>/<model>" resolves its window from the
-          // catalog — an unknown window otherwise.
-          const name = this.#provider.name;
-          if (!name.includes("/")) return undefined;
-          const [type, ...rest] = name.split("/");
-          return catalogEntryFor(type, rest.join("/")) !== undefined ? type : undefined;
-        },
+        // One resolver for the active reference (ADR-0049: one value, one
+        // owner) — the lookup every window consumer shares.
+        endpointType: () => this.#endpointTypeFor(this.#provider.name),
         // ADR-0049: the one window lookup the guard and the chain read —
         // a provider-declared window outranks the catalog row here too.
         declaredWindows: () => this.#declaredWindows,
@@ -1049,7 +1040,7 @@ export class AgentSession {
    * trace, so the next formula can be discovered from real wordings.
    */
   #noteContextRefusal(ref: string, err: unknown): void {
-    const declared = err instanceof ProviderError ? err.declaredWindow : undefined;
+    const declared = declaredWindowOf(err);
     const endpointType = this.#endpointTypeFor(ref);
     if (declared === undefined) {
       noteUnrecognizedContextRefusal({
@@ -1072,12 +1063,18 @@ export class AgentSession {
 
   /** Endpoint type for a model reference (`endpoint/model-id`), the
    * catalog lookup key: a configured endpoint's type, else a registered
-   * provider id, else undefined. */
+   * provider id, else — #949 test/dev convenience — a bare provider named
+   * "<endpointType>/<model>" whose first segment is a catalog kind (its
+   * window then resolves from that catalog). */
   #endpointTypeFor(ref: string): string | undefined {
     const slash = ref.indexOf("/");
     if (slash <= 0) return undefined;
     const name = ref.slice(0, slash);
-    return this.#endpoints.find((e) => e.name === name)?.type ?? (this.#registry?.has(name) ? name : undefined);
+    const profiled = this.#endpoints.find((e) => e.name === name)?.type;
+    if (profiled !== undefined) return profiled;
+    if (this.#registry?.has(name)) return name;
+    const rest = ref.slice(slash + 1);
+    return name && catalogEntryFor(name, rest) !== undefined ? name : undefined;
   }
 
   /** #948: the session's last measured model-call input tokens (the

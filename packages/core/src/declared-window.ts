@@ -19,6 +19,7 @@
  * fallback. The 8k fit reserve is untouched: it is headroom, not a
  * window.
  */
+import { ProviderError } from "./types";
 import type { AgentEvent } from "./types";
 
 /** One shipped recognition formula. Each one is pinned by a test carrying
@@ -27,50 +28,39 @@ import type { AgentEvent } from "./types";
  * trace — `context-refusal-trace.ts` — which is how the next one gets
  * discovered). */
 export interface DeclaredWindowFormula {
-  /** Stable id, for tests and diagnostics. */
-  readonly id: string;
   /** The formula. The window marker must be attributable to its number:
-   * the capture group sits immediately after the marker that names it. */
+   * the `window` capture group sits immediately after the marker that
+   * names it. */
   readonly pattern: RegExp;
-  /** Capture group holding the declared window. */
-  readonly group: number;
   /** The real wording this formula was derived from, with its source. */
   readonly source: string;
 }
 
 export const DECLARED_WINDOW_FORMULAS: readonly DeclaredWindowFormula[] = [
   {
-    id: "maximum-context-length-is",
     // "This endpoint's maximum context length is 131072 tokens."
     // "This model's maximum context length is 128000 tokens."
-    pattern: /maximum context length is\s+([\d,]+)\s+tokens/i,
-    group: 1,
+    pattern: /maximum context length is\s+(?<window>[\d,]+)\s+tokens/i,
     source:
       "OpenRouter/OpenAI-family refusal, verbatim from the #949 session quoted in #986 and ADR-0049: \"This endpoint's maximum context length is 131072 tokens. However, you requested about 234666 tokens (232641 of text input, 2025 of tool input).\" (openrouter/mistralai/mistral-nemo, 2026-09-23). The \"model's\" spelling is the same sentence from OpenAI's chat-completions 400 — both are matched by other agents' classifiers (e.g. litellm, litellm_core_utils/exception_mapping_utils.py: \"this model's maximum context length is\").",
   },
   {
-    id: "prompt-is-too-long",
     // "prompt is too long: 208423 tokens > 200000 maximum": the first
     // number is what was SENT, the one after ">" is the maximum.
-    pattern: /prompt is too long:?\s+[\d,]+\s+tokens\s*>\s*([\d,]+)\s+maximum/i,
-    group: 1,
+    pattern: /prompt is too long:?\s+[\d,]+\s+tokens\s*>\s*(?<window>[\d,]+)\s+maximum/i,
     source:
       "Anthropic Messages API 400 refusal: \"prompt is too long: 208423 tokens > 200000 maximum\" (real wording reproduced by the openclaw corpus, src/agents/failover/failover-classification.overflow.cases.ts, row \"billing-context-prompt-token-count\"; litellm's Anthropic branch matches the same \"prompt is too long\" marker).",
   },
   {
-    id: "model-token-limit",
     // "Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)"
-    pattern: /model token limit:\s*([\d,]+)/i,
-    group: 1,
+    pattern: /model token limit:\s*(?<window>[\d,]+)/i,
     source:
       "Moonshot/Kimi 400 refusal: \"Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)\" (real wording reproduced by the openclaw corpus, same file, row \"billing-context-kimi-limit\"; kimi-coding is a built-in moh provider).",
   },
   {
-    id: "available-context-size",
     // "request (130000 tokens) exceeds available context size (131072 tokens)"
     // "request (66202 tokens) exceeds the available context size (65536 tokens)"
-    pattern: /exceeds (?:the )?available context size \(([\d,]+)\s*tokens\)/i,
-    group: 1,
+    pattern: /exceeds (?:the )?available context size \((?<window>[\d,]+)\s*tokens\)/i,
     source:
       "llama.cpp / Lemonade server refusal: \"request (130000 tokens) exceeds available context size (131072 tokens)\" and \"... exceeds the available context size (65536 tokens)\" (real wording reproduced by the openclaw corpus, same file, rows \"patterns-context-llamacpp-*\"); reachable through an openai-compat endpoint.",
   },
@@ -86,13 +76,21 @@ export const DECLARED_WINDOW_FORMULAS: readonly DeclaredWindowFormula[] = [
  */
 export function recognizeDeclaredWindow(text: string): number | undefined {
   for (const formula of DECLARED_WINDOW_FORMULAS) {
-    const match = formula.pattern.exec(text);
-    const raw = match?.[formula.group];
+    const raw = formula.pattern.exec(text)?.groups?.window;
     if (!raw) continue;
     const value = Number(raw.replace(/[,_\s]/g, ""));
     if (Number.isSafeInteger(value) && value > 0) return value;
   }
   return undefined;
+}
+
+/**
+ * The window a failure declared, when it carries one — `undefined` for any
+ * failure that is not a recognized refusal. The reader both the loop and
+ * the session gate the learning on.
+ */
+export function declaredWindowOf(err: unknown): number | undefined {
+  return err instanceof ProviderError ? err.declaredWindow : undefined;
 }
 
 /**
@@ -145,10 +143,5 @@ export class DeclaredWindows implements DeclaredWindowLookup {
     if (!ref || this.#windows.get(ref) === window) return false;
     this.#windows.set(ref, window);
     return true;
-  }
-
-  /** How many model references declared a window this session. */
-  get size(): number {
-    return this.#windows.size;
   }
 }

@@ -117,7 +117,9 @@ export interface SessionConfig {
   externalGrowth?: () => { expectedBytes: number; actualBytes: number } | null;
   /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
   promptComposer?: PromptComposer;
-  /** User-level moh dir for skill discovery. Default: `~/.moh`. */
+  /** User-level moh dir for skill discovery — and for the one diagnostic
+   * ADR-0049 writes (the trace of provider refusals moh could not read a
+   * context window from, `context-refusals.log`). Default: `~/.moh`. */
   mohHome?: string;
   /**
    * First-party skills (#36): "include" (default) or "exclude" — with

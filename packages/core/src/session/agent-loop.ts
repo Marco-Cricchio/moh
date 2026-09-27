@@ -20,7 +20,7 @@ import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 import { EMPTY_REASONING_PARTS, foldReasoningParts, type ReasoningParts } from "../reasoning-parts";
-import { ProviderError } from "../types";
+import { declaredWindowOf } from "../declared-window";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
@@ -131,11 +131,6 @@ function refusalKind(err: unknown): string | undefined {
   return err instanceof Error && "kind" in err ? String((err as { kind: unknown }).kind) : undefined;
 }
 
-/** ADR-0049: the window a thrown failure declared, when it carries one —
- * the second reader both error paths gate learning on. */
-function refusalWindow(err: unknown): number | undefined {
-  return err instanceof ProviderError ? err.declaredWindow : undefined;
-}
 
 /**
  * One agent turn (#92): model calls, streaming deltas, `model_call`
@@ -399,7 +394,7 @@ export class AgentLoop {
           // the provider declared is learned here too.
           const refusing = this.#refusingRef();
           this.#flushFailedModelCall();
-          if (refusalKind(err) === "context_length" || refusalWindow(err) !== undefined) {
+          if (refusalKind(err) === "context_length" || declaredWindowOf(err) !== undefined) {
             this.#onContextRefusal?.(refusing, err);
           }
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
@@ -503,7 +498,7 @@ export class AgentLoop {
         // carries a window formula moh reads (the refusal proves itself,
         // and the refusal still keeps the kind it had: the taxonomy is
         // untouched). Everything else is exactly as it was.
-        if (reason === "context_length" || refusalWindow(err) !== undefined) this.#onContextRefusal?.(refusing, err);
+        if (reason === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
         return { status: "error", reason, message };
       }
       // The provider stream ended: only a finalized model call is recorded.

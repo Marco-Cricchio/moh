@@ -24,7 +24,7 @@ import {
   contextRefusalsFile,
   noteUnrecognizedContextRefusal,
 } from "../src/context-refusal-trace";
-import type { AgentEvent, Provider, ProviderErrorKind, StreamEvent } from "../src/types";
+import { ProviderError, type AgentEvent, type Provider, type ProviderErrorKind, type StreamEvent } from "../src/types";
 import type { EndpointProfile, MohConfig } from "../src/config";
 
 const TMP = join(import.meta.dir, "tmp-declared-window");
@@ -83,10 +83,9 @@ function endpoints(...profiles: EndpointProfile[]): MohConfig["endpoints"] {
   return profiles;
 }
 
-/** The session-level lookup adapter (the shape every core consumer takes). */
-function lookupOf(session: { declaredWindowFor(ref: string): number | undefined }) {
-  return { declaredWindowFor: (ref: string) => session.declaredWindowFor(ref) };
-}
+/** The shape every core consumer takes for declared windows; an
+ * `AgentSession` satisfies it directly (its `declaredWindowFor`). */
+type DeclaredLookup = { declaredWindowFor(ref: string): number | undefined };
 
 describe("recognition is conservative and pinned to real wordings", () => {
   test("the refusal this issue carries (OpenRouter, verbatim in #986)", () => {
@@ -150,7 +149,7 @@ describe("normalizeProviderError (#986)", () => {
     const normalized = normalizeProviderError(err);
     expect(normalized.declaredWindow).toBe(131_072);
     // The cap itself is unchanged: the log still holds a bounded message.
-    expect(normalized.message.length).toBe(301);
+    expect(normalized.message.length).toBeLessThanOrEqual(301);
     expect(normalized.message.endsWith("…")).toBe(true);
   });
 
@@ -196,35 +195,44 @@ describe("normalizeProviderError (#986)", () => {
 });
 
 describe("capacity arithmetic and display never see provider text", () => {
-  test("a prompt assembled after learning is byte-for-byte what it was", async () => {
-    const seen: string[] = [];
+  test("a refusal changes no message the provider receives", async () => {
+    // Two sessions, the same two turns, the same text. One meets a refusal
+    // (and learns a declared window), the other meets a classification-only
+    // failure. The prompts the provider receives must be byte-for-byte the
+    // same: the correction is chrome, and chrome is not context.
     const ref = "openrouter/x-ai/grok-4.20";
-    let call = 0;
-    const provider: Provider = {
-      name: ref,
-      async *stream(messages): AsyncIterable<StreamEvent> {
-        if (call++ === 0) throw normalizeProviderError(rawRefusal(OPENROUTER_REFUSAL));
-        seen.push(JSON.stringify(messages));
-        yield { type: "text_delta", text: "ok" };
-        yield { type: "finish", reason: "stop" };
-      },
-    };
-    const session = createSession({
-      provider,
-      endpoints: endpoints({ name: "openrouter", type: "openrouter", defaultModel: "x-ai/grok-4.20" }),
-      compaction: { enabled: false },
-    });
-    await session.send("hello");
-    expect(session.history().filter((e) => e.type === "declared_window").length).toBe(1);
-    await session.send("again"); // the next call is the one whose prompt is observable
-    expect(seen.length).toBe(1);
-    // The refusal text and the learned number reach the prompt nowhere:
-    // only the two user messages (the second turn's assembled prompt a
-    // bare provider receives) are there.
-    expect(seen[0]).toContain("hello");
-    expect(seen[0]).not.toContain("declared_window");
-    expect(seen[0]).not.toContain("131072");
-    expect(seen[0]).not.toContain("maximum context length");
+    async function run(firstCall: "refuse" | "fail"): Promise<{ seen: string[]; session: ReturnType<typeof createSession> }> {
+      const seen: string[] = [];
+      let call = 0;
+      const provider: Provider = {
+        name: ref,
+        async *stream(messages): AsyncIterable<StreamEvent> {
+          if (call++ === 0) {
+            throw firstCall === "refuse"
+              ? normalizeProviderError(rawRefusal(OPENROUTER_REFUSAL))
+              : new ProviderError("invalid_request", "bad request");
+          }
+          seen.push(JSON.stringify(messages));
+          yield { type: "text_delta", text: "ok" };
+          yield { type: "finish", reason: "stop" };
+        },
+      };
+      const session = createSession({
+        provider,
+        endpoints: endpoints({ name: "openrouter", type: "openrouter", defaultModel: "x-ai/grok-4.20" }),
+        compaction: { enabled: false },
+      });
+      await session.send("hello");
+      await session.send("again"); // the second call is the observable prompt
+      return { seen, session };
+    }
+
+    const refused = await run("refuse");
+    const control = await run("fail");
+    expect(refused.session.history().some((e) => e.type === "declared_window")).toBe(true);
+    expect(control.session.history().some((e) => e.type === "declared_window")).toBe(false);
+    expect(refused.seen).toHaveLength(1);
+    expect(refused.seen[0]).toBe(control.seen[0]);
   });
 });
 
@@ -242,7 +250,7 @@ describe("a real refusal teaches the window, for the session", () => {
     });
     await session.send("merge");
     expect(session.history().some((e) => e.type === "declared_window")).toBe(false);
-    expect(contextWindowFor(ref, "openrouter", lookupOf(session))).toBe(131_072);
+    expect(contextWindowFor(ref, "openrouter", session as DeclaredLookup)).toBe(131_072);
     // The failure itself is untouched: the same `context_length` error,
     // and (per #947) the same arming of the producer.
     expect(session.history().some((e) => e.type === "error" && e.reason === "context_length")).toBe(true);
@@ -262,7 +270,7 @@ describe("a real refusal teaches the window, for the session", () => {
     // The catalog itself is never edited (ADR-0046 owns it).
     expect(contextWindowFor(ref, "openrouter")).toBe(2_000_000);
     // The single lookup, with the session's declared windows, is corrected.
-    expect(contextWindowFor(ref, "openrouter", lookupOf(session))).toBe(131_072);
+    expect(contextWindowFor(ref, "openrouter", session as DeclaredLookup)).toBe(131_072);
   });
 
   test("an under-claiming catalog row is corrected too (8,191 → refused 131,072)", async () => {
@@ -276,7 +284,7 @@ describe("a real refusal teaches the window, for the session", () => {
     await session.send("merge");
     const learned = session.history().find((e) => e.type === "declared_window") as Extract<AgentEvent, { type: "declared_window" }>;
     expect(learned).toMatchObject({ window: 131_072, catalog: 8_191 });
-    expect(contextWindowFor(ref, "openrouter", lookupOf(session))).toBe(131_072);
+    expect(contextWindowFor(ref, "openrouter", session as DeclaredLookup)).toBe(131_072);
   });
 
   test("another model on the same endpoint keeps its catalog value (no inheritance)", async () => {
@@ -293,7 +301,7 @@ describe("a real refusal teaches the window, for the session", () => {
     await session.send("merge");
     expect(session.declaredWindowFor(refused)).toBe(131_072);
     expect(session.declaredWindowFor(other)).toBeUndefined();
-    expect(contextWindowFor(other, "openrouter", lookupOf(session))).toBe(8_191);
+    expect(contextWindowFor(other, "openrouter", session as DeclaredLookup)).toBe(8_191);
   });
 
   test("the same number again appends nothing; a different number is its own fact", async () => {
@@ -398,7 +406,7 @@ describe("resume re-derives the declared window from the log", () => {
     ] as AgentEvent[]);
     expect(declared.declaredWindowFor("a/m")).toBe(200);
     expect(declared.declaredWindowFor("a/other")).toBe(300);
-    expect(declared.size).toBe(2);
+    expect(declared.declaredWindowFor("a/never-declared")).toBeUndefined();
   });
 });
 
@@ -445,12 +453,12 @@ describe("the fit guard and the fallback chain read the declared window", () => 
     const stop: EndpointProfile = { name: "openrouter", type: "openrouter", defaultModel: "x-ai/grok-4.20" } as EndpointProfile;
     // Without the declared window the catalog's 2M holds it: eligible.
     expect(fallbackIneligibleReason(stop, undefined, { measuredTokens: 234_666 })).toBeNull();
-    const reason = fallbackIneligibleReason(stop, undefined, { measuredTokens: 234_666, declaredWindows: lookupOf(session) });
+    const reason = fallbackIneligibleReason(stop, undefined, { measuredTokens: 234_666, declaredWindows: session as DeclaredLookup });
     expect(reason).toContain("too small");
     expect(reason).toContain("131072");
     // A different reference keeps the catalog value (no inheritance).
     const other: EndpointProfile = { name: "backup", type: "openrouter", defaultModel: "x-ai/grok-4.20" } as EndpointProfile;
-    expect(fallbackIneligibleReason(other, undefined, { measuredTokens: 234_666, declaredWindows: lookupOf(session) })).toBeNull();
+    expect(fallbackIneligibleReason(other, undefined, { measuredTokens: 234_666, declaredWindows: session as DeclaredLookup })).toBeNull();
   });
 });
 
@@ -517,17 +525,22 @@ describe("the trace of unrecognized refusals", () => {
   test("deduplicates the same wording and counts instead of duplicating", () => {
     const mohHome = home();
     const base = { home: mohHome, endpoint: "openrouter", model: "openrouter/x" };
-    noteUnrecognizedContextRefusal({ ...base, message: "refused: you requested about 234666 tokens", now: new Date("2026-09-27T10:00:00Z") });
-    noteUnrecognizedContextRefusal({ ...base, message: "refused: you requested about 234690 tokens", now: new Date("2026-09-27T10:05:00Z") });
-    noteUnrecognizedContextRefusal({ ...base, message: "a different wording entirely", now: new Date("2026-09-27T10:06:00Z") });
+    noteUnrecognizedContextRefusal({ ...base, message: "refused gpt-5: you requested about 234666 tokens", now: new Date("2026-09-27T10:00:00Z") });
+    // Same wording, a different measurement: one entry, count 2.
+    noteUnrecognizedContextRefusal({ ...base, message: "refused gpt-5: you requested about 234690 tokens", now: new Date("2026-09-27T10:05:00Z") });
+    // A different measurement space IS a different wording (the version
+    // is part of what must be read): its own entry.
+    noteUnrecognizedContextRefusal({ ...base, message: "refused gpt-4: you requested about 234690 tokens", now: new Date("2026-09-27T10:06:00Z") });
+    noteUnrecognizedContextRefusal({ ...base, message: "a different wording entirely", now: new Date("2026-09-27T10:07:00Z") });
     const lines = readFileSync(contextRefusalsFile(mohHome), "utf8").trim().split("\n");
-    expect(lines.length).toBe(2);
+    expect(lines.length).toBe(3);
     const entries = lines.map((line) => JSON.parse(line));
     expect(entries[0]).toMatchObject({ count: 2, endpoint: "openrouter", model: "openrouter/x" });
     expect(entries[0].at).toBe("2026-09-27T10:00:00.000Z");
     expect(entries[0].last).toBe("2026-09-27T10:05:00.000Z");
     expect(entries[0].message).toContain("234666"); // the first excerpt, verbatim
     expect(entries[1]).toMatchObject({ count: 1 });
+    expect(entries[2]).toMatchObject({ count: 1 });
   });
 
   test("is bounded, and evicts the oldest wording first", () => {

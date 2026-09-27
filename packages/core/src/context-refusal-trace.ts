@@ -26,7 +26,10 @@ import { dirname, join } from "node:path";
 export const CONTEXT_REFUSALS_FILE = "context-refusals.log";
 /** Distinct refusal wordings kept; beyond this the oldest (`last`) goes. */
 export const CONTEXT_REFUSAL_MAX_ENTRIES = 50;
-/** Chars of the provider's own text kept per entry. */
+/** Chars of the provider's own text kept per entry. The provider states
+ * a refusal first, so the head carries the wording the corpus is for;
+ * the cap is what keeps the file small (the session log holds the same
+ * text under its own 300-character bound — `ProviderError.message`). */
 export const CONTEXT_REFUSAL_EXCERPT_CHARS = 300;
 
 export interface ContextRefusalTraceEntry {
@@ -54,18 +57,19 @@ export function contextRefusalsFile(home: string): string {
  * and control characters dropped, whitespace collapsed, capped — the
  * provider's wording, never a rewrite of it.
  */
-export function cleanRefusalExcerpt(message: string): string {
+function cleanRefusalExcerpt(message: string): string {
   // eslint-disable-next-line no-control-regex
   const cleaned = message.replace(/\u001b\[[0-9;]*[A-Za-z]/g, " ").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
   return cleaned.length > CONTEXT_REFUSAL_EXCERPT_CHARS ? `${cleaned.slice(0, CONTEXT_REFUSAL_EXCERPT_CHARS - 1)}…` : cleaned;
 }
 
-/** Dedup key: the wording with every digit run masked. The requested
- * tokens (234666, 234690) are the same gap with a different number, and
- * the corpus is collected for its *wording*. The entry keeps the first
- * verbatim excerpt, so nothing is lost for the reader. */
+/** Dedup key: the wording with the *measurements* masked. Requests and
+ * limits (234666, 131072) are the same gap with a different number, and
+ * the corpus is collected for its wording; short runs (model versions
+ * like `-4.1`) stay, because they are part of that wording. The entry
+ * keeps the first verbatim excerpt, so nothing is lost for the reader. */
 function wordingKey(entry: Pick<ContextRefusalTraceEntry, "endpoint" | "model" | "message">): string {
-  return `${entry.endpoint ?? ""}\u0000${entry.model}\u0000${entry.message.replace(/\d+/g, "#")}`;
+  return `${entry.endpoint ?? ""}\u0000${entry.model}\u0000${entry.message.replace(/\d{3,}/g, "#")}`;
 }
 
 function readEntries(file: string): ContextRefusalTraceEntry[] {

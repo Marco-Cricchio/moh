@@ -27,7 +27,7 @@ import type { UserConfig } from "./user-config";
 import { ROUTING_TIERS } from "@moh/jev-guard";
 import { readRoutingState, setJevUseCase, type ExtensionStateReader } from "./jev-control";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS, parseSkillArgs, hasSkillPlaceholders } from "@moh/core";
-import { windowText } from "./model-picker";
+import { modelRow } from "./model-picker";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
 
@@ -291,7 +291,7 @@ const modelCommand: SlashCommand = {
           ctx.notify(
             `${type} catalog (pick with /model <id>):\n` +
               models
-                .map((m) => `  ${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, endpoint ? ctx.session?.declaredWindowFor(`${endpoint}/${m.id}`) : undefined)}`)
+                .map((m) => `  ${modelRow(m, false, endpoint ? ctx.session?.declaredWindowFor(`${endpoint}/${m.id}`) : undefined)}`)
                 .join("\n"),
           );
         }

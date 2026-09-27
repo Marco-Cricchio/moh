@@ -37,7 +37,7 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
     return new ProviderError("aborted", "request aborted by signal");
   }
 
-  const declaredWindow = recognizeDeclaredWindow(rawText(err));
+  const declaredWindow = recognizeDeclaredWindow(untruncatedText(err));
   const fail = (kind: ProviderErrorKind, message: string) => new ProviderError(kind, message, declaredWindow);
 
   const status = findStatusCode(err);
@@ -70,7 +70,7 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
  * serialization: credentials and headers must not be scanned or logged)
  * and stops at a total budget.
  */
-function rawText(err: unknown): string {
+function untruncatedText(err: unknown): string {
   const parts: string[] = [];
   collectRawText(err, parts, new Set<object>(), 0, { left: RECOGNITION_TEXT_CAP });
   return parts.join("\n");
