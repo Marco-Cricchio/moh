@@ -102,8 +102,11 @@ re-probe it until the cooldown expires.
   refreshed, served from a cache (with its age), or not refreshable.
   Baseten, which has no listing route, never reports a failure — static
   is its design. The Settings panel's endpoint → model picker shows the
-  same live overlay and the same state. The switch takes effect from
-  the next turn.
+  same live overlay and the same state. Where the endpoint's own
+  listing declares a context window for a model moh ships, that number
+  is the one moh uses — in the picker and in the arithmetic alike — and
+  the shipped value is shown beside it when the two differ. The switch
+  takes effect from the next turn.
 - **Context fit (#948):** a switch into a model whose context window
   cannot hold the session's measured context is refused — the switch
   itself must not kill the session. The window must leave a fixed
@@ -121,7 +124,13 @@ re-probe it until the cooldown expires.
   session's context. The chain knows the session's measured tokens;
   the Settings screen, which reads only configuration, does not — so
   the fit axis simply does not appear there (unknown is never
-  excluded).
+  excluded). The window the arithmetic uses is the one the provider
+  itself reports for the endpoint in use (ADR-0049): the endpoint's own
+  cached model listing outranks the shipped catalog row — in both
+  directions — and the lookup is keyed by the endpoint (two endpoints
+  of one kind never read each other's catalog). Where a displayed
+  window differs from the shipped row, both numbers appear, e.g.
+  `180k (catalog 200k)`.
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
   models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself
