@@ -365,3 +365,52 @@ describe("composer handle (#1009)", () => {
     i.unmount();
   });
 });
+
+// #1022: the composer publishes its rendered height, and its owner caps it —
+// the volatile frame's budget is built from what the footer really occupies.
+describe("composer row accounting", () => {
+  test("reports the rows it renders as the draft grows", async () => {
+    const reported: number[] = [];
+    const i = render(<MultilineInput placeholder="p" focused onRowsChange={(rows) => reported.push(rows)} onSubmit={() => {}} />);
+    await untilFrame(() => String(reported.at(-1)), (f) => f === "1");
+    expect(reported.at(-1)).toBe(1); // the empty draft paints its placeholder row
+    i.stdin.write("word ".repeat(200));
+    await untilFrame(() => String(reported.at(-1)), (f) => Number(f) >= 3);
+    expect(reported.at(-1)!).toBeGreaterThanOrEqual(3);
+    i.unmount();
+  });
+
+  test("maxRows caps the whole composer — an open completion popup cannot grow past it", async () => {
+    // The popup is part of what the composer renders, so it shares the cap:
+    // a CAP that bounded only the draft row would let the frame grow past
+    // the terminal exactly as an uncapped draft did (#1022).
+    const reported: number[] = [];
+    const commands: CommandEntry[] = Array.from({ length: 8 }, (_, i) => ({ name: `/cmd${i}`, description: "x", custom: false }));
+    const i = render(<MultilineInput placeholder="p" focused maxRows={3} commands={commands} onRowsChange={(rows) => reported.push(rows)} onSubmit={() => {}} />);
+    await untilFrame(() => String(reported.at(-1)), (f) => f === "1");
+    i.stdin.write("/");
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("/cmd1"));
+    expect(reported.at(-1)!).toBeLessThanOrEqual(3);
+    // The popup stays usable: its rows are drawn (the list is not dropped).
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("/cmd1");
+    i.unmount();
+  });
+
+  test("maxRows caps the window it paints, and the draft scrolls instead of vanishing", async () => {    const reported: number[] = [];
+    const text = "word ".repeat(200);
+    const i = render(<MultilineInput placeholder="p" focused maxRows={2} onRowsChange={(rows) => reported.push(rows)} onSubmit={() => {}} />);
+    await untilFrame(() => String(reported.at(-1)), (f) => f === "1");
+    i.stdin.write(text);
+    await untilFrame(() => String(reported.at(-1)), (f) => Number(f) === 2);
+    expect(reported.at(-1)).toBe(2);
+    // The cap moves the window (the cursor stays visible), never the text:
+    // submitting returns the whole draft.
+    let submitted = "";
+    i.rerender(<MultilineInput placeholder="p" focused maxRows={2} onSubmit={(value) => { submitted = value; }} />);
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => String(submitted.length), (f) => Number(f) > 0);
+    expect(submitted.trim()).toBe(text.trim());
+    i.unmount();
+  });
+});

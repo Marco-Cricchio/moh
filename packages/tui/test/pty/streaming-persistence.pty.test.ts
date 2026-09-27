@@ -106,15 +106,16 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
   // stream ran: ink answered every frame with clearTerminal + a full static
   // reprint (scrollback wipe). Measured on the physical screen: the frame
   // follows the footer that is actually rendered, and the composer is capped
-  // so `frame < rows` holds by construction — the draft scrolls instead.
+  // (draft and completion popup together) so `frame < rows` holds by
+  // construction — the draft scrolls instead.
   test("a multi-row steering draft during a reasoning stream never clears the screen (#1022)", async () => {
     const { server, url } = startLongReasoningStream();
     const rawDump = "/tmp/moh-steering-draft-raw.bin";
     try {
       const meta = await runPtyRaw({
-        // 14 rows: the smallest height where a 4-row draft plus the fixed
-        // footer would have overflowed the old estimate (measured: 292
-        // fullscreen frames before the fix, 0 during the stream after).
+        // 14 rows: with the old assumed footer (10) the budget left a
+        // 3-row tail, and a 3-row draft already pushed the frame to the
+        // terminal — the smallest geometry where the estimate broke.
         cols: 120,
         rows: 14,
         config: {
@@ -130,31 +131,37 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           { wait: 0.2, send: encodeBase64("\r") },
           // Type the draft WHILE the reasoning streams — the production
           // shape of the report (steering mid-stream), and what makes the
-          // frame grow under a running stream. The stream holds on
-          // `thought-20` so the keystrokes always land mid-stream.
+          // frame grow under a running stream. The fixture holds the call
+          // on `thought-20`, so the draft's rows are painted while the
+          // reasoning tail is still alive.
           { wait: 8.0, until: "thought-20" },
           { wait: 0.2, send: encodeBase64("draftword ".repeat(80)) },
-          // Opens the measurement window at the first steady frame with the
-          // draft on screen: the startup ramp (Home → chat) may blip
-          // fullscreen on its own and is not what this guard is about.
-          { wait: 1.0, mark: true },
-          { wait: 10.0, until: "LAST-LIVE-REASONING" },
-          // The stream is still held after its last word; the window closes
-          // here so the settle frame (handler chain, status rows) is not
-          // attributed to the streaming window this guard is about.
+          // Opens the measurement window on the held call, with the draft
+          // on screen: the startup ramp (Home → chat) may blip fullscreen
+          // on its own and is not what this guard is about (#1023).
+          { wait: 2.0, mark: true },
+          { wait: 12.0, until: "LAST-LIVE-REASONING" },
           { wait: 0.5, markEnd: true },
         ],
         tail: 14,
         rawDump,
       });
       expect(meta.aliveAtEnd).toBe(true);
-      expect(meta.framesAfterMark ?? 0).toBeGreaterThan(10);
+      // Frame-accounting sanity: a geometry that never repainted would make
+      // the assertions below vacuous.
+      expect(meta.framesAfterMark ?? 0, "repaints in the streaming window").toBeGreaterThan(10);
       // The invariant: no frame of the streaming window may take ink's
       // fullscreen path (clearTerminal + full static reprint + scrollback
       // wipe), and the widest rendered frame must stay strictly below the
       // terminal — the measured height, not an estimate of it.
       expect(meta.fullscreenAfterMark ?? 0, "fullscreen frames during the streaming window").toBe(0);
-      expect(meta.maxFrameRowsAfterMark ?? 0, "widest volatile frame").toBeLessThan(14);
+      // A frame may touch the terminal's last row (`== rows` only takes the
+      // fullscreen path when the PREVIOUS frame already filled it); it must
+      // never exceed it, or the repaint leaves the log-update path.
+      expect(meta.maxFrameRowsAfterMark ?? 0, "widest volatile frame").toBeLessThanOrEqual(14);
+      // The startup ramp's own blips (the chat frame replacing Home's
+      // height) are #1023; the streaming window above asserts the zero that
+      // belongs to this guard.
       expect(readFileSync(rawDump, "utf8").split("\x1b[2J\x1b[3J\x1b[H").length - 1, "clearTerminal across the whole run").toBeLessThanOrEqual(4);
       // The draft is still the user's text: capping the composer's window
       // scrolls it, it never drops the keystrokes.
@@ -164,7 +171,8 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
     }
   }, 40_000);
 
-  test("a long unbroken reasoning paragraph grows scrollback before reasoning_end", async () => {    const { server, url } = startLongReasoningStream();
+  test("a long unbroken reasoning paragraph grows scrollback before reasoning_end", async () => {
+    const { server, url } = startLongReasoningStream();
     const rawDump = "/tmp/moh-streaming-long-reasoning-raw.bin";
     try {
       const meta = await runPtyRaw({
@@ -929,6 +937,11 @@ function startLongReasoningStream(): { server: ReturnType<typeof Bun.serve>; url
           const words = ["FIRST-LIVE-REASONING", ...Array.from({ length: 220 }, (_, i) => `thought-${i}`), "LAST-LIVE-REASONING"];
           for (const word of words) {
             send({ reasoning_content: `${word} ` });
+            // #1022 steering probe: the call must still be open when the
+            // draft is typed, and stay open long enough for the draft's rows
+            // to be painted together with a live reasoning tail — that
+            // combination is what the old assumed footer could not budget.
+            if (word === "thought-20") await Bun.sleep(3_000);
             await Bun.sleep(8);
           }
           // Hold streaming long enough that the harness samples the

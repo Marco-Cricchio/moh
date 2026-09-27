@@ -617,9 +617,12 @@ export function MultilineInput({
   const popupOpen = (suggestions.length > 0 || mentionEntries.length > 0) && focused && !disabled;
   useEffect(() => { onSuggestionsOpen?.(popupOpen); }, [popupOpen, onSuggestionsOpen]);
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
-  // #1022: the owner of the volatile budget may cap the whole composer. The
-  // draft window gives up rows before the popup (a completion list the user
-  // is choosing from must stay readable), and never below one row.
+  // #1022: the owner of the volatile budget may cap the WHOLE composer, draft
+  // and completion popup together — the frame this composer belongs to must
+  // stay strictly below the terminal, and an uncapped popup would break that
+  // exactly like an uncapped draft did. The draft window gives up its rows
+  // first (it scrolls; the popup is a list the user is choosing from and
+  // stays readable down to one row), and the draft never drops below one.
   const draftCap = maxRows === undefined ? maxVisible : Math.max(1, Math.min(maxVisible, maxRows));
   const shown = visualLines.slice(scrollOffset, scrollOffset + draftCap);
   const popupRows = Math.min(5, Math.max(suggestions.length, mentionEntries.length));
@@ -629,13 +632,17 @@ export function MultilineInput({
   // empty draft renders its one placeholder row) plus whichever completion
   // popup is open. Reported to the owner of the volatile budget, which
   // subtracts it from the transcript tail: the frame's height has to hold
-  // below the terminal or ink switches to its fullscreen path.
-  const popupVisibleRows = suggestions.length > 0
+  // below the terminal or ink switches to its fullscreen path. The popup
+  // shares `maxRows` with the draft, otherwise the composer's own cap would
+  // bound only half of what it renders.
+  const draftRows = isEmptyDraft(lines) ? 1 : shown.length;
+  const popupBudget = maxRows === undefined ? Number.MAX_SAFE_INTEGER : Math.max(1, maxRows - draftRows);
+  const popupVisibleRows = Math.min(popupBudget, suggestions.length > 0
     ? win.count + (win.above > 0 ? 1 : 0) + (win.below > 0 ? 1 : 0)
     : mentionEntries.length > 0
       ? mentionWin.count + (mentionWin.above > 0 ? 1 : 0) + (mentionWin.below > 0 ? 1 : 0)
-      : 0;
-  const renderedRows = (isEmptyDraft(lines) ? 1 : shown.length) + popupVisibleRows;
+      : 0);
+  const renderedRows = draftRows + popupVisibleRows;
   useEffect(() => {
     onRowsChange?.(renderedRows);
   }, [renderedRows, onRowsChange]);
