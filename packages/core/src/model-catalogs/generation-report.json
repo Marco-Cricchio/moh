@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.51.0",
-  "generatedAt": "2026-09-27T10:52:41.279Z",
+  "version": "0.51.1",
+  "generatedAt": "2026-09-27T16:01:19.187Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-27T10:52:40.814Z"
+      "fetchedAt": "2026-09-27T16:01:18.557Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-27T10:52:41.115Z"
+      "fetchedAt": "2026-09-27T16:01:18.989Z"
     }
   ],
   "totals": {
@@ -925,155 +925,67 @@
   "changes": {
     "pricing": [
       {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-flash",
+        "provider": "deepseek",
+        "id": "deepseek-chat",
         "from": {
-          "input": 0.04704,
-          "output": 0.09408,
-          "cacheRead": 0.009408
+          "input": 0.32,
+          "output": 0.89
         },
         "to": {
-          "input": 0.0469,
-          "output": 0.0938,
-          "cacheRead": 0.00938
+          "input": 0.2574,
+          "output": 1.0287
         }
       },
       {
         "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-flash-vision-exp",
+        "id": "deepseek/deepseek-chat",
         "from": {
-          "input": 0.22,
-          "output": 0.66,
-          "cacheRead": 0.007
+          "input": 0.32,
+          "output": 0.89
         },
         "to": {
-          "input": 0.2156,
-          "output": 0.6468,
-          "cacheRead": 0.00686
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro",
-        "from": {
-          "input": 0.368184,
-          "output": 0.736368,
-          "cacheRead": 0.030682
-        },
-        "to": {
-          "input": 0.348,
-          "output": 0.696,
-          "cacheRead": 0.029
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro-0813",
-        "from": {
-          "input": 0.264,
-          "output": 0.792,
-          "cacheRead": 0.0088
-        },
-        "to": {
-          "input": 0.24502,
-          "output": 3.5,
-          "cacheRead": 0.24452
+          "input": 0.2574,
+          "output": 1.0287
         }
       },
       {
         "provider": "openrouter",
         "id": "minimax/minimax-m2",
         "from": {
-          "input": 0.3,
-          "output": 1.2
-        },
-        "to": {
           "input": 0.255,
           "output": 1.02
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "minimax/minimax-m2.7",
-        "from": {
+        },
+        "to": {
           "input": 0.3,
-          "output": 1.2,
-          "cacheRead": 0.06
-        },
-        "to": {
-          "input": 0.21,
-          "output": 0.84,
-          "cacheRead": 0.042
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.3",
-        "from": {
-          "input": 0.3794,
-          "output": 1.1924,
-          "cacheRead": 0.07046
-        },
-        "to": {
-          "input": 1.4,
-          "output": 4.4,
-          "cacheRead": 0.26
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.3-flash",
-        "from": {
-          "input": 0.04,
-          "output": 0.5,
-          "cacheRead": 0.015
-        },
-        "to": {
-          "input": 0.045,
-          "output": 0.14,
-          "cacheRead": 0.01
+          "output": 1.2
         }
       },
       {
         "provider": "openrouter",
         "id": "~moonshotai/kimi-latest",
         "from": {
-          "input": 1.0301,
-          "output": 9.043,
-          "cacheRead": 0.3
-        },
-        "to": {
           "input": 1,
           "output": 9,
           "cacheRead": 0.3
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~z-ai/glm-flash-latest",
-        "from": {
-          "input": 0.04,
-          "output": 0.5,
-          "cacheRead": 0.015
         },
         "to": {
-          "input": 0.045,
-          "output": 0.14,
-          "cacheRead": 0.01
+          "input": 0.9875,
+          "output": 5.53,
+          "cacheRead": 0.11455
         }
       },
       {
         "provider": "openrouter",
         "id": "~z-ai/glm-latest",
         "from": {
-          "input": 0.3794,
-          "output": 1.1924,
-          "cacheRead": 0.07046
-        },
-        "to": {
           "input": 0.2737,
           "output": 2.574,
           "cacheRead": 0.044965
+        },
+        "to": {
+          "input": 0.3032,
+          "output": 2.574,
+          "cacheRead": 0.05951
         }
       }
     ],
