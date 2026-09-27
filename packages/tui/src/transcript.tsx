@@ -8,7 +8,7 @@ import { sanitizeForDisplay } from "./render-sanitize";
 import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
-import { LINT_DIMENSION_LABELS } from "@moh/jev-guard";
+import { LINT_DIMENSION_LABELS, LINT_QUESTION_IDS } from "@moh/jev-guard";
 import type { ToolTimings } from "./tool-timing";
 import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
@@ -385,9 +385,9 @@ function guardrailJudgmentLine(record: Record<string, unknown>): string {
 function lintJudgmentLine(record: Record<string, unknown>): string {
   const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : "judgment";
   const cycle = typeof record.cycle === "number" && Number.isFinite(record.cycle) ? ` cycle ${record.cycle}` : "";
-  const dims = (["conventions_respected", "error_handling", "completeness"] as const)
-    .map((id) => (typeof record[id] === "number" && Number.isFinite(record[id]) ? `${LINT_DIMENSION_LABELS[id]} ${(record[id] as number).toFixed(2)}` : undefined))
-    .filter((d): d is string => d !== undefined);
+  const dims = LINT_QUESTION_IDS.map((id) =>
+    typeof record[id] === "number" && Number.isFinite(record[id]) ? `${LINT_DIMENSION_LABELS[id]} ${(record[id] as number).toFixed(2)}` : undefined,
+  ).filter((d): d is string => d !== undefined);
   const detail = dims.length > 0 ? ` (${dims.join(" · ")})` : "";
   return `jev · lint · ${decision}${cycle}${detail}`;
 }

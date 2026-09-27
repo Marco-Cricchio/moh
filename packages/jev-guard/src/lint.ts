@@ -49,6 +49,9 @@ export const LINT_QUESTIONS = {
 /** The ids of the three questions, as the answers come back keyed. */
 export type LintQuestionId = keyof typeof LINT_QUESTIONS;
 
+/** The three ids, in the fixed render order (shared with the TUI's line). */
+export const LINT_QUESTION_IDS = Object.keys(LINT_QUESTIONS) as LintQuestionId[];
+
 /** Ratified thresholds (code constants in v1, tuned on data, never config). */
 export const LINT_THRESHOLDS = {
   /** Any question strictly below this is a finding; the gate speaks. */
@@ -87,8 +90,8 @@ export function correctionText(
   // longer invents one. When the boundary is somehow violated the copy
   // stays well-formed but names no dimension — a category that was
   // never measured below threshold is never asserted.
-  const known = findings.filter((f, i) => findings.indexOf(f) === i);
-  const labels = known.map((f) => {
+  const uniqueFindings = findings.filter((f, i) => findings.indexOf(f) === i);
+  const labels = uniqueFindings.map((f) => {
     const p = signals?.[f];
     const label = LINT_DIMENSION_LABELS[f];
     return typeof p === "number" && Number.isFinite(p) ? `${label} (${p.toFixed(2)})` : label;
