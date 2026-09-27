@@ -140,8 +140,10 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
         if (verdict === null) break; // fail-open: no judgment, no correction
         evaluations += 1;
         if (verdict.decision !== "correct") break;
-        // The correction names what was judged (#851): the judged paths.
-        const text = correctionText(verdict.findings, cycle, paths);
+        // The correction names what was judged (#851) and what was
+        // measured (#1014): the judged paths and the per-dimension
+        // probabilities, so the final round has something to aim at.
+        const text = correctionText(verdict.findings, cycle, paths, verdict.signals);
         state.inCorrectionTurn = true;
         const ok = await deps.requestTurn(text);
         if (!ok) {

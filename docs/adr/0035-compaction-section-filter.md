@@ -67,6 +67,9 @@ Key decisions, each with its rationale:
    happens to make the protection structural: the extension cannot name what it cannot see.
    Per-event sections were rejected (a long session would present hundreds of entries and a
    per-entry judgment, blowing both latency and cost for a marginal gain).
+   Amended (#949): a section is the **covered** part of a turn's body, and the
+   last one may be partial — the tail policy's intra-turn cut can end the
+   covered span mid-turn.
 
 3. **Protection is enforced by absence, then by validation — twice.**
    - **Absence**: user messages and chrome events (`model_switched`, `skill_invoked`,

@@ -46,34 +46,46 @@ export function useSidebarState(session: AgentSession | null): SidebarState {
 }
 
 function useProjected<T>(session: AgentSession | null, project: (history: AgentEvent[]) => T, initial: () => T): T {
-  const [state, setState] = useState<T>(initial);
+  // React re-runs the useState initializer on every render; snapshot the
+  // log once, or every render pays a full history() copy.
+  const initialRef = useRef<T | null>(null);
+  if (initialRef.current === null) initialRef.current = initial();
+  const [state, setState] = useState<T>(initialRef.current);
   const projectRef = useRef(project);
   projectRef.current = project;
-  const buffered = useRef<AgentEvent[] | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirty = useRef(false);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session) {
+      // Home screen: drop the previous session's projection and its subscription.
+      setState(projectRef.current([]));
+      return;
+    }
     setState(projectRef.current(session.history()));
     let stopped = false;
 
     const flush = () => {
       timer.current = null;
-      if (stopped || buffered.current === null) return;
-      setState(projectRef.current(buffered.current));
-      buffered.current = null;
+      if (stopped || !dirty.current) return;
+      dirty.current = false;
+      setState(projectRef.current(session.history()));
     };
 
     const schedule = () => {
       if (timer.current === null) timer.current = setTimeout(flush, FLUSH_MS);
     };
 
+    // One iterator per subscription: returning it on cleanup is what
+    // removes the EventLog listener (a bare stopped flag would leave the
+    // loop — and the retained session — alive after unmount).
+    const iterator = session.events[Symbol.asyncIterator]();
     const consume = async () => {
       try {
-        for await (const event of session.events) {
-          // Keep a full snapshot: deltas accumulate, so the projection needs
-          // the whole log each time (history() is a cheap array copy).
-          buffered.current = session.history();
+        while (!stopped) {
+          const { done } = await iterator.next();
+          if (done) break;
+          dirty.current = true;
           schedule();
         }
       } catch {
@@ -84,9 +96,10 @@ function useProjected<T>(session: AgentSession | null, project: (history: AgentE
 
     return () => {
       stopped = true;
+      void iterator.return?.();
       if (timer.current !== null) clearTimeout(timer.current);
       timer.current = null;
-      buffered.current = null;
+      dirty.current = false;
     };
   }, [session]);
 

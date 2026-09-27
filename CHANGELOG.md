@@ -7,6 +7,60 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-09-27
+
+### Changed
+
+- **The declared context window outranks the catalog map** (ADR-0049,
+  #986): the context window a provider declares in its own overflow refusal
+  ("the maximum context length is 131072 tokens") is now recorded as the
+  effective window for that model reference, for the session's lifetime.
+  An unknown window abstains; a wrong one is trusted — so an over-claiming
+  catalog silently accepts a conversation that exceeds the real limit, while
+  an under-claiming one folds healthy work and blocks fits that are fine. A
+  new `declared_window` chrome event records the correction, shown once in
+  the transcript and headless log, never repeated for the same number. The
+  ADR also closes the dangling core `context_length` ticket reference.
+
+### Fixed
+
+- **The lint correction round names measured probabilities** (#1014, PR
+  #1028): the quality gate's correction turn named only the failing dimension
+  — "completeness" — with nothing to aim at, and the worst moment to be
+  vague was the final round, after which the gate hard-stops. The copy now
+  carries measured probabilities from the verdict signals (`completeness
+  (0.31)`), a dedicated transcript line for lint judgments shows the round
+  and all dimensions (`conventions 0.80 · error handling 0.20 · completeness
+  0.31`), and the zero-findings fallback no longer invents a `completeness`
+  finding that was never measured below threshold.
+- **Compaction reaches few-and-gigantic logs** (#949, PR #1029): the tail
+  policy was structurally unreachable whenever the log held ≤ 10 user
+  turns, no matter how large — so a session with three 80 k-token turns
+  never compacted at all. The window now wins the tail: `tailTurns` is a
+  preference, never a floor. One rule for both auto and forced paths: keep
+  the last 10 whole turns, shrink from the oldest while the span exceeds
+  25% of the window, protect the last turn while it fits `window − 8k`,
+  and only when the last turn alone exceeds the ceiling does the cut land
+  inside it — the largest legal suffix, or the last legal boundary when
+  none fits. A structural refusal now appends a typed
+  `compaction_skipped` chrome event (reason + numbers), never silent; the
+  TUI stops promising `/compact` when a skip follows the newest marker, and
+  `moh run` adds a hint after a `context_length` failure.
+- **The event log is snapshot once per flush and detached on unmount**
+  (#1031, PR #1033): `useProjected` copied the entire event log once per
+  replayed event, per subscriber — opening a session of length L cost
+  3L + 6 `history()` calls and (3L+6)·L copied entries, and the effect
+  cleanup never returned the iterator, so listeners stayed alive after
+  unmount: a component gone from the screen kept copying the whole log,
+  unbounded, with one more leak per session switch. The consume loop now
+  sets a dirty flag and flushes a single snapshot inside the ~33 ms
+  coalescing window; the iterator is held explicitly and returned on
+  cleanup (which removes the EventLog listener); a null-session reset
+  stops the projection instead of leaving the old session's state on screen.
+  Measured: a burst of 300 synchronous appends costs 2 snapshots instead of
+  602; opening any session costs ≤ 8 snapshots regardless of length; a
+  component that unmounts produces zero further snapshots.
+
 ## [0.51.0] - 2026-09-27
 
 ### Added
@@ -1166,7 +1220,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.51.1...develop
+[0.51.1]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...v0.51.0
 [0.50.3]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...v0.50.3
 [0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2

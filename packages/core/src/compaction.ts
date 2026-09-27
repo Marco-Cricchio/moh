@@ -20,11 +20,14 @@
 import type { AgentEvent, Provider, TurnResult } from "./types";
 import type { AppliedCut, CompactionHookContext } from "@moh/extension";
 import { catalogEntryFor } from "./model-catalog";
+import { CONTEXT_FIT_RESERVE } from "./context-fit";
 import { activePath } from "./session/event-log";
 import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
 
-/** Turns kept verbatim after `upTo`; the summary covers only the past. */
+/** Turns kept verbatim after `upTo`; the summary covers only the past.
+ * #949 (ADR-0022 §2 amendment): a *preference*, never a floor — the
+ * window wins when the two conflict. */
 export const DEFAULT_TAIL_TURNS = 10;
 /** Fraction of the model context window that arms auto compaction. */
 export const DEFAULT_COMPACTION_THRESHOLD = 0.8;
@@ -384,40 +387,128 @@ export class CompactionRunner {
     return undefined;
   }
 
-  /** Absolute `upTo` for a new marker: the index of the user_message that
-   * begins the (N - tail)th turn — the last `tailTurns` turns stay verbatim.
-   * Combined rule (ADR-0022): the tail keeps at least 10 turns but never
-   * spans more than ~25% of the context window (estimated from the
-   * measured `model_call` tokens per turn). When the requested tail
-   * exceeds the window fraction, it shrinks — down to the
-   * `DEFAULT_TAIL_TURNS` floor, never below. */
+  /** Absolute `upTo` for a new marker, per the #949 tail policy (ADR-0022
+   * §2 amendment): one rule for the auto and the forced path — the tail
+   * is a contiguous suffix, `tailTurns` (default 10) a *preference*
+   * rather than a floor, and the window wins when the two conflict:
+   *
+   * 1. candidate = the last `tailTurns` whole turns;
+   * 2. while the span exceeds 25% of the window and more than one whole
+   *    turn is left, the oldest tail turn is left out;
+   * 3. the last turn is protected: it stays whole while it fits
+   *    `window − CONTEXT_FIT_RESERVE`, even if it alone exceeds the 25%;
+   * 4. only when the last turn alone exceeds `window − reserve` is the
+   *    cut taken *inside* it: the largest legal suffix under the
+   *    ceiling, or the last legal boundary when none fits. A ceiling
+   *    never produces a refusal.
+   *
+   * Returns `{ upTo, partial }` — `partial` when the cut lands inside
+   * the last turn (the tail begins mid-turn, not at a `user_message`).
+   * Unknown window (0) keeps the bare turn-count rule (the 25% clause
+   * and the intra-turn cut need a window to be meaningful).
+   */
   static upToFor(
     events: ReadonlyArray<AgentEvent>,
     tailTurns: number,
     windowTokens = 0,
-  ): number | undefined {
+  ): { upTo: number; partial: boolean } | undefined {
+    if (tailTurns < 1) tailTurns = 1;
     const turns: number[] = [];
     for (let i = 0; i < events.length; i++) {
       if (events[i]!.type === "user_message") turns.push(i);
     }
-    if (turns.length <= tailTurns) return undefined;
-    if (windowTokens <= 0) return turns[turns.length - tailTurns]!;
+    if (turns.length === 0) return undefined;
+    if (windowTokens <= 0) {
+      // Bare preference: the old behaviour. Fewer turns than the
+      // preference → nothing foldable → a visible skip upstream.
+      if (turns.length <= tailTurns) return undefined;
+      return { upTo: turns[turns.length - tailTurns]!, partial: false };
+    }
     const cap = windowTokens * DEFAULT_TAIL_WINDOW_FRACTION;
-    const start = turns.length - tailTurns;
-    // Span of the requested tail, shrunk from its oldest turn while it
-    // exceeds the window fraction; the 10-turn floor is a hard minimum.
+    const ceiling = windowTokens - CONTEXT_FIT_RESERVE;
+    const tokens = (k: number) => CompactionRunner.turnTokens(events, turns[k]!, turns[k + 1] ?? events.length);
+    // Candidate span: the last `tailTurns` whole turns.
+    let start = Math.max(0, turns.length - tailTurns);
     let span = 0;
-    for (let k = start; k < turns.length; k++) {
-      span += CompactionRunner.turnTokens(events, turns[k]!, turns[k + 1] ?? events.length);
+    for (let k = start; k < turns.length; k++) span += tokens(k);
+    // Nothing foldable: the tail preference already covers every turn
+    // and the whole span sits under the cap — a summary has nothing to
+    // cover (the visible `compaction_skipped` fires upstream).
+    if (span <= cap && start === 0) return undefined;
+    // Shrink from the oldest while the cap is busted and more than one
+    // whole turn is left. The last turn's own tokens are the floor the
+    // loop cannot cross — (3) protects it.
+    const lastTokens = tokens(turns.length - 1);
+    while (span > cap && start < turns.length - 1) {
+      span -= tokens(start);
+      start += 1;
     }
-    let kept = tailTurns;
-    let oldest = start;
-    while (span > cap && kept > DEFAULT_TAIL_TURNS && oldest < turns.length - (DEFAULT_TAIL_TURNS - 1)) {
-      span -= CompactionRunner.turnTokens(events, turns[oldest]!, turns[oldest + 1] ?? events.length);
-      oldest += 1;
-      kept -= 1;
+    // (3) the last turn fits the reserve even if it busts the cap.
+    if (lastTokens <= ceiling) return { upTo: turns[start]!, partial: false };
+    // (4) the cut goes inside the last turn: the largest legal suffix
+    // under the ceiling, anchored at a legal boundary — never a
+    // `tool_result` head, never a split pair. A ceiling never refuses.
+    const inside = CompactionRunner.intraTurnCut(events, turns[turns.length - 1]!, events.length, ceiling);
+    return { upTo: inside, partial: true };
+  }
+
+  /** #949: the largest legal cut point inside one turn — the start of
+   * the earliest event whose measured suffix (estimated proportionally
+   * from the turn's own `model_call` measurements, falling back to a
+   * byte-proportional estimate) still fits `ceiling`; anchored so the
+   * replayed tail never begins with a `tool_result` and never splits a
+   * `tool_call`/`tool_result` pair (ADR-0022 §2 amendment: a protocol
+   * constraint, not policy). Returns the index of the chosen first tail
+   * event; when nothing else is legal, the last legal boundary wins. */
+  static intraTurnCut(events: ReadonlyArray<AgentEvent>, from: number, to: number, ceiling: number): number {
+    const legal = CompactionRunner.legalBoundaries(events, from, to);
+    if (legal.length === 0) return from;
+    // Proportional size per event: measured turn tokens distributed by
+    // byte share (exact per-event token counts are not recoverable from
+    // the log — the measurement is per call, not per event).
+    let bytes = 0;
+    const sizes: number[] = [];
+    for (let i = from; i < to; i++) {
+      const s = JSON.stringify(events[i]).length;
+      sizes.push(s);
+      bytes += s;
     }
-    return turns[oldest]!;
+    const total = Math.max(CompactionRunner.turnTokens(events, from, to), 0);
+    // Walk boundaries oldest→newest keeping the largest suffix ≤ ceiling
+    // (a running suffix sum from the newest boundary keeps this O(N)).
+    let best = legal[0]!;
+    let suffixAfter = 0; // estimated tokens strictly after the boundary
+    for (let i = to - 1; i >= from; i--) {
+      if (events[i]!.type === "tool_result") {
+        suffixAfter += (sizes[i - from]! / Math.max(bytes, 1)) * total;
+        continue;
+      }
+      if (suffixAfter <= ceiling) best = i;
+      suffixAfter += (sizes[i - from]! / Math.max(bytes, 1)) * total;
+    }
+    return best;
+  }
+
+  /** #949: event indices inside `[from, to)` where a replayed tail may
+   * *begin*: not on a `tool_result` (an orphan result at the head would
+   * reach the provider without its call — #237 repairs unanswered calls,
+   * #371 filters only results of discarded calls), not between a
+   * `tool_call` and its `tool_result`. Allowed first events:
+   * `user_message`, `assistant_delta`, `reasoning`, `tool_call`. */
+  static legalBoundaries(events: ReadonlyArray<AgentEvent>, from: number, to: number): number[] {
+    const legal: number[] = [];
+    for (let i = from; i < to; i++) {
+      const e = events[i]!;
+      if (e.type === "tool_result") continue; // never a head
+      // A `tool_call` boundary keeps its pair intact only while its
+      // result lies inside `[from, to)` (the producer always cuts at
+      // `to = events.length`, where this holds); a boundary can never
+      // fall strictly between call and result — both are event starts.
+      if (e.type === "user_message" || e.type === "assistant_delta" || e.type === "reasoning" || e.type === "tool_call") {
+        legal.push(i);
+      }
+    }
+    return legal;
   }
 
   /** Measured input tokens attributable to one turn (its user_message up
@@ -493,7 +584,7 @@ export class CompactionRunner {
 
   /** Forced compaction (/compact, `moh compact`): ignores the threshold
    * and the stale-measurement guard, same tail and summarizer. */
-  compactNow(events: ReadonlyArray<AgentEvent>): Promise<{ ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }> {
+  compactNow(events: ReadonlyArray<AgentEvent>): Promise<{ ok: true; summary: string; upTo: number; upToId?: string; partial?: boolean } | { ok: false; error: string }> {
     if (this.#busy) return Promise.resolve({ ok: false, error: "a compaction run is already in progress" });
     const call = CompactionRunner.lastMeasuredCall(events);
     if (call) this.#lastSeenCallIndex = call.index;
@@ -505,7 +596,7 @@ export class CompactionRunner {
   #run(
     events: ReadonlyArray<AgentEvent>,
     forced: boolean,
-    resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }) => void,
+    resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string; partial?: boolean } | { ok: false; error: string }) => void,
   ): void {
     // The body is async (ADR-0035's filter dispatch awaits); `#pending`
     // below still tracks the in-flight promise, as before.
@@ -515,10 +606,14 @@ export class CompactionRunner {
   async #runAsync(
     events: ReadonlyArray<AgentEvent>,
     forced: boolean,
-    resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string } | { ok: false; error: string }) => void,
+    resolve?: (r: { ok: true; summary: string; upTo: number; upToId?: string; partial?: boolean } | { ok: false; error: string }) => void,
   ): Promise<void> {
+    // #949: the tail policy needs the CATALOG window (0 = unknown) — a
+    // fabricated fallback must not legalize an intra-turn cut, because
+    // the cut is the answer to "the provider refuses to serve the tail".
+    // The fallback only arms the auto threshold (shouldAutoCompact).
+    const window = contextWindowFor(this.#provider().name, this.#endpointType?.());
     const live = events as AgentEvent[];
-    const window = contextWindowFor(this.#provider().name, this.#endpointType?.()) || this.#fallbackWindow;
     // #578 (core spec d3): compaction covers only the active path —
     // every index computation runs on the projected array; abandoned
     // branches are untouched. The projection is anchored at the turn's
@@ -530,23 +625,43 @@ export class CompactionRunner {
     const path = this.#pathFn ? this.#pathFn() : activePath(live);
     const newUpTo = CompactionRunner.upToFor(path, this.#tailTurns, window);
     if (newUpTo === undefined) {
+      // #949: a structural refusal is never silent (ADR-0022 §6) — the
+      // auto path too records a visible `compaction_skipped` chrome
+      // event with the numbers that justify it (one per new measurement).
+      const measured = CompactionRunner.lastMeasuredCall(path)?.inputTokens ?? 0;
+      this.#append({
+        type: "compaction_skipped",
+        reason: "too_few_turns",
+        turns: path.filter((e) => e.type === "user_message").length,
+        measuredTokens: measured,
+        window,
+      });
       resolve?.({ ok: false, error: `nothing to compact: fewer than ${this.#tailTurns + 1} turns in the log` });
       return;
     }
     const marker = CompactionRunner.latestMarker(path);
     const from = marker ? (marker.upToId !== undefined ? path.findIndex((e) => e.id === marker.upToId) : marker.upTo ?? 0) : 0;
-    if (!forced && !marker && newUpTo <= 0) {
+    if (!forced && !marker && newUpTo.upTo <= 0) {
       resolve?.({ ok: false, error: "nothing to compact" });
       return;
     }
-    if (!markerSpanNonEmpty(path, from, newUpTo)) {
+    if (!markerSpanNonEmpty(path, from, newUpTo.upTo)) {
+      // #949: visible on the auto path too — a single-turn log with a
+      // known window folds nothing whole (`upTo` = its only turn).
+      this.#append({
+        type: "compaction_skipped",
+        reason: "no_covered_turns",
+        turns: path.filter((e) => e.type === "user_message").length,
+        measuredTokens: CompactionRunner.lastMeasuredCall(path)?.inputTokens ?? 0,
+        window,
+      });
       resolve?.({ ok: false, error: "nothing to compact: the covered span has no turns" });
       return;
     }
     // The marker's pointer: the id (or legacy `line:N` bridge for an
     // identity-less prefix) of the last covered event on the path (d5).
-    const anchor = path[newUpTo - 1]!;
-    const upToId = anchor.id ?? `line:${newUpTo}`;
+    const anchor = path[newUpTo.upTo - 1]!;
+    const upToId = anchor.id ?? `line:${newUpTo.upTo}`;
     // ADR-0035: consult the extension seam before rendering. The section
     // ids are per-run index keys — they name sections within this one
     // dispatch, never log positions. Fail-open: any error here leaves the
@@ -557,10 +672,10 @@ export class CompactionRunner {
     if (filter) {
       try {
         const turnCount = path
-          .slice(Math.max(0, from), newUpTo)
+          .slice(Math.max(0, from), newUpTo.upTo)
           .filter((e) => e.type === "user_message").length;
-        const approxTokens = CompactionRunner.turnTokens(path, from, newUpTo);
-        const { sections } = compactionSections(path, from, newUpTo, (i) => `s${i}`);
+        const approxTokens = CompactionRunner.turnTokens(path, from, newUpTo.upTo);
+        const { sections } = compactionSections(path, from, newUpTo.upTo, (i) => `s${i}`);
         const result = await filter({
           sections,
           ...(approxTokens > 0 ? { approxTokens } : {}),
@@ -614,7 +729,7 @@ export class CompactionRunner {
         // failure loses nothing that matters — no marker depends on it.)
       }
     }
-    const transcript = compactionTranscript(path, from, newUpTo, omit);
+    const transcript = compactionTranscript(path, from, newUpTo.upTo, omit);
     const summarizer = this.#summarizer;
     const controller = new AbortController();
     this.#controller = controller;
@@ -641,10 +756,15 @@ export class CompactionRunner {
             // ADR-0035 §4: the marker itself records that the extension's
             // cut was reduced to the survival floor (chrome, audit only).
             ...(this.#floorApplied ? { keptByFloor: true as const } : {}),
+            // #949: the tail begins inside the oldest kept turn — the
+            // "minimal cut cannot reach window − reserve" reading is an
+            // audit flag on the marker (keptByFloor precedent), never a
+            // skip warning.
+            ...(newUpTo.partial ? { partialTail: true as const } : {}),
           });
           this.#onCompacted();
           this.#consecutiveFailures = 0;
-          resolve?.({ ok: true, summary: text, upTo: newUpTo, upToId });
+          resolve?.({ ok: true, summary: text, upTo: newUpTo.upTo, upToId, partial: newUpTo.partial });
           return;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

@@ -445,6 +445,13 @@ export async function runCommand(options: RunOptions): Promise<number> {
   }
   if (result.status === "error") {
     err.write(`moh run: turn failed (${result.reason}): ${result.message}\n`);
+    // #949: a context_length failure names the exits — headless wording
+    // (the TUI's error block carries the same hint in its own terms).
+    if (result.reason === "context_length") {
+      err.write(
+        "hint: recover the context with `moh compact --session <file>`, or rerun with a model that has a larger window\n",
+      );
+    }
     return 1;
   }
   // A refused confirmation is not a cancellation: the run did what it was

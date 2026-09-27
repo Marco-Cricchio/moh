@@ -347,7 +347,11 @@ type AgentEventBase =
   | { type: "compaction"; summary: string; upTo?: number; upToId?: string;
       /** ADR-0035: an extension's section cut was reduced to the survival
        * floor before rendering (chrome — audit only, replay ignores it). */
-      keptByFloor?: true }
+      keptByFloor?: true;
+      /** #949: the verbatim tail begins inside the oldest kept turn — the
+       * tail policy's intra-turn cut fired (chrome — audit only; replay
+       * reads the pointer normally, this only explains the marker). */
+      partialTail?: true }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**
@@ -408,6 +412,17 @@ type AgentEventBase =
    * backoff on later turns; a failed run wrote no marker (not lossy).
    */
   | { type: "compaction_failed"; reason: string }
+  /**
+   * #949: the producer refused structurally — nothing foldable under the
+   * #949 tail policy (the tail preference leaves no covered turns, or no
+   * window is known to legalize a cut). Chrome only — never provider
+   * context. One event per new measurement (the auto path retries on
+   * every new `model_call`); a successful marker or a later skip
+   * supersedes it. Carries the numbers that justify the skip so clients
+   * explain it without recomputing anything.
+   */
+  | { type: "compaction_skipped"; reason: "too_few_turns" | "no_covered_turns" | "last_turn_exceeds_window";
+      turns: number; measuredTokens: number; window: number; tailTokens?: number }
   /**
    * #578 (head semantics d6): the newest on-path compaction marker's
    * `upToId` does not resolve on the active path (truncation,
