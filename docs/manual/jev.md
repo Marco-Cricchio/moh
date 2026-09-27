@@ -566,8 +566,9 @@ Three yes/no judgments are made over that state: does the change follow
 the stated conventions; does it handle failure paths rather than assuming
 success; is it complete, with nothing left stubbed. Any answer below 0.40
 is a **finding**, and on a finding moh automatically hands the model a
-correction request — in plain words, naming the flagged areas **and the
-files that were judged** — and lets
+correction request — in plain words, naming the flagged areas **with the
+probability each one measured** (for example `completeness (0.31)`) **and
+the files that were judged** — and lets
 it run a normal turn with tools to fix the work. The corrected state is
 then judged once more. **The gate stops after two correction cycles,
 whatever the verdict**; a correction turn is marked in the transcript so
@@ -577,7 +578,10 @@ forever.
 Fail-open as everywhere: if Jev is unreachable, the gate stays silent and
 the task simply ends as it would without Jev. Every evaluation is
 recorded as one `jev_judgment` event (`useCase: "lint"`) with the three
-probabilities, the findings and the cycle number.
+probabilities, the findings and the cycle number. In the transcript the
+event reads as one line — `jev · lint · correct cycle 1 (conventions
+0.80 · error handling 0.20 · completeness 0.31)` — so the correction
+round that follows is auditable without opening the log.
 
 ### Seed rerank
 
