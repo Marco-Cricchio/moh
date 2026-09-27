@@ -10,6 +10,7 @@ import {
   filterCatalog,
   freeTextRow,
   mergePickCatalog,
+  windowText,
   type EndpointPick,
 } from "./model-picker";
 import type { LiveModelListing } from "@moh/core";
@@ -42,6 +43,10 @@ export interface ModelPickerModalProps {
    * hold the session's measured context. */
   onCompact: () => void;
   onToast: (message: string) => void;
+  /** ADR-0049 (#986): the window a provider declared for a model
+   * reference this session, when one was learned — shown next to the
+   * catalog figure, so the screen and the arithmetic agree. */
+  declaredWindow?: (ref: string) => number | undefined;
   onClose: () => void;
 }
 
@@ -56,6 +61,7 @@ export function ModelPickerModal({
   onRefreshLive,
   refreshingLive,
   onToast,
+  declaredWindow,
   /** #948: runs forced compaction (/compact) — offered when a picked
    * model cannot hold the session's measured context. */
   onCompact,
@@ -172,7 +178,7 @@ export function ModelPickerModal({
     const body =
       row.free !== undefined
         ? freeTextRow(row.free)
-        : `${row.endpoint} · ${row.model!.name} · ${row.model!.contextWindow > 0 ? `${Math.round(row.model!.contextWindow / 1000)}k` : "—"}`;
+        : `${row.endpoint} · ${row.model!.name} · ${windowText(row.model!.contextWindow, declaredWindow?.(`${row.endpoint}/${row.model!.id}`))}`;
     return ` ${selected ? "›" : " "} ${body}${row.current ? " ‹current›" : ""}${selected ? " " : ""}`;
   };
 

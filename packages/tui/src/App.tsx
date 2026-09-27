@@ -1090,7 +1090,9 @@ function AppShell({
       apiKey: e.apiKey,
       catalog: endpointModelCatalog(e.type, e.baseUrl),
     }));
-    return contextWindowForLabel(picks, session.activeModel) || undefined;
+    // ADR-0049: the gauge's denominator is the same lookup the core uses —
+    // a declared window corrects it too, never contradicting the engine.
+    return contextWindowForLabel(picks, session.activeModel, (ref) => session.declaredWindowFor(ref)) || undefined;
   }, [session, modelLabel]);
 
   // #242/#256: cycles among the levels the active model actually offers
@@ -1599,6 +1601,7 @@ function AppShell({
             onChange={updateConfig}
             modelLabel={modelLabel}
             onProviderSwitch={setModelLabel}
+            declaredWindow={(ref) => session?.declaredWindowFor(ref)}
             onStartWizard={() => {
               setWizardFromSettings(true);
               setOverlay("onboarding");
@@ -1707,6 +1710,7 @@ function AppShell({
               catalog: endpointModelCatalog(e.type, e.baseUrl),
             }))}
             liveCatalog={liveCatalog}
+            declaredWindow={(ref) => session.declaredWindowFor(ref)}
             onRefreshLive={() => refreshLiveCatalog({ force: true })}
             refreshingLive={liveRefreshing}
             onSwitch={(ref) => session.switchModel(ref)}

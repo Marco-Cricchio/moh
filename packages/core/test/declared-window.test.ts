@@ -24,7 +24,8 @@ import {
   contextRefusalsFile,
   noteUnrecognizedContextRefusal,
 } from "../src/context-refusal-trace";
-import type { AgentEvent, EndpointProfile, MohConfig, Provider, ProviderErrorKind, StreamEvent } from "../src/types";
+import type { AgentEvent, Provider, ProviderErrorKind, StreamEvent } from "../src/types";
+import type { EndpointProfile, MohConfig } from "../src/config";
 
 const TMP = join(import.meta.dir, "tmp-declared-window");
 

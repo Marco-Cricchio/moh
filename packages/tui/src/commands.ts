@@ -27,6 +27,7 @@ import type { UserConfig } from "./user-config";
 import { ROUTING_TIERS } from "@moh/jev-guard";
 import { readRoutingState, setJevUseCase, type ExtensionStateReader } from "./jev-control";
 import { subscriptionModelCatalog, setThinkingPreference, readThinkingPreference, isThinkingLevel, THINKING_LEVELS, parseSkillArgs, hasSkillPlaceholders } from "@moh/core";
+import { windowText } from "./model-picker";
 import { thinkingLevelControl } from "./thinking-controls";
 import { copyToClipboard } from "./clipboard";
 
@@ -281,9 +282,17 @@ const modelCommand: SlashCommand = {
       if (type) {
         const models = subscriptionModelCatalog(type);
         if (models.length) {
+          // ADR-0049: the list shows both numbers for a model whose
+          // provider declared a window this session — the declared one and
+          // the catalog figure it replaced — exactly as the pickers do.
+          // Rows are keyed by the active endpoint's own reference.
+          const active = ctx.session?.activeModel ?? "";
+          const endpoint = active.includes("/") ? active.slice(0, active.indexOf("/")) : "";
           ctx.notify(
             `${type} catalog (pick with /model <id>):\n` +
-              models.map((m) => `  ${m.name} (${m.id}) · ctx ${Math.round(m.contextWindow / 1000)}k`).join("\n"),
+              models
+                .map((m) => `  ${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, endpoint ? ctx.session?.declaredWindowFor(`${endpoint}/${m.id}`) : undefined)}`)
+                .join("\n"),
           );
         }
       }
