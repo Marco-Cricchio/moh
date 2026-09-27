@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "version": "0.50.3",
-  "generatedAt": "2026-09-25T22:02:23.839Z",
+  "version": "0.51.0",
+  "generatedAt": "2026-09-27T10:52:41.279Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-25T22:02:23.355Z"
+      "fetchedAt": "2026-09-27T10:52:40.814Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-25T22:02:23.640Z"
+      "fetchedAt": "2026-09-27T10:52:41.115Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 558,
-    "exact": 510,
+    "rows": 557,
+    "exact": 509,
     "baseModel": 11,
     "ambiguous": 5,
     "absent": 32,
-    "rowsWithOverrides": 105
+    "rowsWithOverrides": 114
   },
   "files": [
     {
@@ -494,28 +494,28 @@
     },
     {
       "provider": "openrouter",
-      "rows": 362,
+      "rows": 361,
       "verdicts": {
-        "exact": 339,
+        "exact": 338,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 22
       },
       "coverage": {
-        "rows": 362,
-        "pricing": 340,
-        "contextWindow": 362,
-        "maxTokens": 361,
+        "rows": 361,
+        "pricing": 339,
+        "contextWindow": 361,
+        "maxTokens": 360,
         "reasoning": 277,
-        "input": 361
+        "input": 360
       },
       "previous": {
-        "rows": 362,
-        "pricing": 340,
-        "contextWindow": 362,
-        "maxTokens": 362,
-        "reasoning": 278,
-        "input": 362
+        "rows": 361,
+        "pricing": 339,
+        "contextWindow": 361,
+        "maxTokens": 360,
+        "reasoning": 277,
+        "input": 360
       }
     },
     {
@@ -928,56 +928,152 @@
         "provider": "openrouter",
         "id": "deepseek/deepseek-v4-flash",
         "from": {
-          "input": 0.0476,
-          "output": 0.0952,
-          "cacheRead": 0.00952
-        },
-        "to": {
           "input": 0.04704,
           "output": 0.09408,
           "cacheRead": 0.009408
+        },
+        "to": {
+          "input": 0.0469,
+          "output": 0.0938,
+          "cacheRead": 0.00938
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash-vision-exp",
+        "from": {
+          "input": 0.22,
+          "output": 0.66,
+          "cacheRead": 0.007
+        },
+        "to": {
+          "input": 0.2156,
+          "output": 0.6468,
+          "cacheRead": 0.00686
         }
       },
       {
         "provider": "openrouter",
         "id": "deepseek/deepseek-v4-pro",
         "from": {
-          "input": 0.692694,
-          "output": 1.385388,
-          "cacheRead": 0.057725
+          "input": 0.368184,
+          "output": 0.736368,
+          "cacheRead": 0.030682
         },
         "to": {
-          "input": 0.560802,
-          "output": 1.121604,
-          "cacheRead": 0.046734
+          "input": 0.348,
+          "output": 0.696,
+          "cacheRead": 0.029
         }
       },
       {
         "provider": "openrouter",
         "id": "deepseek/deepseek-v4-pro-0813",
         "from": {
-          "input": 0.34584,
-          "output": 1.03752,
-          "cacheRead": 0.011528
-        },
-        "to": {
           "input": 0.264,
           "output": 0.792,
           "cacheRead": 0.0088
+        },
+        "to": {
+          "input": 0.24502,
+          "output": 3.5,
+          "cacheRead": 0.24452
         }
       },
       {
         "provider": "openrouter",
-        "id": "~deepseek/deepseek-v4-flash-latest",
+        "id": "minimax/minimax-m2",
         "from": {
-          "input": 0.03,
-          "output": 0.32,
-          "cacheRead": 0.016
+          "input": 0.3,
+          "output": 1.2
         },
         "to": {
-          "input": 0.0225,
-          "output": 0.42,
-          "cacheRead": 0.012
+          "input": 0.255,
+          "output": 1.02
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.7",
+        "from": {
+          "input": 0.3,
+          "output": 1.2,
+          "cacheRead": 0.06
+        },
+        "to": {
+          "input": 0.21,
+          "output": 0.84,
+          "cacheRead": 0.042
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3",
+        "from": {
+          "input": 0.3794,
+          "output": 1.1924,
+          "cacheRead": 0.07046
+        },
+        "to": {
+          "input": 1.4,
+          "output": 4.4,
+          "cacheRead": 0.26
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash",
+        "from": {
+          "input": 0.04,
+          "output": 0.5,
+          "cacheRead": 0.015
+        },
+        "to": {
+          "input": 0.045,
+          "output": 0.14,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~moonshotai/kimi-latest",
+        "from": {
+          "input": 1.0301,
+          "output": 9.043,
+          "cacheRead": 0.3
+        },
+        "to": {
+          "input": 1,
+          "output": 9,
+          "cacheRead": 0.3
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-flash-latest",
+        "from": {
+          "input": 0.04,
+          "output": 0.5,
+          "cacheRead": 0.015
+        },
+        "to": {
+          "input": 0.045,
+          "output": 0.14,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-latest",
+        "from": {
+          "input": 0.3794,
+          "output": 1.1924,
+          "cacheRead": 0.07046
+        },
+        "to": {
+          "input": 0.2737,
+          "output": 2.574,
+          "cacheRead": 0.044965
         }
       }
     ],

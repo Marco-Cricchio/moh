@@ -11,7 +11,7 @@ import { makeSession } from "../src/factory";
 import { projectTurns } from "../src/turns";
 import { toolArgSummary } from "../src/permission-gate";
 import { Chat } from "../src/Chat";
-import { stripAnsi, unwrap, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, unwrap, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -550,7 +550,7 @@ describe("ask_user dynamic resize + Static projection (#413)", () => {
     expect(open).toContain("1/1");
     // Plenty of transcript room: the fake-openai-style long turn is not
     // squeezed — the whole geometry still renders the composer and bars.
-    expect(open).toContain("type");
+    expect(open).toContain(COMPOSER_READY);
     ink.unmount();
     gate.resolve({ answers: [{ labels: ["SQLite"] }] });
   });

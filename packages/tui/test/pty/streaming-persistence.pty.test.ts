@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { hasPython, runPty, runPtyRaw } from "./pty-runner";
+import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
 
 const encodeBase64 = (s: string) => btoa(s);
 
@@ -61,7 +62,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Readiness wait (#236): assert only once the second paragraph's
@@ -88,7 +89,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 5.0, until: "type…" }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
+        steps: [{ wait: 5.0, until: COMPOSER_READY }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
         tail: 40,
       });
       const frame = lines.map((line) => line.text).join("\n");
@@ -98,6 +99,77 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       server.stop(true);
     }
   }, 15_000);
+
+  // #1022: the volatile frame's height was budgeted against an ASSUMED
+  // footer (a one-row composer), so a multi-row steering draft typed during
+  // the reasoning stream grew the frame past the terminal for as long as the
+  // stream ran: ink answered every frame with clearTerminal + a full static
+  // reprint (scrollback wipe). Measured on the physical screen: the frame
+  // follows the footer that is actually rendered, and the composer is capped
+  // (draft and completion popup together) so `frame < rows` holds by
+  // construction — the draft scrolls instead.
+  test("a multi-row steering draft during a reasoning stream never clears the screen (#1022)", async () => {
+    const { server, url } = startLongReasoningStream();
+    const rawDump = "/tmp/moh-steering-draft-raw.bin";
+    try {
+      const meta = await runPtyRaw({
+        // 14 rows: with the old assumed footer (10) the budget left a
+        // 3-row tail, and a 3-row draft already pushed the frame to the
+        // terminal — the smallest geometry where the estimate broke.
+        cols: 120,
+        rows: 14,
+        config: {
+          onboarded: true, workflowOffered: true, mode: "dev", provider: "fake", showReasoning: true,
+          endpoints: [{
+            name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model",
+            capabilities: { thinking: { format: "openai-effort", levels: ["low"] } },
+          }],
+        },
+        steps: [
+          { wait: 5.0, until: COMPOSER_READY },
+          { wait: 0.2, send: encodeBase64("long reasoning") },
+          { wait: 0.2, send: encodeBase64("\r") },
+          // Type the draft WHILE the reasoning streams — the production
+          // shape of the report (steering mid-stream), and what makes the
+          // frame grow under a running stream. The fixture holds the call
+          // on `thought-20`, so the draft's rows are painted while the
+          // reasoning tail is still alive.
+          { wait: 8.0, until: "thought-20" },
+          { wait: 0.2, send: encodeBase64("draftword ".repeat(80)) },
+          // Opens the measurement window on the held call, with the draft
+          // on screen: the startup ramp (Home → chat) may blip fullscreen
+          // on its own and is not what this guard is about (#1023).
+          { wait: 2.0, mark: true },
+          { wait: 12.0, until: "LAST-LIVE-REASONING" },
+          { wait: 0.5, markEnd: true },
+        ],
+        tail: 14,
+        rawDump,
+      });
+      expect(meta.aliveAtEnd).toBe(true);
+      // Frame-accounting sanity: a geometry that never repainted would make
+      // the assertions below vacuous.
+      expect(meta.framesAfterMark ?? 0, "repaints in the streaming window").toBeGreaterThan(10);
+      // The invariant: no frame of the streaming window may take ink's
+      // fullscreen path (clearTerminal + full static reprint + scrollback
+      // wipe), and the widest rendered frame must stay strictly below the
+      // terminal — the measured height, not an estimate of it.
+      expect(meta.fullscreenAfterMark ?? 0, "fullscreen frames during the streaming window").toBe(0);
+      // A frame may touch the terminal's last row (`== rows` only takes the
+      // fullscreen path when the PREVIOUS frame already filled it); it must
+      // never exceed it, or the repaint leaves the log-update path.
+      expect(meta.maxFrameRowsAfterMark ?? 0, "widest volatile frame").toBeLessThanOrEqual(14);
+      // The startup ramp's own blips (the chat frame replacing Home's
+      // height) are #1023; the streaming window above asserts the zero that
+      // belongs to this guard.
+      expect(readFileSync(rawDump, "utf8").split("\x1b[2J\x1b[3J\x1b[H").length - 1, "clearTerminal across the whole run").toBeLessThanOrEqual(4);
+      // The draft is still the user's text: capping the composer's window
+      // scrolls it, it never drops the keystrokes.
+      expect(readFileSync(rawDump, "utf8")).toContain("draftword");
+    } finally {
+      server.stop(true);
+    }
+  }, 40_000);
 
   test("a long unbroken reasoning paragraph grows scrollback before reasoning_end", async () => {
     const { server, url } = startLongReasoningStream();
@@ -114,7 +186,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("long reasoning") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "LAST-LIVE-REASONING" },
@@ -151,7 +223,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("dense") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 4.0, until: "DENSE-DONE" },
@@ -191,7 +263,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("cap rollover") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "CAP-REPLY-DONE" },
@@ -233,7 +305,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("realistic stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "LAST-MARKDOWN-SECTION" },
@@ -267,7 +339,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       const screen = meta.lines.map((line) => line.text);
       expect(screen.some((line) => line.includes("LAST-MARKDOWN-SECTION"))).toBe(true);
       expect([...history, ...screen].some((line) => line.includes("glob"))).toBe(true);
-      const input = screen.findIndex((line) => line.includes("type…"));
+      const input = screen.findIndex((line) => line.includes(COMPOSER_READY));
       expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2));
     } finally {
       server.stop(true);
@@ -286,7 +358,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("line stream") },
           { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
           // The typewriter paces row reveal; wait until the tail has
@@ -315,9 +387,9 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
       // reasoning toast adds a chrome row, so the dock may sit two rows
       // above the midpoint on a 20-row screen.
       const screen = mid!.lines.map((l) => l.text);
-      const input = screen.findIndex((line) => line.includes("type…"));
+      const input = screen.findIndex((line) => line.includes(COMPOSER_READY));
       expect(input).toBeGreaterThanOrEqual(Math.floor(screen.length / 2) - 2);
-      const startInput = meta.checkpoints?.turnStart?.lines.findIndex((line) => line.text.includes("type…"));
+      const startInput = meta.checkpoints?.turnStart?.lines.findIndex((line) => line.text.includes(COMPOSER_READY));
       // The dock may breathe by a row mid-stream (a partially-typed line
       // wraps differently than a whole one — word-flow reveal) and by one
       // more when the one-shot reasoning toast appears (#950): transient
@@ -343,7 +415,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Wait for the turn to complete and its status to paint
@@ -383,7 +455,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: "type…" }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 5.0, until: COMPOSER_READY }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
           // TAIL-119 reveals at typing pace; the turn then settles. Wait
           // for the completion status before sampling the final frame.
           { wait: 15.0, until: "✓ done" }, { wait: 1.0 },
@@ -416,7 +488,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("parliamo di moh") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "Cosa ti incuriosisce?" },
@@ -455,7 +527,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "CYCLE-LIVE-TAIL-0", checkpoint: "midStream" },
@@ -511,7 +583,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_COMPACT },
           { wait: 0.2, send: encodeBase64("run markdown cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 12.0, until: "MARKDOWN-CYCLES-DONE" },
@@ -562,7 +634,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Toggle mid-stream, then back, then once more after settle.
@@ -612,7 +684,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: "type…" },
+          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("think through the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 4.0, checkpoint: "afterCycle1" },
@@ -865,6 +937,11 @@ function startLongReasoningStream(): { server: ReturnType<typeof Bun.serve>; url
           const words = ["FIRST-LIVE-REASONING", ...Array.from({ length: 220 }, (_, i) => `thought-${i}`), "LAST-LIVE-REASONING"];
           for (const word of words) {
             send({ reasoning_content: `${word} ` });
+            // #1022 steering probe: the call must still be open when the
+            // draft is typed, and stay open long enough for the draft's rows
+            // to be painted together with a live reasoning tail — that
+            // combination is what the old assumed footer could not budget.
+            if (word === "thought-20") await Bun.sleep(3_000);
             await Bun.sleep(8);
           }
           // Hold streaming long enough that the harness samples the

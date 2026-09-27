@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { MultilineInput } from "../src/Input";
+import { MultilineInput, type ComposerHandle } from "../src/Input";
 import type { CommandEntry } from "../src/commands";
 import { stripAnsi } from "./helpers";
 
@@ -304,6 +304,113 @@ describe("multiline input newline/submit keys (raw bytes through Ink's parser)",
     expect(submitted).toBe(0);
     expect(frame).toContain("one");
     expect(frame).toContain("two");
+    i.unmount();
+  });
+});
+
+describe("composer handle (#1009)", () => {
+  /** The handle App's ctrl+c handler reads. It answers for the whole
+   * precondition, so a blocked (a turn, a modal) or unfocused (a chip holds
+   * the keys) composer never swallows a press meant to arm the exit. */
+  test("clears a draft only while focused and enabled, and publishes nothing once unmounted", async () => {
+    const handle = React.createRef<ComposerHandle>();
+    const submitted: string[] = [];
+    const view = (props: { focused?: boolean; disabled?: boolean } = {}) => (
+      <MultilineInput
+        placeholder="p"
+        composerHandle={handle}
+        onSubmit={(text) => submitted.push(text)}
+        {...props}
+      />
+    );
+    const i = render(view({ focused: true, disabled: false }));
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("p"));
+    expect(handle.current?.canClear()).toBe(false); // empty: ctrl+c stays an exit press
+    i.stdin.write("abc");
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("abc"));
+    expect(handle.current?.canClear()).toBe(true);
+    for (const blocked of [{ focused: true, disabled: true }, { focused: false, disabled: false }]) {
+      i.rerender(view(blocked));
+      await sleep(20);
+      expect(handle.current?.canClear()).toBe(false);
+    }
+    i.rerender(view({ focused: true, disabled: false }));
+    await sleep(20);
+    handle.current!.clear();
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => !f.includes("abc"));
+    expect(submitted).toEqual([]); // a clear is not a send
+    i.unmount();
+    expect(handle.current).toBeNull();
+  });
+
+  test("a clear ends the history walk: ↓ cannot resurrect the pre-recall draft", async () => {
+    const handle = React.createRef<ComposerHandle>();
+    const i = render(<MultilineInput placeholder="p" composerHandle={handle} onSubmit={() => {}} />);
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("p"));
+    i.stdin.write("one");
+    await sleep(20);
+    i.stdin.write("\r"); // submit: "one" enters the history
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => !f.includes("one"));
+    i.stdin.write("keep");
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("keep"));
+    i.stdin.write("\x1b[A"); // ↑ at the end of the line: cursor to column 0
+    await sleep(20);
+    i.stdin.write("\x1b[A"); // ↑ again: recall "one"; "keep" is now the walk's draft
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("one"));
+    handle.current!.clear();
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => !f.includes("one"));
+    i.stdin.write("\x1b[B"); // ↓ — a still-open walk would hand the cleared draft back
+    await sleep(60);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("keep");
+    i.unmount();
+  });
+});
+
+// #1022: the composer publishes its rendered height, and its owner caps it —
+// the volatile frame's budget is built from what the footer really occupies.
+describe("composer row accounting", () => {
+  test("reports the rows it renders as the draft grows", async () => {
+    const reported: number[] = [];
+    const i = render(<MultilineInput placeholder="p" focused onRowsChange={(rows) => reported.push(rows)} onSubmit={() => {}} />);
+    await untilFrame(() => String(reported.at(-1)), (f) => f === "1");
+    expect(reported.at(-1)).toBe(1); // the empty draft paints its placeholder row
+    i.stdin.write("word ".repeat(200));
+    await untilFrame(() => String(reported.at(-1)), (f) => Number(f) >= 3);
+    expect(reported.at(-1)!).toBeGreaterThanOrEqual(3);
+    i.unmount();
+  });
+
+  test("maxRows caps the whole composer — an open completion popup cannot grow past it", async () => {
+    // The popup is part of what the composer renders, so it shares the cap:
+    // a CAP that bounded only the draft row would let the frame grow past
+    // the terminal exactly as an uncapped draft did (#1022).
+    const reported: number[] = [];
+    const commands: CommandEntry[] = Array.from({ length: 8 }, (_, i) => ({ name: `/cmd${i}`, description: "x", custom: false }));
+    const i = render(<MultilineInput placeholder="p" focused maxRows={3} commands={commands} onRowsChange={(rows) => reported.push(rows)} onSubmit={() => {}} />);
+    await untilFrame(() => String(reported.at(-1)), (f) => f === "1");
+    i.stdin.write("/");
+    await untilFrame(() => stripAnsi(i.lastFrame() ?? ""), (f) => f.includes("/cmd1"));
+    expect(reported.at(-1)!).toBeLessThanOrEqual(3);
+    // The popup stays usable: its rows are drawn (the list is not dropped).
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("/cmd1");
+    i.unmount();
+  });
+
+  test("maxRows caps the window it paints, and the draft scrolls instead of vanishing", async () => {    const reported: number[] = [];
+    const text = "word ".repeat(200);
+    const i = render(<MultilineInput placeholder="p" focused maxRows={2} onRowsChange={(rows) => reported.push(rows)} onSubmit={() => {}} />);
+    await untilFrame(() => String(reported.at(-1)), (f) => f === "1");
+    i.stdin.write(text);
+    await untilFrame(() => String(reported.at(-1)), (f) => Number(f) === 2);
+    expect(reported.at(-1)).toBe(2);
+    // The cap moves the window (the cursor stays visible), never the text:
+    // submitting returns the whole draft.
+    let submitted = "";
+    i.rerender(<MultilineInput placeholder="p" focused maxRows={2} onSubmit={(value) => { submitted = value; }} />);
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => String(submitted.length), (f) => Number(f) > 0);
+    expect(submitted.trim()).toBe(text.trim());
     i.unmount();
   });
 });

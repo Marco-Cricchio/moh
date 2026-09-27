@@ -37,6 +37,18 @@ export async function waitForFrame(
   return;
 }
 
+/**
+ * The empty composer's placeholder copy is the sentinel every surface test
+ * probes for "the chat input is mounted" (`Chat.tsx` owns the real string,
+ * `COMPOSER_HINT`; `compact-toasts.test.tsx` asserts the copy verbatim).
+ * Keeping the two substrings here means a copy change is one edit, not 50.
+ * The composer shows the compact form instead when the long hint would not
+ * fit its column (`cols < COMPOSER_HINT_MIN_COLS`, and the compact width
+ * class) — those tests say `COMPOSER_COMPACT`.
+ */
+export const COMPOSER_READY = "for everything you need";
+export const COMPOSER_COMPACT = "type…";
+
 export function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");

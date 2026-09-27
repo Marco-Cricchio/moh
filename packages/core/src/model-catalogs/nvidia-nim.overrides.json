@@ -13,11 +13,11 @@
   },
   "rows": {
     "meta/llama-3.3-70b-instruct": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; contextWindow correction accepted against the committed catalog",
+      "author": "moh (#1004)",
+      "date": "2026-09-26",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
       "name": "Llama 3.3 70B Instruct",
-      "acceptContextShrink": true
+      "contextWindow": 128000
     }
   }
 }

@@ -18,3 +18,4 @@ docs/vision/
 .moh/
 __pycache__/
 .moh-test-*.log
+.tmp-home-compact-*.bin

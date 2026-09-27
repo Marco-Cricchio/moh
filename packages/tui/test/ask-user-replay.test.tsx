@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider, SessionStore, createSession } from "@moh/core";
 import { projectTranscript } from "../src/transcript";
-import { actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 import type { AgentEvent } from "@moh/core";
 
 const dir = () => `/tmp/moh-tui-ask-replay-${process.pid}-${Date.now()}`;
@@ -140,7 +140,7 @@ describe("legacy ask_user replay (#415)", () => {
       // row (New session is the default), enter resumes it.
       await waitForFrame(frameText, "ship the release?");
       await actUntilFrame(() => i.stdin.write("\x1b[B"), frameText, "› ship the release?");
-      await actUntilFrame(() => i.stdin.write("\r"), frameText, "type…");
+      await actUntilFrame(() => i.stdin.write("\r"), frameText, COMPOSER_READY);
       // Resumed history is promoted through Static: assert on accumulated
       // frames — the legacy ask_user renders as the compact block
       // (question row + answer row), never the old modal-era shape.

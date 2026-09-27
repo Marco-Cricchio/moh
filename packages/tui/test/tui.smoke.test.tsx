@@ -9,7 +9,7 @@ import { Home } from "../src/Home";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { MockProvider, createSession, SessionStore } from "@moh/core";
-import { actUntilFrame, stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, actUntilFrame, stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-smoke-"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -20,7 +20,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function mountApp(props: Parameters<typeof App>[0]) {
   const i = render(<App {...props} />);
   const frame = () => stripAnsi(i.lastFrame() ?? "");
-  await waitForFrame(frame, props.startInChat ? "type…" : "New session");
+  await waitForFrame(frame, props.startInChat ? COMPOSER_READY : "New session");
   return i;
 }
 
@@ -150,7 +150,7 @@ describe("home smoke", () => {
     // Poll each step: the settled Home paints a beat before its input
     // handlers attach, so a fixed sleep can drop the keystroke.
     await actUntilFrame(() => i.stdin.write("greet me"), frame, "start “greet me”");
-    await actUntilFrame(() => i.stdin.write("\r"), frame, "type…");
+    await actUntilFrame(() => i.stdin.write("\r"), frame, COMPOSER_READY);
     await waitForFrame(frame, "hello there");
     expect(frame()).toContain("greet me");
     expect(frame()).toContain("hello there");
@@ -190,7 +190,7 @@ describe("home smoke", () => {
     await actUntilFrame(
       () => i.stdin.write("\r"),
       frameText,
-      "type…",
+      COMPOSER_READY,
     );
     await waitForFrame(frameText, "fix the login page");
     const frame = frameText;

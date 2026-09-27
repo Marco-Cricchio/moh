@@ -167,6 +167,63 @@ describe("jev-guard extension setup (#786)", () => {
     expect(ctx.statuses.at(-1)).toContain("in_scope");
   });
 
+  test("#1013: the turn note is cleared at turn end; an outage published after it survives", async () => {
+    const ctx = fakeCtx();
+    // Turn 1: a judged pass softened by the contradiction → the note.
+    let failNext = false;
+    const answers = { ...SAFE_ANSWERS, exfiltration: { type: "noul", noul: 0.92 }, in_scope: { type: "noul", noul: 0.9 } };
+    const def = createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: (async () => (failNext ? new Response("nope", { status: 503 }) : okResponse(answers))) as unknown as typeof fetch,
+    });
+    await def.setup(ctx);
+    ctx.eventHooks.forEach((h) => h({ event: { type: "session_mode", mode: "yolo" } }));
+    await runHook(ctx.toolHooks, bash);
+    expect(ctx.statuses.at(-1)).toContain("in_scope");
+    // Turn 1 ends: the note — a turn fact on a session-scoped seam — clears.
+    for (const h of ctx.afterTurnHooks) await h();
+    expect(ctx.statuses.at(-1)).toBe(null);
+    // Turn 2: the judge fails → the outage status. It is a *state*, so the
+    // turn-end cleanup must not erase it (it published no note this turn).
+    failNext = true;
+    await runHook(ctx.toolHooks, bash);
+    expect(ctx.statuses.at(-1)).toBe("∅ jev offline");
+    for (const h of ctx.afterTurnHooks) await h();
+    expect(ctx.statuses.at(-1)).toBe("∅ jev offline");
+    // A repeat of the same state prints nothing (#1013 never resurrects the
+    // cleared note either): the log stays one entry per transition.
+    const tail = ctx.statuses.slice(ctx.statuses.indexOf(null) + 1);
+    expect(tail).toEqual(["∅ jev offline"]);
+  });
+
+  test("#1019: a status that replaced the note is not erased by the note's cleanup", async () => {
+    // The seam is single-writer per extension, but the note and the turn end
+    // are not atomic: between them the client can publish a *new* outage
+    // (the #846 aggregate is flushed at `afterTurn`, after all the calls).
+    // That text is the extension's own latest word, so the note's cleanup
+    // must leave it alone — a clear here would silently drop a live outage.
+    const ctx = fakeCtx();
+    let failNext = false;
+    const answers = { ...SAFE_ANSWERS, exfiltration: { type: "noul", noul: 0.92 }, in_scope: { type: "noul", noul: 0.9 } };
+    const def = createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: (async () => (failNext ? new Response("nope", { status: 503 }) : okResponse(answers))) as unknown as typeof fetch,
+    });
+    await def.setup(ctx);
+    ctx.eventHooks.forEach((h) => h({ event: { type: "session_mode", mode: "yolo" } }));
+    // The note lands…
+    await runHook(ctx.toolHooks, bash);
+    expect(ctx.statuses.at(-1)).toContain("in_scope");
+    // …and the very next judged call is unreachable, so the outage text
+    // takes the slot the note was holding.
+    failNext = true;
+    await runHook(ctx.toolHooks, { callId: "c4", name: "bash", args: { command: "bun test", cwd: "/srv" } });
+    expect(ctx.statuses.at(-1)).toBe("∅ jev offline");
+    // Turn end: the cleanup owns the note, not the text that succeeded it.
+    for (const h of ctx.afterTurnHooks) await h();
+    expect(ctx.statuses.at(-1)).toBe("∅ jev offline");
+  });
+
   test("failure: fail-open pass, offline status published once", async () => {
     const ctx = fakeCtx();
     const def = createJevGuardExtension({

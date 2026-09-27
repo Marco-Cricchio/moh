@@ -1,16 +1,25 @@
-# ADR-0046 (#959): the model catalog is owned by moh and generated from
-# declared aggregators (models.dev primary, OpenRouter hole-filling) plus a
-# hand-maintained `<provider>.overrides.json` sidecar per catalog.
+# ADR-0046 (#959, amended by #1005): the model catalog is owned by moh and
+# generated from declared aggregators (models.dev primary, OpenRouter
+# hole-filling) plus a hand-maintained `<provider>.overrides.json` sidecar
+# per catalog.
 #
-# This job rebuilds the catalogs from the live sources and compares them with
-# the committed tree — it NEVER writes and NEVER regenerates at release time:
-# a release ships the last valid committed catalog. Generation stays local and
+# This job is the DRIFT COMPARE: it rebuilds the catalogs from the live
+# sources and compares them with the committed tree, exiting non-zero on
+# drift. It NEVER writes and NEVER regenerates — generation stays local and
 # human-invoked, because a rebuild is a data change that deserves review.
 #
-# Drift here means one of two things, both worth a look:
+# It runs daily (drift shows up within hours, not weeks: measured windows of
+# ~4-5h on OpenRouter), on PRs touching the catalog or the generator, and on
+# manual dispatch. A red here means one of two things, both worth a look:
 #   - an upstream change since the catalogs were generated (a regeneration is
 #     due), or
 #   - a committed catalog edited by hand instead of through its sidecar.
+#
+# The release pipeline no longer runs this compare as a gate: at every tag it
+# reports freshness instead (`--freshness` in release.yml) — the committed
+# catalog's age, how many files moved, how many guard findings — and never
+# fails on drift. A red at the tag told nobody anything when three of four
+# tags were red by default (#1005).
 #
 # A source outage makes the generator exit non-zero with "generation failed";
 # that is "did not regenerate", never "regenerated with less".
@@ -24,9 +33,10 @@ on:
       - "packages/core/src/model-catalog-build.ts"
       - ".github/workflows/model-catalogs-check.yml"
   schedule:
-    # Weekly: the catalog is release-pinned, so staleness must be visible
-    # between releases rather than only when someone touches it.
-    - cron: "0 6 * * 1"
+    # Daily: the catalog is release-pinned, so staleness must be visible
+    # between releases rather than only when someone touches it, and the
+    # measured drift window is hours rather than weeks.
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 jobs:

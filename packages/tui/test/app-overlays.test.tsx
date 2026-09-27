@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listSessionSummaries, loadMohConfig, MockProvider, type Provider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 import { installAiSdkWarningSink } from "../src/ai-sdk-warnings";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -123,7 +123,7 @@ describe("App overlays (issue #33)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat />);
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("type…");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain(COMPOSER_READY);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("session handoff");
     i.unmount();
   });
@@ -179,14 +179,14 @@ describe("App overlays (issue #33)", () => {
     i.stdout.emit("resize");
     await sleep(50);
     const before = stripAnsi(i.lastFrame() ?? "");
-    expect(before).toContain("type…");
+    expect(before).toContain(COMPOSER_READY);
     expect(before).toContain("· ready");
 
     i.stdin.write("\x13"); // ctrl+s
     await sleep(50);
     const during = stripAnsi(i.lastFrame() ?? "").split("\n");
     expect(during.some((line) => line.includes("settings"))).toBe(true);
-    expect(during.some((line) => line.includes("type…"))).toBe(true);
+    expect(during.some((line) => line.includes(COMPOSER_READY))).toBe(true);
     expect(during.some((line) => line.includes("· ready"))).toBe(true);
     i.unmount();
   });
@@ -197,7 +197,7 @@ describe("App overlays (issue #33)", () => {
     await sleep(50);
     i.stdin.write("n"); // new session → chat
     await sleep(50);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("type…");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain(COMPOSER_READY);
     i.stdin.write("?");
     await sleep(50);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
@@ -205,7 +205,7 @@ describe("App overlays (issue #33)", () => {
     await sleep(50);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("all commands");
-    expect(frame).toContain("type…"); // chat still alive under the closed overlay
+    expect(frame).toContain(COMPOSER_READY); // chat still alive under the closed overlay
     i.unmount();
   });
 });
@@ -307,7 +307,7 @@ describe("in-session rename modal (#534)", () => {
       }
     };
     try {
-      await waitForFrame(frame, "type…");
+      await waitForFrame(frame, COMPOSER_READY);
       await send("reply");
       await waitForFrame(frame, "reply");
       await send("\r");
