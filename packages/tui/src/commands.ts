@@ -8,6 +8,7 @@ import {
   applyUpstreamUpdates,
   checkUpstreamUpdates,
   diffSkillFiles,
+  formatModelPair,
   allManualPages,
   installFirstPartySkills,
   loadFirstPartyManifest,
@@ -277,7 +278,9 @@ const modelCommand: SlashCommand = {
       // #181: with a UI, bare /model opens the modal instead of dumping
       // the catalog as text; the text list stays for headless callers.
       if (ctx.onOpenModelPicker) return ctx.onOpenModelPicker();
-      ctx.notify(`active model: ${ctx.session.activeModel}`);
+      // ADR-0050: one string for what this session is working with — the
+      // pair while a fallback serves, the single reference otherwise.
+      ctx.notify(`active model: ${formatModelPair(ctx.session.selectedModel, ctx.session.servingModel)}`);
       const type = ctx.activeProviderType?.();
       if (type) {
         const models = subscriptionModelCatalog(type);

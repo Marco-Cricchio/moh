@@ -24,8 +24,17 @@ import type { LiveModelListing } from "@moh/core";
  * fallback for models outside any list. Ephemeral — per-session only.
  */
 export interface ModelPickerModalProps {
-  /** Current ref (`endpoint/model-id`) — shown, and marked in the list. */
+  /**
+   * The **selected** ref (`endpoint/model-id`) — shown, and marked in the
+   * list. ADR-0050: this header and the `current` marker name what a pick
+   * would replace, so they state the selection, never the serving stop;
+   * `servingModel` (when it differs) states what serves right now.
+   */
   activeModel: string;
+  /** The model actually serving the calls (ADR-0050) — shown beside the
+   * selection only while the two differ, so the picker never hides a
+   * fallback that is in play. */
+  servingModel?: string;
   /** The session's merged endpoint profiles (App passes
    * `session.endpointProfiles`). Empty (pre-built providers) → free text. */
   endpoints: EndpointPick[];
@@ -54,6 +63,7 @@ type RemoteState = Record<string, CatalogModel[] | "error" | "loading">;
 
 export function ModelPickerModal({
   activeModel,
+  servingModel,
   endpoints,
   onSwitch,
   onSwitched,
@@ -226,7 +236,9 @@ export function ModelPickerModal({
 
   return (
     <Dialog title=" model " color={theme.ok}>
-      <Dim>{`active: ${activeModel}`}</Dim>
+      {/* ADR-0050: `active:` is what a pick replaces (the selection); the
+          serving stop appears only while a fallback serves the calls. */}
+      <Dim>{servingModel && servingModel !== activeModel ? `active: ${activeModel} · serving ${servingModel}` : `active: ${activeModel}`}</Dim>
       <Text> </Text>
       <Text bold>{`filter: ${query}▏`}</Text>
       <Text> </Text>
