@@ -216,8 +216,10 @@ options:
 usage: moh compact [--session <file>] [--cwd <dir>]
 
 Compacts a session's context in place: appends a compaction marker
-(a summary of the older turns plus a pointer), keeping the last 10
-turns verbatim. The log is append-only — nothing is ever deleted.
+(a summary of the older turns plus a pointer), keeping a contiguous
+verbatim tail — the last turn whole while it fits the model's window,
+the turns before it while they stay under ~25% of it. The log is
+append-only — nothing is ever deleted.
 
   --session <file>   the session JSONL to compact
                      (default: the project's most recent session)

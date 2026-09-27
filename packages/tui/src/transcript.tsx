@@ -8,6 +8,7 @@ import { sanitizeForDisplay } from "./render-sanitize";
 import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
+import { LINT_DIMENSION_LABELS, LINT_QUESTION_IDS } from "@moh/jev-guard";
 import type { ToolTimings } from "./tool-timing";
 import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
@@ -222,13 +223,44 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * no numeric question to inline. `jev_routing` (the router's own notices:
  * a misconfigured label, an unpriced model, a manual override) gets one
  * short line per kind. */
-export function extensionEventLine(name: string, payload: unknown): string {
-  const record = asRecord(payload);
+/** #949: one human sentence for a `compaction_skipped` — the reason plus
+ * the numbers that justify it, so the user never has to recompute. */
+export function skipExplanation(event: Extract<AgentEvent, { type: "compaction_skipped" }>): string {
+  const window = event.window > 0 ? `window ~${(event.window / 1000).toFixed(0)}k` : "unknown window";
+  if (event.reason === "too_few_turns") {
+    return `${event.turns} turn${event.turns === 1 ? "" : "s"} in the log (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}) — nothing foldable yet; a new turn makes older work compactable.`;
+  }
+  if (event.reason === "no_covered_turns") {
+    return `the covered span has no turns (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}).`;
+  }
+  return `the last turn alone exceeds the window (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}).`;
+}
+
+/** #949: deterministic projection for the context_length hint — true when
+ * a `compaction_skipped` follows the newest compaction marker (or no
+ * marker exists and any skip is present): /compact cannot help right now,
+ * so clients must not promise it. */
+export function compactionCannotHelpNow(events: ReadonlyArray<AgentEvent>): boolean {
+  let markerIndex = -1;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]!.type === "compaction") {
+      markerIndex = i;
+      break;
+    }
+  }
+  for (let i = events.length - 1; i > markerIndex; i -= 1) {
+    if (events[i]!.type === "compaction_skipped") return true;
+  }
+  return markerIndex === -1 && events.some((e) => e.type === "compaction_skipped");
+}
+
+export function extensionEventLine(name: string, payload: unknown): string {  const record = asRecord(payload);
   if (record === undefined) return name;
   if (name === "jev_routing") return routingNoticeLine(record);
   if (name === "jev_usecase") return useCaseLine(record);
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
+  if (record.useCase === "lint") return lintJudgmentLine(record);
   if (record.useCase === "injection" || record.useCase === "injection_passes") return injectionJudgmentLine(record);
   if (record.useCase === "guardrail" || record.useCase === "guardrail_passes") return guardrailJudgmentLine(record);
   // #979: the cut guide's one aggregate record — the per-section verdicts
@@ -373,9 +405,25 @@ function guardrailJudgmentLine(record: Record<string, unknown>): string {
   return `jev · guardrail · ${decision} (${dimension} ${key.toFixed(2)})`;
 }
 
+/**
+ * #1014: one quality-gate (lint) judgment — the decision, the cycle, and
+ * every dimension with its measured probability. The correction round a
+ * `correct` verdict triggers is the last one before the cycle cap, so
+ * the line must be auditable from the transcript alone; a judgment
+ * without any numeric signal degrades to the decision, never a guess.
+ */
+function lintJudgmentLine(record: Record<string, unknown>): string {
+  const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : "judgment";
+  const cycle = typeof record.cycle === "number" && Number.isFinite(record.cycle) ? ` cycle ${record.cycle}` : "";
+  const dims = LINT_QUESTION_IDS.map((id) =>
+    typeof record[id] === "number" && Number.isFinite(record[id]) ? `${LINT_DIMENSION_LABELS[id]} ${(record[id] as number).toFixed(2)}` : undefined,
+  ).filter((d): d is string => d !== undefined);
+  const detail = dims.length > 0 ? ` (${dims.join(" · ")})` : "";
+  return `jev · lint · ${decision}${cycle}${detail}`;
+}
+
 /** #787: one routing judgment — what the router decided, and why. */
-function routingJudgmentLine(record: Record<string, unknown>): string {
-  const tier = typeof record.tier === "string" ? record.tier : undefined;
+function routingJudgmentLine(record: Record<string, unknown>): string {  const tier = typeof record.tier === "string" ? record.tier : undefined;
   if (record.decision === "switch") {
     const target = typeof record.target === "string" ? record.target : tier;
     return `jev · routing · switch to ${target}${tier ? ` (${tier})` : ""}`;
@@ -747,7 +795,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #947: name the next action — a context_length error is recoverable.
         const hint =
           event.reason === "context_length"
-            ? ["Context is full for this model — /compact to summarize it, or /models to switch to a bigger window."]
+            ? compactionCannotHelpNow(events)
+              ? ["Context is full for this model and nothing is foldable yet — /models to switch to a bigger window, or keep working: a new turn makes older context compactable."]
+              : ["Context is full for this model — /compact to summarize it, or /models to switch to a bigger window."]
             : [];
         blocks.push({ key, kind: "error", glyph: "✗", type: "error", detail: event.reason, lines: [event.message, ...hint], state: "fail" });
         break;
@@ -874,6 +924,20 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #466/ADR-0022: chrome on replay too — why no marker exists yet.
         if (vibe) break;
         blocks.push({ key, kind: "error", glyph: "⚠", type: "compaction failed", detail: event.reason, lines: ["The producer retries on later turns; /compact forces one now."] });
+        break;
+      case "compaction_skipped":
+        // #949: a structural refusal (nothing foldable) is visible, one
+        // warn line with the numbers — never a sticky chip, one event
+        // per new measurement.
+        if (vibe) break;
+        blocks.push({
+          key,
+          kind: "error",
+          glyph: "⚠",
+          type: "compaction skipped",
+          detail: event.reason,
+          lines: [skipExplanation(event)],
+        });
         break;
       case "compaction_dangling":
         // #578 (d6): the newest on-path marker's pointer does not resolve —

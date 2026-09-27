@@ -9,7 +9,7 @@ import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { contextFitFor } from "../context-fit";
-import { contextWindowFor } from "../compaction";
+import { CompactionRunner, createCompactionSummarizer, contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
@@ -24,7 +24,6 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
-import { CompactionRunner, createCompactionSummarizer, DEFAULT_TAIL_TURNS } from "../compaction";
 import type { CompactionHookContext } from "@moh/extension";
 import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
@@ -461,7 +460,17 @@ export class AgentSession {
       this.#compaction = new CompactionRunner({
         sessionId: this.#sessionId,
         provider: () => this.#provider,
-        endpointType: () => this.activeEndpointType,
+        endpointType: () => {
+          const profiled = this.activeEndpointType;
+          if (profiled !== undefined) return profiled;
+          // #949 test/dev convenience: a bare provider named
+          // "<endpointType>/<model>" resolves its window from the
+          // catalog — an unknown window otherwise.
+          const name = this.#provider.name;
+          if (!name.includes("/")) return undefined;
+          const [type, ...rest] = name.split("/");
+          return catalogEntryFor(type, rest.join("/")) !== undefined ? type : undefined;
+        },
         append: (event) => this.#append(event),
         // #578 (d3/d7): cover the path pinned to the turn's head — the
         // branch actually summarized — so a mid-turn switch (effective
@@ -1183,7 +1192,7 @@ export class AgentSession {
    * rebuilt through the same replay path resume uses.
    */
   async compact(): Promise<
-    | { ok: true; summary: string; upTo: number; upToId?: string; tailTurns: number; tokensBefore: number; tokensAfter: number }
+    | { ok: true; summary: string; upTo: number; upToId?: string; tailTurns: number; tokensBefore: number; tokensAfter: number; partial: boolean }
     | { ok: false; error: string }
   > {
     if (!this.#compaction) return { ok: false, error: "compaction is disabled for this session" };
@@ -1195,14 +1204,19 @@ export class AgentSession {
     const tokensBefore = CompactionRunner.lastMeasuredCall(events)?.inputTokens ?? 0;
     const result = await this.#compaction.compactNow(events);
     if (!result.ok) return result;
+    // #949: the tail accounting reads the marker's own pointer — the
+    // producer's decision (window-aware, possibly inside the last turn)
+    // is the truth; recomputing a tail without a window would report a
+    // tail that does not exist.
     const path = activePath(events);
-    const tailStart = CompactionRunner.upToFor(path, DEFAULT_TAIL_TURNS) ?? result.upTo;
+    const markerIndex = result.upToId !== undefined ? path.findIndex((e) => e.id === result.upToId) : -1;
+    const tailStart = markerIndex >= 0 ? markerIndex + 1 : result.upTo;
     let tailTurns = 0;
     for (let i = tailStart; i < path.length; i++) {
       if (path[i]!.type === "user_message") tailTurns += 1;
     }
     const tokensAfter = CompactionRunner.turnTokens(path, tailStart, path.length);
-    return { ...result, tailTurns, tokensBefore, tokensAfter };
+    return { ...result, tailTurns, tokensBefore, tokensAfter, partial: result.partial ?? tailTurns === 0 };
   }
 
   /** Rebuilds `#messages` from the log after a marker (#466): the same

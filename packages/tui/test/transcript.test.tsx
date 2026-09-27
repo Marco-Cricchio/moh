@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
-import { blockTint, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, inertPrefixLength, openBlockStableRows, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
+import { blockTint, compactionCannotHelpNow, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, inertPrefixLength, openBlockStableRows, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
 import { createMarkdownRenderer, renderMarkdownRows } from "../src/markdown";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
@@ -717,5 +717,50 @@ describe("open-block stability — what may print while a reply streams (#972)",
     const mixed = "first paragraph of the reply, long enough to wrap a few times over here\n\nsecond paragraph with **bold** in it";
     const firstParagraph = "first paragraph of the reply, long enough to wrap a few times over here\n\n";
     expect(stable(mixed)).toBe(rowsOf(firstParagraph).length);
+  });
+});
+
+describe("#949: compaction_skipped", () => {
+  const skip = (over: Partial<Extract<AgentEvent, { type: "compaction_skipped" }>> = {}): AgentEvent => ({
+    type: "compaction_skipped",
+    reason: "too_few_turns",
+    turns: 3,
+    measuredTokens: 253_325,
+    window: 200_000,
+    ...over,
+  } as AgentEvent);
+
+  test("renders one warn line with the numbers", () => {
+    const blocks = projectTranscript([skip()]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.detail).toBe("too_few_turns");
+    expect(blocks[0]!.lines[0]).toContain("3 turns");
+    expect(blocks[0]!.lines[0]).toContain("253k tokens");
+  });
+
+  test("window 0 reads as unknown", () => {
+    const blocks = projectTranscript([skip({ window: 0 })]);
+    expect(blocks[0]!.lines[0]).toContain("unknown window");
+  });
+
+  test("compactionCannotHelpNow: a skip after the newest marker hides the /compact promise", () => {
+    const marker: AgentEvent = { type: "compaction", summary: "s", upToId: "x" };
+    const before = [skip(), marker];
+    const after = [marker, skip()];
+    expect(compactionCannotHelpNow(before)).toBe(false);
+    expect(compactionCannotHelpNow(after)).toBe(true);
+    // No marker at all, any skip counts.
+    expect(compactionCannotHelpNow([skip()])).toBe(true);
+    expect(compactionCannotHelpNow([])).toBe(false);
+  });
+
+  test("context_length hint stops promising /compact when a skip is newest", () => {
+    const error: AgentEvent = { type: "error", reason: "context_length", message: "too long" };
+    const ok = projectTranscript([error]);
+    expect(ok[0]!.lines.some((l) => l.includes("/compact"))).toBe(true);
+    const refused = projectTranscript([{ type: "compaction", summary: "s", upToId: "x" } as AgentEvent, skip(), error]);
+    const lines = refused.find((b) => b.type === "error")?.lines ?? [];
+    expect(lines.some((l) => l.includes("/models"))).toBe(true);
+    expect(lines.some((l) => l.includes("/compact"))).toBe(false);
   });
 });

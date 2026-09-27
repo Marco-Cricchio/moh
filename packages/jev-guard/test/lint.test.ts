@@ -117,6 +117,29 @@ describe("correction copy (#789)", () => {
     const many = correctionText(["completeness"], 0, ["src/a.ts", "src/b.ts"]);
     expect(many).toContain("Judged files: src/a.ts, src/b.ts");
   });
+
+  test("#1014: with the judgment's signals, each label carries its measured probability", () => {
+    const text = correctionText(
+      ["completeness", "error_handling"],
+      1,
+      ["src/a.ts", "src/b.ts"],
+      { completeness: 0.31, error_handling: 0.2, conventions_respected: 0.9 },
+    );
+    expect(text).toContain("completeness (0.31)");
+    expect(text).toContain("error handling (0.20)");
+    // Unmeasured dimensions (or unasked ones) stay bare.
+    expect(correctionText(["completeness"], 0, ["src/a.ts"])).toContain("completeness.");
+    expect(correctionText(["completeness"], 0, ["src/a.ts"], {})).toContain("completeness.");
+    expect(correctionText(["completeness"], 0, ["src/a.ts"], { completeness: NaN })).toContain("completeness.");
+  });
+
+  test("#1014: the zero-findings boundary guard no longer invents a completeness finding", () => {
+    const text = correctionText([], 0, ["src/a.ts"]);
+    expect(text).not.toContain("completeness");
+    expect(text).toContain("The quality gate flagged this task's changes.");
+    expect(text).toContain("Judged files: src/a.ts");
+    expect(text).toContain("fix the flagged areas");
+  });
 });
 
 describe("#851: judged-set scoping", () => {
@@ -224,6 +247,7 @@ describe("lint gate runner (#789)", () => {
       expect(evaluations).toBe(2);
       expect(requests).toHaveLength(2);
       expect(requests[0]).toContain("error handling");
+      expect(requests[0]).toContain("error handling (0.20)");
       expect(requests[1]).toContain("final");
     } finally {
       rmSync(root, { recursive: true, force: true });

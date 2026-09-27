@@ -16,8 +16,10 @@ import { bundledExtensionSources } from "@moh/tui/bundled-extensions";
 export const COMPACT_USAGE = `usage: moh compact [--session <file>] [--cwd <dir>]
 
 Compacts a session's context in place: appends a compaction marker
-(a summary of the older turns plus a pointer), keeping the last 10
-turns verbatim. The log is append-only — nothing is ever deleted.
+(a summary of the older turns plus a pointer), keeping a contiguous
+verbatim tail — the last turn whole while it fits the model's window,
+the turns before it while they stay under ~25% of it. The log is
+append-only — nothing is ever deleted.
 
   --session <file>   the session JSONL to compact
                      (default: the project's most recent session)
@@ -85,10 +87,18 @@ export async function compactCommand({
     const result = await assembled.session.compact();
     if (!result.ok) {
       err.write(`moh compact: ${result.error}\n`);
+      // #949: name the exits when the producer refused structurally —
+      // a new turn makes older work foldable; a larger window raises
+      // the ceiling.
+      err.write(
+        "hint: a new turn makes older work foldable; a model with a larger window raises the ceiling (moh run --model)\n",
+      );
       return 1;
     }
+    // #949: the tail in tokens, not an ambiguous turn count; say when
+    // the tail begins inside the oldest kept turn (partial).
     process.stdout.write(
-      `compacted: summary appended (upToId ${result.upToId ?? result.upTo}); ${result.tailTurns} turns kept verbatim (~${result.tokensAfter} of ~${result.tokensBefore} input tokens) — ${store.file}\n`,
+      `compacted: summary appended (upToId ${result.upToId ?? result.upTo}); tail kept verbatim: ~${result.tokensAfter} of ~${result.tokensBefore} input tokens${result.partial ? " (starts inside the oldest kept turn)" : ""} — ${store.file}\n`,
     );
     return 0;
   } finally {
