@@ -8,6 +8,7 @@ import { sanitizeForDisplay } from "./render-sanitize";
 import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
+import { LINT_DIMENSION_LABELS } from "@moh/jev-guard";
 import type { ToolTimings } from "./tool-timing";
 import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
@@ -229,6 +230,7 @@ export function extensionEventLine(name: string, payload: unknown): string {
   if (name === "jev_usecase") return useCaseLine(record);
   if (!name.endsWith("_judgment")) return name;
   if (record.useCase === "routing") return routingJudgmentLine(record);
+  if (record.useCase === "lint") return lintJudgmentLine(record);
   if (record.useCase === "injection" || record.useCase === "injection_passes") return injectionJudgmentLine(record);
   if (record.useCase === "guardrail" || record.useCase === "guardrail_passes") return guardrailJudgmentLine(record);
   // #979: the cut guide's one aggregate record — the per-section verdicts
@@ -373,9 +375,25 @@ function guardrailJudgmentLine(record: Record<string, unknown>): string {
   return `jev · guardrail · ${decision} (${dimension} ${key.toFixed(2)})`;
 }
 
+/**
+ * #1014: one quality-gate (lint) judgment — the decision, the cycle, and
+ * every dimension with its measured probability. The correction round a
+ * `correct` verdict triggers is the last one before the cycle cap, so
+ * the line must be auditable from the transcript alone; a judgment
+ * without any numeric signal degrades to the decision, never a guess.
+ */
+function lintJudgmentLine(record: Record<string, unknown>): string {
+  const decision = typeof record.decision === "string" && record.decision !== "" ? record.decision : "judgment";
+  const cycle = typeof record.cycle === "number" && Number.isFinite(record.cycle) ? ` cycle ${record.cycle}` : "";
+  const dims = (["conventions_respected", "error_handling", "completeness"] as const)
+    .map((id) => (typeof record[id] === "number" && Number.isFinite(record[id]) ? `${LINT_DIMENSION_LABELS[id]} ${(record[id] as number).toFixed(2)}` : undefined))
+    .filter((d): d is string => d !== undefined);
+  const detail = dims.length > 0 ? ` (${dims.join(" · ")})` : "";
+  return `jev · lint · ${decision}${cycle}${detail}`;
+}
+
 /** #787: one routing judgment — what the router decided, and why. */
-function routingJudgmentLine(record: Record<string, unknown>): string {
-  const tier = typeof record.tier === "string" ? record.tier : undefined;
+function routingJudgmentLine(record: Record<string, unknown>): string {  const tier = typeof record.tier === "string" ? record.tier : undefined;
   if (record.decision === "switch") {
     const target = typeof record.target === "string" ? record.target : tier;
     return `jev · routing · switch to ${target}${tier ? ` (${tier})` : ""}`;

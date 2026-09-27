@@ -70,24 +70,39 @@ export const LINT_DIMENSION_LABELS: Record<LintQuestionId, string> = {
 
 /**
  * The deterministic correction-turn text (ratified: never
- * model-generated). Names the failing dimensions in plain words AND the
- * files that were judged (#851 — a fix request without its scope is not
- * actionable), and asks for a fix; the model runs a normal turn with
- * tools available.
+ * model-generated). Names the failing dimensions in plain words — with
+ * the measured probability when the judgment's signals are passed
+ * (#1014: a category alone gives the final round nothing to aim at) —
+ * AND the files that were judged (#851 — a fix request without its
+ * scope is not actionable), and asks for a fix; the model runs a normal
+ * turn with tools available.
  */
-export function correctionText(findings: LintQuestionId[], cycle: number, judgedPaths: readonly string[]): string {
-  // A decision of "correct" always carries findings; the guard keeps the
-  // copy well-formed even on a boundary violation.
-  if (findings.length === 0) findings = ["completeness"];
-  const labels = findings.map((f) => LINT_DIMENSION_LABELS[f]);
-  const list =
-    labels.length === 1
-      ? labels[0]!
-      : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]!}`;
+export function correctionText(
+  findings: LintQuestionId[],
+  cycle: number,
+  judgedPaths: readonly string[],
+  signals?: Partial<Record<LintQuestionId, number>>,
+): string {
+  // #1014: a "correct" decision always carries findings; this guard no
+  // longer invents one. When the boundary is somehow violated the copy
+  // stays well-formed but names no dimension — a category that was
+  // never measured below threshold is never asserted.
+  const known = findings.filter((f, i) => findings.indexOf(f) === i);
+  const labels = known.map((f) => {
+    const p = signals?.[f];
+    const label = LINT_DIMENSION_LABELS[f];
+    return typeof p === "number" && Number.isFinite(p) ? `${label} (${p.toFixed(2)})` : label;
+  });
+  const flagged =
+    labels.length === 0
+      ? "The quality gate flagged this task's changes."
+      : labels.length === 1
+        ? `The quality gate flagged this task's changes on: ${labels[0]!}.`
+        : `The quality gate flagged this task's changes on: ${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]!}.`;
   const ordinal = cycle === 0 ? "second" : "final";
   return [
     "[automatic quality check by jev-guard]",
-    `The quality gate flagged this task's changes on: ${list}.`,
+    flagged,
     `Judged files: ${judgedPaths.length > 0 ? judgedPaths.join(", ") : "(unspecified)"}.`,
     `Please fix the flagged ${labels.length === 1 ? "area" : "areas"} in this ${ordinal} correction round before considering the task done.`,
   ].join("\n");

@@ -98,8 +98,22 @@ describe("extension_event / session_note in the transcript (#784)", () => {
     );
   });
 
-  test("the router's own notices read as one short line each (#787)", () => {
-    expect(extensionEventLine("jev_routing", { kind: "ignored-label", ref: "b/nope" })).toBe(
+  test("#1014: a lint judgment names the decision, the cycle and every measured probability", () => {
+    const line = (payload: Record<string, unknown>) => extensionEventLine("jev_judgment", payload);
+    expect(
+      line({ useCase: "lint", decision: "correct", cycle: 1, conventions_respected: 0.8, error_handling: 0.2, completeness: 0.31 }),
+    ).toBe("jev · lint · correct cycle 1 (conventions 0.80 · error handling 0.20 · completeness 0.31)");
+    expect(line({ useCase: "lint", decision: "pass", cycle: 0, conventions_respected: 0.9, error_handling: 0.9, completeness: 0.9 })).toBe(
+      "jev · lint · pass cycle 0 (conventions 0.90 · error handling 0.90 · completeness 0.90)",
+    );
+    // Missing or non-numeric signals degrade, never a guess.
+    expect(line({ useCase: "lint", decision: "correct", cycle: 1, completeness: 0.31 })).toBe(
+      "jev · lint · correct cycle 1 (completeness 0.31)",
+    );
+    expect(line({ useCase: "lint", decision: "correct" })).toBe("jev · lint · correct");
+  });
+
+  test("the router's own notices read as one short line each (#787)", () => {    expect(extensionEventLine("jev_routing", { kind: "ignored-label", ref: "b/nope" })).toBe(
       "jev · routing · label b/nope ignored (not in the model pool)",
     );
     expect(extensionEventLine("jev_routing", { kind: "unpriced", count: 3, models: ["a/x"] })).toBe(
