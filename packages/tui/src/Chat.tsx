@@ -223,6 +223,10 @@ export function Chat({
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
+  // #1022: the composer publishes its rendered height (draft window +
+  // completion popup); the volatile budget below subtracts it. One row until
+  // the first report — the empty composer, which is the honest default.
+  const [composerRows, setComposerRows] = useState(1);
   // Typewriter reveal (777.mov owner acceptance, ported from the fork
   // trial to the native-scrollback model): provider deltas arrive in
   // giant chunks; text should form at a human pace. A wall-clock budget
@@ -585,19 +589,25 @@ export function Chat({
   // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
-  // Empty composer: separators (2) + composer (1) + spacer (1) + status
-  // (2) + blank (1) + bordered action row (3) = 10. The blank row between
-  // the status and the action row was missing from this estimate (#950):
-  // with it at 9 the live tail filled rows - footerRows exactly and ink's
-  // `outputHeight >= rows` check pushed every full frame onto the
-  // fullscreen path (clearTerminal + scrollback wipe per frame).
+  // Separators (2) + spacer (1) + status (2) + blank (1) + bordered action
+  // row (3) = 9 rows of chrome that never change shape; the composer's own
+  // rows are MEASURED (`composerRows`, #1022) instead of assumed to be one.
+  // The 10 that this used to hardcode assumed a one-row composer: a
+  // multi-row steering draft then added rows no estimate could see, the
+  // live frame reached the terminal height, and ink switched to its
+  // fullscreen path (clearTerminal + scrollback wipe) for that frame.
   // This intentionally over-reserves at tiny sizes: a stable footer takes
   // precedence over one more volatile transcript row. #918 adds one plain
   // line while the project root sits on a Windows drive (`/mnt`).
-  const footerRows = 10 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
-  // #950: the volatile frame (live tail + footer) must stay strictly BELOW
-  // the terminal height — outputHeight == rows already pushes ink onto the
-  // fullscreen path (clearTerminal + full static reprint every frame).
+  const fixedFooterRows = 9 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  const footerRows = fixedFooterRows + composerRows;
+  // #1022: the one transcript row the volatile frame keeps at the floor, plus
+  // the safety row ink needs (`outputHeight == rows` already takes the
+  // fullscreen path). The composer's own cap is what makes the invariant hold
+  // by construction instead of by estimate: a draft window that would push
+  // the frame past the terminal is clamped here — the composer scrolls its
+  // window, so nothing is lost — and the tail then takes whatever is left.
+  const composerBudget = Math.max(1, viewport.rows - fixedFooterRows - 2);
   const tailBudget = Math.max(1, viewport.rows - footerRows - 1);
 
   // ── Settled + live projection with #329 head promotion ────────────────
@@ -1175,6 +1185,8 @@ export function Chat({
         onSuggestionsOpen={onSuggestionsOpen}
         mentionCandidates={mentionCandidates}
         onPastePath={onPastePath}
+        onRowsChange={setComposerRows}
+        maxRows={composerBudget}
         submitSignal={submitSignal}
         prefill={prefill}
         onSubmit={(text) => {
