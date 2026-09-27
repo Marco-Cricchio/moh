@@ -42,9 +42,19 @@ export function contextLabel(contextWindow: number): string {
   return contextWindow > 0 ? `${Math.round(contextWindow / 1000)}k` : "—";
 }
 
+/** The context-window text of one row. ADR-0049: a model whose provider
+ * declared a window this session shows **both** numbers — the declared
+ * one first (it is the one every context decision uses) and the catalog
+ * figure it replaced. A model that declared nothing, or one whose
+ * declared number agrees with the catalog, renders exactly as before. */
+export function windowText(catalogWindow: number, declared?: number): string {
+  if (declared === undefined || declared <= 0 || declared === catalogWindow) return contextLabel(catalogWindow);
+  return `${contextLabel(declared)} declared · ${contextLabel(catalogWindow)} catalog`;
+}
+
 /** One list row: `name (id) · ctx Nk`, with the current-model marker. */
-export function modelRow(m: CatalogModel, current?: boolean): string {
-  return `${m.name} (${m.id}) · ctx ${contextLabel(m.contextWindow)}${current ? " ‹current›" : ""}`;
+export function modelRow(m: CatalogModel, current?: boolean, declared?: number): string {
+  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared)}${current ? " ‹current›" : ""}`;
 }
 
 /** The free-text fallback row shown when the query misses the catalog
@@ -91,11 +101,20 @@ export function mergePickCatalog(base: CatalogModel[], live: LiveModelListing[])
  * endpoints' catalogs. 0 when the endpoint or model is unknown —
  * openai-compat backends have no vendored catalog, so callers treat 0
  * as "use the default". */
-export function contextWindowForLabel(picks: EndpointPick[], modelLabel: string): number {
+export function contextWindowForLabel(
+  picks: EndpointPick[],
+  modelLabel: string,
+  /** ADR-0049: the session's declared windows — the number a provider
+   * itself stated outranks the row it corrected, for every window-derived
+   * figure on screen (the footer's gauge denominator included). */
+  declaredFor?: (ref: string) => number | undefined,
+): number {
   const slash = modelLabel.indexOf("/");
   if (slash < 0) return 0;
   const name = modelLabel.slice(0, slash);
   const modelId = modelLabel.slice(slash + 1);
+  const declared = declaredFor?.(modelLabel);
+  if (declared !== undefined && declared > 0) return declared;
   const pick = picks.find((p) => p.name === name);
   return pick?.catalog.find((m) => m.id === modelId)?.contextWindow ?? 0;
 }

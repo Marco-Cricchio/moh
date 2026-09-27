@@ -46,6 +46,9 @@ export interface SettingsPanelProps {
   /** #784: the one real validation call the Jev entry makes on key save.
    * Injectable so tests never touch the network. */
   validateKey?: (key: string) => Promise<JevKeyValidation>;
+  /** ADR-0049 (#986): the window a provider declared this session, when
+   * one was learned — the model rows show both numbers. */
+  declaredWindow?: (ref: string) => number | undefined;
   onClose: () => void;
 }
 
@@ -142,7 +145,7 @@ const JEV_RERANK_DISCLOSURE =
 const JEV_SKILLS_DISCLOSURE =
   "skill suggestion sends your message (up to 4 KiB) plus the skill names and descriptions to TypeSafe, twice per turn while it runs.";
 
-export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onConfigureBrowser, onToast, onStudioActive, validateKey, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProviderSwitch, onStartWizard, onConfigureHandoff, onConfigureBrowser, onToast, onStudioActive, validateKey, declaredWindow, onClose }: SettingsPanelProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const configFile = useMemo(() => join(cwd, "moh.json"), [cwd]);
@@ -391,7 +394,9 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       // Vendored catalog + #551 live overlay; otherwise the fetched list.
       const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
       const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
-      const rows = filterCatalog(list, sub.query).map((m) => modelRow(m, m.id === sub.current));
+      const rows = filterCatalog(list, sub.query).map((m) =>
+        modelRow(m, m.id === sub.current, declaredWindow?.(`${sub.name}/${m.id}`)),
+      );
       rows.push(sub.query.trim() ? freeTextRow(sub.query) : "+ other… (type a model id)");
       return rows;
     }

@@ -109,7 +109,8 @@ re-probe it until the cooldown expires.
   itself must not kill the session. The window must leave a fixed
   8192-token reserve over the last measured input; a model with an
   unknown window and a session without a measurement both pass (moh
-  never invents a window the catalog does not declare). The refusal is
+  never invents a window the catalog does not declare). A window the
+  provider itself declared outranks the catalog's (see below). The refusal is
   visible: one `switch refused` line in the transcript naming the
   target, the measured tokens and the window, and the current model
   stays in effect. `/model` in the TUI asks first: on a refused pick it
@@ -128,6 +129,17 @@ re-probe it until the cooldown expires.
   serve (a failure cooldown), it rotates within the tier — or through a
   declared `routingPool` in moh.json — and a skipped switch is always
   announced, never silent.
+- **A declared window outranks the map:** when a provider's own overflow
+  refusal states the window it enforces, moh adopts that number for the
+  refused model reference, for this session. Two numbers then show
+  wherever the window does — the model list here, the `/model` picker,
+  the Settings model list (`131k declared · 1000k catalog`) — because the
+  engine and the screen must not disagree. One model's refusal teaches
+  nothing about another model on the same endpoint, and neither the
+  shipped catalog nor your config is touched: the correction lives in the
+  session log and is recomputed on resume. See
+  [Memory & compaction](./memory-and-compaction.md) for what the number
+  drives.
 - `moh run --provider <endpoint/model-id>` picks the model per run.
 - The Settings panel's endpoint → model picker saves the default into
   moh.json (user-level endpoints are display-only there).

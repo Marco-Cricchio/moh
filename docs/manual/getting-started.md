@@ -43,6 +43,11 @@ moh keeps everything user-side:
   append-only event log per session.
 - Memory (facts kept across sessions): `~/.moh/projects/<slug>/memory/`.
 - User configuration and auth tokens: `~/.moh/config`.
+- Provider refusals moh could not read a context window from:
+  `~/.moh/context-refusals.log` — a small, bounded diagnostic (one line
+  per distinct wording, with a repeat count) holding nothing but the
+  provider's own refusal text, as shown in
+  [Memory & compaction](./memory-and-compaction.md). Delete it any time.
 
 For a Git project with an `origin`, `<project-slug>` is the canonical
 lowercase remote name (`host/owner/repo`), rather than the checkout path.

@@ -1076,6 +1076,13 @@ function AppShell({
     return endpointThinkingStatus(session.activeModel, session.endpointProfiles, cfgFile);
   }, [session, modelLabel, thinkingPreferenceRevision, cfgFile]);
   const thinkingLevel: DisplayThinkingLevel = thinkingStatus.level ?? "default";
+  // ADR-0049: one accessor for the windows a provider declared this
+  // session — read by the gauge's denominator and handed to every window
+  // display (the pickers' rows), so no surface invents its own source.
+  const declaredWindowFor = useCallback(
+    (ref: string): number | undefined => session?.declaredWindowFor(ref),
+    [session],
+  );
   // Note 11: the context bar's denominator is the active model's declared
   // window (vendored catalog via the endpoint profiles), not the fixed
   // 200k default — the default remains the fallback for catalog-less
@@ -1090,8 +1097,10 @@ function AppShell({
       apiKey: e.apiKey,
       catalog: endpointModelCatalog(e.type, e.baseUrl),
     }));
-    return contextWindowForLabel(picks, session.activeModel) || undefined;
-  }, [session, modelLabel]);
+    // ADR-0049: the gauge's denominator is the same lookup the core uses —
+    // a declared window corrects it too, never contradicting the engine.
+    return contextWindowForLabel(picks, session.activeModel, declaredWindowFor) || undefined;
+  }, [session, modelLabel, declaredWindowFor]);
 
   // #242/#256: cycles among the levels the active model actually offers
   // (config declaration or catalog map) and persists immediately. Never
@@ -1599,6 +1608,7 @@ function AppShell({
             onChange={updateConfig}
             modelLabel={modelLabel}
             onProviderSwitch={setModelLabel}
+            declaredWindow={declaredWindowFor}
             onStartWizard={() => {
               setWizardFromSettings(true);
               setOverlay("onboarding");
@@ -1707,6 +1717,7 @@ function AppShell({
               catalog: endpointModelCatalog(e.type, e.baseUrl),
             }))}
             liveCatalog={liveCatalog}
+            declaredWindow={declaredWindowFor}
             onRefreshLive={() => refreshLiveCatalog({ force: true })}
             refreshingLive={liveRefreshing}
             onSwitch={(ref) => session.switchModel(ref)}

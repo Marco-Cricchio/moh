@@ -20,6 +20,7 @@
 import type { AgentEvent, Provider, TurnResult } from "./types";
 import type { AppliedCut, CompactionHookContext } from "@moh/extension";
 import { catalogEntryFor } from "./model-catalog";
+import type { DeclaredWindowLookup } from "./declared-window";
 import { CONTEXT_FIT_RESERVE } from "./context-fit";
 import { activePath } from "./session/event-log";
 import { PromptComposer } from "./prompt-composer";
@@ -241,8 +242,18 @@ export const COMPACTION_PROMPT = [
   "- Respond with ONLY the summary text.",
 ].join("\n");
 
-/** Effective context window for the active model label (0 = unknown). */
-export function contextWindowFor(model: string, endpointType: string | undefined): number {
+/**
+ * Effective context window for the active model label (0 = unknown).
+ *
+ * ADR-0049: one resolution for every consumer — the endpoint's declared
+ * window (a refusal learned this session, or the endpoint's own listing),
+ * then the shipped catalog row for that endpoint, then 0 = unknown. No
+ * consumer keeps a private override, so the compaction producer and the
+ * fit guard cannot disagree.
+ */
+export function contextWindowFor(model: string, endpointType: string | undefined, declared?: DeclaredWindowLookup): number {
+  const learned = declared?.declaredWindowFor(model);
+  if (learned !== undefined && learned > 0) return learned;
   const slash = model.indexOf("/");
   if (slash < 0 || !endpointType) return 0;
   return catalogEntryFor(endpointType, model.slice(slash + 1))?.contextWindow ?? 0;
@@ -305,6 +316,10 @@ export interface CompactionRunnerOptions {
   /** Provider type of the active endpoint (catalog lookup); undefined for
    * pre-built/bare providers — the window is then unknown → fallback. */
   endpointType?: () => string | undefined;
+  /** ADR-0049: the session's declared windows (a getter — a refusal
+   * learned mid-session is picked up by the next run). One lookup with the
+   * fit guard: the declared window outranks the catalog row. */
+  declaredWindows?: () => DeclaredWindowLookup | undefined;
   /** Appends the `compaction` marker to the session log. */
   append: (event: AgentEvent) => void;
   /** #578 (d3/d7): the path compaction covers — the session supplies the
@@ -329,6 +344,7 @@ export interface CompactionRunnerOptions {
 export class CompactionRunner {
   readonly #provider: () => Provider;
   readonly #endpointType: (() => string | undefined) | undefined;
+  readonly #declaredWindows: (() => DeclaredWindowLookup | undefined) | undefined;
   readonly #append: (event: AgentEvent) => void;
   readonly #pathFn: (() => ReadonlyArray<AgentEvent>) | undefined;
   readonly #onCompacted: () => void;
@@ -354,6 +370,7 @@ export class CompactionRunner {
   constructor(opts: CompactionRunnerOptions) {
     this.#provider = opts.provider;
     this.#endpointType = opts.endpointType;
+    this.#declaredWindows = opts.declaredWindows;
     this.#append = opts.append;
     this.#pathFn = opts.pathFn;
     this.#onCompacted = opts.onCompacted;
@@ -528,7 +545,7 @@ export class CompactionRunner {
     const call = CompactionRunner.lastMeasuredCall(events);
     if (!call) return false;
     const model = this.#provider().name;
-    const window = contextWindowFor(model, this.#endpointType?.());
+    const window = contextWindowFor(model, this.#endpointType?.(), this.#declaredWindows?.());
     const limit = window > 0 ? window * this.#threshold : this.#fallbackWindow;
     return call.inputTokens > limit;
   }
@@ -612,7 +629,7 @@ export class CompactionRunner {
     // fabricated fallback must not legalize an intra-turn cut, because
     // the cut is the answer to "the provider refuses to serve the tail".
     // The fallback only arms the auto threshold (shouldAutoCompact).
-    const window = contextWindowFor(this.#provider().name, this.#endpointType?.());
+    const window = contextWindowFor(this.#provider().name, this.#endpointType?.(), this.#declaredWindows?.());
     const live = events as AgentEvent[];
     // #578 (core spec d3): compaction covers only the active path —
     // every index computation runs on the projected array; abandoned

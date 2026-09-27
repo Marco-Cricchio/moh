@@ -424,6 +424,22 @@ describe("/model slash command (#166)", () => {
     expect(notices.at(-1)).toContain("usage: /model");
   });
 
+  test("/model with no args shows both numbers for a declared window (ADR-0049)", () => {
+    const session = createSession({
+      provider: "alpha/one",
+      endpoints: [{ name: "alpha", type: "anthropic", defaultModel: "claude-sonnet-4-5" }],
+    });
+    // The session learned a window for one of the catalog's rows.
+    const declared = { declaredWindowFor: (ref: string) => (ref === "alpha/claude-sonnet-4-5" ? 131_072 : undefined) };
+    const ctx = makeCtx({ session, activeProviderType: () => "anthropic" }) as any;
+    Object.defineProperty(session, "declaredWindowFor", { value: declared.declaredWindowFor.bind(declared) });
+    expect(runSlashCommand("/model", ctx)).toBe(true);
+    const list = ctx.notices().find((n: string) => n.includes("catalog"));
+    expect(list).toContain("Claude Sonnet 4.5 (latest) (claude-sonnet-4-5) · ctx 131k declared · 1000k catalog");
+    // A row that declared nothing keeps the plain catalog figure.
+    expect(list).toContain("Claude Sonnet 4.6 (claude-sonnet-4-6) · ctx 1000k\n");
+  });
+
   test("/model <ref> switches and notifies next-turn semantics", () => {
     const ctx = sessionCtx();
     expect(runSlashCommand("/model beta/two", ctx)).toBe(true);
