@@ -106,22 +106,28 @@ describe("/model modal (#181)", () => {
     return { i, switched, toasts, closed: () => closed };
   }
 
-  test("#551: live listings are merged additively; the shipped catalog wins on collision", async () => {
+  test("#551 + #1032: live listings are merged additively; a declared window outranks the shipped row and shows both", async () => {
     const { i } = mount({
       liveCatalog: {
         alpha: [
-          { id: "claude-sonnet-4-5", name: "Impostor", contextWindow: 1 },
+          { id: "claude-sonnet-4-5", name: "Impostor" },
           { id: "claude-opus-5", name: "Claude Opus 5", contextWindow: 300_000 },
+          // #1032: the endpoint declares a DIFFERENT window for a shipped row —
+          // the provider's number is shown, with the shipped one beside it.
+          { id: "claude-haiku-4-5", contextWindow: 180_000 },
         ],
       },
     });
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    // Vendored metadata preserved on collision.
+    // Vendored metadata preserved on collision; a listing without a
+    // window declares nothing (#1032) — the shipped row stands as-is.
     expect(frame).toContain("alpha · Claude Sonnet 4.5 · 200k");
     expect(frame).not.toContain("Impostor");
     // Fetched-only model appended with its listing enrichment.
     expect(frame).toContain("alpha · Claude Opus 5 · 300k");
+    // #1032: declared 180k in use, the shipped 200k named beside it.
+    expect(frame).toContain("· 180k declared · 200k");
     i.unmount();
   });
 
@@ -416,6 +422,9 @@ describe("two numbers wherever a window is displayed (ADR-0049)", () => {
 
   test("a declared window shows next to the catalog figure it replaced", () => {
     expect(windowText(1_000_000, 131_072)).toBe("131k declared · 1000k catalog");
+    // A listing-overlay row (#1032): the row carries the declared window,
+    // with the shipped figure it replaced beside it.
+    expect(windowText(180_000, undefined, 200_000)).toBe("180k declared · 200k catalog");
     // An unknown catalog row shows the declared number alone, no invented figure.
     expect(windowText(0, 131_072)).toBe("131k declared · — catalog");
   });

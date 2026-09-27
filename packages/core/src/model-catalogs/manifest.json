@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.51.1",
-  "generatedAt": "2026-09-27T16:01:19.187Z",
+  "generatedAt": "2026-09-27T19:48:43.069Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-27T16:01:18.557Z"
+      "fetchedAt": "2026-09-27T19:48:42.598Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-27T16:01:18.989Z"
+      "fetchedAt": "2026-09-27T19:48:42.824Z"
     }
   ],
   "files": {
@@ -166,7 +166,7 @@
       }
     },
     "openai-codex": {
-      "sha256": "873bfb177ad79dd90386841c1494d074d72c62bf29e8254cc680aee8adf4361b",
+      "sha256": "00ba259a0be1083b8d85287cddb27eb5d39c2dd49986679bb0eb9f96342e6add",
       "rows": 7,
       "verdicts": {
         "exact": 0,
@@ -196,7 +196,7 @@
       }
     },
     "openrouter": {
-      "sha256": "1058e3df77cd99e00d4ed53d5047d5de95a74404af55dde8d3bb6e5a2c6a0452",
+      "sha256": "79d9731312c216b194bdcc553bf0bcdfea15d7765c0ee75de0ede6feb820d054",
       "rows": 361,
       "verdicts": {
         "exact": 338,
@@ -1518,6 +1518,7 @@
       ],
       "overrides": [
         "cost",
+        "contextWindow",
         "maxTokens"
       ]
     },
@@ -1535,6 +1536,7 @@
       ],
       "overrides": [
         "cost",
+        "contextWindow",
         "maxTokens"
       ]
     },
@@ -1552,6 +1554,7 @@
       ],
       "overrides": [
         "cost",
+        "contextWindow",
         "maxTokens"
       ]
     },
@@ -1569,6 +1572,7 @@
       ],
       "overrides": [
         "cost",
+        "contextWindow",
         "maxTokens"
       ]
     },

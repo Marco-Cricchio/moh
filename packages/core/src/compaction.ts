@@ -243,20 +243,40 @@ export const COMPACTION_PROMPT = [
 ].join("\n");
 
 /**
- * Effective context window for the active model label (0 = unknown).
- *
- * ADR-0049: one resolution for every consumer — the endpoint's declared
- * window (a refusal learned this session, or the endpoint's own listing),
- * then the shipped catalog row for that endpoint, then 0 = unknown. No
- * consumer keeps a private override, so the compaction producer and the
- * fit guard cannot disagree.
+/**
+ * The endpoint a window is resolved for (#1032, ADR-0049 door two): a
+ * window belongs to the endpoint that serves the model — Zen is not Go,
+ * and a recognized compat host has its own catalog — so the lookup takes
+ * the endpoint identity, never just the provider kind. `declaredWindows`
+ * is the endpoint's OWN listing (its cached live-models entry, model id
+ * → tokens): the provider's last word, outranking the shipped row in
+ * both directions.
  */
-export function contextWindowFor(model: string, endpointType: string | undefined, declared?: DeclaredWindowLookup): number {
+export interface WindowEndpoint {
+  type: string;
+  baseUrl?: string;
+  declaredWindows?: Record<string, number>;
+}
+
+/** Effective context window for the active model label (0 = unknown).
+ * ADR-0049: one resolution for every consumer, both doors — the window
+ * a refusal taught this session (door one, the freshest and most
+ * specific fact), then the endpoint's own listing (door two), then the
+ * shipped catalog row for that endpoint, then 0 = unknown. No consumer
+ * keeps a private override, so the compaction producer and the fit
+ * guard cannot disagree. */
+export function contextWindowFor(model: string, endpoint: WindowEndpoint | string | undefined, declared?: DeclaredWindowLookup): number {
   const learned = declared?.declaredWindowFor(model);
   if (learned !== undefined && learned > 0) return learned;
   const slash = model.indexOf("/");
-  if (slash < 0 || !endpointType) return 0;
-  return catalogEntryFor(endpointType, model.slice(slash + 1))?.contextWindow ?? 0;
+  if (slash < 0 || !endpoint) return 0;
+  const id = model.slice(slash + 1);
+  if (typeof endpoint !== "string") {
+    const declaredWindow = endpoint.declaredWindows?.[id];
+    if (typeof declaredWindow === "number" && declaredWindow > 0) return declaredWindow;
+    return catalogEntryFor(endpoint.type, id, endpoint.baseUrl)?.contextWindow ?? 0;
+  }
+  return catalogEntryFor(endpoint, id)?.contextWindow ?? 0;
 }
 
 /** True when the covered span holds at least one conversation turn. */
@@ -313,8 +333,17 @@ export interface CompactionRunnerOptions {
   sessionId: string;
   /** The live host provider (getter — model switches are picked up). */
   provider: () => Provider;
+  /** Provider identity of the active endpoint — kind + baseUrl + the
+   * endpoint's own declared windows (#1032); undefined for pre-built/bare
+   * providers — the window is then unknown → fallback. Supersedes
+   * `endpointType` (kept for compatibility: a string kind, no baseUrl,
+   * no declaration). */
+  endpoint?: () => WindowEndpoint | undefined;
   /** Provider type of the active endpoint (catalog lookup); undefined for
-   * pre-built/bare providers — the window is then unknown → fallback. */
+   * pre-built/bare providers — the window is then unknown → fallback.
+   * @deprecated Superseded by `endpoint` (#1032): a kind alone cannot
+   * resolve a per-endpoint catalog or carry the endpoint's declared
+   * window. Kept only for direct-runner callers not yet migrated. */
   endpointType?: () => string | undefined;
   /** ADR-0049: the session's declared windows (a getter — a refusal
    * learned mid-session is picked up by the next run). One lookup with the
@@ -343,6 +372,7 @@ export interface CompactionRunnerOptions {
  */
 export class CompactionRunner {
   readonly #provider: () => Provider;
+  readonly #endpoint: (() => WindowEndpoint | undefined) | undefined;
   readonly #endpointType: (() => string | undefined) | undefined;
   readonly #declaredWindows: (() => DeclaredWindowLookup | undefined) | undefined;
   readonly #append: (event: AgentEvent) => void;
@@ -369,6 +399,7 @@ export class CompactionRunner {
 
   constructor(opts: CompactionRunnerOptions) {
     this.#provider = opts.provider;
+    this.#endpoint = opts.endpoint;
     this.#endpointType = opts.endpointType;
     this.#declaredWindows = opts.declaredWindows;
     this.#append = opts.append;
@@ -545,7 +576,8 @@ export class CompactionRunner {
     const call = CompactionRunner.lastMeasuredCall(events);
     if (!call) return false;
     const model = this.#provider().name;
-    const window = contextWindowFor(model, this.#endpointType?.(), this.#declaredWindows?.());
+    const endpoint = this.#endpoint?.() ?? (this.#endpointType?.() ? { type: this.#endpointType!()! } : undefined);
+    const window = contextWindowFor(model, endpoint, this.#declaredWindows?.());
     const limit = window > 0 ? window * this.#threshold : this.#fallbackWindow;
     return call.inputTokens > limit;
   }
@@ -629,7 +661,8 @@ export class CompactionRunner {
     // fabricated fallback must not legalize an intra-turn cut, because
     // the cut is the answer to "the provider refuses to serve the tail".
     // The fallback only arms the auto threshold (shouldAutoCompact).
-    const window = contextWindowFor(this.#provider().name, this.#endpointType?.(), this.#declaredWindows?.());
+    const endpoint = this.#endpoint?.() ?? (this.#endpointType?.() ? { type: this.#endpointType!()! } : undefined);
+    const window = contextWindowFor(this.#provider().name, endpoint, this.#declaredWindows?.());
     const live = events as AgentEvent[];
     // #578 (core spec d3): compaction covers only the active path —
     // every index computation runs on the projected array; abandoned

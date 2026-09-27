@@ -54,6 +54,10 @@ export class AgentSession {
   #provider: Provider;
   /** #166: merged endpoint profiles, what switchModel resolves against. */
   readonly #endpoints: import("../config").EndpointProfile[];
+  /** #1032 (door two): per-endpoint declared windows (the endpoints'
+   * own cached listings) — the provider's window outranks the shipped
+   * row. Door one (refusal-learned) is #declaredWindows below. */
+  readonly #endpointDeclaredWindows: Record<string, Record<string, number>>;
   /** Registry snapshot frozen at creation; later registrations never reach it. */
   readonly #registry: FrozenProviderRegistry | undefined;
   #tools: Record<string, Tool>;
@@ -190,20 +194,30 @@ export class AgentSession {
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
     this.#endpoints = config.endpoints ?? [];
+    // #1032 (ADR-0049 door two): the endpoints' own declared windows —
+    // one map, every window consumer funnels through it.
+    this.#endpointDeclaredWindows = config.endpointDeclaredWindows ?? {};
     this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
     // Init-order note (#243): #mohHome must be assigned before
     // #routeResolutionOptions — its thinkingForTarget lambda resolves
     // endpoint preferences against <mohHome>/config on every target.
-    this.#routeResolutionOptions = config.thinking === undefined
-      ? {
-          thinkingForTarget: (target) =>
-            resolveEndpointThinking(
-              `${target.endpoint.name}/${target.modelId}`,
-              this.#endpoints,
-              join(this.#mohHome, "config"),
-            ),
-        }
-      : {};
+    this.#routeResolutionOptions = {
+      // #948 + #1032: the fallback chain skips stops whose window cannot
+      // hold the measured context — the same lookup the guard enforces.
+      ...(Object.keys(this.#endpointDeclaredWindows).length > 0
+        ? { endpointDeclaredWindows: this.#endpointDeclaredWindows }
+        : {}),
+      ...(config.thinking === undefined
+        ? {
+            thinkingForTarget: (target) =>
+              resolveEndpointThinking(
+                `${target.endpoint.name}/${target.modelId}`,
+                this.#endpoints,
+                join(this.#mohHome, "config"),
+              ),
+          }
+        : {}),
+    };
     this.#provider =
       typeof config.provider === "string"
         ? resolveProviderRef(
@@ -470,12 +484,28 @@ export class AgentSession {
       this.#compaction = new CompactionRunner({
         sessionId: this.#sessionId,
         provider: () => this.#provider,
-        // One resolver for the active reference (ADR-0049: one value, one
-        // owner) — the lookup every window consumer shares.
+        // One resolver set for the active reference (ADR-0049: one value,
+        // one owner) — the lookup every window consumer shares.
         endpointType: () => this.#endpointTypeFor(this.#provider.name),
         // ADR-0049: the one window lookup the guard and the chain read —
         // a provider-declared window outranks the catalog row here too.
         declaredWindows: () => this.#declaredWindows,
+        // Door two (#1032): the endpoint identity + its own listing
+        // windows, resolved by endpoint instead of provider kind.
+        endpoint: () => {
+          const ref = this.#provider.name;
+          const slash = ref.indexOf("/");
+          if (slash > 0) {
+            const endpoint = this.#windowEndpoint(ref.slice(0, slash));
+            if (endpoint) return endpoint;
+          }
+          // #949 test/dev convenience: a bare provider named
+          // "<endpointType>/<model>" resolves its window from the
+          // catalog — an unknown window otherwise.
+          if (!ref.includes("/")) return undefined;
+          const [type, ...rest] = ref.split("/");
+          return catalogEntryFor(type, rest.join("/")) !== undefined ? { type } : undefined;
+        },
         append: (event) => this.#append(event),
         // #578 (d3/d7): cover the path pinned to the turn's head — the
         // branch actually summarized — so a mid-turn switch (effective
@@ -918,6 +948,27 @@ export class AgentSession {
     return this.#endpoints.find((e) => e.name === ref.slice(0, slash))?.type;
   }
 
+  /**
+   * #1032 (ADR-0049 door two): the endpoint a window is resolved for —
+   * kind, baseUrl and the endpoint's own declared windows. One shape,
+   * every window consumer funnels through it. Undefined for a bare
+   * registered provider kind with no profile.
+   */
+  #windowEndpoint(endpointName: string): import("../compaction").WindowEndpoint | undefined {
+    const profile = this.#endpoints.find((e) => e.name === endpointName);
+    if (profile) {
+      return {
+        type: profile.type,
+        baseUrl: profile.baseUrl,
+        declaredWindows: this.#endpointDeclaredWindows[endpointName],
+      };
+    }
+    if (this.#registry?.has(endpointName)) {
+      return { type: endpointName, declaredWindows: this.#endpointDeclaredWindows[endpointName] };
+    }
+    return undefined;
+  }
+
   /** The session's merged endpoint profiles (#181 follow-up): read-only
    * copy — feeds the /model modal's every-endpoint model list. Session-
    * owned, never re-read from disk (same posture as activeEndpointType). */
@@ -963,8 +1014,10 @@ export class AgentSession {
           ...this.#routeResolutionOptions,
           measuredTokens: this.lastMeasuredTokens(),
           // ADR-0049: the rebuilt chain judges a stop on the declared
-          // window it learned, never on the row that window corrected.
+          // window it learned (door one) or on the endpoint's own listing
+          // (door two), never on the row those corrected.
           declaredWindows: this.#declaredWindows,
+          endpointDeclaredWindows: this.#endpointDeclaredWindows,
         },
       );
     } catch (err) {
@@ -1012,10 +1065,10 @@ export class AgentSession {
     const profile = this.#endpoints.find((e) => e.name === name);
     const model = modelId ?? profile?.defaultModel;
     // ADR-0049: the client's pre-switch check reads the very lookup the
-    // guard enforces — a declared window included, so the settings/picker
-    // path can never disagree with the switch.
+    // guard enforces — a declared window included (both doors), so the
+    // settings/picker path can never disagree with the switch.
     const window = name && model
-      ? contextWindowFor(`${name}/${model}`, this.#endpointTypeFor(`${name}/${model}`), this.#declaredWindows)
+      ? contextWindowFor(`${name}/${model}`, this.#windowEndpoint(name), this.#declaredWindows)
       : 0;
     return contextFitFor({ measured: this.lastMeasuredTokens(), window });
   }
@@ -1051,7 +1104,8 @@ export class AgentSession {
       });
       return;
     }
-    const catalog = contextWindowFor(ref, endpointType);
+    const slash = ref.indexOf("/");
+    const catalog = contextWindowFor(ref, slash > 0 ? this.#windowEndpoint(ref.slice(0, slash)) : undefined);
     const effective = this.#declaredWindows.declaredWindowFor(ref) ?? catalog;
     // The log records corrections, not confirmations: a number moh is
     // already using changes nothing (a re-refusal of the same provider
