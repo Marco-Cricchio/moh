@@ -7,6 +7,31 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **The corpus the next recognition formula is written from** (ADR-0049
+  door one, #986): a refusal whose wording moh cannot read a window out
+  of now leaves one line in `~/.moh/context-refusals.log` — date, endpoint
+  type, model, a cleaned excerpt of the provider's own refusal text and a
+  repeat count. Identical wording increments the count instead of
+  duplicating, the file is capped, and it carries nothing of the
+  conversation beyond the text the provider itself wrote.
+
+### Changed
+
+- **The declared window reaches the screen and the whole engine**
+  (ADR-0049 door one, #986 — the behavior the 0.51.1 note describes): the
+  refusal text is now read for the window it states *before* the
+  300-character truncation, that number outranks the shipped catalog row
+  for the refused model reference, and the arithmetic — compaction
+  trigger, #949 tail cut ceiling, context-fit guard, fallback chain — all
+  read it through one lookup. Wherever a window is shown for that
+  reference the declared figure sits next to the catalog one
+  (`131k declared · 1000k catalog`), including the footer gauge's
+  denominator; every other model is unchanged. No probing, no inference:
+  only a refusal teaches, one model reference at a time, and nothing is
+  written to the catalog or to your config.
+
 ## [0.51.1] - 2026-09-27
 
 ### Changed

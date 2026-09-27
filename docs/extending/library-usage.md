@@ -189,6 +189,19 @@ two machines is unsupported — use a session serially (close on one
 machine, then resume on the other), and fork the session when a growth
 warning fires.
 
+A provider's overflow refusal usually states the context window it
+enforces; when moh recognizes that number it appends one
+`declared_window` chrome event (`model`, `window`, and the `catalog`
+figure it replaced) and uses the declared window for that model
+reference for the rest of the session — the compaction trigger, the tail
+cut ceiling, the context-fit guard (`session.contextFit(ref)`) and the
+fallback chain all read it through the same lookup
+(`session.declaredWindowFor(ref)` is the read-only view a client shows
+next to the catalog figure). The event is chrome: never provider
+context, never a turn error. A refusal whose wording moh does not
+recognize changes nothing and leaves one line in
+`<home>/context-refusals.log` instead.
+
 `send` accepts options (ADR-0011): `session.send(text, { prompt: { name,
 text } })` attaches a turn-scoped skill prompt that rides the system
 prompt for exactly one turn — the user message (and its persisted event)
