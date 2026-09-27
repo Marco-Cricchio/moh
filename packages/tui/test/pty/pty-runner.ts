@@ -24,9 +24,12 @@ export interface PtySpec {
   /** Files written into the child's cwd (base64 name → content), so
    * mentions can attach real project files. */
   files?: Record<string, string>;
+  /** #1023: number of seeded existing sessions in the temp project's
+   * session directory, so the Home list has rows. */
+  seedSessions?: number;
   /** `checkpoint` snapshots physical screen + native scrollback after this
    * step, letting one script assert a mid-stream viewport and final settle. */
-  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; checkpoint?: string }>;
+  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; checkpoint?: string; mark?: boolean; markEnd?: boolean }>;
   tail?: number;
 }
 
@@ -53,6 +56,24 @@ export interface PtyMeta {
   /** #236: sampled before the harness kills the process — unlike `exited`,
    * false here genuinely means the app died mid-script (OOM/kill). */
   aliveAtEnd?: boolean;
+  /** #1022: the widest single repaint measured on the physical screen — the
+   * row span one frame wrote, i.e. the height ink compares against
+   * `stdout.rows` when it picks the log-update or the fullscreen path. */
+  maxFrameRows?: number;
+  /** #1022: repaints that took ink's fullscreen path (clearTerminal + full
+   * static reprint) — the corruption this guard exists to prevent. */
+  fullscreenFrames?: number;
+  /** #1022: repaints observed AFTER the last `mark` step, and how many of
+   * them took ink's fullscreen path. A startup ramp may blip fullscreen
+   * (Home's own geometry); the stream that follows must not. */
+  framesAfterMark?: number;
+  fullscreenAfterMark?: number;
+  /** #1022: the widest log-update frame after the mark, measured on the
+   * physical screen — must stay strictly below the terminal height. */
+  maxFrameRowsAfterMark?: number;
+  /** #1022: how many repaints the harness observed (frame-accounting
+   * sanity: a geometry that never repaints proves nothing). */
+  frames?: number;
   /** Named physical-screen snapshots captured at PTY script checkpoints. */
   checkpoints?: Record<string, { lines: PtyLine[]; scrollback: string[] }>;
 }

@@ -23,6 +23,7 @@ Each reported line: {"lead": <leading spaces>, "width": <rstripped length>,
 import codecs
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import pty
@@ -36,6 +37,7 @@ import sys
 import tempfile
 import termios
 import time
+import uuid
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 CLI = os.path.join(REPO_ROOT, "packages", "cli", "src", "cli.ts")
@@ -67,9 +69,72 @@ class Screen:
         self.sync_grid = None
         self.sync_scrollback_len = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        # Frame accounting (#1022): ink writes one repaint as
+        # `eraseLines(previous) + frame + cursor suffix` inside a DECSET-2026
+        # sync block. The frame's height is the line count of that payload
+        # (`outputHeight`), which is what ink compares against `stdout.rows`
+        # when it picks between the log-update path and the fullscreen one —
+        # measuring it here reads the physical frame, not an estimate.
+        self.frames = []  # completed repaints: height in rows
+        self.windows = []  # per repaint: (requested height, fullscreen?)
+        self.max_frame_rows = 0
+        self.fullscreen_frames = 0  # repaints that took ink's clearTerminal path
+        # Marks the end of the startup ramp: fullscreen blips before it are
+        # the Home screen's own geometry, not the streaming frame (#1022).
+        self.mark = None
+        self.markEnd = None
+        self._frame_top = None
+        self._frame_bottom = None
+        self._frame_newlines = 0
+        self._frame_erase = False
+        self._frame_clear = False
+        self._frame_trailing_newline = False
 
     def feed_bytes(self, data: bytes) -> None:
         self.feed(self.decoder.decode(data))
+
+    def _touch(self, row: int) -> None:
+        if self._frame_top is None or row < self._frame_top:
+            self._frame_top = row
+        if self._frame_bottom is None or row > self._frame_bottom:
+            self._frame_bottom = row
+
+    def _open_frame(self) -> None:
+        self._frame_top = self._frame_bottom = None
+        self._frame_newlines = 0
+        self._frame_erase = False
+        self._frame_clear = False
+        self._frame_trailing_newline = False
+
+    def _close_frame(self) -> None:
+        """Ends the current repaint and records its rendered height.
+
+        Two independent readings, the larger wins: the payload's line count
+        (exact for a log-update repaint) and the span of rows whose content
+        the repaint touched (the fallback for a stream without sync markers).
+        A block that carries a full-screen clear is ink's fullscreen path —
+        counted separately, never as a height."""
+        span = 0
+        if self._frame_top is not None:
+            span = self._frame_bottom - self._frame_top + 1
+        newlines, erase, clear = self._frame_newlines, self._frame_erase, self._frame_clear
+        trailing = self._frame_trailing_newline
+        self._open_frame()
+        if clear:
+            self.fullscreen_frames += 1
+            self.windows.append((0, True))
+            return
+        if not erase and not span:
+            return  # not a frame repaint (a plain write, e.g. patched console)
+        # `output + '\n'` (log-update's rewrite payload) carries one newline
+        # more than the frame has rows; the fullscreen payload carries none.
+        # Rows the frame actually paints: the newlines it wrote, plus the
+        # open last line when the payload did not end with one.
+        height = max(span, newlines + (0 if trailing else (1 if span or newlines else 0)))
+        self.frames.append(height)
+        self.windows.append((height, False))
+        if height > self.max_frame_rows:
+            self.max_frame_rows = height
 
     def _scroll(self) -> None:
         if self.row >= self.rows:
@@ -84,8 +149,10 @@ class Screen:
             self.col = 0
             self.row += 1
             self._scroll()
+        self._touch(self.row)
         self.grid[self.row][self.col] = ch
         self.col += 1
+        self._frame_trailing_newline = False
 
     def feed(self, text: str) -> None:
         text = self.pending + text
@@ -114,6 +181,11 @@ class Screen:
             elif ch == "\n":
                 self.row += 1
                 self._scroll()
+                # #1022: the frame's own line breaks are its height — the
+                # live tail, once promoted, leaves the frame for scrollback,
+                # so only the frame's rows are counted here.
+                self._frame_newlines += 1
+                self._frame_trailing_newline = True
             elif ch == "\b":
                 self.col = max(0, self.col - 1)
             elif ch == "\t":
@@ -130,11 +202,14 @@ class Screen:
         if os.environ.get("MOH_SYNC_DEBUG") and "2026" in seq:
             sys.stderr.write(f"SYNC {seq!r}\n")
         if re.fullmatch(r"\x1b\[\?2026;?\d*h", seq):
+            # #1022: a repaint begins — the sync block delimits one frame.
+            self._open_frame()
             self.sync_active = True
             self.sync_opened = time.time()
             self.sync_grid = [row[:] for row in self.grid]
             return
         if re.fullmatch(r"\x1b\[\?2026;?\d*l", seq):
+            self._close_frame()
             self.sync_active = False
             self.sync_grid = None
             return
@@ -158,6 +233,14 @@ class Screen:
             self.col = min(self.cols - 1, max(0, c - 1))
         elif final == "K":
             mode = p1 or 0
+            if mode == 2:
+                # A repaint without sync markers (non-TTY or CI) delimits its
+                # frames with `eraseLines`: the first full-line erase opens a
+                # fresh frame, so the previous one is measured here if the
+                # stream never emitted a sync block (#1022).
+                if self._frame_erase and not self.sync_active:
+                    self._close_frame()
+                self._frame_erase = True
             start, end = self.col, self.cols
             if mode == 1:
                 start, end = 0, self.col + 1
@@ -169,8 +252,10 @@ class Screen:
             mode = p1 or 0
             if mode == 3:
                 self.scrollback.clear()
+                self._frame_clear = True
             elif mode == 2:
                 self.grid = [[" "] * self.cols for _ in range(self.rows)]
+                self._frame_clear = True
             elif mode == 0:
                 for c in range(self.col, self.cols):
                     self.grid[self.row][c] = " "
@@ -314,6 +399,23 @@ def main() -> None:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "wb") as f:
                 f.write(base64.b64decode(content))
+    # #1023: seeded existing sessions so the Home list has rows. One JSONL
+    # line per event; a single `user_message` gives each session a title
+    # and an unconsumed state (no `session_resumed` in the log). The legacy
+    # path-derived slug matches what the child's `SessionStore.list` reads.
+    if isinstance(spec.get("seedSessions"), int) and spec["seedSessions"] > 0:
+        slug_base = os.path.basename(cwd.rstrip("/")).lower()
+        slug_base = "".join(c if c.isalnum() or c in "._-" else "-" for c in slug_base).strip("-") or "project"
+        slug = f"{slug_base}-" + hashlib.sha256(os.path.realpath(cwd).encode()).hexdigest()[:8]
+        sess_dir = os.path.join(home, ".moh", "projects", slug)
+        os.makedirs(sess_dir, exist_ok=True)
+        stamp = int(time.time() * 1000)
+        for i in range(spec["seedSessions"]):
+            sid = time.strftime("%Y%m%dT%H%M%S", time.gmtime(stamp / 1000)) + ("%03dZ" % (stamp % 1000)) + "-" + uuid.uuid4().hex[:8]
+            event = {"type": "user_message", "text": f"seeded session number {i + 1}"}
+            with open(os.path.join(sess_dir, sid + ".jsonl"), "w") as f:
+                f.write(json.dumps(event) + "\n")
+            stamp += 1
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     # CI=true silences Ink entirely (it detects CI environments and skips
@@ -433,6 +535,19 @@ def main() -> None:
                 if step.get("send"):
                     send(step["send"])
                 pump(step.get("wait", 0.3))
+            if step.get("mark"):
+                # #1022: a mark delimits measurement windows — the window
+                # following it is the one the assertions are about. The frame
+                # being painted right now counts for the window that is
+                # closing, not for the one that opens here.
+                screen._close_frame()
+                screen.mark = len(screen.windows)
+            if step.get("markEnd"):
+                # #1022: closes the window opened by the last `mark` — the
+                # frames after this point belong to another phase (settle)
+                # and must not be attributed to the streaming window.
+                screen._close_frame()
+                screen.markEnd = len(screen.windows)
             if step.get("checkpoint"):
                 checkpoints[step["checkpoint"]] = snapshot()
         resize = spec.get("resize")
@@ -501,7 +616,12 @@ def main() -> None:
     payload = out
     if os.environ.get("MOH_PTY_DUMP"):
         json.dump(checkpoints, open(os.environ["MOH_PTY_DUMP"], "w"), default=str)
-    payload = {"lines": out, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end}
+    mark = screen.mark or 0
+    end = screen.markEnd if screen.markEnd is not None else len(screen.windows)
+    window = screen.windows[mark:end]
+    fullscreen_after_mark = sum(1 for _, is_fullscreen in window if is_fullscreen)
+    rows_after_mark = [height for height, is_fullscreen in window if not is_fullscreen]
+    payload = {"lines": out, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end, "maxFrameRows": screen.max_frame_rows, "frames": len(screen.frames), "fullscreenFrames": screen.fullscreen_frames, "framesAfterMark": len(window), "maxFrameRowsAfterMark": max(rows_after_mark) if rows_after_mark else 0, "fullscreenAfterMark": fullscreen_after_mark}
     json.dump(payload, sys.stdout)
 
 

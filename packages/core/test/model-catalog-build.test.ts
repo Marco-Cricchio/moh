@@ -4,11 +4,15 @@ import {
   buildManifest,
   buildReport,
   coverageOf,
+  formatAge,
+  formatFreshness,
+  freshnessReport,
   hasNonzeroPricing,
   migrateOverrides,
   modelsDevPricing,
   openRouterPricing,
   projectModalities,
+  releaseVersionProblem,
   type AggregatorSnapshots,
   type CatalogOverrides,
 } from "../src/model-catalog-build";
@@ -284,6 +288,35 @@ describe("#959 guards", () => {
     expect(declared.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(50);
   });
 
+  test("a window the committed catalog had cannot disappear (#1004), with or without the shrink accepted", () => {
+    // The aggregator record is gone: the build produces no window at all.
+    const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 } } }) } });
+    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }), upstream, { previous });
+    const lost = hatched.issues.find((i) => i.code === "context-window-lost");
+    expect(lost?.level).toBe("error");
+    // The remedy is the declaration: the hatch has no number to accept.
+    expect(lost?.message).not.toContain("acceptContextShrink");
+    expect(hatched.file["openai-completions"]!["demo-1"]!.contextWindow).toBeUndefined();
+
+    const bare = buildCatalog(sidecar({ rows: { "demo-1": row() } }), upstream, { previous });
+    expect(bare.issues.find((i) => i.code === "context-window-lost")?.level).toBe("error");
+    expect(bare.issues.some((i) => i.code === "context-window-regression")).toBe(false);
+  });
+
+  test("the shrink escape hatch accepts a smaller number, and only a number (#1004)", () => {
+    const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, limit: { context: 50 } } }) } });
+    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }), upstream, { previous });
+    expect(hatched.issues).toEqual([]);
+    expect(hatched.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(50);
+  });
+
+  test("a row that declares its window is not guarded at all", () => {
+    const declared = row({ contextWindow: 100, cost: { input: 1, output: 2 } });
+    const gone = buildCatalog(sidecar({ rows: { "demo-1": declared } }), snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1" } }) } }), { previous });
+    expect(gone.issues).toEqual([]);
+    expect(gone.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(100);
+  });
+
   test("losing a metered price fails generation unless the sidecar declares it", () => {
     const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 0, output: 0 }, limit: { context: 100 } } }) } });
     const silent = buildCatalog(sidecar({ rows: { "demo-1": row() } }), upstream, { previous });
@@ -292,6 +325,21 @@ describe("#959 guards", () => {
     const declared = buildCatalog(sidecar({ rows: { "demo-1": row({ cost: { input: 1, output: 2 } }) } }), upstream, { previous });
     expect(declared.issues).toEqual([]);
     expect(declared.file["openai-completions"]!["demo-1"]!.cost).toEqual({ input: 1, output: 2 });
+  });
+
+  test("a retired row leaves the catalog, and only a declaration removes one (#1005)", () => {
+    // The declaration is what authorizes the removal: with it, the row is
+    // written nowhere and none of the presence guards fire against it.
+    const retired = buildCatalog(sidecar({ rows: { "demo-1": row({ retired: true }), "demo-2": row() } }), snapshots({}), { previous });
+    expect(retired.issues).toEqual([]);
+    expect(retired.file["openai-completions"]!["demo-1"]).toBeUndefined();
+    expect(retired.file["openai-completions"]!["demo-2"]).toBeDefined();
+
+    // Without it, the same upstream change is a guard finding: a row that
+    // stops matching is never a silent removal.
+    const silent = buildCatalog(sidecar({ rows: { "demo-1": row() } }), snapshots({}), { previous });
+    expect(silent.issues.map((i) => i.code)).toContain("context-window-lost");
+    expect(silent.issues.map((i) => i.code)).toContain("pricing-coverage-drop");
   });
 
   test("row ids stay unique across the api groups of one catalog", () => {
@@ -341,6 +389,9 @@ describe("#959 migration (committed catalog → sidecar)", () => {
     const row = overrides.rows["demo-x"]!;
     expect(row).toMatchObject({ name: "Demo X", cost: { input: 1, output: 2 }, contextWindow: 100 });
     expect(row.reason).toContain("no aggregator record");
+    // Nothing to accept: the record is missing, so the window is declared
+    // (and the guard is moot for the row) rather than a shrink accepted.
+    expect(row.acceptContextShrink).toBeUndefined();
     expect(notes.map((n) => n.code)).toEqual(["absent-row"]);
   });
 
@@ -439,6 +490,116 @@ describe("#959 manifest and report", () => {
     expect(report.contextWindowShrinks).toEqual([{ provider: "demo", id: "demo-1", from: 100, to: 50, declared: true }]);
     expect(report.files[0]!.previous).toEqual({ rows: 1, pricing: 1, contextWindow: 1, maxTokens: 0, reasoning: 0, input: 0 });
     expect(report.changes.contextWindow).toEqual([{ provider: "demo", id: "demo-1", from: 100, to: 50 }]);
+  });
+
+  test("the version contract names both versions when they disagree", () => {
+    expect(releaseVersionProblem("0.50.3", "0.50.3")).toBeUndefined();
+    expect(releaseVersionProblem("0.50.0", "0.50.1")).toBe(
+      "manifest.json declares moh 0.50.0, but the release is 0.50.1 — regenerate with --version 0.50.1 and commit the result",
+    );
+    expect(releaseVersionProblem(undefined, "0.50.1")).toContain("declares moh (no version), but the release is 0.50.1");
+  });
+
+  test("age reads at a glance and an unusable date is unknown, never zero", () => {
+    expect(formatAge(0)).toBe("0m");
+    expect(formatAge(12 * 60_000)).toBe("12m");
+    expect(formatAge(5 * 3_600_000 + 20 * 60_000)).toBe("5h 20m");
+    expect(formatAge(31 * 3_600_000)).toBe("1d 7h");
+    // a future date is clock skew, not a negative age
+    expect(formatAge(-60_000)).toBe("0m");
+    expect(formatAge(Number.NaN)).toBe("unknown");
+  });
+
+  test("freshness reports the age against the tagged commit, deduplicated by file", () => {
+    const drift = [
+      { file: "anthropic.json", message: "differs from the rebuild" },
+      { file: "anthropic.json", message: "does not match the hash recorded in manifest.json" },
+      { file: "zai.json", message: "differs from the rebuild" },
+    ];
+    const report = freshnessReport({
+      manifest: { version: "0.50.1", generatedAt: "2026-09-24T11:45:00.000Z" },
+      reference: "2026-09-25T12:02:00.000Z",
+      drift,
+      totalFiles: 25,
+      rebuiltFiles: 25,
+    });
+    expect(report.version).toBe("0.50.1");
+    expect(report.age).toBe("1d 0h");
+    expect(report.totalFiles).toBe(25);
+    expect(report.driftedFiles).toEqual(["anthropic.json", "zai.json"]);
+    const text = formatFreshness(
+      report,
+      { pricing: 4, contextWindow: 1, reasoning: 0 },
+      drift,
+      ["price: demo/demo-1 1/2 → 1.5/3 USD per 1M", "context: demo/demo-1 100 → 200"],
+    );
+    expect(text.split("\n")[0]).toBe(
+      "catalog freshness — the committed catalog declares moh 0.50.1, generated 2026-09-24T11:45:00.000Z — 1d 0h old against 2026-09-25T12:02:00.000Z",
+    );
+    expect(text).toContain("upstream moved since: 2 of 25 file(s) differ — 4 price(s), 1 context window(s), 0 reasoning flag(s)");
+    expect(text.split("\n")[3]).toBe("  anthropic.json: does not match the hash recorded in manifest.json");
+    expect(text.endsWith("  context: demo/demo-1 100 → 200")).toBe(true);
+  });
+
+  test("a manifest without a date reports an unknown age rather than an empty one", () => {
+    const report = freshnessReport({ manifest: {}, reference: "2026-09-25T12:02:00.000Z", drift: [], totalFiles: 25 });
+    expect(report).toMatchObject({ age: "unknown", driftedFiles: [], totalFiles: 25 });
+    expect(report.version).toBeUndefined();
+    expect(report.generatedAt).toBeUndefined();
+    expect(formatFreshness(report, { pricing: 0, contextWindow: 0, reasoning: 0 }, [], [])).toContain(
+      "declares moh (no version), generated (no date) — unknown old",
+    );
+  });
+
+  test("a rebuild the guards refused reports a lower-bound file count and no row counts", () => {
+    const report = freshnessReport({
+      manifest: { version: "0.50.1", generatedAt: "2026-09-24T11:45:00.000Z" },
+      reference: "2026-09-25T12:02:00.000Z",
+      drift: [{ file: "anthropic.json", message: "differs from the rebuild" }],
+      totalFiles: 25,
+    });
+    expect(report.rebuiltFiles).toBeUndefined();
+    const text = formatFreshness(report, undefined, [{ file: "anthropic.json", message: "differs from the rebuild" }], []);
+    expect(text).toContain(
+      "upstream moved since: 1 or more of 25 file(s) differ, and the rebuild stopped before it could compare them all — the rebuild was refused by the guards, so no row-level move could be counted",
+    );
+    // With a rebuild that went through, both halves are measured.
+    const measured = freshnessReport({ manifest: { version: "0.50.1" }, reference: "2026-09-25T12:02:00.000Z", drift: [], totalFiles: 25, rebuiltFiles: 25 });
+    expect(measured.rebuiltFiles).toBe(25);
+    expect(formatFreshness(measured, { pricing: 0, contextWindow: 0, reasoning: 0 }, [], [])).toContain("upstream moved since: 0 of 25 file(s) differ — 0 price(s)");
+  });
+
+  test("the report tells a lost window apart from an accepted correction (#1004)", () => {
+    const previous = { demo: { "openai-completions": { "demo-1": { id: "demo-1", contextWindow: 100 } } } };
+    const gone = buildReport({
+      version: "0.50.0",
+      generatedAt: "2026-09-24T00:00:00.000Z",
+      sources: [],
+      catalogs: [buildCatalog(sidecar({ rows: { "demo-1": row() } }), snapshots({}), { previous: previous.demo })],
+      previous,
+    });
+    // The loss is the guard's fact, and the report carries it as a finding:
+    // a generation that reaches the row-level arrays wrote something, so a
+    // window the build no longer produces never looks like a move here.
+    expect(gone.issues.map((i) => i.code)).toContain("context-window-lost");
+    expect(gone.contextWindowShrinks).toEqual([]);
+    expect(gone.changes.contextWindow).toEqual([]);
+
+    const shrunk = buildReport({
+      version: "0.50.0",
+      generatedAt: "2026-09-24T00:00:00.000Z",
+      sources: [],
+      catalogs: [
+        buildCatalog(
+          sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }),
+          snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", limit: { context: 50 } } }) } }),
+          { previous: previous.demo },
+        ),
+      ],
+      previous,
+    });
+    expect(shrunk.issues.map((i) => i.code)).not.toContain("context-window-lost");
+    expect(shrunk.contextWindowShrinks).toEqual([{ provider: "demo", id: "demo-1", from: 100, to: 50, declared: true }]);
   });
 
   test("coverage counts a plan entry as pricing, zero-only entries as none", () => {

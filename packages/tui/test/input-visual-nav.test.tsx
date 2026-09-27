@@ -132,6 +132,86 @@ describe("multiline input readline history recall across visual lines (#430)", (
   });
 });
 
+describe("multiline input history recall skips slash commands (#1008)", () => {
+  test("up recall surfaces the real prompt, never the /command stored after it", async () => {
+    const submitted: string[] = [];
+    const rendered = render(<MultilineInput placeholder="p" focused onSubmit={(t) => submitted.push(t)} />);
+    await sleep(30);
+    const i = { stdin: rendered.stdin, frame: () => stripAnsi(rendered.lastFrame() ?? ""), unmount: () => rendered.unmount() };
+    i.stdin.write("real prompt");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 1);
+    i.stdin.write("/theme");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 2);
+    // up at the empty draft: first staged edge press, then the recall —
+    // it must land on "real prompt", skipping "/theme"
+    i.stdin.write("\x1b[A");
+    await sleep(60);
+    i.stdin.write("\x1b[A");
+    await untilFrame(() => i.frame(), (f) => f.includes("real prompt"));
+    expect(i.frame().split("\n")).not.toContain("   /theme");
+    i.unmount();
+  });
+
+  test("a walk entered on a non-command entry skips a command on the way down and exits to the draft", async () => {
+    const submitted: string[] = [];
+    const rendered = render(<MultilineInput placeholder="p" focused onSubmit={(t) => submitted.push(t)} />);
+    await sleep(30);
+    const i = { stdin: rendered.stdin, frame: () => stripAnsi(rendered.lastFrame() ?? ""), unmount: () => rendered.unmount() };
+    i.stdin.write("older prompt");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 1);
+    i.stdin.write("/model sonnet");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 2);
+    i.stdin.write("newer prompt");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 3);
+    // enter the walk: history is [newer prompt, /model sonnet, older prompt]
+    i.stdin.write("\x1b[A");
+    await sleep(60);
+    i.stdin.write("\x1b[A");
+    await untilFrame(() => i.frame(), (f) => f.includes("newer prompt"));
+    // down: skips "/model sonnet", lands on "older prompt"
+    i.stdin.write("\x1b[B");
+    await untilFrame(() => i.frame(), (f) => f.includes("older prompt"));
+    // down past the last non-command entry: back to the (empty) draft
+    i.stdin.write("\x1b[B");
+    await sleep(60);
+    expect(i.frame()).not.toContain("older prompt");
+    i.unmount();
+  });
+
+  test("recall does nothing when the whole history is slash commands", async () => {
+    const submitted: string[] = [];
+    const rendered = render(<MultilineInput placeholder="p" focused onSubmit={(t) => submitted.push(t)} />);
+    await sleep(30);
+    const i = { stdin: rendered.stdin, frame: () => stripAnsi(rendered.lastFrame() ?? ""), unmount: () => rendered.unmount() };
+    i.stdin.write("/theme");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 1);
+    i.stdin.write("/model");
+    await sleep(30);
+    i.stdin.write("\r");
+    await untilFrame(() => i.frame(), () => submitted.length === 2);
+    // both staged-edge presses recall nothing: the draft stays empty
+    i.stdin.write("\x1b[A");
+    await sleep(60);
+    i.stdin.write("\x1b[A");
+    await sleep(60);
+    expect(i.frame()).not.toContain("/theme");
+    expect(i.frame()).not.toContain("/model");
+    i.unmount();
+  });
+});
+
 describe("multiline input word-jump across newlines (#430)", () => {
   test("ctrl+right crosses the line boundary to the next word", async () => {
     const i = await mount();

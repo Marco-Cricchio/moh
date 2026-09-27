@@ -7,6 +7,71 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-09-27
+
+### Added
+
+- **`ctrl+c` clears the composer** (#1009): a draft — pasted, multi-line, or
+  recalled from history — could only be deleted by hand, because a single
+  `ctrl+c` merely armed the exit toast. Over a non-empty composer the press
+  now empties it as one undoable edit (`ctrl+z` brings the draft back) and
+  resets the exit sequence, so clear → clear can never quit by accident. On
+  an empty composer, and over a modal, a running turn or a focused chip,
+  `ctrl+c` still means "press twice to exit".
+
+### Changed
+
+- **The empty composer's hint now points at the door** (#1010): it read
+  `type… (shift+enter newline · ctrl+a/e line start/end)` — the line-editing
+  keys — and now reads `/ask-moh - for everything you need (shift+enter ||
+  ctrl+j newline)`, which is what a user staring at an empty prompt actually
+  needs: the router over the workflow skills and the manual.
+  `ctrl+a/e` still moves the cursor to the line start/end and stays in the
+  `?` panel and the manual; it only leaves the hint. The hint stands where it
+  fits one row, the narrower columns keep the short `type…` form.
+- **The model catalog was regenerated** (#1005): 11 OpenRouter prices moved,
+  including `z-ai/glm-5.3` 0.38/1.19 → 1.4/4.4,
+  `~moonshotai/kimi-latest` 1.03/9.04 → 1/9, and
+  `deepseek/deepseek-v4-pro` 0.37/0.74 → 0.35/0.70. The
+  `deepseek-v4-pro-0813` output rate moved to 3.5, while the other changes
+  cover DeepSeek, MiniMax, GLM and Kimi aliases. No context windows or
+  reasoning flags changed, and the report has no issue or context-window
+  shrink. The catalog contains 557 rows across 25 files; the drift compare
+  is green again.
+- **The release-time catalog check reports instead of failing, and the version
+  contract is now enforced** (#1005, ADR-0046 amendment): the `catalog-check`
+  job that runs at every tag was red by default — three of the last four tags
+  failed it, and the two green ones were green only because someone
+  regenerated the catalog minutes before tagging (measured upstream drift
+  windows of ~4–5 hours). A signal that is red as a steady state distinguishes
+  nothing, so at the tag the job now reports: the committed catalog's age
+  against the tagged commit, how many of the 25 files moved upstream, and one
+  line per changed row (price, context window, reasoning flag). It still never
+  gates, and no flavour of drift turns it red: a rebuild its guards reject
+  reports less — the age and the drifted files, with the row-level counts
+  reading `--` — instead of failing. The drift compare that exits non-zero is
+  untouched and moves from a weekly to a **daily** schedule, so staleness
+  surfaces between releases instead of at the tag.
+  Regenerating the catalog declaring the release being cut is now a documented
+  step of the release flow, before the tag (`CONTRIBUTING.md`), and a new
+  `version-check` job **does** gate publication: a release shipping a manifest
+  that declares another version never becomes a draft Release, because
+  `PRICING_SNAPSHOT.version` is a public export read from that manifest —
+  v0.50.1 shipped a manifest declaring 0.50.0.
+
+### Fixed
+
+- **A catalog row can no longer ship without its context window** (#1004,
+  ADR-0046 amendment): the `acceptContextShrink` escape hatch was tested
+  against a value the build *derives*, so a row whose aggregator record
+  disappeared produced `0` — which is exactly the "smaller window" test the
+  hatch accepts. The loss passed with `issues: []`, and a model with no
+  catalog window makes the context-fit guard abstain, so it would have been
+  offered for a session of any size. The hatch now accepts a smaller number
+  only; a window the build no longer produces fails generation as
+  `context-window-lost`, and the seven rows that carried the hatch declare the
+  window they already had.
+
 ## [0.50.3] - 2026-09-26
 
 ### Fixed
@@ -1101,7 +1166,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...develop
+[0.51.0]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...v0.51.0
 [0.50.3]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...v0.50.3
 [0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1

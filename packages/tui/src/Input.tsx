@@ -6,11 +6,29 @@ import { useViewport, windowing } from "./viewport";
 import { fuzzyRank } from "./file-index";
 import type { CommandEntry } from "./commands";
 
+/**
+ * #1009: ctrl+c is handled in App's `useInput` (it is the exit key) while the
+ * draft lives here, so the composer publishes this handle and App asks it
+ * before treating a press as an exit. The precondition lives on this side of
+ * the seam because the composer is the only place that knows it.
+ */
+export interface ComposerHandle {
+  /** Focused, enabled and holding a draft: this press may be swallowed as a
+   * clear. False in every other state — there, ctrl+c is the double-press
+   * exit it has always been. */
+  canClear(): boolean;
+  /** Empties the draft as one undoable edit: ctrl+z restores it. */
+  clear(): void;
+}
+
 export interface InputProps {
   placeholder?: string;
   disabled?: boolean;
   onAskCommands?: () => void;
   focused?: boolean;
+  /** #1009: receives the handle above while this composer is mounted, null
+   * again once it unmounts (a gone draft must never answer a keypress). */
+  composerHandle?: React.RefObject<ComposerHandle | null>;
   /** Incremented by the focused send chip to submit the current draft. */
   submitSignal?: number;
   /** An external, unsent composer prefill (for example a claimed-issue route). */
@@ -33,6 +51,19 @@ export interface InputProps {
    * bracketed paste; returning a path inserts it as an `@path` mention
    * (terminal drag-and-drop), null inserts verbatim. */
   onPastePath?: (paste: string) => string | null;
+  /** #1022: the composer's rendered row count (draft window + completion
+   * popup), republished whenever it changes. The volatile-transcript budget
+   * is computed against the footer that is actually rendered, so the chrome
+   * holding the composer must be measured, never assumed: a multi-row
+   * steering draft adds rows no fixed estimate can see. */
+  onRowsChange?: (rows: number) => void;
+  /** #1022: the most rows this composer may occupy. The frame it belongs to
+   * must stay strictly below the terminal height or ink takes its fullscreen
+   * path (clearTerminal + scrollback wipe per frame); on a small terminal
+   * that is only possible by capping the composer, so the owner of the
+   * budget computes the cap and the composer clamps its draft window and
+   * popup to it — the draft scrolls, nothing is lost. */
+  maxRows?: number;
   onSubmit(text: string): void;
 }
 
@@ -47,6 +78,15 @@ const HISTORY_LIMIT = 100;
  * `visible` toggle so on/off each last BLINK_MS. Slightly slower than a
  * classic terminal (~530ms full cycle) per owner preference. */
 const BLINK_MS = 400;
+
+/** The composer's one notion of "empty" (#1009): the placeholder is rendered
+ * exactly when this holds, and a ctrl+c on an empty draft stays an exit
+ * press — so the render and the key handler must never drift apart. A
+ * whitespace-only draft is *not* empty here: it is visible text the user can
+ * clear. */
+function isEmptyDraft(lines: readonly string[]): boolean {
+  return lines.length === 1 && lines[0] === "";
+}
 
 function graphemes(value: string): Intl.SegmentData[] {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
@@ -133,12 +173,15 @@ export function MultilineInput({
   disabled,
   onAskCommands,
   focused = true,
+  composerHandle,
   submitSignal = 0,
   prefill,
   commands = [],
   onSuggestionsOpen,
   mentionCandidates = [],
   onPastePath,
+  onRowsChange,
+  maxRows,
   onSubmit,
 }: InputProps) {
   const theme = useTheme();
@@ -278,15 +321,38 @@ export function MultilineInput({
     setPreferredColumn(null);
   };
 
+  /** Empties the editor, the walk state around it and the completion popup —
+   * one definition of "the composer is empty now". `undoable` records the
+   * outgoing draft first: a clear can be undone, a send cannot (that text went
+   * to the model). */
+  const emptyDraft = (undoable: boolean) => {
+    if (undoable) record();
+    setEditor({ lines: [""], line: 0, column: 0 });
+    setHistoryIndex(-1);
+    setHistoryDraft(null);
+    setScrollOffset(0);
+    setSuggestionIndex(0);
+    if (!undoable) { setUndo([]); setRedo([]); }
+  };
+
+  // #1009: the handle App's ctrl+c handler reads. Republished after every
+  // render (its closures read current state) and nulled both on re-publish and
+  // on unmount: the Home screen mounts no composer, and a stale handle must
+  // never answer for a draft that is gone.
+  useEffect(() => {
+    if (!composerHandle) return;
+    composerHandle.current = {
+      canClear: () => !disabled && focused && !isEmptyDraft(lines),
+      clear: () => emptyDraft(true),
+    };
+    return () => { composerHandle.current = null; };
+  });
+
   const submit = () => {
     const text = lines.join("\n").trim();
     if (!text) return;
     setHistory((items) => [text, ...items.filter((item) => item !== text)].slice(0, HISTORY_LIMIT));
-    setHistoryIndex(-1);
-    setHistoryDraft(null);
-    setLines([""]); setCursorLine(0); setCursorColumn(0); setScrollOffset(0);
-    setUndo([]); setRedo([]);
-    setSuggestionIndex(0);
+    emptyDraft(false);
     // The composer is empty again: the next prefill applies even when it is
     // the very text just sent (a cancelled confirmation hands it back).
     previousPrefill.current = undefined;
@@ -502,8 +568,15 @@ export function MultilineInput({
       const atLastVisualLine = visualIndex === visualLines.length - 1;
       // Readline walking recall: once entered (historyIndex >= 0), ↑/↓ keep
       // walking the history until a horizontal move or edit breaks the walk.
+      // Slash commands stay stored (#1008) but are skipped during the walk:
+      // they are command noise for recall, not prompts.
+      const recallableFrom = (from: number, dir: number): number => {
+        let i = from + dir;
+        while (i >= 0 && i < history.length && history[i]!.startsWith("/")) i += dir;
+        return i;
+      };
       if (history.length && historyIndex >= 0) {
-        const next = historyIndex + (direction < 0 ? 1 : -1);
+        const next = recallableFrom(historyIndex, direction < 0 ? 1 : -1);
         if (next < 0) { if (historyDraft) setEditor(historyDraft); setHistoryIndex(-1); }
         else if (next < history.length) { setHistoryIndex(next); replaceText(history[next]!, "end"); }
         return;
@@ -513,7 +586,10 @@ export function MultilineInput({
       // further press at that edge recalls the history (fish-style readline).
       if (direction < 0 && atFirstVisualLine) {
         if (cursorColumn > 0) { setCursorColumn(0); setPreferredColumn(null); return; }
-        if (history.length) { setHistoryDraft(snapshot()); setHistoryIndex(0); replaceText(history[0]!, "end"); }
+        if (history.length) {
+          const first = recallableFrom(-1, 1); // entering the walk upward: scan from the newest entry (index 0) toward older ones
+          if (first >= 0 && first < history.length) { setHistoryDraft(snapshot()); setHistoryIndex(first); replaceText(history[first]!, "end"); }
+        }
         return;
       }
       if (direction > 0 && atLastVisualLine) {
@@ -541,22 +617,46 @@ export function MultilineInput({
   const popupOpen = (suggestions.length > 0 || mentionEntries.length > 0) && focused && !disabled;
   useEffect(() => { onSuggestionsOpen?.(popupOpen); }, [popupOpen, onSuggestionsOpen]);
   const maxVisible = Math.max(3, Math.floor(viewport.rows * 0.3));
-  const shown = visualLines.slice(scrollOffset, scrollOffset + maxVisible);
-  // The popup scrolls with the selection instead of capping the list.
+  // #1022: the owner of the volatile budget may cap the WHOLE composer, draft
+  // and completion popup together — the frame this composer belongs to must
+  // stay strictly below the terminal, and an uncapped popup would break that
+  // exactly like an uncapped draft did. The draft window gives up its rows
+  // first (it scrolls; the popup is a list the user is choosing from and
+  // stays readable down to one row), and the draft never drops below one.
+  const draftCap = maxRows === undefined ? maxVisible : Math.max(1, Math.min(maxVisible, maxRows));
+  const shown = visualLines.slice(scrollOffset, scrollOffset + draftCap);
   const popupRows = Math.min(5, Math.max(suggestions.length, mentionEntries.length));
   const win = windowing(suggestions.length, Math.min(suggestionIndex, Math.max(0, suggestions.length - 1)), popupRows);
   const mentionWin = windowing(mentionEntries.length, Math.min(suggestionIndex, Math.max(0, mentionEntries.length - 1)), popupRows);
+  // #1022: what this composer will paint — the draft's visible window (the
+  // empty draft renders its one placeholder row) plus whichever completion
+  // popup is open. Reported to the owner of the volatile budget, which
+  // subtracts it from the transcript tail: the frame's height has to hold
+  // below the terminal or ink switches to its fullscreen path. The popup
+  // shares `maxRows` with the draft, otherwise the composer's own cap would
+  // bound only half of what it renders.
+  const draftRows = isEmptyDraft(lines) ? 1 : shown.length;
+  const popupBudget = maxRows === undefined ? Number.MAX_SAFE_INTEGER : Math.max(1, maxRows - draftRows);
+  const popupVisibleRows = Math.min(popupBudget, suggestions.length > 0
+    ? win.count + (win.above > 0 ? 1 : 0) + (win.below > 0 ? 1 : 0)
+    : mentionEntries.length > 0
+      ? mentionWin.count + (mentionWin.above > 0 ? 1 : 0) + (mentionWin.below > 0 ? 1 : 0)
+      : 0);
+  const renderedRows = draftRows + popupVisibleRows;
+  useEffect(() => {
+    onRowsChange?.(renderedRows);
+  }, [renderedRows, onRowsChange]);
 
   return (
     <Box flexDirection="column" width="100%" paddingX={1}>
       <Box flexDirection="column">
-        {!(lines.length === 1 && lines[0] === "") && shown.map((item, index) => {
+        {!isEmptyDraft(lines) && shown.map((item, index) => {
           const active = focused && index === visualLineIndexAtCursor();
           const column = active ? cursorColumn - item.start : -1;
           const cursor = active && cursorVisible && !disabled;
           return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{column >= 0 ? <>{item.text.slice(0, column)}{cursor ? <Text inverse bold>{item.text[column] ?? " "}</Text> : <Text color={focused ? theme.accent : theme.dim}>{item.text[column] ?? " "}</Text>}{item.text.slice(column + 1)}</> : item.text}</> : <>{"  "}{item.text}</>}</Text>;
         })}
-        {lines.length === 1 && lines[0] === "" && (
+        {isEmptyDraft(lines) && (
           <Text>
             <Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text>
             {focused && !disabled && cursorVisible

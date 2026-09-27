@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi } from "./helpers";
+import { COMPOSER_READY, stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -105,7 +105,7 @@ describe("manual modal (#457)", () => {
     i.stdin.write("\x1b"); // esc → back to the index
     await waitFor(i, "getting-started");
     i.stdin.write("\x1b"); // esc → close
-    await waitFor(i, "type… (shift+enter"); // composer back
+    await waitFor(i, COMPOSER_READY); // composer back
     expect(frameOf(i)).not.toContain("Manual →");
     i.unmount();
   });

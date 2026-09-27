@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { browserToolchainRoot, MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { readBrowserSetting, writeBrowserSetting } from "../src/browser-setup";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-browser-set-home-"));
@@ -68,7 +68,7 @@ describe("the Settings Browser row (#934)", () => {
 
   test("enabling from Settings writes this project's moh.json and returns to Settings", async () => {
     const { i, cwd, frame } = appWith({});
-    await waitForFrame(frame, "type…");
+    await waitForFrame(frame, COMPOSER_READY);
     await openSettingsOnBrowser(i, frame);
     expect(frame()).toMatch(/Browser\s+off \(this project\)/);
     i.stdin.write("\r");
@@ -122,7 +122,7 @@ describe("a browser change and the session it affects (#934)", () => {
 
   test("a change with a live session re-assembles it, and says so", async () => {
     const { i, frame } = appWith({});
-    await waitForFrame(frame, "type…");
+    await waitForFrame(frame, COMPOSER_READY);
     await enableFromSettings(i, frame);
     // The tool registers at assembly time, so the live session is rebuilt
     // through the /reload path, carrying the modal's own sentence (the

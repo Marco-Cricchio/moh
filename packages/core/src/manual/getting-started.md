@@ -28,6 +28,12 @@ a running turn:
 - Type to **steer**: your text interrupts and redirects the agent.
 - `esc esc` stops the turn outright.
 - `?` shows every keybinding; the footer always shows what is available.
+- Below 70 columns the footer degrades in tiers instead of wrapping: the
+  context gauge becomes `[xx%]`, the model drops its `endpoint/` prefix then
+  elides then disappears (ctrl+m / `/model` still reach it), and on the
+  where-you-are row the branch drops whole before truncating and the cwd
+  collapses to its tail (`…/moh`) before dropping. The mode glyph and the
+  projection chip survive at every width.
 
 ## Where your data lives
 

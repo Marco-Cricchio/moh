@@ -8,9 +8,9 @@ import { useTheme } from "./themes";
 import { useLiveReasoning } from "./live-reasoning";
 import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
-import { widthClass, useViewport } from "./viewport";
+import { useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
-import { MultilineInput, pasteAsPath } from "./Input";
+import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
@@ -32,6 +32,26 @@ import type { SidebarTokens } from "./sidebar";
 
 export type Mode = "vibe" | "dev";
 const ESC_WINDOW_MS = 1500;
+/** The empty composer's hint: it names the door for "I don't know what to ask"
+ * (`/ask-moh`) and both newline keys. It only stands where it fits one row —
+ * a hint that wraps would make the empty composer two rows tall and snap back
+ * on the first keystroke — so this is the exact-width floor for the long form
+ * (the composer holds a 2-col gutter inside its 2-col padding, and the column
+ * leaves 1 col to the terminal edge); narrower columns get the short form. */
+const COMPOSER_HINT = "/ask-moh - for everything you need (shift+enter || ctrl+j newline)";
+const COMPOSER_HINT_MIN_COLS = COMPOSER_HINT.length + 5;
+
+/**
+ * Does the long composer hint fit one row at this terminal width? A width
+ * that is not a usable number answers "no": a tty whose size could not be
+ * read reports 0 columns (the PTY harness documents that on Linux) or NaN,
+ * and a fallback that failed open there would widen the very composer it
+ * exists to protect. Split out from the render so the degenerate widths are
+ * testable without laying out a frame.
+ */
+export function composerHintFits(columns: number): boolean {
+  return Number.isFinite(columns) && columns >= COMPOSER_HINT_MIN_COLS;
+}
 /** #329: debounce for the width-change transcript rebuild. */
 const RESIZE_REBUILD_DELAY_MS = 150;
 const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
@@ -56,6 +76,9 @@ export interface ChatProps {
   /** Vision note 4 (#490): paste seam — an existing path pastes as an
    * `@path` mention (drag-and-drop). Optional; absent disables conversion. */
   onPastePath?: (paste: string) => string | null;
+  /** #1009: the composer's handle, passed straight through to the input —
+   * App's ctrl+c handler reads it to clear a draft instead of arming exit. */
+  composerHandle?: React.RefObject<ComposerHandle | null>;
   /** Vision note 4 (#490): the resolved preview protocol (caller computes
    * once from the `images.preview` setting + environment). */
   previewMode?: ImagePreviewMode;
@@ -160,6 +183,7 @@ export function Chat({
   onSuggestionsOpen,
   mentionCandidates,
   onPastePath,
+  composerHandle,
   previewMode = { protocol: "none" },
   onCommand,
   width,
@@ -199,6 +223,10 @@ export function Chat({
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
+  // #1022: the composer publishes its rendered height (draft window +
+  // completion popup); the volatile budget below subtracts it. One row until
+  // the first report — the empty composer, which is the honest default.
+  const [composerRows, setComposerRows] = useState(1);
   // Typewriter reveal (777.mov owner acceptance, ported from the fork
   // trial to the native-scrollback model): provider deltas arrive in
   // giant chunks; text should form at a human pace. A wall-clock budget
@@ -307,7 +335,11 @@ export function Chat({
   const gitBranch = useGitBranch(cwd);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
-  const compact = widthClass(viewport) === "compact";
+  // The composer hint — one expression for both policies: the compact width
+  // class and any column narrower than the hint, which subsumes it
+  // (COMPOSER_HINT_MIN_COLS sits above the compact threshold; see
+  // composerHintFits for what an unusable width answers).
+  const composerHint = composerHintFits(cols) ? COMPOSER_HINT : "type…";
   const [tick, setTick] = useState(0);
   // #liveness (variant C): animated glyph frames for running blocks — an
   // independent 120ms clock gated on the turn, never on stream events, so
@@ -557,19 +589,25 @@ export function Chat({
   // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
-  // Empty composer: separators (2) + composer (1) + spacer (1) + status
-  // (2) + blank (1) + bordered action row (3) = 10. The blank row between
-  // the status and the action row was missing from this estimate (#950):
-  // with it at 9 the live tail filled rows - footerRows exactly and ink's
-  // `outputHeight >= rows` check pushed every full frame onto the
-  // fullscreen path (clearTerminal + scrollback wipe per frame).
+  // Separators (2) + spacer (1) + status (2) + blank (1) + bordered action
+  // row (3) = 9 rows of chrome that never change shape; the composer's own
+  // rows are MEASURED (`composerRows`, #1022) instead of assumed to be one.
+  // The 10 that this used to hardcode assumed a one-row composer: a
+  // multi-row steering draft then added rows no estimate could see, the
+  // live frame reached the terminal height, and ink switched to its
+  // fullscreen path (clearTerminal + scrollback wipe) for that frame.
   // This intentionally over-reserves at tiny sizes: a stable footer takes
   // precedence over one more volatile transcript row. #918 adds one plain
   // line while the project root sits on a Windows drive (`/mnt`).
-  const footerRows = 10 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
-  // #950: the volatile frame (live tail + footer) must stay strictly BELOW
-  // the terminal height — outputHeight == rows already pushes ink onto the
-  // fullscreen path (clearTerminal + full static reprint every frame).
+  const fixedFooterRows = 9 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  const footerRows = fixedFooterRows + composerRows;
+  // #1022: the one transcript row the volatile frame keeps at the floor, plus
+  // the safety row ink needs (`outputHeight == rows` already takes the
+  // fullscreen path). The composer's own cap is what makes the invariant hold
+  // by construction instead of by estimate: a draft window that would push
+  // the frame past the terminal is clamped here — the composer scrolls its
+  // window, so nothing is lost — and the tail then takes whatever is left.
+  const composerBudget = Math.max(1, viewport.rows - fixedFooterRows - 2);
   const tailBudget = Math.max(1, viewport.rows - footerRows - 1);
 
   // ── Settled + live projection with #329 head promotion ────────────────
@@ -1138,14 +1176,17 @@ export function Chat({
 
       <ThinkingSeparator level={thinkingLevel} width={cols} />
       <MultilineInput
-        placeholder={compact ? "type…" : "type… (shift+enter newline · ctrl+a/e line start/end)"}
+        placeholder={composerHint}
         disabled={blocked}
         focused={inputFocused}
+        composerHandle={composerHandle}
         onAskCommands={onOpenCommands}
         commands={commands}
         onSuggestionsOpen={onSuggestionsOpen}
         mentionCandidates={mentionCandidates}
         onPastePath={onPastePath}
+        onRowsChange={setComposerRows}
+        maxRows={composerBudget}
         submitSignal={submitSignal}
         prefill={prefill}
         onSubmit={(text) => {
