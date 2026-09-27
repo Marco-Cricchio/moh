@@ -87,6 +87,16 @@ export function resolveApiKey(endpointName: string, kind: string, env: Record<st
   return envApiKey(endpointName, env) ?? providerApiKey(kind, env);
 }
 
+/** One cooldown a route knows about a chain stop: which stop, the kind of
+ * failure that put it there, and when it expires. The same shape travels in
+ * both directions — out through `Route.health()` (the routing layer reads
+ * it) and down through `RouteConfig.inherited` (a child is born knowing it). */
+export interface RouteCooldown {
+  ref: string;
+  kind: string;
+  until: number;
+}
+
 /** The provider-error kinds a stop's cooldown is recorded for (ADR-0012:
  * the fallback-worthy ones plus the deterministic request rejections). */
 type RouteFailureKind = "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion";
@@ -170,7 +180,7 @@ export interface RouteConfig {
     /** Known cooldown deadlines per stop ref. Only deadlines: a seeded
      * entry carries no failure count, so the child's first real failure on
      * that stop computes its own cooldown. */
-    cooldowns?: ReadonlyArray<{ ref: string; kind: string; until: number }>;
+    cooldowns?: ReadonlyArray<RouteCooldown>;
   };
 }
 
@@ -190,7 +200,7 @@ export interface Route extends Provider {
    * layer reads this before it names a switch target: a model the session
    * already knows cannot serve it is never chosen.
    */
-  health(): ReadonlyArray<{ ref: string; kind: string; until: number }>;
+  health(): ReadonlyArray<RouteCooldown>;
   /**
    * ADR-0050 (§4, §5): an independent route over the same chain and the
    * same wiring (stream factory, credential resolver, retries, clock,
@@ -283,7 +293,7 @@ export function createRoute(config: RouteConfig): Route {
     },
     health() {
       const t = now();
-      const out: { ref: string; kind: string; until: number }[] = [];
+      const out: RouteCooldown[] = [];
       for (const [index, failure] of failures) {
         if (failure.until > t) out.push({ ref: refFor(chain[index]!), kind: failure.kind, until: failure.until });
       }

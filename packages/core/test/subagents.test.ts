@@ -596,7 +596,9 @@ describe("per-session route state for children (ADR-0050, #974)", () => {
     expect(childLog.some((e) => e.type === "fallback")).toBe(false);
 
     // The parent's log gained nothing for the child's serving state — its
-    // own opening declaration is the only `route_serving` it holds.
+    // own opening declaration is the only `route_serving` it holds, and no
+    // `fallback` record from inside the child reached it (ADR-0050 §6).
     expect(events.filter((e) => e.type === "route_serving")).toHaveLength(1);
+    expect(events.some((e) => e.type === "fallback")).toBe(false);
   });
 });

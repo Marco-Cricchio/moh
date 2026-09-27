@@ -28,9 +28,23 @@ describe("formatModelPair", () => {
 
 describe("the accessor pair", () => {
   test("a provider that is not a route reports one reference from both accessors", () => {
-    const provider: Provider = MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]);
-    expect(selectedModelOf(provider)).toBe(provider.name);
-    expect(servingModelOf(provider)).toBe(provider.name);
+    // The honest assertion is that the two agree with EACH OTHER and with
+    // the provider's own identity — a client states one reference for a
+    // non-route provider, whatever shape the object has.
+    const provided: Provider = {
+      name: "my-custom-provider",
+      // Route-shaped, but not a route: `selected`/`serving` are not strings,
+      // so nothing here may be mistaken for a two-reference session.
+      selected: undefined,
+      serving: undefined,
+      async *stream() {},
+    } as unknown as Provider;
+    expect(selectedModelOf(provided)).toBe("my-custom-provider");
+    expect(servingModelOf(provided)).toBe("my-custom-provider");
+    expect(servingModelOf(provided)).toBe(selectedModelOf(provided));
+
+    const mock: Provider = MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]);
+    expect(selectedModelOf(mock)).toBe(servingModelOf(mock));
   });
 
   test("a route reports the selection and the stop that serves", async () => {

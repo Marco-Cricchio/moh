@@ -250,8 +250,16 @@ function AppShell({
   const [session, setSession] = useState<AgentSession | null>(() =>
     initialSession && "session" in initialSession ? initialSession.session : null,
   );
-  const sessionRef = useRef<AgentSession | null>(session);
-  sessionRef.current = session;
+  const sessionRef = useRef<AgentSession | null>(null);
+  // ADR-0050: the footer states what serves. A session can be born with the
+  // two references apart (a resumed one the chain re-engaged, a child, an
+  // assembly that never saw a live transition), so the label is re-derived
+  // from the session itself on every swap — never left on whatever the
+  // previous seed or the last live event happened to be.
+  useEffect(() => {
+    sessionRef.current = session;
+    if (session) setModelLabel(formatModelPair(session.selectedModel, session.servingModel));
+  }, [session]);
 
   // First-run onboarding (#33): only when nothing is configured — an
   // explicit provider prop or a moh.json provider reference counts as

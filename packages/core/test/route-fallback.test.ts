@@ -621,3 +621,47 @@ describe("per-session route state (ADR-0050, #974)", () => {
     expect(route.health()).toEqual([{ ref: "a/model-a", kind: "quota_exhausted", until: 15 * 60_000 }]);
   });
 });
+
+describe("the prompt states what serves (ADR-0050, #974)", () => {
+  /** Every system prompt the model saw, in call order. */
+  function capturingRoute(turns: Parameters<typeof MockProvider.scripted>[0]) {
+    const prompts: string[] = [];
+    const model = MockProvider.scripted(turns);
+    const route = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b")],
+      retries: 0,
+      createStream: (target) => (messages, signal) => {
+        const system = messages.find((m) => m.role === "system");
+        if (system) prompts.push(system.parts.map((p) => (p.kind === "text" ? p.text : "")).join(""));
+        if (target.endpoint.name === "a") {
+          const failing = MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }]);
+          return failing.stream(messages, signal);
+        }
+        return model.stream(messages, signal);
+      },
+    });
+    return { route, prompts };
+  }
+
+  test("the pair appears while a fallback serves; one reference when it does not", async () => {
+    const { route, prompts } = capturingRoute([{ deltas: ["done"], finish: "stop" }]);
+    const session = createSession({ provider: route });
+
+    // Turn 1: the first call goes to `a` (the selection), so the prompt
+    // states one reference — byte-for-byte the shape it always had.
+    await session.send("first");
+    expect(prompts[0]).toContain("- Model: a/model-a");
+    expect(prompts[0]).not.toContain("a/model-a → b/model-b");
+    expect(prompts[0]).not.toContain("- Route:");
+
+    // Turn 2: the previous turn left `a` exhausted, so `b` serves. The
+    // prompt for the call that is actually served by `b` states the pair —
+    // the model is never told it works with a model that is not answering.
+    await session.send("second");
+    const afterFallback = prompts.at(-1)!;
+    expect(afterFallback).toContain("- Model: a/model-a → b/model-b");
+    expect(session.selectedModel).toBe("a/model-a");
+    expect(session.servingModel).toBe("b/model-b");
+  });
+});
