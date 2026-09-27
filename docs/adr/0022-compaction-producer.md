@@ -27,10 +27,38 @@ Decisions closed in grilling (#462): automatic threshold trigger plus an explici
    `context_length` error arms the same post-turn producer directly (guard and
    threshold bypassed: the provider's "does not fit" outranks the arithmetic).
    Still one producer, still post-turn; nothing compacts inline.
-2. **Tail policy: 10 turns AND ≤ 25% of the window.** The tail grows backwards
-   until it spans at least `DEFAULT_TAIL_TURNS = 10` turns **and** at most ~25% of
-   the context window (token-estimated). Both conditions hold; the bare
-   turn-count rule is retired.
+2. **Tail policy (amended #949): the window wins; whole turns stay the preference.**
+   Originally: "10 turns AND ≤ 25% of the window", with `DEFAULT_TAIL_TURNS` a hard
+   floor ("never below"). That floor made compaction structurally unreachable for a
+   log whose turns are few and gigantic — a 3-turn session at 253k measured tokens
+   never compacted, and the shrink loop was dead code at default settings. Restated:
+   the tail is a **contiguous verbatim suffix** and `tailTurns` (default 10) is a
+   *preference*, never a floor. One rule for the auto path and the forced path:
+   (1) candidate = the last `tailTurns` whole turns; (2) while the span exceeds 25%
+   of the window and more than one whole turn is left, the oldest tail turn is left
+   out; (3) **the last turn is protected**: it stays whole while it fits
+   `window − 8k` (the fitting reserve), even if it alone exceeds the 25%; (4) only
+   when the last turn alone exceeds `window − 8k` is the cut taken **inside** it —
+   the largest legal suffix under the ceiling, or the last legal boundary when none
+   fits. A ceiling never produces a refusal. Guarantee: *a contiguous verbatim
+   tail — the last turn whole while it fits the model's window, the turns before it
+   while they stay under ~25% of it.* In healthy logs behaviour is identical to the
+   pre-#949 rule; the intra-turn cut only starts where the old answer was
+   "nothing to compact".
+
+   **Legal boundary (protocol constraint, not policy).** The replayed tail never
+   begins with a `tool_result` and never splits a `tool_call`/`tool_result` pair:
+   `replayMessages` repairs only unanswered calls (#237) and filters only results
+   of *discarded* calls (#371), so an orphan result at the head would reach the
+   provider without its call. Allowed first events: `user_message`,
+   `assistant_delta`, `reasoning`, `tool_call`. The intra-turn cut needs the
+   catalog window: an unknown window (0) keeps the bare turn-count preference —
+   a fabricated fallback must not legalize a cut.
+
+   **Accepted cost.** In the extreme case (a single turn larger than the window)
+   even that turn's `user_message` lands in the summary. No written promise is
+   broken — covered turns' user messages were already summarized — but it is a
+   real change for the worst case.
 3. **Forced compaction always compacts.** `/compact` (TUI, turn-scoped: it sets a
    flag, the producer runs at the turn boundary) and `moh compact` (CLI) invoke the
    same `compactNow()` regardless of the threshold; the threshold gates only the
@@ -54,6 +82,18 @@ Decisions closed in grilling (#462): automatic threshold trigger plus an explici
    retry succeeds or the user compacts. Success surfaces as a discreet chrome
    event and indicator (the `memory_updated` pattern); the transcript already
    renders `◈ context compacted · N events`.
+   **Extended (#949): a structural refusal is never silent.** When the tail
+   policy finds nothing foldable, the producer appends a visible
+   `compaction_skipped` chrome event — typed reason (`too_few_turns` |
+   `no_covered_turns` | `last_turn_exceeds_window`) plus the numbers that justify
+   the skip (`turns`, `measuredTokens`, `window`, optional `tailTokens`) — one
+   per new measurement, no sticky chip. "Even the minimal cut cannot reach
+   `window − reserve`" is *not* a skip (we do compact): it is recorded on the
+   marker as a flag, the `keptByFloor` precedent. The clients name the exits:
+   `moh compact` prints a hint line on refusal, `moh run` adds one after a
+   `context_length` failure, and the TUI's context_length hint stops promising
+   `/compact` when a `compaction_skipped` follows the newest marker
+   (deterministic projection).
 7. **On by default.** Auto-compaction is active with zero config; `SessionConfig.compaction`
    (already declared) becomes the override point (threshold, tail, custom
    summarizer).
