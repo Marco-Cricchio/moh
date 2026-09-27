@@ -68,7 +68,17 @@ export interface SessionConfig {
    * against — the same merged profile list the initial provider came
    * from (passed by sessionFromConfig). */
   endpoints?: EndpointProfile[];
-/** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
+  /**
+   * #1032 (ADR-0049 door two): per-endpoint declared windows
+   * (`endpointName → modelId → tokens`) from each endpoint's own cached
+   * model listing. The provider's declared window outranks the shipped
+   * catalog row, for every consumer of the one window lookup (compaction
+   * threshold, tail policy, switch guard, fallback eligibility). The
+   * assembly path reads the cache and never fetches; absent = shipped
+   * rows only.
+   */
+  endpointDeclaredWindows?: Record<string, Record<string, number>>;
+  /** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
    * cap — the anti-runaway safety net is off). */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */

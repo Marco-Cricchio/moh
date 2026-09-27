@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.51.1",
-  "generatedAt": "2026-09-27T16:01:19.187Z",
+  "generatedAt": "2026-09-27T18:08:58.196Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-27T16:01:18.557Z"
+      "fetchedAt": "2026-09-27T18:08:57.703Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-27T16:01:18.989Z"
+      "fetchedAt": "2026-09-27T18:08:57.943Z"
     }
   ],
   "totals": {
@@ -921,75 +921,79 @@
       "openRouter": 1310720
     }
   ],
-  "contextWindowShrinks": [],
+  "contextWindowShrinks": [
+    {
+      "provider": "openai-codex",
+      "id": "gpt-5.5",
+      "from": 1050000,
+      "to": 272000,
+      "declared": true
+    },
+    {
+      "provider": "openai-codex",
+      "id": "gpt-5.6-luna",
+      "from": 1050000,
+      "to": 272000,
+      "declared": true
+    },
+    {
+      "provider": "openai-codex",
+      "id": "gpt-5.6-sol",
+      "from": 1050000,
+      "to": 272000,
+      "declared": true
+    },
+    {
+      "provider": "openai-codex",
+      "id": "gpt-5.6-terra",
+      "from": 1050000,
+      "to": 272000,
+      "declared": true
+    }
+  ],
   "changes": {
     "pricing": [
       {
-        "provider": "deepseek",
-        "id": "deepseek-chat",
-        "from": {
-          "input": 0.32,
-          "output": 0.89
-        },
-        "to": {
-          "input": 0.2574,
-          "output": 1.0287
-        }
-      },
-      {
         "provider": "openrouter",
-        "id": "deepseek/deepseek-chat",
+        "id": "tencent/hy3",
         "from": {
-          "input": 0.32,
-          "output": 0.89
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033
         },
         "to": {
-          "input": 0.2574,
-          "output": 1.0287
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "minimax/minimax-m2",
-        "from": {
-          "input": 0.255,
-          "output": 1.02
-        },
-        "to": {
-          "input": 0.3,
-          "output": 1.2
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~moonshotai/kimi-latest",
-        "from": {
-          "input": 1,
-          "output": 9,
-          "cacheRead": 0.3
-        },
-        "to": {
-          "input": 0.9875,
-          "output": 5.53,
-          "cacheRead": 0.11455
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~z-ai/glm-latest",
-        "from": {
-          "input": 0.2737,
-          "output": 2.574,
-          "cacheRead": 0.044965
-        },
-        "to": {
-          "input": 0.3032,
-          "output": 2.574,
-          "cacheRead": 0.05951
+          "input": 0.0825,
+          "output": 0.33,
+          "cacheRead": 0.020625
         }
       }
     ],
-    "contextWindow": [],
+    "contextWindow": [
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.5",
+        "from": 1050000,
+        "to": 272000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-luna",
+        "from": 1050000,
+        "to": 272000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-sol",
+        "from": 1050000,
+        "to": 272000
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.6-terra",
+        "from": 1050000,
+        "to": 272000
+      }
+    ],
     "reasoning": []
   },
   "issues": []

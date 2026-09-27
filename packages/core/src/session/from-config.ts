@@ -26,6 +26,7 @@ import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
 import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp";
+import { declaredWindowsByEndpoint, liveModelCacheFile, loadLiveModelCacheSync } from "../live-model-catalog";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";
 import { PromptComposer } from "../prompt-composer";
@@ -221,12 +222,17 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   }
 
   let provider: Provider;
+  // #1032 (ADR-0049 door two): the endpoints' own declared windows, read
+  // from the live-models cache — a read, never a fetch (assembly stays
+  // network-free). Absent entries (failed refresh, unsupported kind) fall
+  // back to the shipped rows inside the lookup.
+  const declaredWindows = declaredWindowsByEndpoint(loadLiveModelCacheSync(liveModelCacheFile(join(home, ".moh"))));
   try {
     provider =
       options.provider ??
       (options.providerRef !== undefined
-        ? resolveProviderRef(options.providerRef, defaultRegistry.freeze(), config.endpoints ?? [])
-        : resolveProvider(config));
+        ? resolveProviderRef(options.providerRef, defaultRegistry.freeze(), config.endpoints ?? [], { endpointDeclaredWindows: declaredWindows })
+        : resolveProvider(config, defaultRegistry, { endpointDeclaredWindows: declaredWindows }));
   } catch (e) {
     return assemblyError("provider", e);
   }
@@ -491,6 +497,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       ...(o.maxIterations !== undefined || config.maxIterations !== undefined
         ? { maxIterations: o.maxIterations ?? config.maxIterations }
         : {}),
+      // #1032 (ADR-0049 door two): the endpoints' own declared windows.
+      ...(Object.keys(declaredWindows).length > 0 ? { endpointDeclaredWindows: declaredWindows } : {}),
       ...(resumeEvents?.length ? { resume: { events: resumeEvents, consume: o.resumeConsume !== false } } : {}),
       // #774: reap the browser at session dispose; emit the visible
       // missing-toolchain diagnostic at session start.

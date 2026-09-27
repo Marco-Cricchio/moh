@@ -285,6 +285,9 @@ export function catalogEntryFor(type: string, modelId: string, baseUrl?: string)
   // OpenCode's wire is per model and differs per product (Zen vs Go) with
   // the same ids — resolve through the endpoint's own overlay.
   if (type === "opencode") return endpointModelCatalog("opencode", baseUrl).find((m) => m.id === modelId);
+  // A recognized compat host (Z.ai) resolves the catalog its base URL
+  // maps to (#1032): the window belongs to the endpoint, not the kind.
+  if (type === "openai-compat") return endpointModelCatalog("openai-compat", baseUrl).find((m) => m.id === modelId);
   return subscriptionModelCatalog(type).find((m) => m.id === modelId);
 }
 
