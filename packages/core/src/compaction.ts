@@ -20,6 +20,9 @@
 import type { AgentEvent, Provider, TurnResult } from "./types";
 import type { AppliedCut, CompactionHookContext } from "@moh/extension";
 import { catalogEntryFor } from "./model-catalog";
+// ADR-0050 (#974): the window is derived from the model that SERVES the
+// calls, never from the selected reference a fallback left behind.
+import { servingModelOf } from "./model-pair";
 import type { DeclaredWindowLookup } from "./declared-window";
 import { CONTEXT_FIT_RESERVE } from "./context-fit";
 import { activePath } from "./session/event-log";
@@ -575,7 +578,10 @@ export class CompactionRunner {
   shouldAutoCompact(events: ReadonlyArray<AgentEvent>): boolean {
     const call = CompactionRunner.lastMeasuredCall(events);
     if (!call) return false;
-    const model = this.#provider().name;
+    // ADR-0050 §7: the measured tokens belong to the serving model, so the
+    // threshold is computed from the window that serves — a fallback onto a
+    // smaller window arms compaction that much earlier.
+    const model = servingModelOf(this.#provider());
     const endpoint = this.#endpoint?.() ?? (this.#endpointType?.() ? { type: this.#endpointType!()! } : undefined);
     const window = contextWindowFor(model, endpoint, this.#declaredWindows?.());
     const limit = window > 0 ? window * this.#threshold : this.#fallbackWindow;
@@ -662,7 +668,9 @@ export class CompactionRunner {
     // the cut is the answer to "the provider refuses to serve the tail".
     // The fallback only arms the auto threshold (shouldAutoCompact).
     const endpoint = this.#endpoint?.() ?? (this.#endpointType?.() ? { type: this.#endpointType!()! } : undefined);
-    const window = contextWindowFor(this.#provider().name, endpoint, this.#declaredWindows?.());
+    // ADR-0050 §7: the same serving reference the auto threshold uses —
+    // the tail budget belongs to the window that serves the calls.
+    const window = contextWindowFor(servingModelOf(this.#provider()), endpoint, this.#declaredWindows?.());
     const live = events as AgentEvent[];
     // #578 (core spec d3): compaction covers only the active path —
     // every index computation runs on the projected array; abandoned

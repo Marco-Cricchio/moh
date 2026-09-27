@@ -8,6 +8,8 @@ import { AgentSession } from "./session/session";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
+// ADR-0050 (§4): the child's own route, built from the parent's live pair.
+import { childRouteOf } from "./route";
 import type { EndpointProfile } from "./config";
 
 /**
@@ -244,7 +246,12 @@ export class SubagentHost {
     if (spec.model) return spec.model;
     const fallback = this.#options.defaultProvider;
     // #166: a live accessor follows in-session model switches.
-    return typeof fallback === "function" ? fallback() : fallback;
+    const resolved = typeof fallback === "function" ? fallback() : fallback;
+    // ADR-0050 (§4/§5): a child never borrows the parent's route object —
+    // it gets its own, born from the parent's live pair and the cooldown
+    // deadlines the parent knows. A string ref and a non-route provider
+    // keep today's behaviour (resolution / sharing).
+    return typeof resolved === "string" ? resolved : childRouteOf(resolved);
   }
 
   async #spawn(

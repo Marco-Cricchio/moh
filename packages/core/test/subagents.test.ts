@@ -7,6 +7,7 @@ function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "moh-subagents-"));
 }
 import { builtinTools, createSession, MockProvider, type AgentEvent, type Tool } from "../src/index";
+import { createRoute, Endpoint } from "../src/route";
 import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, subagentPreview, type SubagentResult } from "../src/subagents";
 
 /** Collects parent events into an array for assertions. */
@@ -526,5 +527,76 @@ describe("#339 agents-{} equivalence (from-config presets merge)", () => {
     await parent.send("go");
     const spawned = events.find((e) => e.type === "subagent_spawn") as any;
     expect(spawned?.name).toBe("research");
+  });
+});
+
+describe("per-session route state for children (ADR-0050, #974)", () => {
+  /** The parent's route: stop `a` is quota-exhausted, stop `b` serves. The
+   * scripted model answers by *call index*, so the parent's spawn turn and
+   * the child's inherited call are indistinguishable to a `createStream`
+   * that keys on the target endpoint alone. */
+  function parentRoute(clock: { value: number }, turns: Parameters<typeof MockProvider.scripted>[0], calls: string[]) {
+    const model = MockProvider.scripted(turns);
+    return createRoute({
+      target: { endpoint: new Endpoint({ name: "a", kind: "mock" }), modelId: "model-a" },
+      fallbacks: [{ endpoint: new Endpoint({ name: "b", kind: "mock" }), modelId: "model-b" }],
+      retries: 0,
+      now: () => clock.value,
+      createStream: (target) => {
+        calls.push(target.endpoint.name);
+        const provider = target.endpoint.name === "a"
+          ? MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])
+          : model;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+  }
+
+  test("a child born while the parent serves a fallback serves from the same stop, with no failed attempt", async () => {
+    const clock = { value: 0 };
+    const home = tmpHome();
+    const calls: string[] = [];
+    const route = parentRoute(clock, [
+      { deltas: ["parent working"], finish: "stop" },
+      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "look into the fallback chain" } }] },
+      { deltas: ["child reply"], finish: "stop" },
+    ], calls);
+
+    // The parent's first turn moves it onto the fallback stop (its own
+    // probe of `a`) and leaves `a` in a quota cooldown.
+    for await (const _ of route.stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) void _;
+    expect(route.serving).toBe("b/model-b");
+
+    // No `subagents.provider`: the child gets the parent's provider through
+    // the host's live accessor — a route, so it inherits the pair and the
+    // deadlines through `Route.childRoute` (ADR-0050 §4/§5).
+    const parent = createSession({
+      provider: route,
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home },
+    });
+    const events = tap(parent);
+    await parent.send("spawn a research subagent");
+    const spawned = events.find((e) => e.type === "subagent_spawn") as any;
+    expect(spawned?.name).toBe("research");
+    const childLog = readFileSync(spawned.log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as AgentEvent);
+
+    // The child's opening record declares how it was born: selection `a`,
+    // serving `b` — it precedes the child's first model call and names no
+    // other stop as `previous`.
+    const opening = childLog.find((e) => e.type === "route_serving") as any;
+    expect(opening).toMatchObject({ type: "route_serving", selected: "a/model-a", serving: "b/model-b", previous: "a/model-a" });
+    expect(childLog.indexOf(opening)).toBeLessThan(childLog.findIndex((e) => e.type === "model_call"));
+
+    // The child spent no call re-probing the stop its parent already found
+    // dead: `a` was attempted exactly once in this whole story (the
+    // parent's own probe), and the child's log holds no `fallback`.
+    expect(calls.filter((name) => name === "a")).toHaveLength(1);
+    expect(childLog.some((e) => e.type === "fallback")).toBe(false);
+
+    // The parent's log gained nothing for the child's serving state — its
+    // own opening declaration is the only `route_serving` it holds.
+    expect(events.filter((e) => e.type === "route_serving")).toHaveLength(1);
   });
 });

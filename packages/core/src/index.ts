@@ -205,6 +205,11 @@ export {
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.
 export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
+// ADR-0050 (#974): the selected/serving pair — the one formatter every
+// surface that states which model a session is working with renders
+// (the TUI footer and `/model` header, the fallback notices), and the
+// accessor pair behind "the model in use" (the serving reference).
+export { formatModelPair, selectedModelOf, servingModelOf } from "./model-pair";
 // ADR-0033 §4: the outcome vocabulary a client's confirmation seam answers
 // with ("send" | "cancel" | "refuse") — the extension contract's type,
 // re-exported so a client needs one import for the whole seam.

@@ -39,9 +39,9 @@ export interface PromptContext {
   cwd: string;
   platform: string;
   now: Date;
-  /** Active route (`endpoint/model-id`), when routing is configured. */
-  route?: string;
-  /** Active model identifier (e.g. the provider's model). */
+  /** The model this session is working with (ADR-0050): the selected
+   * reference, or — while a fallback serves the calls — the pair
+   * `<selected> → <serving>` (one string, `formatModelPair`). */
   model?: string;
   tools: { name: string; description: string }[];
   skills: SkillIndexEntry[];
@@ -234,7 +234,8 @@ export class PromptComposer {
       `- Working directory: ${ctx.cwd}`,
       `- Platform: ${ctx.platform}`,
       `- Date: ${ctx.now.toISOString().slice(0, 10)}`,
-      `- Route: ${ctx.route ?? "(unset)"}`,
+      // ADR-0050: what serves, not what the route is. The pair when a
+      // fallback serves, the single reference otherwise.
       `- Model: ${ctx.model ?? "(unset)"}`,
       `- Session notes: ${join(this.#mohHome, "projects", this.#projectSlug, "session.md")}`,
     ];

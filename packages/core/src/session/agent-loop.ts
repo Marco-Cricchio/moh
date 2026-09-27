@@ -20,6 +20,7 @@ import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 import { EMPTY_REASONING_PARTS, foldReasoningParts, type ReasoningParts } from "../reasoning-parts";
+import { servingModelOf } from "../model-pair";
 import { declaredWindowOf } from "../declared-window";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
@@ -515,7 +516,9 @@ export class AgentLoop {
       // classified error, failed model_call record, never a silent done.
       if (!sawText && !sawToolCalls && !sawUsage) {
         this.#flushFailedModelCall();
-        const message = `${provider.name} returned an empty completion (no content, no tool calls, no usage)`;
+        // ADR-0050: name the model that served this call — for a route that
+        // is the serving stop, not the selected reference.
+        const message = `${servingModelOf(provider)} returned an empty completion (no content, no tool calls, no usage)`;
         this.#append({ type: "error", reason: "empty_completion", message });
         return { status: "error", reason: "empty_completion", message };
       }
