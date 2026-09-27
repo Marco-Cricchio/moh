@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-09-27
+
 ### Added
 
 - **`ctrl+c` clears the composer** (#1009): a draft — pasted, multi-line, or
@@ -27,17 +29,15 @@ matching section here at tag time.
   `ctrl+a/e` still moves the cursor to the line start/end and stays in the
   `?` panel and the manual; it only leaves the hint. The hint stands where it
   fits one row, the narrower columns keep the short `type…` form.
-- **The model catalog was regenerated** (#1005): 11 prices moved (mostly down
-  on OpenRouter: `z-ai/glm-5.3` 1.4/4.4 → 0.38/1.19, `~moonshotai/kimi-latest`
-  1.2/10.53 → 1.03/9.04, `deepseek/deepseek-v4-pro` 0.56/1.12 → 0.37/0.74),
-  `thinkingmachines/inkling` and `inkling-small` are listed at half the window
-  they had (1048576 → 524288, now declared in the sidecar so the catalog says
-  what the listing says), and `anthropic/claude-3-haiku` **left the catalog**:
-  OpenRouter retired it and no declared source covers the row. That last one
-  needed a new sidecar clause — `"retired": true`, with its reason — because a
-  row whose listing disappears has nothing left to declare: retirement is a
-  declaration with an audit trail, never a silent removal by the build
-  (ADR-0046 amendment). The drift compare is green again.
+- **The model catalog was regenerated** (#1005): 11 OpenRouter prices moved,
+  including `z-ai/glm-5.3` 0.38/1.19 → 1.4/4.4,
+  `~moonshotai/kimi-latest` 1.03/9.04 → 1/9, and
+  `deepseek/deepseek-v4-pro` 0.37/0.74 → 0.35/0.70. The
+  `deepseek-v4-pro-0813` output rate moved to 3.5, while the other changes
+  cover DeepSeek, MiniMax, GLM and Kimi aliases. No context windows or
+  reasoning flags changed, and the report has no issue or context-window
+  shrink. The catalog contains 557 rows across 25 files; the drift compare
+  is green again.
 - **The release-time catalog check reports instead of failing, and the version
   contract is now enforced** (#1005, ADR-0046 amendment): the `catalog-check`
   job that runs at every tag was red by default — three of the last four tags
@@ -1166,7 +1166,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...develop
+[0.51.0]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...v0.51.0
 [0.50.3]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...v0.50.3
 [0.50.2]: https://github.com/Marco-Cricchio/moh/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/Marco-Cricchio/moh/compare/v0.50.0...v0.50.1
