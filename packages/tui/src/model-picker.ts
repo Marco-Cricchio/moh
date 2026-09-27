@@ -44,23 +44,22 @@ export function contextLabel(contextWindow: number): string {
 
 /** The context-window text of one row. ADR-0049, both doors: a model
  * whose window was declared — by a refusal this session (`declared`)
- * or by the endpoint's own listing (the row carries the overlay and
- * `shippedContextWindow` the figure it replaced) — shows **both**
- * numbers: the declared one first (it is the one every context decision
- * uses) and the catalog figure it replaced. A model that declared
- * nothing, or one whose declared number agrees with the catalog,
- * renders exactly as before. */
+ * or by the endpoint's own listing (the merged row carries the overlay,
+ * with `shipped` the figure it replaced) — shows **both** numbers: the
+ * declared one first (it is the one every context decision uses) and
+ * the catalog figure it replaced. A model that declared nothing, or one
+ * whose declared number agrees with the catalog, renders exactly as
+ * before. */
 export function windowText(catalogWindow: number, declared?: number, shipped?: number): string {
   const effective = declared !== undefined && declared > 0 ? declared : catalogWindow;
   const replaced = declared !== undefined && declared > 0 && declared !== catalogWindow ? catalogWindow : shipped;
-  if (replaced === undefined || replaced <= 0 || replaced === effective) return contextLabel(effective);
+  if (replaced === undefined || replaced === effective) return contextLabel(effective);
   return `${contextLabel(effective)} declared · ${contextLabel(replaced)} catalog`;
 }
 
 /** One list row: `name (id) · ctx Nk`, with the current-model marker. */
-export function modelRow(m: CatalogModel, current?: boolean, declared?: number): string {
-  const shipped = (m as PickerModel).shippedContextWindow;
-  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared, shipped)}${current ? " ‹current›" : ""}`;
+export function modelRow(m: PickerModel, current?: boolean, declared?: number): string {
+  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared, m.shippedContextWindow)}${current ? " ‹current›" : ""}`;
 }
 
 /** The free-text fallback row shown when the query misses the catalog

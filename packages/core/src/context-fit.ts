@@ -13,8 +13,9 @@
  * blocks; the provider's own `context_length` error remains the hard
  * wall for the unresolvable cases. That policy — what a window *nobody*
  * declared means — is settled in ADR-0049; the case where the provider
- * *did* declare one is door one of the same decision (the declared
- * window is one more input to the lookup above, never a second path).
+ * *did* declare one (through either door) is the same decision (the
+ * declared window is one more input to the lookup above, never a second
+ * path).
  */
 
 /** Fixed reserve (tokens) subtracted from the window: headroom for the

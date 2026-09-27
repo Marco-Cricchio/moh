@@ -127,7 +127,7 @@ describe("/model modal (#181)", () => {
     // Fetched-only model appended with its listing enrichment.
     expect(frame).toContain("alpha · Claude Opus 5 · 300k");
     // #1032: declared 180k in use, the shipped 200k named beside it.
-    expect(frame).toContain("· 180k (catalog 200k)");
+    expect(frame).toContain("· 180k declared · 200k");
     i.unmount();
   });
 
@@ -422,6 +422,9 @@ describe("two numbers wherever a window is displayed (ADR-0049)", () => {
 
   test("a declared window shows next to the catalog figure it replaced", () => {
     expect(windowText(1_000_000, 131_072)).toBe("131k declared · 1000k catalog");
+    // A listing-overlay row (#1032): the row carries the declared window,
+    // with the shipped figure it replaced beside it.
+    expect(windowText(180_000, undefined, 200_000)).toBe("180k declared · 200k catalog");
     // An unknown catalog row shows the declared number alone, no invented figure.
     expect(windowText(0, 131_072)).toBe("131k declared · — catalog");
   });

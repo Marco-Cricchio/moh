@@ -43,7 +43,8 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";import type { CatalogModel } from "./model-catalog";
+import { homedir } from "node:os";
+import type { CatalogModel } from "./model-catalog";
 import { subscriptionModelCatalog } from "./model-catalog";
 import { providerProfile } from "./provider-profiles";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
@@ -520,7 +521,8 @@ export function loadLiveModelCacheSync(file: string = liveModelCacheFile()): Rec
   }
 }
 
-/** Persists entries through a read-modify-write of the whole cache file. */export async function saveLiveModelCache(entries: Record<string, LiveModelCacheEntry>, file: string = liveModelCacheFile()): Promise<void> {
+/** Persists entries through a read-modify-write of the whole cache file. */
+export async function saveLiveModelCache(entries: Record<string, LiveModelCacheEntry>, file: string = liveModelCacheFile()): Promise<void> {
   const current = await loadLiveModelCache(file);
   const merged = { ...current, ...entries };
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
@@ -547,7 +549,8 @@ export function declaredWindowsFor(endpointName: string, cache: Record<string, L
 
 /** Entries whose cache age is within the TTL. Expired entries are
  * dropped from this projection but kept on disk — the orchestrator
- * falls back to them when a refresh fails (offline). */export function freshCacheEntries(
+ * falls back to them when a refresh fails (offline). */
+export function freshCacheEntries(
   cache: Record<string, LiveModelCacheEntry>,
   ttlHours: number = DEFAULT_TTL_HOURS,
   now: number = Date.now(),

@@ -115,7 +115,7 @@ export type { SessionMode } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
 import { contextFitFor, CONTEXT_FIT_RESERVE, type ContextFitVerdict } from "./context-fit";
 import { type MemoryOptions } from "./memory";
-import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput, type WindowEndpoint } from "./compaction";
+import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
 // `@path` tokens (TUI popup plumbing, `moh run` headless sends).
 export {
@@ -247,9 +247,6 @@ export {
   summarizeLiveCatalogReport,
   liveCatalogFailureReasons,
   reportNeedsNotice,
-  declaredWindowsFor,
-  declaredWindowsByEndpoint,
-  loadLiveModelCacheSync,
   type LiveModelListing,
   type LiveCatalogReport,
   type LiveCatalogResult,
@@ -894,7 +891,6 @@ export {
   type CompactionOptions,
   type CompactionSummarizer,
   type CompactionSummarizerInput,
-  type WindowEndpoint,
   type SubagentOptions,
   type McpServerEntry,
   type McpRuntimeOptions,

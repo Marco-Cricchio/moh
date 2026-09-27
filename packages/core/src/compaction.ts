@@ -340,7 +340,10 @@ export interface CompactionRunnerOptions {
    * no declaration). */
   endpoint?: () => WindowEndpoint | undefined;
   /** Provider type of the active endpoint (catalog lookup); undefined for
-   * pre-built/bare providers — the window is then unknown → fallback. */
+   * pre-built/bare providers — the window is then unknown → fallback.
+   * @deprecated Superseded by `endpoint` (#1032): a kind alone cannot
+   * resolve a per-endpoint catalog or carry the endpoint's declared
+   * window. Kept only for direct-runner callers not yet migrated. */
   endpointType?: () => string | undefined;
   /** ADR-0049: the session's declared windows (a getter — a refusal
    * learned mid-session is picked up by the next run). One lookup with the

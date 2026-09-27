@@ -128,17 +128,6 @@ describe("#1032 declaredWindowsFor (the cache projection)", () => {
 });
 
 describe("#1032 consumers route through the one lookup", () => {
-  /** Two `user_message` events with a `model_call` measurement on the first. */
-  function turnEvents(turn: number, inputTokens: number): AgentEvent[] {
-    const events: AgentEvent[] = [];
-    for (let t = 0; t <= turn; t++) {
-      events.push({ type: "user_message", text: `turn ${t}` } as AgentEvent);
-      if (t < turn) {
-        events.push({ type: "model_call", model: "openai/gpt-5.5", usage: { inputTokens, outputTokens: 0 } } as AgentEvent);
-      }
-    }
-    return events;
-  }
   test("the fit guard refuses a switch the declared window cannot hold", () => {
     // 270k measured does not fit 272k − 8k reserve (263,808), though it fit the shipped 1,050k.
     expect(contextFitFor({ measured: 270_000, window: 272_000 }).fits).toBe(false);
