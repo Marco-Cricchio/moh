@@ -38,6 +38,9 @@ import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
+import { DeclaredWindows } from "../declared-window";
+import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
+import { ProviderError } from "../types";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -143,6 +146,14 @@ export class AgentSession {
   #memory: MemoryRunner | null = null;
   /** Compaction (#466): the post-turn marker producer collaborator. */
   #compaction: CompactionRunner | null = null;
+  /**
+   * ADR-0049 (door one, #986): the context windows providers declared in
+   * their own overflow refusals this session, keyed by the model reference
+   * that was refused. Rebuilt from the log at resume-open (`fromEvents`) —
+   * the `declared_window` chrome event IS the store, so no second file and
+   * no replay divergence.
+   */
+  #declaredWindows = new DeclaredWindows();
   /** Session handoff (#434): the raw post-turn artifact runner. */
   #handoff: HandoffRunner | null = null;
   /** A successful bash `git push` occurred in the active turn (#437). */
@@ -471,6 +482,9 @@ export class AgentSession {
           const [type, ...rest] = name.split("/");
           return catalogEntryFor(type, rest.join("/")) !== undefined ? type : undefined;
         },
+        // ADR-0049: the one window lookup the guard and the chain read —
+        // a provider-declared window outranks the catalog row here too.
+        declaredWindows: () => this.#declaredWindows,
         append: (event) => this.#append(event),
         // #578 (d3/d7): cover the path pinned to the turn's head — the
         // branch actually summarized — so a mid-turn switch (effective
@@ -605,6 +619,10 @@ export class AgentSession {
         }
         return resolveEndpointThinking(this.#provider.name, this.#endpoints, join(this.#mohHome, "config"));
       },
+      // ADR-0049 (door one, #986): a refusal is the only teacher. The
+      // session owns what a refusal means — learn the declared window, or
+      // leave a trace when no shipped formula read it.
+      onContextRefusal: (ref, err) => this.#noteContextRefusal(ref, err),
       // Post-turn triggers: memory extraction (#38, every N turns) and the
       // raw handoff artifact (#434, every settled turn — synchronous and
       // fail-silent, so a killed session keeps the last turn's state).
@@ -680,6 +698,10 @@ export class AgentSession {
       // (the file already has them); only new events reach the sink.
       const resumeEvents = this.#resumeProjection!;
       this.#messages.splice(0, 0, ...replayMessages(resumeEvents));
+      // ADR-0049 (door one): the refusals in the log are the session's
+      // declared windows — reopening re-derives the very same numbers, so
+      // compaction and the fit guard compute here what they computed then.
+      this.#declaredWindows = DeclaredWindows.fromEvents(resumeEvents);
       // #578 (d6): a compaction pointer that does not resolve on the
       // active path (corruption, truncation) restarts context from the
       // path start — surfaced as visible warning chrome, never silent.
@@ -946,7 +968,13 @@ export class AgentSession {
         // #948: the rebuilt chain (a switch replaces the active provider
         // wholesale) skips stops that cannot hold the measured context —
         // the same verdict the guard below enforces.
-        { ...this.#routeResolutionOptions, measuredTokens: this.lastMeasuredTokens() },
+        {
+          ...this.#routeResolutionOptions,
+          measuredTokens: this.lastMeasuredTokens(),
+          // ADR-0049: the rebuilt chain judges a stop on the declared
+          // window it learned, never on the row that window corrected.
+          declaredWindows: this.#declaredWindows,
+        },
       );
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -991,10 +1019,65 @@ export class AgentSession {
     const name = slash > 0 ? trimmed.slice(0, slash) : trimmed;
     const modelId = slash > 0 ? trimmed.slice(slash + 1) : undefined;
     const profile = this.#endpoints.find((e) => e.name === name);
-    const endpointType = profile?.type ?? (this.#registry?.has(name) ? name : undefined);
     const model = modelId ?? profile?.defaultModel;
-    const window = name && model ? contextWindowFor(`${name}/${model}`, endpointType) : 0;
+    // ADR-0049: the client's pre-switch check reads the very lookup the
+    // guard enforces — a declared window included, so the settings/picker
+    // path can never disagree with the switch.
+    const window = name && model
+      ? contextWindowFor(`${name}/${model}`, this.#endpointTypeFor(`${name}/${model}`), this.#declaredWindows)
+      : 0;
     return contextFitFor({ measured: this.lastMeasuredTokens(), window });
+  }
+
+  /**
+   * ADR-0049 (door one, #986): the context window a provider declared in
+   * its own overflow refusal for one model reference, for this session —
+   * undefined when that reference declared none. Read-only: clients show
+   * the declared number next to the catalog one wherever a window is
+   * displayed, and the fit guard folds it into the same lookup.
+   */
+  declaredWindowFor(ref: string): number | undefined {
+    return this.#declaredWindows.declaredWindowFor(ref);
+  }
+
+  /**
+   * ADR-0049 (door one): what a real refusal means. The provider declared
+   * a window moh recognizes → the declared number becomes the effective
+   * window for that reference, recorded once per correction as a
+   * `declared_window` chrome event (the log is the session: resume
+   * re-derives it). Nothing recognized → one line in the user's dotdir
+   * trace, so the next formula can be discovered from real wordings.
+   */
+  #noteContextRefusal(ref: string, err: unknown): void {
+    const declared = err instanceof ProviderError ? err.declaredWindow : undefined;
+    const endpointType = this.#endpointTypeFor(ref);
+    if (declared === undefined) {
+      noteUnrecognizedContextRefusal({
+        home: this.#mohHome,
+        ...(endpointType ? { endpoint: endpointType } : {}),
+        model: ref,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    const catalog = contextWindowFor(ref, endpointType);
+    const effective = this.#declaredWindows.declaredWindowFor(ref) ?? catalog;
+    // The log records corrections, not confirmations: a number moh is
+    // already using changes nothing (a re-refusal of the same provider
+    // repeats with every turn once the session is over its limit).
+    if (effective === declared) return;
+    this.#declaredWindows.learn(ref, declared);
+    this.#append({ type: "declared_window", model: ref, window: declared, catalog });
+  }
+
+  /** Endpoint type for a model reference (`endpoint/model-id`), the
+   * catalog lookup key: a configured endpoint's type, else a registered
+   * provider id, else undefined. */
+  #endpointTypeFor(ref: string): string | undefined {
+    const slash = ref.indexOf("/");
+    if (slash <= 0) return undefined;
+    const name = ref.slice(0, slash);
+    return this.#endpoints.find((e) => e.name === name)?.type ?? (this.#registry?.has(name) ? name : undefined);
   }
 
   /** #948: the session's last measured model-call input tokens (the

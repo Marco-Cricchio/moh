@@ -13,6 +13,7 @@ import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
 import { catalogEntryFor } from "./model-catalog";
 import { contextFitFor } from "./context-fit";
+import type { DeclaredWindowLookup } from "./declared-window";
 import { contextWindowFor } from "./compaction";
 import { getStoredApiKey } from "./auth/store";
 import { userConfigFile } from "./user-config";
@@ -200,6 +201,11 @@ export interface RouteResolutionOptions {
    * cannot hold it is skipped by the same predicate the switch guard
    * enforces. Undefined (no measurement) abstains. */
   measuredTokens?: number;
+  /** ADR-0049 (door one, #986): the session's declared windows. One input
+   * to the same single window lookup the switch guard reads, so a stop
+   * whose window a provider itself declared is judged on that number, not
+   * on the catalog row it corrected. */
+  declaredWindows?: DeclaredWindowLookup;
 }
 
 function isRouteCapable(profile: EndpointProfile): boolean {
@@ -221,7 +227,7 @@ function isRouteCapable(profile: EndpointProfile): boolean {
 export function fallbackIneligibleReason(
   profile: EndpointProfile,
   active?: EndpointProfile,
-  fit?: { measuredTokens?: number },
+  fit?: { measuredTokens?: number; declaredWindows?: DeclaredWindowLookup },
 ): string | null {
   if (!isRouteCapable(profile)) {
     return `provider type "${profile.type}" cannot be a fallback stop (only built-in and openai-compat endpoints can)`;
@@ -234,7 +240,9 @@ export function fallbackIneligibleReason(
     return "Zen and Go are separate products — no cross-product fallback";
   }
   if (fit?.measuredTokens !== undefined) {
-    const window = contextWindowFor(`${profile.name}/${profile.defaultModel}`, profile.type);
+    // ADR-0049: the same lookup the guard and the producer read — a
+    // declared window outranks the catalog row here too.
+    const window = contextWindowFor(`${profile.name}/${profile.defaultModel}`, profile.type, fit.declaredWindows);
     const verdict = contextFitFor({ measured: fit.measuredTokens, window });
     if (!verdict.fits) {
       return `context window too small: ${profile.defaultModel} (${window} tokens) cannot hold this session's measured context (${fit.measuredTokens} tokens)`;
@@ -261,11 +269,12 @@ function fallbackStopsFor(
   endpoints: EndpointProfile[],
   health: ProviderHealthEstimator | undefined,
   measuredTokens?: number,
+  declaredWindows?: DeclaredWindowLookup,
 ): RouteTarget[] {
   // One rule, one definition: the same predicate the settings screen shows
   // the user, so the chain can never disagree with what the screen claims.
   const candidates = endpoints.filter(
-    (e) => e.name !== active.name && fallbackIneligibleReason(e, active, { measuredTokens }) === null,
+    (e) => e.name !== active.name && fallbackIneligibleReason(e, active, { measuredTokens, declaredWindows }) === null,
   );
   const ranked = candidates
     .map((e, index) => ({ e, index, h: health?.(e) }))
@@ -318,7 +327,7 @@ export function resolveProviderRef(
     // Custom-factory providers cannot be route stops: skip the (discarded)
     // chain construction for them.
     isRouteCapable(profile)
-      ? fallbackStopsFor(profile, endpoints, options.health, options.measuredTokens)
+      ? fallbackStopsFor(profile, endpoints, options.health, options.measuredTokens, options.declaredWindows)
       : [],
     options.thinkingForTarget,
   );

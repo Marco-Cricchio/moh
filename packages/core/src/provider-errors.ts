@@ -1,4 +1,5 @@
 import { ProviderError, type ProviderErrorKind } from "./types";
+import { recognizeDeclaredWindow } from "./declared-window";
 
 /**
  * The 9th taxonomy kind: `aborted`. Not an error in the failure sense —
@@ -8,12 +9,25 @@ export type AbortKind = "aborted";
 
 type ErrorRecord = Record<string, unknown>;
 const DETAIL_KEYS = ["message", "detail", "error_description", "responseBody", "error", "data", "cause"] as const;
+/** ADR-0049: total characters scanned for a declared window per failure.
+ * Recognition must see the untruncated text, and a provider payload is
+ * bounded by the transport long before this; the cap only stops a
+ * pathological object from costing more than a constant. */
+const RECOGNITION_TEXT_CAP = 64_000;
 
 /**
  * Normalizes any thrown value into a ProviderError of the 9-kind taxonomy.
  * Unknown failures map to `network` when they look like transport errors,
  * otherwise `invalid_request`-adjacent failures keep their message and map
  * to `invalid_request`; nothing escapes this function un-normalized.
+ *
+ * ADR-0049 (door one, #986): the *kind* classification stays exactly as it
+ * was, and so does the bounded `message`. In addition, a window the
+ * provider declares in a formula moh knows (`recognizeDeclaredWindow`) is
+ * extracted here — before the 300-character cap the classifier and the log
+ * live under — and rides the ProviderError as `declaredWindow`. Whether it
+ * is adopted is the session's decision (only a real `context_length`
+ * refusal teaches), never this function's.
  */
 export function normalizeProviderError(err: unknown, signal?: AbortSignal): ProviderError {
   if (signal?.aborted) return new ProviderError("aborted", "request aborted by signal");
@@ -23,25 +37,74 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
     return new ProviderError("aborted", "request aborted by signal");
   }
 
+  const declaredWindow = recognizeDeclaredWindow(rawText(err));
+  const fail = (kind: ProviderErrorKind, message: string) => new ProviderError(kind, message, declaredWindow);
+
   const status = findStatusCode(err);
   const message = describe(err);
   const body = describeKnownField(err, "responseBody", true)
     ?? describeKnownField(err, "data", true)
     ?? "";
   if (status !== undefined) {
-    return new ProviderError(classifyStatus(status, body, message), message);
+    return fail(classifyStatus(status, body, message), message);
   }
 
   // Transport-level failures (fetch failed, DNS, sockets).
   if (err instanceof TypeError || /fetch|network|socket|ECONN|ENOTFOUND|ETIMEDOUT|timeout/i.test(message)) {
-    return new ProviderError("network", message);
+    return fail("network", message);
   }
 
   // SDK retry wrappers lose statusCode but keep the cause message; sniff it.
   const sniffed = classifyStatus(0, body, message);
-  if (sniffed !== "invalid_request") return new ProviderError(sniffed, message);
+  if (sniffed !== "invalid_request") return fail(sniffed, message);
 
-  return new ProviderError("invalid_request", message);
+  return fail("invalid_request", message);
+}
+
+/**
+ * ADR-0049: every string the failure carries, unbounded — the raw material
+ * recognition reads. `describe()`/`boundedDescription()` cap at 300
+ * characters for the classifier, the log and the clients, which is exactly
+ * why a verbose refusal can lose its window before anything reads it; this
+ * pass walks the same known diagnostic fields (never an arbitrary
+ * serialization: credentials and headers must not be scanned or logged)
+ * and stops at a total budget.
+ */
+function rawText(err: unknown): string {
+  const parts: string[] = [];
+  collectRawText(err, parts, new Set<object>(), 0, { left: RECOGNITION_TEXT_CAP });
+  return parts.join("\n");
+}
+
+function collectRawText(value: unknown, out: string[], seen: Set<object>, depth: number, budget: { left: number }): void {
+  if (budget.left <= 0 || depth > 6 || value === null || value === undefined) return;
+  if (typeof value === "string") {
+    if (!value || value === "[object Object]") return;
+    out.push(value.slice(0, budget.left));
+    budget.left -= value.length;
+    return;
+  }
+  if (typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 5)) collectRawText(item, out, seen, depth + 1, budget);
+    return;
+  }
+  const record = value as ErrorRecord;
+  // A JSON-encoded body keeps its message inside the string — parse it the
+  // same way the bounded path does, so the window is reachable either way.
+  for (const key of DETAIL_KEYS) {
+    const field = record[key];
+    if (typeof field === "string" && (field.trim().startsWith("{") || field.trim().startsWith("["))) {
+      try {
+        collectRawText(JSON.parse(field), out, seen, depth + 1, budget);
+        continue;
+      } catch {
+        // Not JSON after all: fall through to the raw string.
+      }
+    }
+    collectRawText(field, out, seen, depth + 1, budget);
+  }
 }
 
 /** #404: read only known diagnostic fields from SDK/provider error wrappers.

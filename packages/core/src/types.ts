@@ -96,6 +96,18 @@ export class ProviderError extends Error {
   constructor(
     readonly kind: ProviderErrorKind,
     message: string,
+    /**
+     * ADR-0049 (door one, #986): the context window the provider declared
+     * in its own overflow refusal, when moh recognized a formula in it.
+     * Undefined otherwise — including for an unrecognized refusal, which
+     * teaches nothing and leaves a trace instead.
+     *
+     * Recognition runs on the **untruncated** refusal text
+     * (`normalizeProviderError`), before the 300-character cap that bounds
+     * `message` and the body it is classified from, so this number can
+     * come from text `message` no longer holds.
+     */
+    readonly declaredWindow?: number,
   ) {
     super(message);
     this.name = "ProviderError";
@@ -423,6 +435,17 @@ type AgentEventBase =
    */
   | { type: "compaction_skipped"; reason: "too_few_turns" | "no_covered_turns" | "last_turn_exceeds_window";
       turns: number; measuredTokens: number; window: number; tailTokens?: number }
+  /**
+   * ADR-0049 (door one, #986): a provider's own overflow refusal declared
+   * the endpoint's context window for `model` (`window`), replacing the
+   * catalog value `catalog` (0 when the catalog knew nothing). Appended
+   * once per **correction** — never for a number moh already used — and
+   * it is the store: a later resume re-derives the same effective window
+   * from this event, so the window is a session fact with a log record,
+   * not a second file. Chrome only — never provider context, never a turn
+   * error; clients show it as one visible line.
+   */
+  | { type: "declared_window"; model: string; window: number; catalog: number }
   /**
    * #578 (head semantics d6): the newest on-path compaction marker's
    * `upToId` does not resolve on the active path (truncation,
