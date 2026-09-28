@@ -60,7 +60,7 @@ export const JEV_USE_CASE_DESCRIPTIONS: Readonly<Record<JevUseCase, string>> = {
   guardrail:
     "judges every bash call before it runs — destructive, out-of-scope or exfiltrating commands are denied or sent to you for confirmation",
   routing:
-    "picks the endpoint that fits the turn (economical, balanced, powerful) instead of the model you selected",
+    "picks the model that fits the turn, by tier (economico, bilanciato, potente), instead of the one you selected",
   classification: "labels each turn's task type; it is what makes the project-map gate meaningful",
   injection: "checks your message and every web result for prompt injection, before the model reads them",
   lint: "end-of-task quality gate — reviews the changed diff against the project's convention docs",

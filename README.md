@@ -163,8 +163,9 @@ AI collaborator there — one you can trust and inspect:
 
 moh can consult the TypeSafe service for fast, cheap, semantic judgments —
 a tiny AI call that answers questions code can't. Activate it by pasting an
-API key in Settings; that's the whole setup, and a stored key is the only
-switch the guardrail has.
+API key in Settings; that's the whole setup, and a stored key arms the bash
+guardrail (turn it off, persistently or just for a session, in Settings →
+Jev (TypeSafe) → Guardrail or with `/jev`).
 
 - **Bash guardrail.** Before a shell command runs, Jev asks "is this
   destructive? is it exfiltrating data?" — dangerous commands get held for a

@@ -71,7 +71,7 @@ export interface JevGuardOptions {
   /** Hook timeout for one Jev call, ms. Default `JEV_TIMEOUT_MS_DEFAULT`. */
   timeoutMs?: number;
   /**
-   * #1041: the bash guardrail's config opt-in (`typesafe.guardrail`).
+   * #1041: the bash guardrail's config flag (`typesafe.guardrail`).
    * Default true — an absent flag is an armed guardrail, since a stored key
    * is what the use case is for. `false` is the deliberate opt-out: the
    * extension registers everything else the caller asked for and judges no

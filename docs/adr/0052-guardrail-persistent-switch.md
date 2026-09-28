@@ -79,8 +79,8 @@ user turned it off.
 ### 3. One shared account of what each use case does
 
 Reading the vocabulary from clients exposed the gap the ADR-0038 exception
-left in the panel: nine rows of switches with no statement of what any of
-them does. The descriptions now live once, next to the names they describe
+left in the panel: ten rows of switches with no statement of what any of them
+does. The descriptions now live once, next to the names they describe
 (`JEV_USE_CASE_DESCRIPTIONS` in `@moh/jev-guard`), and both surfaces render
 them for the row under the cursor — the Settings sub-menu after ` - `, the
 `/jev` modal as a line under the selected use case. A description states what

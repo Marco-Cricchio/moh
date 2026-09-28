@@ -41,7 +41,7 @@ export const typesafeConfigSchema = z.object({
   /** Hook timeout for one Jev call, ms. Config only — never in the UI. */
   timeoutMs: z.number().int().positive().optional(),
   /**
-   * The bash guardrail's opt-in (#1041). Default true (absent = armed):
+   * The bash guardrail's flag (#1041). Default true (absent = armed):
    * the guardrail is what the key activates, so opting *out* is the
    * explicit gesture and `false` is the only value that disarms it. Read
    * at session assembly, like every other use-case flag — a running
@@ -85,7 +85,7 @@ export interface ResolvedTypesafeConfig {
   /** Effective hook timeout in ms. */
   timeoutMs: number;
   /**
-   * The bash guardrail's opt-in (#1041). On unless the config says
+   * The bash guardrail's flag (#1041). On unless the config says
    * otherwise: `false` is a deliberate opt-out, and a stored key with the
    * guardrail off runs every other requested use case with none of the
    * bash judgments.
@@ -177,7 +177,7 @@ export function saveTypesafeApiKey(file: string, key: string, io: UserConfigIo =
 }
 
 /**
- * Persists the guardrail opt-in (#1041) — the Settings row's and
+ * Persists the guardrail flag (#1041) — the Settings row's and
  * `moh jev guardrail on|off`'s writer.
  *
  * `true` is what an absent key resolves to (`resolveTypesafeConfig`), so

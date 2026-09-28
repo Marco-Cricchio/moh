@@ -19,9 +19,6 @@ import { stripAnsi, waitForCondition } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** The entry's row index in the settings list (after "Remove provider"). */
-const JEV_ROW = 11;
-
 /**
  * Moves the settings cursor onto the Jev entry by its LABEL. A fixed index
  * broke 14 tests the moment a settings row was inserted above it; the label

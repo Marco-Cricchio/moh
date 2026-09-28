@@ -21,7 +21,7 @@ matching section here at tag time.
   line for a warm flip no longer invents a note — it states the same
   asymmetry as every other use case.
 
-- **Every Jev row says what it does** (#1041): the nine rows of the Settings
+- **Every Jev row says what it does** (#1041): the ten rows of the Settings
   sub-menu and the seven of the `/jev` modal now carry one short description
   each, shown for the row under the cursor. The seven use-case lines come from
   a single map in `@moh/jev-guard`, so the two surfaces state the same thing

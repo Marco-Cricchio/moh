@@ -134,7 +134,9 @@ const JEV_OPTIONS = ["API key", "Guardrail", "Model routing", "Anti-injection", 
 
 /**
  * #1041: one short line per row, in `JEV_OPTIONS` order, shown beside the
- * row the cursor is on (separated by " - ") so nine rows stay nine rows.
+ * row the cursor is on (separated by " - "), so the ten rows of the entry
+ * stay the ten rows a user scans — no description ever grows a row of its
+ * own; the text wraps under its row like the disclosure below the list.
  *
  * The seven use cases take their words from the package that owns the
  * vocabulary, so the `/jev` modal says exactly the same thing; the three
@@ -1192,13 +1194,20 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                             ? "clear the key"
                             : "nothing to remove";
                 return (
-                  <Text key={option} {...(selected ? selectionStyle(theme) : {})}>
-                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(17)}${value}`, innerWidth)}
-                    {/* #1041: what the row does, beside the row the cursor is
-                        on — nine rows stay nine rows, and the words are the
-                        same the /jev modal uses. */}
-                    {selected ? <Dim>{` - ${JEV_OPTION_DESCRIPTIONS[option]}`}</Dim> : " "}
-                  </Text>
+                  <React.Fragment key={option}>
+                    <Text {...(selected ? selectionStyle(theme) : {})}>
+                      {truncate(` ${selected ? "›" : " "} ${option.padEnd(17)}${value}${selected ? " " : ""}`, innerWidth)}
+                    </Text>
+                    {/* #1041: what the row does, on the line under the row the
+                        cursor is on and separated by " - ", in the words the
+                        /jev modal uses for the same use case. It gets its own
+                        line because a description is prose: inside the row it
+                        would either be cut to a few words on a narrow dialog
+                        or push the row past the frame's edge. */}
+                    {selected && (
+                      <Text color={theme.dim} wrap="wrap">{`   - ${JEV_OPTION_DESCRIPTIONS[option]}`}</Text>
+                    )}
+                  </React.Fragment>
                 );
               })}
               <Text> </Text>
