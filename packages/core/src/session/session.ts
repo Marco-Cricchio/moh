@@ -9,6 +9,9 @@ import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { contextFitFor } from "../context-fit";
+// ADR-0050 (#974): the selected/serving pair — one formatter, one accessor
+// pair, shared by every surface that states or derives from the model in use.
+import { formatModelPair, selectedModelOf, servingModelOf } from "../model-pair";
 import { CompactionRunner, createCompactionSummarizer, contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
@@ -58,6 +61,10 @@ export class AgentSession {
    * own cached listings) — the provider's window outranks the shipped
    * row. Door one (refusal-learned) is #declaredWindows below. */
   readonly #endpointDeclaredWindows: Record<string, Record<string, number>>;
+  /** #488: the config's image-capability pin (tests/custom providers).
+   * Absent = the catalog's declared modalities answer (ADR-0050 §7:
+   * resolved against the model that serves, not the selected one). */
+  readonly #images: SessionConfig["images"];
   /** Registry snapshot frozen at creation; later registrations never reach it. */
   readonly #registry: FrozenProviderRegistry | undefined;
   #tools: Record<string, Tool>;
@@ -197,6 +204,7 @@ export class AgentSession {
     // #1032 (ADR-0049 door two): the endpoints' own declared windows —
     // one map, every window consumer funnels through it.
     this.#endpointDeclaredWindows = config.endpointDeclaredWindows ?? {};
+    this.#images = config.images;
     this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
     // Init-order note (#243): #mohHome must be assigned before
     // #routeResolutionOptions — its thinkingForTarget lambda resolves
@@ -318,17 +326,7 @@ export class AgentSession {
       },
       // #778: browser screenshots become typed image parts only when the
       // serving model declares image input — the exact #488 probe.
-      imageCapable: () => {
-        const pin = config.images?.imageCapable;
-        if (typeof pin === "boolean") return pin;
-        if (typeof pin === "function") return pin();
-        const ref = this.#provider.name;
-        const slash = ref.indexOf("/");
-        const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
-        const profile = this.#endpoints.find((e) => e.name === endpointName);
-        if (profile?.capabilities?.multimodal === false) return false;
-        return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
-      },
+      imageCapable: () => this.#imagesSupported(),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.
@@ -484,16 +482,18 @@ export class AgentSession {
       this.#compaction = new CompactionRunner({
         sessionId: this.#sessionId,
         provider: () => this.#provider,
-        // One resolver set for the active reference (ADR-0049: one value,
-        // one owner) — the lookup every window consumer shares.
-        endpointType: () => this.#endpointTypeFor(this.#provider.name),
+        // One resolver set for the reference that SERVES the calls
+        // (ADR-0049: one value, one owner; ADR-0050 §7: the window belongs
+        // to the serving model, so its identity is the serving one) — the
+        // lookup every window consumer shares.
+        endpointType: () => this.#endpointTypeFor(this.servingModel),
         // ADR-0049: the one window lookup the guard and the chain read —
         // a provider-declared window outranks the catalog row here too.
         declaredWindows: () => this.#declaredWindows,
         // Door two (#1032): the endpoint identity + its own listing
         // windows, resolved by endpoint instead of provider kind.
         endpoint: () => {
-          const ref = this.#provider.name;
+          const ref = this.servingModel;
           const slash = ref.indexOf("/");
           if (slash > 0) {
             const endpoint = this.#windowEndpoint(ref.slice(0, slash));
@@ -616,17 +616,7 @@ export class AgentSession {
         // catalog's declared input modalities (never inferred), with an
         // explicit `capabilities.multimodal: false` endpoint override.
         // A config `images.imageCapable` pin wins (tests/custom providers).
-        imageCapable: () => {
-          const pin = config.images?.imageCapable;
-          if (typeof pin === "boolean") return pin;
-          if (typeof pin === "function") return pin();
-          const ref = this.#provider.name;
-          const slash = ref.indexOf("/");
-          const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
-          const profile = this.#endpoints.find((e) => e.name === endpointName);
-          if (profile?.capabilities?.multimodal === false) return false;
-          return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
-        },
+        imageCapable: () => this.#imagesSupported(),
       },
       // #253: live reasoning relay (ephemeral — never stored or sunk).
       emitLive: (event) => this.#eventLog.emitLive(event),
@@ -776,6 +766,7 @@ export class AgentSession {
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode: this.#permissions.mode });
+    this.#declareInheritedRoute();
     this.#appendStartupChrome(true);
     this.#flushExtensionEvents();
     // Fire-and-forget: construction is sync, the session is not yet running.
@@ -789,6 +780,23 @@ export class AgentSession {
     }).then((errors) => {
       for (const e of errors ?? []) this.#append(e);
     });
+  }
+
+  /**
+   * ADR-0050 (§6): a session may be born serving a stop other than its
+   * selection — a subagent child inherits the parent's fallback. Its own log
+   * declares that state once, at open, with the existing `route_serving`
+   * chrome (`previous` = the selection), so the child's log reads on its
+   * own without the parent's. It reports how the session was born, not a
+   * change the user watched happen: the subagent chip and the live panel
+   * already show the child, so no client raises a fallback notice for it
+   * (and a child's events never reach a client watching the parent).
+   */
+  #declareInheritedRoute(): void {
+    const selected = this.selectedModel;
+    const serving = this.servingModel;
+    if (serving === selected) return;
+    this.#append({ type: "route_serving", selected, serving, previous: selected });
   }
 
   /**
@@ -904,23 +912,44 @@ export class AgentSession {
     return this.#registry;
   }
 
-  /** The user-selected model ref (`endpoint/model-id`, or a provider name). #166/#363. */
+  /** The user-selected model ref (`endpoint/model-id`, or a provider name). #166/#363.
+   * ADR-0050: the standing choice — it stays stable while a fallback serves. */
   get activeModel(): string {
     return this.#provider.name;
   }
 
   /** #363: selected route stays user-owned while a fallback may serve calls. */
   get selectedModel(): string {
-    return "selected" in this.#provider && typeof this.#provider.selected === "string"
-      ? this.#provider.selected
-      : this.#provider.name;
+    return selectedModelOf(this.#provider);
   }
 
-  /** #363: latest successful route used for later model calls. */
+  /** #363: latest successful route used for later model calls — the model
+   * in use (ADR-0050): what behaviour depending on the serving model reads. */
   get servingModel(): string {
-    return "serving" in this.#provider && typeof this.#provider.serving === "string"
-      ? this.#provider.serving
-      : this.#provider.name;
+    return servingModelOf(this.#provider);
+  }
+
+  /**
+   * #488/#778 (ADR-0050 §7): whether an image may become a typed image
+   * part — resolved against the model that SERVES this session's calls, so
+   * a fallback onto a model without image input downgrades the attachment
+   * (visible warning, chip text) instead of sending a request the serving
+   * model rejects. The catalog's declared input modalities are the truth
+   * (never inferred), with an explicit `capabilities.multimodal: false`
+   * endpoint override; a config `images.imageCapable` pin wins outright
+   * (tests/custom providers). One definition for both probes: the browser
+   * screenshot seam (#778) and the `@path` mention seam (#488).
+   */
+  #imagesSupported(): boolean {
+    const pin = this.#images?.imageCapable;
+    if (typeof pin === "boolean") return pin;
+    if (typeof pin === "function") return pin();
+    const ref = this.servingModel;
+    const slash = ref.indexOf("/");
+    const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
+    const profile = this.#endpoints.find((e) => e.name === endpointName);
+    if (profile?.capabilities?.multimodal === false) return false;
+    return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
   }
 
   /**
@@ -1426,7 +1455,11 @@ export class AgentSession {
       cwd: this.#cwd,
       platform: process.platform,
       now: new Date(),
-      model: this.#provider.name,
+      // ADR-0050: the prompt states what serves — the pair while a fallback
+      // serves this session's calls, the single reference otherwise. Read
+      // live, at every assembly: a fallback that happened mid-turn is in
+      // the next call's prompt.
+      model: formatModelPair(this.selectedModel, this.servingModel),
       tools: Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description })),
       skills: this.#skills,
       ...(this.#skillPrompt ? { skillPrompt: this.#skillPrompt } : {}),

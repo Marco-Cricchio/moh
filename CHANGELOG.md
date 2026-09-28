@@ -9,6 +9,33 @@ matching section here at tag time.
 
 ### Added
 
+- **A session says which model serves its calls** (ADR-0050, #974): the
+  model you selected and the stop that actually answers are two different
+  things, and every surface now says so. Wherever a session states what it
+  is working with — the system prompt's `Environment` block, the status
+  bar, the transcript's serving record, the `/model` header, the fallback
+  notice — the pair renders as `selected → serving` while a fallback is in
+  play, and as the single reference otherwise, exactly as before. The prompt
+  no longer tells the model it is running on a model that is not answering
+  the call (the dead `Route:` line is gone), and the `/model` header keeps
+  marking your selection — the thing a pick replaces — while showing what
+  serves beside it.
+
+### Fixed
+
+- **A subagent owns its own route** (ADR-0050, #974): a child used to
+  borrow its parent's route object, so serving index, failure cooldowns and
+  the recovery probe were shared — a fallback entered inside a child moved
+  the parent's next call, with no record in the parent's transcript. A child
+  now gets its own route, born from the pair its parent was in at spawn
+  time, and keeps its own failures and recoveries. It does inherit the
+  *knowledge*: an endpoint the parent found exhausted is skipped rather than
+  re-probed, and its log opens with one `route_serving` record saying how it
+  was born (which raises no fallback notice). Image capability and the
+  compaction window now both follow the model that serves, so a fallback
+  onto a text-only or smaller-window stop is handled instead of tripping
+  over the selection's capabilities.
+
 - **The corpus the next recognition formula is written from** (ADR-0049
   door one, #986): a refusal whose wording moh cannot read a window out
   of now leaves one line in `~/.moh/context-refusals.log` — date, endpoint

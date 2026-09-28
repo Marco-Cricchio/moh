@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
-import type { AgentEvent } from "@moh/core";
+import { formatModelPair, type AgentEvent } from "@moh/core";
 import type { PaintableTheme, Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
@@ -876,7 +876,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         break;
       case "route_serving":
         // #363: selected and serving routes are distinct session state.
-        blocks.push({ key, kind: "chrome", glyph: "↻", type: "serving route", detail: `${event.selected} · ${event.serving}`, lines: [] });
+        // ADR-0050: the pair renders through the one core formatter, so the
+        // durable record reads exactly like the footer and the prompt.
+        blocks.push({ key, kind: "chrome", glyph: "↻", type: "serving route", detail: formatModelPair(event.selected, event.serving), lines: [] });
         break;
       case "memory_updated":
         if (vibe) break;

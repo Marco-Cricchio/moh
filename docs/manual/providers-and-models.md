@@ -43,6 +43,32 @@ way a fallback can help — quota exhausted, rate limited, network,
 overloaded, or an empty completion — the turn is retried on the next
 eligible endpoint, and the transcript shows a notice naming both.
 
+Your choice and what serves are two different things, and moh shows both
+(ADR-0050). The model you picked stays **selected** — it is what `/model`
+replaces, and the picker's marker stays on it — while a **serving** stop
+answers the calls. Wherever a session states which model it is working
+with, the two are written as `selected → serving`, and a session with
+nothing in fallback shows one reference, exactly as before. That covers
+the TUI status bar, the `/model` header, and the system prompt's
+`Environment` block, so the model is never told it is working on a model
+that is not answering the call. While a fallback serves, the `/model`
+header reads `active: <selected> · serving <serving>`.
+
+The serving state belongs to one session, never to the whole program: a
+subagent starts with the model its parent was serving at spawn time, gets
+its own copy of the chain from there, and keeps its own failures and
+recoveries. What it inherits is the *knowledge* — an endpoint the parent
+found exhausted stays skipped instead of being re-probed, so time is not
+spent on a stop already known to be down. The child's own log opens with a
+`route_serving` record saying how it was born, and that record raises no
+fallback notice: it describes a starting point, not a change you watched
+happen. What happens inside a child never adds a line to its parent's
+transcript.
+
+A session reopened with `--resume` starts on your selected model; the
+serving state is not saved, so the chain re-engages visibly if that stop is
+still unavailable.
+
 Every endpoint that can serve as a stop is in the chain, in declaration
 order, each using **its own preferred model** (`defaultModel`). An
 endpoint is not a stop when it has no preferred model, when it is

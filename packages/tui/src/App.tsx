@@ -7,6 +7,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { loadMohConfig, type TrackerIssue, writeMohConfig } from "@moh/core";
 import {
+  formatModelPair,
   installFirstPartySkills,
   checkUpstreamUpdates,
   checkForUpdate,
@@ -249,8 +250,16 @@ function AppShell({
   const [session, setSession] = useState<AgentSession | null>(() =>
     initialSession && "session" in initialSession ? initialSession.session : null,
   );
-  const sessionRef = useRef<AgentSession | null>(session);
-  sessionRef.current = session;
+  const sessionRef = useRef<AgentSession | null>(null);
+  // ADR-0050: the footer states what serves. A session can be born with the
+  // two references apart (a resumed one the chain re-engaged, a child, an
+  // assembly that never saw a live transition), so the label is re-derived
+  // from the session itself on every swap — never left on whatever the
+  // previous seed or the last live event happened to be.
+  useEffect(() => {
+    sessionRef.current = session;
+    if (session) setModelLabel(formatModelPair(session.selectedModel, session.servingModel));
+  }, [session]);
 
   // First-run onboarding (#33): only when nothing is configured — an
   // explicit provider prop or a moh.json provider reference counts as
@@ -589,7 +598,10 @@ function AppShell({
               "warn",
             );
           }
-          if (event.type === "route_serving") setModelLabel(`${event.selected} · ${event.serving}`);          if (event.type === "permission_rules_restored") {
+          // ADR-0050: the footer states the pair with the same formatter the
+          // prompt and the /model header use.
+          if (event.type === "route_serving") setModelLabel(formatModelPair(event.selected, event.serving));
+          if (event.type === "permission_rules_restored") {
             push(sanitizeForDisplay(`restored ${event.rules.length} permission rule${event.rules.length === 1 ? "" : "s"}: ${event.rules.join(", ")}`), "warn");
           }
           // #936: the browser toolchain diagnostic of this open — the
@@ -981,11 +993,14 @@ function AppShell({
       push(assemblyErrorToast(result.error) + " — keeping the current session");
       return false;
     }
-    setModelLabel(result.session.activeModel);
+    // ADR-0050: the footer states what serves — the pair while a fallback
+    // serves, the single reference otherwise (activeModel is the selection,
+    // which is also what the /model picker marks as `current`).
+    setModelLabel(formatModelPair(result.session.selectedModel, result.session.servingModel));
     setSession(result.session);
     // #936: the browser setup flow reloads with its own note (what the
     // reload was for) instead of the generic config message.
-    push(note ?? `✓ config reloaded · model ${result.session.activeModel} · history preserved`);
+    push(note ?? `✓ config reloaded · model ${formatModelPair(result.session.selectedModel, result.session.servingModel)} · history preserved`);
     return true;
   };
 
@@ -1018,7 +1033,7 @@ function AppShell({
     if ("error" in result) {
       return push(assemblyErrorToast(result.error) + " — keeping the current session");
     }
-    setModelLabel(result.session.activeModel);
+    setModelLabel(formatModelPair(result.session.selectedModel, result.session.servingModel));
     setSession(result.session);
     setGrowth(null);
     push(`forked (${scope}) → ${forkedStore.file.split("/").at(-1)}`);
@@ -1710,6 +1725,7 @@ function AppShell({
         {overlay === "model" && session && (
           <ModelPickerModal
             activeModel={session.activeModel}
+            servingModel={session.servingModel}
             endpoints={session.endpointProfiles.map((e) => ({
               name: e.name,
               type: e.type,
