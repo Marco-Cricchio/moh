@@ -615,3 +615,144 @@ describe("#949: the window wins — reachability", () => {
     expect(legalBoundariesOk(events, cut)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #766 (ADR-0051): the deterministic summarizer strategy
+
+import {
+  compactionFacts,
+  createDeterministicSummarizer,
+  DETERMINISTIC_DIGEST_BUDGET_CHARS,
+  renderDeterministicDigest,
+} from "../src/compaction";
+
+function coveredSpan(): AgentEvent[] {
+  return [
+    { type: "session_start", sessionId: "s", cwd: "/p", provider: "mock", model: "m", tools: [] } as AgentEvent,
+    { type: "user_message", text: "fix the failing test in src/a.test.ts" },
+    { type: "tool_call", name: "read", callId: "c1", args: { file_path: "src/a.test.ts" } } as unknown as AgentEvent,
+    { type: "tool_result", callId: "c1", ok: true, output: "ok" } as AgentEvent,
+    { type: "tool_call", name: "edit", callId: "c2", args: { file_path: "src/a.ts" } } as unknown as AgentEvent,
+    { type: "tool_result", callId: "c2", ok: false, output: "TypeError: cannot apply patch" } as AgentEvent,
+    { type: "assistant_delta", text: "partial progress on the fix" },
+    { type: "done", usage: { inputTokens: 100, outputTokens: 10 } },
+  ];
+}
+
+describe("#766: compactionFacts", () => {
+  test("extracts files, traffic, errors and task state from the span", () => {
+    const events = coveredSpan();
+    const from = indicesFor(events, 0);
+    const facts = compactionFacts(events, from, events.length);
+    expect(facts.turns).toBe(1);
+    expect(facts.userMessages).toEqual(["fix the failing test in src/a.test.ts"]);
+    expect(facts.filesRead).toEqual(["src/a.test.ts"]);
+    expect(facts.filesModified).toEqual(["src/a.ts"]);
+    const edit = facts.toolCalls.find((t) => t.tool === "edit")!;
+    expect(edit).toEqual({ tool: "edit", calls: 1, errors: 1 });
+    expect(facts.recentErrors).toEqual(["edit: TypeError: cannot apply patch"]);
+    expect(facts.lastAssistant).toBe("partial progress on the fix");
+  });
+
+  test("empty span yields empty facts", () => {
+    const facts = compactionFacts([], 0, 0);
+    expect(facts.turns).toBe(0);
+    expect(facts.filesRead).toEqual([]);
+    expect(facts.filesModified).toEqual([]);
+    expect(facts.lastAssistant).toBe("");
+  });
+});
+
+describe("#766: deterministic digest", () => {
+  const input = {
+    previous: "earlier summary",
+    transcript: "user: do the thing\nassistant: done",
+    facts: compactionFacts(coveredSpan(), indicesFor(coveredSpan(), 0), coveredSpan().length),
+  };
+
+  test("byte-stable across runs", () => {
+    expect(renderDeterministicDigest(input)).toBe(renderDeterministicDigest({ ...input }));
+  });
+
+  test("carries the previous summary and the facts", () => {
+    const digest = renderDeterministicDigest(input);
+    expect(digest).toContain("earlier summary");
+    expect(digest).toContain("src/a.ts");
+    expect(digest).toContain("TypeError: cannot apply patch");
+    expect(digest).toContain("fix the failing test in src/a.test.ts");
+  });
+
+  test("deterministic summarizer returns the digest under budget", async () => {
+    let fallbackCalled = false;
+    const summarizer = createDeterministicSummarizer(async () => {
+      fallbackCalled = true;
+      return "LLM";
+    });
+    const summary = await summarizer({ ...input, signal: undefined });
+    expect(summary).toBe(renderDeterministicDigest(input));
+    expect(fallbackCalled).toBe(false);
+  });
+
+  test("over-budget digest degrades explicitly to the fallback", async () => {
+    const strategy = { name: "deterministic" };
+    let received: CompactionSummarizerInput | undefined;
+    const summarizer = createDeterministicSummarizer(async (i) => {
+      received = i;
+      return "LLM digest";
+    }, strategy);
+    const big = { ...input, facts: { ...input.facts!, lastAssistant: "x".repeat(DETERMINISTIC_DIGEST_BUDGET_CHARS + 10) } };
+    const summary = await summarizer(big);
+    expect(summary).toBe("LLM digest");
+    expect(received!.facts!.turns).toBe(input.facts!.turns);
+    expect(strategy.name).toBe("llm-fallback");
+  });
+});
+
+describe("#766: the marker records the serving summarizer", () => {
+  test("deterministic run stamps \"deterministic\"", async () => {
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 14; i++) events.push(...turnEvents(i, 1000));
+    const appended: AgentEvent[] = [];
+    const r = new CompactionRunner({
+      sessionId: "s",
+      provider: () => MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
+      append: (e) => appended.push(e),
+      onCompacted: () => {},
+      summarizer: createDeterministicSummarizer(),
+      summarizerName: () => "deterministic",
+      fallbackWindowTokens: 100_000,
+    });
+    const result = await r.compactNow(events);
+    expect(result.ok).toBe(true);
+    const marker = appended.find((e) => e.type === "compaction")!;
+    expect((marker as { summarizer?: string }).summarizer).toBe("deterministic");
+    const digest = (marker as { summary: string }).summary;
+    expect(digest).toContain("Task state");
+    expect(digest).toBe(renderDeterministicDigest({
+      transcript: compactionTranscript(
+        events,
+        CompactionRunner.latestMarker(events)?.upTo ?? 0,
+        result.ok ? result.upTo : 0,
+      ),
+      facts: compactionFacts(events, 0, result.ok ? result.upTo : 0),
+    }));
+  });
+
+  test("no summarizerName → no stamp", async () => {
+    const events: AgentEvent[] = [];
+    for (let i = 0; i < 14; i++) events.push(...turnEvents(i, 1000));
+    const appended: AgentEvent[] = [];
+    const r = new CompactionRunner({
+      sessionId: "s",
+      provider: () => MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
+      append: (e) => appended.push(e),
+      onCompacted: () => {},
+      summarizer: scriptedSummarizer,
+      fallbackWindowTokens: 100_000,
+    });
+    const result = await r.compactNow(events);
+    expect(result.ok).toBe(true);
+    const marker = appended.find((e) => e.type === "compaction")!;
+    expect((marker as { summarizer?: string }).summarizer).toBeUndefined();
+  });
+});

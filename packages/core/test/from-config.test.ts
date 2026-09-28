@@ -309,6 +309,31 @@ describe("sessionFromConfig — user-level provider layering (#129)", () => {
       cleanup();
     }
   });
+
+  test("#766: moh.json compaction.summarizer \"deterministic\" yields the digest marker", async () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const config: MohConfig = { provider: "mock", compaction: { summarizer: "deterministic" } };
+      const turn = { deltas: ["working"], finish: "stop" as const, usage: { inputTokens: 1000, outputTokens: 10 } };
+      const provider = MockProvider.scripted(Array.from({ length: 14 }, (_, i) => ({ ...turn, deltas: [`reply ${i}`] })));
+      const result = sessionFromConfig({ cwd, home, provider, config });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      for (let i = 0; i < 13; i++) {
+        const done = await result.session.send(`request ${i}`);
+        expect(done.status).toBe("done");
+      }
+      const compacted = await result.session.compact();
+      expect(compacted.ok).toBe(true);
+      if (!compacted.ok) return;
+      expect(compacted.summary).toContain("Task state");
+      const marker = result.session.history().filter((e) => e.type === "compaction").at(-1) as { summarizer?: string } | undefined;
+      expect(marker?.summarizer).toBe("deterministic");
+      await result.session.dispose();
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 // #400: single-writer guard at the assembly seam — external growth of the
