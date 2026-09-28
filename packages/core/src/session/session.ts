@@ -12,7 +12,7 @@ import { contextFitFor } from "../context-fit";
 // ADR-0050 (#974): the selected/serving pair — one formatter, one accessor
 // pair, shared by every surface that states or derives from the model in use.
 import { formatModelPair, selectedModelOf, servingModelOf } from "../model-pair";
-import { CompactionRunner, createCompactionSummarizer, contextWindowFor } from "../compaction";
+import { CompactionRunner, createCompactionSummarizer, createDeterministicSummarizer, contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
@@ -478,6 +478,9 @@ export class AgentSession {
     // Compaction (#466): on by default when the option is present
     // (from-config passes it unconditionally); `enabled: false` turns it off.
     const comp = config.compaction;
+    // #766 (ADR-0051): which summarizer actually served — read back by
+    // the runner at marker time so a mid-run fallback is stamped.
+    const strategyBox = { name: "llm" };
     if (comp && (comp.enabled ?? true)) {
       this.#compaction = new CompactionRunner({
         sessionId: this.#sessionId,
@@ -518,7 +521,15 @@ export class AgentSession {
           return pin !== undefined ? (pathTo(live, pin) ?? activePath(live)) : activePath(live);
         },
         onCompacted: () => this.#rebuildAfterCompaction(),
-        summarizer: comp.summarizer ?? createCompactionSummarizer(this.#provider, this.#cwd),
+        // #766 (ADR-0051): "deterministic" selects the digest summarizer
+        // with the LLM summarizer as the explicit over-budget fallback;
+        // the strategy box feeds the marker's `summarizer` audit stamp.
+        summarizer: comp.summarizer ?? (comp.summarizerStrategy === "deterministic"
+          ? createDeterministicSummarizer(createCompactionSummarizer(this.#provider, this.#cwd), strategyBox)
+          : createCompactionSummarizer(this.#provider, this.#cwd)),
+        ...(comp.summarizerStrategy === "deterministic" && !comp.summarizer
+          ? { summarizerName: () => strategyBox.name }
+          : {}),
         // ADR-0035: the section-filter dispatch, when a runtime exists.
         // `moh compact` on a closed file has no runtime here: it compacts
         // exactly as before (the filter is an optimization, not a gate).

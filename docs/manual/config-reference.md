@@ -36,6 +36,7 @@ moh reads two files:
     "my-agent": { "name": "my-agent", "description": "...", "systemPrompt": "...", "allowedTools": ["bash"], "model": "...", "provider": "...", "maxIterations": 20, "context": "..." }
   },
   "memory": { "enabled": true, "intervalTurns": 5, "budgetTokens": 2000 },
+  "compaction": { "summarizer": "llm", "tailTurns": 10, "threshold": 0.8, "fallbackWindowTokens": 180000 },
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
@@ -102,6 +103,18 @@ All keys are optional. Notes:
   Jev page).
 - `handoff.transport` — absent = Not Set = off; `"gist"` enables
   publish-on-push session handoff.
+- `compaction` — tuning for the within-session context compaction
+  (see the Memory & compaction page). `summarizer` selects the summary
+  strategy: `"llm"` (default — the compaction subagent summarizes the
+  covered past) or `"deterministic"` (ADR-0051 — a rule-built digest of
+  the covered turns: your requests, the files read and modified, tool
+  traffic, recent failures. No model call, byte-stable across runs and
+  machines; when the digest would exceed its size budget the run
+  degrades to the LLM summarizer and the marker records it as
+  `llm-fallback` — never a silent truncation). `tailTurns` (default
+  10), `threshold` (default 0.8) and `fallbackWindowTokens` (default
+  180000) mirror the session options for the trigger and the verbatim
+  tail.
 - `mpm` — per-project Moh Project Map override (ADR-0026): an explicit
   `enabled` (either `true` or `false`) overrides the user default for
   this project only; absent means inherit (the global default is
