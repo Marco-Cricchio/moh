@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
 import { jevBundledSource } from "../src/integration";
+import type { JevUseCaseState } from "../src/use-cases";
 
 /** #826 residue removal: the *client* resolves activation and mounts the
  * source with the answer; the core only consumes the boolean. This helper
@@ -38,6 +39,7 @@ import {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeGuardrail,
 } from "../src/typesafe";
 
 function tmpDir(prefix = "moh-jev-int-"): string {
@@ -68,6 +70,8 @@ describe("the typesafe config block (#784, #826)", () => {
     expect(resolveTypesafeConfig(undefined)).toEqual({
       active: false,
       timeoutMs: 2500,
+      // #1041: the guardrail is armed unless the user opted out.
+      guardrail: true,
       routing: false,
       injection: false,
       classification: true,
@@ -89,6 +93,28 @@ describe("the typesafe config block (#784, #826)", () => {
     expect(maskApiKey("sk-abcdef")).toBe("…cdef");
     expect(maskApiKey("ab")).toBe("…");
     expect(resolveTypesafeConfig({ skills: true })).toMatchObject({ skills: true });
+    // #1041: only the explicit `false` disarms the guardrail — a block that
+    // never mentions it stays armed.
+    expect(resolveTypesafeConfig({ apiKey: "sk-abcdef" })).toMatchObject({ guardrail: true });
+    expect(resolveTypesafeConfig({ apiKey: "sk-abcdef", guardrail: false })).toMatchObject({ guardrail: false });
+  });
+
+  test("the guardrail flag is written and read back like its siblings (#1041)", () => {
+    const dir = tmpDir();
+    const file = join(dir, "config");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { apiKey: "sk-keep" }, theme: "nord" }));
+
+    saveTypesafeGuardrail(file, false);
+    expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-keep", guardrail: false });
+    expect(resolveTypesafeConfig(readTypesafeConfig(file)).guardrail).toBe(false);
+
+    // Back on: an explicit flag, not a deletion — the row states a choice.
+    saveTypesafeGuardrail(file, true);
+    expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-keep", guardrail: true });
+    const raw = JSON.parse(require("node:fs").readFileSync(file, "utf8")) as Record<string, unknown>;
+    expect(raw.provider).toBe("mock");
+    expect(raw.theme).toBe("nord");
   });
 
   test("save and remove go through the guardian and preserve other sections", () => {
@@ -263,6 +289,34 @@ describe("activation through the generic door (#826)", () => {
     expect(snapshot.guardrail).toMatchObject({ status: "on", config: true });
     expect(snapshot.skills).toMatchObject({ status: "off", config: false });
     await session.dispose();
+  });
+
+  test("#1041: the config's guardrail flag reaches the assembled extension", async () => {
+    const cwd = tmpDir("moh-jev-cwd-");
+    const home = tmpDir("moh-jev-assembly-");
+    const base = () => ({ cwd, home, config: { provider: "mock" }, bundledExtensions: [mountJev(home)] });
+    /** The extension's own live snapshot, read through the session's seam. */
+    const guardrailOf = (session: { extensionState(extension: string, key: string): unknown }) =>
+      (session.extensionState("jev-guard", "jevState") as () => Record<string, JevUseCaseState>)().guardrail!;
+
+    // Armed by default: an absent flag is what a stored key arms.
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test" } });
+    const armed = sessionFromConfig(base());
+    if ("error" in armed) throw new Error(armed.error.message);
+    await armed.session.send("hello");
+    expect(guardrailOf(armed.session)).toMatchObject({ status: "on", config: true });
+    await armed.session.dispose();
+
+    // Opted out: the one difference is the flag, and the assembled extension
+    // reads it — this is the seam `integration.ts` carries, not the factory's.
+    writeUserConfig(home, { typesafe: { apiKey: "sk-test", guardrail: false } });
+    const disarmed = sessionFromConfig(base());
+    if ("error" in disarmed) throw new Error(disarmed.error.message);
+    await disarmed.session.send("hello");
+    // `off` in the config, never `inert`: the session has everything the use
+    // case needs and the user turned it off.
+    expect(guardrailOf(disarmed.session)).toEqual({ status: "off", config: false, note: "off in the config" });
+    await disarmed.session.dispose();
   });
 
   test("a malformed typesafe section does not fail the session: the descriptor reports inactive", () => {

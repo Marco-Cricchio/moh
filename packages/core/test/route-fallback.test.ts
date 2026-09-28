@@ -507,3 +507,161 @@ describe("route health (#852)", () => {
     expect(route.health()).toEqual([]);
   });
 });
+
+describe("per-session route state (ADR-0050, #974)", () => {
+  /** A three-stop chain over a deterministic clock, recording every target
+   * the route actually attempts. */
+  function chainWith(scripts: Record<string, Provider>, clock: { value: number }) {
+    const targets = [mockTarget("a"), mockTarget("b"), mockTarget("c")];
+    const calls: string[] = [];
+    const route = createRoute({
+      target: targets[0]!,
+      fallbacks: targets.slice(1),
+      retries: 0,
+      now: () => clock.value,
+      createStream: (target) => {
+        calls.push(target.endpoint.name);
+        const provider = scripts[target.endpoint.name]!;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+    return { route, calls };
+  }
+
+  const message: Message[] = [{ role: "user", parts: [{ kind: "text", text: "hi" }] }];
+  const quotaExhausted = () => MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }]);
+  const served = (text: string) => () => MockProvider.scripted([{ deltas: [text], finish: "stop" }]);
+
+  test("a child route starts where its parent is, and inherits the known cooldown deadlines", async () => {
+    const clock = { value: 0 };
+    const { route, calls } = chainWith({ a: quotaExhausted(), b: served("b")(), c: served("c")() }, clock);
+    for await (const _ of route.stream(message, new AbortController().signal)) { void _; }
+    expect(route.serving).toBe("b/model-b");
+    expect(route.health()).toEqual([{ ref: "a/model-a", kind: "quota_exhausted", until: 15 * 60_000 }]);
+
+    const child = route.childRoute();
+    expect(child.selected).toBe("a/model-a");
+    expect(child.serving).toBe("b/model-b");
+    // The deadline travelled; the failure counter did not (no count is
+    // readable, and a fresh failure on `a` gets its own first cooldown).
+    expect(child.health()).toEqual([{ ref: "a/model-a", kind: "quota_exhausted", until: 15 * 60_000 }]);
+
+    // A child turn: the cooled-down selected stop is not probed at all.
+    calls.length = 0;
+    for await (const _ of child.stream(message, new AbortController().signal)) { void _; }
+    expect(calls).toEqual(["b"]);
+  });
+
+  test("a parent's failure after the spawn does not move the child, and vice versa", async () => {
+    const clock = { value: 0 };
+    const { route, calls } = chainWith({ a: quotaExhausted(), b: served("b")(), c: served("c")() }, clock);
+    for await (const _ of route.stream(message, new AbortController().signal)) { void _; }
+    const child = route.childRoute();
+
+    // Inside the child, `b` dies: the child walks on to `c`...
+    const childScripts: Record<string, Provider> = { a: quotaExhausted(), b: quotaExhausted(), c: served("c")() };
+    const childCalls: string[] = [];
+    const failingChild = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b"), mockTarget("c")],
+      retries: 0,
+      now: () => clock.value,
+      inherited: { serving: "b/model-b", cooldowns: route.health() },
+      createStream: (target) => {
+        childCalls.push(target.endpoint.name);
+        const provider = childScripts[target.endpoint.name]!;
+        return (messages, signal) => provider.stream(messages, signal);
+      },
+    });
+    for await (const _ of failingChild.stream(message, new AbortController().signal)) { void _; }
+    expect(childCalls).toEqual(["b", "c"]);
+    expect(failingChild.serving).toBe("c/model-c");
+    // ...and the parent still serves from `b`.
+    expect(child.serving).toBe("b/model-b");
+    calls.length = 0;
+    for await (const _ of route.stream(message, new AbortController().signal)) { void _; }
+    expect(calls).toEqual(["b"]);
+    expect(route.serving).toBe("b/model-b");
+  });
+
+  test("an expired inherited deadline lets the child re-probe its selected stop on its own turn", async () => {
+    const clock = { value: 0 };
+    const { route, calls } = chainWith({ a: quotaExhausted(), b: served("b")(), c: served("c")() }, clock);
+    for await (const _ of route.stream(message, new AbortController().signal)) { void _; }
+    const child = route.childRoute();
+
+    clock.value = 15 * 60_000;
+    child.beginTurn();
+    calls.length = 0;
+    for await (const _ of child.stream(message, new AbortController().signal)) { void _; }
+    // The recovery probe reaches the selected stop again — on the child's
+    // own turn, exactly as the parent would.
+    expect(calls).toEqual(["a", "b"]);
+  });
+
+  test("an inherited serving ref outside the chain is ignored: the child starts on its selection", () => {
+    const child = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b")],
+      retries: 0,
+      inherited: { serving: "zz/model-zz" },
+      createStream: () => (messages, signal) => served("x")().stream(messages, signal),
+    });
+    expect(child.serving).toBe("a/model-a");
+    expect(child.health()).toEqual([]);
+  });
+
+  test("a child route takes an independent stream factory and clock (the host's own wiring)", async () => {
+    const clock = { value: 0 };
+    const { route } = chainWith({ a: quotaExhausted(), b: served("b")(), c: served("c")() }, clock);
+    for await (const _ of route.stream(message, new AbortController().signal)) { void _; }
+    const child = route.childRoute();
+    expect(child.chain).toEqual(["a/model-a", "b/model-b", "c/model-c"]);
+    // The parent's own state is untouched by building a child.
+    expect(route.health()).toEqual([{ ref: "a/model-a", kind: "quota_exhausted", until: 15 * 60_000 }]);
+  });
+});
+
+describe("the prompt states what serves (ADR-0050, #974)", () => {
+  /** Every system prompt the model saw, in call order. */
+  function capturingRoute(turns: Parameters<typeof MockProvider.scripted>[0]) {
+    const prompts: string[] = [];
+    const model = MockProvider.scripted(turns);
+    const route = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b")],
+      retries: 0,
+      createStream: (target) => (messages, signal) => {
+        const system = messages.find((m) => m.role === "system");
+        if (system) prompts.push(system.parts.map((p) => (p.kind === "text" ? p.text : "")).join(""));
+        if (target.endpoint.name === "a") {
+          const failing = MockProvider.scripted([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }]);
+          return failing.stream(messages, signal);
+        }
+        return model.stream(messages, signal);
+      },
+    });
+    return { route, prompts };
+  }
+
+  test("the pair appears while a fallback serves; one reference when it does not", async () => {
+    const { route, prompts } = capturingRoute([{ deltas: ["done"], finish: "stop" }]);
+    const session = createSession({ provider: route });
+
+    // Turn 1: the first call goes to `a` (the selection), so the prompt
+    // states one reference — byte-for-byte the shape it always had.
+    await session.send("first");
+    expect(prompts[0]).toContain("- Model: a/model-a");
+    expect(prompts[0]).not.toContain("a/model-a → b/model-b");
+    expect(prompts[0]).not.toContain("- Route:");
+
+    // Turn 2: the previous turn left `a` exhausted, so `b` serves. The
+    // prompt for the call that is actually served by `b` states the pair —
+    // the model is never told it works with a model that is not answering.
+    await session.send("second");
+    const afterFallback = prompts.at(-1)!;
+    expect(afterFallback).toContain("- Model: a/model-a → b/model-b");
+    expect(session.selectedModel).toBe("a/model-a");
+    expect(session.servingModel).toBe("b/model-b");
+  });
+});

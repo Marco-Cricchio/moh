@@ -36,6 +36,7 @@ moh reads two files:
     "my-agent": { "name": "my-agent", "description": "...", "systemPrompt": "...", "allowedTools": ["bash"], "model": "...", "provider": "...", "maxIterations": 20, "context": "..." }
   },
   "memory": { "enabled": true, "intervalTurns": 5, "budgetTokens": 2000 },
+  "compaction": { "summarizer": "llm", "tailTurns": 10, "threshold": 0.8, "fallbackWindowTokens": 180000 },
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
@@ -102,6 +103,18 @@ All keys are optional. Notes:
   Jev page).
 - `handoff.transport` — absent = Not Set = off; `"gist"` enables
   publish-on-push session handoff.
+- `compaction` — tuning for the within-session context compaction
+  (see the Memory & compaction page). `summarizer` selects the summary
+  strategy: `"llm"` (default — the compaction subagent summarizes the
+  covered past) or `"deterministic"` (ADR-0051 — a rule-built digest of
+  the covered turns: your requests, the files read and modified, tool
+  traffic, recent failures. No model call, byte-stable across runs and
+  machines; when the digest would exceed its size budget the run
+  degrades to the LLM summarizer and the marker records it as
+  `llm-fallback` — never a silent truncation). `tailTurns` (default
+  10), `threshold` (default 0.8) and `fallbackWindowTokens` (default
+  180000) mirror the session options for the trigger and the verbatim
+  tail.
 - `mpm` — per-project Moh Project Map override (ADR-0026): an explicit
   `enabled` (either `true` or `false`) overrides the user default for
   this project only; absent means inherit (the global default is
@@ -174,7 +187,7 @@ preserved verbatim):
 | `mcpTrust` | core (`mcp/types.ts`) | recorded "always" consent for project MCP servers, keyed by project slug → server names (the repo's own `trusted` field is ignored) |
 | `liveModels` | core (`live-model-catalog.ts`) | `enabled` (default `true`; `false` restores the fully static model catalog), `ttlHours` (default 24) for the `~/.moh/live-models.json` picker cache |
 | `mpm` | core (`mpm/config.ts`) | the user default for the Moh Project Map: `enabled` (default `false` — MPM is opt-in; `true` enables it everywhere unless a project opts out), `quota` (`maxFiles`, `maxTotalBytes`), `exclude` (gitignore-style patterns) |
-| `typesafe` | the Jev extension (`@moh/jev-guard`) | the bundled Jev (TypeSafe) integration (#784): `apiKey` (present = active, absent = nothing is registered — there is no toggle; entered from the TUI Settings panel entry `Jev (TypeSafe)`, never hand-edited), `timeoutMs` (per-call hook timeout in ms, default `2500`, configuration only), `routing` (per-turn model-routing opt-in, default `false`; changed from the same Settings entry and read when a session starts — the session command `/routing off|on` pauses and enables it for that session without touching this file), `tiers` (explicit tier labels for routing: `"<endpoint>/<model-id>"` → `economico` \| `bilanciato` \| `potente`; an unlabeled model is ranked by catalog price — see the Jev page), `injection` (anti-injection opt-in, default `false`: judges your message and every web result against prompt injection, sending the message text to TypeSafe — same Settings entry), `classification` (prompt classification, default `true` — turn it off with `false` to stop the per-turn task-type hints and the project-map gate; see the Jev page), `rerank` (MPM seed-rerank opt-in, default `false`: ranks over-threshold orientation candidates instead of discarding the plan — see the Jev page), `lint` (end-of-task quality-gate opt-in, default `false`: sends the changed code's diff plus the project's convention docs to TypeSafe — same Settings entry), `skills` (per-turn skill-suggestion opt-in, default `false`: ranks the skill roster and suggests at most one skill per turn, sending your message plus the roster to TypeSafe twice per judged turn — see the Jev page). User config only — a cloned project must not be able to activate an account |
+| `typesafe` | the Jev extension (`@moh/jev-guard`) | the bundled Jev (TypeSafe) integration (#784): `apiKey` (present = active, absent = nothing is registered — there is no toggle; entered from the TUI Settings panel entry `Jev (TypeSafe)`, never hand-edited), `timeoutMs` (per-call hook timeout in ms, default `2500`, configuration only), `guardrail` (the bash guardrail, default `true` — a stored key arms it, so only the explicit `false` disarms it; written by the Settings entry's `Guardrail` row and by `moh jev guardrail on\|off`, and read when a session starts — `/jev` moves it for an open session only), `routing` (per-turn model-routing opt-in, default `false`; changed from the same Settings entry and read when a session starts — the session command `/routing off|on` pauses and enables it for that session without touching this file), `tiers` (explicit tier labels for routing: `"<endpoint>/<model-id>"` → `economico` \| `bilanciato` \| `potente`; an unlabeled model is ranked by catalog price — see the Jev page), `injection` (anti-injection opt-in, default `false`: judges your message and every web result against prompt injection, sending the message text to TypeSafe — same Settings entry), `classification` (prompt classification, default `true` — turn it off with `false` to stop the per-turn task-type hints and the project-map gate; see the Jev page), `rerank` (MPM seed-rerank opt-in, default `false`: ranks over-threshold orientation candidates instead of discarding the plan — see the Jev page), `lint` (end-of-task quality-gate opt-in, default `false`: sends the changed code's diff plus the project's convention docs to TypeSafe — same Settings entry), `skills` (per-turn skill-suggestion opt-in, default `false`: ranks the skill roster and suggests at most one skill per turn, sending your message plus the roster to TypeSafe twice per judged turn — see the Jev page). User config only — a cloned project must not be able to activate an account |
 
 The `typesafe` block lives in the user config only — never in moh.json: a
 cloned repository must not be able to declare `apiKey` on your behalf. See

@@ -494,6 +494,22 @@ describe("provider reasoning projection (#242)", () => {
     expect(other?.lines).toEqual(["429"]);
   });
 
+  test("a declared window is one visible line naming both numbers (ADR-0049)", () => {
+    const blocks = projectTranscript([
+      { type: "declared_window", model: "openrouter/x-ai/grok-4.20", window: 131_072, catalog: 2_000_000 },
+    ]);
+    const block = blocks.find((b) => b.kind === "chrome" && b.type === "declared window");
+    expect(block).toBeDefined();
+    expect(block!.detail).toContain("openrouter/x-ai/grok-4.20");
+    expect(block!.detail).toContain("131072 tokens");
+    expect(block!.detail).toContain("catalog 2000000");
+    // An unknown catalog row says so rather than inventing a figure.
+    const unknown = projectTranscript([
+      { type: "declared_window", model: "compat/m", window: 131_072, catalog: 0 },
+    ]).find((b) => b.kind === "chrome" && b.type === "declared window");
+    expect(unknown!.detail).toContain("catalog —");
+  });
+
   test("fallback call failures still mark their reasoning block failed", () => {
     const blocks = projectTranscript([
       { type: "fallback", from: "primary/model", to: "backup/model", reason: "overloaded" },

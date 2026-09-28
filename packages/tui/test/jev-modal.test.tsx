@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import type { JevUseCase, JevUseCaseAction, JevUseCaseSnapshot, JevUseCaseState } from "@moh/jev-guard";
-import { JEV_USE_CASES } from "@moh/jev-guard";
+import { JEV_USE_CASES, JEV_USE_CASE_DESCRIPTIONS } from "@moh/jev-guard";
 import { JevModal, flipOutcome, sessionOnlyNote } from "../src/JevModal";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
@@ -294,5 +294,42 @@ describe("the session-only marker a row shows (#833)", () => {
     // Nothing session-only, or the extension gave its own note in the row.
     expect(sessionOnlyNote({ status: "on", config: true })).toBeNull();
     expect(sessionOnlyNote({ status: "on", config: false, sessionOnly: true, note: "off in the config" })).toBeNull();
+  });
+});
+
+describe("what each use case does, on the selected row (#1041)", () => {
+  test("the description follows the cursor and is the /jev words, not the Settings panel's", async () => {
+    const ext = extension(snapshot({ guardrail: { status: "on", config: true } }));
+    const { i } = mount({ read: ext.read, send: ext.send });
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+
+    // The cursor opens on the guardrail, the first row.
+    expect(frame()).toContain(JEV_USE_CASE_DESCRIPTIONS.guardrail);
+    expect(frame()).not.toContain(JEV_USE_CASE_DESCRIPTIONS.routing);
+
+    await down(i, 1);
+    expect(frame()).toContain(JEV_USE_CASE_DESCRIPTIONS.routing);
+    expect(frame()).not.toContain(JEV_USE_CASE_DESCRIPTIONS.guardrail);
+
+    // Every row has one: the vocabulary cannot have a hole in it.
+    for (const usecase of JEV_USE_CASES) {
+      expect(JEV_USE_CASE_DESCRIPTIONS[usecase].length).toBeGreaterThan(20);
+    }
+    i.unmount();
+  });
+
+  test("the status stays the modal's own field — a description never claims one", async () => {
+    const ext = extension(snapshot({ guardrail: { status: "inert", config: false, note: "not available in this session" } }));
+    const { i } = mount({ read: ext.read, send: ext.send });
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    expect(frame).toContain("guardrail");
+    expect(frame).toContain("not available in this session");
+    // The description is prose about the use case: no "config on/off", no
+    // status glyph — the two never merge into one account.
+    expect(JEV_USE_CASE_DESCRIPTIONS.guardrail).not.toContain("config ");
+    expect(JEV_USE_CASE_DESCRIPTIONS.guardrail).not.toMatch(/[●○❙]/);
+    i.unmount();
   });
 });

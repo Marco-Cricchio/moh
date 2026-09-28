@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TYPESAFE_SETTINGS_HINT } from "@moh/jev-guard";
-import { JEV_SESSION_ONLY_NAMES, JEV_USAGE, JEV_USE_CASE_NAMES } from "../src/jev";
+import { JEV_USAGE, JEV_USE_CASE_NAMES } from "../src/jev";
 
 const TMP_ROOT = mkdtempSync(join(tmpdir(), "moh-jev-cli-"));
 const KEY = "ts_live_0000secret9f2a";
@@ -54,7 +54,7 @@ describe("moh jev status (#784)", () => {
     const { code, stdout, stderr } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toBe("  jev             active (key …9f2a, timeout 2500ms)\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
+    expect(stdout).toBe("  jev             active (key …9f2a, timeout 2500ms)\n  guardrail       on\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
     // The key only ever reaches the screen masked.
     expect(stdout).not.toContain(KEY);
   });
@@ -63,7 +63,7 @@ describe("moh jev status (#784)", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
-    expect(stdout).toBe(`  jev             inactive\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n  hint            ${TYPESAFE_SETTINGS_HINT}\n`);
+    expect(stdout).toBe(`  jev             inactive\n  guardrail       on\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n  hint            ${TYPESAFE_SETTINGS_HINT}\n`);
   });
 
   test("inactive: a key-less typesafe block reads the same as an absent one", () => {
@@ -78,21 +78,21 @@ describe("moh jev status (#784)", () => {
     const { spawn } = harness(JSON.stringify({ typesafe: { apiKey: KEY, timeoutMs: 5000, routing: true } }));
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
-    expect(stdout).toBe("  jev             active (key …9f2a, timeout 5000ms)\n  routing         on\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
+    expect(stdout).toBe("  jev             active (key …9f2a, timeout 5000ms)\n  guardrail       on\n  routing         on\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
   });
 
   test("--json active: exactly the pinned object, one line", () => {
     const { spawn } = harness(ACTIVE_CONFIG);
     const { code, stdout } = spawn(["jev", "status", "--json"]);
     expect(code).toBe(0);
-    expect(stdout).toBe('{"active":true,"keyHint":"…9f2a","timeoutMs":2500,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');
+    expect(stdout).toBe('{"active":true,"keyHint":"…9f2a","timeoutMs":2500,"guardrail":true,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');
   });
 
   test("--json inactive: keyHint absent (never nulled), other keys present", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["jev", "status", "--json"]);
     expect(code).toBe(0);
-    expect(stdout).toBe('{"active":false,"timeoutMs":2500,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');
+    expect(stdout).toBe('{"active":false,"timeoutMs":2500,"guardrail":true,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');
     const parsed = JSON.parse(stdout) as Record<string, unknown>;
     expect("keyHint" in parsed).toBe(false);
   });
@@ -145,8 +145,8 @@ process.on("exit", () => rmSync(TMP_ROOT, { recursive: true, force: true }));
 /**
  * #833: `moh jev <use-case> on|off` — the shell twin of the Settings
  * entries. What these pin: the write lands in `~/.moh/config`, nothing else
- * in the file is touched, the names that exist are the names it accepts, and
- * the guardrail's absence is said out loud instead of looking like a typo.
+ * in the file is touched, and the names that exist are the names it accepts —
+ * all seven of them since the guardrail gained its flag (#1041).
  */
 describe("moh jev <use-case> on|off (#833)", () => {
   const readConfig = (home: string): Record<string, unknown> => {
@@ -155,6 +155,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
   };
 
   for (const [name, key] of [
+      ["guardrail", "guardrail"],
       ["routing", "routing"],
       ["injection", "injection"],
       ["classification", "classification"],
@@ -202,14 +203,19 @@ describe("moh jev <use-case> on|off (#833)", () => {
     expect(readConfig(home)).toEqual({ typesafe: { routing: true } });
   });
 
-  test("the guardrail is refused as session-only, not as a typo", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
-    const { code, stdout, stderr } = spawn(["jev", "guardrail", "off"]);
-    expect(code).toBe(2);
-    expect(stdout).toBe("");
-    expect(stderr).toContain("the guardrail has no persistent switch");
-    expect(stderr).toContain("/jev");
-    expect(stderr).not.toContain("unknown use case");
+  test("the guardrail is armed by default and the command is what disarms it (#1041)", () => {
+    const { home, spawn } = harness(ACTIVE_CONFIG);
+    // Absent flag = on: the key is what arms the guardrail (the status
+    // reports assert that default; this test owns the write path).
+
+    const off = spawn(["jev", "guardrail", "off"]);
+    expect(off.code).toBe(0);
+    expect((readConfig(home).typesafe as Record<string, unknown>).guardrail).toBe(false);
+    expect(spawn(["jev", "status"]).stdout).toContain("guardrail       off");
+
+    // ...and back on, leaving an explicit flag rather than deleting one.
+    expect(spawn(["jev", "guardrail", "on"]).code).toBe(0);
+    expect((readConfig(home).typesafe as Record<string, unknown>).guardrail).toBe(true);
   });
 
   for (const [argv, detail] of [
@@ -247,15 +253,14 @@ describe("moh jev <use-case> on|off (#833)", () => {
     expect(readFileSync(join(home, ".moh", "config"), "utf8")).toBe(broken);
   });
 
-  test("--help documents the set form and the six names", () => {
+  test("--help documents the set form and every name the command accepts", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["jev", "--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain("moh jev <use-case> on|off");
-    for (const name of ["routing", "injection", "classification", "lint", "rerank", "skills"]) {
+    for (const name of ["guardrail", "routing", "injection", "classification", "lint", "rerank", "skills"]) {
       expect(stdout).toContain(name);
     }
-    expect(stdout).toContain("guardrail");
   });
 });
 
@@ -264,17 +269,17 @@ describe("moh jev <use-case> on|off (#833)", () => {
  * cannot interpolate the name table — this pins the two together instead.
  */
 describe("the usage text and the name table agree (#833)", () => {
-  test("every persistable name is listed, and the guardrail is named as session-only", () => {
+  test("every name the command accepts is listed, and no name is refused as session-only", () => {
     for (const name of JEV_USE_CASE_NAMES) expect(JEV_USAGE).toContain(name);
-    for (const name of JEV_SESSION_ONLY_NAMES) expect(JEV_USAGE).toContain(name);
-    expect(JEV_USAGE).toContain("Session-only");
-    // Nothing in the usage claims guardrail is writable.
-    expect(JEV_USAGE).not.toContain("Use cases: routing, injection, classification, lint, rerank, skills,");
+    // #1041: there is no unfixable name any more.
+    expect(JEV_USAGE).not.toContain("Session-only");
+    expect(JEV_USAGE).toContain(`Use cases: ${JEV_USE_CASE_NAMES.join(", ")}.`);
+    expect(JEV_USAGE).toContain('"moh jev guardrail off" is what');
   });
 
   test("the manual's generated page carries the same text", () => {
     const page = readFileSync(join(import.meta.dir, "..", "..", "core", "src", "manual", "cli-reference.md"), "utf8");
     expect(page).toContain("moh jev <use-case> on|off");
-    expect(page).toContain("Session-only (no flag to write): guardrail");
+    expect(page).toContain("Use cases: guardrail, routing, injection, classification, lint, rerank, skills.");
   });
 });

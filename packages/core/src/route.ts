@@ -87,6 +87,29 @@ export function resolveApiKey(endpointName: string, kind: string, env: Record<st
   return envApiKey(endpointName, env) ?? providerApiKey(kind, env);
 }
 
+/** One cooldown a route knows about a chain stop: which stop, the kind of
+ * failure that put it there, and when it expires. The same shape travels in
+ * both directions — out through `Route.health()` (the routing layer reads
+ * it) and down through `RouteConfig.inherited` (a child is born knowing it). */
+export interface RouteCooldown {
+  ref: string;
+  kind: string;
+  until: number;
+}
+
+/** The provider-error kinds a stop's cooldown is recorded for (ADR-0012:
+ * the fallback-worthy ones plus the deterministic request rejections). */
+type RouteFailureKind = "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion";
+
+const FAILURE_KINDS: readonly RouteFailureKind[] = [
+  "quota_exhausted",
+  "rate_limited",
+  "overloaded",
+  "network",
+  "invalid_request",
+  "empty_completion",
+];
+
 /** One stop of a fallback chain: endpoint + model id. */
 export interface RouteTarget {
   endpoint: Endpoint;
@@ -140,6 +163,25 @@ export interface RouteConfig {
   credentialResolver?: (target: RouteTarget) => Promise<string | EndpointAuthContext | undefined>;
   /** Clock seam for deterministic session-health cooldown tests. */
   now?: () => number;
+  /**
+   * ADR-0050 (§4, §5): the state a **child** route is born in, handed down
+   * by the parent session that spawns it. Facts travel, state does not: the
+   * serving index starts where the parent is, the known cooldown deadlines
+   * are seeded as given (an exhausted quota is a fact about the account,
+   * not about one session), and the failure counters, the recovery probes
+   * and every later transition are the child's own. Absent for a route a
+   * session builds for itself: it starts on its selected reference.
+   */
+  inherited?: {
+    /** The stop serving from birth — one of the chain's refs. An unknown
+     * ref (the owner's config changed) is ignored: the route starts on its
+     * selection rather than inventing a stop. */
+    serving: string;
+    /** Known cooldown deadlines per stop ref. Only deadlines: a seeded
+     * entry carries no failure count, so the child's first real failure on
+     * that stop computes its own cooldown. */
+    cooldowns?: ReadonlyArray<RouteCooldown>;
+  };
 }
 
 export interface Route extends Provider {
@@ -158,7 +200,18 @@ export interface Route extends Provider {
    * layer reads this before it names a switch target: a model the session
    * already knows cannot serve it is never chosen.
    */
-  health(): ReadonlyArray<{ ref: string; kind: string; until: number }>;
+  health(): ReadonlyArray<RouteCooldown>;
+  /**
+   * ADR-0050 (§4, §5): an independent route over the same chain and the
+   * same wiring (stream factory, credential resolver, retries, clock,
+   * thinking seam), born where **this** route is now: the same selection,
+   * the same serving stop, and the cooldown deadlines this route knows.
+   * The subagent host builds one per spawn, so a child owns its serving
+   * index, its counters and its transitions — nothing it does can move the
+   * parent's model, and nothing the parent does afterwards moves the
+   * child's.
+   */
+  childRoute(): Route;
 }
 
 /**
@@ -185,10 +238,24 @@ export function createRoute(config: RouteConfig): Route {
   const refFor = (target: RouteTarget) => `${target.endpoint.name}/${target.modelId}`;
   const now = config.now ?? Date.now;
   const selected = refFor(config.target);
-  let servingIndex = 0;
+  // ADR-0050: a child route is born where its parent is — same selection,
+  // the parent's serving stop, the deadlines the parent already knows. A
+  // `serving` ref that is not in this route's chain (the owner's config
+  // changed between spawn and assembly) is ignored: the route starts on its
+  // selection rather than inventing a stop.
+  let servingIndex = Math.max(0, chain.findIndex((target) => refFor(target) === config.inherited?.serving));
   let selectedRecoveryDue = false;
-  const failures = new Map<number, { kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion"; count: number; until: number }>();
-  const cooldownMs = (kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion", count: number) => {
+  const failures = new Map<number, { kind: RouteFailureKind; count: number; until: number }>();
+  const failureKind = (kind: string): RouteFailureKind | undefined =>
+    (FAILURE_KINDS as readonly string[]).includes(kind) ? (kind as RouteFailureKind) : undefined;
+  for (const inherited of config.inherited?.cooldowns ?? []) {
+    const index = chain.findIndex((target) => refFor(target) === inherited.ref);
+    const kind = failureKind(inherited.kind);
+    // Count 0: the deadline is inherited, the counter is not — the child's
+    // own first failure on this stop is its first (cooldownMs(count 1)).
+    if (index !== -1 && kind !== undefined && inherited.until > now()) failures.set(index, { kind, count: 0, until: inherited.until });
+  }
+  const cooldownMs = (kind: RouteFailureKind, count: number) => {
     if (kind === "quota_exhausted") return 15 * 60_000;
     // #853: an endpoint that returned an empty completion is cooldown-worthy
     // like a quota failure — re-probing it next turn replays the same
@@ -202,10 +269,7 @@ export function createRoute(config: RouteConfig): Route {
     const cap = kind === "rate_limited" ? 15 * 60_000 : kind === "overloaded" ? 5 * 60_000 : 2 * 60_000;
     return Math.min(initial * 2 ** (count - 1), cap);
   };
-  const recordFailure = (
-    index: number,
-    kind: "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "invalid_request" | "empty_completion",
-  ) => {
+  const recordFailure = (index: number, kind: RouteFailureKind) => {
     const prior = failures.get(index);
     const count = prior?.kind === kind ? prior.count + 1 : 1;
     failures.set(index, { kind, count, until: now() + cooldownMs(kind, count) });
@@ -218,26 +282,55 @@ export function createRoute(config: RouteConfig): Route {
     capabilities: config.target.endpoint.capabilities,
     chain: chain.map(refFor),
     beginTurn() {
-      selectedRecoveryDue = servingIndex !== 0 && (failures.get(0)?.until ?? Infinity) <= now();
+      // #363: a user turn is the boundary where returning to the selected
+      // stop may be retried. A stop the session knows is still cooling down
+      // is not re-probed (ADR-0050 §5: the knowledge is a fact, not a
+      // per-session habit — a child born on an inherited cooldown must not
+      // spend its first call on the stop its parent already found dead).
+      // The probe arms the moment that deadline expires.
+      const expired = (failures.get(0)?.until ?? Infinity) <= now();
+      selectedRecoveryDue = servingIndex !== 0 && expired;
     },
     health() {
       const t = now();
-      const out: { ref: string; kind: string; until: number }[] = [];
+      const out: RouteCooldown[] = [];
       for (const [index, failure] of failures) {
         if (failure.until > t) out.push({ ref: refFor(chain[index]!), kind: failure.kind, until: failure.until });
       }
       return out;
+    },
+    childRoute() {
+      // ADR-0050: the child gets the facts (where we are, what we know is
+      // dead and until when) and its own state from birth. The chain and
+      // every wiring seam ride along unchanged — same config, minus the
+      // state this closure owns.
+      return createRoute({
+        ...config,
+        inherited: { serving: refFor(chain[servingIndex]!), cooldowns: provider.health() },
+      });
     },
     async *stream(messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions): AsyncIterable<StreamEvent> {
       const recoveryProbe = selectedRecoveryDue;
       selectedRecoveryDue = false;
       // Recovery probes go selected → existing serving target directly;
       // ordinary calls start from serving and then try viable alternatives.
-      const order = recoveryProbe
+      const walkInOrder = recoveryProbe
         ? [0, servingIndex, ...chain.map((_target, index) => index).filter((index) => index !== 0 && index !== servingIndex)]
         : chain.map((_target, offset) => (servingIndex + offset) % chain.length);
-      for (const i of order) {
-        if (i !== order[0] && (failures.get(i)?.until ?? 0) > now()) continue;
+      // ADR-0050 §5: a stop the session knows is cooling down is stepped
+      // over wherever it appears in the walk. The cooldown is a *fact* (an
+      // exhausted account, a deadline inherited from the session that found
+      // it), not a habit of this one: a child born serving `b` must not
+      // spend its first call re-probing the `a` its parent already found
+      // dead, nor report a fallback it never watched happen. When the walk
+      // is spendable nowhere (every stop cooled), it falls back to the
+      // ordinary order, so the failure the user needs to see still surfaces
+      // from the stop this session leads with — never a silent no-op.
+      const spendable = (i: number) => (failures.get(i)?.until ?? 0) <= now();
+      const viable = walkInOrder.filter(spendable);
+      const walk = viable.length > 0 ? viable : walkInOrder;
+      for (const i of walk) {
+        if (i !== walk[0] && !spendable(i)) continue;
         const target = chain[i]!;
         const targetThinking = config.thinkingForTarget?.(target);
         const targetOptions = config.thinkingForTarget
@@ -304,12 +397,12 @@ export function createRoute(config: RouteConfig): Route {
               continue;
             }
             if (isFallbackWorthy(normalized)) {
-              recordFailure(i, normalized.kind as "quota_exhausted" | "rate_limited" | "overloaded" | "network" | "empty_completion");
+              recordFailure(i, normalized.kind as RouteFailureKind);
               // A selected-route recovery is one probe only: after it
               // fails, resume the already-serving target directly rather
               // than walking other cooled-down fallback stops.
-              const position = order.indexOf(i);
-              const next = order.slice(position + 1).find((index) =>
+              const position = walk.indexOf(i);
+              const next = walk.slice(position + 1).find((index) =>
                 (failures.get(index)?.until ?? 0) <= now(),
               );
               if (next !== undefined) {
@@ -338,6 +431,18 @@ export function createRoute(config: RouteConfig): Route {
     },
   };
   return provider;
+}
+
+/**
+ * ADR-0050 (§4): the provider a subagent child runs on. A route hands down
+ * its own instance (`Route.childRoute`) — the child owns its serving index,
+ * its counters and its transitions from birth. Any other provider (a
+ * pre-built instance, a bare registered id) is shared exactly as before:
+ * it carries no route state to isolate.
+ */
+export function childRouteOf(provider: Provider): Provider {
+  const route = provider as Partial<Route>;
+  return typeof route.childRoute === "function" ? route.childRoute() : provider;
 }
 
 type StreamFn = (messages: Message[], signal: AbortSignal, tools?: readonly ToolSpec[], options?: StreamOptions) => AsyncIterable<StreamEvent>;

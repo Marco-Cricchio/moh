@@ -16,6 +16,10 @@ You activate Jev from the TUI Settings panel, entry **Jev (TypeSafe)**:
   call: a key the service rejects is not saved, while a service that cannot
   be reached *is* saved, with its own message saying the key will activate
   as soon as Jev is reachable.
+- **Guardrail** — the opt-*out* for the bash guardrail (on by default; see
+  below): a stored key arms it, and this row is what disarms it. Turning it
+  off leaves every other use case you asked for running and judges no bash
+  call at all.
 - **Model routing** — the opt-in for the per-turn router (off by default;
   see below).
 - **Anti-injection** — the opt-in for the prompt-injection check (off by
@@ -28,6 +32,10 @@ You activate Jev from the TUI Settings panel, entry **Jev (TypeSafe)**:
   `inactive`.
 - **Remove** — clears the key; the bundled extension is then not registered
   at all, from the next session on.
+
+Every row of the entry carries one short line saying what it does, shown
+beside the row the cursor is on; the `/jev` modal, later on this page, shows
+the same words for the same use cases.
 
 There is no first-run wizard: **a stored key is the state**. Enter the key
 from the panel — that is where it is validated and masked, so hand-editing
@@ -82,6 +90,7 @@ Nothing else about moh changes:
 ```
 $ moh jev status
   jev             active (key …abcd, timeout 2500ms)
+  guardrail       on
   routing         off
   injection       off
   quality gate    off
@@ -90,7 +99,7 @@ $ moh jev status
   skills          off
 
 $ moh jev status --json
-{"active":true,"keyHint":"…abcd","timeoutMs":2500,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}
+{"active":true,"keyHint":"…abcd","timeoutMs":2500,"guardrail":true,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}
 ```
 
 The command reads your configuration and never calls TypeSafe — the key was
@@ -108,11 +117,12 @@ $ moh jev classification off
 prompt classification: off · from your next session (the config in ~/.moh/config)
 ```
 
-The usable names are `routing`, `injection`, `classification`, `lint`,
-`rerank` and `skills`. `guardrail` is not one of them, and the command says
-why instead of pretending it is a typo: the guardrail has no configuration
-flag at all — a stored key is what turns it on — so it can only be switched
-off for a single session, from the `/jev` modal. An unknown name, a missing
+The usable names are `guardrail`, `routing`, `injection`, `classification`,
+`lint`, `rerank` and `skills` — the seven use cases, and no name this command
+accepts is a dead end. The guardrail is on unless you opted out, so
+`moh jev guardrail off` is the one command that disarms it (and
+`moh jev guardrail on` writes the flag back), while every other use case is
+off until you turn it on. An unknown name, a missing
 action (`moh jev routing` alone) or a malformed `typesafe` section is a usage
 error: exit 2, a message on stderr, and your file left exactly as it was.
 A write never makes a call to TypeSafe, and it never touches the key or any
@@ -148,10 +158,12 @@ Every change leaves one line in the transcript saying exactly that:
 ```
 jev · injection · on for this session — the config still says off
 jev · routing · off for this session — the config still says on
+jev · guardrail · off for this session — the config still says on
 ```
 
 so a session you resume still shows why a use case is quiet while the
-configuration says otherwise. Routing is the one use case whose session
+configuration says otherwise — the guardrail included, whose config flag
+reads `on` unless you opted out. Routing is the one use case whose session
 state has more than on/off (a manual model switch suspends it, and `auto`
 hands it back); its commands are the `/routing` ones above, and it is shown
 in its own words when paused.
@@ -160,10 +172,14 @@ in its own words when paused.
 
 `/jev` opens the session switchboard: one row per use case with the state it
 is in **right now**, and the state the configuration names beside it, because
-they are two different things.
+they are two different things. The selected row also carries one line saying
+what that use case *does* — the same words the Settings entry's sub-menu
+shows for its rows.
 
 ```
   › guardrail       ● on       config on
+      judges every bash call before it runs — destructive, out-of-scope or
+      exfiltrating commands are denied or sent to you for confirmation
     routing         ❙❙ paused   config on · suspended — you picked the model by hand (auto hands it back)
     classification  ● on       config on
     injection       ● on       config off
@@ -195,7 +211,10 @@ Two rules are worth stating plainly:
   is applied, session-only, and visible in the transcript and the modal
   (ADR-0041). `on` restores the narrowed lethal checks. A yolo session with
   a guardrail false positive is no longer stuck — the veto is a hard block,
-  and disarming the guardrail mid-session is the escape.
+  and disarming the guardrail mid-session is the escape. In the other
+  direction nothing changes either: a session whose config disarmed the
+  guardrail starts with it off, and `/jev` hands it back for that session
+  while the file keeps saying `off`.
 - **A use case the session cannot run is not a use case you can switch on.**
   If a session has nothing to give it — no model pool to route between, no
   skill roster to suggest from, no project root to diff — it is *inert*, and
@@ -237,8 +256,14 @@ before.
 
 ### Bash guardrail
 
-The first use case is the **bash guardrail**: every `bash` tool call is
-judged by Jev with one call — four questions (`destructive`, `in_scope`,
+The first use case is the **bash guardrail** — on unless you turned it off
+(the `Guardrail` row in the Settings entry, or `moh jev guardrail off`; a
+stored key is what arms it, and that flag is what disarms it). With the
+guardrail off, moh judges no bash call at all: every other use case you
+asked for still runs. It is itself arbitrary in an open session — `/jev`
+turns it off for that session and `on` arms it again, in yolo too.
+
+Every `bash` tool call is judged by Jev with one call — four questions (`destructive`, `in_scope`,
 `exfiltration`, `risk_level`) — before your permission rules are even
 consulted. The verdicts:
 

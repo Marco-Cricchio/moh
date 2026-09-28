@@ -154,11 +154,22 @@ are refused, visibly.
 
 The guardrail is the exception by design: it has no config opt-in (a stored
 key *is* the switch, #784), so its warm state is session-only and its line
-says that instead of inventing a config contrast. In `yolo` a warm
+says that instead of inventing a config contrast.
+
+**Amended by ADR-0052 (#1041, 2026-09-28):** the guardrail has a config
+opt-in now — `typesafe.guardrail`, on unless the user opted out, written from
+the Settings entry's `Guardrail` row and from `moh jev guardrail on|off`, and
+read at session assembly like every other use-case flag. Its warm state
+carries the ordinary asymmetry (*"off for this session — the config still says
+on"*), the bespoke `jev_usecase` note is deleted, and `moh jev` accepts the
+name like the other six. Everything else in this section stands: the
+availability/config split, the refusal of an unavailable use case, and the
+`restrict-only` limit are unchanged. In `yolo` a warm
 `guardrail off` is **refused** (visible line, state unchanged): ADR-0031's
 posture — a filter that can be disarmed in the mode that needs it most is
 not a filter — read strictly, since yolo is fixed for the session and an
-`off` taken before it would otherwise outlive the warning.
+`off` taken before it would otherwise outlive the warning. *(That refusal was
+itself reversed by ADR-0041.)*
 
 ### What is deliberately not here
 

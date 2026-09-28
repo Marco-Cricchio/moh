@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Text, useInput } from "ink";
-import { JEV_USE_CASES, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseState } from "@moh/jev-guard";
+import { JEV_USE_CASES, JEV_USE_CASE_DESCRIPTIONS, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseState } from "@moh/jev-guard";
 import { useTheme } from "./themes";
 import { Dialog, Dim, Footer, truncate } from "./ui";
 import { readJevState, type ExtensionStateReader } from "./jev-control";
@@ -17,6 +17,12 @@ import { readJevState, type ExtensionStateReader } from "./jev-control";
  * snapshot, so what is on screen is what the extension thinks — including
  * its refusals (a use case this session cannot run). A refusal is shown as
  * a refusal, never silently swallowed and never as a state change.
+ *
+ * #1041: the selected row also carries one short line of what the use case
+ * *does* — the same words the Settings entry's sub-menu shows, read from the
+ * package that owns the vocabulary, so the two surfaces cannot describe one
+ * use case in two ways. The status is this modal's own field and is never
+ * mixed into it.
  */
 export interface JevModalProps {
   /**
@@ -202,6 +208,10 @@ export function JevModal({ active, read, send, onClose }: JevModalProps) {
                 <Dim>{truncate(rowDetail(state), 42)}</Dim>
               </Text>
               {asymmetry !== null && <Dim>{`      ${asymmetry}`}</Dim>}
+              {/* #1041: what the selected use case does, in the words the
+                  package that owns the vocabulary publishes — the Settings
+                  entry's sub-menu shows these exact lines for its rows. */}
+              {selected && <Text color={theme.dim} wrap="wrap">{`      ${JEV_USE_CASE_DESCRIPTIONS[usecase]}`}</Text>}
             </React.Fragment>
           );
         })}

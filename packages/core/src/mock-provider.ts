@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { ProviderError } from "./types";
+import { recognizeDeclaredWindow } from "./declared-window";
 import type { FinishReason, Message, Provider, ProviderErrorKind, StreamEvent, StreamOptions, ToolSpec } from "./types";
 
 export interface MockToolCall {
@@ -12,6 +13,12 @@ export interface MockToolCall {
 export interface MockError {
   kind: ProviderErrorKind;
   message: string;
+  /** ADR-0049 (#986): a window the message declares, when moh would read
+   * one out of it. Unset means "let the message speak": the MockProvider
+   * normalizes its own message exactly as a real provider's error path
+   * does (`recognizeDeclaredWindow`), so a cassette can exercise the
+   * declared-window door end to end. */
+  declaredWindow?: number;
   /** How many deltas to emit before throwing. Default 0 (fail before streaming). */
   afterDeltas?: number;
 }
@@ -90,13 +97,24 @@ export class MockProvider implements Provider {
       if (signal.aborted) return;
       if (turn.deltaDelayMs) await Bun.sleep(turn.deltaDelayMs);
       if (turn.error && emitted === failAt) {
-        throw new ProviderError(turn.error.kind, turn.error.message);
+        throw new ProviderError(
+          turn.error.kind,
+          turn.error.message,
+          turn.error.declaredWindow ?? recognizeDeclaredWindow(turn.error.message),
+        );
       }
       emitted += 1;
       yield { type: "text_delta", text };
     }
     if (turn.error) {
-      throw new ProviderError(turn.error.kind, turn.error.message);
+      // ADR-0049: a real provider's error text is normalized before the
+      // core sees it; the mock does the same, so its scripted refusals
+      // teach a declared window exactly like a live one.
+      throw new ProviderError(
+        turn.error.kind,
+        turn.error.message,
+        turn.error.declaredWindow ?? recognizeDeclaredWindow(turn.error.message),
+      );
     }
     if (turn.finish === "tool_calls") {
       yield {

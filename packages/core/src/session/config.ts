@@ -68,7 +68,17 @@ export interface SessionConfig {
    * against — the same merged profile list the initial provider came
    * from (passed by sessionFromConfig). */
   endpoints?: EndpointProfile[];
-/** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
+  /**
+   * #1032 (ADR-0049 door two): per-endpoint declared windows
+   * (`endpointName → modelId → tokens`) from each endpoint's own cached
+   * model listing. The provider's declared window outranks the shipped
+   * catalog row, for every consumer of the one window lookup (compaction
+   * threshold, tail policy, switch guard, fallback eligibility). The
+   * assembly path reads the cache and never fetches; absent = shipped
+   * rows only.
+   */
+  endpointDeclaredWindows?: Record<string, Record<string, number>>;
+  /** Per-turn iteration cap (#190/#498). Default 50; `0` = unlimited (no
    * cap — the anti-runaway safety net is off). */
   maxIterations?: number;
   /** Tools available to the model, keyed by tool name. */
@@ -117,7 +127,9 @@ export interface SessionConfig {
   externalGrowth?: () => { expectedBytes: number; actualBytes: number } | null;
   /** System-prompt assembly (#27). Default: PromptComposer over the session cwd. */
   promptComposer?: PromptComposer;
-  /** User-level moh dir for skill discovery. Default: `~/.moh`. */
+  /** User-level moh dir for skill discovery — and for the one diagnostic
+   * ADR-0049 writes (the trace of provider refusals moh could not read a
+   * context window from, `context-refusals.log`). Default: `~/.moh`. */
   mohHome?: string;
   /**
    * First-party skills (#36): "include" (default) or "exclude" — with

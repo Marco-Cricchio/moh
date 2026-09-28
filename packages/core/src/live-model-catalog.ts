@@ -41,8 +41,10 @@
  * conservative metadata (moh never invents capabilities).
  */
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";import type { CatalogModel } from "./model-catalog";
+import { homedir } from "node:os";
+import type { CatalogModel } from "./model-catalog";
 import { subscriptionModelCatalog } from "./model-catalog";
 import { providerProfile } from "./provider-profiles";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
@@ -276,6 +278,22 @@ export function hasVendoredCatalog(type: string): boolean {
 }
 
 /**
+ * The declared windows of every endpoint in a loaded cache (#1032,
+ * ADR-0049 door two): `endpoints → model id → tokens`, ready for
+ * `createSession`/route resolution. An entry on disk — `fresh`, `cached`
+ * or `stale` — is the provider's last word; `failed` and `unsupported`
+ * endpoints have no entry and fall back to the shipped row.
+ */
+export function declaredWindowsByEndpoint(cache: Record<string, LiveModelCacheEntry>): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const endpoint of Object.keys(cache)) {
+    const map = declaredWindowsFor(endpoint, cache);
+    if (Object.keys(map).length > 0) out[endpoint] = map;
+  }
+  return out;
+}
+
+/**
  * True when the kind has a verified live-listing contract (#920). The
  * clients never ask: they call `fetchLiveCatalogs`, which applies this
  * itself. Exported from the defining module (ADR-0004) for the coverage
@@ -474,12 +492,59 @@ export async function loadLiveModelCache(file: string = liveModelCacheFile()): P
   }
 }
 
+/** Synchronous read of the same cache, for session assembly
+ * (`sessionFromConfig` is sync and network-free by decision — it may
+ * READ the cache, never fetch). Same shape and tolerance as the async
+ * loader. */
+export function loadLiveModelCacheSync(file: string = liveModelCacheFile()): Record<string, LiveModelCacheEntry> {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: Record<string, LiveModelCacheEntry> = {};
+    for (const [endpoint, entry] of Object.entries(parsed)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (typeof e.fetchedAt !== "number" || !Array.isArray(e.models)) continue;
+      const models = e.models.filter(
+        (m): m is LiveModelListing => typeof m === "object" && m !== null && typeof (m as LiveModelListing).id === "string",
+      );
+      out[endpoint] = { fetchedAt: e.fetchedAt, models };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 /** Persists entries through a read-modify-write of the whole cache file. */
 export async function saveLiveModelCache(entries: Record<string, LiveModelCacheEntry>, file: string = liveModelCacheFile()): Promise<void> {
   const current = await loadLiveModelCache(file);
   const merged = { ...current, ...entries };
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   await writeFile(file, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
+}
+
+/**
+ * The declared windows of one endpoint's own listing (#1032, ADR-0049
+ * door two): model id → tokens, from the endpoint's cache entry. An
+ * entry on disk — `fresh`, `cached` or `stale`, indistinguishable here —
+ * is the provider's last word; a missing entry (`failed` refresh,
+ * `unsupported` kind) contributes nothing and the shipped row stands.
+ * A listing that carries ids only (most contracts) declares no window.
+ */
+export function declaredWindowsFor(endpointName: string, cache: Record<string, LiveModelCacheEntry>): Record<string, number> {
+  const entry = cache[endpointName];
+  if (!entry) return {};
+  const out: Record<string, number> = {};
+  for (const m of entry.models) {
+    if (typeof m.contextWindow === "number" && m.contextWindow > 0) out[m.id] = m.contextWindow;
+  }
+  return out;
 }
 
 /** Entries whose cache age is within the TTL. Expired entries are

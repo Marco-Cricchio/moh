@@ -145,6 +145,7 @@ const CONFIG_PAGE_PINNED_KEYS = [
   "mcpServers",
   "agents",
   "memory",
+  "compaction",
   "handoff",
   "skillRouting",
   "browser",
