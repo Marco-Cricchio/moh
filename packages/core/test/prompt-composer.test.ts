@@ -24,7 +24,6 @@ function baseCtx(overrides: Partial<PromptContext> = {}): PromptContext {
     platform: "darwin",
     now: NOW,
     model: "claude-sonnet",
-    route: "main/claude-sonnet",
     tools: [
       { name: "bash", description: "Run a shell command" },
       { name: "read", description: "Read a file" },
@@ -57,14 +56,24 @@ describe("PromptComposer", () => {
     }
   });
 
-  test("environment section always has cwd, platform, date, route and model", () => {
+  test("environment section states cwd, platform, date and the model — and no route line", () => {
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
     const env = composer.sections.environment(baseCtx());
     expect(env).toContain("/proj");
     expect(env).toContain("darwin");
     expect(env).toContain("2026-02-14");
-    expect(env).toContain("main/claude-sonnet");
-    expect(env).toContain("claude-sonnet");
+    expect(env).toContain("- Model: claude-sonnet");
+    // ADR-0050: the dead `- Route:` line (no production client ever
+    // populated it) is gone.
+    expect(env).not.toContain("- Route:");
+  });
+
+  test("environment section states the selected/serving pair when a fallback serves (ADR-0050)", () => {
+    const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
+    const env = composer.sections.environment(
+      baseCtx({ model: "openai/gpt-6-astra → opencode-go/deepseek-v4.1-flash" }),
+    );
+    expect(env).toContain("- Model: openai/gpt-6-astra → opencode-go/deepseek-v4.1-flash");
   });
 
   test("base section contains the shipped base prompt plus AGENTS.md and CONTEXT.md in full", () => {

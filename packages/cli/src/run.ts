@@ -376,6 +376,15 @@ export async function runCommand(options: RunOptions): Promise<number> {
         if (event.type === "browser_unavailable") {
           err.write(`moh run: warning: browser tool unavailable — ${event.reason}\n`);
         }
+        // ADR-0049 (#986): the provider's own refusal declared a context
+        // window, and moh now uses it for this session. One stderr line —
+        // stdout stays pure JSONL — and no exit-code coupling: a
+        // correction is not a failure, and the run continues.
+        if (event.type === "declared_window") {
+          err.write(
+            `moh run: note: the provider declared a context window for ${event.model}: ${event.window} tokens${event.catalog > 0 ? ` (catalog said ${event.catalog})` : ""} — used for compaction and context-fit from now on in this session\n`,
+          );
+        }
         out.write(JSON.stringify(event) + "\n");
       },
       // A fresh store is created by the builder (after config/provider

@@ -40,6 +40,15 @@ export const typesafeConfigSchema = z.object({
   apiKey: z.string().optional(),
   /** Hook timeout for one Jev call, ms. Config only — never in the UI. */
   timeoutMs: z.number().int().positive().optional(),
+  /**
+   * The bash guardrail's flag (#1041). Default true (absent = armed):
+   * the guardrail is what the key activates, so opting *out* is the
+   * explicit gesture and `false` is the only value that disarms it. Read
+   * at session assembly, like every other use-case flag — a running
+   * session keeps the state it started in, and `/jev` moves it for that
+   * session only.
+   */
+  guardrail: z.boolean().optional(),
   /** Model routing opt-in (#787). Default false. */
   routing: z.boolean().optional(),
   /** Anti-injection opt-in (#791). Default false — it sends your message. */
@@ -75,6 +84,13 @@ export interface ResolvedTypesafeConfig {
   apiKey?: string;
   /** Effective hook timeout in ms. */
   timeoutMs: number;
+  /**
+   * The bash guardrail's flag (#1041). On unless the config says
+   * otherwise: `false` is a deliberate opt-out, and a stored key with the
+   * guardrail off runs every other requested use case with none of the
+   * bash judgments.
+   */
+  guardrail: boolean;
   /** Routing opt-in (#787). Off by default — routing turns is a choice. */
   routing: boolean;
   /**
@@ -128,6 +144,7 @@ export function resolveTypesafeConfig(block: TypesafeConfig | undefined): Resolv
     active: typeof apiKey === "string" && apiKey.length > 0,
     ...(apiKey ? { apiKey } : {}),
     timeoutMs: block?.timeoutMs ?? TYPESAFE_TIMEOUT_MS_DEFAULT,
+    guardrail: block?.guardrail !== false,
     routing: block?.routing === true,
     injection: block?.injection === true,
     classification: block?.classification !== false,
@@ -154,6 +171,28 @@ export function saveTypesafeApiKey(file: string, key: string, io: UserConfigIo =
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, apiKey: key.trim() };
+    },
+    io,
+  );
+}
+
+/**
+ * Persists the guardrail flag (#1041) — the Settings row's and
+ * `moh jev guardrail on|off`'s writer.
+ *
+ * `true` is what an absent key resolves to (`resolveTypesafeConfig`), so
+ * switching the guardrail back on leaves an explicit `guardrail: true` in
+ * the file rather than a deletion: the row states the flag the user
+ * chose, not the absence of one. Read at session assembly like every
+ * other use-case flag — the running session keeps the state it started
+ * in, and only `/jev` moves it inside one.
+ */
+export function saveTypesafeGuardrail(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const current = (data.typesafe ?? {}) as Record<string, unknown>;
+      data.typesafe = { ...current, guardrail: enabled };
     },
     io,
   );

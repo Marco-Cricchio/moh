@@ -5,8 +5,11 @@
  * this watcher turns it into a toast. Event-driven by design — a plain
  * model-change heuristic would false-positive on legitimate multi-model
  * turns.
+ *
+ * ADR-0050 (#974): one formatter, shared with the footer and the `/model`
+ * header — the notice names the pair exactly as every other surface does.
  */
-import type { AgentEvent } from "@moh/core";
+import { formatModelPair, type AgentEvent } from "@moh/core";
 
 export type FallbackWatcher = (event: AgentEvent) => string | null;
 
@@ -24,9 +27,14 @@ export function fallbackToastText(from: string, to: string, reason: string): str
 export function createFallbackWatcher(): FallbackWatcher {
   return (event) => {
     if (event.type !== "route_serving") return null;
+    // ADR-0050 §6: a session opening on an inherited serving stop declares
+    // how it was born — it reports no change the user watched happen (the
+    // subagent chip already shows the child). `previous` names the stop it
+    // was serving: the same stop it still serves means nothing moved.
+    if (event.previous === event.serving) return null;
     const recovering = event.serving === event.selected;
     return recovering
       ? `recovered ${event.selected}`
-      : `using fallback ${event.serving} · selected ${event.selected}`;
+      : `using fallback ${formatModelPair(event.selected, event.serving)}`;
   };
 }

@@ -115,7 +115,7 @@ export type { SessionMode } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
 import { contextFitFor, CONTEXT_FIT_RESERVE, type ContextFitVerdict } from "./context-fit";
 import { type MemoryOptions } from "./memory";
-import { CompactionRunner, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
+import { CompactionRunner, compactionFacts, createDeterministicSummarizer, renderDeterministicDigest, type CompactionFacts, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
 // `@path` tokens (TUI popup plumbing, `moh run` headless sends).
 export {
@@ -205,6 +205,14 @@ export {
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
 // sentinel constant and the shared resolver.
 export { MAX_ITERATIONS_UNLIMITED, resolveMaxIterations, DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
+// ADR-0050 (#974): the one formatter every surface states the
+// selected/serving pair with — the prompt, the TUI status bar, the
+// transcript's durable record, the /model header and the fallback
+// notices. The accessor pair behind it (`selectedModelOf` /
+// `servingModelOf`, "the model in use") stays internal: it is core's own
+// reading, reached through `AgentSession.selectedModel` / `servingModel`
+// (ADR-0004 — a client states the pair, it does not resolve it).
+export { formatModelPair } from "./model-pair";
 // ADR-0033 §4: the outcome vocabulary a client's confirmation seam answers
 // with ("send" | "cancel" | "refuse") — the extension contract's type,
 // re-exported so a client needs one import for the whole seam.
@@ -888,6 +896,10 @@ export {
   type ProviderRegistry,
   type MemoryOptions,
   CompactionRunner,
+  compactionFacts,
+  createDeterministicSummarizer,
+  renderDeterministicDigest,
+  type CompactionFacts,
   type CompactionOptions,
   type CompactionSummarizer,
   type CompactionSummarizerInput,

@@ -32,6 +32,37 @@ ends with a provider `context_length` error arms the same producer
 directly — the provider's "does not fit" outranks the threshold — and
 the error names the escape hatches (`/compact`, `/models`).
 
+The summarizer has two strategies, chosen per project in `moh.json`
+(`compaction.summarizer`):
+
+- `"llm"` (default) — the compaction subagent writes a dense semantic
+  summary of the covered past.
+- `"deterministic"` — a rule-built digest of structured facts extracted
+  from the covered turns: your requests, the files read and modified,
+  per-tool traffic, recent failures, and the tail of the last assistant
+  work. No model call is made, and the same covered span produces the
+  same bytes on every run, resume and machine — useful for reproducible
+  sessions and stable tests. The digest is shallower than an LLM
+  summary by design; when it would exceed its size budget, the run
+  explicitly degrades to the LLM summarizer and the compaction marker
+  records `llm-fallback` — it is never silently truncated. `/compact`
+  and `moh compact` use the same strategy as the session.
+
+When a provider refuses a request as too long, its own error message
+usually states the window it enforces ("This endpoint's maximum context
+length is 131072 tokens"). moh reads that number and uses it: for the
+rest of the session, that model reference's window — the trigger above,
+the tail policy, the context-fit check and the fallback chain — is the
+one the provider itself declared, in place of the shipped catalog
+figure. The correction is visible once, as a `declared window` line in
+the transcript naming both numbers (headless runs print one line on
+stderr), and it never reaches the model: it is chrome. Nothing is
+written to any config or catalog — the number lives in the session's own
+log, so resuming the session recomputes the same window. A refusal whose
+wording moh does not recognize changes nothing and leaves one line in
+`~/.moh/context-refusals.log` (bounded, deduplicated, count per wording),
+which is how the next wording gets recognized.
+
 You can also force it:
 
 - `/compact` — in-session (TUI): compacts now, same producer.

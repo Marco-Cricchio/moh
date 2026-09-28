@@ -3,7 +3,7 @@ import React from "react";
 import { render } from "ink-testing-library";
 import { createSession, listOpenAiCompatModels, subscriptionModelCatalog, type CatalogModel } from "@moh/core";
 import { ModelPickerModal, type ModelPickerModalProps } from "../src/ModelPickerModal";
-import { contextWindowForLabel, filterCatalog, type EndpointPick } from "../src/model-picker";
+import { contextWindowForLabel, filterCatalog, modelRow, windowText, type EndpointPick } from "../src/model-picker";
 import { contextFraction } from "../src/sidebar";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
@@ -106,22 +106,43 @@ describe("/model modal (#181)", () => {
     return { i, switched, toasts, closed: () => closed };
   }
 
-  test("#551: live listings are merged additively; the shipped catalog wins on collision", async () => {
+  test("#551 + #1032: live listings are merged additively; a declared window outranks the shipped row and shows both", async () => {
     const { i } = mount({
       liveCatalog: {
         alpha: [
-          { id: "claude-sonnet-4-5", name: "Impostor", contextWindow: 1 },
+          { id: "claude-sonnet-4-5", name: "Impostor" },
           { id: "claude-opus-5", name: "Claude Opus 5", contextWindow: 300_000 },
+          // #1032: the endpoint declares a DIFFERENT window for a shipped row —
+          // the provider's number is shown, with the shipped one beside it.
+          { id: "claude-haiku-4-5", contextWindow: 180_000 },
         ],
       },
     });
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    // Vendored metadata preserved on collision.
+    // Vendored metadata preserved on collision; a listing without a
+    // window declares nothing (#1032) — the shipped row stands as-is.
     expect(frame).toContain("alpha · Claude Sonnet 4.5 · 200k");
     expect(frame).not.toContain("Impostor");
     // Fetched-only model appended with its listing enrichment.
     expect(frame).toContain("alpha · Claude Opus 5 · 300k");
+    // #1032: declared 180k in use, the shipped 200k named beside it.
+    expect(frame).toContain("· 180k declared · 200k");
+    i.unmount();
+  });
+
+  test("ADR-0049: a row shows the declared window next to the catalog one", async () => {
+    const { i } = mount({
+      declaredWindow: (ref) => (ref === "alpha/claude-sonnet-4-5" ? 131_072 : undefined),
+    });
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    // Both numbers, declared first (the one every context decision uses).
+    // The dialog clips the tail at this width — the row is truncation-
+    // tolerant by design, and `windowText` pins the full form.
+    expect(frame).toContain("alpha · Claude Sonnet 4.5 · 131k declared · 200k c");
+    // A model that declared nothing renders exactly as before.
+    expect(frame).toContain("alpha · Claude Opus 4.1 · 200k");
     i.unmount();
   });
 
@@ -370,6 +391,13 @@ describe("contextWindowForLabel (note 11: catalog-derived context bar)", () => {
     expect(contextWindowForLabel(picks, "alpha/opus-5")).toBe(1_000_000);
   });
 
+  test("ADR-0049: a declared window outranks the catalog row it corrected", () => {
+    const declared = (ref: string) => (ref === "alpha/opus-5" ? 131_072 : undefined);
+    expect(contextWindowForLabel(picks, "alpha/opus-5", declared)).toBe(131_072);
+    // Another model on the same endpoint keeps its catalog value.
+    expect(contextWindowForLabel(picks, "alpha/other", declared)).toBe(0);
+  });
+
   test("openai-compat backends without a catalog return 0 (caller keeps the default)", () => {
     expect(contextWindowForLabel(picks, "compat/glm-5.3")).toBe(0);
   });
@@ -381,5 +409,27 @@ describe("contextWindowForLabel (note 11: catalog-derived context bar)", () => {
 
   test("fraction of a 1M-window model no longer reads as near-full at 200k", () => {
     expect(contextFraction(180_000, contextWindowForLabel(picks, "alpha/opus-5"))).toBeLessThan(0.25);
+  });
+});
+
+describe("two numbers wherever a window is displayed (ADR-0049)", () => {
+  test("a model that declared nothing is byte-for-byte unchanged", () => {
+    const m = { id: "opus-5", name: "Opus 5", contextWindow: 1_000_000, reasoning: true };
+    expect(windowText(1_000_000)).toBe("1000k");
+    expect(modelRow(m)).toBe("Opus 5 (opus-5) · ctx 1000k");
+    expect(modelRow(m, true)).toBe("Opus 5 (opus-5) · ctx 1000k ‹current›");
+  });
+
+  test("a declared window shows next to the catalog figure it replaced", () => {
+    expect(windowText(1_000_000, 131_072)).toBe("131k declared · 1000k catalog");
+    // A listing-overlay row (#1032): the row carries the declared window,
+    // with the shipped figure it replaced beside it.
+    expect(windowText(180_000, undefined, 200_000)).toBe("180k declared · 200k catalog");
+    // An unknown catalog row shows the declared number alone, no invented figure.
+    expect(windowText(0, 131_072)).toBe("131k declared · — catalog");
+  });
+
+  test("a declared number equal to the catalog one is not shown twice", () => {
+    expect(windowText(1_000_000, 1_000_000)).toBe("1000k");
   });
 });

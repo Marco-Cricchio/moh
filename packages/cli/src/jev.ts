@@ -26,6 +26,7 @@ import {
   readTypesafeConfig,
   resolveTypesafeConfig,
   saveTypesafeClassification,
+  saveTypesafeGuardrail,
   saveTypesafeInjection,
   saveTypesafeLint,
   saveTypesafeRerank,
@@ -40,11 +41,13 @@ import { ArgError, parseArgs } from "./args";
  * names, the writer and the label the messages use, so `moh jev <name>` and
  * the status report can never disagree about what exists.
  *
- * The guardrail is absent on purpose: it has no config flag (#784 — a stored
- * key is the switch), so there is nothing here to persist. It is refused as
- * *session-only* rather than silently accepted.
+ * All seven use cases are here (#1041): the guardrail used to be refused as
+ * *session-only* because it had no flag — a stored key was the switch. It
+ * has one now (`typesafe.guardrail`, on unless the user opted out), so no
+ * name this command accepts is a dead end.
  */
 const USE_CASES = {
+  guardrail: { label: "guardrail", write: saveTypesafeGuardrail },
   routing: { label: "model routing", write: saveTypesafeRouting },
   injection: { label: "anti-injection", write: saveTypesafeInjection },
   classification: { label: "prompt classification", write: saveTypesafeClassification },
@@ -56,9 +59,6 @@ const USE_CASES = {
 type UseCaseName = keyof typeof USE_CASES;
 
 const USE_CASE_NAMES = Object.keys(USE_CASES) as UseCaseName[];
-
-/** The names that are real but not persistable — for one honest error line. */
-const SESSION_ONLY = ["guardrail"];
 
 export const JEV_USAGE = `usage: moh jev status [--json]
        moh jev <use-case> on|off
@@ -73,13 +73,12 @@ opt-ins.
                 what a new session starts in
 
   --json        one-line machine-readable JSON with status: active, keyHint
-                (absent when inactive), timeoutMs, routing, injection, lint,
-                classification, rerank, skills
+                (absent when inactive), timeoutMs, guardrail, routing,
+                injection, lint, classification, rerank, skills
 
-Use cases: routing, injection, classification, lint, rerank, skills.
-Session-only (no flag to write): guardrail — it has no configuration switch
-at all (a stored key is what turns it on), so it can only be switched off for
-one session, from the TUI's /jev modal.
+Use cases: guardrail, routing, injection, classification, lint, rerank, skills.
+The guardrail is on unless you opted out: "moh jev guardrail off" is what
+disarms it, and it is what the Settings entry's Guardrail row writes.
 
 Switching a use case inside a running session is /jev's job too: a session
 command is session-warm and this command is persistent — that is the whole
@@ -97,14 +96,15 @@ function row(label: string, value: string): string {
 }
 
 /** The `--json` object, key order pinned: `active`, `keyHint`, `timeoutMs`,
- * `routing`, `injection`, `lint`, `classification`, `rerank`, `skills`.
- * `keyHint` is omitted when inactive rather than
+ * `guardrail`, `routing`, `injection`, `lint`, `classification`, `rerank`,
+ * `skills`. `keyHint` is omitted when inactive rather than
  * nulled — the key does not exist in that state. */
 function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
   return {
     active: cfg.active,
     ...(cfg.apiKey !== undefined ? { keyHint: maskApiKey(cfg.apiKey) } : {}),
     timeoutMs: cfg.timeoutMs,
+    guardrail: cfg.guardrail,
     routing: cfg.routing,
     injection: cfg.injection,
     lint: cfg.lint,
@@ -122,6 +122,7 @@ function renderStatus(cfg: ResolvedTypesafeConfig): string {
         ? `active (key ${maskApiKey(cfg.apiKey)}, timeout ${cfg.timeoutMs}ms)`
         : "inactive",
     ),
+    row("guardrail", cfg.guardrail ? "on" : "off"),
     row("routing", cfg.routing ? "on" : "off"),
     row("injection", cfg.injection ? "on" : "off"),
     row("quality gate", cfg.lint ? "on" : "off"),
@@ -157,15 +158,6 @@ export async function jevCommand({
     throw e;
   }
   const [sub, ...extra] = parsed.positionals;
-  if (sub !== undefined && SESSION_ONLY.includes(sub)) {
-    // Real, but not persistable: the guardrail has no flag (#784). Saying
-    // "unknown use case" here would be a lie about the product.
-    stderr.write(
-      `moh jev ${sub}: the guardrail has no persistent switch — a stored API key is what turns it on.\n` +
-        `Switch it off for one session from the TUI's /jev modal.\n\n${JEV_USAGE}\n`,
-    );
-    return 2;
-  }
   if (sub !== "status" && !(sub !== undefined && sub in USE_CASES)) {
     stderr.write(
       `moh jev: ${sub === undefined ? "a subcommand is required" : `unknown use case "${sub}"`}\n\n${JEV_USAGE}\n`,
@@ -238,5 +230,3 @@ export async function jevCommand({
  * generator, so it cannot interpolate this list.
  */
 export const JEV_USE_CASE_NAMES = USE_CASE_NAMES;
-/** The names that are real but have no persistent flag. */
-export const JEV_SESSION_ONLY_NAMES = SESSION_ONLY;

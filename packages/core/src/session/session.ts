@@ -9,7 +9,10 @@ import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
 import { contextFitFor } from "../context-fit";
-import { CompactionRunner, createCompactionSummarizer, contextWindowFor } from "../compaction";
+// ADR-0050 (#974): the selected/serving pair — one formatter, one accessor
+// pair, shared by every surface that states or derives from the model in use.
+import { formatModelPair, selectedModelOf, servingModelOf } from "../model-pair";
+import { CompactionRunner, createCompactionSummarizer, createDeterministicSummarizer, contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
@@ -38,6 +41,8 @@ import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
+import { DeclaredWindows, declaredWindowOf } from "../declared-window";
+import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -52,6 +57,14 @@ export class AgentSession {
   #provider: Provider;
   /** #166: merged endpoint profiles, what switchModel resolves against. */
   readonly #endpoints: import("../config").EndpointProfile[];
+  /** #1032 (door two): per-endpoint declared windows (the endpoints'
+   * own cached listings) — the provider's window outranks the shipped
+   * row. Door one (refusal-learned) is #declaredWindows below. */
+  readonly #endpointDeclaredWindows: Record<string, Record<string, number>>;
+  /** #488: the config's image-capability pin (tests/custom providers).
+   * Absent = the catalog's declared modalities answer (ADR-0050 §7:
+   * resolved against the model that serves, not the selected one). */
+  readonly #images: SessionConfig["images"];
   /** Registry snapshot frozen at creation; later registrations never reach it. */
   readonly #registry: FrozenProviderRegistry | undefined;
   #tools: Record<string, Tool>;
@@ -143,6 +156,14 @@ export class AgentSession {
   #memory: MemoryRunner | null = null;
   /** Compaction (#466): the post-turn marker producer collaborator. */
   #compaction: CompactionRunner | null = null;
+  /**
+   * ADR-0049 (door one, #986): the context windows providers declared in
+   * their own overflow refusals this session, keyed by the model reference
+   * that was refused. Rebuilt from the log at resume-open (`fromEvents`) —
+   * the `declared_window` chrome event IS the store, so no second file and
+   * no replay divergence.
+   */
+  #declaredWindows = new DeclaredWindows();
   /** Session handoff (#434): the raw post-turn artifact runner. */
   #handoff: HandoffRunner | null = null;
   /** A successful bash `git push` occurred in the active turn (#437). */
@@ -180,20 +201,31 @@ export class AgentSession {
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
     this.#endpoints = config.endpoints ?? [];
+    // #1032 (ADR-0049 door two): the endpoints' own declared windows —
+    // one map, every window consumer funnels through it.
+    this.#endpointDeclaredWindows = config.endpointDeclaredWindows ?? {};
+    this.#images = config.images;
     this.#mohHome = config.mohHome ?? join(homedir(), ".moh");
     // Init-order note (#243): #mohHome must be assigned before
     // #routeResolutionOptions — its thinkingForTarget lambda resolves
     // endpoint preferences against <mohHome>/config on every target.
-    this.#routeResolutionOptions = config.thinking === undefined
-      ? {
-          thinkingForTarget: (target) =>
-            resolveEndpointThinking(
-              `${target.endpoint.name}/${target.modelId}`,
-              this.#endpoints,
-              join(this.#mohHome, "config"),
-            ),
-        }
-      : {};
+    this.#routeResolutionOptions = {
+      // #948 + #1032: the fallback chain skips stops whose window cannot
+      // hold the measured context — the same lookup the guard enforces.
+      ...(Object.keys(this.#endpointDeclaredWindows).length > 0
+        ? { endpointDeclaredWindows: this.#endpointDeclaredWindows }
+        : {}),
+      ...(config.thinking === undefined
+        ? {
+            thinkingForTarget: (target) =>
+              resolveEndpointThinking(
+                `${target.endpoint.name}/${target.modelId}`,
+                this.#endpoints,
+                join(this.#mohHome, "config"),
+              ),
+          }
+        : {}),
+    };
     this.#provider =
       typeof config.provider === "string"
         ? resolveProviderRef(
@@ -294,17 +326,7 @@ export class AgentSession {
       },
       // #778: browser screenshots become typed image parts only when the
       // serving model declares image input — the exact #488 probe.
-      imageCapable: () => {
-        const pin = config.images?.imageCapable;
-        if (typeof pin === "boolean") return pin;
-        if (typeof pin === "function") return pin();
-        const ref = this.#provider.name;
-        const slash = ref.indexOf("/");
-        const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
-        const profile = this.#endpoints.find((e) => e.name === endpointName);
-        if (profile?.capabilities?.multimodal === false) return false;
-        return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
-      },
+      imageCapable: () => this.#imagesSupported(),
     });
     // Subagents (#13): the spawn tool creates in-process child sessions.
     // Depth 1 by construction — children are created with `subagents: null`.
@@ -456,20 +478,36 @@ export class AgentSession {
     // Compaction (#466): on by default when the option is present
     // (from-config passes it unconditionally); `enabled: false` turns it off.
     const comp = config.compaction;
+    // #766 (ADR-0051): which summarizer actually served — read back by
+    // the runner at marker time so a mid-run fallback is stamped.
+    const strategyBox = { name: "llm" };
     if (comp && (comp.enabled ?? true)) {
       this.#compaction = new CompactionRunner({
         sessionId: this.#sessionId,
         provider: () => this.#provider,
-        endpointType: () => {
-          const profiled = this.activeEndpointType;
-          if (profiled !== undefined) return profiled;
+        // One resolver set for the reference that SERVES the calls
+        // (ADR-0049: one value, one owner; ADR-0050 §7: the window belongs
+        // to the serving model, so its identity is the serving one) — the
+        // lookup every window consumer shares.
+        endpointType: () => this.#endpointTypeFor(this.servingModel),
+        // ADR-0049: the one window lookup the guard and the chain read —
+        // a provider-declared window outranks the catalog row here too.
+        declaredWindows: () => this.#declaredWindows,
+        // Door two (#1032): the endpoint identity + its own listing
+        // windows, resolved by endpoint instead of provider kind.
+        endpoint: () => {
+          const ref = this.servingModel;
+          const slash = ref.indexOf("/");
+          if (slash > 0) {
+            const endpoint = this.#windowEndpoint(ref.slice(0, slash));
+            if (endpoint) return endpoint;
+          }
           // #949 test/dev convenience: a bare provider named
           // "<endpointType>/<model>" resolves its window from the
           // catalog — an unknown window otherwise.
-          const name = this.#provider.name;
-          if (!name.includes("/")) return undefined;
-          const [type, ...rest] = name.split("/");
-          return catalogEntryFor(type, rest.join("/")) !== undefined ? type : undefined;
+          if (!ref.includes("/")) return undefined;
+          const [type, ...rest] = ref.split("/");
+          return catalogEntryFor(type, rest.join("/")) !== undefined ? { type } : undefined;
         },
         append: (event) => this.#append(event),
         // #578 (d3/d7): cover the path pinned to the turn's head — the
@@ -483,7 +521,15 @@ export class AgentSession {
           return pin !== undefined ? (pathTo(live, pin) ?? activePath(live)) : activePath(live);
         },
         onCompacted: () => this.#rebuildAfterCompaction(),
-        summarizer: comp.summarizer ?? createCompactionSummarizer(this.#provider, this.#cwd),
+        // #766 (ADR-0051): "deterministic" selects the digest summarizer
+        // with the LLM summarizer as the explicit over-budget fallback;
+        // the strategy box feeds the marker's `summarizer` audit stamp.
+        summarizer: comp.summarizer ?? (comp.summarizerStrategy === "deterministic"
+          ? createDeterministicSummarizer(createCompactionSummarizer(this.#provider, this.#cwd), strategyBox)
+          : createCompactionSummarizer(this.#provider, this.#cwd)),
+        ...(comp.summarizerStrategy === "deterministic" && !comp.summarizer
+          ? { summarizerName: () => strategyBox.name }
+          : {}),
         // ADR-0035: the section-filter dispatch, when a runtime exists.
         // `moh compact` on a closed file has no runtime here: it compacts
         // exactly as before (the filter is an optimization, not a gate).
@@ -581,17 +627,7 @@ export class AgentSession {
         // catalog's declared input modalities (never inferred), with an
         // explicit `capabilities.multimodal: false` endpoint override.
         // A config `images.imageCapable` pin wins (tests/custom providers).
-        imageCapable: () => {
-          const pin = config.images?.imageCapable;
-          if (typeof pin === "boolean") return pin;
-          if (typeof pin === "function") return pin();
-          const ref = this.#provider.name;
-          const slash = ref.indexOf("/");
-          const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
-          const profile = this.#endpoints.find((e) => e.name === endpointName);
-          if (profile?.capabilities?.multimodal === false) return false;
-          return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
-        },
+        imageCapable: () => this.#imagesSupported(),
       },
       // #253: live reasoning relay (ephemeral — never stored or sunk).
       emitLive: (event) => this.#eventLog.emitLive(event),
@@ -605,6 +641,10 @@ export class AgentSession {
         }
         return resolveEndpointThinking(this.#provider.name, this.#endpoints, join(this.#mohHome, "config"));
       },
+      // ADR-0049 (door one, #986): a refusal is the only teacher. The
+      // session owns what a refusal means — learn the declared window, or
+      // leave a trace when no shipped formula read it.
+      onContextRefusal: (ref, err) => this.#noteContextRefusal(ref, err),
       // Post-turn triggers: memory extraction (#38, every N turns) and the
       // raw handoff artifact (#434, every settled turn — synchronous and
       // fail-silent, so a killed session keeps the last turn's state).
@@ -680,6 +720,10 @@ export class AgentSession {
       // (the file already has them); only new events reach the sink.
       const resumeEvents = this.#resumeProjection!;
       this.#messages.splice(0, 0, ...replayMessages(resumeEvents));
+      // ADR-0049 (door one): the refusals in the log are the session's
+      // declared windows — reopening re-derives the very same numbers, so
+      // compaction and the fit guard compute here what they computed then.
+      this.#declaredWindows = DeclaredWindows.fromEvents(resumeEvents);
       // #578 (d6): a compaction pointer that does not resolve on the
       // active path (corruption, truncation) restarts context from the
       // path start — surfaced as visible warning chrome, never silent.
@@ -733,6 +777,7 @@ export class AgentSession {
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
     this.#append({ type: "session_mode", mode: this.#permissions.mode });
+    this.#declareInheritedRoute();
     this.#appendStartupChrome(true);
     this.#flushExtensionEvents();
     // Fire-and-forget: construction is sync, the session is not yet running.
@@ -746,6 +791,23 @@ export class AgentSession {
     }).then((errors) => {
       for (const e of errors ?? []) this.#append(e);
     });
+  }
+
+  /**
+   * ADR-0050 (§6): a session may be born serving a stop other than its
+   * selection — a subagent child inherits the parent's fallback. Its own log
+   * declares that state once, at open, with the existing `route_serving`
+   * chrome (`previous` = the selection), so the child's log reads on its
+   * own without the parent's. It reports how the session was born, not a
+   * change the user watched happen: the subagent chip and the live panel
+   * already show the child, so no client raises a fallback notice for it
+   * (and a child's events never reach a client watching the parent).
+   */
+  #declareInheritedRoute(): void {
+    const selected = this.selectedModel;
+    const serving = this.servingModel;
+    if (serving === selected) return;
+    this.#append({ type: "route_serving", selected, serving, previous: selected });
   }
 
   /**
@@ -861,23 +923,44 @@ export class AgentSession {
     return this.#registry;
   }
 
-  /** The user-selected model ref (`endpoint/model-id`, or a provider name). #166/#363. */
+  /** The user-selected model ref (`endpoint/model-id`, or a provider name). #166/#363.
+   * ADR-0050: the standing choice — it stays stable while a fallback serves. */
   get activeModel(): string {
     return this.#provider.name;
   }
 
   /** #363: selected route stays user-owned while a fallback may serve calls. */
   get selectedModel(): string {
-    return "selected" in this.#provider && typeof this.#provider.selected === "string"
-      ? this.#provider.selected
-      : this.#provider.name;
+    return selectedModelOf(this.#provider);
   }
 
-  /** #363: latest successful route used for later model calls. */
+  /** #363: latest successful route used for later model calls — the model
+   * in use (ADR-0050): what behaviour depending on the serving model reads. */
   get servingModel(): string {
-    return "serving" in this.#provider && typeof this.#provider.serving === "string"
-      ? this.#provider.serving
-      : this.#provider.name;
+    return servingModelOf(this.#provider);
+  }
+
+  /**
+   * #488/#778 (ADR-0050 §7): whether an image may become a typed image
+   * part — resolved against the model that SERVES this session's calls, so
+   * a fallback onto a model without image input downgrades the attachment
+   * (visible warning, chip text) instead of sending a request the serving
+   * model rejects. The catalog's declared input modalities are the truth
+   * (never inferred), with an explicit `capabilities.multimodal: false`
+   * endpoint override; a config `images.imageCapable` pin wins outright
+   * (tests/custom providers). One definition for both probes: the browser
+   * screenshot seam (#778) and the `@path` mention seam (#488).
+   */
+  #imagesSupported(): boolean {
+    const pin = this.#images?.imageCapable;
+    if (typeof pin === "boolean") return pin;
+    if (typeof pin === "function") return pin();
+    const ref = this.servingModel;
+    const slash = ref.indexOf("/");
+    const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
+    const profile = this.#endpoints.find((e) => e.name === endpointName);
+    if (profile?.capabilities?.multimodal === false) return false;
+    return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
   }
 
   /**
@@ -903,6 +986,27 @@ export class AgentSession {
     const slash = ref.indexOf("/");
     if (slash === -1) return undefined;
     return this.#endpoints.find((e) => e.name === ref.slice(0, slash))?.type;
+  }
+
+  /**
+   * #1032 (ADR-0049 door two): the endpoint a window is resolved for —
+   * kind, baseUrl and the endpoint's own declared windows. One shape,
+   * every window consumer funnels through it. Undefined for a bare
+   * registered provider kind with no profile.
+   */
+  #windowEndpoint(endpointName: string): import("../compaction").WindowEndpoint | undefined {
+    const profile = this.#endpoints.find((e) => e.name === endpointName);
+    if (profile) {
+      return {
+        type: profile.type,
+        baseUrl: profile.baseUrl,
+        declaredWindows: this.#endpointDeclaredWindows[endpointName],
+      };
+    }
+    if (this.#registry?.has(endpointName)) {
+      return { type: endpointName, declaredWindows: this.#endpointDeclaredWindows[endpointName] };
+    }
+    return undefined;
   }
 
   /** The session's merged endpoint profiles (#181 follow-up): read-only
@@ -946,7 +1050,15 @@ export class AgentSession {
         // #948: the rebuilt chain (a switch replaces the active provider
         // wholesale) skips stops that cannot hold the measured context —
         // the same verdict the guard below enforces.
-        { ...this.#routeResolutionOptions, measuredTokens: this.lastMeasuredTokens() },
+        {
+          ...this.#routeResolutionOptions,
+          measuredTokens: this.lastMeasuredTokens(),
+          // ADR-0049: the rebuilt chain judges a stop on the declared
+          // window it learned (door one) or on the endpoint's own listing
+          // (door two), never on the row those corrected.
+          declaredWindows: this.#declaredWindows,
+          endpointDeclaredWindows: this.#endpointDeclaredWindows,
+        },
       );
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -991,10 +1103,72 @@ export class AgentSession {
     const name = slash > 0 ? trimmed.slice(0, slash) : trimmed;
     const modelId = slash > 0 ? trimmed.slice(slash + 1) : undefined;
     const profile = this.#endpoints.find((e) => e.name === name);
-    const endpointType = profile?.type ?? (this.#registry?.has(name) ? name : undefined);
     const model = modelId ?? profile?.defaultModel;
-    const window = name && model ? contextWindowFor(`${name}/${model}`, endpointType) : 0;
+    // ADR-0049: the client's pre-switch check reads the very lookup the
+    // guard enforces — a declared window included (both doors), so the
+    // settings/picker path can never disagree with the switch.
+    const window = name && model
+      ? contextWindowFor(`${name}/${model}`, this.#windowEndpoint(name), this.#declaredWindows)
+      : 0;
     return contextFitFor({ measured: this.lastMeasuredTokens(), window });
+  }
+
+  /**
+   * ADR-0049 (door one, #986): the context window a provider declared in
+   * its own overflow refusal for one model reference, for this session —
+   * undefined when that reference declared none. Read-only: clients show
+   * the declared number next to the catalog one wherever a window is
+   * displayed, and the fit guard folds it into the same lookup.
+   */
+  declaredWindowFor(ref: string): number | undefined {
+    return this.#declaredWindows.declaredWindowFor(ref);
+  }
+
+  /**
+   * ADR-0049 (door one): what a real refusal means. The provider declared
+   * a window moh recognizes → the declared number becomes the effective
+   * window for that reference, recorded once per correction as a
+   * `declared_window` chrome event (the log is the session: resume
+   * re-derives it). Nothing recognized → one line in the user's dotdir
+   * trace, so the next formula can be discovered from real wordings.
+   */
+  #noteContextRefusal(ref: string, err: unknown): void {
+    const declared = declaredWindowOf(err);
+    const endpointType = this.#endpointTypeFor(ref);
+    if (declared === undefined) {
+      noteUnrecognizedContextRefusal({
+        home: this.#mohHome,
+        ...(endpointType ? { endpoint: endpointType } : {}),
+        model: ref,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    const slash = ref.indexOf("/");
+    const catalog = contextWindowFor(ref, slash > 0 ? this.#windowEndpoint(ref.slice(0, slash)) : undefined);
+    const effective = this.#declaredWindows.declaredWindowFor(ref) ?? catalog;
+    // The log records corrections, not confirmations: a number moh is
+    // already using changes nothing (a re-refusal of the same provider
+    // repeats with every turn once the session is over its limit).
+    if (effective === declared) return;
+    this.#declaredWindows.learn(ref, declared);
+    this.#append({ type: "declared_window", model: ref, window: declared, catalog });
+  }
+
+  /** Endpoint type for a model reference (`endpoint/model-id`), the
+   * catalog lookup key: a configured endpoint's type, else a registered
+   * provider id, else — #949 test/dev convenience — a bare provider named
+   * "<endpointType>/<model>" whose first segment is a catalog kind (its
+   * window then resolves from that catalog). */
+  #endpointTypeFor(ref: string): string | undefined {
+    const slash = ref.indexOf("/");
+    if (slash <= 0) return undefined;
+    const name = ref.slice(0, slash);
+    const profiled = this.#endpoints.find((e) => e.name === name)?.type;
+    if (profiled !== undefined) return profiled;
+    if (this.#registry?.has(name)) return name;
+    const rest = ref.slice(slash + 1);
+    return name && catalogEntryFor(name, rest) !== undefined ? name : undefined;
   }
 
   /** #948: the session's last measured model-call input tokens (the
@@ -1292,7 +1466,11 @@ export class AgentSession {
       cwd: this.#cwd,
       platform: process.platform,
       now: new Date(),
-      model: this.#provider.name,
+      // ADR-0050: the prompt states what serves — the pair while a fallback
+      // serves this session's calls, the single reference otherwise. Read
+      // live, at every assembly: a fallback that happened mid-turn is in
+      // the next call's prompt.
+      model: formatModelPair(this.selectedModel, this.servingModel),
       tools: Object.values(this.#allTools()).map((t) => ({ name: t.name, description: t.description })),
       skills: this.#skills,
       ...(this.#skillPrompt ? { skillPrompt: this.#skillPrompt } : {}),

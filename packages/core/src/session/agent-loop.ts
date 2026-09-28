@@ -20,6 +20,8 @@ import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 import { EMPTY_REASONING_PARTS, foldReasoningParts, type ReasoningParts } from "../reasoning-parts";
+import { servingModelOf } from "../model-pair";
+import { declaredWindowOf } from "../declared-window";
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
@@ -113,7 +115,23 @@ export interface AgentLoopOptions {
   thinking?: () => { level: ThinkingLevel } | undefined;
   /** Fire-and-forget post-turn hook (memory trigger); never blocks the turn. */
   onTurnSettled?: (result: TurnResult) => void;
+  /**
+   * ADR-0049 (door one, #986): the provider refused this call as too long
+   * (`context_length`). The session owns what happens next — adopting the
+   * window the refusal declares, or leaving a trace when no shipped
+   * formula matched its wording. Fired only for a real refusal, and only
+   * after the failure is logged, so the log reads in the order it
+   * happened.
+   */
+  onContextRefusal?: (modelRef: string, err: unknown) => void;
 }
+
+/** ADR-0049: the `ProviderError` kind a thrown failure carries, when it
+ * carries one — the reader both error paths gate learning on. */
+function refusalKind(err: unknown): string | undefined {
+  return err instanceof Error && "kind" in err ? String((err as { kind: unknown }).kind) : undefined;
+}
+
 
 /**
  * One agent turn (#92): model calls, streaming deltas, `model_call`
@@ -138,6 +156,7 @@ export class AgentLoop {
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
   readonly #thinking: (() => { level: ThinkingLevel } | undefined) | undefined;
   readonly #onTurnSettled: ((result: TurnResult) => void) | undefined;
+  readonly #onContextRefusal: ((modelRef: string, err: unknown) => void) | undefined;
   /** #488: mention expansion config (see AgentLoopOptions.mentions). */
   readonly #mentions: AgentLoopOptions["mentions"];
   /** Cumulative usage tokens reported by the provider, where exposed (#13). */
@@ -172,6 +191,15 @@ export class AgentLoop {
     this.#emitLive = options.emitLive;
     this.#thinking = options.thinking;
     this.#onTurnSettled = options.onTurnSettled;
+    this.#onContextRefusal = options.onContextRefusal;
+  }
+
+  /** ADR-0049 (door one): the reference that was *serving* the failed call
+   * — read while the call is still open, because a fallback restart inside
+   * one stream names a different model, and the refusal's subject is the
+   * model that refused. */
+  #refusingRef(): string {
+    return this.#pendingCall?.model ?? this.#provider().name;
   }
 
   /** #240: the open reasoning part of the active stream (`reasoning_start`
@@ -358,11 +386,18 @@ export class AgentLoop {
               wrapFinished = true;
             }
           }
-        } catch {
+        } catch (err) {
           // The wrap-up is best-effort: a failing final call degrades to the
           // historical cap error rather than masking it. Its partial call is
           // recorded as failed, never a resumable checkpoint (#243).
+          // ADR-0049: a refusal is a refusal whichever call hit it — the
+          // wrapper still ends the turn as the cap error, but the window
+          // the provider declared is learned here too.
+          const refusing = this.#refusingRef();
           this.#flushFailedModelCall();
+          if (refusalKind(err) === "context_length" || declaredWindowOf(err) !== undefined) {
+            this.#onContextRefusal?.(refusing, err);
+          }
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
           return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
         }
@@ -452,10 +487,19 @@ export class AgentLoop {
         // #240: the failed call keeps its completed reasoning text (error
         // state) and model_call audit before the error lands. Opaque
         // continuation is not checkpointed without a finalized message.
+        const refusing = this.#refusingRef();
         this.#flushFailedModelCall();
-        const reason = err instanceof Error && "kind" in err ? String((err as any).kind) : "provider_failure";
+        const reason = refusalKind(err) ?? "provider_failure";
         const message = err instanceof Error ? err.message : String(err);
         this.#append({ type: "error", reason, message });
+        // ADR-0049 (door one, #986): only a real refusal teaches — the
+        // provider just said what its window is by rejecting a larger
+        // request. A failure teaches when it classified as `context_length`
+        // (the session then learns or traces) or when its own wording
+        // carries a window formula moh reads (the refusal proves itself,
+        // and the refusal still keeps the kind it had: the taxonomy is
+        // untouched). Everything else is exactly as it was.
+        if (reason === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
         return { status: "error", reason, message };
       }
       // The provider stream ended: only a finalized model call is recorded.
@@ -472,7 +516,9 @@ export class AgentLoop {
       // classified error, failed model_call record, never a silent done.
       if (!sawText && !sawToolCalls && !sawUsage) {
         this.#flushFailedModelCall();
-        const message = `${provider.name} returned an empty completion (no content, no tool calls, no usage)`;
+        // ADR-0050: name the model that served this call — for a route that
+        // is the serving stop, not the selected reference.
+        const message = `${servingModelOf(provider)} returned an empty completion (no content, no tool calls, no usage)`;
         this.#append({ type: "error", reason: "empty_completion", message });
         return { status: "error", reason: "empty_completion", message };
       }

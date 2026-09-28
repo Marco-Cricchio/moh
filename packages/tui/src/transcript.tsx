@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
-import type { AgentEvent } from "@moh/core";
+import { formatModelPair, type AgentEvent } from "@moh/core";
 import type { PaintableTheme, Theme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
@@ -855,6 +855,20 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           lines: [`measured ${event.measured} tokens · window ${event.window} tokens · staying on ${event.from}`],
         });
         break;
+      case "declared_window":
+        // ADR-0049 (door one, #986): the provider's own overflow refusal
+        // declared this window, which now outranks the catalog row. One
+        // visible line at the moment it happens — and only for a real
+        // correction, so it never repeats for a number moh already used.
+        blocks.push({
+          key,
+          kind: "chrome",
+          glyph: "◈",
+          type: "declared window",
+          detail: `${event.model} · ${event.window} tokens${event.catalog > 0 ? ` (catalog ${event.catalog})` : " (catalog —)"}`,
+          lines: ["The provider's refusal declares this window; compaction and the context-fit check use it for the rest of this session."],
+        });
+        break;
       case "fallback":
         // ADR-0012: a fallback stop is turn chrome — the toast is the
         // timely notice; this block is the durable record for replay.
@@ -862,7 +876,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         break;
       case "route_serving":
         // #363: selected and serving routes are distinct session state.
-        blocks.push({ key, kind: "chrome", glyph: "↻", type: "serving route", detail: `${event.selected} · ${event.serving}`, lines: [] });
+        // ADR-0050: the pair renders through the one core formatter, so the
+        // durable record reads exactly like the footer and the prompt.
+        blocks.push({ key, kind: "chrome", glyph: "↻", type: "serving route", detail: formatModelPair(event.selected, event.serving), lines: [] });
         break;
       case "memory_updated":
         if (vibe) break;

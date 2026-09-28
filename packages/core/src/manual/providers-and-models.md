@@ -43,6 +43,32 @@ way a fallback can help — quota exhausted, rate limited, network,
 overloaded, or an empty completion — the turn is retried on the next
 eligible endpoint, and the transcript shows a notice naming both.
 
+Your choice and what serves are two different things, and moh shows both
+(ADR-0050). The model you picked stays **selected** — it is what `/model`
+replaces, and the picker's marker stays on it — while a **serving** stop
+answers the calls. Wherever a session states which model it is working
+with, the two are written as `selected → serving`, and a session with
+nothing in fallback shows one reference, exactly as before. That covers
+the TUI status bar, the `/model` header, and the system prompt's
+`Environment` block, so the model is never told it is working on a model
+that is not answering the call. While a fallback serves, the `/model`
+header reads `active: <selected> · serving <serving>`.
+
+The serving state belongs to one session, never to the whole program: a
+subagent starts with the model its parent was serving at spawn time, gets
+its own copy of the chain from there, and keeps its own failures and
+recoveries. What it inherits is the *knowledge* — an endpoint the parent
+found exhausted stays skipped instead of being re-probed, so time is not
+spent on a stop already known to be down. The child's own log opens with a
+`route_serving` record saying how it was born, and that record raises no
+fallback notice: it describes a starting point, not a change you watched
+happen. What happens inside a child never adds a line to its parent's
+transcript.
+
+A session reopened with `--resume` starts on your selected model; the
+serving state is not saved, so the chain re-engages visibly if that stop is
+still unavailable.
+
 Every endpoint that can serve as a stop is in the chain, in declaration
 order, each using **its own preferred model** (`defaultModel`). An
 endpoint is not a stop when it has no preferred model, when it is
@@ -102,14 +128,18 @@ re-probe it until the cooldown expires.
   refreshed, served from a cache (with its age), or not refreshable.
   Baseten, which has no listing route, never reports a failure — static
   is its design. The Settings panel's endpoint → model picker shows the
-  same live overlay and the same state. The switch takes effect from
-  the next turn.
+  same live overlay and the same state. Where the endpoint's own
+  listing declares a context window for a model moh ships, that number
+  is the one moh uses — in the picker and in the arithmetic alike — and
+  the shipped value is shown beside it when the two differ. The switch
+  takes effect from the next turn.
 - **Context fit (#948):** a switch into a model whose context window
   cannot hold the session's measured context is refused — the switch
   itself must not kill the session. The window must leave a fixed
   8192-token reserve over the last measured input; a model with an
   unknown window and a session without a measurement both pass (moh
-  never invents a window the catalog does not declare). The refusal is
+  never invents a window the catalog does not declare). A window the
+  provider itself declared outranks the catalog's (see below). The refusal is
   visible: one `switch refused` line in the transcript naming the
   target, the measured tokens and the window, and the current model
   stays in effect. `/model` in the TUI asks first: on a refused pick it
@@ -120,7 +150,13 @@ re-probe it until the cooldown expires.
   session's context. The chain knows the session's measured tokens;
   the Settings screen, which reads only configuration, does not — so
   the fit axis simply does not appear there (unknown is never
-  excluded).
+  excluded). The window the arithmetic uses is the one the provider
+  itself reports for the endpoint in use (ADR-0049): the endpoint's own
+  cached model listing outranks the shipped catalog row — in both
+  directions — and the lookup is keyed by the endpoint (two endpoints
+  of one kind never read each other's catalog). Where a displayed
+  window differs from the shipped row, both numbers appear, e.g.
+  `180k (catalog 200k)`.
 - With Jev model routing on (off by default), the model of a turn can
   also be picked per turn by the router, from the same configured
   models: see [Jev (TypeSafe)](./jev.md). A switch you make yourself
@@ -128,6 +164,17 @@ re-probe it until the cooldown expires.
   serve (a failure cooldown), it rotates within the tier — or through a
   declared `routingPool` in moh.json — and a skipped switch is always
   announced, never silent.
+- **A declared window outranks the map:** when a provider's own overflow
+  refusal states the window it enforces, moh adopts that number for the
+  refused model reference, for this session. Two numbers then show
+  wherever the window does — the model list here, the `/model` picker,
+  the Settings model list (`131k declared · 1000k catalog`) — because the
+  engine and the screen must not disagree. One model's refusal teaches
+  nothing about another model on the same endpoint, and neither the
+  shipped catalog nor your config is touched: the correction lives in the
+  session log and is recomputed on resume. See
+  [Memory & compaction](./memory-and-compaction.md) for what the number
+  drives.
 - `moh run --provider <endpoint/model-id>` picks the model per run.
 - The Settings panel's endpoint → model picker saves the default into
   moh.json (user-level endpoints are display-only there).

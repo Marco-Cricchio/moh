@@ -11,8 +11,11 @@
  * **abstains** (treated as fits) when it cannot verify: an unknown
  * window (`0`) or a log with no usable measurement. Abstention never
  * blocks; the provider's own `context_length` error remains the hard
- * wall for the unresolvable cases (the broader unknown-window policy
- * stays with the core `context_length` ticket, tracked with #948).
+ * wall for the unresolvable cases. That policy — what a window *nobody*
+ * declared means — is settled in ADR-0049; the case where the provider
+ * *did* declare one (through either door) is the same decision (the
+ * declared window is one more input to the lookup above, never a second
+ * path).
  */
 
 /** Fixed reserve (tokens) subtracted from the window: headroom for the

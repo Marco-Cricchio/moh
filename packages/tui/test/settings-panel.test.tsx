@@ -234,6 +234,31 @@ describe("settings panel (issue #33)", () => {
     i.unmount();
   });
 
+test("ADR-0049: the model rows show a provider-declared window next to the catalog one", async () => {
+    const cwd = setupCwd();
+    const { i } = mount(cwd, {
+      // The session learned this window from a refusal for that reference
+      // alone (a sibling model on the same endpoint declared nothing).
+      declaredWindow: (ref) => (ref === "anthropic/claude-fable-5" ? 131_072 : undefined),
+    });
+    await sleep(30);
+    await gotoRow(i, "Provider");
+    i.stdin.write("\r");
+    await sleep(30);
+    await down(i, 1); // anthropic endpoint
+    i.stdin.write("\r");
+    await sleep(30);
+    i.stdin.write("fable"); // narrow to the two rows the assertion names
+    await sleep(30);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    // Declared first (the number every context decision uses), catalog
+    // second. The dialog clips at its width; `windowText` pins the rest.
+    expect(frame).toContain("claude-fable-5) · ctx 131k declared");
+    // The sibling that declared nothing renders exactly as before.
+    expect(frame).toContain("claude-fable-5-1) · ctx 1000k");
+    i.unmount();
+  });
+
   test("typing in the model level filters the catalog incrementally", async () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);

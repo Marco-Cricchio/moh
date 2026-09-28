@@ -121,6 +121,21 @@ export const mohConfigSchema = z.object({
   agents: z.record(z.string(), subagentSpecSchema).optional(),
   /** Cross-session memory (#38); `enabled: false` disables everything. */
   memory: memoryConfigSchema.optional(),
+  /**
+   * #766 (ADR-0051): compaction tuning. `summarizer` selects the
+   * summary strategy: "llm" (default — the compaction subagent) or
+   * "deterministic" (a rule-built digest, no model call; falls back to
+   * the LLM summarizer when the digest exceeds its budget, recorded on
+   * the marker). The numeric keys mirror the session options.
+   */
+  compaction: z
+    .object({
+      summarizer: z.enum(["llm", "deterministic"]).optional(),
+      tailTurns: z.number().int().min(1).max(200).optional(),
+      threshold: z.number().min(0).max(1).optional(),
+      fallbackWindowTokens: z.number().int().min(1000).optional(),
+    })
+    .optional(),
   /** Session handoff (#433/#434): `transport` absent = Not Set = off.
    * `onboarding` (owner decision on #451) stays here deliberately — a
    * machine-specific state in a synced project file, so the first-run

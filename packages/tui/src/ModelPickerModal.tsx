@@ -10,6 +10,7 @@ import {
   filterCatalog,
   freeTextRow,
   mergePickCatalog,
+  windowText,
   type EndpointPick,
 } from "./model-picker";
 import type { LiveModelListing } from "@moh/core";
@@ -23,8 +24,17 @@ import type { LiveModelListing } from "@moh/core";
  * fallback for models outside any list. Ephemeral — per-session only.
  */
 export interface ModelPickerModalProps {
-  /** Current ref (`endpoint/model-id`) — shown, and marked in the list. */
+  /**
+   * The **selected** ref (`endpoint/model-id`) — shown, and marked in the
+   * list. ADR-0050: this header and the `current` marker name what a pick
+   * would replace, so they state the selection, never the serving stop;
+   * `servingModel` (when it differs) states what serves right now.
+   */
   activeModel: string;
+  /** The model actually serving the calls (ADR-0050) — shown beside the
+   * selection only while the two differ, so the picker never hides a
+   * fallback that is in play. */
+  servingModel?: string;
   /** The session's merged endpoint profiles (App passes
    * `session.endpointProfiles`). Empty (pre-built providers) → free text. */
   endpoints: EndpointPick[];
@@ -42,6 +52,10 @@ export interface ModelPickerModalProps {
    * hold the session's measured context. */
   onCompact: () => void;
   onToast: (message: string) => void;
+  /** ADR-0049 (#986): the window a provider declared for a model
+   * reference this session, when one was learned — shown next to the
+   * catalog figure, so the screen and the arithmetic agree. */
+  declaredWindow?: (ref: string) => number | undefined;
   onClose: () => void;
 }
 
@@ -49,6 +63,7 @@ type RemoteState = Record<string, CatalogModel[] | "error" | "loading">;
 
 export function ModelPickerModal({
   activeModel,
+  servingModel,
   endpoints,
   onSwitch,
   onSwitched,
@@ -56,6 +71,7 @@ export function ModelPickerModal({
   onRefreshLive,
   refreshingLive,
   onToast,
+  declaredWindow,
   /** #948: runs forced compaction (/compact) — offered when a picked
    * model cannot hold the session's measured context. */
   onCompact,
@@ -101,7 +117,7 @@ export function ModelPickerModal({
   interface Row {
     endpoint: string;
     type: string;
-    model?: CatalogModel;
+    model?: CatalogModel & { shippedContextWindow?: number };
     free?: string;
     current?: boolean;
   }
@@ -169,10 +185,18 @@ export function ModelPickerModal({
   };
 
   const line = (row: Row, selected: boolean): string => {
+    // ADR-0049, both doors: where a window was declared — by a refusal
+    // this session, or by the endpoint's listing (the merged row carries
+    // the shipped figure it replaced) — both numbers appear; a row whose
+    // values agree is unchanged.
     const body =
       row.free !== undefined
         ? freeTextRow(row.free)
-        : `${row.endpoint} · ${row.model!.name} · ${row.model!.contextWindow > 0 ? `${Math.round(row.model!.contextWindow / 1000)}k` : "—"}`;
+        : `${row.endpoint} · ${row.model!.name} · ${windowText(
+            row.model!.contextWindow,
+            declaredWindow?.(`${row.endpoint}/${row.model!.id}`),
+            row.model!.shippedContextWindow,
+          )}`;
     return ` ${selected ? "›" : " "} ${body}${row.current ? " ‹current›" : ""}${selected ? " " : ""}`;
   };
 
@@ -212,7 +236,9 @@ export function ModelPickerModal({
 
   return (
     <Dialog title=" model " color={theme.ok}>
-      <Dim>{`active: ${activeModel}`}</Dim>
+      {/* ADR-0050: `active:` is what a pick replaces (the selection); the
+          serving stop appears only while a fallback serves the calls. */}
+      <Dim>{servingModel && servingModel !== activeModel ? `active: ${activeModel} · serving ${servingModel}` : `active: ${activeModel}`}</Dim>
       <Text> </Text>
       <Text bold>{`filter: ${query}▏`}</Text>
       <Text> </Text>
