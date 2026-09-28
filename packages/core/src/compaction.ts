@@ -1026,7 +1026,8 @@ export function createCompactionSummarizer(provider: Provider, cwd: string): Com
  */
 export const DETERMINISTIC_DIGEST_BUDGET_CHARS = 16_000;
 
-/** Formats one bullet list; deterministic, sorted, deduplicated input. */
+/** Formats one bullet list with a cap; the input lists are already
+ * deduplicated and stable-ordered by the facts extractor. */
 function digestList(items: readonly string[], cap = FACT_LIST_CAP): string {
   if (items.length === 0) return "- (none)";
   const shown = items.slice(0, cap);
@@ -1081,8 +1082,9 @@ export function createDeterministicSummarizer(
       return digest;
     }
     if (!fallback) {
-      // No fallback available: the digest stands, oversized. A caller
-      // that wants a hard guarantee supplies the fallback.
+      // No fallback supplied: the digest stands, oversized. The in-session
+      // wiring always passes the LLM summarizer (ADR-0051 §3); a bare
+      // library call that needs the hard guarantee must pass one.
       if (strategy) strategy.name = "deterministic";
       return digest;
     }

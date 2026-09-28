@@ -16,6 +16,7 @@ import {
   contextWindowFor,
   createCompactionSummarizer,
   type CompactionSummarizer,
+  type CompactionSummarizerInput,
 } from "../src/compaction";
 import type { AgentEvent, Provider } from "../src/types";
 
@@ -628,7 +629,6 @@ import {
 
 function coveredSpan(): AgentEvent[] {
   return [
-    { type: "session_start", sessionId: "s", cwd: "/p", provider: "mock", model: "m", tools: [] } as AgentEvent,
     { type: "user_message", text: "fix the failing test in src/a.test.ts" },
     { type: "tool_call", name: "read", callId: "c1", args: { file_path: "src/a.test.ts" } } as unknown as AgentEvent,
     { type: "tool_result", callId: "c1", ok: true, output: "ok" } as AgentEvent,
