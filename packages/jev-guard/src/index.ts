@@ -70,6 +70,15 @@ export interface JevGuardOptions {
   apiKey: string;
   /** Hook timeout for one Jev call, ms. Default `JEV_TIMEOUT_MS_DEFAULT`. */
   timeoutMs?: number;
+  /**
+   * #1041: the bash guardrail's config flag (`typesafe.guardrail`).
+   * Default true — an absent flag is an armed guardrail, since a stored key
+   * is what the use case is for. `false` is the deliberate opt-out: the
+   * extension registers everything else the caller asked for and judges no
+   * bash call. Like every other use-case flag it decides the state a
+   * session *starts* in; `/jev` moves it for the open session only.
+   */
+  guardrail?: boolean;
   /** Test seam: the fetch implementation handed to the client. */
   fetchImpl?: typeof fetch;
   /**
@@ -202,10 +211,12 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           skills: skillsOptions !== undefined,
         },
         config: {
-          // #784: the guardrail has no config opt-in — a stored key *is* the
-          // switch. It is therefore on in every session this extension runs
-          // in, and a warm `off` is session-only by construction.
-          guardrail: true,
+          // #1041: the guardrail is on unless the user opted out — a stored
+          // key arms it (that is what it is for), and `guardrail: false` is
+          // the one explicit gesture that disarms it, persisted by the
+          // Settings row or `moh jev guardrail off` and read here at
+          // assembly.
+          guardrail: options.guardrail !== false,
           routing: options.enabled === true,
           classification: options.classification !== false,
           injection: options.injection === true,
@@ -244,11 +255,6 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             status: state.status,
             config: state.config,
             ...(state.sessionOnly ? { sessionOnly: true } : {}),
-            // The guardrail has no persistent switch to contrast with;
-            // "the config still says on" would invent one.
-            ...(outcome.usecase === "guardrail" && outcome.refused === undefined
-              ? { note: "the guardrail has no persistent switch" }
-              : {}),
           },
         });
       };
@@ -1021,6 +1027,7 @@ export { jevBundledSource } from "./integration";
 // it sends) and the pure state machine behind it.
 export {
   JEV_USE_CASE_ACTIONS,
+  JEV_USE_CASE_DESCRIPTIONS,
   JEV_USE_CASES,
   createUseCaseControl,
   type JevRoutingHost,
@@ -1044,6 +1051,7 @@ export {
   resolveTypesafeConfig,
   saveTypesafeApiKey,
   saveTypesafeClassification,
+  saveTypesafeGuardrail,
   saveTypesafeInjection,
   saveTypesafeLint,
   saveTypesafeRerank,

@@ -146,8 +146,9 @@ describe("commands (#832)", () => {
 });
 
 describe("the guardrail in yolo (#832, #850)", () => {
-  // The guardrail has no config opt-in: the extension hands the controller
-  // `config: { guardrail: true }` (a stored key *is* the switch).
+  // The guardrail's config opt-in is on by default (#1041): the extension
+  // hands the controller `config: { guardrail: true }` unless the user
+  // opted out, so `guardrailOn` is the ordinary session.
   const guardrailOn = { ...all(false), guardrail: true };
 
   test("off is honoured in yolo: session-warm, visible, and reversible (#850)", () => {

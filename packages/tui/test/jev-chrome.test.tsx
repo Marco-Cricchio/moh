@@ -367,7 +367,7 @@ describe("the uniform control line (#832)", () => {
     ).toBe("jev · lint · on for this session");
   });
 
-  test("the guardrail's own note replaces the config contrast it does not have", () => {
+  test("the guardrail reads like every other use case: an asymmetry, never an invented one (#1041)", () => {
     expect(
       extensionEventLine("jev_usecase", {
         usecase: "guardrail",
@@ -375,9 +375,8 @@ describe("the uniform control line (#832)", () => {
         status: "off",
         config: true,
         sessionOnly: true,
-        note: "the guardrail has no persistent switch",
       }),
-    ).toBe("jev · guardrail · off for this session — the guardrail has no persistent switch");
+    ).toBe("jev · guardrail · off for this session — the config still says on");
   });
 
   test("every refusal reads as a refusal, never as a change", () => {

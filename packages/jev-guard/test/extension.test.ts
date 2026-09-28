@@ -988,15 +988,15 @@ describe("#832 the uniform use-case control", () => {
     expect((await runHook(ctx.toolHooks, bash))?.veto).toBe(true);
 
     emitControl(ctx, "guardrail", "off");
-    // The guardrail has no persistent switch: the line says what "off"
-    // means instead of inventing a config contrast.
+    // #1041: the guardrail has a config of its own now, so the line carries
+    // the ordinary asymmetry — the flag the next session starts in — and no
+    // note of its own.
     expect(lastControl(ctx)).toEqual({
       usecase: "guardrail",
       action: "off",
       status: "off",
       config: true,
       sessionOnly: true,
-      note: "the guardrail has no persistent switch",
     });
     expect(await runHook(ctx.toolHooks, bash)).toBeUndefined();
 
@@ -1011,7 +1011,6 @@ describe("#832 the uniform use-case control", () => {
       status: "off",
       config: true,
       sessionOnly: true,
-      note: "the guardrail has no persistent switch",
     });
     expect(jevState(ctx).guardrail).toMatchObject({ status: "off", sessionOnly: true });
     expect(await runHook(ctx.toolHooks, bash)).toBeUndefined();
@@ -1020,6 +1019,41 @@ describe("#832 the uniform use-case control", () => {
     emitControl(ctx, "guardrail", "on");
     expect(jevState(ctx).guardrail).toMatchObject({ status: "on", note: "yolo — the lethal checks only" });
     expect((await runHook(ctx.toolHooks, bash))?.veto).toBe(true);
+  });
+
+  test("#1041: a session whose config opted out runs no guardrail at all", async () => {
+    const { impl, calls } = countingFetch(0.95);
+    const optedOut = fakeCtx();
+    await createJevGuardExtension({
+      apiKey: "sk-test",
+      fetchImpl: impl,
+      guardrail: false,
+      // The opt-out is the guardrail's own: the other use cases still run.
+      classification: true,
+    }).setup(optedOut);
+
+    // The state says off in the config (never inert: the use case is
+    // available, the user turned it off), and no call is ever made.
+    expect(jevState(optedOut).guardrail).toEqual({ status: "off", config: false, note: "off in the config" });
+    expect(await runHook(optedOut.toolHooks, bash)).toBeUndefined();
+    expect(calls()).toBe(0);
+
+    // A warm `on` starts judging from the next call, session-only — the
+    // same door every other opted-out use case has.
+    emitControl(optedOut, "guardrail", "on");
+    expect(jevState(optedOut).guardrail).toMatchObject({ status: "on", config: false, sessionOnly: true });
+    expect((await runHook(optedOut.toolHooks, bash))?.veto).toBe(true);
+    expect(calls()).toBe(1);
+
+    // ...and the contrast is the ordinary one: the next session starts in
+    // the config again.
+    expect(lastControl(optedOut)).toEqual({
+      usecase: "guardrail",
+      action: "on",
+      status: "on",
+      config: false,
+      sessionOnly: true,
+    });
   });
 
   test("a name or a use case this session cannot honour is answered, never swallowed", async () => {
