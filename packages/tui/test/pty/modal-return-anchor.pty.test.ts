@@ -38,10 +38,11 @@ describe.skipIf(!hasPython)("modal open/close keeps the session frame anchored (
   // with the two replies that remain visible) plus 3s settle budgets.
   //
   // Per-turn note: the demo provider answers the same canned text every
-  // turn, so the bare `until: "Hello from moh"` after turns 2 and 3 burns its
-  // whole budget before drawing (pump_until matches only past the current
-  // buffer offset, and an earlier reply is already painted) — 12s of the
-  // 32.5s is that standby. Turn 1's needle does match, being a fresh paint.
+  // turn, so the bare `until: "Hello from moh"` after turns 2 and 3 is not a
+  // per-turn readiness proof: with #1045's enforced readiness, a needle
+  // already in the buffer at step entry would return instantly (turn 1's
+  // reply). These turns rely on the trailing settle pumps, not the wait; if
+  // this test is ever un-skipped, give each turn a unique needle.
   test.skip("settings open/close: input and bottom bar stay on the bottom rows", async () => {
     const meta = await runPtyRaw({
       cols: 100,
@@ -53,14 +54,13 @@ describe.skipIf(!hasPython)("modal open/close keeps the session frame anchored (
         { wait: 0.3, send: B("\r") }, // home → new session (mock provider)
         { wait: 5.0, until: COMPOSER_READY }, // chat input rendered
         // Three settled turns: enough transcript to fill the screen and pin
-        // the frame to the bottom rows before the modal cycle. The readiness
-        // needle is the mock reply itself; `pump_until` matches only past the
-        // current buffer offset, so what each turn waits for is its own fresh
-        // repaint (styled turn counters like `↻ 1` are split by SGR codes in
-        // the raw stream and cannot be matched contiguously). The demo
-        // provider answers the same canned text every turn: when the frame is
-        // repainted the earlier replies are re-emitted too, so a generous
-        // budget is the standby, not a uniqueness claim.
+        // the frame to the bottom rows before the modal cycle. With #1045's
+        // enforced readiness these `until` waits are standby, not per-turn
+        // proofs: the demo provider answers the same canned text every turn,
+        // so turns 2/3 find the needle already in the buffer and return
+        // instantly (styled turn counters like `↻ 1` are split by SGR codes
+        // in the raw stream and cannot be matched contiguously). The
+        // trailing settle pumps own the timing.
         { wait: 0.3, send: B("one") },
         { wait: 0.4, send: B("\r") },
         { wait: 4.0, until: "Hello from moh" },
