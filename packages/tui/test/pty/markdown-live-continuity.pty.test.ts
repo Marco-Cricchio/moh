@@ -40,7 +40,11 @@ test.skipIf(!hasPython)("an open Markdown item is readable before its semantic c
       },
       steps: [
         { wait: 1 }, { send: btoa("architecture"), wait: 0.2 }, { send: btoa("\r"), wait: 0.2 },
-        { wait: 12, until: "OPEN-ITEM-ALREADY-SENT" },
+        // #1045: the item is a ONE-SHOT paint — the fixture sends it 250ms
+        // after the first chunk, so by the time this step starts it can
+        // already be in the buffer, and a since-guarded wait could never
+        // match a second occurrence. untilFromBuffer accepts the entry hit.
+        { wait: 12, until: "OPEN-ITEM-ALREADY-SENT", untilFromBuffer: true },
         // Reveal cursor trails the stream; give it time to surface the tail.
         { wait: 3, checkpoint: "openItem" },
       ],

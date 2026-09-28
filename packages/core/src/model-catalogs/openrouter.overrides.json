@@ -1750,9 +1750,10 @@
       }
     },
     "inclusionai/ling-3.0-flash-fin:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.52.1)",
+      "date": "2026-09-28",
+      "reason": "no aggregator record: the row is fully hand-maintained",
+      "contextWindow": 262144,
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Ling 3.0 Flash Fin (free)",

@@ -27,7 +27,13 @@ function scenario(env: Record<string, string>): PtySpec {
       { wait: 1.0 },
       { send: btoa("look @image.png"), wait: 0.3 },
       { send: btoa("\r"), wait: 1.0 },
-      { until: "all set", wait: 2.0 },
+      // #1045: the fixture runs a 15-call tool chain, then FOUR ask_user
+      // gates — "all set" only paints after all four are answered, so the
+      // old 2s wait expired silently every run. The gate question is the
+      // reachable readiness signal (painted once, possibly before this
+      // step → untilOnScreen); the mention/preview is emitted at attach
+      // time, before any of it.
+      { until: "Q1 — which way?", wait: 30.0, untilOnScreen: true },
       { wait: 1.0 },
     ],
     tail: 30,
@@ -48,7 +54,7 @@ describe.skipIf(!hasPython)("image mention preview PTY (#490)", () => {
     // Pixels: the iTerm2 OSC 1337 inline file on the raw stream.
     const raw = readFileSync("/tmp/moh-img-i-raw.bin").toString("latin1");
     expect(raw).toContain("\x1b]1337;File=");
-  }, 30_000);
+  }, 60_000);
 
   test("kitty env: the graphics protocol hits the raw stream", async () => {
     const { server, url } = startFakeOpenAi();
@@ -60,5 +66,5 @@ describe.skipIf(!hasPython)("image mention preview PTY (#490)", () => {
     server.stop(true);
     const raw = readFileSync("/tmp/moh-img-k-raw.bin").toString("latin1");
     expect(raw).toContain("\x1b_Gf=1,a=T,");
-  }, 30_000);
+  }, 60_000);
 });

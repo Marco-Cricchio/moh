@@ -69,6 +69,12 @@ function mount(cwd: string, home: string, validateKey: (key: string) => Promise<
       />
     </ThemeProvider>,
   );
+  // #1042: the sub-menu windows its rows to the terminal height, so these
+  // content tests need a tall-enough viewport — the default non-tty
+  // fallback (24 rows) is a layout concern the height tests own.
+  Object.defineProperty(i.stdout, "rows", { value: 40, configurable: true });
+  Object.defineProperty(i.stdout, "columns", { value: 100, configurable: true });
+  i.stdout.emit("resize");
   return { i, toasts };
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { DEV_CONFIG, hasPython, runPtyRaw } from "./pty-runner";
+import { COMPOSER_READY } from "../helpers";
 
 /**
  * Home at small terminal heights (#1023): the home's own layout used to be
@@ -82,7 +83,10 @@ describe.skipIf(!hasPython)("home at small terminal heights (PTY)", () => {
         { send: Buffer.from("\x1b[B").toString("base64") }, // ↓ again, navigation intact
         { wait: 0.5 },
         { send: Buffer.from("\r").toString("base64") }, // enter opens the selection
-        { wait: 2.0, until: "esc" },
+        // #1045: the old needle "esc" is footer chrome that only exists
+        // while a turn runs; opening a seeded session prints no entry
+        // banner, so the composer is the "chat took over" signal.
+        { wait: 10.0, until: COMPOSER_READY },
       ],
       tail: 16,
     });
