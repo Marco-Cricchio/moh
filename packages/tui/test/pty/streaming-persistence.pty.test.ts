@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { hasPython, runPty, runPtyRaw } from "./pty-runner";
-import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
+import { COMPOSER_READY } from "../helpers";
 
 const encodeBase64 = (s: string) => btoa(s);
 
@@ -61,8 +61,12 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
+        // #1045: no `until: COMPOSER_READY` before the first send — at boot
+        // the app lands on Home (the composer does not exist yet), so that
+        // wait burned its budget silently. Type into Home: Enter starts the
+        // session and sends the message; readiness is asserted on the needle
+        // the turn paints (the harness now fails a missed needle loudly).
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Readiness wait (#236): assert only once the second paragraph's
@@ -89,7 +93,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
-        steps: [{ wait: 5.0, until: COMPOSER_READY }, { wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
+        steps: [{ wait: 0.2, send: encodeBase64("stream action") }, { wait: 0.2, send: encodeBase64("\r") }, { wait: 4.0, until: "AFTER-TOOL-STREAMING-TAIL" }],
         tail: 40,
       });
       const frame = lines.map((line) => line.text).join("\n");
@@ -126,7 +130,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("long reasoning") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Type the draft WHILE the reasoning streams — the production
@@ -186,11 +189,15 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("long reasoning") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 5.0, until: "LAST-LIVE-REASONING" },
-          { wait: 0.4 },
+          // #1045: the fixture holds the call on `thought-20` for 3 s and
+          // emits 222 reasoning deltas at ~8 ms, so the needle arrives ~4.8 s
+          // after the first delta — a 5.0 s step budget measured on CI-class
+          // runners expired before it was painted, silently. Budget for the
+          // fixture's known cadence (sibling test below uses the same shape).
+          { wait: 12.0, until: "LAST-LIVE-REASONING" },
+          { wait: 1.5 },
         ],
         tail: 24,
         rawDump,
@@ -223,10 +230,12 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("dense") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 4.0, until: "DENSE-DONE" },
+          // #1045: the fixture's cadence (120 × 8ms reasoning + 9 × 350ms
+          // body chunks) needs ~5s after Enter — a 4s budget expired even
+          // locally; readiness is now enforced, so budget for the cadence.
+          { wait: 15.0, until: "DENSE-DONE" },
           { wait: 0.4 },
         ],
         tail: 24,
@@ -263,10 +272,9 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("cap rollover") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 5.0, until: "CAP-REPLY-DONE" },
+          { wait: 15.0, until: "CAP-REPLY-DONE" },
           { wait: 0.4 },
         ],
         tail: 24,
@@ -305,10 +313,9 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("realistic stream") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 5.0, until: "LAST-MARKDOWN-SECTION" },
+          { wait: 15.0, until: "LAST-MARKDOWN-SECTION" },
           { wait: 0.4 },
         ],
         tail: 24,
@@ -358,7 +365,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("line stream") },
           { wait: 0.2, send: encodeBase64("\r"), checkpoint: "turnStart" },
           // The typewriter paces row reveal; wait until the tail has
@@ -415,7 +421,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("settled line stream") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Wait for the turn to complete and its status to paint
@@ -455,7 +460,7 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY }, { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
+          { wait: 0.2, send: encodeBase64("long stream") }, { wait: 0.2, send: encodeBase64("\r") },
           // TAIL-119 reveals at typing pace; the turn then settles. Wait
           // for the completion status before sampling the final frame.
           { wait: 15.0, until: "✓ done" }, { wait: 1.0 },
@@ -488,10 +493,9 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
           endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
         },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("parliamo di moh") },
           { wait: 0.2, send: encodeBase64("\r") },
-          { wait: 5.0, until: "Cosa ti incuriosisce?" },
+          { wait: 15.0, until: "Cosa ti incuriosisce?" },
           { wait: 1.0 },
         ],
         tail: 40,
@@ -527,7 +531,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 5.0, until: "CYCLE-LIVE-TAIL-0", checkpoint: "midStream" },
@@ -583,7 +586,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: COMPOSER_COMPACT },
           { wait: 0.2, send: encodeBase64("run markdown cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 12.0, until: "MARKDOWN-CYCLES-DONE" },
@@ -634,7 +636,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("run the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           // Toggle mid-stream, then back, then once more after settle.
@@ -684,7 +685,6 @@ describe.skipIf(!hasPython)("streaming blocks persist on screen", () => {
         },
         project: { permissions: { overrides: { tools: { glob: "allow" } } } },
         steps: [
-          { wait: 5.0, until: COMPOSER_READY },
           { wait: 0.2, send: encodeBase64("think through the cycles") },
           { wait: 0.2, send: encodeBase64("\r") },
           { wait: 4.0, checkpoint: "afterCycle1" },
@@ -946,8 +946,11 @@ function startLongReasoningStream(): { server: ReturnType<typeof Bun.serve>; url
           }
           // Hold streaming long enough that the harness samples the
           // raw stream strictly before reasoning_end (the checkpoint
-          // assert reads the dump mid-stream).
-          await Bun.sleep(1_200);
+          // assert reads the dump mid-stream). #1045 CI: the scrollback
+          // promotion of the early tail lags the needle by >0.4s on a
+          // loaded runner, so the hold (and the settle below) must leave
+          // render time between the needle and reasoning_end.
+          await Bun.sleep(2_500);
           send({ content: "REASONING-ENDED" });
           send({}, "stop");
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));

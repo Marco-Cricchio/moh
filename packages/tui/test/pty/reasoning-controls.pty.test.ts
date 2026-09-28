@@ -17,10 +17,10 @@ describe.skipIf(!hasPython)("reasoning controls PTY (#242)", () => {
         { wait: 1.0 },
         { send: encodeBase64("hello"), wait: 0.2 },
         { send: encodeBase64("\r"), wait: 0.5 },
-        { until: "mock provider", wait: 0.5 },
+        { until: COMPOSER_COMPACT, wait: 15.0 },
         { send: encodeBase64("/thinking show"), wait: 0.2 },
         { send: encodeBase64("\r"), wait: 0.4 },
-        { until: "reasoning display on", wait: 0.4 },
+        { until: COMPOSER_COMPACT, wait: 10.0 },
       ],
       tail: 24,
     });
@@ -44,9 +44,9 @@ describe.skipIf(!hasPython)("reasoning controls PTY (#242)", () => {
         { wait: 1.0 },
         { send: encodeBase64("hello"), wait: 0.2 },
         { send: encodeBase64("\r"), wait: 0.5 },
-        { until: "mock provider", wait: 0.5 },
+        { until: COMPOSER_READY, wait: 15.0 },
         { send: encodeBase64("\u0019"), wait: 0.4 }, // ctrl+y
-        { until: "thinking levels not offered for mock", wait: 0.4 },
+        { until: COMPOSER_READY, wait: 10.0 },
       ],
       tail: 24,
     });

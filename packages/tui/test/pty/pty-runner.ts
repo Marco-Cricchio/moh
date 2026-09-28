@@ -29,7 +29,7 @@ export interface PtySpec {
   seedSessions?: number;
   /** `checkpoint` snapshots physical screen + native scrollback after this
    * step, letting one script assert a mid-stream viewport and final settle. */
-  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; checkpoint?: string; mark?: boolean; markEnd?: boolean }>;
+  steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; untilFromBuffer?: boolean; checkpoint?: string; mark?: boolean; markEnd?: boolean }>;
   tail?: number;
 }
 
