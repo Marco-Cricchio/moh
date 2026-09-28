@@ -262,24 +262,32 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
   test("typing in the model level filters the catalog incrementally", async () => {
     const cwd = setupCwd();
     const { i } = mount(cwd);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
     await sleep(30);
     await down(i, 8);
     i.stdin.write("\r");
-    await sleep(30);
-    await down(i, 2); // openai
+    // #1042: navigation is keyed off the rendered cursor row, so each step
+    // waits for its commit instead of a fixed sleep (under suite load a
+    // fixed pause can drop an arrow or type into the previous level).
+    await waitForCondition(() => frame().includes("› mock"), () => "for the endpoint level");
+    for (const endpoint of ["anthropic", "openai"]) {
+      await waitForCondition(() => frame().includes(endpoint), () => `for ${endpoint}`);
+      i.stdin.write("\x1b[B");
+      await waitForCondition(() => frame().includes(`› ${endpoint}`), () => `for the cursor on ${endpoint}`);
+    }
     i.stdin.write("\r");
-    await waitForFrame(
-      () => stripAnsi(i.lastFrame() ?? ""),
-      "openai", // the model level: the catalog list is fetched live (#129)
-    );
+    await waitForCondition(() => frame().includes("type to filter"), () => "for the model level");
+    await sleep(60); // let the model level's own state settle before typing
     i.stdin.write("mini");
-    await waitForFrame(
-      () => stripAnsi(i.lastFrame() ?? ""),
-      "gpt-5.4-mini",
+    // #1042: the model list windows to the terminal height now, so a slow
+    // keystroke commit can show one filtered row next to unfiltered ones —
+    // wait for the full filter to settle, not just for one matching row.
+    await waitForCondition(
+      () => !stripAnsi(i.lastFrame() ?? "").includes("gpt-5.5"),
+      () => "for gpt-5.5 to leave the filtered list",
     );
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("gpt-5.4-mini");
-    expect(frame).not.toContain("gpt-5.5");
+    expect(frame()).toContain("gpt-5.4-mini");
+    expect(frame()).not.toContain("gpt-5.5");
     i.unmount();
   });
 

@@ -173,3 +173,35 @@ export function windowing(total: number, cursor: number, budget: number): Window
   const start = Math.min(Math.max(0, cursor - count + 1), Math.max(0, total - count));
   return { start, count, above: start, below: Math.max(0, total - start - count) };
 }
+
+/**
+ * Pre-wrap a paragraph into fixed-width lines (#1042): layout must be able
+ * to count a wrapping block's rows before rendering it — a wrap="wrap" Text
+ * decides its height at render time, after the budget is already spent.
+ */
+export function wrapLines(text: string, width: number): string[] {
+  const limit = Math.max(1, width);
+  const out: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    const words = paragraph.split(/\s+/).filter((w) => w.length > 0);
+    if (words.length === 0) {
+      out.push("");
+      continue;
+    }
+    let current = "";
+    for (const word of words) {
+      if (current.length === 0) current = word;
+      else if (current.length + 1 + word.length <= limit) current += " " + word;
+      else {
+        out.push(current);
+        current = word;
+      }
+      while (current.length > limit) {
+        out.push(current.slice(0, limit));
+        current = current.slice(limit);
+      }
+    }
+    out.push(current);
+  }
+  return out;
+}
