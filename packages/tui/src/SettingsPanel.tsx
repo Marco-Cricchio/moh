@@ -12,7 +12,7 @@ import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, User
 import { useTheme } from "./themes";
 import { ThemeStudioModal } from "./ThemeStudioModal";
 import { Dialog, Dim, truncate } from "./ui";
-import { dialogWidth, homeListCycleValues, useViewport, windowing } from "./viewport";
+import { dialogWidth, homeListCycleValues, useViewport, windowing, wrapLines } from "./viewport";
 import { fetchedToCatalog, filterCatalog, freeTextRow, mergePickCatalog, modelRow } from "./model-picker";
 import { browserRowValue, readBrowserSettingWithState } from "./browser-setup";
 
@@ -408,8 +408,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // Keep the dialog inside the terminal: title, spacing, footer and borders
   // consume roughly eight rows, leaving the settings list a scroll window
   // that follows the cursor (#64).
+  // #1042: the sub-menu and the settings list are mutually exclusive — the
+  // nested block used to render *in addition* to the parent list (parent
+  // rows + sub rows + paragraph + footer stacked in one dialog, ~41 rows on
+  // a 24-row terminal, Ink's fullscreen #622 path). With a sub-menu open
+  // the list steps aside entirely: its cursor position is kept in state,
+  // so closing the sub-menu restores the exact view.
   const win = windowing(rows.length, cursor, Math.max(3, viewport.rows - 8));
-  const visibleRows = rows.slice(win.start, win.start + win.count);
+  const visibleRows = sub ? [] : rows.slice(win.start, win.start + win.count);
   // Rows never overflow the dialog interior (border 2 + paddingX 4).
   const innerWidth = dialogWidth(viewport) - 6;
   // Sub-menu rows for the current level (endpoint list / model list).
@@ -446,10 +452,27 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   }, [sub, moh, projectNames, remote]);
 
   const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" || sub.kind === "fallback") ? sub.cursor : 0;
+  // #1042: the Jev sub-menu's scope/disclosure paragraph wraps to a
+  // terminal-dependent number of rows (four disclosures on, a 45-char
+  // interior, it is ~13 rows on its own) — it must be counted before the
+  // row budget is spent, not discovered at render time. The Jev rows also
+  // carry one description line under the cursor row, and the block keeps
+  // one spacer between the rows and the paragraph. The paragraph text is
+  // built once: the budget counts it and the render below lays out exactly
+  // those lines.
+  const jevParagraphText = `${JEV_SCOPE} ${JEV_DISCLOSURE}${jev.injection ? ` ${JEV_INJECTION_DISCLOSURE}` : ""}${jev.lint ? ` ${JEV_LINT_DISCLOSURE}` : ""}${jev.rerank ? ` ${JEV_RERANK_DISCLOSURE}` : ""}${jev.skills ? ` ${JEV_SKILLS_DISCLOSURE}` : ""}`;
+  const jevParagraphLinesFull = sub?.kind === "jev" ? wrapLines(jevParagraphText, innerWidth) : [];
+  // The paragraph is clipped to its budget slice, never squeezed: the row
+  // window above gives up rows first (the `↓ N more` indicator keeps the
+  // hidden rows reachable), the same question-clipping contract #874 uses.
+  const jevParagraphBudget = Math.max(3, viewport.rows - 11) - subOptions.length - (sub?.kind === "jev" ? 1 : 0);
+  const jevParagraphClipped = jevParagraphLinesFull.slice(0, Math.max(1, jevParagraphBudget));
+  const jevParagraphHidden = jevParagraphLinesFull.length > jevParagraphClipped.length;
+  const jevParagraphLines = jevParagraphClipped;
   const subWin = windowing(
     subOptions.length,
     subCursor,
-    Math.max(3, viewport.rows - 8 - win.count),
+    Math.max(3, viewport.rows - 9 - jevParagraphLinesFull.length - (jevParagraphHidden ? 1 : 0) - (sub?.kind === "jev" ? 2 : 0)),
   );
 
   const activate = (row: Row) => {
@@ -1107,7 +1130,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   }
   return (
     <Dialog title=" settings " color={theme.ok}>
-      {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
+      {win.above > 0 && !sub && <Dim>{` ↑ ${win.above} more`}</Dim>}
       {visibleRows.map((row, i) => {
         const index = win.start + i;
         const selected = index === cursor;
@@ -1118,7 +1141,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           </Text>
         );
       })}
-      {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
+      {!sub && win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
       {unlimitedWarning && (
         <>
@@ -1153,8 +1176,13 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             </>
           ) : sub.kind === "jev" ? (
             <>
-              {JEV_OPTIONS.map((option, i) => {
-                const selected = i === sub.cursor;
+              {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
+              {/* #1042: the same cursor-following window every other
+                  sub-menu uses — all ten rows at once is what stacked this
+                  dialog past the terminal. */}
+              {JEV_OPTIONS.slice(subWin.start, subWin.start + subWin.count).map((option, i) => {
+                const index = subWin.start + i;
+                const selected = index === sub.cursor;
                 const value =
                   option === "API key"
                     ? jev.active
@@ -1210,14 +1238,15 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                   </React.Fragment>
                 );
               })}
+              {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
               <Text> </Text>
-              <Text color={theme.dim} wrap="wrap">
-                {JEV_SCOPE} {JEV_DISCLOSURE}
-                {jev.injection ? ` ${JEV_INJECTION_DISCLOSURE}` : ""}
-                {jev.lint ? ` ${JEV_LINT_DISCLOSURE}` : ""}
-                {jev.rerank ? ` ${JEV_RERANK_DISCLOSURE}` : ""}
-                {jev.skills ? ` ${JEV_SKILLS_DISCLOSURE}` : ""}
-              </Text>
+              {/* #1042: pre-wrapped (wrapLines, counted in the sub-menu
+                  budget above) — a wrap="wrap" Text here decided its height
+                  at render time, after the budget was already spent. */}
+              {jevParagraphLines.map((line, idx) => (
+                <Text key={idx} color={theme.dim}>{line}</Text>
+              ))}
+              {jevParagraphHidden && <Text color={theme.dim}>{truncate("… disclosures truncated — esc, open /jev, or a taller terminal shows the rest", innerWidth)}</Text>}
             </>
           ) : sub.kind === "jev-key" ? (
             <>
