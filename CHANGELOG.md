@@ -9,6 +9,25 @@ matching section here at tag time.
 
 ### Added
 
+- **The Jev guardrail has a switch of its own** (ADR-0052, #1041): a stored
+  API key used to be the whole story — the guardrail was armed in every
+  session and could only be disarmed for the one you had open. It now has the
+  same two doors as the other six Jev use cases. `Guardrail` is a row in
+  Settings → `Jev (TypeSafe)`, on unless you opted out, and
+  `moh jev guardrail on|off` writes the same `typesafe.guardrail` flag (which
+  `moh jev status` and `--json` now report); `/jev` keeps flipping it for the
+  open session, in `yolo` too. A session assembled with the flag off judges no
+  `bash` call at all and says so (`off in the config`), and the transcript
+  line for a warm flip no longer invents a note — it states the same
+  asymmetry as every other use case.
+
+- **Every Jev row says what it does** (#1041): the nine rows of the Settings
+  sub-menu and the seven of the `/jev` modal now carry one short description
+  each, shown for the row under the cursor. The seven use-case lines come from
+  a single map in `@moh/jev-guard`, so the two surfaces state the same thing
+  in the same words; the three rows that are not use cases (API key, Status,
+  Remove) describe themselves in the panel.
+
 - **A session says which model serves its calls** (ADR-0050, #974): the
   model you selected and the stop that actually answers are two different
   things, and every surface now says so. Wherever a session states what it

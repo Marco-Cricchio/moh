@@ -82,6 +82,9 @@ export const jevBundledSource = {
     return createJevGuardExtension({
       apiKey: typesafe.apiKey!,
       ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
+      // #1041: the guardrail's own flag, resolved at the same moment as the
+      // rest: `guardrail: false` is the only value that disarms it.
+      guardrail: typesafe.guardrail,
       routing: {
         pool: context.modelPool,
         labels: typesafe.tiers,

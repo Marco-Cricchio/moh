@@ -315,13 +315,12 @@ opt-ins.
                 what a new session starts in
 
   --json        one-line machine-readable JSON with status: active, keyHint
-                (absent when inactive), timeoutMs, routing, injection, lint,
-                classification, rerank, skills
+                (absent when inactive), timeoutMs, guardrail, routing,
+                injection, lint, classification, rerank, skills
 
-Use cases: routing, injection, classification, lint, rerank, skills.
-Session-only (no flag to write): guardrail — it has no configuration switch
-at all (a stored key is what turns it on), so it can only be switched off for
-one session, from the TUI's /jev modal.
+Use cases: guardrail, routing, injection, classification, lint, rerank, skills.
+The guardrail is on unless you opted out: "moh jev guardrail off" is what
+disarms it, and it is what the Settings entry's Guardrail row writes.
 
 Switching a use case inside a running session is /jev's job too: a session
 command is session-warm and this command is persistent — that is the whole

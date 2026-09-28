@@ -4,7 +4,7 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
-import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
+import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
@@ -89,6 +89,8 @@ interface JevState {
   active: boolean;
   keyHint?: string;
   timeoutMs: number;
+  /** #1041: the bash guardrail (on unless the user opted out). */
+  guardrail: boolean;
   /** #787: the model-routing opt-in (off by default). */
   routing: boolean;
   /** #791: the anti-injection opt-in (off by default). */
@@ -117,17 +119,39 @@ const JEV_DISCLOSURE =
 
 /**
  * #784/#833: the Jev entry's sub-menu — the key and one row per persistable
- * use case (routing, anti-injection, classification, quality gate, seed
- * rerank, skill suggestion), then status and remove.
+ * use case (guardrail, routing, anti-injection, classification, quality
+ * gate, seed rerank, skill suggestion), then status and remove.
  *
  * These rows are the **persistent** switches: they write `~/.moh/config` and
  * what they write is read when a session is assembled, so a change applies
  * from the next session on. Changing a use case *inside* a running session
  * is the `/jev` modal's job (#833) — it commands the extension and never
- * touches the configuration. The guardrail has no row because it has no
- * flag: a stored key is its switch (#784).
+ * touches the configuration. The guardrail's row (#1041) writes
+ * `typesafe.guardrail`, which is on unless the user opted out: the key arms
+ * it, this row is what disarms it.
  */
-const JEV_OPTIONS = ["API key", "Model routing", "Anti-injection", "Classification", "Quality gate", "Seed rerank", "Skill suggestion", "Status", "Remove"] as const;
+const JEV_OPTIONS = ["API key", "Guardrail", "Model routing", "Anti-injection", "Classification", "Quality gate", "Seed rerank", "Skill suggestion", "Status", "Remove"] as const;
+
+/**
+ * #1041: one short line per row, in `JEV_OPTIONS` order, shown beside the
+ * row the cursor is on (separated by " - ") so nine rows stay nine rows.
+ *
+ * The seven use cases take their words from the package that owns the
+ * vocabulary, so the `/jev` modal says exactly the same thing; the three
+ * non-use-case rows are this panel's own and are written here.
+ */
+const JEV_OPTION_DESCRIPTIONS: Record<(typeof JEV_OPTIONS)[number], string> = {
+  "API key": "the TypeSafe key — storing one is what activates Jev; nothing is registered without it",
+  Guardrail: JEV_USE_CASE_DESCRIPTIONS.guardrail,
+  "Model routing": JEV_USE_CASE_DESCRIPTIONS.routing,
+  "Anti-injection": JEV_USE_CASE_DESCRIPTIONS.injection,
+  Classification: JEV_USE_CASE_DESCRIPTIONS.classification,
+  "Quality gate": JEV_USE_CASE_DESCRIPTIONS.lint,
+  "Seed rerank": JEV_USE_CASE_DESCRIPTIONS.rerank,
+  "Skill suggestion": JEV_USE_CASE_DESCRIPTIONS.skills,
+  Status: "what the configuration holds right now — the key, the timeout and this entry's switches",
+  Remove: "forgets the stored key: from the next session nothing of Jev is registered",
+};
 
 /** #791: what the anti-injection opt-in sends, stated where it is toggled. */
 const JEV_INJECTION_DISCLOSURE =
@@ -214,6 +238,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         active: resolved.active,
         ...(resolved.apiKey ? { keyHint: maskApiKey(resolved.apiKey) } : {}),
         timeoutMs: resolved.timeoutMs,
+        guardrail: resolved.guardrail,
         routing: resolved.routing,
         injection: resolved.injection,
         classification: resolved.classification,
@@ -222,7 +247,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         skills: resolved.skills,
       };
     } catch {
-      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, routing: false, injection: false, classification: true, lint: false, rerank: false, skills: false, broken: true };
+      return { active: false, timeoutMs: TYPESAFE_TIMEOUT_MS_DEFAULT, guardrail: true, routing: false, injection: false, classification: true, lint: false, rerank: false, skills: false, broken: true };
     }
   };
   const [jev, setJev] = useState<JevState>(readJev);
@@ -564,6 +589,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     }
     setJev((j) => ({ ...j, active: false }));
     onToast("jev: key removed — inactive");
+    setSub({ kind: "jev", cursor: 0 });
+  };
+
+  /**
+   * #1041: the guardrail's own flag. On unless the user opted out — the
+   * stored key is what arms it, so this row is the opt-*out*. Like its
+   * siblings it is read when a session is assembled: the running one keeps
+   * the state it started in, and `/jev` is what moves it inside a session.
+   */
+  const toggleJevGuardrail = () => {
+    const next = !jev.guardrail;
+    try {
+      saveTypesafeGuardrail(jevFile, next);
+    } catch (e) {
+      return onToast(`guardrail: could not save (${e instanceof Error ? e.message : String(e)})`);
+    }
+    setJev((j) => ({ ...j, guardrail: next }));
+    onToast(next ? "guardrail on · from your next session" : "guardrail off · from your next session");
     setSub({ kind: "jev", cursor: 0 });
   };
 
@@ -920,6 +963,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           // Status is a read-only row: enter on it is a no-op (no probe, no
           // toast spam) — the panel already shows the live value.
           if (option === "API key") return setSub({ kind: "jev-key", value: "", busy: false });
+          if (option === "Guardrail") return toggleJevGuardrail();
           if (option === "Model routing") return toggleJevRouting();
           if (option === "Anti-injection") return toggleJevInjection();
           if (option === "Classification") return toggleJevClassification();
@@ -1114,7 +1158,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                     ? jev.active
                       ? "replace the stored key"
                       : "enter the key"
-                    : option === "Model routing"
+                    : option === "Guardrail"
+                      ? jev.guardrail
+                        ? "on"
+                        : "off"
+                      : option === "Model routing"
                       ? jev.routing
                         ? "on"
                         : "off"
@@ -1145,7 +1193,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                             : "nothing to remove";
                 return (
                   <Text key={option} {...(selected ? selectionStyle(theme) : {})}>
-                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(17)}${value}${selected ? " " : ""}`, innerWidth)}
+                    {truncate(` ${selected ? "›" : " "} ${option.padEnd(17)}${value}`, innerWidth)}
+                    {/* #1041: what the row does, beside the row the cursor is
+                        on — nine rows stay nine rows, and the words are the
+                        same the /jev modal uses. */}
+                    {selected ? <Dim>{` - ${JEV_OPTION_DESCRIPTIONS[option]}`}</Dim> : " "}
                   </Text>
                 );
               })}

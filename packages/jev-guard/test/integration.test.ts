@@ -38,6 +38,7 @@ import {
   removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
+  saveTypesafeGuardrail,
 } from "../src/typesafe";
 
 function tmpDir(prefix = "moh-jev-int-"): string {
@@ -68,6 +69,8 @@ describe("the typesafe config block (#784, #826)", () => {
     expect(resolveTypesafeConfig(undefined)).toEqual({
       active: false,
       timeoutMs: 2500,
+      // #1041: the guardrail is armed unless the user opted out.
+      guardrail: true,
       routing: false,
       injection: false,
       classification: true,
@@ -89,6 +92,28 @@ describe("the typesafe config block (#784, #826)", () => {
     expect(maskApiKey("sk-abcdef")).toBe("…cdef");
     expect(maskApiKey("ab")).toBe("…");
     expect(resolveTypesafeConfig({ skills: true })).toMatchObject({ skills: true });
+    // #1041: only the explicit `false` disarms the guardrail — a block that
+    // never mentions it stays armed.
+    expect(resolveTypesafeConfig({ apiKey: "sk-abcdef" })).toMatchObject({ guardrail: true });
+    expect(resolveTypesafeConfig({ apiKey: "sk-abcdef", guardrail: false })).toMatchObject({ guardrail: false });
+  });
+
+  test("the guardrail flag is written and read back like its siblings (#1041)", () => {
+    const dir = tmpDir();
+    const file = join(dir, "config");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { apiKey: "sk-keep" }, theme: "nord" }));
+
+    saveTypesafeGuardrail(file, false);
+    expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-keep", guardrail: false });
+    expect(resolveTypesafeConfig(readTypesafeConfig(file)).guardrail).toBe(false);
+
+    // Back on: an explicit flag, not a deletion — the row states a choice.
+    saveTypesafeGuardrail(file, true);
+    expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-keep", guardrail: true });
+    const raw = JSON.parse(require("node:fs").readFileSync(file, "utf8")) as Record<string, unknown>;
+    expect(raw.provider).toBe("mock");
+    expect(raw.theme).toBe("nord");
   });
 
   test("save and remove go through the guardian and preserve other sections", () => {

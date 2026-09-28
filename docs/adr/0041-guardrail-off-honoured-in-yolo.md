@@ -29,7 +29,10 @@ like every other.**
 - `guardrail off` in yolo is applied, recorded (`jev_usecase` in the log,
   with its usual session-only marker and note) and visible (transcript line +
   `/jev` modal state). Nothing is written to any configuration file; a new
-  session starts from the config again — for the guardrail, that means armed.
+  session starts from the config again — for the guardrail, that means armed
+  unless the config opted out (*"Amended by ADR-0052 (#1041): the guardrail has
+  a persistent flag now; the config is still what a new session starts in, and
+  `/jev` still writes nothing*").
 - The flip is reversible in the same session: `guardrail on` restores the
   yolo narrowing (lethal checks only, still able to veto), and the restored
   state says so ("yolo — the lethal checks only").

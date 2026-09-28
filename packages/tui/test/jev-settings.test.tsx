@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { userConfigFile } from "@moh/core";
-import { readTypesafeConfig, type JevKeyValidation } from "@moh/jev-guard";
+import { JEV_USE_CASE_DESCRIPTIONS, readTypesafeConfig, type JevKeyValidation } from "@moh/jev-guard";
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
@@ -38,12 +38,14 @@ const gotoJevRow = async (i: ReturnType<typeof render>) => {
 };
 
 /**
- * The sub-menu's rows, in order (#833 added "Classification" between
- * "Anti-injection" and "Quality gate", which shifted the ones below it):
- * 0 API key · 1 Model routing · 2 Anti-injection · 3 Classification ·
- * 4 Quality gate · 5 Seed rerank · 6 Skill suggestion · 7 Status · 8 Remove
+ * The sub-menu's rows, in order (#1041 added "Guardrail" right after the
+ * key, which shifted the ones below it): 0 API key · 1 Guardrail ·
+ * 2 Model routing · 3 Anti-injection · 4 Classification · 5 Quality gate ·
+ * 6 Seed rerank · 7 Skill suggestion · 8 Status · 9 Remove
  */
-const JEV_OPTION = { apiKey: 0, routing: 1, injection: 2, classification: 3, lint: 4, rerank: 5, skills: 6, status: 7, remove: 8 } as const;
+const JEV_OPTION = { apiKey: 0, guardrail: 1, routing: 2, injection: 3, classification: 4, lint: 5, rerank: 6, skills: 7, status: 8, remove: 9 } as const;
+/** Walk the sub-menu cursor onto one row, by the map above. */
+const gotoOption = (i: ReturnType<typeof render>, option: number) => down(i, option);
 
 function setup() {
   const cwd = mkdtempSync(join(tmpdir(), "moh-jev-cwd-"));
@@ -234,7 +236,7 @@ describe("settings Jev entry: model routing (#787)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
-    await down(i, 1); // "Model routing"
+    await gotoOption(i, JEV_OPTION.routing);
     i.stdin.write("\r");
     await sleep(60);
 
@@ -256,7 +258,7 @@ describe("settings Jev entry: model routing (#787)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
-    await down(i, 1);
+    await gotoOption(i, JEV_OPTION.routing);
     i.stdin.write("\r");
     await sleep(60);
 
@@ -285,7 +287,7 @@ describe("settings Jev entry: anti-injection (#791)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
-    await down(i, 2); // "Anti-injection"
+    await gotoOption(i, JEV_OPTION.injection);
     i.stdin.write("\r");
     await sleep(60);
 
@@ -309,7 +311,7 @@ describe("settings Jev entry: anti-injection (#791)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
-    await down(i, 2);
+    await gotoOption(i, JEV_OPTION.injection);
     i.stdin.write("\r");
     await sleep(60);
 
@@ -335,7 +337,7 @@ describe("settings Jev entry: quality gate (#789)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
-    await down(i, 4); // "Quality gate"
+    await gotoOption(i, JEV_OPTION.lint);
     i.stdin.write("\r");
     await sleep(60);
 
@@ -354,11 +356,11 @@ describe("settings Jev entry: quality gate (#789)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
-    await down(i, 4); // "Quality gate"
+    await gotoOption(i, JEV_OPTION.lint);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedLint(home)).toBe(true);
-    await down(i, 4); // "Quality gate" again (cursor reset to the entry top)
+    await gotoOption(i, JEV_OPTION.lint); // "Quality gate" again (cursor reset to the entry top)
     i.stdin.write("\r");
     await sleep(60);
     expect(storedLint(home)).toBe(false);
@@ -381,7 +383,7 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r"); // open the Jev entry
     await sleep(30);
-    await down(i, 6); // "Skill suggestion"
+    await gotoOption(i, JEV_OPTION.skills);
     i.stdin.write("\r");
     await sleep(60);
 
@@ -399,11 +401,11 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     await gotoJevRow(i);
     i.stdin.write("\r");
     await sleep(30);
-    await down(i, 6); // "Skill suggestion"
+    await gotoOption(i, JEV_OPTION.skills);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedSkills(home)).toBe(true);
-    await down(i, 6);
+    await gotoOption(i, JEV_OPTION.skills);
     i.stdin.write("\r");
     await sleep(60);
     expect(storedSkills(home)).toBe(false);
@@ -496,6 +498,91 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame).toContain("these switches are persistent (they apply from your next session); changing one in an open session is /jev.");
+    i.unmount();
+  });
+});
+
+describe("settings Jev entry: the guardrail row (#1041)", () => {
+  const storedGuardrail = (home: string): boolean | undefined => {
+    const file = userConfigFile(home);
+    if (!existsSync(file)) return undefined;
+    return readTypesafeConfig(file).guardrail;
+  };
+
+  test("on by default: the row shows an armed guardrail with nothing in the file", async () => {
+    const { cwd, home } = setup();
+    const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    expect(storedGuardrail(home)).toBeUndefined();
+
+    await gotoJevRow(i);
+    i.stdin.write("\r"); // open the Jev entry
+    await sleep(30);
+    const frame = () => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    expect(frame()).toContain("Guardrail on");
+    i.unmount();
+  });
+
+  test("the row writes the opt-out the extension reads at the next assembly", async () => {
+    const { cwd, home } = setup();
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await gotoJevRow(i);
+    i.stdin.write("\r"); // open the Jev entry
+    await sleep(30);
+    await gotoOption(i, JEV_OPTION.guardrail);
+    i.stdin.write("\r");
+    await sleep(60);
+
+    expect(storedGuardrail(home)).toBe(false);
+    expect(toasts.some((t) => t.includes("guardrail off · from your next session"))).toBe(true);
+    expect(readTypesafeConfig(userConfigFile(home)).guardrail).toBe(false);
+    const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    expect(frame).toContain("Guardrail off");
+
+    // ...and back on, in the same entry, leaving an explicit flag.
+    await gotoOption(i, JEV_OPTION.guardrail);
+    i.stdin.write("\r");
+    await sleep(60);
+    expect(storedGuardrail(home)).toBe(true);
+    expect(toasts.some((t) => t.includes("guardrail on · from your next session"))).toBe(true);
+    i.unmount();
+  });
+
+  test("every row of the entry states what it does, and the use cases share the /jev words (#1041)", async () => {
+    const { cwd, home } = setup();
+    const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await sleep(30);
+    await gotoJevRow(i);
+    i.stdin.write("\r");
+    await sleep(30);
+
+    const frame = () => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    /** The words the row must carry, in row order: the seven use cases read
+     *  them from the package that owns the vocabulary (so /jev is the same
+     *  account), the three others are this panel's own. */
+    const rows: [number, string][] = [
+      [JEV_OPTION.apiKey, "the TypeSafe key — storing one is what activates Jev; nothing is registered without it"],
+      [JEV_OPTION.guardrail, JEV_USE_CASE_DESCRIPTIONS.guardrail],
+      [JEV_OPTION.routing, JEV_USE_CASE_DESCRIPTIONS.routing],
+      [JEV_OPTION.injection, JEV_USE_CASE_DESCRIPTIONS.injection],
+      [JEV_OPTION.classification, JEV_USE_CASE_DESCRIPTIONS.classification],
+      [JEV_OPTION.lint, JEV_USE_CASE_DESCRIPTIONS.lint],
+      [JEV_OPTION.rerank, JEV_USE_CASE_DESCRIPTIONS.rerank],
+      [JEV_OPTION.skills, JEV_USE_CASE_DESCRIPTIONS.skills],
+      [JEV_OPTION.status, "what the configuration holds right now — the key, the timeout and this entry's switches"],
+      [JEV_OPTION.remove, "forgets the stored key: from the next session nothing of Jev is registered"],
+    ];
+    // The cursor opens on the first row: each description is shown beside
+    // the row it describes, separated by " - ", and only there.
+    for (const [index, description] of rows) {
+      if (index > 0) await down(i, 1);
+      const shown = frame();
+      expect(shown).toContain(` - ${description}`);
+      for (const [, other] of rows) {
+        if (other !== description) expect(shown).not.toContain(other);
+      }
+    }
     i.unmount();
   });
 });
