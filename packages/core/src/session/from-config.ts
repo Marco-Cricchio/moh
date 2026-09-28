@@ -482,7 +482,17 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       // Memory (#38): on by default (spec); moh.json `memory` tunes/disables it.
       ...(config.memory ? { memory: config.memory } : { memory: {} }),
       // Compaction (#466): on by default; purely additive when absent.
-      compaction: {},
+      // #766 (ADR-0051): moh.json `compaction` tunes the JSON-safe
+      // subset (summarizer strategy, tail, threshold); the function
+      // seams stay programmatic.
+      compaction: {
+        ...(config.compaction?.summarizer !== undefined ? { summarizerStrategy: config.compaction.summarizer } : {}),
+        ...(config.compaction?.tailTurns !== undefined ? { tailTurns: config.compaction.tailTurns } : {}),
+        ...(config.compaction?.threshold !== undefined ? { threshold: config.compaction.threshold } : {}),
+        ...(config.compaction?.fallbackWindowTokens !== undefined
+          ? { fallbackWindowTokens: config.compaction.fallbackWindowTokens }
+          : {}),
+      },
       // Session handoff (#434): the raw artifact is maintained locally
       // regardless of `handoff.transport` (transport gates publishing
       // only, T2+; absent = Not Set = off, purely additive here).

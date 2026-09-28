@@ -363,7 +363,12 @@ type AgentEventBase =
       /** #949: the verbatim tail begins inside the oldest kept turn — the
        * tail policy's intra-turn cut fired (chrome — audit only; replay
        * reads the pointer normally, this only explains the marker). */
-      partialTail?: true }
+      partialTail?: true;
+      /** #766 (ADR-0051): which summarizer served the marker —
+       * "deterministic", "llm-fallback" (the digest exceeded the budget
+       * and the run degraded to the LLM summarizer), or absent for the
+       * default LLM summarizer. Chrome — audit only. */
+      summarizer?: string }
   | { type: "extension_loaded"; name: string; version: string }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**

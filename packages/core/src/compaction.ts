@@ -290,12 +290,112 @@ function markerSpanNonEmpty(events: ReadonlyArray<AgentEvent>, from: number, to:
   return false;
 }
 
+/** #766: the structured facts a deterministic summarizer digests —
+ * extracted from the covered span's events, no model call. Files are
+ * collected from `tool_call` path arguments (`file_path`, `path`,
+ * `filePath`, `notebook_path`); classification is by tool name
+ * (write-ish names → modified, everything else → read). `recentErrors`
+ * keeps the last few failed tool results, oldest→newest, snippets
+ * capped. */
+export interface CompactionFacts {
+  /** Whole turns covered (user messages) in the span. */
+  turns: number;
+  /** The user's requests, in order (the task-state spine). */
+  userMessages: string[];
+  filesRead: string[];
+  filesModified: string[];
+  /** Per-tool traffic: calls and failed results. */
+  toolCalls: { tool: string; calls: number; errors: number }[];
+  recentErrors: string[];
+  /** The last assistant text in the span (current progress), truncated. */
+  lastAssistant: string;
+}
+
+/** The path-bearing argument keys moh recognizes across its built-in
+ * tools; unknown tools that carry one of these are treated as
+ * read-implications (conservative: presence implies inspection). */
+const FACT_PATH_KEYS = new Set(["file_path", "filePath", "path", "notebook_path"]);
+const FACT_WRITEISH = /(^|_|-)(edit|write|multiedit|apply|patch|create|move|remove|delete|notebook)/;
+
+/** Maximum entries kept per file list and per error snippet. */
+const FACT_LIST_CAP = 40;
+const FACT_ERROR_CAP = 5;
+const FACT_ERROR_SNIPPET_CHARS = 200;
+const FACT_LAST_ASSISTANT_CHARS = 800;
+const FACT_USER_MESSAGE_CHARS = 400;
+
+/** #766: extracts `CompactionFacts` from the covered span
+ * (`from` inclusive → `to` exclusive). Deterministic and side-effect
+ * free; exported for tests and for clients that want to pre-render a
+ * digest without running a summarizer. */
+export function compactionFacts(events: ReadonlyArray<AgentEvent>, from: number, to: number): CompactionFacts {
+  const userMessages: string[] = [];
+  const filesRead = new Set<string>();
+  const filesModified = new Set<string>();
+  const toolStats = new Map<string, { calls: number; errors: number }>();
+  const errorNamesByCall = new Map<string, string>();
+  const recentErrors: string[] = [];
+  let lastAssistant = "";
+  const lo = Math.max(0, from);
+  const hi = Math.min(to, events.length);
+  for (let i = lo; i < hi; i++) {
+    const event = events[i]!;
+    if (event.type === "user_message") {
+      const text = event.text.trim();
+      userMessages.push(text.length > FACT_USER_MESSAGE_CHARS ? `${text.slice(0, FACT_USER_MESSAGE_CHARS)}…` : text);
+    } else if (event.type === "assistant_delta") {
+      lastAssistant += event.text;
+    } else if (event.type === "tool_call") {
+      const stats = toolStats.get(event.name) ?? { calls: 0, errors: 0 };
+      stats.calls += 1;
+      toolStats.set(event.name, stats);
+      errorNamesByCall.set(event.callId, event.name);
+      const args = event.args as Record<string, unknown> | undefined;
+      for (const key of FACT_PATH_KEYS) {
+        const value = args?.[key];
+        if (typeof value === "string" && value.trim()) {
+          const target = FACT_WRITEISH.test(event.name.toLowerCase()) ? filesModified : filesRead;
+          if (target.size < FACT_LIST_CAP || target.has(value)) target.add(value);
+          break;
+        }
+      }
+    } else if (event.type === "tool_result" && !event.ok) {
+      const tool = errorNamesByCall.get(event.callId) ?? "unknown";
+      const stats = toolStats.get(tool) ?? { calls: 0, errors: 0 };
+      stats.errors += 1;
+      toolStats.set(tool, stats);
+      if (recentErrors.length < FACT_ERROR_CAP * 4) {
+        const snippet = event.output.replace(/\s+/g, " ").trim();
+        if (snippet) {
+          recentErrors.push(`${tool}: ${snippet.length > FACT_ERROR_SNIPPET_CHARS ? `${snippet.slice(0, FACT_ERROR_SNIPPET_CHARS)}…` : snippet}`);
+        }
+      }
+    } else if (event.type === "done" || event.type === "error" || event.type === "cancelled") {
+      // turn rollups — no fact content
+    }
+  }
+  const trimmed = lastAssistant.trim();
+  return {
+    turns: userMessages.length,
+    userMessages,
+    filesRead: [...filesRead],
+    filesModified: [...filesModified],
+    toolCalls: [...toolStats.entries()].map(([tool, s]) => ({ tool, ...s })),
+    recentErrors: recentErrors.slice(-FACT_ERROR_CAP),
+    lastAssistant: trimmed.length > FACT_LAST_ASSISTANT_CHARS ? `…${trimmed.slice(-FACT_LAST_ASSISTANT_CHARS)}` : trimmed,
+  };
+}
+
 /** Input handed to a compaction summarizer. */
 export interface CompactionSummarizerInput {
   /** The previous marker's summary, when one exists (chained summaries). */
   previous?: string;
   /** Rendered transcript of the covered events (previous `upTo` → new `upTo`). */
   transcript: string;
+  /** #766: the span's structured facts (files, tool traffic, errors,
+   * user requests) — present for every runner-invoked summarizer;
+   * optional so existing custom summarizers keep their signature. */
+  facts?: CompactionFacts;
   /** Aborted when the host stops waiting (dispose budget). */
   signal?: AbortSignal;
 }
@@ -316,6 +416,16 @@ export interface CompactionOptions {
   fallbackWindowTokens?: number;
   /** Summarizer override (tests, clients). Default: the compaction subagent. */
   summarizer?: CompactionSummarizer;
+  /**
+   * #766 (ADR-0051): JSON-safe strategy selector, mirrored by moh.json
+   * `compaction.summarizer`. "deterministic" selects the rule-built
+   * digest summarizer — no model call, byte-stable across runs — with
+   * an explicit fallback to the LLM summarizer when the digest exceeds
+   * its budget (the `compaction` marker records which one served).
+   * Default "llm". A `summarizer` function override wins when both are
+   * given.
+   */
+  summarizerStrategy?: "llm" | "deterministic";
   /**
    * ADR-0035: the extension seam, consulted before the summarized
    * transcript is rendered (auto and forced paths alike). Absent or
@@ -361,6 +471,11 @@ export interface CompactionRunnerOptions {
   /** Called after a successful append (the host rebuilds its messages). */
   onCompacted: () => void;
   summarizer: CompactionSummarizer;
+  /** #766 (ADR-0051): a getter the runner reads at marker time so the
+   * marker records which summarizer actually served (a strategy wrapper
+   * may degrade to the fallback mid-run). Absent → no stamp (the
+   * default LLM summarizer). */
+  summarizerName?: () => string | undefined;
   sectionFilter?: CompactionOptions["sectionFilter"];
   tailTurns?: number;
   threshold?: number;
@@ -382,6 +497,7 @@ export class CompactionRunner {
   readonly #pathFn: (() => ReadonlyArray<AgentEvent>) | undefined;
   readonly #onCompacted: () => void;
   readonly #summarizer: CompactionSummarizer;
+  readonly #summarizerName: (() => string | undefined) | undefined;
   readonly #sectionFilter: CompactionOptions["sectionFilter"];
   readonly #tailTurns: number;
   readonly #threshold: number;
@@ -409,6 +525,7 @@ export class CompactionRunner {
     this.#pathFn = opts.pathFn;
     this.#onCompacted = opts.onCompacted;
     this.#summarizer = opts.summarizer;
+    this.#summarizerName = opts.summarizerName;
     this.#sectionFilter = opts.sectionFilter;
     this.#tailTurns = opts.tailTurns ?? DEFAULT_TAIL_TURNS;
     this.#threshold = opts.threshold ?? DEFAULT_COMPACTION_THRESHOLD;
@@ -788,6 +905,9 @@ export class CompactionRunner {
       }
     }
     const transcript = compactionTranscript(path, from, newUpTo.upTo, omit);
+    // #766: the span's structured facts — every summarizer gets them;
+    // the deterministic strategy digests only these.
+    const facts = compactionFacts(path, from, newUpTo.upTo);
     const summarizer = this.#summarizer;
     const controller = new AbortController();
     this.#controller = controller;
@@ -798,6 +918,7 @@ export class CompactionRunner {
           const summary = await summarizer({
             ...(marker ? { previous: marker.summary } : {}),
             transcript,
+            facts,
             signal: controller.signal,
           });
           const text = summary.trim();
@@ -819,6 +940,8 @@ export class CompactionRunner {
             // audit flag on the marker (keptByFloor precedent), never a
             // skip warning.
             ...(newUpTo.partial ? { partialTail: true as const } : {}),
+            // #766 (ADR-0051): which summarizer served (audit chrome).
+            ...(this.#summarizerName?.() ? { summarizer: this.#summarizerName!() } : {}),
           });
           this.#onCompacted();
           this.#consecutiveFailures = 0;
@@ -891,5 +1014,79 @@ export function createCompactionSummarizer(provider: Provider, cwd: string): Com
     } finally {
       await child.dispose().catch(() => {});
     }
+  };
+}
+
+/**
+ * #766 (ADR-0051): hard cap (chars) on the deterministic digest. A
+ * digest over the budget would push the rebuilt context past the point
+ * compaction exists to avoid — the run degrades to the fallback
+ * summarizer instead, explicitly (the marker records which summarizer
+ * served) and never by silently truncating the digest.
+ */
+export const DETERMINISTIC_DIGEST_BUDGET_CHARS = 16_000;
+
+/** Formats one bullet list; deterministic, sorted, deduplicated input. */
+function digestList(items: readonly string[], cap = FACT_LIST_CAP): string {
+  if (items.length === 0) return "- (none)";
+  const shown = items.slice(0, cap);
+  return shown.map((s) => `- ${s}`).join("\n") + (items.length > cap ? `\n- (…and ${items.length - cap} more)` : "");
+}
+
+/** #766: renders the deterministic digest from a summarizer input. Pure
+ * function of the input — same span, same bytes, on every machine and
+ * every run. No timestamps, no locale, no randomness. */
+export function renderDeterministicDigest(input: CompactionSummarizerInput): string {
+  const facts = input.facts;
+  const sections: string[] = [];
+  if (input.previous) sections.push(`## Carried from the previous summary\n\n${input.previous}`);
+  if (facts) {
+    sections.push(
+      [
+        "## Task state",
+        "",
+        `${facts.turns} user request(s) covered:`,
+        digestList(facts.userMessages.map((m) => (m.includes("\n") ? m.replace(/\n+/g, " ") : m))),
+      ].join("\n"),
+    );
+    sections.push(`## Files modified\n\n${digestList(facts.filesModified)}`);
+    sections.push(`## Files read\n\n${digestList(facts.filesRead)}`);
+    const traffic = facts.toolCalls.map((t) => `- ${t.tool}: ${t.calls} call(s)${t.errors > 0 ? `, ${t.errors} failed` : ""}`);
+    sections.push(`## Tool activity\n\n${traffic.length > 0 ? traffic.join("\n") : "- (none)"}`);
+    sections.push(`## Recent failures (last ${facts.recentErrors.length})\n\n${digestList(facts.recentErrors)}`);
+    if (facts.lastAssistant) sections.push(`## Last assistant work (tail)\n\n${facts.lastAssistant}`);
+  }
+  sections.push(`## Transcript reference\n\n${input.transcript.length} chars of rendered transcript were covered.`);
+  return sections.join("\n\n");
+}
+
+/**
+ * #766 (ADR-0051): the deterministic summarizer — a rule-built digest
+ * over the span's structured `facts`, no model call, byte-stable across
+ * runs, resumes and machines. When the digest exceeds
+ * `DETERMINISTIC_DIGEST_BUDGET_CHARS` and a `fallback` is supplied, the
+ * run degrades to it explicitly (the fallback sees the same input,
+ * `facts` included) — never by silently truncating. `strategy`, when
+ * supplied, is a mutable box the runner reads back at marker time so the
+ * `compaction` marker records which summarizer actually served.
+ */
+export function createDeterministicSummarizer(
+  fallback?: CompactionSummarizer,
+  strategy?: { name: string },
+): CompactionSummarizer {
+  return async (input) => {
+    const digest = renderDeterministicDigest(input);
+    if (digest.length <= DETERMINISTIC_DIGEST_BUDGET_CHARS) {
+      if (strategy) strategy.name = "deterministic";
+      return digest;
+    }
+    if (!fallback) {
+      // No fallback available: the digest stands, oversized. A caller
+      // that wants a hard guarantee supplies the fallback.
+      if (strategy) strategy.name = "deterministic";
+      return digest;
+    }
+    if (strategy) strategy.name = "llm-fallback";
+    return fallback(input);
   };
 }
