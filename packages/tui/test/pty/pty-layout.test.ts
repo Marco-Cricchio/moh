@@ -29,7 +29,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
       const lines = await runPty({
         cols: 160,
         rows: 45,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 1.0 }, { wait: 10.0, until: B("^k commands") }],
+        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 1.0 }, { wait: 10.0, until: COMPOSER_READY }],
         tail: 45,
       });
       const input = lines.find((l) => l.text.includes(COMPOSER_READY));
@@ -149,7 +149,7 @@ describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
         cols: 120,
         rows: 35,
         steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("resize probe") }, { wait: 0.2, send: B("\r") }, { wait: 1.5 }],
-        resize: { cols: 80, rows: 24, until: B("^k commands") },
+        resize: { cols: 80, rows: 24, until: COMPOSER_READY },
         tail: 24,
       });
       // The cumulative pty buffer still contains pre-resize frames:

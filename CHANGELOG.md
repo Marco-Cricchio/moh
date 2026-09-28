@@ -7,6 +7,44 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-09-28
+
+### Fixed
+
+- **The Settings sub-menus fit the terminal** (#1042, PR #1047): the nested
+  Jev sub-menu rendered ~41 rows on a 24-row terminal — the parent list kept
+  its full window underneath, the ten Jev rows rendered unwindowed, and the
+  scope paragraph decided its wrapped height after the row budget was
+  spent. A frame at `stdout.rows` sends Ink down its fullscreen path
+  (`clearTerminal` + static reprint per render — the #622 flicker root
+  cause). With a sub-menu open the parent list now steps aside entirely and
+  the exact view is restored on close; the Jev rows use the same
+  cursor-following window as every other sub-menu, with `↑/↓ N more`
+  indicators; the paragraph is pre-wrapped and clipped with a visible
+  truncation line instead of being silently squeezed.
+
+- **The PTY harness fails loudly when a readiness wait expires** (#1045,
+  PR #1048): `pump_until`'s bool return was dropped at the call site, so a
+  readiness step whose needle never arrived burned its budget silently and
+  the assertions ran over a state the step never verified — the CI red
+  behind this issue was a mid-stream snapshot asserted to contain a marker
+  that never came. The harness now raises on expiry (naming the needle and
+  carrying the decoded buffer tail) and on a closed master; enforcing the
+  contract exposed six test scripts whose waits could never hold, and all
+  of them were rewritten against what their fixtures actually paint. All
+  16 PTY files pass under a loaded batch runner with no retries.
+
+- **The model catalog was regenerated** (the release step): 11 prices moved,
+  mostly down (`deepseek/deepseek-v4-flash` 0.14 → 0.07 input, `z-ai/glm-5.1`
+  1.4 → 0.96, `~z-ai/glm-latest` 0.365 → 0.18), with `z-ai/glm-5.3`
+  0.365 → 1.4 going up. No context windows or reasoning flags changed, no
+  issue and no context-window shrink. One OpenRouter free variant
+  (`inclusionai/ling-3.0-flash-fin:free`) lost its aggregator record; the
+  #1004 guard refused the build (`context-window-lost`) and the window is
+  now declared by hand on the established precedent, with the paid siblings
+  still aggregator-backed. `PRICING_SNAPSHOT.version` follows the manifest,
+  which declares 0.52.1.
+
 ## [0.52.0] - 2026-09-28
 
 ### Added
@@ -1329,7 +1367,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.52.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.52.1...develop
+[0.52.1]: https://github.com/Marco-Cricchio/moh/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/Marco-Cricchio/moh/compare/v0.51.1...v0.52.0
 [0.51.1]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...v0.51.0

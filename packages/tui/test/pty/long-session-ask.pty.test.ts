@@ -41,8 +41,12 @@ describe.skipIf(!hasPython)("long-session ask_user gate (PTY regression #874)", 
             { wait: 2.0 },
             { wait: 0.3, send: Buffer.from("hi").toString("base64") },
             { wait: 0.4, send: Buffer.from("\r").toString("base64") },
-            // Turn 1 settles with a long transcript (60 paragraphs ≫ 20 rows).
-            { wait: 8.0, until: "paragraph 5" },
+            // Turn 1 settles with a long transcript (8 × lorem ≫ 20 rows).
+            // #1045: the old needle ("paragraph 5") never existed in the
+            // fixture — the wait burned its budget silently and the test
+            // only passed because the ask-gate step below re-checks on
+            // screen. Wait for a needle the fixture actually paints.
+            { wait: 8.0, until: "eiusmod tempor" },
             // Turn 2 opens the oversized ask gate on top of it. untilOnScreen
             // (#874): once the fix removes the repaint churn, a needle may be
             // painted exactly once, possibly before this step starts.

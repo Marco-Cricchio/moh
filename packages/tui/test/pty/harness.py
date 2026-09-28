@@ -22,6 +22,7 @@ Each reported line: {"lead": <leading spaces>, "width": <rstripped length>,
 """
 import codecs
 import base64
+import errno
 import fcntl
 import hashlib
 import json
@@ -412,9 +413,17 @@ def main() -> None:
         stamp = int(time.time() * 1000)
         for i in range(spec["seedSessions"]):
             sid = time.strftime("%Y%m%dT%H%M%S", time.gmtime(stamp / 1000)) + ("%03dZ" % (stamp % 1000)) + "-" + uuid.uuid4().hex[:8]
-            event = {"type": "user_message", "text": f"seeded session number {i + 1}"}
+            # #1045: a log MUST start with session_start or SessionStore.load
+            # refuses it ("corrupt session log") — a bare user_message seed
+            # made every OPEN of a seeded session crash the child. (Listing
+            # never loaded the log, which is why #1023 got away with it.)
+            events = [
+                {"type": "session_start", "schemaVersion": 1, "promptVersion": "p"},
+                {"type": "user_message", "text": f"seeded session number {i + 1}"},
+            ]
             with open(os.path.join(sess_dir, sid + ".jsonl"), "w") as f:
-                f.write(json.dumps(event) + "\n")
+                for event in events:
+                    f.write(json.dumps(event) + "\n")
             stamp += 1
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -459,7 +468,8 @@ def main() -> None:
                     buf.extend(chunk)
                     screen.feed_bytes(chunk)
 
-    def pump_until(seconds: float, needle: str, since: int, on_screen: bool = False) -> bool:
+    def pump_until(seconds: float, needle: str, since: int, on_screen: bool = False,
+                   entry_buffer: bool = False) -> bool:
         """#236: readiness wait — pump for up to `seconds`, returning as soon
         as `needle` appears in the raw byte stream AFTER offset `since`
         (the cumulative buffer also holds everything painted before this
@@ -476,7 +486,14 @@ def main() -> None:
         before this step, and the guard could never match it: the wait
         burned its whole budget and the runner killed the harness). Opt-in,
         never the default: needles that merely prove "the app repainted"
-        (e.g. a modal-closed anchor) must keep requiring a fresh paint."""
+        (e.g. a modal-closed anchor) must keep requiring a fresh paint.
+
+        `entry_buffer` (#1045): same opt-in shape as `on_screen`, but the
+        whole byte BUFFER counts at step entry, not just the screen — for
+        one-shot needles painted before or right at step entry, where a
+        `since`-guarded wait could never match a second occurrence. Known
+        limit: a needle that recurs satisfies instantly on its first
+        occurrence; such steps need a per-turn-unique needle."""
         target = needle.encode("utf-8", "replace")
 
         def visible() -> bool:
@@ -486,8 +503,16 @@ def main() -> None:
                 or any(needle in line for line in screen.scrollback_view)
 
         end = time.time() + seconds
-        if on_screen and visible():
-            return True
+        # #1045: the needle may already have been painted BEFORE the step
+        # began (the boot pump paints the composer, and a flicker fix can
+        # mean nothing repaints afterwards). Readiness asks "has the state
+        # been reached", not "does it get repainted": accept a whole-buffer
+        # match at entry instead of burning the budget on the `since` guard.
+        if (entry_buffer or on_screen):
+            # #1045: at step entry a needle already in the buffer (or on
+            # screen) means the state was reached before the step began.
+            if buf.find(target) != -1 or visible():
+                return True
         while time.time() < end:
             if buf.find(target, since) != -1:
                 pump(0.2)  # let the frame finish painting
@@ -499,12 +524,38 @@ def main() -> None:
             if ready:
                 try:
                     chunk = os.read(master, 65536)
-                except OSError:
-                    return False
+                except OSError as err:
+                    if err.errno != errno.EINTR:
+                        # #1045: the master closed — the child is gone (a
+                        # closed master can also surface as an empty read,
+                        # handled below). Fail loudly instead of returning
+                        # False and letting the assertions run over a
+                        # snapshot the step never reached.
+                        raise RuntimeError(
+                            f"pty readiness wait: terminal closed while waiting for {needle!r}")
+                    continue
                 if chunk:
                     buf.extend(chunk)
                     screen.feed_bytes(chunk)
-        return buf.find(target, since) != -1
+                elif proc.poll() is not None:
+                    # EOF with the child gone: the terminal closed (macOS
+                    # reports a closed master as b"" rather than OSError).
+                    raise RuntimeError(
+                        f"pty readiness wait: terminal closed while waiting for {needle!r}")
+                # An empty read while the child lives is not evidence of
+                # anything; keep waiting (a raise here would kill runs on
+                # spurious wakeups).
+        # #1045: an expired readiness wait used to return False that the
+        # call site dropped, so the runner pumped a fixed follow-up sleep and
+        # asserted on a state the step never verified (#1045's CI failure
+        # snapped a mid-stream dump). By this point the needle is nowhere in
+        # the buffer and not on screen: the state was never reached. Say so,
+        # naming the needle, instead of failing later on an assertion that
+        # could never hold.
+        tail = bytes(buf[-2000:]).decode("utf-8", "replace")
+        raise RuntimeError(
+            f"pty readiness wait expired after {seconds}s: needle {needle!r} never appeared"
+            f"\n--- buffer tail ---\n{tail}")
 
     def send(b64: str) -> None:
         os.write(master, base64.b64decode(b64))
@@ -530,7 +581,7 @@ def main() -> None:
                 # refuse it loudly instead of silently dropping the send.
                 if step.get("send"):
                     raise ValueError("pty step: 'until' and 'send' are mutually exclusive")
-                pump_until(step.get("wait", 5.0), step["until"], since=len(buf), on_screen=bool(step.get("untilOnScreen")))
+                pump_until(step.get("wait", 5.0), step["until"], since=len(buf), on_screen=bool(step.get("untilOnScreen")), entry_buffer=bool(step.get("untilFromBuffer")))
             else:
                 if step.get("send"):
                     send(step["send"])
