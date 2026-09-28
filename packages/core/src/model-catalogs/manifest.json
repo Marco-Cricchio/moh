@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.51.1",
-  "generatedAt": "2026-09-27T19:48:43.069Z",
+  "version": "0.52.0",
+  "generatedAt": "2026-09-28T06:32:18.822Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-27T19:48:42.598Z"
+      "fetchedAt": "2026-09-28T06:32:18.303Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-27T19:48:42.824Z"
+      "fetchedAt": "2026-09-28T06:32:18.657Z"
     }
   ],
   "files": {
@@ -176,11 +176,11 @@
       }
     },
     "opencode-go": {
-      "sha256": "29ecd59a4258f3c2f301fb925e65acbc65e957652360f81805e667e6ad91fe8a",
+      "sha256": "1d011bb88b4d2c41403693b3d9e793d1fdf4c4dc52de5e901d0019fa8e3941ed",
       "rows": 28,
       "verdicts": {
-        "exact": 28,
-        "base-model": 0,
+        "exact": 26,
+        "base-model": 2,
         "ambiguous": 0,
         "absent": 0
       }
@@ -196,7 +196,7 @@
       }
     },
     "openrouter": {
-      "sha256": "79d9731312c216b194bdcc553bf0bcdfea15d7765c0ee75de0ede6feb820d054",
+      "sha256": "4f37fddd64ea17483a028f50d5ba74a2b2cdfa126ceb24ea165dc26ad8036f7a",
       "rows": 361,
       "verdicts": {
         "exact": 338,
@@ -1579,13 +1579,12 @@
     "opencode-go/minimax-m2.5": {
       "provider": "opencode-go",
       "id": "minimax-m2.5",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
+      "verdict": "base-model",
+      "source": "openrouter",
+      "namespace": "minimax/minimax-m2.5",
       "supplied": [
         "cost",
         "contextWindow",
-        "maxTokens",
         "reasoning",
         "input"
       ],
@@ -1759,13 +1758,12 @@
     "opencode-go/glm-5.1": {
       "provider": "opencode-go",
       "id": "glm-5.1",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
+      "verdict": "base-model",
+      "source": "openrouter",
+      "namespace": "z-ai/glm-5.1",
       "supplied": [
         "cost",
         "contextWindow",
-        "maxTokens",
         "reasoning",
         "input"
       ],

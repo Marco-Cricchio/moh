@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-09-28
+
 ### Added
 
 - **The Jev guardrail has a switch of its own** (ADR-0052, #1041): a stored
@@ -28,7 +30,7 @@ matching section here at tag time.
   in the same words; the three rows that are not use cases (API key, Status,
   Remove) describe themselves in the panel.
 
-- **A session says which model serves its calls** (ADR-0050, #974): the
+- **A session says which model serves its calls** (ADR-0050, #974, PR #1039): the
   model you selected and the stop that actually answers are two different
   things, and every surface now says so. Wherever a session states what it
   is working with — the system prompt's `Environment` block, the status
@@ -39,6 +41,18 @@ matching section here at tag time.
   the call (the dead `Route:` line is gone), and the `/model` header keeps
   marking your selection — the thing a pick replaces — while showing what
   serves beside it.
+
+- **Compaction can summarize deterministically** (#766, PR #1040,
+  ADR-0051): `compaction.summarizer` in `moh.json` selects `"llm"` (the
+  default — today's behavior, byte for byte) or `"deterministic"`. The
+  deterministic strategy builds its digest from structured facts the runner
+  now passes every summarizer — user requests, files read and modified,
+  per-tool traffic, recent failures, the last assistant work — with no
+  transcript parsing, and when that digest exceeds its 16k budget it degrades
+  to the LLM summarizer explicitly instead of truncating silently; the
+  `compaction` marker records which one served. Both forced paths (`/compact`
+  and `moh compact`) use the same strategy, and the function seam
+  (`CompactionOptions.summarizer`) still wins when both are given.
 
 ### Fixed
 
@@ -77,6 +91,30 @@ matching section here at tag time.
   denominator; every other model is unchanged. No probing, no inference:
   only a refusal teaches, one model reference at a time, and nothing is
   written to the catalog or to your config.
+
+- **The endpoint's own listing outranks the shipped row** (ADR-0049 door
+  two, #1032, PR #1037): the window an endpoint reports in its own cached
+  model listing is now the one moh uses, and the lookup is keyed by the
+  **endpoint** (kind + base URL), not the provider kind — so Zen is not Go
+  and a recognised compat host has its own catalog. `fresh`, `cached` and
+  `stale` listings all count; only a failed or unsupported one falls back to
+  the shipped row, and the cache is read synchronously at assembly, so
+  starting a session stays network-free. `catalogEntryFor` now resolves
+  `openai-compat` hosts through their base URL's catalog, so Z.ai is no
+  longer invisible to the arithmetic. The shipped Codex rows are corrected
+  to the window the provider itself lists — `gpt-5.5` and the three
+  `gpt-5.6-*` models go from 1,050,000 to **272,000** — because the
+  aggregators describe the public consumption API, not the subscription
+  backend moh serves.
+
+- **The model catalog was regenerated** (the release step the flow now
+  requires): 15 prices moved — both directions, with `deepseek/deepseek-v4-pro`
+  0.35/0.70 → 0.96/1.91 and `z-ai/glm-5.3-flash` 0.045/0.14 → 0.15/0.5 going
+  up while `z-ai/glm-5.1` and `~z-ai/glm-latest` moved too, and
+  `opencode-go/minimax-m2.5` losing its cache-write rate — plus one context
+  window that **grew** (`opencode-go/glm-5.1` 202752 → 204800). No reasoning
+  flags moved, and the report carries no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.52.0.
 
 ## [0.51.1] - 2026-09-27
 
@@ -1291,7 +1329,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.51.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.52.0...develop
+[0.52.0]: https://github.com/Marco-Cricchio/moh/compare/v0.51.1...v0.52.0
 [0.51.1]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/Marco-Cricchio/moh/compare/v0.50.3...v0.51.0
 [0.50.3]: https://github.com/Marco-Cricchio/moh/compare/v0.50.2...v0.50.3
