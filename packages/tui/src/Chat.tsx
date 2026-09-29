@@ -10,6 +10,7 @@ import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
 import { useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
+import { advanceReveal, DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
 import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, type TranscriptBlock } from "./transcript";
@@ -167,6 +168,11 @@ export interface ChatProps {
   panelSubagent?: number | null;
   /** #497: toggles the selected subagent's live panel (Enter on a chip). */
   onToggleSubagentPanel?: (index: number) => void;
+  /** #1054 (ADR-0057): typewriter-reveal pacing override. Absent fields
+   * fall back to DEFAULT_REVEAL_SETTINGS; behavior is identical at the
+   * defaults. The App bootstrap resolves the legacy env knobs once and
+   * passes them here — Chat never reads process.env. */
+  reveal?: Partial<RevealSettings>;
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -217,6 +223,7 @@ export function Chat({
   focusedSubagent = null,
   panelSubagent = null,
   onToggleSubagentPanel,
+  reveal,
   branch,
   permissionMode = session.sessionMode,
   rootOnWindowsMount = session.rootOnWindowsMount,
@@ -236,12 +243,7 @@ export function Chat({
   // promoted-but-unrevealed row reaches scrollback at most one promotion
   // batch ahead of the cursor). On settle the budget snaps open: a
   // completed turn never lags its own done (headless tests rely on this).
-  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 60);
-  // Horizontal (word-flow) reveal: the forming line grows rightward — no
-  // per-row lag. ~10 chars/50ms ≈ 2 rows/s at 100 cols.
-  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 20);
-  // Max chars the cursor may trail the provider stream by.
-  const REVEAL_CATCHUP_CHARS = 400;
+  const revealSettings = useMemo<RevealSettings>(() => ({ ...DEFAULT_REVEAL_SETTINGS, ...reveal }), [reveal]);
   const [revealTick, setRevealTick] = useState(0);
   // #622: the pacer must not tick while the input is blocked (ask/permission
   // modal owns the screen). Ink renders any output taller than the terminal
@@ -265,34 +267,18 @@ export function Chat({
       return;
     }
     const timer = setInterval(() => {
-      // Pace, with catch-up: the cursor trails the stream by at most
-      // REVEAL_CATCHUP_CHARS so long bursts eventually surface (a slow
-      // reader cursor must never strand content the provider finished
-      // long ago).
+      // Pace with catch-up (#1054): the math lives in `advanceReveal` — the
+      // cursor trails by at most catchupChars and accelerates with its
+      // deficit so a slow reader never strands content the provider
+      // finished long ago.
       const streamed = streamedCharsRef.current;
-      const prev = revealAllowanceRef.current;
-      // The cursor always trails the stream by at most REVEAL_CATCHUP
-      // chars — including at mount (a remount seeds from the CURRENT
-      // stream position, so already-shown content is never re-hidden:
-      // the floor reads live streamed chars, not stale state).
-      // Behind = how far the cursor trails the provider stream. The cursor
-      // keeps its base typing speed and ACCELERATES with the deficit
-      // (Codex-style catch-up): word-flow continues to the end of the
-      // turn instead of collapsing into row dumps once the buffered
-      // prefix is drained. The deficit is measured in ticks-equivalents
-      // so the speedup is bounded (2.5x max) — always readable.
-      // Accelerate with the deficit: a long buffer drains at visibly-
-      // faster word-flow and ALWAYS completes — the cursor is capped only
-      // by the stream itself, never stranded short of it. The cap keeps
-      // the drain readable (~1600 c/s max) while bounding worst-case
-      // reveal time to streamed/1600 s.
-      const boost = 1 + Math.min(4, Math.max(0, streamed - prev) / 500);
-      revealRef.current.budgetChars = Math.max(prev, Math.min(streamed, prev + REVEAL_CHARS_PER_TICK * boost));
-      revealAllowanceRef.current = revealRef.current.budgetChars;
+      const next = advanceReveal(revealAllowanceRef.current, streamed, 1, revealSettings);
+      revealRef.current.budgetChars = next;
+      revealAllowanceRef.current = next;
       setRevealTick((v) => v + 1);
-    }, REVEAL_TICK_MS);
+    }, revealSettings.tickMs);
     return () => clearInterval(timer);
-  }, [revealActive]);
+  }, [revealActive, revealSettings]);
   void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
   // Char-level typewriter state. The cursor lives in revealAllowanceRef;
   // the interval below advances it and bumps revealTick (the re-render
