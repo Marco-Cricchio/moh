@@ -92,16 +92,21 @@ describe("first-party skill install", () => {
       "domain-modeling",
       "gh-manager", // #378: declarative GitHub settings, MIT port (NOTICE.md)
       "grilling",
+      "handoff", // upstream port (NOTICE.md)
       "implement",
       "moh-implementation-flow",
+      "pr", // upstream port (NOTICE.md)
       "prototype",
       "report-bug", // #573: reporter-side issue filing (maintainer side is /triage)
       "research", // upstream port (NOTICE.md)
+      "retro", // upstream port (NOTICE.md)
       "session-memory",
       "tdd",
+      "to-questionnaire", // upstream port (NOTICE.md)
       "to-spec",
       "to-tickets",
       "triage",
+      "wait-what", // upstream port (NOTICE.md)
       "wayfinder",
       "wizard",
       "writing-for-agents",
