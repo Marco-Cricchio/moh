@@ -27,7 +27,8 @@ import { MockProvider, createSession, SessionStore, builtinTools, type AskUserQu
 import type { SessionSummary } from "../src/sessions";
 import { App } from "../src/App";
 import { Home } from "../src/Home";
-import { Chat } from "../src/Chat";
+import { Chat, nextReasoningHead, transcriptTail } from "../src/Chat";
+import type { TranscriptBlock } from "../src/transcript";
 import { makeSession } from "../src/factory";
 import { AskUserGate } from "../src/ask-user-gate";
 import { renderOnFakeTty } from "./faketty/render";
@@ -145,14 +146,22 @@ describe("home frame guards (part-b §3)", () => {
   }
 
   test("rows=12 with a long list: banner, actionable row and hint survive (part-b §3.3)", async () => {
+    // Baseline part-b §3.3: at 12 rows with a 12-session list, the screen
+    // still carries the banner, the actionable row and the hint row, and is
+    // not blank. Exact rows, not "some line contains the needle": the tier
+    // chosen for 12 rows must be the fully degraded one (hints on, spacers
+    // 0) — MUT-M (hints dropped on that tier) reddens the hint assertion.
     const { term } = await mountHome(12, 80, 12);
     await waitForScreen(term, "New session");
     await term.settle();
     const text = screenText(term);
     expect(text).toContain("My Own Harness");
     expect(text).toContain("New session");
-    expect(text).toContain("ctrl+o mode");
-    expect(text.length).toBeGreaterThan(50);
+    expect(text).toContain("ctrl+o mode"); // the hint tier is ON at 12 rows
+    expect(text).not.toContain("pin ctrl+p"); // the roomy-tier hints are pruned
+    expect(text.split("\n").filter((line) => line.trim().length > 0).length).toBeGreaterThan(5);
+    // The whole frame fits the terminal: ink stays on the log-update path.
+    expect(term.screen.counters.fullscreenFrames).toBe(0);
     await term.unmount();
   }, 60_000);
 
@@ -190,6 +199,51 @@ describe("home frame guards (part-b §3)", () => {
 // ---------------------------------------------------------------------------
 
 describe("dense paragraph fullscreen guard (part-a §5)", () => {
+  test("the live-tail budget bounds a single oversized block (the #201 clip)", () => {
+    // The biting half of this claim. The run-level half (below) is a
+    // companion: measured with #1058, a big paragraph is promoted to
+    // Static in one frame, so the live frame NEVER carries it and "zero
+    // clear" cannot go red under a budget mutation — the assertion would
+    // be vacuous. The property that actually holds the fullscreen path off
+    // is the pure contract: one block taller than the budget comes back
+    // clipped to the budget (Chat.tsx clipBlockTail). Mutation MUT-D
+    // (`if (false) return [clipBlockTail(...)]`) turns 20 rows into 503.
+    const huge = {
+      key: "b",
+      kind: "assistant",
+      glyph: "\u25c6",
+      type: "assistant",
+      lines: Array.from({ length: 500 }, (_, i) => `line ${i}`),
+    } as unknown as TranscriptBlock;
+    const out = transcriptTail([huge], 100, 20);
+    const total = out.reduce((sum, b) => sum + 3 + (b.lines?.length ?? 0), 0);
+    expect(out.length).toBe(1);
+    expect(total).toBeLessThanOrEqual(20);
+    expect(out[0]!.lines.join("\n")).toContain("line 499"); // keeps the newest tail
+  }, 60_000);
+
+  test("a Markdown row-chunk block is clipped through renderedMarkdownRows (#950)", () => {
+    // The historical bypass: the block's height lives in
+    // `renderedMarkdownRows`, not in `lines`, so a clip that returns
+    // `lines: []` un-clipped leaves the renderer free to draw all 500 rows
+    // (MUT-I — dropping the `renderedMarkdownRows: lines` carry — returns
+    // height 37 against a 20-row budget). This is the assertion that keeps
+    // the #950 clip honest for the Markdown path.
+    const chunked = {
+      key: "m",
+      kind: "assistant",
+      glyph: "\u25c6",
+      type: "assistant",
+      lines: [],
+      renderedMarkdownRows: Array.from({ length: 500 }, (_, i) => `row ${i}`),
+    } as unknown as TranscriptBlock;
+    const out = transcriptTail([chunked], 100, 20);
+    const height = 3 + (out[0]!.renderedMarkdownRows?.length ?? 0) + (out[0]!.lines?.length ?? 0);
+    expect(out.length).toBe(1);
+    expect(height).toBeLessThanOrEqual(20);
+    expect(out[0]!.renderedMarkdownRows!.join("\n")).toContain("row 499");
+  }, 60_000);
+
   test("an ~8000-char dense prose reply emits no clearTerminal and no ED3", async () => {
     // Baseline part-a §5 asserts (2) zero `\x1b[2J\x1b[3J\x1b[H` and
     // (3) the stronger `not.toContain("\x1b[3J")` on the whole run.
@@ -205,6 +259,13 @@ describe("dense paragraph fullscreen guard (part-a §5)", () => {
     expect(countOccurrences(raw, CLEAR)).toBe(0);
     expect(raw).not.toContain(ED3);
     expect(countOccurrences(raw, "DENSE-DONE")).toBeGreaterThanOrEqual(1);
+    // The run-level companion to the pure budget tests above: measured
+    // over the whole run, the fullscreen path was never taken (the counter
+    // is the framing model's own verdict, not an inference from an absence
+    // of wipes). `maxFrameRows` is deliberately NOT asserted here: an Ink
+    // Static append is one tall write, so the counter reflects the promoted
+    // paragraph, not the live frame.
+    expect(term.screen.counters.fullscreenFrames).toBe(0);
     await term.unmount();
   }, 60_000);
 });
@@ -232,6 +293,10 @@ describe("oversized stream output bound (part-a §10)", () => {
     console.log(`[frame-guards] #203 measured bytes: ${bytes}`);
     expect(screenText(term)).toContain("TAIL-119");
     expect(bytes).toBeLessThan(800_000);
+    // Same run-level companion as §5: zero fullscreen frames on the
+    // pathological stream. (The half that goes red under a clip mutation is
+    // the pure-budget pair in §5 — see the PR body.)
+    expect(term.screen.counters.fullscreenFrames).toBe(0);
     await term.unmount();
   }, 60_000);
 });
@@ -241,6 +306,28 @@ describe("oversized stream output bound (part-a §10)", () => {
 // ---------------------------------------------------------------------------
 
 describe("reasoning cap rollover guard (part-a §6)", () => {
+  test("the moving window resets the printed head once, not on every frame", () => {
+    // The mechanism behind "repainting once rather than per frame", pure and
+    // clock-free. The 64 KiB display cap replaces the prefix with a windowed
+    // source; the frames after the swap must NOT ask for another repaint.
+    // MUT-K (`reset: true` unconditionally at Chat.tsx nextReasoningHead)
+    // reddens the second assertion: measured on a delayed stream that makes
+    // the transcript repaint while the reasoning is still streaming.
+    const width = 120;
+    const grown = Array.from({ length: 80 }, (_, i) => `prose row ${i}`);
+    const head = nextReasoningHead(null, "live-reasoning", grown, width, 1);
+    expect(head.chunks.length).toBeGreaterThan(0);
+
+    const window1 = ["\u2026 reasoning truncated \u2014 showing the last 1 rows", ...grown.slice(-1)];
+    const rolled = nextReasoningHead(head, "live-reasoning", window1, width, 1);
+    expect(rolled.reset).toBe(true); // this is the frame that discards the printed chunks
+    expect(rolled.chunks).toEqual([]);
+
+    const window2 = ["\u2026 reasoning truncated \u2014 showing the last 1 rows", ...grown.slice(-1), "one more row"];
+    const again = nextReasoningHead(rolled, "live-reasoning", window2, width, 1);
+    expect(again.reset).toBe(false); // already chunk-less: no second repaint
+  }, 60_000);
+
   test("early reasoning markers are not reprinted per frame; bytes stay bounded", async () => {
     // Baseline part-a §6's needle assertion is VACUOUS (it counts
     // `CAP-THINK-0000`, a string the fixture never emits — research-1052
@@ -252,8 +339,13 @@ describe("reasoning cap rollover guard (part-a §6)", () => {
     const piece = (i: number) =>
       `reasoning through the window boundary. `.repeat(28) + `PIECE-${String(i).padStart(4, "0")}\n`;
     const reasoningDeltas = Array.from({ length: 70 }, (_, i) => piece(i + 1)); // ~77 KiB > 64 KiB cap
+    // deltaDelayMs spreads the reasoning over ~350 ms so the pacer produces
+    // real per-frame work (measured: 25 frames). Without it the whole
+    // reasoning lands in ONE React batch, the moving-window branch runs
+    // once, and the assertion cannot go red under a mutation — a vacuous
+    // test, exactly what this ticket forbids.
     const { term } = mountChat(
-      [{ reasoning: { deltas: reasoningDeltas }, deltas: ["CAP-REPLY-DONE the capped reasoning turn has settled"], finish: "stop" }],
+      [{ reasoning: { deltas: reasoningDeltas }, deltas: ["CAP-REPLY-DONE the capped reasoning turn has settled"], finish: "stop", deltaDelayMs: 5 }],
       { cols: 120, rows: 24, showReasoning: true },
     );
     await sendPrompt(term, "cap rollover");
@@ -266,20 +358,25 @@ describe("reasoning cap rollover guard (part-a §6)", () => {
     expect(historyText()).toContain("CAP-REPLY-DONE");
     await term.settle();
     const raw = term.rawBytes().toString("utf8");
-    // The 64 KiB cap swaps the prefix for a moving window: the history
-    // keeps the windowed tail only (measured: 60 of 70 PIECE rows), so the
-    // per-frame-reprint claim is asserted as "no marker appears more than
-    // once in the surviving history" — the honest model-level translation
-    // of the baseline's intent (whose own needle was vacuous, README
-    // anomaly #1).
-    const pieceRows = countOccurrences(historyText(), "PIECE-");
+    // The claim is "repainting once rather than per frame", and the
+    // observable that carries it is the byte stream: the 64 KiB display cap
+    // swaps the prefix for a moving window, and the stored chain must drop
+    // its printed chunks on exactly the frame that discards them (Chat.tsx
+    // nextReasoningHead). Re-asserting the reset on every windowed frame —
+    // MUT-K, `reset: true` unconditionally — repaints the transcript while
+    // the reasoning streams: measured 14 duplicated markers and 115 KB
+    // against 0 and ~75 KB here.
+    const marks = [...raw.matchAll(/PIECE-\d{4}/g)].map((m) => m[0]);
     // eslint-disable-next-line no-console
-    console.log(`[frame-guards] cap rollover: PIECE rows in history ${pieceRows}, bytes ${term.rawBytes().length}`);
-    expect(pieceRows).toBeGreaterThan(0);
-    expect(pieceRows).toBeLessThanOrEqual(reasoningDeltas.length);
-    const duplicated = [...historyText().matchAll(/PIECE-\d+/g)].map((m) => m[0]);
-    expect(new Set(duplicated).size).toBe(duplicated.length); // no marker twice
+    console.log(`[frame-guards] cap rollover: marks ${marks.length}, bytes ${term.rawBytes().length}`);
+    expect(marks.length).toBeGreaterThan(0); // really emitted, unlike the vacuous baseline needle
+    // The run-level half keeps only stable observables (the pure test above
+    // is the one that bites): a per-marker duplicate count on a delayed
+    // stream varies run to run — measured 13/14/18 duplicates — because it
+    // depends on how many frames the host managed, which is exactly the
+    // wall-clock coupling this architecture removes.
     expect(countOccurrences(raw, CLEAR)).toBe(0);
+    expect(term.screen.counters.fullscreenFrames).toBe(0);
     // Baseline bound 1_500_000 on the pty; measured here far below (see log).
     expect(term.rawBytes().length).toBeLessThan(800_000);
     await term.unmount();
