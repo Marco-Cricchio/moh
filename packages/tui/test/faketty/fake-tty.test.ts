@@ -1,3 +1,4 @@
+import "./ci-mask"; // BEFORE the ink import: is-in-ci snapshots the env at module load
 import { describe, test, expect } from "bun:test";
 import { createElement, type ReactElement } from "react";
 import { Box, Text } from "ink";
