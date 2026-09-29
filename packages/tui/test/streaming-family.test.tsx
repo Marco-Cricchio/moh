@@ -35,6 +35,7 @@
  *   (nextReasoningHead pure test + the PIECE-marker run companion).
  * - PTY §10 "oversized prose output-bounded (#203)" → frame-guards §3.
  */
+import "./faketty/ci-mask"; // BEFORE any ink-loading import: is-in-ci snapshots the env at module load
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
