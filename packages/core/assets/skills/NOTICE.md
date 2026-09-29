@@ -63,7 +63,9 @@ from the upstream `implement` workflow.
   covers inbound PR review; no upstream pr-review text exists to port.
 - `research` ported from upstream `skills/engineering/research` (SKILL.md;
   commit `d81f3a183412e71a5b1e84ca21bc1a35eea03a60`): `minMohVersion`
-  frontmatter added; upstream `agents/openai.yaml` sidecar not bundled.
+  frontmatter added; upstream `agents/openai.yaml` sidecar not bundled. One
+  moh addition: an explicit no-background-agent fallback (research inline,
+  never skip silently) — upstream left the spawn failure unhandled.
 - `gh-manager` is a moh-native skill (#378) porting the ideas of David
   Lawson's gh-manager (https://github.com/ddlaws0n/gh-manager, MIT —
   Copyright (c) 2026 David Lawson): the declarative init → plan → apply
