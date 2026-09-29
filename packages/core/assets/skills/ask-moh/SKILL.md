@@ -54,6 +54,7 @@ A starting situation that generates work, then merges onto the main flow.
 
 ## Standalone
 
+- **`/research`** — delegate reading legwork to a background agent: investigate a question against primary sources (official docs, source code, specs) and capture the findings, with citations, as a Markdown file in the repo. Use when the user wants a topic researched or docs/API facts gathered while other work continues.
 - **`/domain-modeling`** — sharpen the project's domain language: challenge a fuzzy term, resolve an overloaded word, record a decision as an ADR. Single-context layout: root `CONTEXT.md` + `docs/adr/` (see `docs/agents/domain.md`).
 - **`/session-memory`** — structured session notes for continuity across conversations.
 - **`/gh-manager`** — declarative, IaC-style GitHub repository management ("manage my GitHub footprint", "make my repos match repos.yaml", "standardize labels/branch protection across my repos"): init → plan → apply, with a consent-gated apply.
