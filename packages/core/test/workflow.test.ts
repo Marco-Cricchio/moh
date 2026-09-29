@@ -96,6 +96,7 @@ describe("first-party skill install", () => {
       "moh-implementation-flow",
       "prototype",
       "report-bug", // #573: reporter-side issue filing (maintainer side is /triage)
+      "research", // upstream port (NOTICE.md)
       "session-memory",
       "tdd",
       "to-spec",
