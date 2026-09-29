@@ -910,12 +910,9 @@ export function Chat({
     if (block.markdown !== undefined) {
       const rows = renderRows(block.markdown!);
       const promoted = markdownRowsRef.current.get(block.key) ?? 0;
-      let tail = rows.slice(promoted);
-      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
-      const visibleTail = Math.max(1, shown - promoted);
-      if (state.pending && visibleTail < tail.length) {
-        tail = tail.slice(0, visibleTail);
-      }
+      // #1061: the window rule is a pure function (`visibleVolatileTail`),
+      // asserted at level 0 in pty-successors.test.tsx.
+      const tail = visibleVolatileTail(rows, promoted, revealAllowanceRef.current, state.pending);
       if (tail.length === 0 && promoted > 0) return [];
       const untouched = promoted === 0;
       return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: untouched ? block.continuation : true, tight: untouched ? block.tight : true }];
@@ -1495,6 +1492,28 @@ export function settledBoundary(
 /** Tail projection for the alternate-screen modal background. It keeps the
  * newest complete blocks that fit above the live input instead of clipping
  * the current turn/status when a long session is replayed. */
+/**
+ * The visible tail of an OPEN (volatile) Markdown block (#1061). The
+ * typewriter cursor is a whole-reply character budget, but the visible unit
+ * of an open block is a rendered ROW: rows already promoted to a chain
+ * chunk stay visible regardless of pacing (#1054, "promotion ignores reveal
+ * pacing"), and only the still-volatile tail is truncated — down to one row,
+ * never to nothing, so an in-flight reply is always readable. Pure so the
+ * rule can be asserted at level 0 instead of sampled through a terminal.
+ */
+export function visibleVolatileTail(
+  rows: readonly string[],
+  promoted: number,
+  cursorChars: number,
+  pending: boolean,
+): string[] {
+  const tail = rows.slice(promoted);
+  if (!pending) return tail;
+  const shown = Math.min(rows.length, Math.max(0, cursorChars));
+  const visibleTail = Math.max(1, shown - promoted);
+  return visibleTail < tail.length ? tail.slice(0, visibleTail) : tail;
+}
+
 export function transcriptTail(blocks: readonly TranscriptBlock[], width: number, rowBudget: number): TranscriptBlock[] {
   const selected: TranscriptBlock[] = [];
   let rows = 0;

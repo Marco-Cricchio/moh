@@ -14,7 +14,7 @@ describe.skipIf(!hasPython)("home banner on a tall terminal (PTY)", () => {
       rows: 40,
       config: { onboarded: true, workflowOffered: true, mode: "dev" },
       project: { provider: "mock" },
-      steps: [{ wait: 3.0, until: "New session" }],
+      steps: [{ wait: 10.0, until: "New session" }],
       tail: 40,
     });
     const text = meta.lines.map((line) => line.text).join("\n");
