@@ -2761,16 +2761,17 @@
       }
     },
     "nvidia/nemotron-3.5-lightning": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.52.2)",
+      "date": "2026-09-29",
+      "reason": "the aggregator corrected the window (1000000 -> 262144) and the correction is accepted: openrouter, kilo and nano-gpt's TEE listing all declare 262144 for this row, so the catalog must say so (#1004)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "NVIDIA: Nemotron 3.5 Lightning",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 262144
     },
     "nvidia/nemotron-3.5-lightning:free": {
       "author": "moh migration (#959)",

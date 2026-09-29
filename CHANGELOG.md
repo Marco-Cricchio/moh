@@ -7,6 +7,64 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.52.2] - 2026-09-29
+
+### Fixed
+
+- **A corrected context window no longer freezes the catalog** (#1004): the
+  aggregators now report `openrouter/nvidia/nemotron-3.5-lightning` at
+  262144 where the catalog said 1000000 — and they agree on it: the
+  OpenRouter record, kilo's, and nano-gpt's TEE listing all declare the
+  smaller number, while the row's `:free` twin still declares 1000000. The
+  guard refused the build (`context-window-regression`) rather than ship the
+  correction silently, and the row now declares the window on the
+  established precedent, with the reason recorded next to it. The
+  `:free` row is untouched.
+- **The model catalog was regenerated** (the release step): 23 prices moved
+  in both directions — `openrouter/openai/gpt-5.6-sol-pro` 2 → 4,
+  `z-ai/glm-5.1` 0.96 → 1.4 and `z-ai/glm-5.2` 0.65 → 0.19,
+  `qwen/qwen3.8-27b` 0.42 → 0.04, `~moonshotai/kimi-latest` 0.98 → 0.4 — plus
+  the one accepted context-window correction above. No reasoning flags moved,
+  no issue and no other shrink. `PRICING_SNAPSHOT.version` follows the
+  manifest, which declares 0.52.2.
+
+### Internal
+
+- **The TUI behavioural gate leaves the pty** (ADR-0057, #1052, and the ten
+  PRs that implemented it — #1053, #1063–#1067, #1069–#1072): `tui-pty`
+  was the slowest and least reliable gate in the repository — 14 files, 30
+  tests, 2 860 lines (680 of them a Python VT100 model), ~11m26s on CI
+  against `tui-unit`'s ~2m37s, with verdicts that were a function of the
+  host and of a presentation clock: the same test passed in isolation and
+  failed intermittently inside its file, and *which* test failed changed run
+  to run. The suite is now split by cost of observation. The transcript
+  model is asserted as pure math with no clock; the in-process fake terminal
+  (a fake tty plus the harness's physical-screen/scrollback model ported to
+  TypeScript) carries the behavioural gate as the frames, wipes, layout and
+  ask-user interaction families move off the pty; and what remains in
+  `tui-pty` is the five-file process-boundary gate — startup, raw-mode keys,
+  the alternate screen and its restore, `SIGWINCH`, byte-level `--no-color`,
+  image protocols. A parity test runs one scripted scenario through both the
+  simulator and a real PTY process and compares the physical screen and the
+  scrollback row by row, so the model we own replaces a real terminal under
+  test rather than an assumption. Measured: the PTY job falls from ~11m26s
+  to ~1m31s. The reveal pacing became injectable (`reveal.ts`, a pure
+  cursor that hosts can tune through a prop) so no assertion about which
+  rows are painted at an instant depends on host speed, and the mock
+  provider gained a deterministic mid-stream `hold` — the pty's wall-clock
+  sampling is gone. The CI jobs now pin one exact Bun (1.4.2, previously
+  `latest` while a local checkout ran 1.2.19, so "green on CI" and "green
+  locally" were different claims), and `tui-pty` lost its retry path.
+  No deletion landed before its replacement existed, each move was accepted
+  by showing the new test red under a mutation that violates the old
+  assertion, and the legacy `MOH_TYPEWRITER_*` knobs still work unchanged.
+- **The extension and orchestration decisions are recorded** (#999, PR
+  #1051, ADR-0054 through ADR-0056): prompt-section replacement (the six
+  replaceable sections, one author per composition, the provenance line, the
+  end-of-turn `prompt_override` event), the orchestration capability and its
+  spawn envelope, and the hook timeouts with the required-check rule.
+  Decision records only — no code in this release.
+
 ## [0.52.1] - 2026-09-28
 
 ### Fixed
@@ -1367,7 +1425,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.52.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.52.2...develop
+[0.52.2]: https://github.com/Marco-Cricchio/moh/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/Marco-Cricchio/moh/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/Marco-Cricchio/moh/compare/v0.51.1...v0.52.0
 [0.51.1]: https://github.com/Marco-Cricchio/moh/compare/v0.51.0...v0.51.1
