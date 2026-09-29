@@ -135,6 +135,47 @@ export interface GuardrailJudgeHost {
 const UNKNOWN_MODE = (): "normal" => "normal";
 const DEFAULT_CWD = (): string => process.cwd();
 
+/** #846: the turn's pass aggregate — the count is derived from the ids,
+ * so the two can never disagree, and the ids are what keeps "judged and
+ * passed" distinguishable from "never judged". */
+function passesRecord(callIds: readonly string[]): Record<string, unknown> {
+  return { useCase: "guardrail_passes", calls: callIds.length, callIds: [...callIds] };
+}
+
+/**
+ * #1081: ADR-0032 §2 drops an over-8-KiB payload whole rather than
+ * truncating it, so the aggregate is split instead of grown — one record
+ * per chunk of ids, each well inside the runtime cap. Only a turn judged
+ * hundreds of bash calls ever gets a second record, and it still names
+ * every one of them (#980's injection shape).
+ */
+const PASSES_RECORD_MAX_BYTES = 4096;
+
+/** An aggregate's fixed fields minus the ids: the size a chunk's ids have
+ * to fit alongside. Taken from the builder itself, never re-estimated. */
+const PASSES_OVERHEAD_BYTES = Buffer.byteLength(JSON.stringify(passesRecord([])), "utf8");
+
+/** Splits the turn's passing call ids into per-record chunks (#1081). A
+ * single id longer than the budget rides alone: an id is never cut. */
+function chunkPasses(callIds: readonly string[]): string[][] {
+  const chunks: string[][] = [];
+  let chunk: string[] = [];
+  let size = PASSES_OVERHEAD_BYTES;
+  for (const callId of callIds) {
+    // The quotes JSON adds, plus the separating comma.
+    const bytes = Buffer.byteLength(callId, "utf8") + 3;
+    if (chunk.length > 0 && size + bytes > PASSES_RECORD_MAX_BYTES) {
+      chunks.push(chunk);
+      chunk = [];
+      size = PASSES_OVERHEAD_BYTES;
+    }
+    chunk.push(callId);
+    size += bytes;
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  return chunks;
+}
+
 /**
  * Builds the per-session judge. Uses the extension's durable `state` store
  * so a hot-reload keeps the cache and the last git snapshot.
@@ -163,12 +204,23 @@ export function createGuardrailJudge(
     /**
      * #846: flushes this turn's passing judgments as one aggregate record
      * (called at `afterTurn`); a turn with no passing calls records
-     * nothing. The set resets for the next turn.
+     * nothing. #1081: a turn heavy enough to breach ADR-0032's 8 KiB
+     * per-event cap splits into bounded records instead — the runtime
+     * drops an oversized payload whole, and one dropped record would lose
+     * the entire turn's audit. Same technique as #980's injection
+     * aggregate: the fixed overhead is measured from the builder itself,
+     * and the ids are chunked to fit, never truncated.
      */
     flushPasses(): void {
       if (passCallIds.size === 0) return;
-      deps.append?.({ useCase: "guardrail_passes", calls: passCallIds.size, callIds: [...passCallIds] });
+      const callIds = [...passCallIds];
       passCallIds.clear();
+      for (const chunk of chunkPasses(callIds)) deps.append?.(passesRecord(chunk));
+    },
+    /** Test-only seam: a judged callId joins the turn's aggregate without
+     * driving `judge` (each real call shells out to `gitSnapshot`). */
+    aggregatePassForTest(callId: string): void {
+      aggregatePass(callId);
     },
     /** Drops the cache when the git snapshot changed since the last look. */
     invalidateOnGitChange(): void {
