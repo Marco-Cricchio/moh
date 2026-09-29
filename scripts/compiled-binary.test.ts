@@ -26,10 +26,11 @@ const hostPlatform: Platform | undefined = TARGETS.find(
 )?.platform;
 
 describe.skipIf(!hostPlatform)(`a compiled binary starts a session (${hostPlatform})`, () => {
-  const dir = mkdtempSync(join(tmpdir(), "moh-compiled-"));
+  let dir = "";
   let binary = "";
 
   beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "moh-compiled-"));
     binary = buildBinary({
       platform: hostPlatform!,
       version: "0.0.0-compiled-gate",
@@ -38,7 +39,9 @@ describe.skipIf(!hostPlatform)(`a compiled binary starts a session (${hostPlatfo
     });
   }, 180_000);
 
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  afterAll(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
 
   /** One real session against the compiled binary: isolated project + home. */
   const runSession = (config: Record<string, unknown>) => {

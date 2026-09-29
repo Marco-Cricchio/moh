@@ -12,9 +12,9 @@
 #   cli        — packages/cli
 #   scripts    — build/install/platform-vocabulary tests plus the
 #                compiled-binary gate (#1068: compiles the release artifact
-#                and runs a mock session against it, ~15s; the release
+#                and runs mock sessions against it); ~15s, and the release
 #                pipeline's only automated coverage, since a tag-triggered
-#                release workflow cannot be exercised on a PR)
+#                release workflow cannot be exercised on a PR
 #   tui-unit   — TUI component/ink tests (non-PTY), one retry on failure
 #                (frame assertions that race a slow paint, #930)
 #   tui-pty    — the small real-terminal integration gate: startup, raw keys,
