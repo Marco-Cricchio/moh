@@ -9,24 +9,13 @@ import { request as httpsRequest } from "node:https";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-// #1068: the browser modules are *statically* imported. Loading them
-// through a variable-held `require` kept the load lazy at the source and
-// unresolvable in a compiled binary: bun rewrites only literal
-// `require("…")` calls, so the relative specifier reached the runtime's
-// `$bunfs` resolver and every compiled moh died at session assembly with
-// an enabled browser. The laziness bought nothing — the shared tool
-// runner already imports the browser tool module, so it and the browser
-// session are in every binary's module graph — while the optional
-// *dependency* stays optional where it belongs, in the toolchain probe,
-// which resolves `playwright-core` at call time.
+// #1068: static imports. A variable-held `require` of these relative paths
+// resolves in a source checkout and fails in a compiled binary — see
+// net-guard.ts for the module cycle that made the indirection look
+// necessary, and why the laziness bought nothing.
 import { browserAvailability, BrowserSession } from "./browser";
 import { browserTool } from "./browser-tool";
 import { isPrivateHost } from "./net-guard";
-
-// The private-network predicate keeps its door on this module for callers
-// that reach it here; its definition moved to a leaf both the browser
-// session and the tools may import (#1068 — see net-guard.ts).
-export { isPrivateHost };
 
 /**
  * All built-in tools, keyed by name. Pure contract: name, description,

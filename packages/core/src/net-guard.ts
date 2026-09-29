@@ -2,14 +2,17 @@
  * SEC-05: the private-network predicate, in a module of its own.
  *
  * Two callers share one classification — the fetch tool's SSRF guard and
- * the browser session's navigation guard. The second must not reach the
- * tools assembly to get it: the browser session module is loaded *by* that
- * assembly, so importing back into it is a runtime module cycle, and a
- * cycle of that shape had been worked around with a variable-held
- * `require` of a relative path — which single-file compilation cannot
- * resolve, so an enabled browser crashed every compiled binary (#1068).
- * A leaf both callers may import keeps one implementation of the rule and
- * no cycle in either direction.
+ * the browser session's navigation guard — and the second must not reach
+ * the tools assembly to get it: the browser session module is loaded by
+ * that assembly, so importing back into it is a runtime module cycle. The
+ * cycle had been avoided with a variable-held `require` of a relative
+ * path, which bun's bundler cannot rewrite into its internal registry:
+ * source runs answered it from the real filesystem while every compiled
+ * binary died at session assembly with `Cannot find module './browser'`
+ * the moment the browser tool was enabled (#1068). A leaf both callers may
+ * import keeps one implementation of the rule and no cycle in either
+ * direction — the browser modules are then reachable through plain static
+ * imports, which work in a single-file binary.
  */
 
 /**

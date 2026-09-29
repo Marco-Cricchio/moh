@@ -19,8 +19,7 @@ matching section here at tag time.
   stays opt-in, a missing toolchain is still the visible
   `moh browser install` diagnostic and never a session failure, and the
   toolchain is still probed only when the tool is enabled. The compiled
-  artifact now has a gate of its own in CI, so this class of bug cannot
-  pass a pull request unseen again.
+  artifact gained a gate of its own in CI.
 
 ## [0.52.2] - 2026-09-29
 
