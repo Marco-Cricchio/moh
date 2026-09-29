@@ -603,6 +603,38 @@ describe("built-in tools", () => {
     }
   });
 
+  // #1075: #922 promises that a truncated compressed response rejects instead
+  // of hanging — not *which* phase reports it. The reset can land after the
+  // head is assembled (readBody rejects, as the original assertion assumed) or
+  // while the response is still being built (requestPinnedUrl itself rejects,
+  // so readBody is never reached and the outer await threw). The split rides
+  // the server's write coalescing, not the scheduler, so no timing of the test
+  // can pin one phase for good. Both paths report the reset itself — the
+  // transport's "socket connection was closed" or its "fetch response
+  // aborted" recorded for the header→consume gap — so assert the invariant
+  // that holds in both: settling with a value is the failure, and a rejection
+  // naming the truncation from either phase is the pass.
+  const truncationOf = async (
+    port: number,
+    path: string,
+  ): Promise<{ settled: string } | { rejection: string }> => {
+    let response: Awaited<ReturnType<typeof requestPinnedUrl>>;
+    try {
+      response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${port}${path}`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+    } catch (error) {
+      return { rejection: String(error) };
+    }
+    try {
+      return { settled: await response.readBody() };
+    } catch (error) {
+      return { rejection: String(error) };
+    }
+  };
+
   test("a truncated compressed response rejects instead of hanging (#922)", async () => {
     const server = createNetServer((socket) => {
       socket.once("data", () => {
@@ -615,17 +647,39 @@ describe("built-in tools", () => {
     const address = server.address();
     if (typeof address !== "object" || address === null) throw new Error("test server has no TCP address");
     try {
-      const response = await requestPinnedUrl(
-        new URL(`http://verified.invalid:${address.port}/truncated`),
-        { address: "127.0.0.1", family: 4 },
-        ctx.signal,
-      );
-      await expect(response.readBody()).rejects.toThrow();
+      // The hang half of the claim: a transport that never settles must fail
+      // here rather than park the suite.
+      const outcome = await withDeadline(truncationOf(address.port, "/truncated"));
+      expect("rejection" in outcome, `truncation settled: ${JSON.stringify(outcome)}`).toBe(true);
+      // The truncation must be the *reported* cause, not an incidental error:
+      // the transport's own reset, or the gzip decoder's truncated stream.
+      expect(outcome).toMatchObject({
+        rejection: expect.stringMatching(/socket connection was closed|aborted|unexpected end of file/),
+      });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 
+  /**
+   * #1075: this is where #922's fifth transport claim — a *mid-body*
+   * truncation — was asserted with its own server, pumping the head plus
+   * three gzip bytes before `destroy()`. It was red about one run in six, and
+   * it was not the transport forgetting to fail: the reset lands either after
+   * the head is assembled (`readBody` rejects, the path that test asserted
+   * exclusively) or while the response is still being built
+   * (`requestPinnedUrl` itself rejects, so `readBody` is never reached and
+   * the outer `await` threw). That second phase is request-construction, not
+   * body consumption — a boundary #1075's brief deliberately leaves alone —
+   * and controlling it is not a matter of timing: a census over ~800 resets
+   * of the exact recipe with no delay, 5 ms, 10 ms and 20 ms before
+   * `destroy()` gives 0–7% response-phase rejections for *every* delay,
+   * including zero, so neither a delay nor a synchronisation in the test can
+   * pin the phase. The claim is a strict subset of "a truncated compressed
+   * response rejects instead of hanging", which the test above asserts across
+   * both phases, and of this one, asserted deterministically for the sibling
+   * case.
+   */
   test("a response reset before readBody is remembered and rejects later (#922)", async () => {
     const server = createNetServer((socket) => {
       socket.once("data", () => {
