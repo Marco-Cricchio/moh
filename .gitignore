@@ -7,7 +7,7 @@ dist/
 
 # Internal-only artifacts (never publish)
 prototype/
-research/
+/research/
 AGENTS.md
 docs/agents/
 docs/spec/

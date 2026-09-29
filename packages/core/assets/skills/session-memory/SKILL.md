@@ -8,6 +8,8 @@ minMohVersion: 0.1.0
 
 Keep structured session notes at `session.md` in the project directory moh supplies in the prompt environment (`Session notes:` line under `## Environment`). Use exactly that path — never recompute the project slug from the working directory.
 
+Division of labour with **`handoff`**: durable facts and cross-session state live here; a one-shot document for a *fresh agent to continue this conversation* is `/handoff`'s job (it references these notes by path instead of duplicating them).
+
 ## Path setup
 
 Read the `Session notes:` path from the prompt environment. If it is not available, ask the user for the intended session file rather than recreating the slug calculation manually.

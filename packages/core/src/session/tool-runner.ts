@@ -165,6 +165,10 @@ function classifyToolError(tool: string, output: string): ToolErrorKind | undefi
   if (/permission denied|path outside project root|pattern escapes the project root|requires user co/.test(output)) return "permission";
   if (tool === "edit" && /oldText not found|oldText is not unique/.test(output)) return "edit-mismatch";
   if (/Invalid regular expression/.test(output)) return "invalid-regex";
+  // #1079: the finer classes ride a tag fetch itself writes on the status
+  // line, so the classification never guesses from a status code alone.
+  if (/^HTTP \d{3} for \S+ · rate-limited|^fetch: rate-limited/.test(output)) return "rate-limited";
+  if (/^HTTP \d{3} for \S+ · transient|^fetch: transient/.test(output)) return "transient";
   if (/^HTTP \d{3} /.test(output)) return "http-status";
   if (/file not found:|URL must have a valid scheme|only http\/https URLs are supported/.test(output)) return "not-found";
   if (/^exit code \d+/.test(output)) return "command-exit";

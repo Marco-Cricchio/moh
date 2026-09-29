@@ -61,6 +61,20 @@ from the upstream `implement` workflow.
   bundled.
 - `pr-review` was considered and dropped (#79): upstream `code-review`
   covers inbound PR review; no upstream pr-review text exists to port.
+- `research` ported from upstream `skills/engineering/research` (SKILL.md;
+  commit `d81f3a183412e71a5b1e84ca21bc1a35eea03a60`): `minMohVersion`
+  frontmatter added; upstream `agents/openai.yaml` sidecar not bundled. One
+  moh addition: an explicit no-background-agent fallback (research inline,
+  never skip silently) — upstream left the spawn failure unhandled.
+- `handoff`, `wait-what`, `to-questionnaire` ported from upstream
+  `skills/productivity/*`, `retro` and `pr` from upstream
+  `skills/engineering/*` (SKILL.md only; commit
+  `d81f3a183412e71a5b1e84ca21bc1a35eea03a60`): `minMohVersion` frontmatter
+  added; `disable-model-invocation` dropped (not a moh concept); upstream
+  `agents/openai.yaml` sidecars not bundled. Deviations: `wait-what`
+  references the project glossary in moh's single-context layout
+  (`CONTEXT.md`) first; `retro`'s "Call the Skill tool" phrasing adapted to
+  moh's mechanism (read the SKILL.md from the skills index).
 - `gh-manager` is a moh-native skill (#378) porting the ideas of David
   Lawson's gh-manager (https://github.com/ddlaws0n/gh-manager, MIT —
   Copyright (c) 2026 David Lawson): the declarative init → plan → apply

@@ -2,18 +2,6 @@ import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
-import type { BrowserSession } from "./browser";
-
-declare module "bun" {}
-// `require` for the lazy browser peer (see builtinTools below). Loaded
-// through a runtime-resolved path so the optional dependency stays
-// optional — the module is only touched when `browser.enabled` is true.
-const lazyRequire: (id: string) => unknown =
-  typeof require === "function"
-    ? (require as unknown as (id: string) => unknown)
-    : (id: string) => {
-        throw new Error(`browser: cannot load "${id}" on this runtime`);
-      };
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
@@ -21,6 +9,13 @@ import { request as httpsRequest } from "node:https";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+// #1068: static imports. A variable-held `require` of these relative paths
+// resolves in a source checkout and fails in a compiled binary — see
+// net-guard.ts for the module cycle that made the indirection look
+// necessary, and why the laziness bought nothing.
+import { browserAvailability, BrowserSession } from "./browser";
+import { browserTool } from "./browser-tool";
+import { isPrivateHost } from "./net-guard";
 
 /**
  * All built-in tools, keyed by name. Pure contract: name, description,
@@ -686,34 +681,139 @@ const fetchSchema = z.object({
   maxLength: z.number().int().positive().optional(),
 });
 
-/** SEC-05: maximum followed redirects. */
-const FETCH_MAX_REDIRECTS = 3;
+/** SEC-05: maximum followed redirects. #1079 raised it from 3: real
+ * http→https→www→path chains cost four hops, and every hop is still
+ * re-checked and re-pinned. */
+const FETCH_MAX_REDIRECTS = 10;
 
-/**
- * SEC-05: private/loopback/link-local hostnames and address literals —
- * blocked for fetch unless `MOH_FETCH_ALLOW_PRIVATE` is set (explicit
- * opt-in for local endpoints).
- */
-export function isPrivateHost(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal") || h === "0.0.0.0") return true;
-  // IPv4 literal (incl. IPv4-mapped IPv6 tail).
-  const v4 = h.includes(":") ? (h.match(/(?<=:)(\d+\.\d+\.\d+\.\d+)$/) ?? [])[1] : h;
-  if (v4) {
-    const parts = v4.split(".").map(Number);
-    if (parts.length === 4 && parts.every((p) => Number.isInteger(p) && p >= 0 && p <= 255)) {
-      const [a, b] = parts as [number, number, number, number];
-      return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
-        (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 255;
+/** #1079: how much of a failed response's own words the model gets. Big
+ * enough for a provider's error JSON, small enough that an HTML error
+ * page cannot flood the turn. */
+const FETCH_ERROR_BODY_MAX = 2_048;
+
+/** #1079: the headers that answer "why" — the quota state in whatever
+ * spelling the provider uses (`x-ratelimit-*`), the auth challenge, the
+ * wait hint, and the shape of what came back. Everything else is noise on
+ * a failure. */
+const FETCH_ERROR_HEADER_NAMES = new Set(["content-type", "retry-after", "www-authenticate"]);
+const FETCH_ERROR_HEADER_PREFIXES = ["x-ratelimit-"];
+
+/** One retry, and a bounded wait for it: a server must not be able to park
+ * a turn on `Retry-After: 3600`. */
+const FETCH_RETRY_DELAY_MS = 500;
+const FETCH_RETRY_MAX_DELAY_MS = 10_000;
+
+/** 5xx is the server's failure, not the URL's — worth one more dial. */
+const isTransientStatus = (status: number): boolean => status >= 500;
+
+/** A transport error is retried once, unless the turn was cancelled or the
+ * 30s ceiling already burned (a second 30s wait is worse than the error). */
+function isRetryableTransportError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return !/aborted|timed out/i.test(message);
+}
+
+function retryDelayMs(headers: Headers): number {
+  const raw = headers.get("retry-after")?.trim();
+  if (!raw) return FETCH_RETRY_DELAY_MS;
+  const seconds = Number(raw);
+  const parsed = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(raw) - Date.now();
+  if (!Number.isFinite(parsed)) return FETCH_RETRY_DELAY_MS;
+  return Math.max(0, Math.min(parsed, FETCH_RETRY_MAX_DELAY_MS));
+}
+
+/** Waits, but never past a cancelled turn. */
+function sleepUntilRetry(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new Error("fetch aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** The rate-limit verdict is evidence-based and status-bounded: the provider
+ * says its quota is spent in a 4xx (429, its own `x-ratelimit-*` headers, or
+ * its own words). A 5xx is the server failing, which is `transient` — the
+ * two classes are about different fixes, so the status decides which one a
+ * failure can be. */
+function isRateLimited(status: number, headers: Headers, body: string | null): boolean {
+  if (status >= 500) return false;
+  if (status === 429) return true;
+  if (headers.get("x-ratelimit-remaining") === "0") return true;
+  return body !== null && /\b(rate limit|rate-limit|rate_limit|too many requests)\b/i.test(body);
+}
+
+/** One failure class, three projections: the status-line tag the classifier
+ * reads, the verdict line, and the `ToolErrorKind` it lands in. */
+type FetchFailureClass = "transient" | "rate-limited" | "http-status";
+
+function fetchFailureClass(status: number, headers: Headers, body: string | null): FetchFailureClass {
+  if (isRateLimited(status, headers, body)) return "rate-limited";
+  if (isTransientStatus(status)) return "transient";
+  return "http-status";
+}
+
+/** Why the server said no, in one line the model can act on. */
+function fetchVerdict(kind: FetchFailureClass, status: number, headers: Headers): string {
+  if (kind === "transient") {
+    return "the server failed twice in a row — a server-side, transient error, not a wrong URL";
+  }
+  if (kind === "rate-limited") {
+    return "the rate limit is exhausted — the quota resets on its own, and an authenticated request has a separate, larger one";
+  }
+  if (status === 401 || headers.get("www-authenticate") !== null) {
+    return "the server requires authentication — this tool sends no credentials";
+  }
+  if (status === 404) {
+    return "not found — the path, ref or repository does not exist on that host";
+  }
+  if (status === 403) {
+    return "refused — often bot protection, a region block, or a missing credential";
+  }
+  if (status === 422) {
+    return "the server understood the request but rejected it as invalid — check the refs and parameters you sent";
+  }
+  return "the request was rejected";
+}
+
+/** The failure text: the status line the classifier reads, the verdict, the
+ * headers that carry the reason, and the server's own words (#1079). */
+function describeFetchFailure(
+  requestUrl: string,
+  reachedUrl: string,
+  status: number,
+  headers: Headers,
+  body: string | null,
+): string {
+  const kind = fetchFailureClass(status, headers, body);
+  const lines = [
+    `HTTP ${status} for ${requestUrl}${kind === "http-status" ? "" : ` · ${kind}`}`,
+    `verdict: ${fetchVerdict(kind, status, headers)}`,
+  ];
+  // A failure that happened after a redirect names the URL that failed: a
+  // 404 on a hop is not the URL the model asked for.
+  if (reachedUrl !== requestUrl) lines.push(`fetched: ${reachedUrl}`);
+  const shown: string[] = [];
+  for (const [name, value] of headers) {
+    if (FETCH_ERROR_HEADER_NAMES.has(name) || FETCH_ERROR_HEADER_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+      shown.push(`${name}: ${value}`);
     }
   }
-  // IPv6 literal: loopback, unspecified, unique-local (fc00::/7), link-local (fe80::/10).
-  if (h.includes(":")) {
-    const first = Number.parseInt(h.split(":")[0] || "0", 16);
-    if (h === "::" || h === "::1") return true;
-    if (!Number.isNaN(first)) return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80;
+  if (shown.length > 0) lines.push(`headers: ${shown.join(" · ")}`);
+  if (body !== null) {
+    const excerpt = body.length > FETCH_ERROR_BODY_MAX ? `${body.slice(0, FETCH_ERROR_BODY_MAX)}\n… [truncated]` : body;
+    lines.push(`body: ${excerpt.length > 0 ? excerpt : "(empty)"}`);
+  } else {
+    lines.push("body: (not readable)");
   }
-  return false;
+  return lines.join("\n");
 }
 
 /** True when the operator explicitly allowed private-network fetches. */
@@ -898,8 +998,10 @@ export async function resolveVerifiedUrl(
   }
   // file:// and data:// would turn fetch into a local-file read primitive
   // that bypasses the read tool's root containment.
+  // file:// and data:// would turn fetch into a local-file read primitive
+  // that bypasses the read tool's root containment.
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`fetch: only http/https URLs are supported (got "${url.protocol}")`);
+    throw new Error(`fetch: only http/https URLs are supported (got "${url.protocol}") — use the read tool for local files`);
   }
   if (fetchAllowsPrivate()) return null;
   const host = url.hostname;
@@ -965,8 +1067,10 @@ function assertFetchable(rawUrl: string): URL {
   }
   // file:// and data:// would turn fetch into a local-file read primitive
   // that bypasses the read tool's root containment.
+  // file:// and data:// would turn fetch into a local-file read primitive
+  // that bypasses the read tool's root containment.
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`fetch: only http/https URLs are supported (got "${url.protocol}")`);
+    throw new Error(`fetch: only http/https URLs are supported (got "${url.protocol}") — use the read tool for local files`);
   }
   if (fetchAllowsPrivate()) return url;
   const host = url.hostname;
@@ -994,12 +1098,35 @@ export async function fetchUrlText(
     if (pin) return requestPinned(url, pin.address, signal);
     return doFetch(url, null, signal);
   };
+  // #1079: one retry on a transient answer — a 5xx status (after honoring
+  // `Retry-After`, capped) or a transport error. Never on a 4xx (a 404 does
+  // not change its mind), never on a cancelled turn, never a third dial:
+  // the retry's own outcome is final.
+  const dial = async (url: URL, pin: Awaited<ReturnType<typeof resolveVerifiedUrl>>): Promise<PinnedResponse> => {
+    let retryDelay = FETCH_RETRY_DELAY_MS;
+    try {
+      const first = await fetchHop(url, pin);
+      if (!isTransientStatus(first.status)) return first;
+      retryDelay = retryDelayMs(first.headers);
+      first.discard();
+    } catch (error) {
+      if (signal.aborted || !isRetryableTransportError(error)) throw error;
+    }
+    await sleepUntilRetry(retryDelay, signal);
+    try {
+      return await fetchHop(url, pin);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`fetch: transient network failure after 2 attempts: ${detail}`);
+    }
+  };
 
   // #697: one DNS resolution per URL — the same answer both verifies the
   // host and pins the dial; every redirect hop re-checks and re-pins.
   let pin = await resolveUrl(args.url);
   let url = assertFetchable(args.url);
-  let res = await fetchHop(url, pin);
+  let res = await dial(url, pin);
   for (let hop = 0; hop < FETCH_MAX_REDIRECTS && [301, 302, 303, 307, 308].includes(res.status); hop++) {
     const location = res.headers.get("location");
     if (!location) break;
@@ -1007,15 +1134,24 @@ export async function fetchUrlText(
     const next = new URL(location, url).toString();
     pin = await resolveUrl(next);
     url = assertFetchable(next);
-    res = await fetchHop(url, pin);
+    res = await dial(url, pin);
   }
   if ([301, 302, 303, 307, 308].includes(res.status)) {
     res.discard();
     throw new Error(`fetch: too many redirects (> ${FETCH_MAX_REDIRECTS}) for ${args.url}`);
   }
   if (res.status < 200 || res.status >= 300) {
-    res.discard();
-    throw new Error(`HTTP ${res.status} for ${args.url}`);
+    // #1079: the body (bounded) and the reason headers are the difference
+    // between a model that adapts and one that re-dials blindly until it
+    // reaches for `curl`.
+    let body: string | null = null;
+    try {
+      // One byte past the cap, so the truncation marker is honest.
+      body = (await res.readBody()).slice(0, FETCH_ERROR_BODY_MAX + 1);
+    } catch {
+      res.discard();
+    }
+    throw new Error(describeFetchFailure(args.url, url.toString(), res.status, res.headers, body));
   }
   return truncate((await res.readBody()).slice(0, args.maxLength ?? MAX_OUTPUT));
 }
@@ -1024,9 +1160,12 @@ const fetchTool: Tool<z.infer<typeof fetchSchema>> = {
   name: "fetch",
   description:
     "Fetch an http/https URL and return the response body as text. " +
+    "For local files use the read tool — fetch is for the network only. " +
     "Private/loopback targets are blocked unless MOH_FETCH_ALLOW_PRIVATE=1 is set. " +
     "Connections are pinned to the DNS-verified address (#697): a rebinding host cannot " +
-    "pass verification as public and connect as private.",
+    "pass verification as public and connect as private. " +
+    "Redirects are followed up to 10 hops, a transient 5xx or network failure is retried once, " +
+    "and a non-2xx error carries the server's status, headers and body so you can tell a quota wall from a wrong URL.",
   inputSchema: fetchSchema,
   execute(args, ctx) {
     return fetchUrlText(args, ctx.signal);
@@ -1254,8 +1393,6 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
   // enabled. A missing toolchain is a visible diagnostic, never a turn
   // error and never a session failure — the other tools stay untouched.
   if (options.browser?.enabled) {
-    const { browserAvailability, BrowserSession } = lazyRequire("./browser") as typeof import("./browser");
-    const { browserTool } = lazyRequire("./browser-tool") as typeof import("./browser-tool");
     const home = options.ledgerRoot ? dirname(dirname(options.ledgerRoot)) : undefined;
     // #935: one project root for the whole browser seam — the project's
     // own `node_modules` wins resolution, and the same cwd picks the

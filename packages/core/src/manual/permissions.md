@@ -85,6 +85,34 @@ browser's `upload` action follows the same rule for its source path
 (#777): an out-of-root source asks per occurrence and never persists,
 even under a site-wide `browser:upload` allow rule.
 
+## Web fetches
+
+The `fetch` tool reads one http/https URL and returns its body as text.
+It is network-only: local files belong to `read`, and a `file:` or
+`data:` URL is refused for the same reason — it would be a file read that
+bypasses the read tool's root containment.
+
+Private, loopback and link-local addresses are blocked, and so is a public
+hostname that resolves to one; `MOH_FETCH_ALLOW_PRIVATE=1` is the explicit
+operator opt-out. The connection is pinned to the address DNS verified
+(#697), every redirect hop is re-checked and re-pinned, and at most 10
+hops are followed.
+
+A transient failure — a 5xx answer or a network error — is retried once,
+waiting for `Retry-After` when the server sends one, and never more than
+10 seconds. A 4xx is never retried, and neither is a cancelled turn.
+
+A non-2xx is reported with the status, a one-line verdict, the headers
+that carry the reason (`retry-after`, `x-ratelimit-*`,
+`www-authenticate`, `content-type`) and an excerpt of the response body,
+capped at 2 KB. That is what tells a quota wall you can wait out apart
+from a URL that does not exist. Each failure is classified in the session
+log — `http-status`, `rate-limited` or `transient` — so `moh usage tools`
+can break failures down without re-reading the text.
+
+`fetch` sends no credentials of its own: an endpoint that requires
+authentication answers 401/403, and the error says so.
+
 ## Browser act tier
 
 Read-tier browser actions run without prompts; the act tier (`click`,

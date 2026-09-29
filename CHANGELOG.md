@@ -7,6 +7,105 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-09-29
+
+### Added
+
+- **Six more bundled skills, reachable from the flow** (#1077, #1078):
+  `research` (investigate a question and report findings), `handoff` (compact
+  a conversation into a document a fresh agent continues from), `wait-what`
+  (the correction valve when a reply did not land), `to-questionnaire` (a
+  decision living in someone else's head becomes an async questionnaire),
+  `retro` (session retrospective → environment improvements) and `pr` (a PR
+  body: summary view, before/after evidence, merge danger). All six are
+  verbatim MIT ports from `mattpocock/skills` (commit `d81f3a1`) with the
+  deviations `NOTICE.md` records: `minMohVersion` added,
+  `disable-model-invocation` dropped, the upstream `openai.yaml` sidecars not
+  bundled, `research` carrying an inline fallback for hosts with no
+  background agent, `wait-what` reading the glossary from `CONTEXT.md` first,
+  and `retro`'s "Call the Skill tool" adapted to moh's read-the-SKILL.md
+  mechanism. Installed is not reachable, so they were wired into the
+  orchestration too: the `ask-moh` router sends a PR body to `/pr`, context
+  hygiene to `/handoff` and `/retro`, on-ramps to `/to-questionnaire`, and
+  lists `/wait-what` as the correction valve; `implement`'s close-out names
+  `/code-review` → `/pr` → `/retro`; `grilling` deviates to
+  `/to-questionnaire` when the decision sits with someone else; and
+  `session-memory` states its division of labour with `/handoff`. The
+  bundled roster is 25 skills.
+
+### Changed
+
+- **The model catalog was regenerated** (the release step): 11 prices moved,
+  mostly down — `deepseek/deepseek-v4-pro-0813` 0.48 → 0.39,
+  `z-ai/glm-5.1` 1.4 → 0.96, `qwen/qwen3.8-27b` 0.04 → 0.02,
+  `~z-ai/glm-latest` 0.19 → 0.14 — with `z-ai/glm-5.2` 0.19 → 0.28 going up.
+  No context windows and no reasoning flags moved, and the report carries no
+  issue and no shrink. `PRICING_SNAPSHOT.version` follows the manifest, which
+  declares 0.53.0.
+
+### Documentation
+
+- **The skills page names the six new skills** (#1077, #1078):
+  `skills-and-workflow.md` listed ten bundled skills and ended with "and
+  more", so the six ports above were reachable but invisible from the manual.
+  The page names them and points at `/ask-moh` for the routing overview; the
+  generated mirror in `docs/manual/` was regenerated with the script.
+
+### Fixed
+
+- **A failed `fetch` now says why, so the model stops reaching for
+  `curl`** (#1079, PR #1080): a non-2xx used to discard the response entirely — the
+  model saw `HTTP 403 for <url>` and nothing else. Across 1183 real fetch
+  calls the failures were 269×404, 68×403 (57 of them GitHub's anonymous
+  60-requests-per-hour quota, which `curl` beats only by carrying a token),
+  33×422 and 6×504: the transport was never the culprit, the silence was.
+  A failure now carries the status, a one-line verdict, the headers that
+  carry the reason (`retry-after`, `x-ratelimit-*`, `www-authenticate`,
+  `content-type`) and up to 2 KB of the server's own words — including
+  GitHub's `API rate limit exceeded` and `No commit found for SHA: …`.
+  A 5xx or a network error is retried once, waiting for `Retry-After` up
+  to 10 seconds, while a 4xx and a cancelled turn are never retried.
+  Redirects are followed up to 10 hops (was 3), each still resolved and
+  re-pinned against DNS rebinding. Failures are classified in the session
+  log as `rate-limited` or `transient` alongside `http-status`, so
+  `moh usage tools` separates the server saying no from moh getting it
+  wrong. The tool now also points local files at the `read` tool: 25 real
+  calls had passed a `file://` URL to `fetch`.
+- **A compiled binary starts a session with the browser enabled** (#1068, PR #1076):
+  the browser modules were reached through a load that only resolves when
+  moh runs from a source checkout, so every released single-file binary
+  died at session assembly with `Cannot find module './browser'` as soon as
+  the browser tool was enabled, on every platform, for every user who
+  turned it on. The modules are now loaded the way the bundler can see
+  them, which changes nothing about the tool itself: `browser.enabled`
+  stays opt-in, a missing toolchain is still the visible
+  `moh browser install` diagnostic and never a session failure, and the
+  toolchain is still probed only when the tool is enabled. The compiled
+  artifact gained a gate of its own in CI.
+- **A heavy turn keeps its whole guardrail audit** (#1081, PR #1082): the
+  pass audit accumulated every passing `bash` call's id — live and cache hits
+  — and flushed them as one `appendEvent` at turn end. A turn with enough
+  judged calls (~280) pushed the payload past ADR-0032's 8 KiB per-event cap,
+  and the runtime drops an oversized payload **whole**, so one
+  `extension_failed … payload exceeds the 8192 byte cap` line replaced the
+  entire record — observed in real logs at 129/146/194 callIds, up to ~6.4 KB
+  and one step from the cliff. The ids are now split into bounded
+  `guardrail_passes` records at 4096 bytes, the same treatment #980 gave the
+  injection aggregate, so every judged call stays named in the log whatever
+  the turn's volume.
+
+### Internal
+
+- **The #922 truncation test asserts the invariant, not the phase**
+  (#1075, PR #1083): the flake was a race, not load — `head + 3 gzip bytes +
+  destroy()` can land after the response head is assembled (body-phase
+  rejection) or while the response is still being built (request-phase
+  rejection), the test accepted only the first, and its outer `await` was
+  unguarded, so it failed with Bun's `ECONNRESET` instead of its own
+  assertion. Both phases now settle into one outcome that is asserted, the
+  mid-body server whose claim was unreachable was retired with its reason
+  recorded, and 40 consecutive runs (whole-file and isolated) are green.
+
 ## [0.52.2] - 2026-09-29
 
 ### Fixed
@@ -1425,7 +1524,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.52.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.53.0...develop
+[0.53.0]: https://github.com/Marco-Cricchio/moh/compare/v0.52.2...v0.53.0
 [0.52.2]: https://github.com/Marco-Cricchio/moh/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/Marco-Cricchio/moh/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/Marco-Cricchio/moh/compare/v0.51.1...v0.52.0

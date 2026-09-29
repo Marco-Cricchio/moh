@@ -12,6 +12,6 @@ Use /tdd where possible, at pre-agreed seams.
 
 Run typechecking regularly, single test files regularly, and the full test suite once at the end.
 
-Once done, use /code-review to review the work.
+Once done, use /code-review to review the work, then /pr to draft the PR body (summary view, before/after evidence, merge danger). After the PR lands, /retro turns the session into environment improvements.
 
 Commit your work to the current branch.
