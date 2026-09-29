@@ -9,6 +9,24 @@ matching section here at tag time.
 
 ### Fixed
 
+- **A failed `fetch` now says why, so the model stops reaching for
+  `curl`** (#1079): a non-2xx used to discard the response entirely — the
+  model saw `HTTP 403 for <url>` and nothing else. Across 1183 real fetch
+  calls the failures were 269×404, 68×403 (57 of them GitHub's anonymous
+  60-requests-per-hour quota, which `curl` beats only by carrying a token),
+  33×422 and 6×504: the transport was never the culprit, the silence was.
+  A failure now carries the status, a one-line verdict, the headers that
+  carry the reason (`retry-after`, `x-ratelimit-*`, `www-authenticate`,
+  `content-type`) and up to 2 KB of the server's own words — including
+  GitHub's `API rate limit exceeded` and `No commit found for SHA: …`.
+  A 5xx or a network error is retried once, waiting for `Retry-After` up
+  to 10 seconds, while a 4xx and a cancelled turn are never retried.
+  Redirects are followed up to 10 hops (was 3), each still resolved and
+  re-pinned against DNS rebinding. Failures are classified in the session
+  log as `rate-limited` or `transient` alongside `http-status`, so
+  `moh usage tools` separates the server saying no from moh getting it
+  wrong. The tool now also points local files at the `read` tool: 25 real
+  calls had passed a `file://` URL to `fetch`.
 - **A compiled binary starts a session with the browser enabled** (#1068):
   the browser modules were reached through a load that only resolves when
   moh runs from a source checkout, so every released single-file binary

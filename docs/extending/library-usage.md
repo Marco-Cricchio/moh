@@ -152,8 +152,12 @@ effective `timeoutMs` (resolved by the tool, defaults included) — clients
 can render a live limit from it without duplicating per-tool defaults. A
 failed `tool_result` may carry a structured `errorKind` (`validation`,
 `permission`, `timeout`, `cancelled`, `not-found`, `io`, `http-status`,
-`edit-mismatch`, `invalid-regex`, `command-exit`) so telemetry can
-classify failures without parsing output text.
+`rate-limited`, `transient`, `edit-mismatch`, `invalid-regex`,
+`command-exit`) so telemetry can classify failures without parsing output
+text. The last two HTTP kinds (#1079) separate a server that refused for
+its own reasons — `rate-limited`, a spent quota — from one that failed
+transiently — `transient`, a 5xx or a network error that survived `fetch`'s
+single retry; anything else the server answered stays `http-status`.
 
 ```ts
 async function watch() {

@@ -271,10 +271,246 @@ describe("built-in tools", () => {
     expect(out).toBe("Example body from 203.0.113.7");
   });
 
+  // #1079: the failure text of a fetch that must reject.
+  const failureOf = (pending: Promise<string>): Promise<string> =>
+    pending.then(
+      () => { throw new Error("expected the fetch to fail"); },
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    );
+
+  // #1079: a non-2xx is a diagnostic, not a blank refusal. What the server
+  // said (body + the headers that carry the reason) is what lets the model
+  // tell a quota wall from a typo, instead of re-dialling blindly.
+  describe("non-2xx failures carry the server's explanation (#1079)", () => {
+    const failing = (status: number, headers: Record<string, string>, body: string) =>
+      fetchUrlText(
+        { url: "https://api.example.test/repos/x/issues/1" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => ({
+            status,
+            headers: new Headers(headers),
+            readBody: async () => body,
+            discard: () => {},
+          }),
+        },
+      );
+
+    test("a rate-limited 403 keeps the body, the quota headers and a verdict", async () => {
+      const text = await failureOf(failing(
+        403,
+        { "content-type": "application/json", "retry-after": "60", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1790708565" },
+        JSON.stringify({ message: "API rate limit exceeded for 1.2.3.4." }),
+      ));
+      // The classifier in the tool runner matches this line's exact shape.
+      expect(text.split("\n")[0]).toBe("HTTP 403 for https://api.example.test/repos/x/issues/1 · rate-limited");
+      expect(text).toContain("API rate limit exceeded for 1.2.3.4.");
+      expect(text).toContain("retry-after: 60");
+      expect(text).toContain("x-ratelimit-remaining: 0");
+    });
+
+    test("a 401 names the missing credential and the challenge header", async () => {
+      const text = await failureOf(failing(401, { "www-authenticate": 'Bearer realm="api"' }, "Unauthorized"));
+      expect(text).toContain("requires authentication");
+      expect(text).toContain("www-authenticate");
+      expect(text).toContain("Unauthorized");
+    });
+
+    test("a 404 explains what a missing ref means without inventing a cause", async () => {
+      const text = await failureOf(failing(404, { "content-type": "application/json" }, JSON.stringify({ message: "Branch not found" })));
+      expect(text).toContain("not found");
+      expect(text).toContain("Branch not found");
+    });
+
+    test("a 500 after the retry is marked transient and names the attempt count", async () => {
+      let dials = 0;
+      const text = await failureOf(fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            return { status: 500, headers: new Headers(), readBody: async () => "boom", discard: () => {} };
+          },
+        },
+      ));
+      expect(dials).toBe(2);
+      expect(text.split("\n")[0]).toBe("HTTP 500 for https://api.example.test/x · transient");
+      expect(text).toContain("failed twice in a row");
+      expect(text).toContain("boom");
+    });
+
+    test("the body excerpt is capped so one error page cannot flood the turn", async () => {
+      const text = await failureOf(failing(500, {}, "x".repeat(50_000)));
+      expect(text).toContain("… [truncated]");
+      expect(text.length).toBeLessThan(5_000);
+    });
+
+    test("an unreadable error body still reports the status and headers", async () => {
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => ({
+            status: 502,
+            headers: new Headers({ "content-type": "text/html" }),
+            readBody: async () => { throw new Error("fetch response aborted"); },
+            discard: () => {},
+          }),
+        },
+      ).then(
+        () => { throw new Error("expected the fetch to fail"); },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      expect(text).toMatch(/^HTTP 502 for/);
+      expect(text).toContain("content-type: text/html");
+      expect(text).not.toContain("fetch response aborted");
+    });
+  });
+
+  // #1079: one retry on a transient failure, and a redirect budget that
+  // matches real site chains. Both are bounded: no retry loop, no hop loop.
+  describe("retry and redirect budgets (#1079)", () => {
+    test("a transport failure is dialled once more, then reported as transient", async () => {
+      let dials = 0;
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            throw new Error("ECONNRESET: the socket was closed");
+          },
+        },
+      ).then(
+        () => { throw new Error("expected the fetch to fail"); },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      expect(dials).toBe(2);
+      expect(text).toMatch(/^fetch: transient network failure after 2 attempts: ECONNRESET/);
+    });
+
+    test("a 5xx whose retry dies in transport is two dials, not three", async () => {
+      let dials = 0;
+      const text = await failureOf(fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            if (dials === 1) return { status: 503, headers: new Headers({ "retry-after": "0" }), readBody: async () => "down", discard: () => {} };
+            throw new Error("ECONNRESET: the socket was closed");
+          },
+        },
+      ));
+      expect(dials).toBe(2);
+      expect(text).toBe("fetch: transient network failure after 2 attempts: ECONNRESET: the socket was closed");
+    });
+
+    test("a recovered retry returns the body with no scar on the result", async () => {
+      let dials = 0;
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            if (dials === 1) return { status: 503, headers: new Headers({ "retry-after": "0" }), readBody: async () => "later", discard: () => {} };
+            return { status: 200, headers: new Headers(), readBody: async () => "RECOVERED", discard: () => {} };
+          },
+        },
+      );
+      expect(text).toBe("RECOVERED");
+      expect(dials).toBe(2);
+    });
+
+    test("a 404 is never retried — the URL will not change its mind", async () => {
+      let dials = 0;
+      await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            return { status: 404, headers: new Headers(), readBody: async () => "nope", discard: () => {} };
+          },
+        },
+      ).catch(() => undefined);
+      expect(dials).toBe(1);
+    });
+
+    test("a cancelled turn is not retried", async () => {
+      const controller = new AbortController();
+      let dials = 0;
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        controller.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            controller.abort();
+            throw new Error("fetch aborted");
+          },
+        },
+      ).then(
+        () => { throw new Error("expected the fetch to fail"); },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      expect(dials).toBe(1);
+      expect(text).toBe("fetch aborted");
+    });
+
+    test("a failure after a redirect names the URL that actually failed", async () => {
+      const text = await failureOf(fetchUrlText(
+        { url: "https://loop.test/0" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (url: URL): Promise<PinnedResponse> =>
+            url.pathname === "/0"
+              ? { status: 302, headers: new Headers({ location: "https://loop.test/moved" }), readBody: async () => "hop", discard: () => {} }
+              : { status: 404, headers: new Headers(), readBody: async () => "gone", discard: () => {} },
+        },
+      ));
+      expect(text).toContain("fetched: https://loop.test/moved");
+      expect(text).toContain("not found");
+    });
+
+    test("a chain of ten redirects is followed and an eleventh hop is refused", async () => {
+      const chain = (status: number | null) => async (url: URL): Promise<PinnedResponse> => {
+        const hop = Number(new URL(url).pathname.slice(1));
+        if (status !== null && hop === 10) return { status: 200, headers: new Headers(), readBody: async () => "END", discard: () => {} };
+        return {
+          status: 302,
+          headers: new Headers({ location: `https://loop.test/${hop + 1}` }),
+          readBody: async () => "hop",
+          discard: () => {},
+        };
+      };
+      const deps = (fn: (url: URL) => Promise<PinnedResponse>) => ({
+        lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+        requestPinned: (url: URL) => fn(url),
+      });
+      expect(await fetchUrlText({ url: "https://loop.test/0" }, ctx.signal, deps(chain(200)))).toBe("END");
+      const text = await failureOf(fetchUrlText({ url: "https://loop.test/0" }, ctx.signal, deps(chain(null))));
+      expect(text).toContain("too many redirects (> 10)");
+    });
+  });
+
   // SEC-05 regression suite.
   test("fetch rejects non-http schemes (file:, data:)", async () => {
-    await expect(tools.fetch.execute({ url: "file:///etc/hosts" }, ctx)).rejects.toThrow(/only http\/https/);
-    await expect(tools.fetch.execute({ url: "data:text/plain,x" }, ctx)).rejects.toThrow(/only http\/https/);
+    await expect(tools.fetch.execute({ url: "file:///etc/hosts" }, ctx)).rejects.toThrow(
+      /only http\/https URLs are supported \(got "file:"\) — use the read tool for local files/,
+    );
+    await expect(tools.fetch.execute({ url: "data:text/plain,x" }, ctx)).rejects.toThrow(/got "data:"/);
   });
 
   test("fetch blocks private/loopback hosts by default (SEC-05)", async () => {
