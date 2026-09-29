@@ -10,9 +10,12 @@
 #   typecheck  — bun run typecheck (~30s)
 #   core       — packages/core + packages/extension
 #   cli        — packages/cli
-#   scripts    — build/install/platform-vocabulary tests (~2s; the release
-#                pipeline's only automated coverage, since a tag-triggered
-#                release workflow cannot be exercised on a PR)
+#   scripts    — build/install/platform-vocabulary tests plus the
+#                compiled-binary gate (#1068: compiles the release artifact
+#                and runs mock sessions against it — ~1s on CI, a few
+#                seconds locally); the release pipeline's only automated
+#                coverage, since a tag-triggered release workflow cannot be
+#                exercised on a PR
 #   tui-unit   — TUI component/ink tests (non-PTY), one retry on failure
 #                (frame assertions that race a slow paint, #930)
 #   tui-pty    — the small real-terminal integration gate: startup, raw keys,
@@ -78,6 +81,9 @@ jobs:
   # installer's uname mapping and the self-update vocabulary are four copies
   # of one platform list, and the release workflow that consumes them only
   # runs on a tag — so this cheap job is where they are reconciled on a PR.
+  # #1068 added the compiled-binary gate here for the same reason: the
+  # artifact's module resolution lives only in a compiled binary, and the
+  # release smoke test is the one gate a PR never runs.
   scripts:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -76,6 +76,20 @@ jobs:
           cd "$RUNNER_TEMP/smoke-project"
           out="$("$GITHUB_WORKSPACE/dist/moh-${{ matrix.platform }}" run --provider mock "say hi")"
           echo "$out" | grep -q '"type":"done"' || { echo 'headless smoke: no done event'; exit 1; }
+      # #1068: an enabled browser is a second session-assembly path, and the
+      # only one a compiled binary cannot reach without the bundler's help.
+      # The toolchain is absent on a fresh runner, so the expected outcome is
+      # the documented diagnostic on stderr — never a failed session.
+      - name: Smoke test — headless run with the browser enabled (#1068)
+        env:
+          HOME: ${{ runner.temp }}/smoke-home
+        run: |
+          mkdir -p "$HOME" "$RUNNER_TEMP/smoke-browser-project"
+          cd "$RUNNER_TEMP/smoke-browser-project"
+          printf '{"browser":{"enabled":true,"headless":true}}\n' > moh.json
+          out="$("$GITHUB_WORKSPACE/dist/moh-${{ matrix.platform }}" run --provider mock "say hi" 2>smoke.err)"
+          echo "$out" | grep -q '"type":"done"' || { echo 'browser smoke: no done event'; exit 1; }
+          grep -q 'moh browser install' smoke.err || { echo 'browser smoke: the missing-toolchain diagnostic is missing'; exit 1; }
       - uses: actions/upload-artifact@v7
         with:
           name: moh-${{ matrix.platform }}

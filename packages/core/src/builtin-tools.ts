@@ -2,18 +2,6 @@ import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
-import type { BrowserSession } from "./browser";
-
-declare module "bun" {}
-// `require` for the lazy browser peer (see builtinTools below). Loaded
-// through a runtime-resolved path so the optional dependency stays
-// optional — the module is only touched when `browser.enabled` is true.
-const lazyRequire: (id: string) => unknown =
-  typeof require === "function"
-    ? (require as unknown as (id: string) => unknown)
-    : (id: string) => {
-        throw new Error(`browser: cannot load "${id}" on this runtime`);
-      };
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
@@ -21,6 +9,13 @@ import { request as httpsRequest } from "node:https";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+// #1068: static imports. A variable-held `require` of these relative paths
+// resolves in a source checkout and fails in a compiled binary — see
+// net-guard.ts for the module cycle that made the indirection look
+// necessary, and why the laziness bought nothing.
+import { browserAvailability, BrowserSession } from "./browser";
+import { browserTool } from "./browser-tool";
+import { isPrivateHost } from "./net-guard";
 
 /**
  * All built-in tools, keyed by name. Pure contract: name, description,
@@ -689,33 +684,6 @@ const fetchSchema = z.object({
 /** SEC-05: maximum followed redirects. */
 const FETCH_MAX_REDIRECTS = 3;
 
-/**
- * SEC-05: private/loopback/link-local hostnames and address literals —
- * blocked for fetch unless `MOH_FETCH_ALLOW_PRIVATE` is set (explicit
- * opt-in for local endpoints).
- */
-export function isPrivateHost(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal") || h === "0.0.0.0") return true;
-  // IPv4 literal (incl. IPv4-mapped IPv6 tail).
-  const v4 = h.includes(":") ? (h.match(/(?<=:)(\d+\.\d+\.\d+\.\d+)$/) ?? [])[1] : h;
-  if (v4) {
-    const parts = v4.split(".").map(Number);
-    if (parts.length === 4 && parts.every((p) => Number.isInteger(p) && p >= 0 && p <= 255)) {
-      const [a, b] = parts as [number, number, number, number];
-      return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
-        (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 255;
-    }
-  }
-  // IPv6 literal: loopback, unspecified, unique-local (fc00::/7), link-local (fe80::/10).
-  if (h.includes(":")) {
-    const first = Number.parseInt(h.split(":")[0] || "0", 16);
-    if (h === "::" || h === "::1") return true;
-    if (!Number.isNaN(first)) return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80;
-  }
-  return false;
-}
-
 /** True when the operator explicitly allowed private-network fetches. */
 const fetchAllowsPrivate = (): boolean =>
   ["1", "true", "yes"].includes((process.env.MOH_FETCH_ALLOW_PRIVATE ?? "").toLowerCase());
@@ -1254,8 +1222,6 @@ export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, 
   // enabled. A missing toolchain is a visible diagnostic, never a turn
   // error and never a session failure — the other tools stay untouched.
   if (options.browser?.enabled) {
-    const { browserAvailability, BrowserSession } = lazyRequire("./browser") as typeof import("./browser");
-    const { browserTool } = lazyRequire("./browser-tool") as typeof import("./browser-tool");
     const home = options.ledgerRoot ? dirname(dirname(options.ledgerRoot)) : undefined;
     // #935: one project root for the whole browser seam — the project's
     // own `node_modules` wins resolution, and the same cwd picks the

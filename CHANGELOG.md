@@ -7,6 +7,20 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A compiled binary starts a session with the browser enabled** (#1068):
+  the browser modules were reached through a load that only resolves when
+  moh runs from a source checkout, so every released single-file binary
+  died at session assembly with `Cannot find module './browser'` as soon as
+  the browser tool was enabled, on every platform, for every user who
+  turned it on. The modules are now loaded the way the bundler can see
+  them, which changes nothing about the tool itself: `browser.enabled`
+  stays opt-in, a missing toolchain is still the visible
+  `moh browser install` diagnostic and never a session failure, and the
+  toolchain is still probed only when the tool is enabled. The compiled
+  artifact gained a gate of its own in CI.
+
 ## [0.52.2] - 2026-09-29
 
 ### Fixed
