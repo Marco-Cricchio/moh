@@ -18,6 +18,7 @@
  * once at module load), so the two tests that need pacing use `Chat`
  * directly — same as the T5 ticket anticipated for T6/T7 follow-ups.
  */
+import "./faketty/ci-mask"; // BEFORE the production imports (factory→App→ink): is-in-ci snapshots the env at module load
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
