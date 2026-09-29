@@ -113,14 +113,14 @@ jobs:
         run: |
           set +e
           globs="packages/tui/test/*.test.ts packages/tui/test/*.test.tsx"
-          bun --preload packages/tui/test/faketty/ci-mask.ts test $globs
+          bun test --preload packages/tui/test/faketty/ci-mask.ts $globs
           first=$?
           if [ "$first" -eq 0 ]; then
             exit 0
           fi
           echo "::warning::tui-unit failed on the first attempt (exit $first) — re-running the same globs once. A flake that only passes on the retry is still a flake to fix (#930)."
           sleep 5
-          bun --preload packages/tui/test/faketty/ci-mask.ts test $globs
+          bun test --preload packages/tui/test/faketty/ci-mask.ts $globs
           second=$?
           if [ "$second" -ne 0 ]; then
             echo "::error::tui-unit failed twice (first exit $first, retry exit $second) — treat it as a real failure, not a flake."
