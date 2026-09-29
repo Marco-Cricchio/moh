@@ -1,8 +1,18 @@
 import type { ReactElement } from "react";
-import { render as inkRender } from "ink";
 import { FakeStdout } from "./stdout";
 import { FakeStdin } from "./stdin";
 import { VtScreen } from "./screen";
+
+// Ink decides "am I in CI?" ONCE, at module import (`is-in-ci` snapshots
+// `process.env.CI` when the module graph loads). Under the runners, `CI`
+// is set, and Ink's CI path never writes frames to stdout (it stores them)
+// and never subscribes to resize — the byte stream these tests exist to
+// read would be empty. The fake tty IS the terminal: this environment is
+// not CI. The masking lives in ./ci-mask, which every fake-tty consumer
+// imports FIRST (this module imports it before `ink`; test files that
+// import `ink` directly import ci-mask even earlier — see fake-tty.test.ts).
+import "./ci-mask";
+import { render as inkRender } from "ink";
 
 /**
  * In-process Ink rendering over the fake TTY (#1057, T4 of #1052 / ADR-0057
@@ -120,12 +130,11 @@ export function renderOnFakeTty(
 		resize: (c, r) => {
 			stdout.columns = c;
 			stdout.rows = r;
-			stdout.emit("resize");
-			// The Python harness rebuilds its Screen on resize (fresh
-			// geometry; the scrollback is deliberately dropped there) —
-			// here the swap also keeps the raw byte stream as the single
-			// source of truth.
+			// Swap the screen BEFORE emitting: Ink repaints synchronously
+			// inside the resize emit (clear + full repaint), so those bytes
+			// must land on the new geometry, not on the old one.
 			screen = new VtScreen(c, r);
+			stdout.emit("resize");
 		},
 		rerender: (tree) => {
 			instance.rerender(tree);

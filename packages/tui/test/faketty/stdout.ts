@@ -28,7 +28,17 @@ export class FakeStdout extends EventEmitter {
 	}
 
 	write(data: string | Buffer): boolean {
-		const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+		// ONLCR (#1058, T5): a real PTY's termios translates bare `\n` to
+		// `\r\n` before the terminal model sees it — the VtScreen in
+		// `screen.ts` is a byte-for-byte port of the Python harness that
+		// reads post-ONLCR bytes, so it treats a bare `\n` as newline-only
+		// (column preserved). Ink writes bare `\n`; without the translation
+		// every centered/indented row after the first drifts right. The
+		// conversion lives here (the fake terminal device), NOT in the
+		// screen model, so `rawBytes()` stays "what the terminal received"
+		// exactly like a pty rawDump.
+		const text = (Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8")).toString("utf8");
+		const buf = Buffer.from(text.replace(/(?<!\r)\n/g, "\r\n"), "utf8");
 		this.chunks.push(buf);
 		this._bytes += buf.length;
 		this.emit("write", buf);
