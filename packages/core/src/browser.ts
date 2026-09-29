@@ -16,7 +16,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSy
 import { homedir } from "node:os";
 import { isAbsolute, dirname, join, relative, resolve } from "node:path";
 import { projectSlug } from "./session-store";
-import { isPrivateHost } from "./builtin-tools";
+import { isPrivateHost } from "./net-guard";
 import {
   probeBrowserToolchainWithModule,
   type BrowserToolchainOptions,

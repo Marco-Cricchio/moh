@@ -8,10 +8,12 @@ They are discovered from `~/.moh/skills/` (user) and `.moh/skills/`
 
 Workflow mode (per user, off by default) enables the first-party
 workflow: the bundled skills — grilling, prototype, to-spec, to-tickets,
-implement,
-tdd, code-review, triage, diagnosing-bugs, report-bug, and more — as slash
-commands,
-plus the wayfinder frontier panel.
+implement, tdd, code-review, triage, diagnosing-bugs, report-bug,
+research, handoff, wait-what, to-questionnaire, retro, pr, and more — as
+slash commands,
+plus the wayfinder frontier panel. Run `/ask-moh` with no argument for the
+routing overview: which skill or flow fits a situation, and how they hand
+off to each other.
 
 ```
 /workflow on     # copies the bundled skills to ~/.moh/skills/

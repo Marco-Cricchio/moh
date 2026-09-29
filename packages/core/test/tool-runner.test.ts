@@ -182,6 +182,12 @@ describe("ToolRunner", () => {
       ["timeout", new Error("bash: timed out after 30000ms: x"), "timeout"],
       ["not-found", new Error("file not found: src/x.ts"), "not-found"],
       ["io", new Error("ENOTDIR: not a directory, open '/x'"), "io"],
+      ["http-status", new Error("HTTP 404 for https://x.test/a"), "http-status"],
+      // #1079: the two failure classes fetch now names — the ones that tell
+      // "wait or authenticate" apart from "fix the URL" in telemetry.
+      ["rate-limited", new Error("HTTP 403 for https://api.github.com/x · rate-limited\nverdict: the rate limit is exhausted"), "rate-limited"],
+      ["transient-status", new Error("HTTP 504 for https://api.github.com/x · transient\nverdict: the server failed twice in a row"), "transient"],
+      ["transient-network", new Error("fetch: transient network failure after 2 attempts: ECONNRESET"), "transient"],
       ["unclassified", new Error("kaput"), undefined],
     ];
     for (const [name, err, kind] of cases) {

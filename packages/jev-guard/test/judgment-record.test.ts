@@ -171,6 +171,33 @@ describe("guardrail pass aggregation (#846)", () => {
     expect(records).toHaveLength(3);
     expect(records[2]).toMatchObject({ useCase: "guardrail_passes", calls: 2, callIds: ["c1", "c2"] });
   });
+
+  test("#1081: a turn heavy enough to breach the 8 KiB cap splits into bounded records, never a dropped one", async () => {
+    const records: Record<string, unknown>[] = [];
+    // Aggregate directly (like the #980 injection test drives its judge):
+    // the aggregate seam is what this test targets, and 320 judge calls
+    // each shelling out to `gitSnapshot` would breach bun's 5 s test
+    // timeout without adding coverage.
+    const judge = createGuardrailJudge(
+      { client: fakeClient([]), state: {}, append: (p) => records.push(p) },
+      { cwd: () => process.cwd() },
+    );
+    for (let i = 0; i < 320; i += 1) judge.aggregatePassForTest(`call_${String(i).padStart(4, "0")}_abcdefghijklmnopqrst`);
+    judge.flushPasses();
+    expect(records.length).toBeGreaterThan(1);
+    expect(records.every((r) => r.useCase === "guardrail_passes")).toBe(true);
+    // Each record stays inside the runtime cap, and the union of chunks
+    // names every id exactly once.
+    const ids = records.flatMap((r) => r.callIds as string[]);
+    expect(ids).toHaveLength(320);
+    expect(new Set(ids).size).toBe(320);
+    expect(records.reduce((sum, r) => sum + (r.calls as number), 0)).toBe(320);
+    // Same per-record budget assertion as the #980 injection regression:
+    // every emitted record stays inside the runtime's 8 KiB event cap.
+    expect(
+      records.every((r) => Buffer.byteLength(JSON.stringify(r), "utf8") < 8192),
+    ).toBe(true);
+  });
 });
 
 describe("#846: a tool-heavy turn stays under the event cap", () => {

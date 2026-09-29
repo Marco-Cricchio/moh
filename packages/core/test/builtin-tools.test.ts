@@ -271,10 +271,246 @@ describe("built-in tools", () => {
     expect(out).toBe("Example body from 203.0.113.7");
   });
 
+  // #1079: the failure text of a fetch that must reject.
+  const failureOf = (pending: Promise<string>): Promise<string> =>
+    pending.then(
+      () => { throw new Error("expected the fetch to fail"); },
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    );
+
+  // #1079: a non-2xx is a diagnostic, not a blank refusal. What the server
+  // said (body + the headers that carry the reason) is what lets the model
+  // tell a quota wall from a typo, instead of re-dialling blindly.
+  describe("non-2xx failures carry the server's explanation (#1079)", () => {
+    const failing = (status: number, headers: Record<string, string>, body: string) =>
+      fetchUrlText(
+        { url: "https://api.example.test/repos/x/issues/1" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => ({
+            status,
+            headers: new Headers(headers),
+            readBody: async () => body,
+            discard: () => {},
+          }),
+        },
+      );
+
+    test("a rate-limited 403 keeps the body, the quota headers and a verdict", async () => {
+      const text = await failureOf(failing(
+        403,
+        { "content-type": "application/json", "retry-after": "60", "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1790708565" },
+        JSON.stringify({ message: "API rate limit exceeded for 1.2.3.4." }),
+      ));
+      // The classifier in the tool runner matches this line's exact shape.
+      expect(text.split("\n")[0]).toBe("HTTP 403 for https://api.example.test/repos/x/issues/1 · rate-limited");
+      expect(text).toContain("API rate limit exceeded for 1.2.3.4.");
+      expect(text).toContain("retry-after: 60");
+      expect(text).toContain("x-ratelimit-remaining: 0");
+    });
+
+    test("a 401 names the missing credential and the challenge header", async () => {
+      const text = await failureOf(failing(401, { "www-authenticate": 'Bearer realm="api"' }, "Unauthorized"));
+      expect(text).toContain("requires authentication");
+      expect(text).toContain("www-authenticate");
+      expect(text).toContain("Unauthorized");
+    });
+
+    test("a 404 explains what a missing ref means without inventing a cause", async () => {
+      const text = await failureOf(failing(404, { "content-type": "application/json" }, JSON.stringify({ message: "Branch not found" })));
+      expect(text).toContain("not found");
+      expect(text).toContain("Branch not found");
+    });
+
+    test("a 500 after the retry is marked transient and names the attempt count", async () => {
+      let dials = 0;
+      const text = await failureOf(fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            return { status: 500, headers: new Headers(), readBody: async () => "boom", discard: () => {} };
+          },
+        },
+      ));
+      expect(dials).toBe(2);
+      expect(text.split("\n")[0]).toBe("HTTP 500 for https://api.example.test/x · transient");
+      expect(text).toContain("failed twice in a row");
+      expect(text).toContain("boom");
+    });
+
+    test("the body excerpt is capped so one error page cannot flood the turn", async () => {
+      const text = await failureOf(failing(500, {}, "x".repeat(50_000)));
+      expect(text).toContain("… [truncated]");
+      expect(text.length).toBeLessThan(5_000);
+    });
+
+    test("an unreadable error body still reports the status and headers", async () => {
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => ({
+            status: 502,
+            headers: new Headers({ "content-type": "text/html" }),
+            readBody: async () => { throw new Error("fetch response aborted"); },
+            discard: () => {},
+          }),
+        },
+      ).then(
+        () => { throw new Error("expected the fetch to fail"); },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      expect(text).toMatch(/^HTTP 502 for/);
+      expect(text).toContain("content-type: text/html");
+      expect(text).not.toContain("fetch response aborted");
+    });
+  });
+
+  // #1079: one retry on a transient failure, and a redirect budget that
+  // matches real site chains. Both are bounded: no retry loop, no hop loop.
+  describe("retry and redirect budgets (#1079)", () => {
+    test("a transport failure is dialled once more, then reported as transient", async () => {
+      let dials = 0;
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            throw new Error("ECONNRESET: the socket was closed");
+          },
+        },
+      ).then(
+        () => { throw new Error("expected the fetch to fail"); },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      expect(dials).toBe(2);
+      expect(text).toMatch(/^fetch: transient network failure after 2 attempts: ECONNRESET/);
+    });
+
+    test("a 5xx whose retry dies in transport is two dials, not three", async () => {
+      let dials = 0;
+      const text = await failureOf(fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            if (dials === 1) return { status: 503, headers: new Headers({ "retry-after": "0" }), readBody: async () => "down", discard: () => {} };
+            throw new Error("ECONNRESET: the socket was closed");
+          },
+        },
+      ));
+      expect(dials).toBe(2);
+      expect(text).toBe("fetch: transient network failure after 2 attempts: ECONNRESET: the socket was closed");
+    });
+
+    test("a recovered retry returns the body with no scar on the result", async () => {
+      let dials = 0;
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            if (dials === 1) return { status: 503, headers: new Headers({ "retry-after": "0" }), readBody: async () => "later", discard: () => {} };
+            return { status: 200, headers: new Headers(), readBody: async () => "RECOVERED", discard: () => {} };
+          },
+        },
+      );
+      expect(text).toBe("RECOVERED");
+      expect(dials).toBe(2);
+    });
+
+    test("a 404 is never retried — the URL will not change its mind", async () => {
+      let dials = 0;
+      await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            return { status: 404, headers: new Headers(), readBody: async () => "nope", discard: () => {} };
+          },
+        },
+      ).catch(() => undefined);
+      expect(dials).toBe(1);
+    });
+
+    test("a cancelled turn is not retried", async () => {
+      const controller = new AbortController();
+      let dials = 0;
+      const text = await fetchUrlText(
+        { url: "https://api.example.test/x" },
+        controller.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (): Promise<PinnedResponse> => {
+            dials++;
+            controller.abort();
+            throw new Error("fetch aborted");
+          },
+        },
+      ).then(
+        () => { throw new Error("expected the fetch to fail"); },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      expect(dials).toBe(1);
+      expect(text).toBe("fetch aborted");
+    });
+
+    test("a failure after a redirect names the URL that actually failed", async () => {
+      const text = await failureOf(fetchUrlText(
+        { url: "https://loop.test/0" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (url: URL): Promise<PinnedResponse> =>
+            url.pathname === "/0"
+              ? { status: 302, headers: new Headers({ location: "https://loop.test/moved" }), readBody: async () => "hop", discard: () => {} }
+              : { status: 404, headers: new Headers(), readBody: async () => "gone", discard: () => {} },
+        },
+      ));
+      expect(text).toContain("fetched: https://loop.test/moved");
+      expect(text).toContain("not found");
+    });
+
+    test("a chain of ten redirects is followed and an eleventh hop is refused", async () => {
+      const chain = (status: number | null) => async (url: URL): Promise<PinnedResponse> => {
+        const hop = Number(new URL(url).pathname.slice(1));
+        if (status !== null && hop === 10) return { status: 200, headers: new Headers(), readBody: async () => "END", discard: () => {} };
+        return {
+          status: 302,
+          headers: new Headers({ location: `https://loop.test/${hop + 1}` }),
+          readBody: async () => "hop",
+          discard: () => {},
+        };
+      };
+      const deps = (fn: (url: URL) => Promise<PinnedResponse>) => ({
+        lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+        requestPinned: (url: URL) => fn(url),
+      });
+      expect(await fetchUrlText({ url: "https://loop.test/0" }, ctx.signal, deps(chain(200)))).toBe("END");
+      const text = await failureOf(fetchUrlText({ url: "https://loop.test/0" }, ctx.signal, deps(chain(null))));
+      expect(text).toContain("too many redirects (> 10)");
+    });
+  });
+
   // SEC-05 regression suite.
   test("fetch rejects non-http schemes (file:, data:)", async () => {
-    await expect(tools.fetch.execute({ url: "file:///etc/hosts" }, ctx)).rejects.toThrow(/only http\/https/);
-    await expect(tools.fetch.execute({ url: "data:text/plain,x" }, ctx)).rejects.toThrow(/only http\/https/);
+    await expect(tools.fetch.execute({ url: "file:///etc/hosts" }, ctx)).rejects.toThrow(
+      /only http\/https URLs are supported \(got "file:"\) — use the read tool for local files/,
+    );
+    await expect(tools.fetch.execute({ url: "data:text/plain,x" }, ctx)).rejects.toThrow(/got "data:"/);
   });
 
   test("fetch blocks private/loopback hosts by default (SEC-05)", async () => {
@@ -367,6 +603,38 @@ describe("built-in tools", () => {
     }
   });
 
+  // #1075: #922 promises that a truncated compressed response rejects instead
+  // of hanging — not *which* phase reports it. The reset can land after the
+  // head is assembled (readBody rejects, as the original assertion assumed) or
+  // while the response is still being built (requestPinnedUrl itself rejects,
+  // so readBody is never reached and the outer await threw). The split rides
+  // the server's write coalescing, not the scheduler, so no timing of the test
+  // can pin one phase for good. Both paths report the reset itself — the
+  // transport's "socket connection was closed" or its "fetch response
+  // aborted" recorded for the header→consume gap — so assert the invariant
+  // that holds in both: settling with a value is the failure, and a rejection
+  // naming the truncation from either phase is the pass.
+  const truncationOf = async (
+    port: number,
+    path: string,
+  ): Promise<{ settled: string } | { rejection: string }> => {
+    let response: Awaited<ReturnType<typeof requestPinnedUrl>>;
+    try {
+      response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${port}${path}`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+    } catch (error) {
+      return { rejection: String(error) };
+    }
+    try {
+      return { settled: await response.readBody() };
+    } catch (error) {
+      return { rejection: String(error) };
+    }
+  };
+
   test("a truncated compressed response rejects instead of hanging (#922)", async () => {
     const server = createNetServer((socket) => {
       socket.once("data", () => {
@@ -379,17 +647,39 @@ describe("built-in tools", () => {
     const address = server.address();
     if (typeof address !== "object" || address === null) throw new Error("test server has no TCP address");
     try {
-      const response = await requestPinnedUrl(
-        new URL(`http://verified.invalid:${address.port}/truncated`),
-        { address: "127.0.0.1", family: 4 },
-        ctx.signal,
-      );
-      await expect(response.readBody()).rejects.toThrow();
+      // The hang half of the claim: a transport that never settles must fail
+      // here rather than park the suite.
+      const outcome = await withDeadline(truncationOf(address.port, "/truncated"));
+      expect("rejection" in outcome, `truncation settled: ${JSON.stringify(outcome)}`).toBe(true);
+      // The truncation must be the *reported* cause, not an incidental error:
+      // the transport's own reset, or the gzip decoder's truncated stream.
+      expect(outcome).toMatchObject({
+        rejection: expect.stringMatching(/socket connection was closed|aborted|unexpected end of file/),
+      });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 
+  /**
+   * #1075: this is where #922's fifth transport claim — a *mid-body*
+   * truncation — was asserted with its own server, pumping the head plus
+   * three gzip bytes before `destroy()`. It was red about one run in six, and
+   * it was not the transport forgetting to fail: the reset lands either after
+   * the head is assembled (`readBody` rejects, the path that test asserted
+   * exclusively) or while the response is still being built
+   * (`requestPinnedUrl` itself rejects, so `readBody` is never reached and
+   * the outer `await` threw). That second phase is request-construction, not
+   * body consumption — a boundary #1075's brief deliberately leaves alone —
+   * and controlling it is not a matter of timing: a census over ~800 resets
+   * of the exact recipe with no delay, 5 ms, 10 ms and 20 ms before
+   * `destroy()` gives 0–7% response-phase rejections for *every* delay,
+   * including zero, so neither a delay nor a synchronisation in the test can
+   * pin the phase. The claim is a strict subset of "a truncated compressed
+   * response rejects instead of hanging", which the test above asserts across
+   * both phases, and of this one, asserted deterministically for the sibling
+   * case.
+   */
   test("a response reset before readBody is remembered and rejects later (#922)", async () => {
     const server = createNetServer((socket) => {
       socket.once("data", () => {
