@@ -67,6 +67,8 @@ export type ToolErrorKind =
   | "not-found"           // target path/file/URL does not exist
   | "io"                  // filesystem/OS-level error (ENOTDIR, EACCES, …)
   | "http-status"         // fetch reached the server and got a non-2xx
+  | "rate-limited"        // #1079: that non-2xx was a quota wall (429, or a provider-declared exhausted quota)
+  | "transient"           // #1079: the retry did not save it — a 5xx, or a network failure, on both attempts
   | "edit-mismatch"       // edit's oldText not found / not unique
   | "invalid-regex"       // malformed pattern handed to a search tool
   | "command-exit"        // bash command ran and exited non-zero
