@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.52.1",
-  "generatedAt": "2026-09-28T17:04:46.099Z",
+  "version": "0.52.2",
+  "generatedAt": "2026-09-29T13:00:03.909Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-28T17:04:45.583Z"
+      "fetchedAt": "2026-09-29T13:00:03.374Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-28T17:04:45.931Z"
+      "fetchedAt": "2026-09-29T13:00:03.717Z"
     }
   ],
   "files": {
@@ -136,7 +136,7 @@
       }
     },
     "mistral": {
-      "sha256": "eb41d8cec23c55ec11e547dcfd1562ba3537b7d81dcb8144bb122a2caa876ced",
+      "sha256": "082181b3f8e70f7237c44d91cbaf9ed286e1ed9546d8cfb552857409a35f0812",
       "rows": 1,
       "verdicts": {
         "exact": 1,
@@ -196,7 +196,7 @@
       }
     },
     "openrouter": {
-      "sha256": "6b848614fccbb37d7864452c9b653e5d71f0b0882fe7d3f48fd065d07dca034b",
+      "sha256": "ad41e4cac1a6b9fd3aaeb1282309475b0b20c3f9adc880ea52096df906f01f23",
       "rows": 361,
       "verdicts": {
         "exact": 337,
@@ -5458,7 +5458,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/nvidia/nemotron-3.5-lightning:free": {
       "provider": "openrouter",
