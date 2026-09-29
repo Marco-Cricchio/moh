@@ -120,12 +120,11 @@ export function renderOnFakeTty(
 		resize: (c, r) => {
 			stdout.columns = c;
 			stdout.rows = r;
-			stdout.emit("resize");
-			// The Python harness rebuilds its Screen on resize (fresh
-			// geometry; the scrollback is deliberately dropped there) —
-			// here the swap also keeps the raw byte stream as the single
-			// source of truth.
+			// Swap the screen BEFORE emitting: Ink repaints synchronously
+			// inside the resize emit (clear + full repaint), so those bytes
+			// must land on the new geometry, not on the old one.
 			screen = new VtScreen(c, r);
+			stdout.emit("resize");
 		},
 		rerender: (tree) => {
 			instance.rerender(tree);
