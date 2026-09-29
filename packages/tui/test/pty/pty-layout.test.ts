@@ -1,169 +1,35 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { hasPython, runPty } from "./pty-runner";
-import { COMPOSER_COMPACT, COMPOSER_READY } from "../helpers";
+import { COMPOSER_READY } from "../helpers";
 
 /**
- * Layout verification in a real PTY (issues #64/#65 acceptance criteria).
- * Headless Ink renders cannot validate viewport geometry, cursor
- * windowing or resize behavior — these tests drive the actual CLI inside
- * a pseudo terminal (see harness.py) at multiple sizes, including one
- * compact size, covering home, chat, settings navigation and panel
- * scrolling, plus a mid-session resize.
+ * The only layout assertion that still needs a real process/terminal is
+ * SIGWINCH: the child receives a kernel resize signal and Ink must repaint
+ * its live frame in the new geometry while native scrollback remains native.
+ * Settings widths, command-panel windowing and compact Home geometry are
+ * level-1 claims covered by viewport/frame/app tests.
  */
-
-const B = (s: string) => btoa(s);
-const DOWN = B("\x1b[B");
-
-// Standard preamble: skip onboarding, skip the workflow offer → home.
-// Generous waits: a keystroke that lands after a screen transition can
-// hit the wrong handler (e.g. "s" on home opens settings).
-const PREAMBLE = [
-  { wait: 1.0, send: B("s") },
-  { wait: 1.0, send: B("n") },
-];
-
-describe.skipIf(!hasPython)("PTY layout (issues #64/#65)", () => {
-  test(
-    "wide terminal: session is a frameless full-width scrollback column (#183)",
-    async () => {
-      const lines = await runPty({
-        cols: 160,
-        rows: 45,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("hello") }, { wait: 0.2, send: B("\r") }, { wait: 1.0 }, { wait: 10.0, until: COMPOSER_READY }],
-        tail: 45,
-      });
-      const input = lines.find((l) => l.text.includes(COMPOSER_READY));
-      expect(input).toBeDefined();
-      const gutter = input!.text.indexOf("›");
-      expect(gutter).toBeLessThanOrEqual(3);
-      expect(lines.some((l) => l.text.includes("Wayfinder"))).toBe(false);
-      expect(lines.some((l) => l.text.includes("model"))).toBe(true);
-      expect(lines.some((l) => l.text.trim() === "› you")).toBe(true);
-      const transcriptRows = lines.filter((l) => l.text.includes("hello") || l.text.includes("› you") || l.text.includes("◆ moh"));
-      for (const row of transcriptRows) expect(row.text).not.toMatch(/[┌┐└┘╭╮╰╯]/);
-      // Nothing ever paints past the terminal edge.
-      for (const l of lines) expect(l.width).toBeLessThanOrEqual(160);
-    },
-    30000,
-  );
-
-  test(
-    "wide terminal: settings floats transparently without moving the live chat",
-    async () => {
-      const enterChat = [...PREAMBLE, { wait: 0.5, send: B("n") }, { wait: 0.8 }];
-      const baseline = await runPty({ cols: 160, rows: 45, steps: enterChat, tail: 45 });
-      const lines = await runPty({
-        cols: 160,
-        rows: 45,
-        steps: [...enterChat, { wait: 0.8, send: B("\x13") }, { wait: 10.0, until: "Answer language", untilOnScreen: true }],
-        tail: 45,
-      });
-      const inputRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes(COMPOSER_READY));
-      const chipsRow = (screen: typeof lines) => screen.findIndex((l) => l.text.includes("⏎ send"));
-      expect(inputRow(baseline)).toBeGreaterThanOrEqual(0);
-      expect(chipsRow(baseline)).toBeGreaterThanOrEqual(0);
-      expect(inputRow(lines)).toBe(inputRow(baseline));
-      expect(chipsRow(lines)).toBe(chipsRow(baseline));
-      const title = lines.find((l) => l.text.includes("settings"));
-      expect(title).toBeDefined();
-      // Horizontally: ~62% of 160 (99±2), with transparent chat on both sides.
-      // Match the dialog border, not the first corner: action chips can
-      // precede it on the same physical row. Height grows with settings.
-      const top = lines.findIndex((l) => /╭─{97}╮/.test(l.text));
-      expect(top).toBeGreaterThanOrEqual(0);
-      expect(top).toBeLessThan(lines.length);
-      // The dialog's own bottom border measures its horizontal extent: the
-      // top border row can also carry the action-chip row's glyphs (the
-      // dialog grows with the settings list and floats over the chat), and
-      // the chips' own width would pollute the measurement.
-      const bottom = lines.findIndex((l) => l.text.indexOf("╰") >= 28);
-      expect(bottom).toBeGreaterThan(top);
-      const dialogTitleRow = lines.findIndex((l) => l.text.includes("settings"));
-      expect(dialogTitleRow).toBe(top + 1);
-      expect(bottom).toBeLessThan(lines.length - 1);
-      expect(Math.abs(top - (lines.length - 1 - bottom))).toBeLessThanOrEqual(5);
-      const border = lines[bottom]!;
-      const dialogStart = border.text.indexOf("╰");
-      expect(border.width - dialogStart).toBeGreaterThanOrEqual(97);
-      expect(border.width - dialogStart).toBeLessThanOrEqual(101);
-      const visibleSettings = ["Mode", "Theme", "Icons", "File preview", "Answer language", "Telemetry", "Default permission mode", "Provider"]
-        .filter((label) => lines.some((line) => line.text.includes(label)));
-      expect(visibleSettings.length).toBeGreaterThanOrEqual(8);
-    },
-    30000,
-  );
-
-  test(
-    "short terminal: settings cursor stays visible at the bottom, no bleed",
-    async () => {
-      const lines = await runPty({
-        cols: 80,
-        rows: 20,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("\x13") }, { wait: 0.6, send: DOWN.repeat(9) }],
-        tail: 20,
-      });
-      expect(lines.some((l) => l.text.includes("Remove provider"))).toBe(true);
-      for (const l of lines) expect(l.width).toBeLessThanOrEqual(80);
-    },
-    30000,
-  );
-
-  test(
-    "compact width: settings dialog goes full width, rows never split",
-    async () => {
-      const lines = await runPty({
-        cols: 50,
-        rows: 20,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("\x13") }, { wait: 0.6, send: DOWN.repeat(9) }],
-        tail: 20,
-      });
-      const top = lines.find((l) => l.text.includes("╭"));
-      expect(top).toBeDefined();
-      expect(top!.width - top!.lead).toBeGreaterThanOrEqual(46);
-      expect(lines.some((l) => /Default permission mode\s+normal/.test(l.text))).toBe(true);
-      for (const l of lines) expect(l.width).toBeLessThanOrEqual(50);
-    },
-    30000,
-  );
-
-  test(
-    "short terminal: commands panel scrolls, every group reachable",
-    async () => {
-      const lines = await runPty({
-        cols: 80,
-        rows: 18,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.8, send: B("?") }, { wait: 0.8, send: DOWN.repeat(60) }],
-        tail: 18,
-      });
-      expect(lines.some((l) => l.text.includes("Modals"))).toBe(true);
-      expect(lines.some((l) => l.text.includes("↑ "))).toBe(true);
-      for (const l of lines) expect(l.width).toBeLessThanOrEqual(80);
-    },
-    30000,
-  );
-
-  test(
-    "resize mid-session: live input and bottom bar reflow; printed scrollback remains native (#183)",
-    async () => {
-      const lines = await runPty({
-        cols: 120,
-        rows: 35,
-        steps: [...PREAMBLE, { wait: 0.5 }, { wait: 0.3, send: B("resize probe") }, { wait: 0.2, send: B("\r") }, { wait: 1.5 }],
-        resize: { cols: 80, rows: 24, until: COMPOSER_READY },
-        tail: 24,
-      });
-      // The cumulative pty buffer still contains pre-resize frames:
-      // assert on the final frame only (from the last input line on).
-      const inputIdx = lines.reduce<number>((acc, l, i) => (l.text.includes(COMPOSER_READY) ? i : acc), -1);
-      expect(inputIdx).toBeGreaterThanOrEqual(0);
-      const input = lines[inputIdx]!;
-      expect(input.lead).toBeLessThanOrEqual(2);
-      expect(input.width).toBeLessThanOrEqual(80);
-      // Static rows keep their original width in terminal history; only the
-      // post-resize live area must fit the new terminal.
-      for (const l of lines.slice(inputIdx)) expect(l.width).toBeLessThanOrEqual(80);
-      expect(lines.slice(inputIdx).some((l) => l.text.includes("model"))).toBe(true);
-    },
-    30000,
-  );
-});
+test.skipIf(!hasPython)("SIGWINCH reflows the live frame without widening post-resize rows", async () => {
+  const B = (s: string) => btoa(s);
+  const lines = await runPty({
+    cols: 120,
+    rows: 35,
+    config: { onboarded: true, workflowOffered: true, mode: "dev" },
+    steps: [
+      { wait: 8.0, until: "New session", untilOnScreen: true },
+      { wait: 0.3, send: B("resize probe") },
+      { wait: 0.2, send: B("\r") },
+    ],
+    resize: { cols: 80, rows: 24, until: COMPOSER_READY, untilWait: 10.0 },
+    tail: 24,
+  });
+  const inputIdx = lines.reduce<number>((acc, line, index) => (
+    line.text.includes(COMPOSER_READY) ? index : acc
+  ), -1);
+  expect(inputIdx).toBeGreaterThanOrEqual(0);
+  const input = lines[inputIdx]!;
+  expect(input.lead).toBeLessThanOrEqual(2);
+  expect(input.width).toBeLessThanOrEqual(80);
+  for (const line of lines.slice(inputIdx)) expect(line.width).toBeLessThanOrEqual(80);
+  expect(lines.slice(inputIdx).some((line) => line.text.includes("model"))).toBe(true);
+}, 30_000);
