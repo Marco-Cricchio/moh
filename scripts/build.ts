@@ -85,19 +85,19 @@ export function assetKey(index: number): string {
  * them on `globalThis.__MOH_EMBEDDED_SKILLS__` keyed by path relative to the
  * skills directory.
  */
-function writeBuildEntry(): string {
-  mkdirSync(BUILD_DIR, { recursive: true });
+export function writeBuildEntry(buildDir: string = BUILD_DIR): string {
+  mkdirSync(buildDir, { recursive: true });
   const files = skillFiles(SKILLS_DIR);
   const imports = files
     .map((f, i) => `import ${assetKey(i)} from ${JSON.stringify(f.abs)} with { type: "file" };`)
     .join("\n");
   const registry = `{\n${files.map((f, i) => `  ${JSON.stringify(f.rel)}: ${assetKey(i)},`).join("\n")}\n}`;
-  const skillsPath = join(BUILD_DIR, "skills.ts");
+  const skillsPath = join(buildDir, "skills.ts");
   writeFileSync(
     skillsPath,
     `${imports}\n\n(globalThis as Record<string, unknown>).__MOH_EMBEDDED_SKILLS__ = ${registry};\n`,
   );
-  const entryPath = join(BUILD_DIR, "entry.ts");
+  const entryPath = join(buildDir, "entry.ts");
   writeFileSync(
     entryPath,
     `import "./skills";\nimport { runCli } from ${JSON.stringify(join(ROOT, "packages", "cli", "src", "cli"))};\n\nprocess.exitCode = await runCli();\n`,
@@ -105,20 +105,45 @@ function writeBuildEntry(): string {
   return entryPath;
 }
 
-function buildTarget(platform: Platform, version: string): string {
-  const target = TARGETS.find((t) => t.platform === platform)!;
-  const outfile = join(DIST, `moh-${platform}`);
+/** One compile: what to build, and where it lands. */
+export interface BuildPlan {
+  platform: Platform;
+  version: string;
+  /** Output binary; defaults to `dist/moh-<platform>`. */
+  outfile?: string;
+  /** Scratch dir for the generated entry; defaults to `dist/.build`. */
+  buildDir?: string;
+  /** Stream the compiler's output to this process (a release build does). */
+  inheritStdio?: boolean;
+}
+
+/**
+ * Compiles one platform binary from the current tree — the single build
+ * recipe behind both the release pipeline and the compiled-binary gate
+ * (#1068), so a test compiles exactly what ships.
+ */
+export function buildBinary(plan: BuildPlan): string {
+  const target = TARGETS.find((t) => t.platform === plan.platform);
+  if (!target) throw new Error(`unknown platform: ${plan.platform}`);
+  const outfile = plan.outfile ?? join(DIST, `moh-${plan.platform}`);
   const args = [
     "build",
     "--compile",
     "--target", target.target,
-    "--define", `__MOH_BUILD_VERSION__:${JSON.stringify(version)}`,
+    "--define", `__MOH_BUILD_VERSION__:${JSON.stringify(plan.version)}`,
     "--outfile", outfile,
-    writeBuildEntry(),
+    writeBuildEntry(plan.buildDir ?? BUILD_DIR),
   ];
-  console.log(`▶ bun ${args.join(" ")}`);
-  const r = spawnSync("bun", args, { cwd: ROOT, stdio: "inherit" });
-  if (r.status !== 0) throw new Error(`build failed for ${platform} (exit ${r.status})`);
+  if (plan.inheritStdio) console.log(`▶ bun ${args.join(" ")}`);
+  const r = spawnSync("bun", args, {
+    cwd: ROOT,
+    stdio: plan.inheritStdio ? "inherit" : "pipe",
+    encoding: "utf8",
+  });
+  if (r.status !== 0) {
+    const detail = plan.inheritStdio ? "" : `\n${r.stderr ?? ""}${r.stdout ?? ""}`;
+    throw new Error(`build failed for ${plan.platform} (exit ${r.status})${detail}`);
+  }
   return outfile;
 }
 
@@ -136,7 +161,7 @@ function main(): number {
 
   const lines: string[] = [];
   for (const platform of platforms) {
-    const outfile = buildTarget(platform, version);
+    const outfile = buildBinary({ platform, version, inheritStdio: true });
     const hash = sha256File(outfile);
     lines.push(`${hash}  moh-${platform}`);
     console.log(`✓ dist/moh-${platform} (${(statSync(outfile).size / 1e6).toFixed(1)} MB) ${hash}`);
