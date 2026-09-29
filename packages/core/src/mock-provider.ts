@@ -36,6 +36,15 @@ export interface MockTurnScript {
   usage?: { inputTokens: number; outputTokens: number };
   /** #240: provider reasoning emitted before the text deltas. */
   reasoning?: { deltas: string[]; continuation?: Record<string, unknown> };
+  /**
+   * #1061: hold the turn open at a chosen delta until the test releases it.
+   * `afterDeltas` counts text deltas (0 = before the first one), and the
+   * provider awaits `release` before emitting delta `afterDeltas`. This
+   * gives a mid-stream oracle a **deterministic instant** — "everything up
+   * to this delta is painted, nothing past it is" — instead of sampling on
+   * a wall clock, which is what made the old PTY tests flaky (#1052).
+   */
+  hold?: { afterDeltas: number; release: Promise<void> };
 }
 
 export class MockProvider implements Provider {
@@ -96,6 +105,12 @@ export class MockProvider implements Provider {
     for (const text of turn.deltas) {
       if (signal.aborted) return;
       if (turn.deltaDelayMs) await Bun.sleep(turn.deltaDelayMs);
+      // #1061: the mid-turn hold — awaited BEFORE the delta it gates, so a
+      // test can assert the frame at a deterministic instant with the turn
+      // still open (the last delta before the hold is painted, this one and
+      // everything after are not).
+      if (turn.hold && emitted === turn.hold.afterDeltas) await turn.hold.release;
+      if (signal.aborted) return;
       if (turn.error && emitted === failAt) {
         throw new ProviderError(
           turn.error.kind,

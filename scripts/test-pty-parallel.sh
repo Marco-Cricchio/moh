@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Bounded PTY batches, compatible with macOS bash 3.2.
-# Keep every log and use process exit codes, including crashes without a
-# Bun `(fail)` marker. No implicit retries: the first verdict is evidence.
+# This runner is the level-2 process-boundary gate (#1061): keep every log
+# and use process exit codes, including crashes without a Bun `(fail)` marker.
+# No implicit retries: the first verdict is evidence.
 # MOH_PTY_JOBS=0 explicitly requests all-at-once execution.
 set -uo pipefail
 cd "$(dirname "$0")/.."

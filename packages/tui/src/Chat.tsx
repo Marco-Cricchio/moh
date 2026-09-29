@@ -10,6 +10,7 @@ import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
 import { useViewport } from "./viewport";
 import { sanitizeLine, truncate } from "./ui";
+import { advanceReveal, DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
 import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, type TranscriptBlock } from "./transcript";
@@ -167,6 +168,11 @@ export interface ChatProps {
   panelSubagent?: number | null;
   /** #497: toggles the selected subagent's live panel (Enter on a chip). */
   onToggleSubagentPanel?: (index: number) => void;
+  /** #1054 (ADR-0057): typewriter-reveal pacing override. Absent fields
+   * fall back to DEFAULT_REVEAL_SETTINGS; behavior is identical at the
+   * defaults. The App bootstrap resolves the legacy env knobs once and
+   * passes them here — Chat never reads process.env. */
+  reveal?: Partial<RevealSettings>;
 }
 
 /** Native-scrollback session screen (#183). Settled event blocks are emitted
@@ -217,6 +223,7 @@ export function Chat({
   focusedSubagent = null,
   panelSubagent = null,
   onToggleSubagentPanel,
+  reveal,
   branch,
   permissionMode = session.sessionMode,
   rootOnWindowsMount = session.rootOnWindowsMount,
@@ -236,12 +243,7 @@ export function Chat({
   // promoted-but-unrevealed row reaches scrollback at most one promotion
   // batch ahead of the cursor). On settle the budget snaps open: a
   // completed turn never lags its own done (headless tests rely on this).
-  const REVEAL_TICK_MS = Number(process.env.MOH_TYPEWRITER_MS ?? 60);
-  // Horizontal (word-flow) reveal: the forming line grows rightward — no
-  // per-row lag. ~10 chars/50ms ≈ 2 rows/s at 100 cols.
-  const REVEAL_CHARS_PER_TICK = Number(process.env.MOH_TYPEWRITER_CHARS ?? 20);
-  // Max chars the cursor may trail the provider stream by.
-  const REVEAL_CATCHUP_CHARS = 400;
+  const revealSettings = useMemo<RevealSettings>(() => ({ ...DEFAULT_REVEAL_SETTINGS, ...reveal }), [reveal]);
   const [revealTick, setRevealTick] = useState(0);
   // #622: the pacer must not tick while the input is blocked (ask/permission
   // modal owns the screen). Ink renders any output taller than the terminal
@@ -265,34 +267,18 @@ export function Chat({
       return;
     }
     const timer = setInterval(() => {
-      // Pace, with catch-up: the cursor trails the stream by at most
-      // REVEAL_CATCHUP_CHARS so long bursts eventually surface (a slow
-      // reader cursor must never strand content the provider finished
-      // long ago).
+      // Pace with catch-up (#1054): the math lives in `advanceReveal` — the
+      // cursor trails by at most catchupChars and accelerates with its
+      // deficit so a slow reader never strands content the provider
+      // finished long ago.
       const streamed = streamedCharsRef.current;
-      const prev = revealAllowanceRef.current;
-      // The cursor always trails the stream by at most REVEAL_CATCHUP
-      // chars — including at mount (a remount seeds from the CURRENT
-      // stream position, so already-shown content is never re-hidden:
-      // the floor reads live streamed chars, not stale state).
-      // Behind = how far the cursor trails the provider stream. The cursor
-      // keeps its base typing speed and ACCELERATES with the deficit
-      // (Codex-style catch-up): word-flow continues to the end of the
-      // turn instead of collapsing into row dumps once the buffered
-      // prefix is drained. The deficit is measured in ticks-equivalents
-      // so the speedup is bounded (2.5x max) — always readable.
-      // Accelerate with the deficit: a long buffer drains at visibly-
-      // faster word-flow and ALWAYS completes — the cursor is capped only
-      // by the stream itself, never stranded short of it. The cap keeps
-      // the drain readable (~1600 c/s max) while bounding worst-case
-      // reveal time to streamed/1600 s.
-      const boost = 1 + Math.min(4, Math.max(0, streamed - prev) / 500);
-      revealRef.current.budgetChars = Math.max(prev, Math.min(streamed, prev + REVEAL_CHARS_PER_TICK * boost));
-      revealAllowanceRef.current = revealRef.current.budgetChars;
+      const next = advanceReveal(revealAllowanceRef.current, streamed, 1, revealSettings);
+      revealRef.current.budgetChars = next;
+      revealAllowanceRef.current = next;
       setRevealTick((v) => v + 1);
-    }, REVEAL_TICK_MS);
+    }, revealSettings.tickMs);
     return () => clearInterval(timer);
-  }, [revealActive]);
+  }, [revealActive, revealSettings]);
   void revealTick; // re-render on each reveal tick (the pacer's heartbeat)
   // Char-level typewriter state. The cursor lives in revealAllowanceRef;
   // the interval below advances it and bumps revealTick (the re-render
@@ -924,12 +910,9 @@ export function Chat({
     if (block.markdown !== undefined) {
       const rows = renderRows(block.markdown!);
       const promoted = markdownRowsRef.current.get(block.key) ?? 0;
-      let tail = rows.slice(promoted);
-      const shown = Math.min(rows.length, Math.max(0, revealAllowanceRef.current));
-      const visibleTail = Math.max(1, shown - promoted);
-      if (state.pending && visibleTail < tail.length) {
-        tail = tail.slice(0, visibleTail);
-      }
+      // #1061: the window rule is a pure function (`visibleVolatileTail`),
+      // asserted at level 0 in pty-successors.test.tsx.
+      const tail = visibleVolatileTail(rows, promoted, revealAllowanceRef.current, state.pending);
       if (tail.length === 0 && promoted > 0) return [];
       const untouched = promoted === 0;
       return [{ ...block, lines: [], markdown: undefined, renderedMarkdownRows: tail, continuation: untouched ? block.continuation : true, tight: untouched ? block.tight : true }];
@@ -1509,6 +1492,28 @@ export function settledBoundary(
 /** Tail projection for the alternate-screen modal background. It keeps the
  * newest complete blocks that fit above the live input instead of clipping
  * the current turn/status when a long session is replayed. */
+/**
+ * The visible tail of an OPEN (volatile) Markdown block (#1061). The
+ * typewriter cursor is a whole-reply character budget, but the visible unit
+ * of an open block is a rendered ROW: rows already promoted to a chain
+ * chunk stay visible regardless of pacing (#1054, "promotion ignores reveal
+ * pacing"), and only the still-volatile tail is truncated — down to one row,
+ * never to nothing, so an in-flight reply is always readable. Pure so the
+ * rule can be asserted at level 0 instead of sampled through a terminal.
+ */
+export function visibleVolatileTail(
+  rows: readonly string[],
+  promoted: number,
+  cursorChars: number,
+  pending: boolean,
+): string[] {
+  const tail = rows.slice(promoted);
+  if (!pending) return tail;
+  const shown = Math.min(rows.length, Math.max(0, cursorChars));
+  const visibleTail = Math.max(1, shown - promoted);
+  return visibleTail < tail.length ? tail.slice(0, visibleTail) : tail;
+}
+
 export function transcriptTail(blocks: readonly TranscriptBlock[], width: number, rowBudget: number): TranscriptBlock[] {
   const selected: TranscriptBlock[] = [];
   let rows = 0;
