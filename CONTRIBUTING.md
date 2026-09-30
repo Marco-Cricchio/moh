@@ -4,6 +4,17 @@ Thanks for contributing! This file covers the human-facing basics; agent-facing
 conventions live in `AGENTS.md` (scaffolded per-project with `moh init`) — when
 the two overlap, `AGENTS.md` wins.
 
+## License
+
+Original moh code and documentation are licensed under the GNU Affero General
+Public License, version 3 or any later version (AGPL-3.0-or-later). We intend
+contributions to be made available under those terms, while contributors retain
+copyright in their contributions. Before contributing, please contact the
+maintainers if the applicable licensing terms or permission for your
+contribution are unclear; the project has not adopted a DCO or CLA process.
+Third-party dependencies and bundled materials remain under their respective
+licenses; see their notices and license files.
+
 ## Setup
 
 - **Runtime**: TypeScript on [Bun](https://bun.sh) (no Node needed for development).

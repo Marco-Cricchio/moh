@@ -4,16 +4,21 @@
 
 # moh
 
+moh is free software licensed under the GNU Affero General Public License,
+version 3 or any later version (AGPL-3.0-or-later). See [LICENSE](LICENSE).
+Third-party dependencies and bundled materials remain under their respective
+licenses.
+
 **Your terminal, with a coding agent inside.**
 
 [![Release](https://img.shields.io/github/v/release/Marco-Cricchio/moh?display_name=tag&sort=semver&label=version&color=blue)](https://github.com/Marco-Cricchio/moh/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
 
 <div align="center">
 <img src="docs/assets/demo.gif" alt="moh in action" width="720" />
 </div>
 
-*Open source · MIT licensed · Runs on macOS and Linux · No Node, no Bun, no npm required*
+*Open source · AGPL-3.0-or-later · Runs on macOS and Linux · No Node, no Bun, no npm required*
 
 **🌐 [moh.sh](https://moh.sh)**
 
@@ -254,13 +259,13 @@ Quick list of everything above — details in *What can it do?*:
 
 ## How moh compares
 
-moh is not a fork or a clone — it is an independent, MIT-licensed agent you
-own end to end. Compared with the well-known terminal agents:
+moh is not a fork or a clone — it is an independent agent with original code
+licensed under AGPL-3.0-or-later. Compared with the well-known terminal agents:
 
 | | moh | Claude Code | OpenAI Codex | OpenCode |
 | --- | --- | --- | --- | --- |
 | **Providers** | Any: 8 built-in + hosted OpenAI-compatible + local models, with fallback chains | Anthropic only | OpenAI only | Multiple |
-| **License** | MIT | Commercial | Commercial | OSS |
+| **License** | AGPL-3.0-or-later | Commercial | Commercial | OSS |
 | **Your data** | Append-only log in `~/.moh/` — resume, fork, rename, trash, export; nothing silently rewritten | Vendor-controlled | Vendor-controlled | Local |
 | **Permissions** | Layered allow/ask/deny rules per tool & argument, out-of-root writes always re-ask, extension veto | Prompt-based approval | Prompt-based approval | Configurable |
 | **Headless** | `moh run` — fail-fast, no prompts, CI-ready | Yes | Yes | Yes |
@@ -432,4 +437,9 @@ power.***
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Original moh code and documentation are licensed under AGPL-3.0-or-later; see
+[LICENSE](LICENSE). Third-party material included in the repository and
+release binaries remains under its own license and notices. In particular,
+bundled workflow skills carry MIT terms documented in
+`packages/core/assets/skills/NOTICE.md`. Binary releases should be built and
+distributed with the corresponding source and notices.
