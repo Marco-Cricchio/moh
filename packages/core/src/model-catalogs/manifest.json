@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.53.1",
-  "generatedAt": "2026-09-30T08:50:00.326Z",
+  "version": "0.53.2",
+  "generatedAt": "2026-09-30T09:26:11.375Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-30T08:49:59.755Z"
+      "fetchedAt": "2026-09-30T09:26:10.749Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-30T08:50:00.151Z"
+      "fetchedAt": "2026-09-30T09:26:11.201Z"
     }
   ],
   "files": {
