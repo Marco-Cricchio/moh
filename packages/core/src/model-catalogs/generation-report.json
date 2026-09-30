@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.53.2",
-  "generatedAt": "2026-09-30T09:26:11.375Z",
+  "version": "0.54.0",
+  "generatedAt": "2026-09-30T12:34:50.950Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-30T09:26:10.749Z"
+      "fetchedAt": "2026-09-30T12:34:50.275Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-30T09:26:11.201Z"
+      "fetchedAt": "2026-09-30T12:34:50.762Z"
     }
   ],
   "totals": {
@@ -918,7 +918,64 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [],
+    "pricing": [
+      {
+        "provider": "opencode-go",
+        "id": "glm-5.1",
+        "from": {
+          "input": 1.4,
+          "output": 4.4,
+          "cacheRead": 0.26
+        },
+        "to": {
+          "input": 0.9646,
+          "output": 3.0316,
+          "cacheRead": 0.17914
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro",
+        "from": {
+          "input": 0.95526,
+          "output": 1.91052,
+          "cacheRead": 0.079605
+        },
+        "to": {
+          "input": 0.783,
+          "output": 1.566,
+          "cacheRead": 0.06525
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro-0813",
+        "from": {
+          "input": 1.32,
+          "output": 3.96,
+          "cacheRead": 0.044
+        },
+        "to": {
+          "input": 0.66,
+          "output": 1.98,
+          "cacheRead": 0.022
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.8-27b",
+        "from": {
+          "input": 0.42,
+          "output": 3,
+          "cacheRead": 0.085
+        },
+        "to": {
+          "input": 0.0249,
+          "output": 4.35,
+          "cacheRead": 0.0199
+        }
+      }
+    ],
     "contextWindow": [],
     "reasoning": []
   },

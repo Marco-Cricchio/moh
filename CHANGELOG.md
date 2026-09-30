@@ -7,6 +7,33 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-09-30
+
+### Added
+
+- **Provider connection failures are useful, readable and persistently
+  diagnosable** (#1092, PR #1093): the onboarding probe now uses a bounded
+  256-token budget, reports a concise summary plus structured detail (HTTP
+  status, message, parameter, error type, request id and sanitized response
+  body), and appends a redacted, bounded failure record to
+  `<moh-home>/provider-test-failures.log`. The TUI wizard and `moh provider
+  add` both pass the moh home, so failures are recorded even though
+  onboarding happens before a session exists. Trailing-slash base URLs
+  resolve consistently; the probe remains separate from normal provider
+  requests. New additive `@moh/core` exports expose the diagnostic type,
+  recorder and trace-file constants; no session event or permission-policy
+  change.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): four prices moved —
+  `opencode-go/glm-5.1` 1.4 → 0.9646,
+  `deepseek/deepseek-v4-pro` 0.95526 → 0.783,
+  `deepseek/deepseek-v4-pro-0813` 1.32 → 0.66 and
+  `qwen/qwen3.8-27b` 0.42 → 0.0249. No context windows or reasoning flags
+  changed; generation reported no issues or shrinks. The manifest declares
+  0.54.0.
+
 ## [0.53.2] - 2026-09-30
 
 ### Fixed
@@ -1563,7 +1590,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.53.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.54.0...develop
+[0.54.0]: https://github.com/Marco-Cricchio/moh/compare/v0.53.2...v0.54.0
 [0.53.2]: https://github.com/Marco-Cricchio/moh/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/Marco-Cricchio/moh/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/Marco-Cricchio/moh/compare/v0.52.2...v0.53.0
