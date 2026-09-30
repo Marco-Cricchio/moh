@@ -22,6 +22,7 @@ import {
   type AuthorizationIo,
   type BuiltinProviderType,
   type ConnectionTestResult,
+  type ProviderTestFailure,
   type ConnectionTester,
   type EndpointProfile,
   subscriptionModelCatalog,
@@ -81,7 +82,14 @@ const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint
   baseUrl: { label: "Base URL", hint: "required for openai-compat; built-in profiles prefill their documented endpoint" },
 };
 
-export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, forceWizard, subscriptionLogin, openUrl, onDone }: OnboardingProps) {
+/** #1092: the real tester persists every failed attempt to the bounded,
+ * secret-free dotdir trace, so a failure stays diagnosable after the
+ * popup is gone (onboarding is pre-session by design). */
+const defaultTester = (home?: string): ConnectionTester =>
+  home ? (profile) => minimalConnectionTest(profile, fetch, AbortSignal.timeout(20_000), process.env, userConfigFile(home), home)
+    : minimalConnectionTest;
+
+export function Onboarding({ cwd, home, env, tester = defaultTester(home), forceWizard, subscriptionLogin, openUrl, onDone }: OnboardingProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const [authKind, setAuthKind] = useState<"api-key" | "subscription">("api-key");
@@ -639,13 +647,21 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       )}
       {phase.kind === "test" && (
         <>
-          <Text>
-            {phase.result === undefined
-              ? `Testing connection to ${phase.profile.name} (${phase.profile.defaultModel})…`
-              : phase.result.ok
-                ? `✓ Connected`
-                : `✗ Connection test failed: ${phase.result.error}`}
-          </Text>
+          {phase.result === undefined ? (
+            <Text>{`Testing connection to ${phase.profile.name} (${phase.profile.defaultModel})…`}</Text>
+          ) : phase.result.ok ? (
+            <Text>✓ Connected</Text>
+          ) : (
+            <>
+              <Text color={theme.err}>✗ Connection test failed</Text>
+              {structuredDetailLines(phase.result).map((line, i) => (
+                <Text key={`d${i}`} wrap="wrap">{`  ${line}`}</Text>
+              ))}
+              {phase.result.detail?.body && (
+                <Text wrap="wrap">{phase.result.detail.body}</Text>
+              )}
+            </>
+          )}
           <Text> </Text>
           {phase.result && !phase.result.ok ? <Dim>r retry · w wizard · s skip</Dim> : <Dim> </Dim>}
         </>
@@ -689,6 +705,20 @@ export function Onboarding({ cwd, home, env, tester = minimalConnectionTest, for
       )}
     </Dialog>
   );
+}
+
+/** #1092: the failure's actionable fields, one per line — never lost to a
+ * fixed-length truncation; long values wrap inside the dialog. */
+function structuredDetailLines(result: Extract<ConnectionTestResult, { ok: false }>): string[] {
+  const d = result.detail;
+  if (!d) return [result.error];
+  const lines: string[] = [];
+  if (d.status !== undefined) lines.push(`status: ${d.status}${d.statusText ? ` ${d.statusText}` : ""}`);
+  if (d.message) lines.push(`message: ${d.message}`);
+  if (d.param) lines.push(`param: ${d.param}`);
+  if (d.type) lines.push(`type: ${d.type}`);
+  if (d.requestId) lines.push(`request id: ${d.requestId}`);
+  return lines.length ? lines : [result.error];
 }
 
 function submitField(

@@ -931,6 +931,7 @@ export {
   type KnownCompatEndpoint,
   type ConnectionTestResult,
   type ConnectionTester,
+  type ProviderTestFailure,
   type OnboardingIo,
   type ProviderAddOptions,
   isSubscriptionKind,
