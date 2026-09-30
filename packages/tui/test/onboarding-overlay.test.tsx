@@ -103,17 +103,76 @@ describe("onboarding overlay (issue #33)", () => {
     const home = tempHome();
     const done: (string | null)[] = [];
     let fails = 1;
-    const flaky = async () => (fails-- > 0 ? { ok: false as const, error: "HTTP 503 overloaded" } : { ok: true as const, modelId: "x" });
+    const flaky = async () =>
+      fails-- > 0
+        ? { ok: false as const, error: "HTTP 503 overloaded" }
+        : { ok: true as const, modelId: "x" };
     const i = render(<Onboarding cwd={cwd} home={home} env={{ OPENAI_API_KEY: "k" }} tester={flaky} onDone={(ref) => done.push(ref)} />);
     await sleep(30);
     i.stdin.write("\r"); // confirm detection → test runs and fails
     await sleep(100);
     const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("Connection test failed: HTTP 503 overloaded");
+    expect(frame).toContain("Connection test failed");
+    expect(frame).toContain("HTTP 503 overloaded");
     expect(frame).toContain("r retry · w wizard · s skip");
     i.stdin.write("r");
     await sleep(100);
     expect(done).toEqual(["openai/gpt-5"]);
+    i.unmount();
+  });
+
+  test("failed connection test shows the full structured error across wrapped lines, no truncation (#1092)", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const longMessage =
+      "Could not finish the message because max_tokens or model output limit was reached. Please try again with a higher budget and confirm the FINAL_DETAIL marker survives rendering.";
+    const failing = async () => ({
+      ok: false as const,
+      error: `HTTP 400 Bad Request: ${longMessage} (param: max_tokens) (request id: req_123)`,
+      detail: {
+        status: 400,
+        statusText: "Bad Request",
+        message: longMessage,
+        param: "max_tokens",
+        type: "invalid_request_error",
+        requestId: "req_123",
+      },
+    });
+    const i = render(<Onboarding cwd={cwd} home={home} env={{ OPENAI_API_KEY: "k" }} tester={failing} onDone={() => {}} />);
+    await sleep(30);
+    i.stdin.write("\r");
+    await sleep(100);
+    const compact = stripAnsi(i.lastFrame() ?? "").replace(/[^A-Za-z0-9 ]+/g, " ").replace(/\s+/g, " ").toLowerCase();
+    expect(compact).toContain("status 400 bad request");
+    expect(compact).toContain("param max tokens");
+    expect(compact).toContain("request id req 123");
+    expect(compact).toContain("final detail marker survives rendering");
+    expect(compact).not.toContain("…");
+    i.unmount();
+  });
+
+  test("the default tester writes failed attempts to the dotdir trace (#1092)", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const i = render(<Onboarding cwd={cwd} home={home} env={{}} onDone={() => {}} />);
+    await sleep(50);
+    i.stdin.write("\r"); // provider type = anthropic (wizard opens, no env creds)
+    await sleep(100);
+    i.stdin.write("\r"); // auth = api-key
+    await sleep(100);
+    i.stdin.write("qwen3"); await sleep(120);
+    i.stdin.write("\r"); // model
+    await sleep(250);
+    i.stdin.write("\r"); // empty api key
+    await sleep(250);
+    i.stdin.write("\r"); // submit the prefilled base URL → test fails fast
+    await sleep(1500);
+    const { existsSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const trace = join(home, ".moh", "provider-test-failures.log");
+    expect(existsSync(trace)).toBe(true);
+    const entry = JSON.parse(readFileSync(trace, "utf8")) as { endpoint: string; message: string };
+    expect(entry.endpoint).toBe("anthropic");
     i.unmount();
   });
 
