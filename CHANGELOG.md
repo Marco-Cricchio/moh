@@ -7,7 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
-## [0.53.1] - 2026-09-30
+## [0.53.2] - 2026-09-30
+
+### Fixed
+
+- **Permission prompts keep complete request details visible** (#1089): long
+  command lines and generic tool arguments used to be truncated with an
+  ellipsis, hiding the remainder from the person deciding whether to allow
+  the call. The prompt now wraps the full details without dropping content;
+  terminal-control sanitization and the permission decision itself are
+  unchanged.
 
 ### Fixed
 
@@ -1554,7 +1563,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.53.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.53.2...develop
+[0.53.2]: https://github.com/Marco-Cricchio/moh/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/Marco-Cricchio/moh/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/Marco-Cricchio/moh/compare/v0.52.2...v0.53.0
 [0.52.2]: https://github.com/Marco-Cricchio/moh/compare/v0.52.1...v0.52.2
