@@ -19,11 +19,10 @@ describe("describePermissionRequest", () => {
     expect(view.rulePreview).toBe("write:src/app.ts");
   });
 
-  test("other tools render truncated JSON args", () => {
+  test("other tools render complete JSON args", () => {
     const big = { data: "x".repeat(300) };
     const view = describePermissionRequest("fetch", big);
-    expect(view.detail[0]!.length).toBeLessThanOrEqual(200);
-    expect(view.detail[0]!.endsWith("…")).toBe(true);
+    expect(view.detail).toEqual([JSON.stringify(big)]);
   });
 
   test("tracker claims show the issue, never raw JSON", () => {
