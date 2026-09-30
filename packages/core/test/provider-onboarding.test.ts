@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { minimalConnectionTest, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { minimalConnectionTest, PROVIDER_TEST_MAX_ENTRIES, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { PROBE_MAX_OUTPUT_TOKENS } from "../src/provider-onboarding";
 import {
   addProviderToFile,
   KNOWN_COMPAT_ENDPOINTS,
@@ -229,7 +230,7 @@ describe("minimalConnectionTest", () => {
         } }), { status: 400 });
       }
       expect(body).toEqual({
-        model: "gpt-6-astra", max_completion_tokens: 1,
+        model: "gpt-6-astra", max_completion_tokens: PROBE_MAX_OUTPUT_TOKENS,
         messages: [{ role: "user", content: "ping" }],
       });
       return new Response("{}", { status: 200 });
@@ -244,7 +245,7 @@ describe("minimalConnectionTest", () => {
   test("generic OpenAI-compatible ping retains max_tokens", async () => {
     const fetchSpy = (async (_url: unknown, init?: RequestInit) => {
       expect(JSON.parse(String(init?.body))).toEqual({
-        model: "qwen3", max_tokens: 1,
+        model: "qwen3", max_tokens: PROBE_MAX_OUTPUT_TOKENS,
         messages: [{ role: "user", content: "ping" }],
       });
       return new Response("{}", { status: 200 });
@@ -645,7 +646,7 @@ describe("OpenCode onboarding (#794)", () => {
     );
     expect(result).toEqual({ ok: true, modelId: "gpt-5.6-terra" });
     expect(url).toBe("https://opencode.ai/zen/v1/responses");
-    expect(JSON.parse(body)).toEqual({ model: "gpt-5.6-terra", input: "ping", max_output_tokens: 1 });
+    expect(JSON.parse(body)).toEqual({ model: "gpt-5.6-terra", input: "ping", max_output_tokens: PROBE_MAX_OUTPUT_TOKENS });
     // #794 regression: minimax-m3 is NOT a responses model — Go default
     // pings /messages (anthropic wire), Zen pings /chat/completions.
     let goUrl = "";
@@ -697,5 +698,101 @@ describe("OpenCode session header (#798, docs/go MissingSessionID)", () => {
       expect(headers["x-opencode-session"]).toMatch(/^[0-9a-f-]{36}$/);
       expect(wire).toBeTruthy();
     }
+  });
+});
+
+describe("connection-test diagnostics (#1092)", () => {
+  const profile: EndpointProfile = {
+    name: "openai",
+    type: "openai",
+    baseUrl: "https://api.openai.com/v1/",
+    apiKey: "sk-secret",
+    defaultModel: "gpt-6-astra",
+  };
+
+  test("a provider error payload keeps the actionable fields: param, type, request id", async () => {
+    const fetchSpy = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Could not finish the message because max_tokens or model output limit was reached.",
+            type: "invalid_request_error",
+            param: "max_tokens",
+          },
+        }),
+        { status: 400, headers: { "x-request-id": "req_abc" } },
+      )) as never as typeof fetch;
+    const result = await minimalConnectionTest(profile, fetchSpy);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("max_tokens");
+    expect(result.error).toContain("param: max_tokens");
+    expect(result.error).toContain("req_abc");
+    expect(result.detail?.status).toBe(400);
+    expect(result.detail?.param).toBe("max_tokens");
+    expect(result.detail?.type).toBe("invalid_request_error");
+    expect(result.detail?.requestId).toBe("req_abc");
+  });
+
+  test("a malformed / non-JSON error body is handled safely (sanitized head, no throw)", async () => {
+    const fetchSpy = (async () => new Response("invalid api key\x01\x1b[31m", { status: 401 })) as never as typeof fetch;
+    const result = await minimalConnectionTest(profile, fetchSpy);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.detail?.status).toBe(401);
+    expect(result.detail?.message).toBeUndefined();
+    expect(result.detail?.body).toContain("invalid api key");
+    expect(result.detail?.body).not.toMatch(/[\u0000-\u001f]/);
+  });
+
+  test("an output-limit failure remains a failure (the budget never grows on retry)", async () => {
+    const fetchSpy = (async () =>
+      new Response(JSON.stringify({ error: { message: "output limit reached", type: "invalid_request_error", param: "max_tokens" } }), { status: 400 })) as never as typeof fetch;
+    const result = await minimalConnectionTest(profile, fetchSpy);
+    expect(result.ok).toBe(false);
+  });
+
+  test("base URLs with and without a trailing slash produce the same request path", async () => {
+    const urls: string[] = [];
+    const fetchSpy = (async (input: string | URL | Request) => {
+      urls.push(String(input));
+      return new Response("{}", { status: 200 });
+    }) as never as typeof fetch;
+    await minimalConnectionTest({ ...profile, baseUrl: "https://api.openai.com/v1" }, fetchSpy);
+    await minimalConnectionTest({ ...profile, baseUrl: "https://api.openai.com/v1/" }, fetchSpy);
+    await minimalConnectionTest({ ...profile, baseUrl: "https://api.openai.com/v1//" }, fetchSpy);
+    expect(urls[0]).toBe("https://api.openai.com/v1/chat/completions");
+    expect(urls[1]).toBe(urls[0]);
+    expect(urls[2]).toBe(urls[0]);
+  });
+
+  test("failures are persisted to a bounded, secret-free dotdir trace; successes are not", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-trace-"));
+    const failing = (async () =>
+      new Response(JSON.stringify({ error: { message: "nope", param: "max_tokens" } }), { status: 400 })) as never as typeof fetch;
+    const ok = (async () => new Response("{}", { status: 200 })) as never as typeof fetch;
+    await minimalConnectionTest(profile, failing, AbortSignal.timeout(500), {}, undefined, home);
+    await minimalConnectionTest(profile, ok, AbortSignal.timeout(500), {}, undefined, home);
+    const file = readFileSync(join(home, "provider-test-failures.log"), "utf8");
+    expect(file.split("\n").filter(Boolean)).toHaveLength(1);
+    const entry = JSON.parse(file) as Record<string, unknown>;
+    expect(entry.endpoint).toBe("openai");
+    expect(entry.model).toBe("gpt-6-astra");
+    expect(entry.status).toBe(400);
+    expect(entry.param).toBe("max_tokens");
+    expect(file).not.toContain("sk-secret");
+    expect(Object.keys(entry)).not.toContain("apiKey");
+  });
+
+  test("the trace stays bounded: oldest entries are evicted beyond the cap", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-trace-"));
+    const failing = (async () => new Response("nope", { status: 401 })) as never as typeof fetch;
+    for (let i = 0; i < PROVIDER_TEST_MAX_ENTRIES + 5; i++) {
+      await minimalConnectionTest({ ...profile, defaultModel: `m${i}` }, failing, AbortSignal.timeout(500), {}, undefined, home);
+    }
+    const lines = readFileSync(join(home, "provider-test-failures.log"), "utf8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(PROVIDER_TEST_MAX_ENTRIES);
+    expect(JSON.parse(lines[0]!)!.model).toBe("m5");
+    expect(JSON.parse(lines.at(-1)!)!.model).toBe(`m${PROVIDER_TEST_MAX_ENTRIES + 4}`);
   });
 });
