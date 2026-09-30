@@ -1,5 +1,12 @@
 # Third-party notice — bundled skills
 
+This notice records the third-party material and MIT terms identified below;
+it does not license every file in this directory. Original moh code and
+original documentation are licensed under AGPL-3.0-or-later. The listed ports
+and adapted material remain under their upstream MIT terms. Release binaries
+embed these assets, so this notice and the MIT permission text below must be
+included with those binaries.
+
 The skills bundled in this directory (`grilling`, `domain-modeling`, `wayfinder`,
 and the remaining first-party workflow skills) are ported from Matt Pocock's
 skills repository. `ask-moh` is an original moh skill, but its router map is
@@ -75,10 +82,11 @@ from the upstream `implement` workflow.
   references the project glossary in moh's single-context layout
   (`CONTEXT.md`) first; `retro`'s "Call the Skill tool" phrasing adapted to
   moh's mechanism (read the SKILL.md from the skills index).
-- `gh-manager` is a moh-native skill (#378) porting the ideas of David
-  Lawson's gh-manager (https://github.com/ddlaws0n/gh-manager, MIT —
-  Copyright (c) 2026 David Lawson): the declarative init → plan → apply
-  repository-management flow, re-implemented in TypeScript in
+- `gh-manager` is a moh-native skill (#378), influenced by David Lawson's
+  gh-manager (https://github.com/ddlaws0n/gh-manager, MIT — Copyright (c) 2026
+  David Lawson): the declarative init → plan → apply repository-management
+  flow is independently re-implemented in TypeScript in
   `packages/core/src/github-settings.ts` (plan/diff semantics) with a
-  consent-gated skill on top. Same MIT permission notice as above applies
-  to the ported ideas.
+  consent-gated skill on top. No source code is bundled from gh-manager; its
+  MIT license is noted as attribution, not asserted to license the general
+  ideas.
