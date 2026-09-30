@@ -156,23 +156,23 @@ describe("onboarding overlay (issue #33)", () => {
     const home = tempHome();
     const i = render(<Onboarding cwd={cwd} home={home} env={{}} onDone={() => {}} />);
     await sleep(50);
-    i.stdin.write("\r"); // confirm detection → wizard opens (no env creds)
+    i.stdin.write("\r"); // provider type = anthropic (wizard opens, no env creds)
     await sleep(100);
-    i.stdin.write("\r"); // type = openai-compat
+    i.stdin.write("\r"); // auth = api-key
     await sleep(100);
-    i.stdin.write("\r"); // endpoint name (default)
-    await sleep(100);
-    i.stdin.write("\r"); // base URL (first known entry)
-    await sleep(100);
-    i.stdin.write("qwen3\r"); // model → connection test, fails (no key needed for local path)
-    await sleep(300);
+    i.stdin.write("qwen3"); await sleep(120);
+    i.stdin.write("\r"); // model
+    await sleep(250);
+    i.stdin.write("\r"); // empty api key
+    await sleep(250);
+    i.stdin.write("\r"); // submit the prefilled base URL → test fails fast
+    await sleep(1500);
     const { existsSync, readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const trace = join(home, ".moh", "provider-test-failures.log");
-    if (existsSync(trace)) {
-      const entry = JSON.parse(readFileSync(trace, "utf8")) as { endpoint: string };
-      expect(entry.endpoint).toBeTruthy();
-    }
+    expect(existsSync(trace)).toBe(true);
+    const entry = JSON.parse(readFileSync(trace, "utf8")) as { endpoint: string; message: string };
+    expect(entry.endpoint).toBe("anthropic");
     i.unmount();
   });
 

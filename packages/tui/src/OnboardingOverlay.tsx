@@ -84,9 +84,10 @@ const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint
 
 /** #1092: the real tester persists every failed attempt to the bounded,
  * secret-free dotdir trace, so a failure stays diagnosable after the
- * popup is gone (onboarding is pre-session by design). */
+ * popup is gone (onboarding is pre-session by design). The core seam
+ * takes the moh home itself (`~/.moh`). */
 const defaultTester = (home?: string): ConnectionTester =>
-  home ? (profile) => minimalConnectionTest(profile, fetch, AbortSignal.timeout(20_000), process.env, userConfigFile(home), home)
+  home ? (profile) => minimalConnectionTest(profile, fetch, AbortSignal.timeout(20_000), process.env, userConfigFile(home), join(home, ".moh"))
     : minimalConnectionTest;
 
 export function Onboarding({ cwd, home, env, tester = defaultTester(home), forceWizard, subscriptionLogin, openUrl, onDone }: OnboardingProps) {

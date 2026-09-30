@@ -128,7 +128,7 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
         // trace, so a failed `moh provider add` stays diagnosable.
         ...(opts.tester
           ? { tester: opts.tester }
-          : { tester: (profile) => minimalConnectionTest(profile, fetch, AbortSignal.timeout(20_000), process.env, authFile, opts.home) }),
+          : { tester: (profile) => minimalConnectionTest(profile, fetch, AbortSignal.timeout(20_000), process.env, authFile, opts.home ? join(opts.home, ".moh") : undefined) }),
       });
       return 0;
     } catch (err) {

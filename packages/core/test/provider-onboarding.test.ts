@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { minimalConnectionTest, PROVIDER_TEST_MAX_ENTRIES, PROBE_MAX_OUTPUT_TOKENS, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { minimalConnectionTest, PROVIDER_TEST_MAX_ENTRIES, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { PROBE_MAX_OUTPUT_TOKENS } from "../src/provider-onboarding";
 import {
   addProviderToFile,
   KNOWN_COMPAT_ENDPOINTS,

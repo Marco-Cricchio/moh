@@ -243,12 +243,10 @@ import {
   type ProviderTestFailure,
   type OnboardingIo,
   type ProviderAddOptions,
-  // #1092: the bounded, secret-free failure trail for connection tests —
-  // clients pass the user's moh home through `minimalConnectionTest`.
-  PROBE_MAX_OUTPUT_TOKENS,
-  joinBaseUrl,
 } from "./provider-onboarding";
 export {
+  // #1092: the bounded, secret-free failure trail for connection tests —
+  // clients pass the user's moh home through `minimalConnectionTest`.
   noteProviderTestFailure,
   providerTestFailuresFile,
   PROVIDER_TEST_FAILURES_FILE,
@@ -780,8 +778,6 @@ export {
   runProviderAdd,
   OnboardingAborted,
   BUILTIN_PROVIDER_TYPES,
-  PROBE_MAX_OUTPUT_TOKENS,
-  joinBaseUrl,
   KNOWN_COMPAT_ENDPOINTS,
   OPENCODE_AUTH_URL,
   OPENCODE_ENDPOINTS,
