@@ -514,7 +514,13 @@ export async function minimalConnectionTest(
         method: "POST",
         signal,
         headers: { "content-type": "application/json", ...auth },
-        body: JSON.stringify({ model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
+        // OpenAI's current models reject the legacy max_tokens field.
+        // Keep that field for other compatible backends, which may require it.
+        body: JSON.stringify({
+          model: modelId,
+          ...(profile.type === "openai" ? { max_completion_tokens: 1 } : { max_tokens: 1 }),
+          messages: [{ role: "user", content: "ping" }],
+        }),
       });
       return verdict(res, modelId);
     }
