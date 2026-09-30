@@ -8,7 +8,6 @@
  * don't travel through a tool call.
  */
 import { formatRule, splitCommandSegments, type PermissionAskContext } from "@moh/core";
-import { truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
@@ -136,7 +135,7 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
   } catch {
     rendered = String(args);
   }
-  rendered = truncate(sanitizeForDisplay(rendered), 200);
+  rendered = sanitizeForDisplay(rendered);
   return { tool, args, detail: rendered ? [rendered] : ["(no arguments)"], rulePreview: sanitizeForDisplay(formatRule({ tier: "runtime", tool, effect: "allow" })) };
 }
 

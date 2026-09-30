@@ -66,7 +66,7 @@ export function PermissionModal({
       ) : null}
       <Text> </Text>
       {view.detail.map((line, i) => (
-        <Text key={i} wrap="truncate-end">
+        <Text key={i} wrap="wrap">
           {`  ${line}`}
         </Text>
       ))}
