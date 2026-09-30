@@ -38,6 +38,7 @@ No API keys are required to develop or test: the mock and echo providers cover t
 - Domain vocabulary lives in a project-local `CONTEXT.md` (glossary-only, kept current) — scaffolded by `moh init`; this repo keeps its own copy out of version control.
 - Hard-to-reverse decisions get an ADR in `docs/adr/`.
 - Code comments and docs in English; keep them explaining *why*, not *what*.
+- Keep internal working artifacts out of version control. Use the ignored `research/`, `research-*/`, or `prototype/` directories for investigation notes and throwaway work; never force-add them. Publish durable findings in issues or maintained documentation instead.
 - Tests: targeted event-trace assertions, not snapshots. Use `MockProvider` (scripted turns / cassettes) and `EchoProvider` (context-engineering digest) — never real API calls in CI.
 - **User manual (light alignment)**: `docs/manual/` is a generated mirror of the bundled manual assets — never edit those files directly (`bun packages/core/scripts/gen-manual-docs.ts` regenerates them). A PR that changes a user-visible door (keybinding, slash command, CLI flag, config key, wizard/screen copy) updates the affected manual page in the same PR. CI warns — never blocks — when surfaces change without the manual.
 
