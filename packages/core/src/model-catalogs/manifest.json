@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.53.0",
-  "generatedAt": "2026-09-29T21:36:58.890Z",
+  "version": "0.53.1",
+  "generatedAt": "2026-09-30T08:50:00.326Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-29T21:36:58.329Z"
+      "fetchedAt": "2026-09-30T08:49:59.755Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-29T21:36:58.651Z"
+      "fetchedAt": "2026-09-30T08:50:00.151Z"
     }
   ],
   "files": {
@@ -176,7 +176,7 @@
       }
     },
     "opencode-go": {
-      "sha256": "1f74e5f18886a46114524178596eb0b80136dfdb0843c0c122034f56399202e6",
+      "sha256": "1d011bb88b4d2c41403693b3d9e793d1fdf4c4dc52de5e901d0019fa8e3941ed",
       "rows": 28,
       "verdicts": {
         "exact": 26,
@@ -196,7 +196,7 @@
       }
     },
     "openrouter": {
-      "sha256": "3e4489567e970dc21b0602753ca79ae154509d315aad9e4d23a73cb1ba998865",
+      "sha256": "88be8539893f22a3c350e2260ab42542ddde5135006c4a58d75b730df9f2f961",
       "rows": 361,
       "verdicts": {
         "exact": 337,
@@ -3860,7 +3860,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/deepseek/deepseek-v4-flash-0731:batch": {
       "provider": "openrouter",
@@ -8222,7 +8224,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/z-ai/glm-5.3-flash": {
       "provider": "openrouter",
@@ -8237,7 +8241,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/z-ai/glm-5.3-flash:batch": {
       "provider": "openrouter",
@@ -8343,7 +8349,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/~google/gemini-flash-latest": {
       "provider": "openrouter",
@@ -8446,7 +8454,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/~z-ai/glm-latest": {
       "provider": "openrouter",
@@ -8461,7 +8471,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "qwen/qwen-plus": {
       "provider": "qwen",
